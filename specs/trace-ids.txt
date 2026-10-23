@@ -2,3 +2,4 @@
 # One line per task; CI checks all of them.
 T-010: F-09
 T-011: F-03 F-22 F-24
+T-012: F-02
