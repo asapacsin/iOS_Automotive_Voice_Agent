@@ -118,6 +118,9 @@ public struct DriverTurnPipeline: Sendable {
         case .driverUtterance(let text):
             lastUtterance = text
             utteranceAsksAction = ClaimLexicon.asksForAction(text)
+            // A request for music or navigation makes the current state stale even if no tool is called.
+            if Self.musicRequest.contains(where: text.contains) { musicFresh = false }
+            if Self.navigationRequest.contains(where: text.contains) { navigationFresh = false }
             freshUtterance = Self.length(text) >= tuning.phantomMinTranscript
             nudgedThisUtterance = false
             reaskedThisUtterance = false
@@ -171,8 +174,10 @@ public struct DriverTurnPipeline: Sendable {
             navigation = phase
             return judge(at: now)
         case .musicPlaying(let playing):
+            // Only a transition into playing is fresh evidence. Contract for the media lane (F-13, T-032 /
+            // T-072): report `false` when a new request starts and `true` once that request is verified.
+            if playing && !musicPlaying { musicFresh = true }
             musicPlaying = playing
-            if playing { musicFresh = true }
             return judge(at: now)
         case .timerFired(let timer):
             guard timers[timer.kind] == timer.epoch else { return [] }

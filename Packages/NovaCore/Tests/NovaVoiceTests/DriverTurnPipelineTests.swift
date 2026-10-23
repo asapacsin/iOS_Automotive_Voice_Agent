@@ -665,6 +665,7 @@ struct DriverTurnPipelineReview6Tests {
         g.driver("播放周杰伦的晴天")
         let d = g.call("c1", "play_music")
         g.result(d, "play_music", .success())
+        g.send(.musicPlaying(false))
         g.send(.musicPlaying(true))
         g.say("正在为您播放晴天。")
         g.close()
@@ -684,6 +685,46 @@ struct DriverTurnPipelineReview6Tests {
         #expect(!h.spoken.contains("导航已开始"))
         h.advance(by: .seconds(2))
         #expect(h.corrections == [.navigationNotStarted])
+    }
+}
+
+@Suite("T-019 F-06 review 7 regressions")
+struct DriverTurnPipelineReview7Tests {
+    let pcm = PCMBuffer(sampleRate: 24_000, samples: [0])
+    func audioOut(_ h: PipelineHarness) -> Int { h.out.filter { if case .speechAudio = $0 { true } else { false } }.count }
+
+    @Test("F-06 row 1: a music or navigation claim with no tool call is not proven by old state")
+    func noToolOldState() {
+        var h = PipelineHarness()
+        h.send(.musicPlaying(true))
+        h.driver("放首稻香")
+        h.send(.replyAudio(h.turn, pcm))
+        h.say("好的，正在为您播放稻香。")
+        h.close()
+        #expect(audioOut(h) == 0 && h.spoken.isEmpty)
+        h.advance(by: .seconds(30))
+        #expect(h.corrections == [.musicNotConfirmed])
+
+        var n = PipelineHarness()
+        n.send(.navigationPhase(.navigating))
+        n.driver("导航去公司")
+        n.send(.replyAudio(n.turn, pcm))
+        n.say("好的，导航已开始。")
+        n.close()
+        #expect(audioOut(n) == 0 && n.spoken.isEmpty)
+    }
+
+    @Test("F-06 a repeated playing report of the old track is not fresh evidence")
+    func repeatedPlayingReport() {
+        var h = PipelineHarness()
+        h.send(.musicPlaying(true))
+        h.driver("播放周杰伦的晴天")
+        let c = h.call("c1", "play_music")
+        h.result(c, "play_music", .success())
+        h.send(.musicPlaying(true))
+        h.say("正在为您播放晴天。")
+        h.close()
+        #expect(h.spoken.isEmpty)
     }
 }
 }
