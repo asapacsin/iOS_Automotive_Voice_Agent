@@ -44,7 +44,7 @@ public enum ToolCatalog {
         return validate(call.name, args)
     }
 
-    // Port of each `*Domain.validate`. `args.opt(k) is String/Number` checks become JSONValue cases.
+    // Port of each `*Domain.validate`. Lengths are UTF-16 units, as Kotlin `String.length` counts. `args.opt(k) is String/Number` checks become JSONValue cases.
     static func validate(_ name: String, _ a: [String: JSONValue]) -> ToolErrorCode? {
         let keys = Set(a.keys)
         func str(_ k: String) -> String? { a[k]?.stringValue }
@@ -64,7 +64,7 @@ public enum ToolCatalog {
             if keys != ["destination"] { return .invalidFields }
             guard let d = str("destination") else { return .invalidFieldType }
             if trimmed(d).isEmpty { return .blankDestination }
-            if trimmed(d).count > 120 { return .destinationTooLong }
+            if trimmed(d).utf16.count > 120 { return .destinationTooLong }
         case "choose_navigation_option":
             if keys.count != 1 || !keys.isSubset(of: ["index", "preference", "name"]) { return .invalidFields }
             if keys.contains("index") {
@@ -78,7 +78,7 @@ public enum ToolCatalog {
             } else if keys.contains("preference") {
                 if !(str("preference").map(choicePreferences.contains) ?? false) { return .preferenceNotAllowed }
             } else {
-                guard let n = str("name"), !trimmed(n).isEmpty, n.count <= 40 else { return .invalidName }
+                guard let n = str("name"), !trimmed(n).isEmpty, n.utf16.count <= 40 else { return .invalidName }
             }
         case "exit_navigation_mode", "end_conversation":
             if !keys.isEmpty { return .invalidFields }
@@ -95,7 +95,7 @@ public enum ToolCatalog {
             let describing = ["title", "artist", "album_or_work", "query", "mood"]
             if keys.isEmpty || !keys.isSubset(of: fields) { return .invalidFields }
             if keys.contains(where: { !isString($0) }) { return .invalidFieldType }
-            if keys.contains(where: { str($0)!.count > 80 }) { return .invalidFieldValue }
+            if keys.contains(where: { str($0)!.utf16.count > 80 }) { return .invalidFieldValue }
             if !describing.contains(where: { !(str($0).map(trimmed) ?? "").isEmpty }) { return .missingValue }
         case "control_climate":
             if !keys.contains("action") || !keys.isSubset(of: ["action", "value"]) { return .invalidFields }
@@ -130,7 +130,7 @@ public enum ToolCatalog {
             if keys != ["question"] { return .invalidFields }
             guard let q = str("question") else { return .invalidFieldType }
             if trimmed(q).isEmpty { return .blankQuestion }
-            if q.count > 200 { return .questionTooLong }
+            if q.utf16.count > 200 { return .questionTooLong }
         case "place_call":
             return nil  // PhoneDomain: no rules beyond the schema; the handler checks its own arguments.
         case "query_live_info":
@@ -139,7 +139,7 @@ public enum ToolCatalog {
             }
             if keys.contains(where: { !isString($0) }) { return .invalidFieldType }
             if !liveInfoKinds.contains(str("kind")!) { return .invalidKind }
-            if keys.contains(where: { str($0)!.count > 20 }) { return .invalidArgument }
+            if keys.contains(where: { str($0)!.utf16.count > 20 }) { return .invalidArgument }
         case "set_speech_output":
             if keys != ["mode"] { return .invalidFields }
             guard let mode = str("mode") else { return .invalidFieldType }

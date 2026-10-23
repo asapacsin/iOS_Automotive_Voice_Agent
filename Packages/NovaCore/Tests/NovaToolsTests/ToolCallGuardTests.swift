@@ -300,6 +300,8 @@ struct DispatchTests {
             (call("navigate_to", ["destination": .string(String(repeating: "a", count: 4097))]), .argumentsTooLarge),
             (call("no_such_tool"), .unknownTool),
             (call("navigate_to", ["destination": "  "]), .blankDestination),
+            // Kotlin length is UTF-16: 61 astral characters are 122 units, over 120.
+            (call("navigate_to", ["destination": .string(String(repeating: "𠀀", count: 61))]), .destinationTooLong),
             (call("navigate_to", ["destination": 1]), .invalidFieldType),
             (call("choose_navigation_option", ["index": 11]), .invalidIndex),
             (call("choose_navigation_option", ["index": "2"]), nil),
