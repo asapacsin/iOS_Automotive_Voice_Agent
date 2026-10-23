@@ -64,5 +64,7 @@ public struct ToolResult: Sendable, Hashable {
 /// Session-level codes shown in banners, not sent as tool results.
 public enum SessionErrorCode: String, Sendable, Hashable {
     case geminiConsentMissing = "GEMINI_CONSENT_MISSING"
+    /// No Gemini key stored (name PROPOSED; Android shows the settings card instead).
+    case geminiKeyMissing = "GEMINI_KEY_MISSING"
     case audioCaptureFailed = "AUDIO_CAPTURE_FAILED"
 }
