@@ -3,6 +3,7 @@
 # Usage: scripts/gates/run_all.sh [ACCEPTANCE_ID ...]   (no IDs: every ID in specs/trace-ids.txt)
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+python3 -m unittest discover -s "$root/scripts/gates/tests"
 python3 "$root/scripts/gates/check_imports.py"
 python3 "$root/scripts/gates/check_secrets.py"
 for pkg in NovaCore NovaRealtime NovaServices; do

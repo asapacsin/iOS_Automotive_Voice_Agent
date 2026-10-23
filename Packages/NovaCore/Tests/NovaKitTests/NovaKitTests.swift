@@ -179,31 +179,10 @@ struct DiagnosticsTests {
         .sessionError(.audioCaptureFailed),
     ]
 
-    /// Exhaustive on purpose: a new `DiagnosticEvent` case fails to compile here until it has a sample.
-    static func caseName(_ event: DiagnosticEvent) -> String {
-        switch event {
-        case .sessionState: "sessionState"
-        case .listeningState: "listeningState"
-        case .navigationPhase: "navigationPhase"
-        case .reconnectAttempt: "reconnectAttempt"
-        case .providerEventsDropped: "providerEventsDropped"
-        case .setupTimeout: "setupTimeout"
-        case .toolRefused: "toolRefused"
-        case .toolFailed: "toolFailed"
-        case .lateToolResultDropped: "lateToolResultDropped"
-        case .navLateResultDropped: "navLateResultDropped"
-        case .staleAudioDropped: "staleAudioDropped"
-        case .bargeIn: "bargeIn"
-        case .claimHeld: "claimHeld"
-        case .correctionSent: "correctionSent"
-        case .emptyResponseReask: "emptyResponseReask"
-        case .timerFired: "timerFired"
-        case .sessionError: "sessionError"
-        }
+    /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").
+    static func caseLabel(_ event: DiagnosticEvent) -> String {
+        Mirror(reflecting: event).children.first?.label ?? String(describing: event)
     }
-
-    /// Raise this together with a new case in `caseName`.
-    static let caseCount = 17
 
     /// Walks every stored value, however deeply nested, and collects any text it finds.
     static func textValues(in value: Any) -> [Any] {
@@ -213,13 +192,20 @@ struct DiagnosticsTests {
 
     @Test("every DiagnosticEvent case has a sample")
     func samplesCoverEveryCase() {
-        #expect(Set(Self.samples.map(Self.caseName)).count == Self.caseCount)
+        #expect(Set(Self.samples.map(\.kind)) == Set(DiagnosticEvent.Kind.allCases))
+    }
+
+    @Test("each kind tag names its own case")
+    func kindMatchesCase() {
+        for event in Self.samples {
+            #expect(event.kind.rawValue == Self.caseLabel(event))
+        }
     }
 
     @Test("no diagnostic case carries a String payload, at any depth")
     func noStringPayloads() {
         for event in Self.samples {
-            #expect(Self.textValues(in: event).isEmpty, "\(Self.caseName(event)) carries text")
+            #expect(Self.textValues(in: event).isEmpty, "\(event.kind) carries text")
         }
     }
 
