@@ -31,7 +31,7 @@ PATTERNS = {
     # xcconfig, .env, YAML: unquoted value, optional xcconfig condition `[sdk=iphoneos*]`, trailing
     # `//` or `#` comment. `$(AMAP_API_KEY)` and `${{ secrets.X }}` references do not match.
     "unquoted secret assignment": re.compile(
-        rf"(?im)^\s*(?:export\s+|-\s+)?{IDENT}(?:\[[^\]\n]*\])*\s*[:=]\s*{VALUE}\s*(?:(?://|#).*)?$"),
+        rf"(?im)^\s*(?:export\s+|-\s+)?{IDENT}(?:\[[^\]\n]*\])*\s*[:=]\s*{VALUE}\s*;?\s*(?:(?://|#).*)?$"),
     "plist secret value": re.compile(
         rf"(?is)<key>[^<]*{NAME}[^<]*</key>\s*<string>{VALUE}</string>"),
     # .xcscheme environment variables: <EnvironmentVariable key = "GEMINI_API_KEY" value = "...">.
@@ -61,9 +61,11 @@ IDENTIFIER_VALUE = re.compile(r"[a-z]+(?:_[a-z]+)+|[A-Z]+(?:_[A-Z]+)+")
 
 
 def is_identifier_only(text: str) -> bool:
-    """`case amapWebKey = "amap_web_key"` names a key; it is not one. Real keys are not pure snake case."""
-    values = [v for v in re.findall(VALUE, text) if len(v) >= 16]
-    return bool(values) and all(IDENTIFIER_VALUE.fullmatch(v) for v in values[-1:])
+    """`case amapWebKey = "amap_web_key"` names a key; it is not one. Real keys are not pure snake case.
+    Only the assigned value is checked, never a trailing comment."""
+    sep = re.search(r"[:=]", text)
+    value = re.search(VALUE, text[sep.end():] if sep else text)
+    return bool(value) and bool(IDENTIFIER_VALUE.fullmatch(value.group(0)))
 
 
 def scanned(path: pathlib.Path, root: pathlib.Path) -> bool:

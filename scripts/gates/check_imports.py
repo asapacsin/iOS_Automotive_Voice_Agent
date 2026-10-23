@@ -23,8 +23,8 @@ OWNERS = {
     "CarPlay": {"App"},
 }
 # Symbols (not modules) with one owner package.
-# `session.webSocketTask(with:)` makes one without naming the type.
-SYMBOL_OWNERS = {r"\bURLSessionWebSocketTask\b": {"NovaRealtime"}, r"\bwebSocketTask\s*\(": {"NovaRealtime"}}
+# `session.webSocketTask(with:)` (or a reference to it) makes one without naming the type.
+SYMBOL_OWNERS = {r"\bURLSessionWebSocketTask\b": {"NovaRealtime"}, r"\.\s*`?webSocketTask\b": {"NovaRealtime"}}
 CORE_ALLOWED = {"Foundation", "Synchronization", "NovaKit", "NovaPorts", "NovaVoice", "NovaTools",
                 "NovaNav", "NovaAgent", "Testing", "XCTest"}
 
