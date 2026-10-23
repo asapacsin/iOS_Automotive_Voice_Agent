@@ -78,9 +78,22 @@ public protocol AudioSessionEvents: Sendable {
     var events: AsyncStream<AudioSessionEvent> { get }
 }
 
-/// Azure Speech REST: one clause to 24 kHz PCM.
+/// How 小诺 speaks (F-21, `A/SpeakingStyle.kt` wire names).
+public enum SpeakingStyle: String, Sendable, Hashable, CaseIterable {
+    case `default`, sweet, tsundere, gentle, lively
+}
+
+/// Why a clause was not synthesised. Codes only (I-8): `AZURE_TTS_AUTH`, `AZURE_TTS_TIMEOUT`, ...
+public struct SpeechSynthesisError: Error, Sendable, Hashable {
+    public let code: String
+    public init(_ code: String) { self.code = code }
+}
+
+/// Azure Speech REST: one clause to 24 kHz PCM. Throws `SpeechSynthesisError` or `CancellationError`.
 public protocol SpeechSynthesizer: Sendable {
-    func synthesize(_ text: String, voice: String, deadline: NovaDuration) async throws -> PCMBuffer
+    func synthesize(_ text: String, style: SpeakingStyle, deadline: NovaDuration) async throws -> PCMBuffer
+    /// One minimal request so the synthesis path is warm; at most once per 15 s. Never played.
+    func warmUp() async
 }
 
 /// Speaks a guidance sentence when the relay falls back (OQ-IOS-10).
