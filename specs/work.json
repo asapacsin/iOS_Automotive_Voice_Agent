@@ -1,0 +1,317 @@
+{
+ "schema_version": 1,
+ "work": [
+  {
+   "id": "H-hardware",
+   "owner": "HUMAN_PHYSICAL",
+   "status": "HUMAN_REQUIRED",
+   "priority": 5,
+   "action": "Provide a Mac with Xcode (Swift 6) and a physical iPhone",
+   "depends_on": [],
+   "automation_blocker": "physical_hardware",
+   "procedure": "Make a Mac with Xcode and an iPhone available to the project",
+   "pass_criteria": "Mac can run xcodebuild; iPhone registered for development",
+   "expected_return": "Mac/Xcode version, iPhone model + iOS version"
+  },
+  {
+   "id": "H-ios-min",
+   "owner": "HUMAN_DECISION",
+   "status": "HUMAN_REQUIRED",
+   "priority": 5,
+   "action": "Decide minimum iOS version (OQ-IOS-12)",
+   "depends_on": [],
+   "automation_blocker": "owner_decision",
+   "procedure": "Choose a deployment target",
+   "pass_criteria": "Decision recorded in specs/open-questions.md",
+   "expected_return": "Chosen iOS version",
+   "quantified": {
+    "options": [
+     "iOS 18 (proposed: Observation + Synchronization.Mutex)",
+     "iOS 26.4 (needed only for CarPlay voice-conversational)"
+    ]
+   }
+  },
+  {
+   "id": "H-keys",
+   "owner": "HUMAN_CREDENTIAL",
+   "status": "HUMAN_REQUIRED",
+   "priority": 5,
+   "action": "Provide Gemini key + consent, Azure Speech key + voice, Amap SDK + Web keys",
+   "depends_on": [],
+   "automation_blocker": "credentials",
+   "procedure": "Enter keys only on the device / local Keychain, never in the repo",
+   "pass_criteria": "Keys work in the spikes",
+   "expected_return": "Confirmation keys are available (not the keys)"
+  },
+  {
+   "id": "T-000",
+   "owner": "AUTONOMOUS",
+   "status": "RUNNING",
+   "priority": 10,
+   "action": "Linux-buildable scaffold: packages, AGENTS.md, gates, CI (specs/implementation-plan.md M0)",
+   "depends_on": []
+  },
+  {
+   "id": "T-000x",
+   "owner": "EXTERNAL_RESOURCE",
+   "status": "BLOCKED_EXTERNAL",
+   "priority": 11,
+   "action": "Xcode App project + xcodebuild and swiftlint gates",
+   "depends_on": [
+    "T-000",
+    "H-hardware",
+    "H-ios-min"
+   ],
+   "blocked_by": "macOS with Xcode (H-hardware)"
+  },
+  {
+   "id": "T-001",
+   "owner": "HUMAN_PHYSICAL",
+   "status": "HUMAN_REQUIRED",
+   "priority": 5,
+   "action": "Audio spike on iPhone: VP AEC, AGC configs, capture latency (OQ-IOS-3, OQ-IOS-14)",
+   "depends_on": [
+    "T-000x",
+    "H-hardware"
+   ],
+   "automation_blocker": "physical_device_audio",
+   "procedure": "Run Spikes/AudioSpike: 10 silent trials with loud 24 kHz playback; measure capture buffer latency",
+   "pass_criteria": "≥9/10 trials gate stays closed, numbers recorded",
+   "expected_return": "Clips + numbers appended to open-questions.md"
+  },
+  {
+   "id": "T-002",
+   "owner": "HUMAN_PHYSICAL",
+   "status": "HUMAN_REQUIRED",
+   "priority": 5,
+   "action": "Amap hello-route spike (OQ-IOS-2 remainder)",
+   "depends_on": [
+    "T-000x",
+    "H-keys"
+   ],
+   "automation_blocker": "physical_device_and_credentials",
+   "procedure": "Run Spikes/AmapSpike with keys from Keychain; multi-route, route select, emulator navi",
+   "pass_criteria": "Route select call name and callback threads recorded",
+   "expected_return": "Notes appended to open-questions.md"
+  },
+  {
+   "id": "T-003",
+   "owner": "HUMAN_CREDENTIAL",
+   "status": "HUMAN_REQUIRED",
+   "priority": 5,
+   "action": "Record sanitised Gemini Live fixtures",
+   "depends_on": [
+    "T-000",
+    "H-keys"
+   ],
+   "automation_blocker": "credentials_and_live_service",
+   "procedure": "Run Spikes/GeminiRecorder against the live API",
+   "pass_criteria": "≥6 jsonl fixtures: plain, tool, interrupted, goAway, resumption, 1007 close; no keys/PII",
+   "expected_return": "Fixtures committed under Packages/NovaRealtime/Tests/fixtures/gemini/"
+  },
+  {
+   "id": "G0",
+   "owner": "HUMAN_DECISION",
+   "status": "HUMAN_REQUIRED",
+   "priority": 5,
+   "action": "Go/no-go: Apple voice processing vs port WebRTC AEC3",
+   "depends_on": [
+    "T-001"
+   ],
+   "automation_blocker": "owner_decision",
+   "procedure": "Review T-001 results",
+   "pass_criteria": "Decision written in specs/STATUS.md",
+   "expected_return": "GO or AEC3",
+   "quantified": {
+    "threshold": "≥9/10 silent trials without the gate opening"
+   }
+  },
+  {
+   "id": "T-010",
+   "owner": "AUTONOMOUS",
+   "status": "RUNNING",
+   "priority": 20,
+   "action": "NovaKit primitives",
+   "depends_on": [
+    "T-000"
+   ]
+  },
+  {
+   "id": "T-011",
+   "owner": "AUTONOMOUS",
+   "status": "RUNNING",
+   "priority": 21,
+   "action": "NovaPorts protocols + RealtimeEvent contract",
+   "depends_on": [
+    "T-010"
+   ]
+  },
+  {
+   "id": "T-012",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 30,
+   "action": "F-02 listening lifecycle + local intents (pure, ManualClock)",
+   "depends_on": [
+    "T-011"
+   ]
+  },
+  {
+   "id": "T-013",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 31,
+   "action": "F-03 mic gain + 10 ms framer, F-04 uplink gate (needs Android PCM corpus via EVIDENCE_REQUEST for full parity)",
+   "depends_on": [
+    "T-011"
+   ]
+  },
+  {
+   "id": "T-014",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 32,
+   "action": "F-05 VoiceSession state machine + F-24 ReconnectPolicy",
+   "depends_on": [
+    "T-011"
+   ]
+  },
+  {
+   "id": "T-019",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 33,
+   "action": "F-06 reply pipeline: claim gate, ActionClaimGuard, correction grace, empty re-ask, phantom gate",
+   "depends_on": [
+    "T-011"
+   ]
+  },
+  {
+   "id": "T-017",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 34,
+   "action": "F-09 tool catalog, validation, guards, dispatcher (Android tables via EVIDENCE_REQUEST)",
+   "depends_on": [
+    "T-011"
+   ]
+  },
+  {
+   "id": "T-018",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 35,
+   "action": "F-11 vehicle handlers + SimulatedVehicle",
+   "depends_on": [
+    "T-017"
+   ]
+  },
+  {
+   "id": "T-020",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 36,
+   "action": "F-07 clause segmenter, wait cues, revoicer queue; Azure REST client",
+   "depends_on": [
+    "T-011"
+   ]
+  },
+  {
+   "id": "T-024",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 37,
+   "action": "F-22 stores, CredentialWipe, SettingsReadiness (logic only on Linux)",
+   "depends_on": [
+    "T-011"
+   ]
+  },
+  {
+   "id": "T-015",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 38,
+   "action": "Gemini codec, turn assembler, error classifier (contract replay)",
+   "depends_on": [
+    "T-011",
+    "T-003"
+   ]
+  },
+  {
+   "id": "T-016",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 39,
+   "action": "Gemini transport + provider; fake WebSocket server",
+   "depends_on": [
+    "T-015"
+   ]
+  },
+  {
+   "id": "T-022",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 40,
+   "action": "F-08 minimal arbiter",
+   "depends_on": [
+    "T-019",
+    "T-020"
+   ]
+  },
+  {
+   "id": "T-023",
+   "owner": "AUTONOMOUS",
+   "status": "NOT_RUN",
+   "priority": 41,
+   "action": "AgentCore, EffectRunner, ToolRunner; W1-W3 integration with fakes",
+   "depends_on": [
+    "T-012",
+    "T-013",
+    "T-014",
+    "T-016",
+    "T-018",
+    "T-022"
+   ]
+  },
+  {
+   "id": "T-021",
+   "owner": "EXTERNAL_RESOURCE",
+   "status": "BLOCKED_EXTERNAL",
+   "priority": 42,
+   "action": "NovaAudio engine, capture, reply lane",
+   "depends_on": [
+    "T-011",
+    "G0",
+    "T-000x"
+   ],
+   "blocked_by": "needs Xcode + device (T-000x, G0)"
+  },
+  {
+   "id": "T-025",
+   "owner": "EXTERNAL_RESOURCE",
+   "status": "BLOCKED_EXTERNAL",
+   "priority": 43,
+   "action": "App vertical slice",
+   "depends_on": [
+    "T-021",
+    "T-023",
+    "T-024"
+   ],
+   "blocked_by": "needs Xcode (T-000x)"
+  },
+  {
+   "id": "T-026",
+   "owner": "HUMAN_PHYSICAL",
+   "status": "HUMAN_REQUIRED",
+   "priority": 5,
+   "action": "M1 device acceptance W1-W4 + V-LAT",
+   "depends_on": [
+    "T-025"
+   ],
+   "automation_blocker": "physical_device_audio",
+   "procedure": "Run W1-W4 on device; 20 turns latency",
+   "pass_criteria": "W1-W4 PASS; latency recorded",
+   "expected_return": "Device log + video, numbers in STATUS.md"
+  }
+ ]
+}

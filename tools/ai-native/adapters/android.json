@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "task_id": "android-voice-change",
+  "goal": "Verify a scoped Android automotive voice-agent change with contract, tests, evidence and independent review",
+  "acceptance": "Relevant Gradle tests/build and repository harness validation pass; audio/navigation/lifecycle device evidence is required for any claim of verified E2E",
+  "boundaries": ["Preserve single active realtime voice provider", "Never resurrect deprecated fallback paths", "Compile and JVM tests cannot substitute for emulator, device, or live service tests"],
+  "budgets": {"max_attempts": 3, "max_total_seconds": 2400},
+  "gates": [
+    {"id": "gradle-unit", "level": "unit", "command": ["bash", "-lc", "./gradlew test :app:assembleDebug"], "timeout_seconds": 1800},
+    {"id": "harness-check", "level": "static", "command": ["python3", "scripts/harness_check.py"], "timeout_seconds": 120},
+    {"id": "test-matrix", "level": "static", "command": ["python3", "scripts/test_matrix.py", "--gate"], "timeout_seconds": 120, "required": false}
+  ]
+}

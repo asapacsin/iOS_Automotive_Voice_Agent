@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "task_id": "ios-core-change",
+  "goal": "Verify a scoped NovaDriveIOS change with contract, gates, evidence and independent review",
+  "acceptance": "scripts/gates/run_all.sh passes (imports, secrets, swift build with warnings as errors, swift test) and every acceptance ID in the task packet is named by a test; audio, map and lifecycle claims need device evidence",
+  "boundaries": ["NovaCore imports only Foundation and Synchronization", "Each vendor SDK only in its adapter package", "Invariants I-1..I-14 are code-enforced", "Linux swift test is not iOS simulator or device proof"],
+  "approved_paths": ["Packages/**", "App/**", "UITests/**", "scripts/gates/**", "specs/STATUS.md", "specs/work.json", "specs/contracts-ai/**"],
+  "forbidden_paths": ["tools/ai-native/**", ".claude/**", ".github/**"],
+  "model_policy": {"executor_default": "session model, routine effort", "independent_reviewer": "separate read-only agent at high effort", "escalate_on": ["architecture conflict", "two failed fixes", "invariant conflict"]},
+  "budgets": {"max_attempts": 3, "max_total_seconds": 2400},
+  "gates": [
+    {"id": "core-gates", "level": "unit", "command": ["bash", "-lc", "PATH=/opt/swift/usr/bin:$PATH scripts/gates/run_all.sh"], "timeout_seconds": 1200, "required": true}
+  ]
+}

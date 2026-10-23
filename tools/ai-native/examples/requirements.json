@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "requirements": [
+    {
+      "id": "controller-unit-tests",
+      "min_level": "unit",
+      "gate_ids": ["unit-tests"],
+      "terminal_required": false
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "work": [
+    {
+      "id": "review-user-requirements",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 10,
+      "action": "Compare feature contract with independent acceptance requirements",
+      "depends_on": []
+    },
+    {
+      "id": "run-evidence-gates",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "Run all required gates and record commit-bound artifacts",
+      "depends_on": ["review-user-requirements"]
+    },
+    {
+      "id": "human-validation",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "action": "Inspect physical-device experience only after automated work",
+      "depends_on": ["run-evidence-gates"],
+      "automation_blocker": "subjective_perception",
+      "procedure": "Test agreed scenarios and record a short observation",
+      "pass_criteria": "All listed scenarios accepted on tested device",
+      "expected_return": "Device/build identifier, dated notes, and PASS/FAIL"
+    }
+  ]
+}

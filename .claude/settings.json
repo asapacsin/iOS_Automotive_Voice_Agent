@@ -1,0 +1,23 @@
+{
+  "env": {
+    "AI_NATIVE_CONTINUE_ENABLED": "1",
+    "AI_NATIVE_WORK_REGISTRY": "specs/work.json"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/tools/ai-native/scripts/pre_tool_guard.py", "timeout": 10}
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/tools/ai-native/.claude/hooks/ai-native-stop.py", "timeout": 390}
+        ]
+      }
+    ]
+  }
+}

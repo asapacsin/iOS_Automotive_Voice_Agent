@@ -1,0 +1,16 @@
+name: ai-native
+on:
+  push:
+  pull_request:
+jobs:
+  controller:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Controller tests (copied toolkit)
+        working-directory: tools/ai-native
+        run: python3 -m unittest discover -s tests -v
+      - name: Validate iOS work registry and contract
+        run: |
+          python3 tools/ai-native/scripts/frontier.py check --registry specs/work.json
+          python3 tools/ai-native/scripts/ai_native.py validate --contract tools/ai-native/adapters/ios.json

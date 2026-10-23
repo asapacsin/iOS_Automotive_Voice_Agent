@@ -1,0 +1,9 @@
+.ai-native/
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+*.log
+
+.frontier-state.json

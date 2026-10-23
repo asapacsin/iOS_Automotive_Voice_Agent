@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "task_id": "example-unit-check",
+  "goal": "Validate the AI-native controller with standard-library tests",
+  "acceptance": "All relevant controller tests pass and an independent reviewer inspects the actual source diff and evidence",
+  "boundaries": ["Do not confuse a test result with an independent review", "Do not leak secrets"],
+  "model_policy": {"executor_default": "low-cost-capable (e.g., Luna Medium)", "independent_reviewer": "stronger (e.g., Astra High)", "escalate_on": ["architecture conflict", "two failed fixes", "uncertain root cause"]},
+  "budgets": {"max_attempts": 3, "max_total_seconds": 900},
+  "gates": [
+    {"id": "unit-tests", "level": "unit", "command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"], "timeout_seconds": 120, "required": true}
+  ]
+}
