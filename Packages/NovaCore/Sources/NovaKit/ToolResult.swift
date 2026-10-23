@@ -10,11 +10,12 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     /// M1 stub for tools without an iOS executor yet (name PROPOSED, ios-architecture §8).
     case notAvailableOnIOSYet = "NOT_AVAILABLE_ON_IOS_YET"
 
-    // F-11 vehicle fault injection
-    case unsupported = "UNSUPPORTED"
-    case unavailable = "UNAVAILABLE"
-    case permissionDenied = "PERMISSION_DENIED"
-    case executionFailure = "EXECUTION_FAILURE"
+    // F-11 vehicle results (`A/vehicle/*ToolHandler.kt`)
+    case vehicleUnsupported = "VEHICLE_UNSUPPORTED"
+    case vehicleUnavailable = "VEHICLE_UNAVAILABLE"
+    case vehiclePermissionDenied = "VEHICLE_PERMISSION_DENIED"
+    case vehicleExecutionFailed = "VEHICLE_EXECUTION_FAILED"
+    case missingAction = "MISSING_ACTION"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

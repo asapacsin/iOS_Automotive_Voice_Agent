@@ -172,7 +172,7 @@ struct DiagnosticsTests {
     static let samples: [DiagnosticEvent] = [
         .sessionState(.listening), .listeningState(.sleep), .navigationPhase(.navigating),
         .reconnectAttempt(attempt: 1, delay: .milliseconds(200)), .providerEventsDropped(count: 1),
-        .setupTimeout, .toolRefused(code: .ambiguousReferent), .toolFailed(code: .executionFailure),
+        .setupTimeout, .toolRefused(code: .ambiguousReferent), .toolFailed(code: .vehicleExecutionFailed),
         .lateToolResultDropped(turn: .initial), .navLateResultDropped(stale: .initial, current: .initial.next()),
         .staleAudioDropped(stale: .initial, current: .initial.next()), .bargeIn(qualified: true),
         .claimHeld(events: 3), .correctionSent, .emptyResponseReask, .timerFired(stale: false),

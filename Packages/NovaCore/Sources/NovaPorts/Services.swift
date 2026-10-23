@@ -1,50 +1,89 @@
 import NovaKit
 
-// MARK: Vehicle (simulated, F-11)
+// MARK: Vehicle (simulated, F-11) — mirrors `vehicle/VehicleControlPort.kt`
 
-public enum SeatPosition: String, Sendable, Hashable { case driver, passenger }
-public enum WindowPosition: String, Sendable, Hashable, CaseIterable { case frontLeft, frontRight, rearLeft, rearRight }
+public enum SeatID: String, Sendable, Hashable, CaseIterable { case driver, passenger }
+/// Declaration order is Android's `WindowId.entries` order (announcements list windows in it).
+public enum WindowID: String, Sendable, Hashable, CaseIterable {
+    case frontLeft = "front_left", frontRight = "front_right", rearLeft = "rear_left", rearRight = "rear_right"
+}
 
 public struct ClimateState: Sendable, Hashable {
     public var powerOn: Bool
-    public var temperatureCelsius: Int
+    public var targetTemperatureCelsius: Double
     public var fanLevel: Int
 
-    public init(powerOn: Bool, temperatureCelsius: Int, fanLevel: Int) {
+    public init(powerOn: Bool, targetTemperatureCelsius: Double, fanLevel: Int) {
         self.powerOn = powerOn
-        self.temperatureCelsius = temperatureCelsius
+        self.targetTemperatureCelsius = targetTemperatureCelsius
         self.fanLevel = fanLevel
     }
+
+    /// `ClimateState.DEFAULT`.
+    public static let `default` = ClimateState(powerOn: false, targetTemperatureCelsius: 24, fanLevel: 2)
 }
 
-public struct VehicleState: Sendable, Hashable {
-    public var climate: ClimateState
-    public var seatHeight: [SeatPosition: Int]
+public struct CabinState: Sendable, Hashable {
     /// Percent open, 0...100.
-    public var windowOpen: [WindowPosition: Int]
+    public var windows: [WindowID: Int]
+    /// Level 0...10.
+    public var seatHeights: [SeatID: Int]
 
-    public init(climate: ClimateState, seatHeight: [SeatPosition: Int], windowOpen: [WindowPosition: Int]) {
-        self.climate = climate
-        self.seatHeight = seatHeight
-        self.windowOpen = windowOpen
+    public init(windows: [WindowID: Int], seatHeights: [SeatID: Int]) {
+        self.windows = windows
+        self.seatHeights = seatHeights
     }
+
+    /// `CabinState.DEFAULT`: windows closed, seats at 5.
+    public static let `default` = CabinState(
+        windows: Dictionary(uniqueKeysWithValues: WindowID.allCases.map { ($0, CabinLimits.windowMin) }),
+        seatHeights: Dictionary(uniqueKeysWithValues: SeatID.allCases.map { ($0, CabinLimits.seatDefault) }))
 }
 
-/// Vehicle backend; only the simulator exists (`BACKEND_LABEL=simulated`). Handlers in NovaTools turn
-/// tool arguments into these calls; failures surface as `ToolErrorCode`s.
-public protocol VehicleControl: Sendable {
+public enum ClimateLimits {
+    public static let minTemperatureC = 16.0
+    public static let maxTemperatureC = 32.0
+    public static let minFanLevel = 0
+    public static let maxFanLevel = 7
+    public static let defaultTemperatureStepC = 1.0
+    public static let defaultFanStep = 1
+}
+
+public enum CabinLimits {
+    public static let windowMin = 0
+    public static let windowMax = 100
+    public static let defaultWindowStep = 20
+    public static let seatMin = 0
+    public static let seatMax = 10
+    public static let seatDefault = 5
+    public static let defaultSeatStep = 1
+}
+
+/// Backend-neutral outcome (`VehicleActionResult`). Reasons go to the model as `detail`, never to logs.
+public enum VehicleActionResult<State: Sendable & Hashable>: Sendable, Hashable {
+    case success(State, limitReached: Bool)
+    case invalidArgument(String)
+    case unsupported(String)
+    case unavailable(String)
+    case permissionDenied(String)
+    case failure(String)
+}
+
+/// Vehicle backend; only the simulator exists (`BACKEND_LABEL=simulated`). Relative calls use the
+/// backend's current state; the model never supplies the previous value.
+public protocol VehicleControlPort: Sendable {
     var backendLabel: String { get }
-    func state() async -> VehicleState
-    func setClimatePower(_ on: Bool) async -> Result<ClimateState, VehicleFault>
-    func setTemperature(_ celsius: Int) async -> Result<ClimateState, VehicleFault>
-    func setFan(_ level: Int) async -> Result<ClimateState, VehicleFault>
-    func setSeatHeight(_ seat: SeatPosition, level: Int) async -> Result<Int, VehicleFault>
-    func setWindow(_ window: WindowPosition, percentOpen: Int) async -> Result<Int, VehicleFault>
-}
-
-public struct VehicleFault: Error, Sendable, Hashable {
-    public let code: ToolErrorCode
-    public init(_ code: ToolErrorCode) { self.code = code }
+    func setHvacPower(_ on: Bool) async -> VehicleActionResult<ClimateState>
+    func setCabinTemperature(_ celsius: Double) async -> VehicleActionResult<ClimateState>
+    func changeCabinTemperature(_ deltaCelsius: Double) async -> VehicleActionResult<ClimateState>
+    func setFanLevel(_ level: Int) async -> VehicleActionResult<ClimateState>
+    func changeFanLevel(_ delta: Int) async -> VehicleActionResult<ClimateState>
+    func climateState() async -> ClimateState
+    func setWindows(_ windows: Set<WindowID>, openPercent: Int) async -> VehicleActionResult<CabinState>
+    func changeWindows(_ windows: Set<WindowID>, deltaPercent: Int) async -> VehicleActionResult<CabinState>
+    func setSeatHeight(_ seat: SeatID, level: Int) async -> VehicleActionResult<CabinState>
+    func changeSeatHeight(_ seat: SeatID, delta: Int) async -> VehicleActionResult<CabinState>
+    func cabinState() async -> CabinState
 }
 
 // MARK: Music (F-13)
