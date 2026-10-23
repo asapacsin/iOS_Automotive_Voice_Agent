@@ -10,6 +10,7 @@ branch `claude/10-22` (commit after `bf81876`).
 |---|---|
 | What the product does, in one page | [product-spec.md](product-spec.md) |
 | Components, data flow, state machines | [architecture.md](architecture.md) |
+| Target iOS architecture: packages, ports, concurrency, audio graph | [ios-architecture.md](ios-architecture.md) |
 | Every feature and its status | [feature-inventory.md](feature-inventory.md) |
 | What iOS can and cannot do | [ios-feasibility.md](ios-feasibility.md) |
 | Feature-by-feature parity, tests, priority | [parity-matrix.md](parity-matrix.md) |
