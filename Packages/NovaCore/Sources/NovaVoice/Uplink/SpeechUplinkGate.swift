@@ -104,6 +104,8 @@ public struct SpeechUplinkGate: Sendable {
     /// Arbiter hold while guidance speaks. Closing an open segment ends the turn as if the driver stopped.
     public mutating func setForcedClosed(_ closed: Bool) -> [UplinkGateOutput] {
         forcedClosed = closed
+        // Like `onCaptureInterrupted`: frames from the hold must not qualify a barge-in afterwards.
+        if !closed { recent.removeAll(keepingCapacity: true) }
         guard closed, phase == .open else { return [] }
         return close()
     }

@@ -11,7 +11,7 @@ struct SpeechArbiterTests {
         _ = a.handle(.replyPlaying(true))
         let e = a.epoch.next()
         let effects = a.handle(.speechStarted(recentSpeech: true))
-        #expect(Array(effects.prefix(3)) == [.flushPlayback(e), .cancelRevoicing(e), .bargeIn(qualified: true)])
+        #expect(effects == [.flushPlayback(e), .cancelRevoicing(e), .bargeIn(qualified: true)])
         #expect(a.epoch == e && !a.replyPlaying)
     }
 
@@ -39,7 +39,7 @@ struct SpeechArbiterTests {
         var a = SpeechArbiter()
         _ = a.handle(.replyPlaying(true))
         let before = a.epoch
-        #expect(a.handle(.speechStarted(recentSpeech: false)) == [.bargeIn(qualified: false), .diagnostic(.bargeIn(qualified: false))])
+        #expect(a.handle(.speechStarted(recentSpeech: false)) == [.bargeIn(qualified: false)])
         #expect(a.epoch == before && a.replyPlaying)
         var idle = SpeechArbiter()
         #expect(idle.handle(.speechStarted(recentSpeech: true)).isEmpty)
@@ -54,7 +54,7 @@ struct SpeechArbiterTests {
         #expect(a.reply == .play)
     }
 
-    @Test("F-08 R4/R5: an interruption holds, a lost route drops and flushes")
+    @Test("F-08 R5: an interruption or a lost route holds; R4: reset media services drops and flushes")
     func focus() {
         var a = SpeechArbiter()
         _ = a.handle(.audioSession(.interruptionBegan))
@@ -62,8 +62,13 @@ struct SpeechArbiterTests {
         _ = a.handle(.audioSession(.interruptionEnded(shouldResume: true)))
         #expect(a.reply == .play)
         _ = a.handle(.replyPlaying(true))
-        let effects = a.handle(.audioSession(.routeLost))
+        #expect(a.handle(.audioSession(.routeLost)).isEmpty && a.reply == .hold)
+        a.regainFocus()
+        let effects = a.handle(.audioSession(.mediaServicesReset))
         #expect(a.reply == .drop && effects.first == .flushPlayback(a.epoch))
+        var b = SpeechArbiter()
+        _ = b.handle(.audioSession(.interruptionEnded(shouldResume: false)))
+        #expect(b.reply == .drop)
         a.regainFocus()
         #expect(a.reply == .play)
     }

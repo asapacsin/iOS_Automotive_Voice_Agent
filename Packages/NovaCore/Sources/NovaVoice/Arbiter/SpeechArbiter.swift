@@ -4,8 +4,9 @@ import NovaPorts
 /// Reply decision (contracts/voice-agent.md §5, `A/voice/SpeechArbiter.kt`).
 public enum ReplyDecision: String, Sendable, Hashable { case play, hold, drop }
 
-/// Audio focus as iOS reports it (ios-architecture §6.6): an interruption that may resume is a
-/// transient loss (R5); a lost route or reset media services is permanent (R4).
+/// Audio focus as iOS reports it (ios-architecture §6.6): an interruption or a lost route
+/// (`oldDeviceUnavailable`) is a transient loss (R5, hold and re-evaluate); reset media services or an
+/// interruption that may not resume is permanent (R4).
 public enum AudioFocus: Sendable, Hashable { case held, transientLoss, permanentLoss }
 
 public enum ArbiterInput: Sendable, Hashable {
@@ -22,7 +23,6 @@ public enum ArbiterEffect: Sendable, Hashable {
     case cancelRevoicing(Epoch)
     /// Tell the session (VoiceSession `.bargeIn`). Gemini has no client cancel; its server sends `interrupted`.
     case bargeIn(qualified: Bool)
-    case diagnostic(DiagnosticEvent)
 }
 
 /// Minimal arbiter for M1 (F-08, T-022): barge-in qualification, flush-then-notify order, R4/R5 and
@@ -48,12 +48,12 @@ public struct SpeechArbiter: Sendable {
         case .speechStarted(let recentSpeech):
             guard replyPlaying else { return [] }
             // `playoutBargeInQualified(recentSpeech)`: only time-scoped evidence that somebody speaks now.
-            guard recentSpeech else { return [.bargeIn(qualified: false), .diagnostic(.bargeIn(qualified: false))] }
+            // The diagnostic is the session's (VoiceSession logs `.bargeIn`), so it is not emitted here.
+            guard recentSpeech else { return [.bargeIn(qualified: false)] }
             epoch = epoch.next()
             replyPlaying = false
             // Contract ordering rule 3: flush playback first, then notify.
-            return [.flushPlayback(epoch), .cancelRevoicing(epoch), .bargeIn(qualified: true),
-                    .diagnostic(.bargeIn(qualified: true))]
+            return [.flushPlayback(epoch), .cancelRevoicing(epoch), .bargeIn(qualified: true)]
         case .replyPlaying(let playing):
             replyPlaying = playing
             return []
@@ -64,7 +64,8 @@ public struct SpeechArbiter: Sendable {
             switch event {
             case .interruptionBegan: focus = .transientLoss
             case .interruptionEnded(let shouldResume): focus = shouldResume ? .held : .permanentLoss
-            case .routeLost, .mediaServicesReset: focus = .permanentLoss
+            case .routeLost: focus = .transientLoss
+            case .mediaServicesReset: focus = .permanentLoss
             }
             // A lost focus stops the reply in progress; the reply decision covers what comes next.
             guard focus == .permanentLoss, replyPlaying else { return [] }
