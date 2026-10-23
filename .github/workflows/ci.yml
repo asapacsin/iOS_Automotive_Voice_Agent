@@ -1,0 +1,17 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  core-linux:
+    runs-on: ubuntu-24.04
+    container: swift:6.0.3-noble
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update && apt-get install -y python3
+      - run: scripts/gates/run_all.sh
+  core-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/gates/run_all.sh
