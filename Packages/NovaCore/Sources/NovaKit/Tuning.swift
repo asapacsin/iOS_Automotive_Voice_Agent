@@ -46,7 +46,19 @@ public struct ReconnectTuning: Sendable, Hashable {
     public var maxAttempts = 5
     public var initialDelay = NovaDuration.milliseconds(200)
     public var maxDelay = NovaDuration.seconds(8)
+    /// Delay doubles after each failed attempt, capped at `maxDelay`.
+    public var multiplier: Int64 = 2
     public init() {}
+
+    /// Delay before `attempt` (1-based): 200, 400, 800 ms ... capped at 8 s.
+    public func delay(beforeAttempt attempt: Int) -> NovaDuration {
+        var delay = initialDelay
+        for _ in 1..<max(attempt, 1) {
+            delay = delay * multiplier
+            if delay >= maxDelay { return maxDelay }
+        }
+        return delay
+    }
 }
 
 /// contracts/api-contracts.md (Gemini).
@@ -77,6 +89,13 @@ public struct WaitCueTuning: Sendable, Hashable {
     public var spokenCue = NovaDuration.seconds(7)
     public var delayLine = NovaDuration.seconds(12)
     public var lostTurnWindow = NovaDuration.seconds(60)
+    public init() {}
+}
+
+/// contracts/audio.md (`LowLatencyPlaybackBuffer`).
+public struct PlaybackBufferTuning: Sendable, Hashable {
+    public var maxIncreases = 5
+    public var shrinkAfterTicks = 10
     public init() {}
 }
 
@@ -137,6 +156,8 @@ public struct AmapWebTuning: Sendable, Hashable {
     public var corridorHalfWidthMeters = 500
     public var corridorSimplifyMeters = 50
     public var corridorMaxVertices = 64
+    /// `offset` (results per page) on `/v3/place/polygon`.
+    public var corridorPageSize = 25
     public var liveInfoTimeout = NovaDuration.milliseconds(4000)
     public var weatherTTL = NovaDuration.minutes(10)
     public var adcodeTTL = NovaDuration.minutes(30)

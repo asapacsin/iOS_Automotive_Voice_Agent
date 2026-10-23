@@ -180,9 +180,22 @@ public protocol RealtimeProvider: Sendable {
     func close() async
 }
 
-public enum RealtimeCredential: Sendable, Hashable {
+/// Never printed: `description`, `debugDescription` and reflection all redact the secret (I-7).
+public enum RealtimeCredential: Sendable, Hashable, CustomStringConvertible, CustomDebugStringConvertible,
+    CustomReflectable {
     case apiKey(String)
     case ephemeralToken(String)
+
+    public var description: String {
+        switch self {
+        case .apiKey: "RealtimeCredential.apiKey(<redacted>)"
+        case .ephemeralToken: "RealtimeCredential.ephemeralToken(<redacted>)"
+        }
+    }
+
+    public var debugDescription: String { description }
+
+    public var customMirror: Mirror { Mirror(self, children: [], displayStyle: .enum) }
 }
 
 /// API key from the Keychain now; ephemeral token from an owner backend later (OQ-IOS-15).

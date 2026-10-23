@@ -182,3 +182,24 @@ public protocol WeatherService: Sendable {
 public protocol ReverseGeocoder: Sendable {
     func adcode(at coordinate: GeoCoordinate) async throws -> String?
 }
+
+public struct StaticMapRequest: Sendable, Hashable {
+    public let center: GeoCoordinate
+    public let zoom: Int
+    public let widthPixels: Int
+    public let heightPixels: Int
+    public let markers: [GeoCoordinate]
+
+    public init(center: GeoCoordinate, zoom: Int, widthPixels: Int, heightPixels: Int, markers: [GeoCoordinate]) {
+        self.center = center
+        self.zoom = zoom
+        self.widthPixels = widthPixels
+        self.heightPixels = heightPixels
+        self.markers = markers
+    }
+}
+
+/// Amap Web `/v3/staticmap`; returns PNG bytes.
+public protocol StaticMapService: Sendable {
+    func image(_ request: StaticMapRequest) async throws -> [UInt8]
+}

@@ -38,4 +38,23 @@ struct PortsTests {
         #expect(config.activityDetection.startSensitivity == .low && config.activityDetection.endSensitivity == .high)
         #expect(SessionConfig.maxInstructionCharacters == 4000)
     }
+
+    @Test("F-22 credentials never print their secret")
+    func credentialRedaction() {
+        let planted = "test-only-planted-value"
+        for credential in [RealtimeCredential.apiKey(planted), .ephemeralToken(planted)] {
+            var dumped = ""
+            dump(credential, to: &dumped)
+            for text in ["\(credential)", String(describing: credential), String(reflecting: credential), dumped] {
+                #expect(!text.contains(planted))
+            }
+        }
+    }
+
+    @Test("F-24 reconnect delays double from 200 ms to the 8 s cap")
+    func reconnectDelays() {
+        let tuning = ReconnectTuning()
+        let delays = (1...7).map { tuning.delay(beforeAttempt: $0).milliseconds }
+        #expect(delays == [200, 400, 800, 1600, 3200, 6400, 8000])
+    }
 }

@@ -43,6 +43,30 @@ struct TimeTests {
         #expect(clock.pendingSleepers == 0)
     }
 
+    @Test("cancelling finished, waiting and unstarted sleeps leaves no bookkeeping behind")
+    func noBookkeepingLeak() async {
+        let clock = ManualClock()
+        // Finished, then cancelled.
+        let done = Task { try await clock.sleep(until: NovaInstant.zero + .seconds(1)) }
+        while clock.pendingSleepers == 0 { await Task.yield() }
+        clock.advance(by: .seconds(1))
+        _ = await done.result
+        done.cancel()
+        // Cancelled before it starts sleeping.
+        let early = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            try await clock.sleep(until: NovaInstant.zero + .seconds(60))
+        }
+        _ = await early.result
+        // Cancelled while waiting.
+        let waiting = Task { try await clock.sleep(until: NovaInstant.zero + .seconds(60)) }
+        while clock.pendingSleepers == 0 { await Task.yield() }
+        waiting.cancel()
+        _ = await waiting.result
+        #expect(clock.pendingSleepers == 0)
+        #expect(clock.retainedBookkeeping == 0)
+    }
+
     @Test("advance never moves time backwards")
     func monotonic() {
         let clock = ManualClock(start: NovaInstant(milliseconds: 100))
@@ -82,7 +106,7 @@ struct IdentifierTests {
 
 @Suite("T-010 NovaKit JSON and results")
 struct JSONTests {
-    @Test("JSON round-trips and keeps integers apart from doubles")
+    @Test("JSON round-trips")
     func roundTrip() throws {
         let value: JSONValue = ["index": 1, "ratio": 0.5, "name": "珠海站", "ok": true, "none": nil, "list": [1, "a"]]
         let data = try JSONEncoder().encode(value)
@@ -91,6 +115,22 @@ struct JSONTests {
         #expect(decoded["index"] == .int(1))
         #expect(decoded["index"]?.intValue == 1)
         #expect(decoded["name"]?.stringValue == "珠海站")
+    }
+
+    @Test("integral doubles round-trip as equal numbers")
+    func integralDoubles() throws {
+        let value: JSONValue = ["x": .double(2.0), "big": .double(1e3)]
+        let decoded = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(value))
+        #expect(decoded == value)
+        #expect(decoded.hashValue == value.hashValue)
+        #expect(JSONValue.int(2) != .double(2.5))
+    }
+
+    @Test("canonical encoder sorts keys")
+    func canonicalBytes() throws {
+        let value: JSONValue = ["b": 1, "a": ["d": 2, "c": 3]]
+        let text = String(decoding: try JSONValue.canonicalEncoder().encode(value), as: UTF8.self)
+        #expect(text == #"{"a":{"c":3,"d":2},"b":1}"#)
     }
 
     @Test("tool result helpers")
@@ -139,17 +179,60 @@ struct DiagnosticsTests {
         .sessionError(.audioCaptureFailed),
     ]
 
-    @Test("no diagnostic case carries a String payload")
+    /// Exhaustive on purpose: a new `DiagnosticEvent` case fails to compile here until it has a sample.
+    static func caseName(_ event: DiagnosticEvent) -> String {
+        switch event {
+        case .sessionState: "sessionState"
+        case .listeningState: "listeningState"
+        case .navigationPhase: "navigationPhase"
+        case .reconnectAttempt: "reconnectAttempt"
+        case .providerEventsDropped: "providerEventsDropped"
+        case .setupTimeout: "setupTimeout"
+        case .toolRefused: "toolRefused"
+        case .toolFailed: "toolFailed"
+        case .lateToolResultDropped: "lateToolResultDropped"
+        case .navLateResultDropped: "navLateResultDropped"
+        case .staleAudioDropped: "staleAudioDropped"
+        case .bargeIn: "bargeIn"
+        case .claimHeld: "claimHeld"
+        case .correctionSent: "correctionSent"
+        case .emptyResponseReask: "emptyResponseReask"
+        case .timerFired: "timerFired"
+        case .sessionError: "sessionError"
+        }
+    }
+
+    /// Raise this together with a new case in `caseName`.
+    static let caseCount = 17
+
+    /// Walks every stored value, however deeply nested, and collects any text it finds.
+    static func textValues(in value: Any) -> [Any] {
+        if value is String || value is Substring || value is Character { return [value] }
+        return Mirror(reflecting: value).children.flatMap { textValues(in: $0.value) }
+    }
+
+    @Test("every DiagnosticEvent case has a sample")
+    func samplesCoverEveryCase() {
+        #expect(Set(Self.samples.map(Self.caseName)).count == Self.caseCount)
+    }
+
+    @Test("no diagnostic case carries a String payload, at any depth")
     func noStringPayloads() {
         for event in Self.samples {
-            for child in Mirror(reflecting: event).children {
-                let payload = child.value
-                let values = Mirror(reflecting: payload).displayStyle == .tuple
-                    ? Mirror(reflecting: payload).children.map(\.value) : [payload]
-                for value in values {
-                    #expect(!(value is String) && !(value is Substring), "\(event) carries text")
-                }
-            }
+            #expect(Self.textValues(in: event).isEmpty, "\(Self.caseName(event)) carries text")
         }
+    }
+
+    @Test("the recursive walk finds nested text")
+    func walkFindsNestedText() {
+        struct Inner { let note: String }
+        struct Outer { let inner: Inner; let count: Int }
+        #expect(Self.textValues(in: Outer(inner: Inner(note: "x"), count: 1)).count == 1)
+    }
+
+    @Test("tool error codes are a closed set")
+    func toolErrorCodesAreClosed() {
+        #expect(ToolErrorCode(rawValue: "geocode failed: 1 Main St") == nil)
+        #expect(ToolErrorCode.allCases.allSatisfy { !$0.rawValue.contains(" ") })
     }
 }

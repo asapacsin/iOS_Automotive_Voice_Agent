@@ -87,6 +87,8 @@ public final class ManualClock: NovaClock {
         var now: NovaInstant
         var nextID: UInt64 = 0
         var sleepers: [Sleeper] = []
+        /// Ids allocated whose continuation is not registered yet; both sets empty out as sleeps end.
+        var unregistered: Set<UInt64> = []
         var cancelledBeforeRegistration: Set<UInt64> = []
     }
 
@@ -101,15 +103,22 @@ public final class ManualClock: NovaClock {
     /// Number of tasks currently suspended in `sleep(until:)`.
     public var pendingSleepers: Int { state.withLock { $0.sleepers.count } }
 
+    /// Bookkeeping entries still held; 0 once every sleep has finished (tests guard against leaks).
+    public var retainedBookkeeping: Int {
+        state.withLock { $0.unregistered.count + $0.cancelledBeforeRegistration.count }
+    }
+
     public func sleep(until deadline: NovaInstant) async throws {
         let id = state.withLock { s -> UInt64 in
             s.nextID += 1
+            s.unregistered.insert(s.nextID)
             return s.nextID
         }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 enum Outcome { case resume, cancel, wait }
                 let outcome = state.withLock { s -> Outcome in
+                    s.unregistered.remove(id)
                     if s.cancelledBeforeRegistration.remove(id) != nil { return .cancel }
                     if s.now >= deadline { return .resume }
                     s.sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
@@ -126,7 +135,8 @@ public final class ManualClock: NovaClock {
                 if let index = s.sleepers.firstIndex(where: { $0.id == id }) {
                     return s.sleepers.remove(at: index).continuation
                 }
-                s.cancelledBeforeRegistration.insert(id)
+                // Already resumed or failed: nothing to cancel, nothing to remember.
+                if s.unregistered.contains(id) { s.cancelledBeforeRegistration.insert(id) }
                 return nil
             }
             continuation?.resume(throwing: CancellationError())

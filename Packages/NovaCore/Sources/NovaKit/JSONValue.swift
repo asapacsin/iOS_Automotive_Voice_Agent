@@ -1,5 +1,8 @@
-/// JSON value for tool arguments, results and schemas. Integers and doubles are kept apart so
-/// encoded schemas stay byte-for-byte stable (F-09 iOS notes).
+import Foundation
+
+/// JSON value for tool arguments, results and schemas. JSON has one number type, so `.int(2)` and
+/// `.double(2.0)` compare equal: Foundation decodes integral numbers such as `2.0` or `1e3` as `.int`.
+/// Encode with `JSONValue.canonicalEncoder()` (sorted keys) where bytes must be stable (F-09).
 public enum JSONValue: Sendable, Hashable, Codable {
     case null
     case bool(Bool)
@@ -38,6 +41,43 @@ public enum JSONValue: Sendable, Hashable, Codable {
         case .string(let value): try container.encode(value)
         case .array(let value): try container.encode(value)
         case .object(let value): try container.encode(value)
+        }
+    }
+
+    public static func canonicalEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }
+
+    public static func == (lhs: JSONValue, rhs: JSONValue) -> Bool {
+        switch (lhs, rhs) {
+        case (.null, .null): return true
+        case let (.bool(a), .bool(b)): return a == b
+        case let (.int(a), .int(b)): return a == b
+        case let (.double(a), .double(b)): return a == b
+        case let (.int(a), .double(b)), let (.double(b), .int(a)): return Int64(exactly: b) == a
+        case let (.string(a), .string(b)): return a == b
+        case let (.array(a), .array(b)): return a == b
+        case let (.object(a), .object(b)): return a == b
+        default: return false
+        }
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        switch self {
+        case .null: hasher.combine(0)
+        case .bool(let value): hasher.combine(1); hasher.combine(value)
+        case .int(let value): hasher.combine(2); hasher.combine(value)
+        case .double(let value):
+            if let integral = Int64(exactly: value) {
+                hasher.combine(2); hasher.combine(integral)
+            } else {
+                hasher.combine(3); hasher.combine(value)
+            }
+        case .string(let value): hasher.combine(4); hasher.combine(value)
+        case .array(let value): hasher.combine(5); hasher.combine(value)
+        case .object(let value): hasher.combine(6); hasher.combine(value)
         }
     }
 
