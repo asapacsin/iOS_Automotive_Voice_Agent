@@ -45,3 +45,8 @@ Controlling other apps' playback is class C.
 
 ## iOS notes (PROPOSED unless labelled)
 Bundled track: `AVAudioPlayer` (A/B). Third-party app control: iOS cannot drive other apps' sessions; Apple Music via MusicKit `ApplicationMusicPlayer` plays Apple Music in-app and in background (VERIFIED; needs the user's subscription; OQ-IOS-7). Netease/QQ Music: no iOS API to control them (VERIFIED by absence; OWNER decides whether Apple Music only is acceptable).
+
+## Contract for the truthfulness gate (2026-10-23, T-019 review 7)
+The media lane reports now-playing to `DriverTurnPipeline` as `musicPlaying(Bool)` transitions: `false`
+when a new play request starts, then `true` only once that request is verified playing. A repeated
+`true` for the track that was already playing is not evidence for a new 「正在播放」 claim.

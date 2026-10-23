@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+Secrets.xcconfig
+.ai-native/
+__pycache__/

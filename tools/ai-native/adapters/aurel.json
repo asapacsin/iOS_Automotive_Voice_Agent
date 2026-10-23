@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "task_id": "aurel-native-change",
+  "goal": "Verify a scoped Aurel game implementation without promoting reference-game success to native/neural proof",
+  "acceptance": "Build, CTest, Aurel evidence registry validation, and honest milestone-specific scope; physical/neural runtime evidence is separately required where applicable",
+  "boundaries": ["Preserve authoritative native gameplay state", "Do not silently replace neural-primary presentation", "GPU-dependent work may be BLOCKED_EXTERNAL while unrelated work continues"],
+  "budgets": {"max_attempts": 3, "max_total_seconds": 1800},
+  "gates": [
+    {"id": "cmake-configure", "level": "static", "command": ["cmake", "-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"], "timeout_seconds": 240},
+    {"id": "cmake-build", "level": "static", "command": ["cmake", "--build", "build"], "timeout_seconds": 300},
+    {"id": "ctest", "level": "unit", "command": ["ctest", "--test-dir", "build", "--output-on-failure"], "timeout_seconds": 300},
+    {"id": "evidence-registry", "level": "static", "command": ["python3", "scripts/engineering.py", "check"], "timeout_seconds": 60}
+  ]
+}

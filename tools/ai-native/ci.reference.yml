@@ -1,0 +1,25 @@
+name: AI-native controller tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Validate Python source
+        run: python3 -m compileall -q scripts tests
+      - name: Validate autonomous frontier example
+        run: |
+          python3 scripts/frontier.py check --registry examples/work.json
+          python3 scripts/control_plane.py frontier --state examples/work.json --expect-action CONTINUE_FRONTIER
+      - name: Validate deterministic cycle example
+        run: python3 scripts/control_plane.py cycle --state examples/control-cycle-state.json --expect-action TASK_VERIFIED
+      - name: Validate example contracts
+        run: |
+          python3 scripts/ai_native.py validate --contract examples/contract.json
+          python3 scripts/ai_native.py validate --contract adapters/aurel.json
+          python3 scripts/ai_native.py validate --contract adapters/android.json

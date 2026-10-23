@@ -45,3 +45,11 @@ Keep `BACKEND_LABEL=simulated` visible so nobody mistakes it for a real car.
 
 ## iOS notes (PROPOSED unless labelled)
 Portable (A). CarPlay gives no climate/seat/window access (PROPOSED; verify OQ-IOS-6).
+
+## Evidence (EVIDENCE_REQUEST batch 1, answered 2026-10-23 from Android commit 9c53929)
+`A/vehicle/ClimateToolHandler.kt`, `SeatToolHandler.kt`, `WindowToolHandler.kt`, `ActionAnnouncement.kt`,
+`vehicle/VehicleControlPort.kt` (limits 16–32 °C, fan 0–7, windows 0–100 step 20, seats 0–10 default 5,
+default climate off / 24 °C / fan 2) and `simulator/SimulatedVehicleControl.kt` (failNext / failAlways,
+a failed operation never changes state) are ported. Failure codes are `VEHICLE_UNSUPPORTED`,
+`VEHICLE_UNAVAILABLE`, `VEHICLE_PERMISSION_DENIED`, `VEHICLE_EXECUTION_FAILED`; golden cases come from
+`T/vehicle/*Test.kt`.

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "task_status": "PASS",
+  "attempt": 1,
+  "max_attempts": 3,
+  "deadline_exceeded": false,
+  "executor_configured": true,
+  "executor_status": "PASS",
+  "reviewer_configured": true,
+  "reviewer_process_status": "PASS",
+  "reviewer_verdict": "PASS",
+  "reviewer_independent": true,
+  "current_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reviewed_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reviewed_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "gates": [
+    {
+      "id": "unit-tests",
+      "required": true,
+      "status": "PASS",
+      "source_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "gate_source_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
