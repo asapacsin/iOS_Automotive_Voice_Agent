@@ -15,6 +15,7 @@ branch `claude/10-22` (commit after `bf81876`).
 | What iOS can and cannot do | [ios-feasibility.md](ios-feasibility.md) |
 | Feature-by-feature parity, tests, priority | [parity-matrix.md](parity-matrix.md) |
 | Order of work, first vertical slice | [migration-plan.md](migration-plan.md) |
+| Task packets per milestone, dependencies, first week | [implementation-plan.md](implementation-plan.md) |
 | Executor / verifier / reviewer process | [ai-agent-workflow.md](ai-agent-workflow.md) |
 | Unresolved questions | [open-questions.md](open-questions.md) |
 | Cross-feature contracts | [contracts/](contracts/) |
