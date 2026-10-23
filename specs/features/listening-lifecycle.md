@@ -49,3 +49,9 @@ Pure logic; port as a deterministic Swift state machine with an injected clock.
 
 ## iOS notes (PROPOSED unless labelled)
 Directly portable (class A). Use an injected clock for tests.
+
+## Evidence (EVIDENCE_REQUEST batch 1, answered 2026-10-23 from Android commit 9c53929)
+`A/voice/ListeningIntent.kt` phrase sets (SLEEP, SHUT_UP, CONTEXTUAL), polite prefixes/suffixes,
+normalisation (letters and digits only) and `isMeaningful` are ported verbatim in
+`Core/NovaVoice/Lifecycle/ListeningIntent.swift`. Sleep phrases sleep in any context; only the
+contextual set (「不用了」「没事了」「close」) defers to an open picker or pending task.

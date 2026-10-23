@@ -227,10 +227,24 @@ struct ListeningIntentTests {
         #expect(ListeningIntent.classify("") == .passToModel)
     }
 
-    @Test("F-02 sleep phrases reach the model while a picker is open or a task pends")
-    func sleepWhileBusy() {
-        #expect(ListeningIntent.classify("休眠", context: .init(pickerOpen: true)) == .passToModel)
-        #expect(ListeningIntent.classify("停止监听", context: .init(taskPending: true)) == .passToModel)
+    @Test("F-02 contextual phrases reach the model while a picker is open or a task pends; sleep phrases never do")
+    func contextual() {
+        #expect(ListeningIntent.classify("不用了", context: .init(pickerOpen: true)) == .passToModel)
+        #expect(ListeningIntent.classify("没事了", context: .init(taskPending: true)) == .passToModel)
+        #expect(ListeningIntent.classify("不用了") == .goToSleep)
+        #expect(ListeningIntent.classify("休眠", context: .init(pickerOpen: true)) == .goToSleep)
         #expect(ListeningIntent.classify("闭嘴", context: .init(pickerOpen: true)) == .shutUp)
+    }
+
+    @Test("F-02 Android phrase table with polite prefixes and suffixes")
+    func androidTable() {
+        #expect(ListeningIntent.classify("小诺，别听了吧") == .goToSleep)
+        #expect(ListeningIntent.classify("关闭小诺") == .goToSleep)
+        #expect(ListeningIntent.classify("关闭导航") == .passToModel)
+        #expect(ListeningIntent.classify("Stop talking!") == .shutUp)
+        #expect(ListeningIntent.classify("好的，安静一点谢谢") == .shutUp)
+        #expect(ListeningIntent.classify("close the window") == .passToModel)
+        #expect(!ListeningIntent.isMeaningful("嗯"))
+        #expect(ListeningIntent.isMeaningful("你好"))
     }
 }
