@@ -596,4 +596,50 @@ struct DriverTurnPipelineReview4Tests {
         #expect(h.corrections.isEmpty)
     }
 }
+
+@Suite("T-019 F-06 review 5 regressions")
+struct DriverTurnPipelineReview5Tests {
+    let pcm = PCMBuffer(sampleRate: 24_000, samples: [0])
+    func audioOut(_ h: PipelineHarness) -> Int { h.out.filter { if case .speechAudio = $0 { true } else { false } }.count }
+
+    @Test("F-06 the hold budget never releases audio while navigation evidence is outstanding (B1)")
+    func budgetWithOutstandingEvidence() {
+        var h = PipelineHarness()
+        h.driver("打开空调然后导航回家")
+        let a = h.call("c1", "control_climate")
+        h.result(a, "control_climate", .success(["power_on": true]))
+        for i in 0..<130 {
+            h.send(.replyAudio(h.turn, pcm))
+            if i % 10 == 0 && i < 110 { h.say("好的") }
+        }
+        #expect(audioOut(h) == 0)
+        h.say("导航已开始。")
+        h.close()
+        #expect(audioOut(h) == 0 && !h.spoken.contains("导航已开始"))
+    }
+
+    @Test("F-06 honest evidenced lines are heard: navigation started, route chosen, music stopped (N1)")
+    func evidencedActionClaims() {
+        var h = PipelineHarness()
+        h.driver("导航去珠海站")
+        let c = h.call("c1", "navigate_to")
+        h.result(c, "navigate_to", .success())
+        h.send(.navigationPhase(.navigating))
+        h.say("好的，已为您开始导航。")
+        h.close()
+        #expect(h.spoken == "好的，已为您开始导航。")
+
+        var m = PipelineHarness()
+        m.send(.musicPlaying(true))
+        m.driver("关掉音乐")
+        let s = m.call("c1", "control_music")
+        m.send(.musicPlaying(false))
+        m.result(s, "control_music", .success(["status": "stopped"]))
+        m.say("好的，已为您关闭音乐。")
+        m.close()
+        #expect(m.spoken == "好的，已为您关闭音乐。")
+        m.advance(by: .seconds(30))
+        #expect(m.corrections.isEmpty)
+    }
+}
 }

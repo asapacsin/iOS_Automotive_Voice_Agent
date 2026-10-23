@@ -197,6 +197,17 @@ public struct DriverTurnPipeline: Sendable {
         return navAwaited && navigation != .navigating || musicAwaited && !musicPlaying
     }
 
+    /// An ok navigation or music result whose own evidence holds: NAVIGATING, or playback verified
+    /// (or verified stopped for `control_music{stop}`).
+    private func evidenced(_ r: ToolResponse) -> Bool {
+        switch r.name {
+        case "navigate_to", "choose_navigation_option": navigation == .navigating
+        case "control_music" where r.result.data["action"] == .string("stop") || r.result.data["status"] == .string("stopped"):
+            !musicPlaying
+        default: musicPlaying
+        }
+    }
+
     private func verdict(_ t: Turn, final: Bool) -> Verdict {
         let acting = t.results.filter(acts)
         let failed = acting.filter { !$0.result.ok }
@@ -245,7 +256,9 @@ public struct DriverTurnPipeline: Sendable {
         case .action:
             if !failed.isEmpty { return .disproven(.claimAfterFailure) }
             // An ok navigation or music result proves nothing by itself (「已为您开启导航」 before NAVIGATING).
-            if acting.contains(where: { $0.result.ok && !Self.evidenceTools.contains($0.name) }) { return .proven }
+            if acting.contains(where: { $0.result.ok && (!Self.evidenceTools.contains($0.name) || evidenced($0)) }) {
+                return .proven
+            }
             if !final { return .pending }
             return .disproven(t.hadToolCall ? .unverifiedClaim
                                 : utteranceAsksAction ? .actionAskedNoToolCall : .unverifiedClaim)
@@ -269,7 +282,7 @@ public struct DriverTurnPipeline: Sendable {
             // Hold budget spent: an unproven claim is dropped. In a turn held whole with nothing to
             // judge yet the held audio is dropped (never released unjudged); a chat turn goes through.
             if !t.claims.isEmpty, !isProven(t) { return void(.unverifiedClaim, at: now) }
-            if holdsWhole(t), !isProven(t) { return dropHeldAudio() }
+            if holdsWhole(t), !isProven(t) || evidenceOutstanding(t) { return dropHeldAudio() }
             turn?.phantomSuspect = false
             return release()
         }
