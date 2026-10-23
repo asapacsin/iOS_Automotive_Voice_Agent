@@ -533,4 +533,67 @@ struct DriverTurnPipelineReview3Tests {
         #expect(h.corrections.isEmpty)
     }
 }
+
+@Suite("T-019 F-06 review 4 regressions")
+struct DriverTurnPipelineReview4Tests {
+    let pcm = PCMBuffer(sampleRate: 24_000, samples: [0])
+    func audioOut(_ h: PipelineHarness) -> Int { h.out.filter { if case .speechAudio = $0 { true } else { false } }.count }
+
+    @Test("F-06 audio of an unread music claim is held after the action claim is proven (L1)")
+    func mixedMusic() {
+        var h = PipelineHarness()
+        h.driver("打开空调再放首歌")
+        let a = h.call("c1", "control_climate")
+        let m = h.call("c2", "play_music")
+        h.result(a, "control_climate", .success(["power_on": true]))
+        h.result(m, "play_music", .success())
+        h.say("空调已打开，")
+        #expect(h.spoken == "空调已打开，")
+        h.send(.replyAudio(h.turn, pcm))
+        #expect(audioOut(h) == 0)
+        h.say("正在为您播放周杰伦。")
+        h.close()
+        #expect(audioOut(h) == 0 && !h.spoken.contains("正在为您播放"))
+    }
+
+    @Test("F-06 a navigation request keeps audio held when only climate ran (L3, row 3)")
+    func navigationRequestOnlyClimate() {
+        var h = PipelineHarness()
+        h.driver("打开空调然后导航回家")
+        let a = h.call("c1", "control_climate")
+        h.result(a, "control_climate", .success(["power_on": true]))
+        h.send(.replyAudio(h.turn, pcm))
+        #expect(audioOut(h) == 0)
+        h.say("空调已打开，导航已开始。")
+        h.close()
+        #expect(audioOut(h) == 0 && !h.spoken.contains("导航已开始"))
+    }
+
+    @Test("F-06 an ok navigate_to does not prove 已为您开启导航 (L2)")
+    func navigateToIsNotActionProof() {
+        var h = PipelineHarness()
+        h.driver("导航去珠海站")
+        let c = h.call("c1", "navigate_to")
+        h.result(c, "navigate_to", .success(["status": "awaiting_route_selection_on_screen"]))
+        h.say("好的，已为您开启导航。")
+        h.close()
+        #expect(h.spoken.isEmpty)
+    }
+
+    @Test("F-06 verified playback after generationComplete keeps a true 正在播放 (L4)")
+    func lateMusicProof() {
+        var h = PipelineHarness()
+        h.driver("放周杰伦的歌")
+        let m = h.call("c1", "play_music")
+        h.result(m, "play_music", .success())
+        h.send(.replyAudio(h.turn, pcm))
+        h.say("正在为您播放周杰伦。")
+        h.send(.audioDone(h.turn))
+        h.send(.musicPlaying(true))
+        h.send(.turnClosed(h.turn, .completed))
+        #expect(h.spoken == "正在为您播放周杰伦。" && audioOut(h) == 1)
+        h.advance(by: .seconds(30))
+        #expect(h.corrections.isEmpty)
+    }
+}
 }

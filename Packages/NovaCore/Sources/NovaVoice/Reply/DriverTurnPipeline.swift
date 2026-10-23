@@ -184,6 +184,19 @@ public struct DriverTurnPipeline: Sendable {
     /// Tools whose ok result is not yet evidence: navigation is proven by the phase, music by playback.
     static let evidenceTools: Set<String> = ["navigate_to", "choose_navigation_option", "control_music", "play_music"]
 
+    static let navigationRequest = ["导航", "带我去", "带我到", "回家", "去公司", "开过去"]
+    static let musicRequest = ["放首", "放歌", "播放", "音乐", "听歌", "来首", "放一首"]
+
+    /// A navigation or music outcome that the reply may claim is not yet evidenced.
+    private func evidenceOutstanding(_ t: Turn) -> Bool {
+        let okNames = Set(t.results.filter(\.result.ok).map(\.name))
+        let navAwaited = !okNames.isDisjoint(with: ["navigate_to", "choose_navigation_option"])
+            || Self.navigationRequest.contains(where: lastUtterance.contains)
+        let musicAwaited = !okNames.isDisjoint(with: ["control_music", "play_music"])
+            || Self.musicRequest.contains(where: lastUtterance.contains)
+        return navAwaited && navigation != .navigating || musicAwaited && !musicPlaying
+    }
+
     private func verdict(_ t: Turn, final: Bool) -> Verdict {
         let acting = t.results.filter(acts)
         let failed = acting.filter { !$0.result.ok }
@@ -204,9 +217,9 @@ public struct DriverTurnPipeline: Sendable {
             if failed.isEmpty, !awaitsEvidence, acting.contains(where: \.result.ok) { return .proven }
             return !holdsWhole(t) || final ? .clean : .pending
         }
-        // Every claim needs its own proof; the first disproof wins, then any pending one holds.
+        // Every claim needs its own proof; the most specific disproof wins, then any pending one holds.
         var pending = false
-        for claim in [ClaimKind.action, .musicPlaying, .navigationStarted] where t.claims.contains(claim) {
+        for claim in [ClaimKind.navigationStarted, .musicPlaying, .action] where t.claims.contains(claim) {
             switch verdict(of: claim, t, acting: acting, failed: failed, final: final) {
             case .disproven(let reason): return .disproven(reason)
             case .pending: pending = true
@@ -226,11 +239,13 @@ public struct DriverTurnPipeline: Sendable {
         case .musicPlaying:
             let musicFailed = failed.contains { $0.name == "control_music" || $0.name == "play_music" }
             if musicPlaying && !musicFailed { return .proven }
-            if !final { return .pending }
+            // Verified playback may report after generationComplete: wait for the turn to close.
+            if !final || !t.closed && !musicFailed { return .pending }
             return .disproven(.musicNotConfirmed)
         case .action:
             if !failed.isEmpty { return .disproven(.claimAfterFailure) }
-            if acting.contains(where: \.result.ok) { return .proven }
+            // An ok navigation or music result proves nothing by itself (「已为您开启导航」 before NAVIGATING).
+            if acting.contains(where: { $0.result.ok && !Self.evidenceTools.contains($0.name) }) { return .proven }
             if !final { return .pending }
             return .disproven(t.hadToolCall ? .unverifiedClaim
                                 : utteranceAsksAction ? .actionAskedNoToolCall : .unverifiedClaim)
@@ -275,7 +290,9 @@ public struct DriverTurnPipeline: Sendable {
         }
         switch verdict(turn!, final: final) {
         case .proven:
-            return release()
+            // Audio runs ahead of its transcript: while navigation or music evidence is outstanding an
+            // unread claim may be on it, so only judged text goes out (L1, L3).
+            return evidenceOutstanding(turn!) && !final ? releaseText() : release()
         case .clean:
             // A clean chat turn releases judged text as it comes; its audio waits for the end.
             return final ? release() : releaseText()
