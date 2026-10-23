@@ -24,7 +24,7 @@ OWNERS = {
 }
 # Symbols (not modules) with one owner package.
 # `session.webSocketTask(with:)` (or a reference to it) makes one without naming the type.
-SYMBOL_OWNERS = {r"\bURLSessionWebSocketTask\b": {"NovaRealtime"}, r"\.\s*`?webSocketTask\b": {"NovaRealtime"}}
+SYMBOL_OWNERS = {r"\bURLSessionWebSocketTask\b": {"NovaRealtime"}, r"\.\s*`?webSocketTask\b|\bwebSocketTask\s*\(": {"NovaRealtime"}}
 CORE_ALLOWED = {"Foundation", "Synchronization", "NovaKit", "NovaPorts", "NovaVoice", "NovaTools",
                 "NovaNav", "NovaAgent", "Testing", "XCTest"}
 

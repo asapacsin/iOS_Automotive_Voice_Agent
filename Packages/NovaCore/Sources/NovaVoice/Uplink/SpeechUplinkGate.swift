@@ -24,7 +24,9 @@ public enum UplinkGateOutput: Sendable, Hashable {
 ///
 /// A frame is voiced when its RMS exceeds max(RMS floor 120, noise bed × 2.2). The noise bed starts at
 /// 80, is learnt from every frame during the 1500 ms warm-up (the gate cannot open then) and afterwards
-/// from unvoiced frames while closed. The Android noise-bed corpus is not ported yet (STATUS.md), so
+/// from unvoiced frames while closed. While open, the quietest frame of the last 3 s is tracked: speech
+/// always dips between syllables, so if even that frame is voiced the "speech" is a noise rise (fan,
+/// window), the bed jumps to that level and the segment ends through the normal hangover. The Android noise-bed corpus is not ported yet (STATUS.md), so
 /// the adaptation rate is an iOS choice to re-tune against it.
 public struct SpeechUplinkGate: Sendable {
     public enum Phase: Sendable, Hashable { case closed, open }
@@ -42,10 +44,14 @@ public struct SpeechUplinkGate: Sendable {
     private var segmentLength = NovaDuration.zero
     private var segmentVoiced = NovaDuration.zero
     private var trailingUnvoiced = NovaDuration.zero
+    /// RMS of the frames of the open segment, last `steadyWindowFrames` only.
+    private var openRMS: [Double] = []
 
     private static let frameDuration = NovaDuration.milliseconds(10)
     /// Weight of one unvoiced frame in the noise bed after warm-up (≈ 1 s time constant).
     private static let noiseAdaptation = 0.01
+    /// 3 s without a single unvoiced frame means steady noise, not speech.
+    private static let steadyWindowFrames = 300
 
     public init(tuning: UplinkGateTuning = UplinkGateTuning()) {
         self.tuning = tuning
@@ -73,6 +79,13 @@ public struct SpeechUplinkGate: Sendable {
             guard onset >= tuning.onset, !forcedClosed else { return [] }
             return open()
         case .open:
+            openRMS.append(rms)
+            if openRMS.count > Self.steadyWindowFrames { openRMS.removeFirst() }
+            if openRMS.count == Self.steadyWindowFrames, let floor = openRMS.min(), floor > threshold {
+                noiseRMS = floor
+                openRMS.removeAll(keepingCapacity: true)
+                return continueSegment(frame, voiced: rms > threshold)
+            }
             return continueSegment(frame, voiced: voiced)
         }
     }
@@ -86,6 +99,7 @@ public struct SpeechUplinkGate: Sendable {
 
     private mutating func open() -> [UplinkGateOutput] {
         phase = .open
+        openRMS.removeAll(keepingCapacity: true)
         // Onset frames are part of the segment and all voiced.
         segmentLength = onset
         segmentVoiced = onset

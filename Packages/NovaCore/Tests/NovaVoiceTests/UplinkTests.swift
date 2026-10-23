@@ -190,6 +190,34 @@ struct UplinkGateTests {
         #expect(run(&gate, PCM.tone(peak: 6000, frames: 1)).first == .speechStarted)
     }
 
+    @Test("F-04 a steady noise rise after warm-up does not hold the gate open")
+    func noiseRise() {
+        var gate = SpeechUplinkGate()
+        warmed(&gate, rms: 60)
+        let out = run(&gate, PCM.noise(rms: 600, frames: 6000, seed: 13))
+        let stops = out.filter { if case .speechStopped = $0 { true } else { false } }.count
+        let starts = out.filter { $0 == .speechStarted }.count
+        #expect(gate.phase == .closed)
+        #expect(starts == 1 && stops == 1)
+        #expect(gate.noiseRMS > 500)
+        // Speech above the new bed still opens it.
+        #expect(run(&gate, PCM.tone(peak: 12_000, frames: 20)).first == .speechStarted)
+    }
+
+    @Test("F-04 speech with pauses is not mistaken for steady noise")
+    func longSpeechKeepsGate() {
+        var gate = SpeechUplinkGate()
+        warmed(&gate)
+        var out: [UplinkGateOutput] = []
+        // 8 s of syllables: 250 ms voiced, 50 ms dip.
+        for _ in 0..<27 {
+            out += run(&gate, PCM.tone(peak: 6000, frames: 25))
+            out += run(&gate, PCM.noise(rms: 60, frames: 5, seed: 17))
+        }
+        #expect(gate.phase == .open)
+        #expect(!out.contains { if case .speechStopped = $0 { true } else { false } })
+    }
+
     @Test("F-04 the noise bed adapts upwards while closed")
     func adapts() {
         var gate = SpeechUplinkGate()

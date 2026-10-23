@@ -48,7 +48,10 @@ PATTERNS = {
         rf"x-goog-api-key|x-api-key|authorization|key|{IDENT})\""),
     "secret url parameter": re.compile(rf"(?i)[?&](?:key|{IDENT})={VALUE}"),
 }
-UNCONDITIONAL = {"google api key", "private key block", "bearer-style token"}
+# The identifier exemption only fits `NAME = value` / `NAME: value` forms. Where the name comes first in
+# its own field (plist, xcscheme, HAR), a long snake_case name would otherwise hide the value.
+UNCONDITIONAL = {"google api key", "private key block", "bearer-style token", "plist secret value",
+                 "xml attribute secret", "har header or param", "secret http header", "secret url parameter"}
 SUFFIXES = {".swift", ".plist", ".xcconfig", ".json", ".jsonl", ".yml", ".yaml", ".entitlements",
             ".strings", ".env", ".har", ".xcscheme", ".pbxproj", ".xcworkspacedata", ".sh", ".py",
             ".md", ".txt", ".toml", ".cfg", ".ini"}

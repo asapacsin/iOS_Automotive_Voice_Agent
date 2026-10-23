@@ -2,8 +2,8 @@ import NovaKit
 import NovaPorts
 
 /// Per-frame automatic gain after echo cancellation (contracts/audio.md, `A/voice/MicInputGain.kt:23`):
-/// up to ×3.0 towards a 12 000 peak, rising at most ×1.15 per frame, falling at once, never amplifying
-/// frames whose peak is under the 250 noise floor, hard-limited to the PCM16 range.
+/// up to ×3.0 towards a 12 000 peak, rising at most ×1.15 per frame, falling at once; a frame whose peak is under
+/// the 250 noise floor leaves the gain unchanged (it is not raised for noise), hard-limited to the PCM16 range.
 public struct MicInputGain: Sendable {
     public private(set) var gain: Double = 1.0
     private let tuning: MicGainTuning

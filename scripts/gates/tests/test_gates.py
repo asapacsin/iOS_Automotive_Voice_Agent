@@ -68,6 +68,10 @@ class SecretsGateTests(unittest.TestCase):
         "fixtures/capture2.har": '{"headers": [{"value": "Bearer ' + FAKE + '", "name": "Authorization"}]}',
         "fixtures/url.jsonl": '{"url": "wss://host/ws?key=' + FAKE + '"}',
         "App/Google.swift": f'let k = "{FAKE_GOOGLE}"',
+        "App/Long.plist": f"<key>AZURE_SPEECH_KEY</key>\n<string>{FAKE}</string>",
+        "App/L.xcodeproj/xcshareddata/xcschemes/L.xcscheme":
+            f'<EnvironmentVariable key = "AZURE_SPEECH_KEY" value = "{FAKE}">',
+        "fixtures/long.har": '{"name": "azure_speech_key", "value": "' + FAKE + '"}',
         "App/Info.plist": f"<key>AzureSpeechKey</key>\n<string>{FAKE}</string>",
     }
     CLEAN = {
@@ -112,6 +116,7 @@ class ImportsGateTests(unittest.TestCase):
         "after a URL string": 'let u = "https://example.com"; import UIKit',
         "after a string with a comment opener": 'let s = "/*"\nimport UIKit\nlet t = "*/"',
         "websocket factory call": "let t = session.webSocketTask(with: url)",
+        "websocket implicit self": "extension URLSession { func f(u: URL) { _ = webSocketTask(with: u) } }",
         "websocket method reference": "let f = session.webSocketTask",
         "websocket backticked": "let t = session.`webSocketTask`(with: url)",
         "websocket type": "var t: URLSessionWebSocketTask?",
