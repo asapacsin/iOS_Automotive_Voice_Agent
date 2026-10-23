@@ -54,3 +54,13 @@ public struct ClauseSegmenter: Sendable {
         return text
     }
 }
+
+/// `speakableText` (`AssistantVoiceRevoicer.kt:491`): the provider sometimes sends a placeholder
+/// instead of words (`<no speech>{pause}`); the voice must never read markup aloud. Nil when nothing
+/// speakable is left.
+public func speakableText(_ raw: String) -> String? {
+    let text = raw.replacingOccurrences(of: "<[^>]*>", with: "", options: .regularExpression)
+        .replacingOccurrences(of: "\\{[^}]*\\}", with: "", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return text.contains(where: { $0.isLetter || $0.isNumber }) ? text : nil
+}

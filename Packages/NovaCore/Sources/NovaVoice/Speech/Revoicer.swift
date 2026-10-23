@@ -25,7 +25,10 @@ public actor Revoicer {
 
     public func newReply() { apply(queue.handle(.newReply)) }
 
-    public func speak(_ clause: String) { apply(queue.handle(.clause(clause))) }
+    public func speak(_ clause: String) {
+        guard let text = speakableText(clause) else { return }
+        apply(queue.handle(.clause(text)))
+    }
 
     /// Barge-in or a voided reply: in-flight requests are cancelled and nothing of the old epoch plays.
     public func cancel(newEpoch: Epoch) { apply(queue.handle(.cancel(newEpoch: newEpoch))) }

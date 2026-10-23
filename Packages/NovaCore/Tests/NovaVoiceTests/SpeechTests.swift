@@ -18,6 +18,12 @@ struct SegmenterTests {
         #expect(s.append("嗯，") == [])
     }
 
+    @Test("F-07 placeholders are never read aloud")
+    func speakable() {
+        #expect(speakableText("<no speech>{pause}") == nil)
+        #expect(speakableText(" 好的<break/>，{pause}马上 ") == "好的，马上")
+    }
+
     @Test("F-07 wait cues at 3, 7 and 12 s, once each; a late wake says only the delay")
     func cues() {
         var t = WaitCueTurn()
