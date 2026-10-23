@@ -215,13 +215,15 @@
     {
       "id": "T-019",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 33,
       "action": "F-06 reply pipeline: claim gate, ActionClaimGuard, correction grace, empty re-ask, phantom gate",
       "depends_on": [
         "T-011"
       ],
-      "note": "review 3 REWORK fixed; waiting for re-review"
+      "evidence": [
+        "U F-06 suites (rows 1-3 + 7 review-regression suites); gates green; 8 independent high-effort reviews, final PASS at 50ca8e8"
+      ]
     },
     {
       "id": "T-017",

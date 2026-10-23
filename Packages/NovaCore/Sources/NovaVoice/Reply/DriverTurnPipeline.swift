@@ -119,8 +119,12 @@ public struct DriverTurnPipeline: Sendable {
             lastUtterance = text
             utteranceAsksAction = ClaimLexicon.asksForAction(text)
             // A request for music or navigation makes the current state stale even if no tool is called.
-            if Self.musicRequest.contains(where: text.contains) { musicFresh = false }
-            if Self.navigationRequest.contains(where: text.contains) { navigationFresh = false }
+            // Scoped to this utterance, and a question (「导航还要多久到」) is not a request.
+            musicFresh = true
+            navigationFresh = true
+            let question = Self.questionWords.contains(where: text.contains)
+            if !question, Self.musicRequest.contains(where: text.contains) { musicFresh = false }
+            if !question, Self.navigationRequest.contains(where: text.contains) { navigationFresh = false }
             freshUtterance = Self.length(text) >= tuning.phantomMinTranscript
             nudgedThisUtterance = false
             reaskedThisUtterance = false
@@ -206,6 +210,7 @@ public struct DriverTurnPipeline: Sendable {
     /// Tools whose ok result is not yet evidence: navigation is proven by the phase, music by playback.
     static let evidenceTools: Set<String> = ["navigate_to", "choose_navigation_option", "control_music", "play_music"]
 
+    static let questionWords = ["吗", "多久", "多远", "什么", "哪", "几", "?", "？", "怎么样"]
     static let navigationRequest = ["导航", "带我去", "带我到", "回家", "去公司", "开过去"]
     static let musicRequest = ["放首", "放歌", "播放", "音乐", "听歌", "来首", "放一首"]
 

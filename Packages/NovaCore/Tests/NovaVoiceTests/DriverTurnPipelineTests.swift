@@ -727,4 +727,30 @@ struct DriverTurnPipelineReview7Tests {
         #expect(h.spoken.isEmpty)
     }
 }
+
+@Suite("T-019 F-06 review 8 follow-up")
+struct DriverTurnPipelineReview8Tests {
+    @Test("F-06 a question about the running navigation or song is answered truthfully")
+    func questionsDoNotStale() {
+        var h = PipelineHarness()
+        h.send(.navigationPhase(.navigating))
+        h.driver("导航还要多久到")
+        h.say("正在为您导航，预计还有十分钟。")
+        h.close()
+        #expect(h.spoken == "正在为您导航，预计还有十分钟。")
+        h.driver("还有多远")
+        h.say("正在为您导航，还有五公里。")
+        h.close()
+        #expect(h.spoken.hasSuffix("还有五公里。"))
+
+        var m = PipelineHarness()
+        m.send(.musicPlaying(true))
+        m.driver("现在播放的是什么歌")
+        m.say("现在正在播放的是晴天。")
+        m.close()
+        #expect(m.spoken == "现在正在播放的是晴天。")
+        m.advance(by: .seconds(30))
+        #expect(m.corrections.isEmpty)
+    }
+}
 }
