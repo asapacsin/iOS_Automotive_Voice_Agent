@@ -1,0 +1,34 @@
+# XcodeGen spec for the device test app. CI runs `xcodegen generate` (.github/workflows/ipa.yml).
+name: NovaDrive
+options:
+  deploymentTarget:
+    iOS: "18.0"
+packages:
+  NovaCore:
+    path: ../Packages/NovaCore
+  NovaServices:
+    path: ../Packages/NovaServices
+targets:
+  NovaDrive:
+    type: application
+    platform: iOS
+    sources: [NovaDrive]
+    dependencies:
+      - package: NovaCore
+        product: NovaKit
+      - package: NovaCore
+        product: NovaPorts
+      - package: NovaCore
+        product: NovaTools
+      - package: NovaServices
+        product: NovaServices
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Nova Drive
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
