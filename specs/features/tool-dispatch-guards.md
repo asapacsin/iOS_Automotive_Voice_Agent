@@ -45,3 +45,14 @@ Guards are code, not prompt (I-11).
 
 ## iOS notes (PROPOSED unless labelled)
 Portable (A). Keep tool names and argument schemas identical so the same system prompt works.
+
+## Evidence (EVIDENCE_REQUEST batch 1, answered 2026-10-23 from Android commit 9c53929)
+- Catalog: names, descriptions and parameter schemas of all 17 tools from `A/tools/*Domain.kt`, in
+  `ToolRegistry.PRODUCT` domain order, with `repeatSensitive` flags. iOS: generated into
+  `Core/NovaTools/Dispatch/ToolCatalog+Generated.swift` (descriptions extracted verbatim).
+- Validation codes per domain (`INVALID_FIELDS`, `INVALID_FIELD_TYPE`, …), `UNKNOWN_TOOL`, and
+  `ARGUMENTS_TOO_LARGE` (`GeminiLiveProtocol.kt:266`, > 4096 bytes).
+- `A/ToolCallGuards.kt` (all guards, regexes and word lists), `A/ToolFailureAdvice.kt` (42 codes +
+  `CONFIRM_CALL`, `CHOOSE_CONTACT`, `CLIMATE_OFF`), `AndroidToolDispatcher.guard` order.
+- Guard test tables from `T/ToolCallGuard*Test.kt` are ported in `Tests/NovaToolsTests/ToolCallGuardTests.swift`.
+- `ambiguousReferent` needs F-10 `ContextResolver` (T-030); the dispatcher takes it as a `clarify` closure.
