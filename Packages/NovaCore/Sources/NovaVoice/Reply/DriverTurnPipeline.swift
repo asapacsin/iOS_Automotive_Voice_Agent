@@ -1,0 +1,347 @@
+import NovaKit
+import NovaPorts
+
+/// Why the guard nudges the model (contracts/voice-agent.md §6, `A/voice/ActionClaimGuard.kt`).
+public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
+    case actionAskedNoToolCall = "ACTION_ASKED_NO_TOOL_CALL"
+    case claimAfterFailure = "CLAIM_AFTER_FAILURE"
+    case partialScenario = "PARTIAL_SCENARIO"
+    case navigationNotStarted = "NAVIGATION_NOT_STARTED"
+    case musicNotConfirmed = "MUSIC_NOT_CONFIRMED"
+    case clarifyReferent = "CLARIFY_REFERENT"
+    case unverifiedClaim = "UNVERIFIED_CLAIM"
+
+    /// Sent to the model as a text turn. Code decides when; the sentence only explains (I-11).
+    public var instruction: String {
+        switch self {
+        case .actionAskedNoToolCall: "[系统] 司机要求执行操作，但你没有调用工具。请调用对应工具，或如实说明无法执行。"
+        case .claimAfterFailure: "[系统] 工具返回失败，操作没有完成。请如实告诉司机失败原因，不要说已完成。"
+        case .partialScenario: "[系统] 场景只完成了一部分。请只说已完成的部分，并说明未完成的部分。"
+        case .navigationNotStarted: "[系统] NAVIGATION_NOT_STARTED：导航还没有开始，不要说导航已开始。"
+        case .musicNotConfirmed: "[系统] MUSIC_NOT_CONFIRMED：没有确认音乐正在播放，不要说正在播放。"
+        case .clarifyReferent: "[系统] 指代不明确。请用一句简短的话问司机具体指哪一项。"
+        case .unverifiedClaim: "[系统] 你声称已完成操作，但没有成功的工具结果。请先调用工具，或如实说明。"
+        }
+    }
+}
+
+public enum PipelineInput: Sendable, Hashable {
+    /// A final driver transcript: a new utterance (resets the one-nudge and one-re-ask budgets).
+    case driverUtterance(String)
+    case turnOpened(TurnID)
+    case replyText(TurnID, String)
+    case replyAudio(TurnID, PCMBuffer)
+    case toolCalls(TurnID, [ToolCall])
+    case toolResult(TurnID, ToolResponse)
+    /// `generationComplete`.
+    case audioDone(TurnID)
+    case turnClosed(TurnID, TurnOutcome)
+    case navigationPhase(NavigationPhase)
+    /// Verified now-playing state from the media lane (F-13).
+    case musicPlaying(Bool)
+    case timerFired(PipelineTimer)
+}
+
+public struct PipelineTimer: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable { case correction, reask, giveUp }
+    public let kind: Kind
+    public let epoch: Epoch
+}
+
+public enum PipelineOutput: Sendable, Hashable {
+    /// Judged reply text: subtitle and the source of revoiced clauses.
+    case speechText(TurnID, String)
+    /// Judged provider audio (only without revoicing).
+    case speechAudio(TurnID, PCMBuffer)
+    /// Everything held for this turn was dropped; the shell flushes playback to a new epoch.
+    case voided(TurnID)
+    case sendCorrection(CorrectionReason)
+    /// 「请回应我刚才说的话。」
+    case reask(String)
+    /// Nothing came back within 5 s even after the re-ask.
+    case gaveUp
+    case schedule(PipelineTimer, at: NovaInstant)
+    case cancelTimer(PipelineTimer.Kind)
+    case diagnostic(DiagnosticEvent)
+}
+
+/// `DriverTurnPipeline` + claim gate, `ActionClaimGuard`, correction grace, empty-response re-ask and
+/// phantom-turn gate (F-06). Invariants I-1, I-5: claim text and audio are held together until an
+/// `ok=true` result proves them, and dropped otherwise. I-11: all of it is code, not prompt.
+public struct DriverTurnPipeline: Sendable {
+    public static let reaskText = "请回应我刚才说的话。"
+
+    private struct Turn {
+        let id: TurnID
+        var text = ""
+        var held: [PipelineOutput] = []
+        var heldEvents = 0
+        var claim: ClaimKind?
+        var pendingCalls: Set<CallID> = []
+        var results: [ToolResponse] = []
+        var hadToolCall = false
+        var voided = false
+        var closed = false
+        /// No real driver utterance led to this turn: hold it until it proves to be more than a blip.
+        var phantomSuspect: Bool
+    }
+
+    private let tuning: TruthfulnessTuning
+    private var turn: Turn?
+    private var navigation = NavigationPhase.idle
+    private var musicPlaying = false
+    private var lastUtterance = ""
+    private var utteranceAsksAction = false
+    /// A real utterance arrived since the last turn opened.
+    private var freshUtterance = false
+    private var nudgedThisUtterance = false
+    private var reaskedThisUtterance = false
+    private var pendingCorrection: CorrectionReason?
+    private var timerEpoch = Epoch.initial
+    private var timers: [PipelineTimer.Kind: Epoch] = [:]
+
+    public init(tuning: TruthfulnessTuning = TruthfulnessTuning()) {
+        self.tuning = tuning
+    }
+
+    public mutating func handle(_ input: PipelineInput, at now: NovaInstant) -> [PipelineOutput] {
+        switch input {
+        case .driverUtterance(let text):
+            lastUtterance = text
+            utteranceAsksAction = ClaimLexicon.asksForAction(text)
+            freshUtterance = Self.length(text) >= tuning.phantomMinTranscript
+            nudgedThisUtterance = false
+            reaskedThisUtterance = false
+            pendingCorrection = nil
+            // A new driver turn cancels a pending correction and starts the no-answer clock.
+            return cancel(.correction) + cancel(.giveUp) + schedule(.reask, at: now + tuning.emptyResponseReask)
+        case .turnOpened(let id):
+            turn = Turn(id: id, phantomSuspect: !freshUtterance)
+            freshUtterance = false
+            return modelResponded()
+        case .replyText(let id, let text):
+            guard var t = current(id) else { return [] }
+            t.text += text
+            if t.claim == nil { t.claim = ClaimLexicon.claim(in: t.text) }
+            turn = t
+            return modelResponded() + route(.speechText(id, text), at: now)
+        case .replyAudio(let id, let pcm):
+            guard current(id) != nil else { return [] }
+            return modelResponded() + route(.speechAudio(id, pcm), at: now)
+        case .toolCalls(let id, let calls):
+            guard var t = current(id) else { return [] }
+            t.pendingCalls.formUnion(calls.map(\.id))
+            t.hadToolCall = true
+            turn = t
+            // The model did act after all: the nudge waiting in its grace period is not needed.
+            pendingCorrection = nil
+            return modelResponded() + cancel(.correction)
+        case .toolResult(let id, let response):
+            guard var t = current(id) else { return [] }
+            t.pendingCalls.remove(response.id)
+            t.results.append(response)
+            turn = t
+            return judge(at: now)
+        case .audioDone(let id), .turnClosed(let id, _):
+            guard var t = current(id) else { return [] }
+            if case .turnClosed = input { t.closed = true }
+            turn = t
+            return settle(at: now)
+        case .navigationPhase(let phase):
+            navigation = phase
+            return judge(at: now)
+        case .musicPlaying(let playing):
+            musicPlaying = playing
+            return judge(at: now)
+        case .timerFired(let timer):
+            guard timers[timer.kind] == timer.epoch else { return [] }
+            timers[timer.kind] = nil
+            return fire(timer.kind, at: now)
+        }
+    }
+
+    // MARK: Claim gate
+
+    private enum Verdict { case clean, proven, pending, disproven(CorrectionReason) }
+
+    private func verdict(_ t: Turn, final: Bool) -> Verdict {
+        guard let claim = t.claim else { return t.pendingCalls.isEmpty ? .clean : .pending }
+        let ok = t.results.filter(\.result.ok)
+        let failed = t.results.filter { !$0.result.ok }
+        if failed.contains(where: { $0.result.code == .ambiguousReferent }) { return .disproven(.clarifyReferent) }
+        if t.results.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
+            return .disproven(.partialScenario)
+        }
+        switch claim {
+        case .navigationStarted:
+            if navigation == .navigating { return .proven }
+            if !final || !t.pendingCalls.isEmpty || navigation.isSessionActive && !t.closed { return .pending }
+            return .disproven(.navigationNotStarted)
+        case .musicPlaying:
+            if musicPlaying { return .proven }
+            if !t.pendingCalls.isEmpty || !final { return .pending }
+            return .disproven(.musicNotConfirmed)
+        case .action:
+            if !t.pendingCalls.isEmpty { return .pending }
+            if !ok.isEmpty { return .proven }
+            if !failed.isEmpty { return .disproven(.claimAfterFailure) }
+            if !final { return .pending }
+            return .disproven(t.hadToolCall ? .unverifiedClaim
+                                : utteranceAsksAction ? .actionAskedNoToolCall : .unverifiedClaim)
+        }
+    }
+
+    private func isProven(_ t: Turn) -> Bool {
+        if case .proven = verdict(t, final: false) { return true }
+        return false
+    }
+
+    /// Sends an output through the gate: emitted at once only if nothing in the turn needs proof.
+    private mutating func route(_ output: PipelineOutput, at now: NovaInstant) -> [PipelineOutput] {
+        guard var t = turn, !t.voided else { return [] }
+        t.held.append(output)
+        t.heldEvents += 1
+        turn = t
+        if t.heldEvents > tuning.holdBudgetEvents {
+            // Hold budget spent: an unproven claim is dropped, anything else is let through.
+            if t.claim != nil, !isProven(t) { return void(.unverifiedClaim, at: now) }
+            turn?.phantomSuspect = false
+            return release()
+        }
+        return judge(at: now)
+    }
+
+    /// Re-evaluates the open turn: release, keep holding, or void.
+    private mutating func judge(at now: NovaInstant, final: Bool = false) -> [PipelineOutput] {
+        guard let t = turn, !t.voided else { return [] }
+        if t.phantomSuspect {
+            if !Self.isShort(t.text, tuning) || t.hadToolCall || t.claim != nil {
+                turn?.phantomSuspect = false  // more than a blip: judge it like any turn
+            } else if final {
+                return dropPhantom()          // a short reply to nothing: dropped silently
+            } else {
+                return []
+            }
+        }
+        switch verdict(turn!, final: final) {
+        case .clean, .proven:
+            return release()
+        case .pending:
+            return []
+        case .disproven(let reason):
+            return void(reason, at: now)
+        }
+    }
+
+    /// generationComplete / turnComplete: nothing more will come, so a pending claim is decided now.
+    private mutating func settle(at now: NovaInstant) -> [PipelineOutput] {
+        var out = judge(at: now, final: true)
+        // The driver asked for an action, the turn ended, and no tool was called (no claim either).
+        if let t = turn, t.closed, !t.voided, !t.hadToolCall, t.claim == nil, utteranceAsksAction,
+           !t.text.isEmpty {
+            out += nudge(.actionAskedNoToolCall, at: now)
+        }
+        if turn?.closed == true { turn = nil }
+        return out
+    }
+
+    private mutating func release() -> [PipelineOutput] {
+        guard var t = turn else { return [] }
+        let held = t.held
+        let events = t.heldEvents
+        t.held.removeAll()
+        t.heldEvents = 0
+        turn = t
+        // Only report a hold that waited on something (more than the single event passing through).
+        return (events > 1 ? [.diagnostic(.claimHeld(events: events))] : []) + held
+    }
+
+    private mutating func void(_ reason: CorrectionReason, at now: NovaInstant) -> [PipelineOutput] {
+        guard var t = turn, !t.voided else { return [] }
+        t.voided = true
+        t.held.removeAll()
+        turn = t
+        return [.voided(t.id)] + nudge(reason, at: now)
+    }
+
+    private mutating func dropPhantom() -> [PipelineOutput] {
+        guard var t = turn else { return [] }
+        t.voided = true
+        t.held.removeAll()
+        turn = t
+        return [.voided(t.id)]
+    }
+
+    // MARK: Corrections and re-ask
+
+    /// One corrective nudge per utterance, sent after the grace period unless a tool call or a new
+    /// driver turn cancels it.
+    private mutating func nudge(_ reason: CorrectionReason, at now: NovaInstant) -> [PipelineOutput] {
+        guard !nudgedThisUtterance else { return [] }
+        nudgedThisUtterance = true
+        pendingCorrection = reason
+        let toolMayFollow = reason == .actionAskedNoToolCall || reason == .unverifiedClaim && utteranceAsksAction
+        let grace = toolMayFollow ? tuning.correctionGraceToolMayFollow : tuning.correctionGraceChat
+        return schedule(.correction, at: now + grace)
+    }
+
+    private mutating func modelResponded() -> [PipelineOutput] {
+        cancel(.reask) + cancel(.giveUp)
+    }
+
+    private mutating func fire(_ kind: PipelineTimer.Kind, at now: NovaInstant) -> [PipelineOutput] {
+        switch kind {
+        case .correction:
+            guard let reason = pendingCorrection else { return [] }
+            pendingCorrection = nil
+            return [.sendCorrection(reason), .diagnostic(.correctionSent)]
+        case .reask:
+            guard !reaskedThisUtterance else { return [] }
+            reaskedThisUtterance = true
+            let giveUpAfter = tuning.emptyResponseGiveUp - tuning.emptyResponseReask
+            return [.reask(Self.reaskText), .diagnostic(.emptyResponseReask)] + schedule(.giveUp, at: now + giveUpAfter)
+        case .giveUp:
+            return [.gaveUp]
+        }
+    }
+
+    // MARK: Helpers
+
+    private func current(_ id: TurnID) -> Turn? {
+        guard let t = turn, t.id == id else { return nil }
+        return t
+    }
+
+    private mutating func schedule(_ kind: PipelineTimer.Kind, at deadline: NovaInstant) -> [PipelineOutput] {
+        timerEpoch = timerEpoch.next()
+        timers[kind] = timerEpoch
+        return [.schedule(PipelineTimer(kind: kind, epoch: timerEpoch), at: deadline)]
+    }
+
+    private mutating func cancel(_ kind: PipelineTimer.Kind) -> [PipelineOutput] {
+        timers.removeValue(forKey: kind) == nil ? [] : [.cancelTimer(kind)]
+    }
+
+    /// Characters that count, ignoring whitespace and punctuation.
+    static func length(_ text: String) -> Int {
+        text.unicodeScalars.filter { !$0.properties.isWhitespace && !isPunctuation($0) }.count
+    }
+
+    /// ≤12 CJK characters, or ≤40 Latin characters when there is no CJK.
+    static func isShort(_ text: String, _ tuning: TruthfulnessTuning) -> Bool {
+        let scalars = text.unicodeScalars.filter { !$0.properties.isWhitespace && !isPunctuation($0) }
+        let cjk = scalars.filter { $0.properties.isIdeographic }.count
+        return cjk > 0 ? cjk <= tuning.phantomMaxCJK && scalars.count - cjk <= tuning.phantomMaxLatin
+                       : scalars.count <= tuning.phantomMaxLatin
+    }
+
+    private static func isPunctuation(_ s: Unicode.Scalar) -> Bool {
+        switch s.properties.generalCategory {
+        case .connectorPunctuation, .dashPunctuation, .openPunctuation, .closePunctuation,
+             .initialPunctuation, .finalPunctuation, .otherPunctuation:
+            return true
+        default:
+            return false
+        }
+    }
+}
