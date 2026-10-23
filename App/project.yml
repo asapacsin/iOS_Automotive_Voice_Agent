@@ -35,5 +35,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Nova Drive
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Nova Drive listens to your voice commands.
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"

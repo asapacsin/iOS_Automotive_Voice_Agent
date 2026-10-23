@@ -1,0 +1,64 @@
+name: testflight
+# Signs NovaDrive with the paid Apple Developer account and uploads it to TestFlight.
+# Needs repository secrets: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (App Store Connect API key, App Manager
+# role, .p8 contents) and APPLE_TEAM_ID. Skips itself until they exist.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  upload:
+    runs-on: macos-15
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Check secrets
+        id: gate
+        run: |
+          if [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "TestFlight secrets not set yet; skipping."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.ready == 'true'
+      - name: Write API key
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          printf '%s' "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+      - name: Generate project
+        if: steps.gate.outputs.ready == 'true'
+        run: brew install xcodegen && xcodegen generate --spec App/project.yml
+      - name: Archive (automatic signing)
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          xcodebuild -project App/NovaDrive.xcodeproj -scheme NovaDrive -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/NovaDrive.xcarchive archive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }}
+      - name: Export and upload to TestFlight
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          cat > build/export.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive -archivePath build/NovaDrive.xcarchive -exportPath build/export \
+            -exportOptionsPlist build/export.plist -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
