@@ -93,6 +93,12 @@ public struct DriverTurnPipeline: Sendable {
     private var turn: Turn?
     private var navigation = NavigationPhase.idle
     private var musicPlaying = false
+    /// Evidence must postdate the request it proves: a new play / navigate call makes the current
+    /// playback or NAVIGATING state stale until a fresh report arrives after it (review 6).
+    private var musicFresh = true
+    private var navigationFresh = true
+    private var musicConfirmed: Bool { musicPlaying && musicFresh }
+    private var navigationConfirmed: Bool { navigation == .navigating && navigationFresh }
     private var lastUtterance = ""
     private var utteranceAsksAction = false
     /// A real utterance arrived since the last turn opened.
@@ -133,6 +139,14 @@ public struct DriverTurnPipeline: Sendable {
             guard current(id) != nil else { return [] }
             return modelResponded() + route(.speechAudio(id, pcm), at: now)
         case .toolCalls(let id, let calls):
+            for call in calls {
+                switch call.name {
+                case "navigate_to", "choose_navigation_option": navigationFresh = false
+                case "play_music": musicFresh = false
+                case "control_music" where call.arguments["action"]?.stringValue == "play": musicFresh = false
+                default: break
+                }
+            }
             guard var t = current(id) else { return [] }
             t.pendingCalls.formUnion(calls.map(\.id))
             t.hadToolCall = true
@@ -152,10 +166,13 @@ public struct DriverTurnPipeline: Sendable {
             turn = t
             return settle(at: now)
         case .navigationPhase(let phase):
+            // Only a transition into NAVIGATING is fresh evidence, not a republished snapshot.
+            if phase == .navigating && navigation != .navigating { navigationFresh = true }
             navigation = phase
             return judge(at: now)
         case .musicPlaying(let playing):
             musicPlaying = playing
+            if playing { musicFresh = true }
             return judge(at: now)
         case .timerFired(let timer):
             guard timers[timer.kind] == timer.epoch else { return [] }
@@ -194,17 +211,17 @@ public struct DriverTurnPipeline: Sendable {
             || Self.navigationRequest.contains(where: lastUtterance.contains)
         let musicAwaited = !okNames.isDisjoint(with: ["control_music", "play_music"])
             || Self.musicRequest.contains(where: lastUtterance.contains)
-        return navAwaited && navigation != .navigating || musicAwaited && !musicPlaying
+        return navAwaited && !navigationConfirmed || musicAwaited && !musicConfirmed
     }
 
     /// An ok navigation or music result whose own evidence holds: NAVIGATING, or playback verified
     /// (or verified stopped for `control_music{stop}`).
     private func evidenced(_ r: ToolResponse) -> Bool {
         switch r.name {
-        case "navigate_to", "choose_navigation_option": navigation == .navigating
+        case "navigate_to", "choose_navigation_option": navigationConfirmed
         case "control_music" where r.result.data["action"] == .string("stop") || r.result.data["status"] == .string("stopped"):
             !musicPlaying
-        default: musicPlaying
+        default: musicConfirmed
         }
     }
 
@@ -244,12 +261,12 @@ public struct DriverTurnPipeline: Sendable {
                          final: Bool) -> Verdict {
         switch claim {
         case .navigationStarted:
-            if navigation == .navigating { return .proven }
+            if navigationConfirmed { return .proven }
             if !final || navigation.isSessionActive && !t.closed { return .pending }
             return .disproven(.navigationNotStarted)
         case .musicPlaying:
             let musicFailed = failed.contains { $0.name == "control_music" || $0.name == "play_music" }
-            if musicPlaying && !musicFailed { return .proven }
+            if musicConfirmed && !musicFailed { return .proven }
             // Verified playback may report after generationComplete: wait for the turn to close.
             if !final || !t.closed && !musicFailed { return .pending }
             return .disproven(.musicNotConfirmed)

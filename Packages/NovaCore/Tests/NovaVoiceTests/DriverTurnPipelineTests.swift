@@ -642,4 +642,48 @@ struct DriverTurnPipelineReview5Tests {
         #expect(m.corrections.isEmpty)
     }
 }
+
+@Suite("T-019 F-06 review 6 regressions")
+struct DriverTurnPipelineReview6Tests {
+    let pcm = PCMBuffer(sampleRate: 24_000, samples: [0])
+    func audioOut(_ h: PipelineHarness) -> Int { h.out.filter { if case .speechAudio = $0 { true } else { false } }.count }
+
+    @Test("F-06 a song already playing does not prove a new 正在播放 (stale evidence)")
+    func staleMusic() {
+        var h = PipelineHarness()
+        h.send(.musicPlaying(true))
+        h.driver("播放周杰伦的晴天")
+        let c = h.call("c1", "play_music")
+        h.result(c, "play_music", .success(["status": "requested_unverified"]))
+        h.send(.replyAudio(h.turn, pcm))
+        h.say("正在为您播放晴天。")
+        h.close()
+        #expect(audioOut(h) == 0 && h.spoken.isEmpty)
+        // A fresh playback report after the call proves the next one.
+        var g = PipelineHarness()
+        g.send(.musicPlaying(true))
+        g.driver("播放周杰伦的晴天")
+        let d = g.call("c1", "play_music")
+        g.result(d, "play_music", .success())
+        g.send(.musicPlaying(true))
+        g.say("正在为您播放晴天。")
+        g.close()
+        #expect(g.spoken == "正在为您播放晴天。")
+    }
+
+    @Test("F-06 navigating to the old destination does not prove a new 导航已开始 (row 3)")
+    func staleNavigation() {
+        var h = PipelineHarness()
+        h.send(.navigationPhase(.navigating))
+        h.driver("导航去机场")
+        let c = h.call("c1", "navigate_to")
+        h.result(c, "navigate_to", .success(["status": "awaiting_route_selection_on_screen"]))
+        h.send(.navigationPhase(.navigating))  // a republished snapshot is not a new start
+        h.say("导航已开始。")
+        h.close()
+        #expect(!h.spoken.contains("导航已开始"))
+        h.advance(by: .seconds(2))
+        #expect(h.corrections == [.navigationNotStarted])
+    }
+}
 }
