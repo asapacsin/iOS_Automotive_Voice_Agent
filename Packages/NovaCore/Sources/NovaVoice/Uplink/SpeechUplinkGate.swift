@@ -44,6 +44,8 @@ public struct SpeechUplinkGate: Sendable {
     private var segmentLength = NovaDuration.zero
     private var segmentVoiced = NovaDuration.zero
     private var trailingUnvoiced = NovaDuration.zero
+    /// Voiced flags of the last `evidenceWindow` of frames, whatever the phase (`recent`).
+    private var recent: [Bool] = []
     /// RMS of the frames of the open segment, last `steadyWindowFrames` only.
     private var openRMS: [Double] = []
 
@@ -56,6 +58,12 @@ public struct SpeechUplinkGate: Sendable {
     public init(tuning: UplinkGateTuning = UplinkGateTuning()) {
         self.tuning = tuning
         noiseRMS = tuning.initialNoiseRMS
+    }
+
+    /// `hasRecentSpeech` (Astra P4): somebody is speaking now — at least the onset (200 ms) of voiced
+    /// frames within the last 600 ms evidence window. This, not the open gate, qualifies a barge-in.
+    public var hasRecentSpeech: Bool {
+        recent.filter { $0 }.count >= Int(tuning.onset.milliseconds / Self.frameDuration.milliseconds)
     }
 
     public var threshold: Double { max(tuning.rmsFloor, noiseRMS * tuning.noiseFactor) }
@@ -71,6 +79,9 @@ public struct SpeechUplinkGate: Sendable {
             return []
         }
         let voiced = rms > threshold
+        recent.append(voiced)
+        let window = Int(tuning.evidenceWindow.milliseconds / Self.frameDuration.milliseconds)
+        if recent.count > max(1, window) { recent.removeFirst(recent.count - max(1, window)) }
         switch phase {
         case .closed:
             if !voiced { noiseRMS += (rms - noiseRMS) * Self.noiseAdaptation }
