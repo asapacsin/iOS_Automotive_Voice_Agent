@@ -65,6 +65,8 @@ public struct SpeechArbiter: Sendable {
             case .interruptionBegan: focus = .transientLoss
             case .interruptionEnded(let shouldResume): focus = shouldResume ? .held : .permanentLoss
             case .routeLost: focus = .transientLoss
+            // Re-evaluate on the new route (§6.6): a hold from a lost route ends; R4 stays until regained.
+            case .routeAvailable: if focus == .transientLoss { focus = .held }
             case .mediaServicesReset: focus = .permanentLoss
             }
             // A lost focus stops the reply in progress; the reply decision covers what comes next.

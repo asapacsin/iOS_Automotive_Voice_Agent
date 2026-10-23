@@ -468,4 +468,69 @@ struct DriverTurnPipelineReview2Tests {
         #expect(audioOut(h) == 1)
     }
 }
+
+@Suite("T-019 F-06 review 3 regressions")
+struct DriverTurnPipelineReview3Tests {
+    let pcm = PCMBuffer(sampleRate: 24_000, samples: [0])
+    func audioOut(_ h: PipelineHarness) -> Int { h.out.filter { if case .speechAudio = $0 { true } else { false } }.count }
+
+    @Test("F-06 an ok navigate_to does not release audio before 导航已开始 is proven (B1, row 3)")
+    func navigationAudio() {
+        var h = PipelineHarness()
+        h.driver("导航去加油站")
+        let c = h.call("c1", "navigate_to")
+        h.result(c, "navigate_to", .success(["status": "awaiting_route_selection_on_screen"]))
+        h.send(.replyAudio(h.turn, pcm))
+        #expect(audioOut(h) == 0)
+        h.say("导航已开始。")
+        h.close()
+        #expect(audioOut(h) == 0 && h.spoken.isEmpty)
+    }
+
+    @Test("F-06 an ok control_music does not release audio while playback is unconfirmed (B1)")
+    func musicAudio() {
+        var h = PipelineHarness()
+        h.driver("放首歌")
+        let c = h.call("c1", "control_music")
+        h.result(c, "control_music", .success())
+        h.send(.replyAudio(h.turn, pcm))
+        #expect(audioOut(h) == 0)
+    }
+
+    @Test("F-06 a false action claim is not carried by a true music or navigation claim (B2, row 2)")
+    func everyClaimProven() {
+        var h = PipelineHarness()
+        h.send(.musicPlaying(true))
+        h.driver("打开空调再放首歌")
+        let a = h.call("c1", "control_climate")
+        let m = h.call("c2", "play_music")
+        h.result(a, "control_climate", .failure(.vehicleUnavailable))
+        h.result(m, "play_music", .success())
+        h.say("空调已打开，正在为您播放周杰伦。")
+        h.close()
+        #expect(h.spoken.isEmpty)
+
+        var n = PipelineHarness()
+        n.send(.navigationPhase(.navigating))
+        n.driver("打开空调")
+        let c = n.call("c1", "control_climate")
+        n.result(c, "control_climate", .failure(.vehicleUnavailable))
+        n.say("已为您打开空调，导航已开始。")
+        n.close()
+        #expect(n.spoken.isEmpty)
+    }
+
+    @Test("F-06 an honest clarification after AMBIGUOUS_REFERENT is heard without a nudge")
+    func clarification() {
+        var h = PipelineHarness()
+        h.driver("再低一点")
+        let c = h.call("c1", "control_seat")
+        h.result(c, "control_seat", .failure(.ambiguousReferent))
+        h.say("请问您是要调低座椅还是空调温度？")
+        h.close()
+        #expect(h.spoken == "请问您是要调低座椅还是空调温度？")
+        h.advance(by: .seconds(30))
+        #expect(h.corrections.isEmpty)
+    }
+}
 }

@@ -221,7 +221,7 @@
       "depends_on": [
         "T-011"
       ],
-      "note": "implemented; review REWORK fixed, waiting for re-review"
+      "note": "review 3 REWORK fixed; waiting for re-review"
     },
     {
       "id": "T-017",
@@ -299,14 +299,16 @@
     {
       "id": "T-022",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 40,
       "action": "F-08 minimal arbiter",
       "depends_on": [
         "T-019",
         "T-020"
       ],
-      "note": "implemented; review REWORK fixed, waiting for re-review"
+      "evidence": [
+        "U 6 tests (W2 with fakes, effect order, R1/R4/R5); review REWORK fixed ef06bd6; re-review PASS (high effort); row 1 is D"
+      ]
     },
     {
       "id": "T-023",

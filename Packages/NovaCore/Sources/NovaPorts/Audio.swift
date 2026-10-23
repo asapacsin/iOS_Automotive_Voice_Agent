@@ -71,6 +71,8 @@ public enum AudioSessionEvent: Sendable, Hashable {
     case interruptionBegan
     case interruptionEnded(shouldResume: Bool)
     case routeLost
+    /// A usable output route exists again (route change with a new device): re-evaluate after `routeLost`.
+    case routeAvailable
     case mediaServicesReset
 }
 

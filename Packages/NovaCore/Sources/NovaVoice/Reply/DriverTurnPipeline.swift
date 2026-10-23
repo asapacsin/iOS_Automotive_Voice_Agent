@@ -76,7 +76,9 @@ public struct DriverTurnPipeline: Sendable {
         var text = ""
         var held: [PipelineOutput] = []
         var heldEvents = 0
-        var claim: ClaimKind?
+        /// Every kind of claim made so far; each needs its own proof.
+        var claims: Set<ClaimKind> = []
+        var claim: ClaimKind? { claims.reduce(nil) { ClaimKind.strongest($0, $1) } }
         var pendingCalls: Set<CallID> = []
         var results: [ToolResponse] = []
         var hadToolCall = false
@@ -124,7 +126,7 @@ public struct DriverTurnPipeline: Sendable {
             guard var t = current(id) else { return [] }
             t.text += text
             // Re-judged on the whole text each time: a later sentence may make a stronger claim.
-            t.claim = ClaimKind.strongest(t.claim, ClaimLexicon.claim(in: t.text))
+            t.claims.formUnion(ClaimLexicon.claims(in: t.text))
             turn = t
             return modelResponded() + route(.speechText(id, text), at: now)
         case .replyAudio(let id, let pcm):
@@ -176,26 +178,46 @@ public struct DriverTurnPipeline: Sendable {
     /// Whether the turn must be held whole: audio can run ahead of its transcript, so in a turn that
     /// may claim an action nothing is released until the claim is proven or the turn is over (I-1, I-5).
     private func holdsWhole(_ t: Turn) -> Bool {
-        utteranceAsksAction || t.hadToolCall || t.claim != nil
+        utteranceAsksAction || t.hadToolCall || !t.claims.isEmpty
     }
+
+    /// Tools whose ok result is not yet evidence: navigation is proven by the phase, music by playback.
+    static let evidenceTools: Set<String> = ["navigate_to", "choose_navigation_option", "control_music", "play_music"]
 
     private func verdict(_ t: Turn, final: Bool) -> Verdict {
         let acting = t.results.filter(acts)
         let failed = acting.filter { !$0.result.ok }
         if t.results.contains(where: { !$0.result.ok && $0.result.code == .ambiguousReferent }) {
-            return t.claim == nil && !final ? .pending : .disproven(.clarifyReferent)
+            // An honest clarification question is heard; a claim on top of the ambiguity is not.
+            if t.claims.isEmpty { return final ? .clean : .pending }
+            return .disproven(.clarifyReferent)
         }
-        if t.claim != nil, acting.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
+        if !t.claims.isEmpty, acting.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
             return .disproven(.partialScenario)
         }
         // A call still open when the turn closes will never prove anything said in it.
-        if !t.pendingCalls.isEmpty { return final && t.closed && t.claim != nil ? .disproven(.unverifiedClaim) : .pending }
-        guard let claim = t.claim else {
-            // An ok acting result with nothing failed proves the turn's action: release it (Android
-            // `DriverTurn.kt:270`), so a long honest reply is not cut by the hold budget.
-            if !acting.isEmpty, failed.isEmpty, acting.contains(where: \.result.ok) { return .proven }
+        if !t.pendingCalls.isEmpty { return final && t.closed && !t.claims.isEmpty ? .disproven(.unverifiedClaim) : .pending }
+        if t.claims.isEmpty {
+            // An ok result of a direct-acting tool with nothing failed proves the turn's action: release it
+            // (Android `DriverTurn.kt:270`). Navigation and music results wait for their own evidence.
+            let awaitsEvidence = acting.contains { Self.evidenceTools.contains($0.name) }
+            if failed.isEmpty, !awaitsEvidence, acting.contains(where: \.result.ok) { return .proven }
             return !holdsWhole(t) || final ? .clean : .pending
         }
+        // Every claim needs its own proof; the first disproof wins, then any pending one holds.
+        var pending = false
+        for claim in [ClaimKind.action, .musicPlaying, .navigationStarted] where t.claims.contains(claim) {
+            switch verdict(of: claim, t, acting: acting, failed: failed, final: final) {
+            case .disproven(let reason): return .disproven(reason)
+            case .pending: pending = true
+            case .proven, .clean: break
+            }
+        }
+        return pending ? .pending : .proven
+    }
+
+    private func verdict(of claim: ClaimKind, _ t: Turn, acting: [ToolResponse], failed: [ToolResponse],
+                         final: Bool) -> Verdict {
         switch claim {
         case .navigationStarted:
             if navigation == .navigating { return .proven }
@@ -231,7 +253,7 @@ public struct DriverTurnPipeline: Sendable {
         if t.heldEvents > tuning.holdBudgetEvents {
             // Hold budget spent: an unproven claim is dropped. In a turn held whole with nothing to
             // judge yet the held audio is dropped (never released unjudged); a chat turn goes through.
-            if t.claim != nil, !isProven(t) { return void(.unverifiedClaim, at: now) }
+            if !t.claims.isEmpty, !isProven(t) { return void(.unverifiedClaim, at: now) }
             if holdsWhole(t), !isProven(t) { return dropHeldAudio() }
             turn?.phantomSuspect = false
             return release()
@@ -243,7 +265,7 @@ public struct DriverTurnPipeline: Sendable {
     private mutating func judge(at now: NovaInstant, final: Bool = false) -> [PipelineOutput] {
         guard let t = turn, !t.voided else { return [] }
         if t.phantomSuspect {
-            if !Self.isShort(t.text, tuning) || t.hadToolCall || t.claim != nil {
+            if !Self.isShort(t.text, tuning) || t.hadToolCall || !t.claims.isEmpty {
                 turn?.phantomSuspect = false  // more than a blip: judge it like any turn
             } else if final {
                 return dropPhantom()          // a short reply to nothing: dropped silently
@@ -268,7 +290,7 @@ public struct DriverTurnPipeline: Sendable {
     private mutating func settle(at now: NovaInstant) -> [PipelineOutput] {
         var out = judge(at: now, final: true)
         // The driver asked for an action, the turn ended, and no tool was called (no claim either).
-        if let t = turn, t.closed, !t.voided, !t.hadToolCall, t.claim == nil, utteranceAsksAction,
+        if let t = turn, t.closed, !t.voided, !t.hadToolCall, t.claims.isEmpty, utteranceAsksAction,
            !t.text.isEmpty {
             out += nudge(.actionAskedNoToolCall, at: now)
         }

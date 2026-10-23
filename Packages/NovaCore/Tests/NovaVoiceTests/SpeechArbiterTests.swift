@@ -63,6 +63,8 @@ struct SpeechArbiterTests {
         #expect(a.reply == .play)
         _ = a.handle(.replyPlaying(true))
         #expect(a.handle(.audioSession(.routeLost)).isEmpty && a.reply == .hold)
+        _ = a.handle(.audioSession(.routeAvailable))
+        #expect(a.reply == .play)
         a.regainFocus()
         let effects = a.handle(.audioSession(.mediaServicesReset))
         #expect(a.reply == .drop && effects.first == .flushPlayback(a.epoch))

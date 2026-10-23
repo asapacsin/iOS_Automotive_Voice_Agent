@@ -37,17 +37,22 @@ public enum ClaimLexicon {
     /// Negations that turn a phrase into the opposite (「没能打开」, 「无法播放」).
     static let negations = ["没有", "没能", "未能", "无法", "不能", "失败", "没法", "暂时不", "还没"]
 
-    /// The strongest claim in `text`, or nil. Negated sentences claim nothing.
-    public static func claim(in text: String) -> ClaimKind? {
+    /// Every kind of claim in `text`, judged per clause. Negated clauses claim nothing.
+    public static func claims(in text: String) -> Set<ClaimKind> {
         // Negation is judged per clause: 「已为您打开空调，如果还没凉下来请告诉我」 still claims.
-        let sentences = text.split(whereSeparator: { "。！？!?；;\n，,、：:".contains($0) })
-        var found: ClaimKind?
-        for sentence in sentences.map(String.init) where !negations.contains(where: sentence.contains) {
-            if navigation.contains(where: sentence.contains) { return .navigationStarted }
-            if music.contains(where: sentence.contains) { found = .musicPlaying }
-            else if found == nil, action.contains(where: sentence.contains) { found = .action }
+        let clauses = text.split(whereSeparator: { "。！？!?；;\n，,、：:".contains($0) })
+        var found: Set<ClaimKind> = []
+        for clause in clauses.map(String.init) where !negations.contains(where: clause.contains) {
+            if navigation.contains(where: clause.contains) { found.insert(.navigationStarted) }
+            else if music.contains(where: clause.contains) { found.insert(.musicPlaying) }
+            else if action.contains(where: clause.contains) { found.insert(.action) }
         }
         return found
+    }
+
+    /// The strongest claim in `text`, or nil.
+    public static func claim(in text: String) -> ClaimKind? {
+        claims(in: text).reduce(nil) { ClaimKind.strongest($0, $1) }
     }
 
     public static func asksForAction(_ utterance: String) -> Bool {
