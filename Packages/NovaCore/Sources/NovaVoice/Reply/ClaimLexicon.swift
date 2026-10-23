@@ -31,13 +31,16 @@ public enum ClaimLexicon {
     /// A driver utterance asking for an action, so a tool call should follow.
     static let request = ["打开", "关闭", "关上", "关掉", "开一下", "开个", "调高", "调低", "调到", "调成", "设置", "升高",
                           "降低", "放首", "放一首", "播放", "放歌", "导航", "打电话", "打给", "拨打", "开窗", "关窗", "凉一点",
-                          "暖一点", "热一点", "冷一点", "高一点", "低一点", "大一点", "小一点"]
+                          "暖一点", "热一点", "冷一点", "高一点", "低一点", "大一点", "小一点",
+                          // Feelings are requests (SPEC-006 C2, Android `DriverTurn.kt:930`): 「我有点热」.
+                          "热", "冷", "闷", "困", "晒", "蚊子", "关一下", "开一下", "调一下", "放一下"]
     /// Negations that turn a phrase into the opposite (「没能打开」, 「无法播放」).
     static let negations = ["没有", "没能", "未能", "无法", "不能", "失败", "没法", "暂时不", "还没"]
 
     /// The strongest claim in `text`, or nil. Negated sentences claim nothing.
     public static func claim(in text: String) -> ClaimKind? {
-        let sentences = text.split(whereSeparator: { "。！？!?；;\n".contains($0) })
+        // Negation is judged per clause: 「已为您打开空调，如果还没凉下来请告诉我」 still claims.
+        let sentences = text.split(whereSeparator: { "。！？!?；;\n，,、：:".contains($0) })
         var found: ClaimKind?
         for sentence in sentences.map(String.init) where !negations.contains(where: sentence.contains) {
             if navigation.contains(where: sentence.contains) { return .navigationStarted }

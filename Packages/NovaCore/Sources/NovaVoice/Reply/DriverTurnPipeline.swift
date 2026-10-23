@@ -80,6 +80,7 @@ public struct DriverTurnPipeline: Sendable {
         var pendingCalls: Set<CallID> = []
         var results: [ToolResponse] = []
         var hadToolCall = false
+        var audioSeen = false
         var voided = false
         var closed = false
         /// No real driver utterance led to this turn: hold it until it proves to be more than a blip.
@@ -190,6 +191,9 @@ public struct DriverTurnPipeline: Sendable {
         // A call still open when the turn closes will never prove anything said in it.
         if !t.pendingCalls.isEmpty { return final && t.closed && t.claim != nil ? .disproven(.unverifiedClaim) : .pending }
         guard let claim = t.claim else {
+            // An ok acting result with nothing failed proves the turn's action: release it (Android
+            // `DriverTurn.kt:270`), so a long honest reply is not cut by the hold budget.
+            if !acting.isEmpty, failed.isEmpty, acting.contains(where: \.result.ok) { return .proven }
             return !holdsWhole(t) || final ? .clean : .pending
         }
         switch claim {
@@ -219,6 +223,8 @@ public struct DriverTurnPipeline: Sendable {
     /// Sends an output through the gate: emitted at once only if nothing in the turn needs proof.
     private mutating func route(_ output: PipelineOutput, at now: NovaInstant) -> [PipelineOutput] {
         guard var t = turn, !t.voided else { return [] }
+        // Audio runs ahead of its transcript, so outside a proven turn it waits for the turn's end.
+        if case .speechAudio = output { t.audioSeen = true }
         t.held.append(output)
         t.heldEvents += 1
         turn = t
@@ -246,8 +252,11 @@ public struct DriverTurnPipeline: Sendable {
             }
         }
         switch verdict(turn!, final: final) {
-        case .clean, .proven:
+        case .proven:
             return release()
+        case .clean:
+            // A clean chat turn releases judged text as it comes; its audio waits for the end.
+            return final ? release() : releaseText()
         case .pending:
             return []
         case .disproven(let reason):
@@ -284,6 +293,15 @@ public struct DriverTurnPipeline: Sendable {
         t.held.removeAll()
         turn = t
         return [.voided(t.id)] + nudge(reason, at: now)
+    }
+
+    private mutating func releaseText() -> [PipelineOutput] {
+        guard var t = turn else { return [] }
+        let text = t.held.filter { if case .speechText = $0 { true } else { false } }
+        t.held.removeAll { if case .speechText = $0 { true } else { false } }
+        t.heldEvents = t.held.count
+        turn = t
+        return text
     }
 
     private mutating func dropHeldAudio() -> [PipelineOutput] {
@@ -325,10 +343,12 @@ public struct DriverTurnPipeline: Sendable {
         case .correction:
             guard let reason = pendingCorrection else { return [] }
             pendingCorrection = nil
+            freshUtterance = true  // the model's next turn answers this, not a phantom
             return [.sendCorrection(reason), .diagnostic(.correctionSent)]
         case .reask:
             guard !reaskedThisUtterance else { return [] }
             reaskedThisUtterance = true
+            freshUtterance = true
             let giveUpAfter = tuning.emptyResponseGiveUp - tuning.emptyResponseReask
             return [.reask(Self.reaskText), .diagnostic(.emptyResponseReask)] + schedule(.giveUp, at: now + giveUpAfter)
         case .giveUp:

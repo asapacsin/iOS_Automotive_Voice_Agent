@@ -23,6 +23,8 @@ public actor Revoicer {
 
     public var epoch: Epoch { queue.epoch }
 
+    public func newReply() { apply(queue.handle(.newReply)) }
+
     public func speak(_ clause: String) { apply(queue.handle(.clause(clause))) }
 
     /// Barge-in or a voided reply: in-flight requests are cancelled and nothing of the old epoch plays.
@@ -46,7 +48,9 @@ public actor Revoicer {
                     } catch let error as SpeechSynthesisError {
                         result = .failure(error)
                     } catch {
-                        return  // cancelled: the queue already moved on
+                        // Cancelled: the queue already moved on. Anything else is a failure, never a stall.
+                        if Task.isCancelled { return }
+                        result = .failure(SpeechSynthesisError("ASSISTANT_VOICE_FAILED"))
                     }
                     self.finished(epoch, sequence, result)
                 }

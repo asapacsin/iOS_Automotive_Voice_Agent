@@ -79,6 +79,17 @@ struct RevoicerQueueTests {
         #expect(!out.contains { if case .play = $0 { true } else { false } })
     }
 
+    @Test("F-07 a failure silences only its own reply")
+    func failureIsPerReply() {
+        var q = RevoicerQueue()
+        let e = q.epoch
+        _ = q.handle(.clause("一。"))
+        _ = q.handle(.synthesized(epoch: e, sequence: 0, .failure(SpeechSynthesisError("AZURE_TTS_TIMEOUT"))))
+        #expect(q.handle(.clause("二。")).isEmpty)
+        _ = q.handle(.newReply)
+        #expect(q.handle(.clause("三。")).count == 1)
+    }
+
     @Test("F-07 deadline is 4000 + 400 ms per character")
     func deadline() {
         var q = RevoicerQueue()

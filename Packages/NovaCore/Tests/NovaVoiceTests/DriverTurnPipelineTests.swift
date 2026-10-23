@@ -398,4 +398,74 @@ struct DriverTurnPipelineRegressionTests {
         #expect(audioOut(h) == 2)
     }
 }
+
+@Suite("T-019 F-06 review 2 regressions")
+struct DriverTurnPipelineReview2Tests {
+    let pcm = PCMBuffer(sampleRate: 24_000, samples: [0])
+    func audioOut(_ h: PipelineHarness) -> Int { h.out.filter { if case .speechAudio = $0 { true } else { false } }.count }
+
+    @Test("F-06 negation in a later clause does not hide the claim (B-a, row 2)")
+    func clauseNegation() {
+        var h = PipelineHarness()
+        h.driver("打开空调")
+        let c = h.call("c1", "control_climate")
+        h.result(c, "control_climate", .failure(.vehicleUnavailable))
+        h.say("已为您打开空调，如果还没凉下来请告诉我。")
+        h.close()
+        #expect(!h.spoken.contains("已为您打开空调"))
+    }
+
+    @Test("F-06 an implicit request (我有点热) is held whole (B-b, row 1)")
+    func implicitRequest() {
+        for said in ["我有点热", "关一下车窗"] {
+            var h = PipelineHarness()
+            h.driver(said)
+            h.send(.replyAudio(h.turn, pcm))
+            h.say("已为您把空调调低两度。")
+            h.close()
+            #expect(audioOut(h) == 0 && h.spoken.isEmpty, "\(said)")
+        }
+    }
+
+    @Test("F-06 an ok action turn keeps all its audio past the hold budget (B-c)")
+    func okTurnKeepsAudio() {
+        var h = PipelineHarness()
+        h.driver("把温度调到24度")
+        let c = h.call("c1", "control_climate")
+        h.result(c, "control_climate", .success(["temperature_c": 24]))
+        for _ in 0..<200 { h.send(.replyAudio(h.turn, pcm)) }
+        h.say("好的，温度现在是24度。")
+        h.close()
+        #expect(audioOut(h) == 200 && h.spoken == "好的，温度现在是24度。")
+    }
+
+    @Test("F-06 the honest answer to a correction is not a phantom (B-d)")
+    func correctionAnswerHeard() {
+        var h = PipelineHarness()
+        h.driver("打开空调")
+        let c = h.call("c1", "control_climate")
+        h.result(c, "control_climate", .failure(.vehicleUnavailable))
+        h.say("空调已打开")
+        h.close()
+        h.advance(by: .seconds(2))
+        #expect(h.corrections == [.claimAfterFailure])
+        h.turn = h.turn.next()
+        h.send(.turnOpened(h.turn))
+        h.send(.replyAudio(h.turn, pcm))
+        h.say("抱歉，空调打开失败了。")
+        h.close()
+        #expect(h.spoken == "抱歉，空调打开失败了。" && audioOut(h) == 1)
+    }
+
+    @Test("F-06 a chat turn shows text as judged and plays its audio at the end")
+    func chatTurn() {
+        var h = PipelineHarness()
+        h.driver("今天星期几")
+        h.send(.replyAudio(h.turn, pcm))
+        h.say("今天星期五。")
+        #expect(h.spoken == "今天星期五。" && audioOut(h) == 0)
+        h.close()
+        #expect(audioOut(h) == 1)
+    }
+}
 }

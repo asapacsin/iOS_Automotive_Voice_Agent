@@ -6,6 +6,9 @@ public enum RevoicerInput: Sendable, Hashable {
     case clause(String)
     /// Synthesis of clause `sequence` of reply `epoch` finished.
     case synthesized(epoch: Epoch, sequence: Int, Result<PCMBuffer, SpeechSynthesisError>)
+    /// ResponseStarted: a failure of the previous reply no longer silences this one (Android resets
+    /// `replyFailed` here). Nothing in flight is cut.
+    case newReply
     /// Barge-in, Interrupted, Error, Closed, VOIDED or cancelCurrentReply: drop everything of this reply.
     case cancel(newEpoch: Epoch)
 }
@@ -65,6 +68,9 @@ public struct RevoicerQueue: Sendable {
                 }
                 return out + startWaiting()
             }
+        case .newReply:
+            failed = false
+            return []
         case .cancel(let newEpoch):
             let cancels = inFlight.sorted().map { RevoicerOutput.cancelSynthesis(epoch: epoch, sequence: $0) }
             self = RevoicerQueue(epoch: max(newEpoch, epoch.next()), tuning: tuning)

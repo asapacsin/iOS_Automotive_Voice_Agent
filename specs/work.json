@@ -221,7 +221,7 @@
       "depends_on": [
         "T-011"
       ],
-      "note": "implemented, gates green; waiting for independent review"
+      "note": "implemented; review REWORK fixed, waiting for re-review"
     },
     {
       "id": "T-017",
@@ -239,24 +239,28 @@
     {
       "id": "T-018",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 35,
       "action": "F-11 vehicle handlers + SimulatedVehicle",
       "depends_on": [
         "T-017"
       ],
-      "note": "implemented, gates green; waiting for independent review"
+      "evidence": [
+        "U 19 golden tests from Android vehicle tests; gates green; independent review PASS (high effort) vs Android 9c53929"
+      ]
     },
     {
       "id": "T-020",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 36,
       "action": "F-07 clause segmenter, wait cues, revoicer queue; Azure REST client",
       "depends_on": [
         "T-011"
       ],
-      "note": "implemented, gates green; waiting for independent review"
+      "evidence": [
+        "U 11 tests (F-07 rows 2-3 logic); gates green; independent review PASS (high effort); row 1 is D (NOT_VERIFIED)"
+      ]
     },
     {
       "id": "T-024",
@@ -301,7 +305,8 @@
       "depends_on": [
         "T-019",
         "T-020"
-      ]
+      ],
+      "note": "implemented; review REWORK fixed, waiting for re-review"
     },
     {
       "id": "T-023",
