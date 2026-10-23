@@ -122,7 +122,8 @@ public struct DriverTurnPipeline: Sendable {
         case .replyText(let id, let text):
             guard var t = current(id) else { return [] }
             t.text += text
-            if t.claim == nil { t.claim = ClaimLexicon.claim(in: t.text) }
+            // Re-judged on the whole text each time: a later sentence may make a stronger claim.
+            t.claim = ClaimKind.strongest(t.claim, ClaimLexicon.claim(in: t.text))
             turn = t
             return modelResponded() + route(.speechText(id, text), at: now)
         case .replyAudio(let id, let pcm):
@@ -164,27 +165,46 @@ public struct DriverTurnPipeline: Sendable {
 
     private enum Verdict { case clean, proven, pending, disproven(CorrectionReason) }
 
+    /// Tools that only read: their ok result proves no action.
+    static let readOnlyTools: Set<String> = ["query_live_info", "describe_camera_view"]
+
+    private func acts(_ r: ToolResponse) -> Bool {
+        !Self.readOnlyTools.contains(r.name) && r.result.data["action"] != .string("get_state")
+    }
+
+    /// Whether the turn must be held whole: audio can run ahead of its transcript, so in a turn that
+    /// may claim an action nothing is released until the claim is proven or the turn is over (I-1, I-5).
+    private func holdsWhole(_ t: Turn) -> Bool {
+        utteranceAsksAction || t.hadToolCall || t.claim != nil
+    }
+
     private func verdict(_ t: Turn, final: Bool) -> Verdict {
-        guard let claim = t.claim else { return t.pendingCalls.isEmpty ? .clean : .pending }
-        let ok = t.results.filter(\.result.ok)
-        let failed = t.results.filter { !$0.result.ok }
-        if failed.contains(where: { $0.result.code == .ambiguousReferent }) { return .disproven(.clarifyReferent) }
-        if t.results.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
+        let acting = t.results.filter(acts)
+        let failed = acting.filter { !$0.result.ok }
+        if t.results.contains(where: { !$0.result.ok && $0.result.code == .ambiguousReferent }) {
+            return t.claim == nil && !final ? .pending : .disproven(.clarifyReferent)
+        }
+        if t.claim != nil, acting.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
             return .disproven(.partialScenario)
+        }
+        // A call still open when the turn closes will never prove anything said in it.
+        if !t.pendingCalls.isEmpty { return final && t.closed && t.claim != nil ? .disproven(.unverifiedClaim) : .pending }
+        guard let claim = t.claim else {
+            return !holdsWhole(t) || final ? .clean : .pending
         }
         switch claim {
         case .navigationStarted:
             if navigation == .navigating { return .proven }
-            if !final || !t.pendingCalls.isEmpty || navigation.isSessionActive && !t.closed { return .pending }
+            if !final || navigation.isSessionActive && !t.closed { return .pending }
             return .disproven(.navigationNotStarted)
         case .musicPlaying:
-            if musicPlaying { return .proven }
-            if !t.pendingCalls.isEmpty || !final { return .pending }
+            let musicFailed = failed.contains { $0.name == "control_music" || $0.name == "play_music" }
+            if musicPlaying && !musicFailed { return .proven }
+            if !final { return .pending }
             return .disproven(.musicNotConfirmed)
         case .action:
-            if !t.pendingCalls.isEmpty { return .pending }
-            if !ok.isEmpty { return .proven }
             if !failed.isEmpty { return .disproven(.claimAfterFailure) }
+            if acting.contains(where: \.result.ok) { return .proven }
             if !final { return .pending }
             return .disproven(t.hadToolCall ? .unverifiedClaim
                                 : utteranceAsksAction ? .actionAskedNoToolCall : .unverifiedClaim)
@@ -203,8 +223,10 @@ public struct DriverTurnPipeline: Sendable {
         t.heldEvents += 1
         turn = t
         if t.heldEvents > tuning.holdBudgetEvents {
-            // Hold budget spent: an unproven claim is dropped, anything else is let through.
+            // Hold budget spent: an unproven claim is dropped. In a turn held whole with nothing to
+            // judge yet the held audio is dropped (never released unjudged); a chat turn goes through.
             if t.claim != nil, !isProven(t) { return void(.unverifiedClaim, at: now) }
+            if holdsWhole(t), !isProven(t) { return dropHeldAudio() }
             turn?.phantomSuspect = false
             return release()
         }
@@ -262,6 +284,15 @@ public struct DriverTurnPipeline: Sendable {
         t.held.removeAll()
         turn = t
         return [.voided(t.id)] + nudge(reason, at: now)
+    }
+
+    private mutating func dropHeldAudio() -> [PipelineOutput] {
+        guard var t = turn else { return [] }
+        let before = t.held.count
+        t.held.removeAll { if case .speechAudio = $0 { true } else { false } }
+        t.heldEvents = t.held.count
+        turn = t
+        return [.diagnostic(.claimHeld(events: before - t.held.count))]
     }
 
     private mutating func dropPhantom() -> [PipelineOutput] {

@@ -295,4 +295,107 @@ struct DriverTurnPipelineTests {
         #expect(!DriverTurnPipeline.isShort(String(repeating: "a", count: 41), t))
         #expect(DriverTurnPipeline.length("嗯。") == 1)
     }
+
+@Suite("T-019 F-06 review regressions")
+struct DriverTurnPipelineRegressionTests {
+    let pcm = PCMBuffer(sampleRate: 24_000, samples: [0])
+    func audioOut(_ h: PipelineHarness) -> Int { h.out.filter { if case .speechAudio = $0 { true } else { false } }.count }
+
+    @Test("F-06 audio before its transcript is not heard after a failed tool (B1, row 2)")
+    func audioBeforeTextAfterFailure() {
+        var h = PipelineHarness()
+        h.driver("打开空调")
+        let c = h.call("c1", "control_climate")
+        h.result(c, "control_climate", .failure(.vehicleUnavailable))
+        h.send(.replyAudio(h.turn, pcm))
+        #expect(audioOut(h) == 0)
+        h.say("空调已打开")
+        h.close()
+        #expect(audioOut(h) == 0 && h.spoken.isEmpty)
+    }
+
+    @Test("F-06 audio before its transcript is not heard with no tool call (B1, row 1)")
+    func audioBeforeTextNoTool() {
+        var h = PipelineHarness()
+        h.driver("打开空调")
+        h.send(.replyAudio(h.turn, pcm))
+        h.say("好的，空调已打开")
+        h.close()
+        #expect(audioOut(h) == 0 && h.spoken.isEmpty)
+    }
+
+    @Test("F-06 a read-only ok result does not prove an action claim (B2)")
+    func readOnlyDoesNotProve() {
+        var h = PipelineHarness()
+        h.driver("打开空调")
+        let read = h.call("c1", "control_climate")
+        let act = h.call("c2", "control_climate")
+        h.say("空调已打开")
+        h.result(read, "control_climate", .success(["action": "get_state", "power_on": false]))
+        h.result(act, "control_climate", .failure(.vehicleUnavailable))
+        h.close()
+        #expect(h.spoken.isEmpty)
+    }
+
+    @Test("F-06 a later 导航已开始 is judged as a navigation claim (B3, row 3)")
+    func strongerLaterClaim() {
+        var h = PipelineHarness()
+        h.driver("导航去加油站")
+        let c = h.call("c1", "navigate_to")
+        h.say("已为您找到附近的加油站。")
+        h.result(c, "navigate_to", .success(["status": "awaiting_route_selection_on_screen"]))
+        h.say("导航已开始。")
+        h.close()
+        // The search result was true and may be heard; the start claim never is.
+        #expect(!h.spoken.contains("导航已开始"))
+        h.advance(by: .seconds(2))
+        #expect(h.corrections == [.navigationNotStarted])
+    }
+
+    @Test("F-06 the hold budget never releases audio unjudged while a call pends (B4)")
+    func budgetWithPendingCall() {
+        var h = PipelineHarness()
+        h.driver("打开空调")
+        _ = h.call("c1", "control_climate")
+        for _ in 0..<121 { h.send(.replyAudio(h.turn, pcm)) }
+        #expect(audioOut(h) == 0)
+    }
+
+    @Test("F-06 a stale music flag does not prove 正在播放 after control_music failed")
+    func staleMusic() {
+        var h = PipelineHarness()
+        h.send(.musicPlaying(true))
+        h.driver("放首歌")
+        let c = h.call("c1", "control_music")
+        h.result(c, "control_music", .failure(.vehicleUnavailable))
+        h.say("正在播放音乐")
+        h.close()
+        #expect(h.spoken.isEmpty)
+    }
+
+    @Test("F-06 a claim still pending when the turn closes is voided and nudged")
+    func closedWhilePending() {
+        var h = PipelineHarness()
+        h.driver("打开空调")
+        _ = h.call("c1", "control_climate")
+        h.say("空调已打开")
+        h.close()
+        #expect(h.out.contains(.voided(h.turn)))
+        h.advance(by: .seconds(30))
+        #expect(h.corrections == [.unverifiedClaim])
+    }
+
+    @Test("F-06 a proven turn releases audio and text, later chunks flow straight through")
+    func provenFlows() {
+        var h = PipelineHarness()
+        h.driver("打开空调")
+        let c = h.call("c1", "control_climate")
+        h.send(.replyAudio(h.turn, pcm))
+        h.say("空调已打开，")
+        h.result(c, "control_climate", .success(["power_on": true]))
+        #expect(audioOut(h) == 1 && h.spoken == "空调已打开，")
+        h.send(.replyAudio(h.turn, pcm))
+        #expect(audioOut(h) == 2)
+    }
+}
 }

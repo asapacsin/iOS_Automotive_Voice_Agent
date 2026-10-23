@@ -163,41 +163,53 @@
     {
       "id": "T-000g",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 15,
       "action": "Harden gates from review 2: secrets NAME from CredentialKey + *_key, Swift type annotations, .env/.xcscheme/.pbxproj, unquoted YAML, xcconfig conditions/comments, HAR headers; imports access-level and backtick imports, strip strings before comments, webSocketTask(; spec-trace ignore comments and .disabled; non-forgettable DiagnosticEvent sample check",
       "depends_on": [
         "T-000"
+      ],
+      "evidence": [
+        "scripts/gates/run_all.sh green; 2 reviews REWORK fixed (c87ed64, 1b88d86); re-check PASS (high effort)"
       ]
     },
     {
       "id": "T-012",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-02 listening lifecycle + local intents (pure, ManualClock)",
       "depends_on": [
         "T-011"
+      ],
+      "evidence": [
+        "U 18 tests (F-02 rows 1-4); independent review PASS (high effort); Android phrase table ported a1e956a"
       ]
     },
     {
       "id": "T-013",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 31,
       "action": "F-03 mic gain + 10 ms framer, F-04 uplink gate (needs Android PCM corpus via EVIDENCE_REQUEST for full parity)",
       "depends_on": [
         "T-011"
+      ],
+      "evidence": [
+        "U 12 tests (F-04 rows 1-3, F-03 frame row); review REWORK (gate stuck open) fixed 1b88d86; re-check PASS"
       ]
     },
     {
       "id": "T-014",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 32,
       "action": "F-05 VoiceSession state machine + F-24 ReconnectPolicy",
       "depends_on": [
         "T-011"
+      ],
+      "evidence": [
+        "U 14 tests (F-05 rows 2-3 logic, F-24 policy); independent review PASS (high effort)"
       ]
     },
     {
@@ -208,16 +220,20 @@
       "action": "F-06 reply pipeline: claim gate, ActionClaimGuard, correction grace, empty re-ask, phantom gate",
       "depends_on": [
         "T-011"
-      ]
+      ],
+      "note": "implemented, gates green; waiting for independent review"
     },
     {
       "id": "T-017",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 34,
       "action": "F-09 tool catalog, validation, guards, dispatcher (Android tables via EVIDENCE_REQUEST)",
       "depends_on": [
         "T-011"
+      ],
+      "evidence": [
+        "U 27 tests, guard tables ported from Android 9c53929; review PASS, verified byte-for-byte against Android"
       ]
     },
     {
@@ -228,7 +244,8 @@
       "action": "F-11 vehicle handlers + SimulatedVehicle",
       "depends_on": [
         "T-017"
-      ]
+      ],
+      "note": "implemented, gates green; waiting for independent review"
     },
     {
       "id": "T-020",
@@ -238,16 +255,20 @@
       "action": "F-07 clause segmenter, wait cues, revoicer queue; Azure REST client",
       "depends_on": [
         "T-011"
-      ]
+      ],
+      "note": "implemented, gates green; waiting for independent review"
     },
     {
       "id": "T-024",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 37,
       "action": "F-22 stores, CredentialWipe, SettingsReadiness (logic only on Linux)",
       "depends_on": [
         "T-011"
+      ],
+      "evidence": [
+        "U 5 tests (F-22 rows 1-3); independent review PASS (high effort)"
       ]
     },
     {

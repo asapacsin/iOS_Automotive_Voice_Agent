@@ -8,6 +8,16 @@ public enum ClaimKind: String, Sendable, Hashable {
     case musicPlaying
 }
 
+extension ClaimKind {
+    /// Navigation and music need stronger evidence than a plain action, so they win.
+    static func strongest(_ a: ClaimKind?, _ b: ClaimKind?) -> ClaimKind? {
+        let rank: (ClaimKind?) -> Int = { k in
+            switch k { case .navigationStarted: 3; case .musicPlaying: 2; case .action: 1; case nil: 0 }
+        }
+        return rank(a) >= rank(b) ? a : b
+    }
+}
+
 /// Phrase tables for claims and driver requests. PROPOSED: the spec gives examples only; the Android
 /// tables (`ActionClaimGuard.kt:447,671`) are an open EVIDENCE_REQUEST (STATUS.md, T-019).
 public enum ClaimLexicon {
