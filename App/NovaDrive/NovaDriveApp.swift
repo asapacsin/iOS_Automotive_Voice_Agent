@@ -7,7 +7,13 @@ import SwiftUI
 @main
 struct NovaDriveApp: App {
     var body: some Scene {
-        WindowGroup { ContentView() }
+        WindowGroup {
+            TabView {
+                ContentView().tabItem { Label("车辆", systemImage: "car") }
+                AudioSpikeView().tabItem { Label("音频测试", systemImage: "waveform") }
+                SettingsView().tabItem { Label("设置", systemImage: "key") }
+            }
+        }
     }
 }
 
