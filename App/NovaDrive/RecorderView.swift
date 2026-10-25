@@ -16,6 +16,7 @@ struct RecorderView: View {
                     Text("用已保存的 Gemini key 录制 7 段测试数据。全部是脚本文字，不用说话。goAway 最长等 16 分钟。")
                     Button(running ? "录制中…" : "录制全部") { start(scenarios) }.disabled(running)
                     Button("只录前 6 段") { start(Array(scenarios.dropLast())) }.disabled(running)
+                    Button("只录 goAway") { start(["goaway"]) }.disabled(running)
                 }
                 Section("日志") {
                     ForEach(Array(lines.enumerated()), id: \.offset) { Text($0.element).font(.footnote.monospaced()) }
@@ -28,6 +29,7 @@ struct RecorderView: View {
     private func start(_ names: [String]) {
         running = true
         lines = []
+        UIApplication.shared.isIdleTimerDisabled = true
         Task {
             do {
                 guard let key = try KeychainCredentialStore().value(for: .geminiAPIKey), !key.isEmpty else {
@@ -46,6 +48,7 @@ struct RecorderView: View {
                 lines.append("✗ \(error)")
             }
             running = false
+            UIApplication.shared.isIdleTimerDisabled = false
         }
     }
 }

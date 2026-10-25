@@ -95,9 +95,22 @@ public final class GeminiRecorder: @unchecked Sendable {
             let s = try await open(file, resumption: nil, expectSetup: false, thinkingLevel: "MINIMAL")
             try await s.until(file) { _ in false }
         case "goaway":
+            // Stream 100 ms of silence every 100 ms, as a quiet cabin would, until the server's goAway
+            // (sent before the session time limit). An idle socket was dropped after ~7 min without one.
             let s = try await open(file, resumption: [:])
-            try await s.until(file, timeout: .seconds(16 * 60)) { $0["goAway"] != nil }
-            s.close()
+            let silence = Data(count: 3200).base64EncodedString()
+            let chunk = try JSONSerialization.data(withJSONObject:
+                ["realtimeInput": ["audio": ["mimeType": "audio/pcm;rate=16000", "data": silence]]])
+            let streamer = Task {
+                while !Task.isCancelled {
+                    try? await s.send(raw: chunk)
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+            }
+            defer { streamer.cancel() }
+            try await s.until(file, timeout: .seconds(20 * 60)) { $0["goAway"] != nil }
+            file.note("goAway received; client keeps the socket until the server closes")
+            try await s.until(file, timeout: .seconds(120)) { _ in false }
         default:
             throw Failure(description: "unknown scenario \(scenario)")
         }
