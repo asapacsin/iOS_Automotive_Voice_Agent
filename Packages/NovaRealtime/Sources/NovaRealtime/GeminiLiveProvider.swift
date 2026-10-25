@@ -211,16 +211,24 @@ public final class GeminiLiveProvider: RealtimeProvider {
         state.withLock { s in if s.attempt == attempt { continuation.yield(event) } }
     }
 
+    /// Whichever comes first: the pong, or the deadline. A task group would wait for the ping child,
+    /// and `sendPing` on a black-holed socket neither calls back nor honours cancellation, so the
+    /// race resumes one continuation exactly once and leaves the stuck ping behind.
     private static func ping(_ connection: any WebSocketConnection, within deadline: NovaDuration) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask { (try? await connection.ping()) != nil }
-            group.addTask {
-                try? await Task.sleep(for: .milliseconds(deadline.milliseconds))
-                return false
+        let resumed = Mutex(false)
+        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            @Sendable func finish(_ alive: Bool) {
+                let first = resumed.withLock { r -> Bool in
+                    defer { r = true }
+                    return !r
+                }
+                if first { done.resume(returning: alive) }
             }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
+            Task { finish((try? await connection.ping()) != nil) }
+            Task {
+                try? await Task.sleep(for: .milliseconds(deadline.milliseconds))
+                finish(false)
+            }
         }
     }
 

@@ -89,7 +89,8 @@ final class FakeSocket: WebSocketConnection, @unchecked Sendable {
     }
 
     func ping() async throws {
-        if script.pingHangs { try await Task.sleep(for: .seconds(60)) }
+        // Like a black-holed URLSession ping: never calls back and ignores cancellation.
+        if script.pingHangs { await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in } }
     }
 
     func close() {

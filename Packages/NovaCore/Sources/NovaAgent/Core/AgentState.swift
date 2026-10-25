@@ -110,6 +110,8 @@ public struct AgentState: Sendable {
             speechOnsets += 1
             transcript = ""
             abandonNextTurn = false
+            // The driver speaks to her: a reply may claim focus again after a permanent loss (R4).
+            if recentSpeech { arbiter.regainFocus() }
             var effects: [AgentEffect] = []
             for effect in arbiter.handle(.speechStarted(recentSpeech: recentSpeech)) {
                 switch effect {

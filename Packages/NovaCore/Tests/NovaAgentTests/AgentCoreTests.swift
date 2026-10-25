@@ -262,6 +262,22 @@ struct AgentWalkthroughTests {
         #expect(spoken(d.effects).isEmpty)
     }
 
+    @Test("W2 R4: after a permanent focus loss the reply is dropped, and the next driver utterance regains focus")
+    func focusRegained() {
+        var d = Drive()
+        d.connect()
+        d.send(.audioSession(.interruptionEnded(shouldResume: false)))
+        #expect(d.state.arbiter.reply == .drop)
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        let t1 = TurnID(1)
+        d.realtime(.userTranscript("你好", isFinal: true))
+        d.realtime(.responseStarted(t1))
+        d.realtime(.replyText(t1, "你好，我在。"))
+        d.realtime(.responseDone(t1, outcome: .completed))
+        #expect(spoken(d.effects) == "你好，我在。")
+    }
+
     @Test("W1: nothing runs after stop, even a call already buffered from the socket")
     func afterStop() {
         var d = Drive()
