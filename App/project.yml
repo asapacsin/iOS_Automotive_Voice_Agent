@@ -10,6 +10,8 @@ packages:
     path: ../Packages/NovaServices
   NovaAudio:
     path: ../Packages/NovaAudio
+  NovaRealtime:
+    path: ../Packages/NovaRealtime
 targets:
   NovaDrive:
     type: application
@@ -26,6 +28,8 @@ targets:
         product: NovaServices
       - package: NovaAudio
         product: NovaAudio
+      - package: NovaRealtime
+        product: NovaRealtime
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive

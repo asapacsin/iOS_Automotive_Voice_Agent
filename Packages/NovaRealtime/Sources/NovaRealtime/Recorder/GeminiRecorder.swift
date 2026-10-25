@@ -1,33 +1,35 @@
 import Foundation
-import NovaPorts
-import NovaServices
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// T-003 on the phone: records Gemini Live server messages for the six contract fixtures
 /// (api-contracts.md, Gemini) and writes them as sanitised `.jsonl` into Documents/fixtures.
 /// Every driver turn is scripted text, so the fixtures hold no real person's voice or words.
-final class GeminiRecorder: @unchecked Sendable {
+public final class GeminiRecorder: @unchecked Sendable {
     static let endpoint = URL(string:
         "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent")!
     static let model = "models/gemini-3.8-live"
 
-    struct Failure: Error, CustomStringConvertible { let description: String }
+    public struct Failure: Error, CustomStringConvertible {
+        public let description: String
+        public init(description: String) { self.description = description }
+    }
 
     private let key: String
     private let log: @Sendable (String) -> Void
     private let dir: URL
 
-    init(log: @escaping @Sendable (String) -> Void) throws {
-        guard let key = try KeychainCredentialStore().value(for: .geminiAPIKey), !key.isEmpty else {
-            throw Failure(description: "没有 Gemini key，请先在设置里保存")
-        }
+    /// Writes `<scenario>.jsonl` files into `directory`.
+    public init(key: String, directory: URL, log: @escaping @Sendable (String) -> Void) throws {
         self.key = key
         self.log = log
-        dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("fixtures")
+        dir = directory
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
     /// Runs one scenario by name; `goaway` waits up to 16 minutes for the server's goAway.
-    func record(_ scenario: String) async throws {
+    public func record(_ scenario: String) async throws {
         let file = Fixture(url: dir.appendingPathComponent("\(scenario).jsonl"))
         log("▶ \(scenario)")
         switch scenario {
@@ -45,7 +47,9 @@ final class GeminiRecorder: @unchecked Sendable {
                         ["id": call["id"] ?? "", "name": call["name"] ?? "",
                          "response": ["status": "ok", "power_on": true, "temperature_c": 24]]
                     }
-                    Task { try? await s.send(["toolResponse": ["functionResponses": responses]]) }
+                    if let reply = try? JSONSerialization.data(withJSONObject: ["toolResponse": ["functionResponses": responses]]) {
+                        Task { try? await s.send(raw: reply) }
+                    }
                 }
                 return Self.turnComplete(msg) && file.sawToolCall
             }
@@ -57,9 +61,10 @@ final class GeminiRecorder: @unchecked Sendable {
             try await s.until(file) { msg in
                 if !interrupting, Self.hasModelAudio(msg) {
                     interrupting = true
+                    let stop = try? JSONSerialization.data(withJSONObject: Self.text("停一下，换个话题：今天天气怎么样？"))
                     Task {
                         try? await Task.sleep(for: .milliseconds(1500))
-                        try? await s.send(Self.text("停一下，换个话题：今天天气怎么样？"))
+                        if let stop { try? await s.send(raw: stop) }
                     }
                 }
                 return interrupting && file.sawInterrupted && Self.turnComplete(msg)
@@ -201,7 +206,10 @@ final class Socket: @unchecked Sendable {
     init(task: URLSessionWebSocketTask, file: Fixture) { self.task = task; self.file = file }
 
     func send(_ json: [String: Any]) async throws {
-        let data = try JSONSerialization.data(withJSONObject: json)
+        try await send(raw: JSONSerialization.data(withJSONObject: json))
+    }
+
+    func send(raw data: Data) async throws {
         try await task.send(.string(String(decoding: data, as: UTF8.self)))
     }
 

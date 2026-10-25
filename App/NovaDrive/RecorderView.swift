@@ -1,3 +1,6 @@
+import NovaPorts
+import NovaRealtime
+import NovaServices
 import SwiftUI
 
 /// T-003: records the Gemini Live contract fixtures on the phone (Documents/fixtures, shared over USB).
@@ -27,7 +30,14 @@ struct RecorderView: View {
         lines = []
         Task {
             do {
-                let recorder = try GeminiRecorder { line in Task { @MainActor in lines.append(line) } }
+                guard let key = try KeychainCredentialStore().value(for: .geminiAPIKey), !key.isEmpty else {
+                    throw GeminiRecorder.Failure(description: "没有 Gemini key，请先在设置里保存")
+                }
+                let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("fixtures")
+                let recorder = try GeminiRecorder(key: key, directory: dir) { line in
+                    Task { @MainActor in lines.append(line) }
+                }
                 for name in names {
                     do { try await recorder.record(name) } catch { lines.append("✗ \(name): \(error)") }
                 }
