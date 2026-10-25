@@ -178,7 +178,98 @@ struct AgentWalkthroughTests {
         #expect(d.state.view.chip == .processing)
         let timer = d.effects.compactMap { if case .schedule(.session(let t), _) = $0, t.kind == .reconnectDelay { t } else { nil } }
         let reconnect = d.send(.timer(.session(timer.last!)))
-        #expect(reconnect.contains(.provider(.connect(resume: "h1"))))
+        #expect(reconnect.contains(.provider(.connect(connection: d.state.session.connection, resume: "h1"))))
+    }
+
+    @Test("W1 in the recorded Gemini order: the call closes turn 1, the claim comes in turn 2 and is proven")
+    func w1RecordedOrder() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("帮我把空调打开", isFinal: false))
+        d.send(.speechStopped)
+        let t1 = TurnID(1), t2 = TurnID(2)
+        d.realtime(.userTranscript("帮我把空调打开", isFinal: true))
+        d.realtime(.responseStarted(t1))
+        d.realtime(.toolCalls(t1, [climateOn()]))
+        d.realtime(.audioDone(t1))
+        d.realtime(.responseDone(t1, outcome: .completed))
+        d.send(.toolFinished(t1, climateOn(), .success(["power_on": true, "temperature_c": 24])))
+        d.realtime(.responseStarted(t2))
+        d.realtime(.replyText(t2, "空调已为您打开。"))
+        d.realtime(.audioDone(t2))
+        d.realtime(.responseDone(t2, outcome: .completed))
+        _ = d.fire(.correction)
+        #expect(spoken(d.effects) == "空调已为您打开。")
+        #expect(!d.effects.contains { if case .provider(.text) = $0 { true } else { false } })  // no false nudge
+        #expect(!d.effects.contains { if case .flushPlayback = $0 { true } else { false } })
+    }
+
+    @Test("W3 in the real order: the flushed final transcript of the abandoned utterance does not revive it")
+    func w3FinalTranscript() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("把空调打开", isFinal: false))
+        d.send(.speechStopped)
+        d.fire(.reask)
+        d.fire(.giveUp)
+        let t1 = TurnID(1)
+        d.realtime(.userTranscript("把空调打开", isFinal: true))
+        d.realtime(.responseStarted(t1))
+        let late = d.realtime(.toolCalls(t1, [climateOn("late_1")]))
+        #expect(late == [.diagnostic(.lateToolResultDropped(turn: t1))])
+        #expect(!d.effects.contains { if case .startTool = $0 { true } else { false } })
+    }
+
+    @Test("W2/W4: turn ids restart on a new socket; a barged-in turn 1 does not mute the new turn 1")
+    func turnIDsPerSocket() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        let t1 = TurnID(1)
+        d.realtime(.responseStarted(t1))
+        d.realtime(.replyText(t1, "从前有一座山，"))
+        d.send(.playback(.replyStarted(Epoch.initial)))
+        d.send(.speechStarted(recentSpeech: true))  // barge-in silences turn 1 of socket 1
+        d.realtime(.failed(RealtimeError(.disconnect)))
+        let timer = d.effects.compactMap { if case .schedule(.session(let t), _) = $0, t.kind == .reconnectDelay { t } else { nil } }
+        d.send(.timer(.session(timer.last!)))
+        d.realtime(.setupComplete)
+        d.send(.speechStopped)
+        d.realtime(.userTranscript("你好", isFinal: true))
+        let before = d.effects.count
+        d.realtime(.responseStarted(t1))
+        d.realtime(.replyText(t1, "你好，我在。"))
+        d.realtime(.responseDone(t1, outcome: .completed))
+        #expect(spoken(Array(d.effects[before...])) == "你好，我在。")
+    }
+
+    @Test("W2: a server-side interrupted flushes playback and drops the half clause")
+    func serverInterrupted() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        let t1 = TurnID(1)
+        d.realtime(.userTranscript("讲个故事", isFinal: true))
+        d.realtime(.responseStarted(t1))
+        d.realtime(.replyText(t1, "从前"))
+        let out = d.realtime(.interrupted(t1, reason: .serverVAD))
+        #expect(out.contains(.flushPlayback(Epoch(1))))
+        d.realtime(.responseDone(t1, outcome: .completed))
+        #expect(spoken(d.effects).isEmpty)
+    }
+
+    @Test("W1: nothing runs after stop, even a call already buffered from the socket")
+    func afterStop() {
+        var d = Drive()
+        d.connect()
+        let connection = d.state.session.connection
+        d.send(.stop)
+        let out = d.send(.realtime(.toolCalls(TurnID(1), [climateOn()]), connection: connection))
+        #expect(out.isEmpty)
     }
 }
 

@@ -25,7 +25,8 @@ public enum AgentTimer: Sendable, Hashable {
 }
 
 public enum ProviderCommand: Sendable, Hashable {
-    case connect(resume: String?)
+    /// Open socket `connection`; its events come back tagged with it.
+    case connect(connection: Generation, resume: String?)
     case close
     case toolResponses([ToolResponse])
     case text([TextTurn], turnComplete: Bool)
@@ -67,18 +68,23 @@ public struct AgentState: Sendable {
     public private(set) var view = AgentViewState()
     private var dispatcher = ToolDispatcher()
     private var segmenter = ClauseSegmenter()
+    /// Turn state of the current socket. TurnIDs restart at 1 on every socket, so all of it is reset
+    /// when a new socket is opened.
+    private var openTurn: TurnID?
     /// Turns of an utterance the pipeline gave up on (W3): their late calls and words are dropped.
     private var abandoned: Set<TurnID> = []
     /// Set by the give-up; the next turn to open still belongs to that utterance.
     private var abandonNextTurn = false
-    /// Turns the driver barged into (W2): the rest of their reply is never spoken, even before
-    /// Gemini's `interrupted` arrives.
+    /// Turns the driver barged into, or that were voided (W2): nothing more of them is spoken, even
+    /// before Gemini's `interrupted` arrives.
     private var silenced: Set<TurnID> = []
-    private var openTurn: TurnID?
-    /// Partial driver transcript of the current utterance, and the speech-onset count (guard epochs).
+    /// Driver words of the current utterance, kept from speech onset until the next onset, so the
+    /// guards still read them when the tool call arrives.
     private var transcript = ""
     private var speechOnsets = 0
     private var transcriptEpoch = 0
+    /// Clauses waiting while the arbiter holds the reply (R1 guidance, R5 transient loss).
+    private var heldClauses: [String] = []
     /// Session timers by kind, so `cancelTimer` can name the pending one.
     private var sessionTimers: [SessionTimer.Kind: SessionTimer] = [:]
     private var pipelineTimers: [PipelineTimer.Kind: PipelineTimer] = [:]
@@ -92,50 +98,65 @@ public struct AgentState: Sendable {
         case .stop:
             return session(.stop, at: now)
         case .realtime(let realtime, let connection):
-            guard connection == session.connection else { return [] }
-            return session(.realtime(realtime, connection: connection), at: now) + reply(realtime, at: now)
+            guard connection == session.connection, session.state != .disconnected, session.state != .error else {
+                return []
+            }
+            // Session first (a terminal event closes the socket and the turn), then the reply side,
+            // unless that event ended the session.
+            let effects = session(.realtime(realtime, connection: connection), at: now)
+            guard session.state != .disconnected, session.state != .error else { return effects }
+            return effects + reply(realtime, at: now)
         case .speechStarted(let recentSpeech):
             speechOnsets += 1
+            transcript = ""
+            abandonNextTurn = false
             var effects: [AgentEffect] = []
             for effect in arbiter.handle(.speechStarted(recentSpeech: recentSpeech)) {
                 switch effect {
                 case .flushPlayback(let epoch):
                     if let turn = openTurn { silenced.insert(turn) }
+                    heldClauses = []
                     effects.append(.flushPlayback(epoch))
                 case .cancelRevoicing(let epoch):
                     segmenter.reset()
                     effects.append(.cancelRevoicing(epoch))
-                case .bargeIn(let qualified): effects += session(.bargeIn(qualified: qualified), at: now)
+                case .bargeIn(let qualified):
+                    effects += session(.bargeIn(qualified: qualified), at: now)
                 }
             }
             return effects + session(.speechStarted, at: now)
         case .speechStopped:
             // The no-answer clock (W3) starts when the driver stops, with what we heard so far.
-            let heard = transcript
-            transcript = ""
-            abandonNextTurn = false
-            return session(.speechStopped, at: now) + pipeline(.driverUtterance(heard), at: now)
+            return session(.speechStopped, at: now) + pipeline(.driverUtterance(transcript), at: now)
         case .toolFinished(let turn, let call, let result):
+            guard session.state != .disconnected, session.state != .error else { return [] }
             let finished = dispatcher.finish(call, result)
             let response = ToolResponse(id: call.id, name: call.name, result: finished)
             // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
             return [.provider(.toolResponses([response]))] + pipeline(.toolResult(turn, response), at: now)
         case .playback(let playback):
             switch playback {
-            case .replyStarted: _ = arbiter.handle(.replyPlaying(true))
-            case .replyFinished: _ = arbiter.handle(.replyPlaying(false))
+            // Only the current reply epoch counts: a late event of a flushed reply changes nothing.
+            case .replyStarted(let epoch) where epoch == arbiter.epoch: _ = arbiter.handle(.replyPlaying(true))
+            case .replyFinished(let epoch) where epoch == arbiter.epoch: _ = arbiter.handle(.replyPlaying(false))
+            case .replyStarted, .replyFinished: break
             case .guidanceStarted: _ = arbiter.handle(.guidanceSpeaking(true))
             case .guidanceEnded: _ = arbiter.handle(.guidanceSpeaking(false))
             }
-            return []
+            return releaseHeld()
         case .audioSession(let audio):
-            return arbiter.handle(.audioSession(audio)).compactMap { effect in
+            let stops: [AgentEffect] = arbiter.handle(.audioSession(audio)).compactMap { effect in
                 switch effect {
                 case .flushPlayback(let epoch): return .flushPlayback(epoch)
                 case .cancelRevoicing(let epoch): return .cancelRevoicing(epoch)
                 case .bargeIn: return nil
                 }
             }
+            if !stops.isEmpty {
+                if let turn = openTurn { silenced.insert(turn) }
+                segmenter.reset()
+            }
+            return stops + releaseHeld()
         case .timer(.session(let timer)):
             sessionTimers[timer.kind] = nil
             return session(.timerFired(timer), at: now)
@@ -155,10 +176,13 @@ public struct AgentState: Sendable {
                 view.chip = state.chip
                 if state == .connecting || state == .listening { view.configError = nil }
                 effects.append(.publish(view))
-            case .connect(_, let resume): effects.append(.provider(.connect(resume: resume)))
+            case .connect(let connection, let resume):
+                newSocket()
+                effects.append(.provider(.connect(connection: connection, resume: resume)))
             case .close:
+                // The turn in progress dies with its socket (contracts §5: Error/Closed drop the reply).
+                effects += endTurn(at: now)
                 effects.append(.provider(.close))
-                effects += closeTurn(at: now)
             case .schedule(let timer, let at):
                 sessionTimers[timer.kind] = timer
                 effects.append(.schedule(.session(timer), at: at))
@@ -173,11 +197,33 @@ public struct AgentState: Sendable {
         return effects
     }
 
-    /// A closed socket ends the turn in progress: nothing of it plays later (contracts §5, R4 on Error/Closed).
-    private mutating func closeTurn(at now: NovaInstant) -> [AgentEffect] {
+    private mutating func newSocket() {
+        openTurn = nil
+        abandoned = []
+        silenced = []
+        abandonNextTurn = false
+    }
+
+    /// Stops what is still playing or being voiced of the open turn and closes it as cancelled.
+    private mutating func endTurn(at now: NovaInstant) -> [AgentEffect] {
         guard let turn = openTurn else { return [] }
         openTurn = nil
-        return pipeline(.turnClosed(turn, .cancelled), at: now)
+        let stops = silenced.contains(turn) ? [] : stopReply(turn)
+        return stops + pipeline(.turnClosed(turn, .cancelled), at: now)
+    }
+
+    /// Raises the epoch: playback flushed, revoicing cancelled, held clauses dropped.
+    private mutating func stopReply(_ turn: TurnID) -> [AgentEffect] {
+        silenced.insert(turn)
+        segmenter.reset()
+        heldClauses = []
+        return arbiter.void().compactMap { effect in
+            switch effect {
+            case .flushPlayback(let epoch): return .flushPlayback(epoch)
+            case .cancelRevoicing(let epoch): return .cancelRevoicing(epoch)
+            case .bargeIn: return nil
+            }
+        }
     }
 
     // MARK: Reply
@@ -186,15 +232,16 @@ public struct AgentState: Sendable {
         if let turn = event.turn, abandoned.contains(turn) {
             // W3: the utterance was given up on; a late call is dropped and never executed, nothing is said.
             if case .toolCalls = event { return [.diagnostic(.lateToolResultDropped(turn: turn))] }
+            if openTurn == turn, event.closesTurn { openTurn = nil }
             return []
         }
         switch event {
         case .userTranscript(let text, let isFinal):
             transcriptEpoch = speechOnsets
             if isFinal {
-                transcript = ""
-                abandonNextTurn = false
-                return pipeline(.driverUtterance(text), at: now)
+                transcript = text
+                // The flushed transcript of an utterance already given up on does not revive it.
+                return abandonNextTurn ? [] : pipeline(.driverUtterance(text), at: now)
             }
             transcript += text
             return []
@@ -235,11 +282,18 @@ public struct AgentState: Sendable {
         case .audioDone(let turn):
             return pipeline(.audioDone(turn), at: now)
         case .interrupted(let turn, _):
-            openTurn = nil
-            return pipeline(.turnClosed(turn, .cancelled), at: now)
+            // Server-side interruption: whatever of this reply is still queued must not play.
+            let stops = openTurn == turn && !silenced.contains(turn) ? stopReply(turn) : []
+            if openTurn == turn { openTurn = nil }
+            return stops + pipeline(.turnClosed(turn, .cancelled), at: now)
         case .responseDone(let turn, let outcome):
-            openTurn = nil
-            return pipeline(.turnClosed(turn, outcome), at: now)
+            if openTurn == turn { openTurn = nil }
+            var effects = pipeline(.turnClosed(turn, outcome), at: now)
+            // The last half clause is spoken only for a reply that completed and still may be heard.
+            if outcome == .completed, !silenced.contains(turn), let rest = segmenter.flush() {
+                effects += speak([rest])
+            }
+            return effects
         case .setupComplete, .resumptionHandle, .goAway, .failed, .closed:
             return []
         }
@@ -249,31 +303,30 @@ public struct AgentState: Sendable {
         var effects: [AgentEffect] = []
         for output in pipeline.handle(input, at: now) {
             switch output {
-            case .speechText(_, let text):
+            case .speechText(let turn, let text):
+                guard !silenced.contains(turn) else { continue }
                 view.subtitle += text
                 effects.append(.publish(view))
-                effects += segmenter.append(text).map { .speak($0) }
+                effects += speak(segmenter.append(text))
             case .speechAudio:
                 // Revoicing is on (ADR-016): the provider's own audio is never played.
                 break
-            case .voided:
-                segmenter.reset()
+            case .voided(let turn):
                 view.subtitle = ""
-                effects += arbiter.void().compactMap { effect in
-                    switch effect {
-                    case .flushPlayback(let epoch): return .flushPlayback(epoch)
-                    case .cancelRevoicing(let epoch): return .cancelRevoicing(epoch)
-                    case .bargeIn: return nil
-                    }
-                }
+                effects += silenced.contains(turn) ? [] : stopReply(turn)
                 effects.append(.publish(view))
             case .sendCorrection(let reason):
-                effects.append(.diagnostic(.correctionSent))
                 effects.append(.provider(.text([TextTurn(role: .user, text: reason.instruction)], turnComplete: true)))
             case .reask(let text):
                 effects.append(.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)))
             case .gaveUp:
-                if let turn = openTurn { abandoned.insert(turn) } else { abandonNextTurn = true }
+                if let turn = openTurn {
+                    abandoned.insert(turn)
+                    effects += silenced.contains(turn) ? [] : stopReply(turn)
+                    openTurn = nil
+                } else {
+                    abandonNextTurn = true
+                }
             case .schedule(let timer, let at):
                 pipelineTimers[timer.kind] = timer
                 effects.append(.schedule(.pipeline(timer), at: at))
@@ -283,8 +336,33 @@ public struct AgentState: Sendable {
                 effects.append(.diagnostic(event))
             }
         }
-        if case .turnClosed = input, let rest = segmenter.flush() { effects.append(.speak(rest)) }
         return effects
+    }
+
+    /// Clauses go to the revoicer only while the arbiter says PLAY; HOLD keeps them, DROP discards them.
+    private mutating func speak(_ clauses: [String]) -> [AgentEffect] {
+        switch arbiter.reply {
+        case .play: return clauses.map { .speak($0) }
+        case .hold:
+            heldClauses += clauses
+            return []
+        case .drop:
+            return []
+        }
+    }
+
+    private mutating func releaseHeld() -> [AgentEffect] {
+        guard !heldClauses.isEmpty else { return [] }
+        switch arbiter.reply {
+        case .play:
+            let clauses = heldClauses
+            heldClauses = []
+            return clauses.map { .speak($0) }
+        case .hold: return []
+        case .drop:
+            heldClauses = []
+            return []
+        }
     }
 }
 
@@ -297,6 +375,13 @@ extension RealtimeEvent {
             t
         case .setupComplete, .userTranscript, .toolCallCancellation, .resumptionHandle, .goAway, .failed, .closed:
             nil
+        }
+    }
+
+    var closesTurn: Bool {
+        switch self {
+        case .interrupted, .responseDone: true
+        default: false
         }
     }
 }

@@ -15,6 +15,16 @@ final class FakeGeminiServer: WebSocketConnector, @unchecked Sendable {
     struct Script {
         var frames: [Data]
         var closeAfter: WebSocketClosed?
+        var pingHangs = false
+        /// `open` waits until `releaseOpen()`.
+        var openDelay = false
+    }
+
+    private let gate = FakeInbox()
+
+    func releaseOpen() {
+        let gate = gate
+        Task { await gate.push(.success(Data())) }
     }
 
     private let scripts: Mutex<[Script]>
@@ -26,6 +36,7 @@ final class FakeGeminiServer: WebSocketConnector, @unchecked Sendable {
         let script = scripts.withLock { $0.isEmpty ? Script(frames: [], closeAfter: nil) : $0.removeFirst() }
         let socket = FakeSocket(script: script, request: request)
         opened.withLock { $0.append(socket) }
+        if script.openDelay { _ = await gate.next() }
         return socket
     }
 }
@@ -52,6 +63,7 @@ actor FakeInbox {
 final class FakeSocket: WebSocketConnection, @unchecked Sendable {
     let request: URLRequest
     let sent = Mutex<[String]>([])
+    let closed = Mutex(false)
     private let inbox = FakeInbox()
     private let script: FakeGeminiServer.Script
     private let started = Mutex(false)
@@ -76,9 +88,12 @@ final class FakeSocket: WebSocketConnection, @unchecked Sendable {
         }
     }
 
-    func ping() async throws {}
+    func ping() async throws {
+        if script.pingHangs { try await Task.sleep(for: .seconds(60)) }
+    }
 
     func close() {
+        closed.withLock { $0 = true }
         let inbox = self.inbox
         Task { await inbox.finish() }
     }
@@ -86,6 +101,11 @@ final class FakeSocket: WebSocketConnection, @unchecked Sendable {
 
 struct KeyCredentials: RealtimeCredentialSource {
     func credential() async throws -> RealtimeCredential { .apiKey("test-key") }
+}
+
+struct NoKey: RealtimeCredentialSource {
+    struct Missing: Error {}
+    func credential() async throws -> RealtimeCredential { throw Missing() }
 }
 
 /// Wires `VoiceSession` to the provider the way the app will: connect effects open sockets, timers fire
@@ -96,6 +116,7 @@ final class SessionHarness {
     var states: [SessionUIState] = []
     var effects: [SessionEffect] = []
     var events: [RealtimeEvent] = []
+    var stale = 0
     let config = SessionConfig(systemInstruction: "persona", tools: [])
 
     init(_ server: FakeGeminiServer) {
@@ -107,7 +128,7 @@ final class SessionHarness {
             self.effects.append(effect)
             switch effect {
             case .stateChanged(let s): states.append(s)
-            case .connect(_, let resume): await provider.connect(config, resume: resume)
+            case .connect(let connection, let resume): await provider.connect(config, resume: resume, connection: connection)
             case .close: await provider.close()
             case .schedule(let timer, _) where timer.kind == .reconnectDelay:
                 await apply(session.handle(.timerFired(timer), at: .zero))
@@ -119,9 +140,14 @@ final class SessionHarness {
     /// Feeds provider events into the session until `done` holds for one of them.
     func run(until done: (RealtimeEvent) -> Bool) async {
         await apply(session.handle(.start, at: .zero))
-        for await event in provider.events {
+        for await stamped in provider.events {
+            guard stamped.connection == session.connection else {
+                stale += 1
+                continue
+            }
+            let event = stamped.event
             events.append(event)
-            await apply(session.handle(.realtime(event, connection: session.connection), at: .zero))
+            await apply(session.handle(.realtime(event, connection: stamped.connection), at: .zero))
             if done(event) { return }
         }
     }
@@ -193,9 +219,9 @@ struct GeminiLiveProviderTests {
     func writerOrder() async throws {
         let server = FakeGeminiServer([.init(frames: [Data(#"{"setupComplete":{}}"#.utf8)], closeAfter: nil)])
         let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server)
-        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil)
+        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
         var it = provider.events.makeAsyncIterator()
-        #expect(await it.next() == .setupComplete)
+        #expect(await it.next()?.event == .setupComplete)
         provider.sendAudio(.silence)
         provider.sendAudio(.silence)
         await provider.sendAudioStreamEnd()
@@ -218,12 +244,52 @@ struct GeminiLiveProviderTests {
         ])
         let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server)
         let config = SessionConfig(systemInstruction: "p", tools: [])
-        await provider.connect(config, resume: nil)
+        await provider.connect(config, resume: nil, connection: Generation(1))
         var it = provider.events.makeAsyncIterator()
-        #expect(await it.next() == .setupComplete)
-        await provider.connect(config, resume: "h")   // stops socket 1 silently
-        #expect(await it.next() == .setupComplete)
-        #expect(await it.next() == .failed(RealtimeError(.unavailable)))
+        #expect(await it.next() == ProviderEvent(connection: Generation(1), event: .setupComplete))
+        await provider.connect(config, resume: "h", connection: Generation(2))   // stops socket 1 silently
+        #expect(await it.next() == ProviderEvent(connection: Generation(2), event: .setupComplete))
+        #expect(await it.next() == ProviderEvent(connection: Generation(2), event: .failed(RealtimeError(.unavailable))))
         await provider.close()
+    }
+
+    @Test("F-05 row 3: no stored key is a terminal CREDENTIAL error, never a retried connection error")
+    func missingKey() async throws {
+        let server = FakeGeminiServer([])
+        let provider = GeminiLiveProvider(credentials: NoKey(), connector: server)
+        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        let event = await it.next()
+        #expect(event?.event == .failed(RealtimeError(.credential)))
+        #expect(!RealtimeErrorCode.credential.isRetryable)
+        #expect(server.opened.withLock { $0.isEmpty })
+    }
+
+    @Test("F-24: a ping without a pong ends the socket as a retryable drop (W4 on a black-holed socket)")
+    func deadPing() async throws {
+        var tuning = RealtimeTuning()
+        tuning.pingInterval = .milliseconds(20)
+        let server = FakeGeminiServer([.init(frames: [Data(#"{"setupComplete":{}}"#.utf8)], closeAfter: nil, pingHangs: true)])
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server, tuning: tuning)
+        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        #expect(await it.next()?.event == .setupComplete)
+        #expect(await it.next()?.event == .failed(RealtimeError(.disconnect)))
+    }
+
+    @Test("F-05: a close() while connect waits for the socket leaves nothing open and emits nothing")
+    func closeDuringConnect() async throws {
+        let server = FakeGeminiServer([.init(frames: [Data(#"{"setupComplete":{}}"#.utf8)], closeAfter: nil, openDelay: true)])
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server)
+        let connecting = Task {
+            await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
+        }
+        for _ in 0..<200 where server.opened.withLock({ $0.isEmpty }) { try await Task.sleep(for: .milliseconds(5)) }
+        await provider.close()
+        server.releaseOpen()
+        await connecting.value
+        let socket = try #require(server.opened.withLock { $0.first })
+        #expect(socket.closed.withLock { $0 })
+        #expect(socket.sent.withLock { $0.isEmpty })
     }
 }

@@ -124,6 +124,34 @@ struct GeminiReplayTests {
     }
 }
 
+@Suite("T-015 F-05 turn ordering rules 1-2 (synthetic frames)")
+struct GeminiOrderingTests {
+    func frame(_ json: String) -> [GeminiServerPart] { GeminiCodec.decode(Data(json.utf8)) ?? [] }
+
+    @Test("F-05 §4 rules 1-2: stashed output text; opening flushes UserTranscript, then ResponseStarted, then the text")
+    func stashAndFlush() {
+        var a = GeminiTurnAssembler()
+        var events = a.consume(frame(#"{"serverContent":{"inputTranscription":{"text":"打开"}}}"#))
+        events += a.consume(frame(#"{"serverContent":{"inputTranscription":{"text":"空调"}}}"#))
+        events += a.consume(frame(#"{"serverContent":{"outputTranscription":{"text":"好的"}}}"#))
+        #expect(events == [.userTranscript("打开", isFinal: false), .userTranscript("空调", isFinal: false)])
+        let opened = a.consume(frame(#"{"toolCall":{"functionCalls":[{"id":"c1","name":"control_climate","args":{"action":"power_on"}}]}}"#))
+        let call = ToolCall(id: CallID("c1")!, name: "control_climate", arguments: ["action": "power_on"])
+        #expect(opened == [.userTranscript("打开空调", isFinal: true), .responseStarted(TurnID(1)),
+                           .replyText(TurnID(1), "好的"), .toolCalls(TurnID(1), [call])])
+    }
+
+    @Test("F-05 §4 rule 1: transcript alone never opens a turn; a text-only turn completes with nothing leaking")
+    func textOnly() {
+        var a = GeminiTurnAssembler()
+        let events = a.consume(frame(#"{"serverContent":{"outputTranscription":{"text":"嗯"},"turnComplete":true}}"#))
+        #expect(events.isEmpty)
+        let next = a.consume(frame(#"{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm","data":"AAAA"}}]}}}"#))
+        #expect(next.first == .responseStarted(TurnID(1)))
+        #expect(!next.contains(.replyText(TurnID(1), "嗯")))
+    }
+}
+
 @Suite("T-015 F-05 close classification")
 struct GeminiCloseTests {
     @Test("F-05 recorded 1007: a rejected setup is MALFORMED (terminal); on a resumed setup RESUME_UNAVAILABLE")
@@ -169,6 +197,7 @@ struct GeminiClientMessageTests {
             "name": "control_climate", "description": "d", "parametersJsonSchema": ["type": "object"]]]]])
         #expect(msg?["sessionResumption"] == ["handle": "h1"])
         #expect(msg?["inputAudioTranscription"] == [:])
+        #expect(msg?["contextWindowCompression"] == ["slidingWindow": [:]])
         #expect(GeminiCodec.setup(config, resume: nil)["setup"]?["sessionResumption"] == [:])
     }
 

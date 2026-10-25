@@ -29,6 +29,8 @@ public enum GeminiCodec {
             "systemInstruction": ["parts": [["text": .string(config.systemInstruction)]]],
             "realtimeInputConfig": ["automaticActivityDetection": .object(detection)],
             "sessionResumption": handle.map { ["handle": .string($0)] } ?? [:],
+            // Lets the session outlive the server's context limit; resumption then extends it.
+            "contextWindowCompression": ["slidingWindow": [:]],
         ]
         if !config.tools.isEmpty {
             setup["tools"] = [["functionDeclarations": .array(config.tools.map { tool in

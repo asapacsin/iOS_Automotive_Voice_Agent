@@ -167,11 +167,24 @@ public enum RealtimeEvent: Sendable, Hashable {
     case closed
 }
 
+/// A provider event stamped with the socket it came from, so events buffered from an abandoned socket
+/// can be told apart after a reconnect or stop.
+public struct ProviderEvent: Sendable, Hashable {
+    public let connection: Generation
+    public let event: RealtimeEvent
+
+    public init(connection: Generation, event: RealtimeEvent) {
+        self.connection = connection
+        self.event = event
+    }
+}
+
 /// The only realtime surface app logic sees (I-13).
 public protocol RealtimeProvider: Sendable {
     var capabilities: RealtimeCapabilities { get }
-    var events: AsyncStream<RealtimeEvent> { get }
-    func connect(_ config: SessionConfig, resume handle: String?) async
+    var events: AsyncStream<ProviderEvent> { get }
+    /// Opens socket `connection` (the session's generation); its events carry that generation.
+    func connect(_ config: SessionConfig, resume handle: String?, connection: Generation) async
     /// Data plane: non-blocking enqueue from the capture queue.
     func sendAudio(_ frame: PCMFrame16k)
     func sendAudioStreamEnd() async
