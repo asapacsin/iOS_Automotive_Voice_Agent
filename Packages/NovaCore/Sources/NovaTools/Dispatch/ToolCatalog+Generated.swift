@@ -1,3 +1,5 @@
+// swiftlint:disable line_length
+// Generated from the Android tables byte for byte (F-09); long literals stay on one line.
 // GENERATED from the Android tool domains (evidence batch 1, commit 9c53929). Do not edit by hand:
 // names, descriptions and schemas must stay byte-for-byte equal to Android (F-09 iOS notes).
 import NovaKit

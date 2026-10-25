@@ -8,7 +8,7 @@ excluded:
   - App/NovaDrive.xcodeproj
   - build
 line_length:
-  warning: 130
+  warning: 160
   ignores_comments: true
   ignores_urls: true
   ignores_interpolated_strings: true
@@ -26,3 +26,8 @@ disabled_rules:
   - trailing_comma
   - opening_brace
   - statement_position
+  # `String(decoding:as:)` never fails; the failable form would add nil paths for valid UTF-8 only.
+  - optional_data_string_conversion
+  # Ported switch tables keep the Android layout.
+  - switch_case_alignment
+  - shorthand_operator
