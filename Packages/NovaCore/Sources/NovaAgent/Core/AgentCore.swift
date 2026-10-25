@@ -29,7 +29,7 @@ public final class ToolRunner: Sendable {
 
     public func start(_ call: ToolCall, onFinish: @escaping @Sendable (ToolResult) async -> Void) {
         let executor = executors[call.name] ?? fallback
-        let task = Task { [running] in
+        let task = Task { [self] in
             let result = await executor.execute(call)
             _ = running.withLock { $0.removeValue(forKey: call.id) }
             if Task.isCancelled { return }
