@@ -41,6 +41,7 @@ public final class GeminiRecorder: @unchecked Sendable {
         case "tool":
             let s = try await open(file, resumption: nil)
             try await s.send(Self.text("帮我把空调打开。"))
+            var answered = false
             try await s.until(file) { msg in
                 if let calls = (msg["toolCall"] as? [String: Any])?["functionCalls"] as? [[String: Any]] {
                     let responses = calls.map { call -> [String: Any] in
@@ -48,10 +49,14 @@ public final class GeminiRecorder: @unchecked Sendable {
                          "response": ["status": "ok", "power_on": true, "temperature_c": 24]]
                     }
                     if let reply = try? JSONSerialization.data(withJSONObject: ["toolResponse": ["functionResponses": responses]]) {
+                        answered = true
+                        file.note("toolResponse sent")
                         Task { try? await s.send(raw: reply) }
                     }
+                    return false
                 }
-                return Self.turnComplete(msg) && file.sawToolCall
+                // The turn that carried the call completes first; wait for the spoken answer after our response.
+                return answered && Self.turnComplete(msg) && file.sawModelAudioAfterNote
             }
             s.close()
         case "interrupted":
@@ -81,8 +86,13 @@ public final class GeminiRecorder: @unchecked Sendable {
             try await second.send(Self.text("我刚才让你记住的数字是多少？"))
             try await second.until(file) { Self.turnComplete($0) }
             second.close()
-        case "close1007":
+        case "close1008":
+            // An unknown resumption handle: the server closes with 1008 "session not found".
             let s = try await open(file, resumption: ["handle": "invalid-resumption-handle"], expectSetup: false)
+            try await s.until(file) { _ in false }
+        case "close1007":
+            // thinkingLevel MINIMAL is rejected by the live models (api-contracts.md).
+            let s = try await open(file, resumption: nil, expectSetup: false, thinkingLevel: "MINIMAL")
             try await s.until(file) { _ in false }
         case "goaway":
             let s = try await open(file, resumption: [:])
@@ -95,7 +105,8 @@ public final class GeminiRecorder: @unchecked Sendable {
         log("✓ \(scenario): \(file.count) 条")
     }
 
-    private func open(_ file: Fixture, resumption: [String: Any]?, expectSetup: Bool = true) async throws -> Socket {
+    private func open(_ file: Fixture, resumption: [String: Any]?, expectSetup: Bool = true,
+                      thinkingLevel: String? = nil) async throws -> Socket {
         var request = URLRequest(url: Self.endpoint)
         request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         let socket = Socket(task: URLSession.shared.webSocketTask(with: request), file: file)
@@ -122,6 +133,11 @@ public final class GeminiRecorder: @unchecked Sendable {
             "outputAudioTranscription": [:],
         ]
         if let resumption { setup["sessionResumption"] = resumption }
+        if let thinkingLevel {
+            var config = setup["generationConfig"] as? [String: Any] ?? [:]
+            config["thinkingConfig"] = ["thinkingLevel": thinkingLevel]
+            setup["generationConfig"] = config
+        }
         try await socket.send(["setup": setup])
         if expectSetup {
             try await socket.until(file, timeout: .seconds(10)) { $0["setupComplete"] != nil }
@@ -151,6 +167,8 @@ final class Fixture: @unchecked Sendable {
     private(set) var lastHandle: String?
     private(set) var sawToolCall = false
     private(set) var sawInterrupted = false
+    private(set) var sawModelAudioAfterNote = false
+    private var noted = false
 
     init(url: URL) { self.url = url }
 
@@ -163,12 +181,19 @@ final class Fixture: @unchecked Sendable {
         }
         if msg["toolCall"] != nil { lock.withLock { sawToolCall = true } }
         if (msg["serverContent"] as? [String: Any])?["interrupted"] as? Bool == true { lock.withLock { sawInterrupted = true } }
+        if GeminiRecorder.hasModelAudio(msg) { lock.withLock { if noted { sawModelAudioAfterNote = true } } }
         write(["dir": "server", "message": Self.sanitise(msg)])
     }
 
+    /// A frame that is not a JSON object, or an empty one, kept verbatim (cut to 200 characters).
+    func raw(_ text: String) { write(["dir": "server-raw", "text": String(text.prefix(200))]) }
+
     func closed(code: Int, reason: String) { write(["dir": "close", "code": code, "reason": reason]) }
 
-    func note(_ text: String) { write(["dir": "note", "text": text]) }
+    func note(_ text: String) {
+        lock.withLock { noted = true }
+        write(["dir": "note", "text": text])
+    }
 
     func save() throws {
         let body = lock.withLock { lines.joined(separator: "\n") + "\n" }
@@ -229,7 +254,10 @@ final class Socket: @unchecked Sendable {
             case .data(let d): data = d
             @unknown default: continue
             }
-            guard let msg = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            guard let msg = try? JSONSerialization.jsonObject(with: data) as? [String: Any], !msg.isEmpty else {
+                file.raw(String(decoding: data, as: UTF8.self))
+                continue
+            }
             file.add(msg)
             if done(msg) { return }
         }
