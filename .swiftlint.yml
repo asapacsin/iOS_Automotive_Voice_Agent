@@ -1,0 +1,28 @@
+# swiftlint --strict gate (specs/ai-agent-workflow.md, T-000x). Rules match the house style of the
+# ported code: long Chinese literals and Android-shaped switch tables are kept as they are.
+included:
+  - App
+  - Packages
+excluded:
+  - Packages/*/.build
+  - App/NovaDrive.xcodeproj
+  - build
+line_length:
+  warning: 130
+  ignores_comments: true
+  ignores_urls: true
+  ignores_interpolated_strings: true
+disabled_rules:
+  - identifier_name
+  - type_name
+  - nesting
+  - cyclomatic_complexity
+  - function_body_length
+  - type_body_length
+  - file_length
+  - large_tuple
+  - force_unwrapping
+  - todo
+  - trailing_comma
+  - opening_brace
+  - statement_position

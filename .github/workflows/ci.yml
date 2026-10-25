@@ -15,3 +15,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: scripts/gates/run_all.sh
+  xcode:
+    # T-000x: the Xcode gates the Linux job cannot run: app project, iOS build of the app and every
+    # iOS-only adapter package, and swiftlint --strict.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen swiftlint
+      - run: swiftlint lint --strict --quiet
+      - run: xcodegen generate --spec App/project.yml
+      - run: |
+          xcodebuild -project App/NovaDrive.xcodeproj -scheme NovaDrive -configuration Debug \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build | tail -n 40
+          test ${PIPESTATUS[0]} -eq 0
+      - run: |
+          for pkg in NovaAudio NovaNavAmap NovaPlatform NovaWakeIflytek; do
+            echo "== iOS build: $pkg"
+            (cd Packages/$pkg && xcodebuild -scheme $pkg -destination 'generic/platform=iOS' \
+              -derivedDataPath ../../build/$pkg CODE_SIGNING_ALLOWED=NO build | tail -n 20; test ${PIPESTATUS[0]} -eq 0)
+          done
