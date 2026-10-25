@@ -165,7 +165,8 @@ struct GeminiLiveProviderTests {
         #expect(harness.effects.contains(.diagnostic(.reconnectAttempt(attempt: 1, delay: .milliseconds(200)))))
         let sockets = server.opened.withLock { $0 }
         #expect(sockets.count == 2)
-        let handle = try #require(harness.events.compactMap { if case .resumptionHandle(let h?) = $0 { h } else { nil } }.first)
+        let handles: [String] = harness.events.compactMap { if case .resumptionHandle(let h?) = $0 { h } else { nil } }
+        let handle = try #require(handles.first)
         let secondSetup = try #require(sockets[1].sent.withLock { $0.first })
         #expect(secondSetup.contains("\"sessionResumption\":{\"handle\":\"\(handle)\"}"))
         #expect(harness.session.state == .listening)
