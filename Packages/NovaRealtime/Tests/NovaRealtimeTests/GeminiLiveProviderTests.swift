@@ -30,47 +30,58 @@ final class FakeGeminiServer: WebSocketConnector, @unchecked Sendable {
     }
 }
 
+/// Frames waiting for the client's `receive()`; one reader at a time.
+actor FakeInbox {
+    private var buffer: [Result<Data, WebSocketClosed>] = []
+    private var waiter: CheckedContinuation<Result<Data, WebSocketClosed>, Never>?
+    private var finished = false
+
+    func push(_ item: Result<Data, WebSocketClosed>) {
+        if let waiter { self.waiter = nil; waiter.resume(returning: item) } else { buffer.append(item) }
+    }
+
+    func finish() { push(.failure(WebSocketClosed(code: 1000, reason: ""))); finished = true }
+
+    func next() async -> Result<Data, WebSocketClosed> {
+        if !buffer.isEmpty { return buffer.removeFirst() }
+        if finished { return .failure(WebSocketClosed(code: 1000, reason: "")) }
+        return await withCheckedContinuation { waiter = $0 }
+    }
+}
+
 final class FakeSocket: WebSocketConnection, @unchecked Sendable {
     let request: URLRequest
     let sent = Mutex<[String]>([])
-    private let inbox: AsyncStream<Result<Data, WebSocketClosed>>
-    private let feed: AsyncStream<Result<Data, WebSocketClosed>>.Continuation
-    private let iterator: Mutex<AsyncStream<Result<Data, WebSocketClosed>>.Iterator?> = Mutex(nil)
-    private let setupSeen: AsyncStream<Void>.Continuation
-    private let setupStream: AsyncStream<Void>
+    private let inbox = FakeInbox()
+    private let script: FakeGeminiServer.Script
+    private let started = Mutex(false)
 
     init(script: FakeGeminiServer.Script, request: URLRequest) {
+        self.script = script
         self.request = request
-        (inbox, feed) = AsyncStream.makeStream()
-        (setupStream, setupSeen) = AsyncStream.makeStream()
-        // Frames flow only after the client's setup, like the real server.
-        let frames = script.frames, closeAfter = script.closeAfter, feed = self.feed, setupStream = self.setupStream
-        Task {
-            for await _ in setupStream { break }
-            for frame in frames { feed.yield(.success(frame)) }
-            if let closeAfter { feed.yield(.failure(closeAfter)) }
-        }
     }
 
     func send(_ text: String) async throws {
         sent.withLock { $0.append(text) }
-        if text.contains("\"setup\"") { setupSeen.yield() }
+        // Frames flow only after the client's setup, like the real server.
+        guard text.contains("\"setup\""), started.withLock({ s in defer { s = true }; return !s }) else { return }
+        for frame in script.frames { await inbox.push(.success(frame)) }
+        if let closeAfter = script.closeAfter { await inbox.push(.failure(closeAfter)) }
     }
 
     func receive() async throws -> Data {
-        var it = iterator.withLock { $0 } ?? inbox.makeAsyncIterator()
-        let next = await it.next()
-        iterator.withLock { $0 = it }
-        switch next {
-        case .success(let data)?: return data
-        case .failure(let closed)?: throw closed
-        case nil: throw WebSocketClosed(code: 1000, reason: "")
+        switch await inbox.next() {
+        case .success(let data): return data
+        case .failure(let closed): throw closed
         }
     }
 
     func ping() async throws {}
 
-    func close() { feed.finish() }
+    func close() {
+        let inbox = self.inbox
+        Task { await inbox.finish() }
+    }
 }
 
 struct KeyCredentials: RealtimeCredentialSource {
@@ -131,8 +142,11 @@ struct GeminiLiveProviderTests {
     func dropMidTurn() async throws {
         let recorded = try frames("resumption")
         // Connection 1: up to the first reply audio, then the network drops (no close frame).
-        let firstAudio = try #require(recorded[0].firstIndex { GeminiCodec.decode($0)?.contains {
-            if case .modelAudio = $0 { true } else { false } } == true })
+        func isAudio(_ frame: Data) -> Bool {
+            (GeminiCodec.decode(frame) ?? []).contains { if case .modelAudio = $0 { true } else { false } }
+        }
+        let audioIndex = recorded[0].firstIndex(where: isAudio)
+        let firstAudio = try #require(audioIndex)
         let server = FakeGeminiServer([
             .init(frames: Array(recorded[0][...firstAudio]), closeAfter: WebSocketClosed(code: 1006, reason: "")),
             .init(frames: recorded[1], closeAfter: nil),
