@@ -92,7 +92,7 @@ public final class EchoSpike: @unchecked Sendable {
             // The gate learns the noise bed for 1500 ms and cannot open before that.
             try await Task.sleep(for: .milliseconds(1700))
             // Not awaited: a stopped engine never reports playback, which would hang the spike.
-            Task { await livePlayer.scheduleBuffer(reply, completionCallbackType: .dataConsumed) }
+            Self.schedule(reply, on: livePlayer)
             try await Task.sleep(for: .milliseconds(3500))
             results.append(lock.withLock {
                 listening = false
@@ -135,6 +135,11 @@ public final class EchoSpike: @unchecked Sendable {
                 if gate.process(frame).contains(.speechStarted) { opened = true }
             }
         }
+    }
+
+    /// Fire and forget: nothing waits for playback, which a stopped engine never reports.
+    private static func schedule(_ buffer: AVAudioPCMBuffer, on player: AVAudioPlayerNode) {
+        player.scheduleBuffer(buffer, completionHandler: nil)
     }
 
     /// Voiced harmonics on a gliding 120–220 Hz pitch, gated at a 4 Hz syllable rate, near full scale.
