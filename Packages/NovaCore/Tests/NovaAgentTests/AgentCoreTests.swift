@@ -98,7 +98,10 @@ struct AgentWalkthroughTests {
         d.realtime(.responseDone(t1, outcome: .completed))
         #expect(spoken(d.effects).isEmpty)
         #expect(d.effects.contains(.flushPlayback(Epoch(1))))
-        #expect(d.effects.contains { if case .provider(.text) = $0 { true } else { false } })  // correction
+        // The correction goes out after its grace period (F-06), not at once.
+        let correction = d.fire(.correction)
+        #expect(correction.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.claimAfterFailure.instruction)],
+                                                     turnComplete: true))))
     }
 
     @Test("W2 barge-in: flush, then cancel revoicing, then the session hears the driver; clause 3 never plays")

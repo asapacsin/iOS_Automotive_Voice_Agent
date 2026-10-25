@@ -71,6 +71,9 @@ public struct AgentState: Sendable {
     private var abandoned: Set<TurnID> = []
     /// Set by the give-up; the next turn to open still belongs to that utterance.
     private var abandonNextTurn = false
+    /// Turns the driver barged into (W2): the rest of their reply is never spoken, even before
+    /// Gemini's `interrupted` arrives.
+    private var silenced: Set<TurnID> = []
     private var openTurn: TurnID?
     /// Partial driver transcript of the current utterance, and the speech-onset count (guard epochs).
     private var transcript = ""
@@ -96,7 +99,9 @@ public struct AgentState: Sendable {
             var effects: [AgentEffect] = []
             for effect in arbiter.handle(.speechStarted(recentSpeech: recentSpeech)) {
                 switch effect {
-                case .flushPlayback(let epoch): effects.append(.flushPlayback(epoch))
+                case .flushPlayback(let epoch):
+                    if let turn = openTurn { silenced.insert(turn) }
+                    effects.append(.flushPlayback(epoch))
                 case .cancelRevoicing(let epoch):
                     segmenter.reset()
                     effects.append(.cancelRevoicing(epoch))
@@ -204,8 +209,10 @@ public struct AgentState: Sendable {
             view.subtitle = ""
             return [.newReply] + pipeline(.turnOpened(turn), at: now)
         case .replyText(let turn, let text):
+            guard !silenced.contains(turn) else { return [] }
             return pipeline(.replyText(turn, text), at: now)
         case .replyAudio(let turn, let pcm):
+            guard !silenced.contains(turn) else { return [] }
             return pipeline(.replyAudio(turn, pcm), at: now)
         case .toolCalls(let turn, let calls):
             var effects = pipeline(.toolCalls(turn, calls), at: now)
