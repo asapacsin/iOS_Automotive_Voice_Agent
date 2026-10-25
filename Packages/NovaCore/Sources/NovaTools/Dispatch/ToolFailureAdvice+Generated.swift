@@ -53,3 +53,4 @@ extension ToolFailureAdvice {
     public static let chooseContact = "有多个联系人符合这个名字，没有拨号。请用一句话请用户说清楚是哪一位，不要自己选一个。"
     public static let climateOff = "设定已经改了，但空调现在是关着的，用户感受不到任何变化。请调用 control_climate{action=power_on} 把空调打开，成功后再用一句话告诉用户；不要直接说已经调好了。"
 }
+// swiftlint:enable line_length

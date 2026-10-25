@@ -321,3 +321,4 @@ extension ToolCatalog {
             ])),
     ]
 }
+// swiftlint:enable line_length
