@@ -63,19 +63,27 @@ public final class EchoSpike: @unchecked Sendable {
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: replyFormat)
 
-        let inFormat = engine.inputNode.outputFormat(forBus: 0)
         let outFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(PCMFrame16k.sampleRate),
                                       channels: 1, interleaved: true)!
-        guard let converter = AVAudioConverter(from: inFormat, to: outFormat) else {
-            throw NSError(domain: "EchoSpike", code: 1, userInfo: [NSLocalizedDescriptionKey: "no converter for \(inFormat)"])
-        }
-        converter.channelMap = [0]
-        engine.inputNode.installTap(onBus: 0, bufferSize: 480, format: inFormat) { [self] buffer, _ in
-            capture(buffer, converter, outFormat)
+        engine.inputNode.installTap(onBus: 0, bufferSize: 480, format: nil) { [self] buffer, _ in
+            capture(buffer, outFormat)
         }
         try engine.start()
         player.play()
-        defer { engine.inputNode.removeTap(onBus: 0); engine.stop() }
+        // Turning on voice processing reconfigures the I/O unit right after start, and iOS stops the engine
+        // when that happens; restart it, or no reply plays and nothing is captured.
+        nonisolated(unsafe) let liveEngine = engine
+        nonisolated(unsafe) let livePlayer = player
+        let restart = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                                             object: engine, queue: nil) { _ in
+            try? liveEngine.start()
+            livePlayer.play()
+        }
+        defer {
+            NotificationCenter.default.removeObserver(restart)
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
 
         let reply = Self.speechLikeReply(format: replyFormat, seconds: 3)
         var results: [EchoTrial] = []
@@ -83,8 +91,9 @@ public final class EchoSpike: @unchecked Sendable {
             lock.withLock { gate = SpeechUplinkGate(); framer.reset(); opened = false; peak = 0; listening = true }
             // The gate learns the noise bed for 1500 ms and cannot open before that.
             try await Task.sleep(for: .milliseconds(1700))
-            await player.scheduleBuffer(reply, completionCallbackType: .dataPlayedBack)
-            try await Task.sleep(for: .milliseconds(500))
+            // Not awaited: a stopped engine never reports playback, which would hang the spike.
+            player.scheduleBuffer(reply, completionHandler: nil)
+            try await Task.sleep(for: .milliseconds(3500))
             results.append(lock.withLock {
                 listening = false
                 return EchoTrial(gateOpened: opened, peakRMS: peak)
@@ -93,10 +102,19 @@ public final class EchoSpike: @unchecked Sendable {
         }
         return EchoSpikeReport(voiceProcessing: voiceProcessing, trials: results,
                                inputLatencyMs: session.inputLatency * 1000, outputLatencyMs: session.outputLatency * 1000,
-                               ioBufferMs: session.ioBufferDuration * 1000, captureSampleRate: inFormat.sampleRate)
+                               ioBufferMs: session.ioBufferDuration * 1000,
+                               captureSampleRate: engine.inputNode.outputFormat(forBus: 0).sampleRate)
     }
 
-    private func capture(_ buffer: AVAudioPCMBuffer, _ converter: AVAudioConverter, _ outFormat: AVAudioFormat) {
+    /// Built from the first captured buffer's format; rebuilt if a reconfiguration changes it.
+    private var converter: AVAudioConverter?
+
+    private func capture(_ buffer: AVAudioPCMBuffer, _ outFormat: AVAudioFormat) {
+        if converter?.inputFormat != buffer.format {
+            converter = AVAudioConverter(from: buffer.format, to: outFormat)
+            converter?.channelMap = [0]
+        }
+        guard let converter else { return }
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * outFormat.sampleRate / buffer.format.sampleRate) + 32
         guard let out = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: capacity) else { return }
         var fed = false
