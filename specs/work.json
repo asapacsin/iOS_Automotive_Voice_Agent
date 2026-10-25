@@ -288,22 +288,28 @@
     {
       "id": "T-015",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 38,
       "action": "Gemini codec, turn assembler, error classifier (contract replay)",
       "depends_on": [
         "T-011",
         "T-003"
+      ],
+      "evidence": [
+        "U 11 tests (fixture replay of 6 device-recorded sessions, §4 rules 1-2 synthetic, 1007/1008 classification); review REWORK fixed; re-review PASS (high effort)"
       ]
     },
     {
       "id": "T-016",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 39,
       "action": "Gemini transport + provider; fake WebSocket server",
       "depends_on": [
         "T-015"
+      ],
+      "evidence": [
+        "U 7 tests vs scripted fake server (W4 drop+resume, auth/credential terminal, dead ping, close during connect, writer order); 2 reworks fixed; re-review PASS (high effort)"
       ]
     },
     {
@@ -323,7 +329,7 @@
     {
       "id": "T-023",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 41,
       "action": "AgentCore, EffectRunner, ToolRunner; W1-W3 integration with fakes",
       "depends_on": [
@@ -333,6 +339,9 @@
         "T-016",
         "T-018",
         "T-022"
+      ],
+      "evidence": [
+        "U 11 tests (W1 incl. recorded call-then-claim order, W2, W3, per-socket turns, R4 regain, stop) + actor shell; 2 reworks fixed; re-review PASS (high effort)"
       ]
     },
     {
