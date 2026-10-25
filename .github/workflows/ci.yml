@@ -27,8 +27,9 @@ jobs:
       - run: |
           xcodebuild -project App/NovaDrive.xcodeproj -scheme NovaDrive -configuration Debug \
             -destination 'generic/platform=iOS' -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build | tail -n 40
-          test ${PIPESTATUS[0]} -eq 0
+            CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build > xcodebuild.log 2>&1 || true
+          grep -E ': (error|warning):' xcodebuild.log | sort -u | head -n 60
+          grep -q '\*\* BUILD SUCCEEDED \*\*' xcodebuild.log
       - run: |
           for pkg in NovaAudio NovaNavAmap NovaPlatform NovaWakeIflytek; do
             echo "== iOS build: $pkg"
