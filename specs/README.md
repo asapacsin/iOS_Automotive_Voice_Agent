@@ -9,6 +9,7 @@ branch `claude/10-22` (commit after `bf81876`).
 | Need | Read |
 |---|---|
 | What the product does, in one page | [product-spec.md](product-spec.md) |
+| How to record and verify an honest iPhone demo | [demo-recording.md](demo-recording.md) |
 | Components, data flow, state machines | [architecture.md](architecture.md) |
 | Target iOS architecture: packages, ports, concurrency, audio graph | [ios-architecture.md](ios-architecture.md) |
 | Every feature and its status | [feature-inventory.md](feature-inventory.md) |
