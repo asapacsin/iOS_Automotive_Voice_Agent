@@ -20,11 +20,15 @@ public struct GeminiTurnAssembler: Sendable {
         case .setupComplete:
             return [.setupComplete]
         case .resumption(let handle, let resumable):
-            // A non-resumable update means the current point cannot be resumed; drop the old handle.
-            return [.resumptionHandle(resumable ? handle : nil)]
+            // Mid-generation the server reports resumable=false without a handle: the last good handle
+            // still resumes the session, so only a new resumable handle is passed on.
+            guard resumable, let handle else { return [] }
+            return [.resumptionHandle(handle)]
         case .inputTranscript(let text):
+            // Partials go out as they arrive (guards and the no-answer clock read them); rule 2 still
+            // flushes the whole utterance as final when the turn opens.
             inputTranscript += text
-            return []
+            return [.userTranscript(text, isFinal: false)]
         case .outputTranscript(let text), .modelText(let text):
             // Rule 1: transcript before the turn opens is stashed until audio or a tool call opens it.
             guard let turn = openTurn else { stashedOutput.append(text); return [] }

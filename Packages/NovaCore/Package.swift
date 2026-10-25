@@ -24,5 +24,6 @@ let package = Package(
         .testTarget(name: "NovaPortsTests", dependencies: ["NovaKit", "NovaPorts"]),
         .testTarget(name: "NovaToolsTests", dependencies: ["NovaKit", "NovaPorts", "NovaTools"]),
         .testTarget(name: "NovaVoiceTests", dependencies: ["NovaKit", "NovaPorts", "NovaVoice"]),
+        .testTarget(name: "NovaAgentTests", dependencies: ["NovaKit", "NovaPorts", "NovaVoice", "NovaTools", "NovaAgent"]),
     ]
 )
