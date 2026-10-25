@@ -77,6 +77,13 @@ public struct SpeechArbiter: Sendable {
         }
     }
 
+    /// A voided reply (F-06): nothing of it may still play, so the epoch moves on as for a barge-in.
+    public mutating func void() -> [ArbiterEffect] {
+        epoch = epoch.next()
+        replyPlaying = false
+        return [.flushPlayback(epoch), .cancelRevoicing(epoch)]
+    }
+
     /// A new reply may claim focus again after a permanent loss (the driver spoke to her).
     public mutating func regainFocus() { focus = .held }
 }

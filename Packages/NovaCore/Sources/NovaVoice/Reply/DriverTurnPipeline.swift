@@ -100,6 +100,11 @@ public struct DriverTurnPipeline: Sendable {
     private var musicConfirmed: Bool { musicPlaying && musicFresh }
     private var navigationConfirmed: Bool { navigation == .navigating && navigationFresh }
     private var lastUtterance = ""
+    /// Tool evidence of the current utterance. Gemini puts the call in one turn and the spoken result
+    /// in the next (recorded, T-003 tool.jsonl), so proof is scoped to the utterance, not the turn.
+    private var utteranceCalls: Set<CallID> = []
+    private var utterancePending: Set<CallID> = []
+    private var utteranceResults: [ToolResponse] = []
     private var utteranceAsksAction = false
     /// A real utterance arrived since the last turn opened.
     private var freshUtterance = false
@@ -129,10 +134,18 @@ public struct DriverTurnPipeline: Sendable {
             nudgedThisUtterance = false
             reaskedThisUtterance = false
             pendingCorrection = nil
+            utteranceCalls = []
+            utterancePending = []
+            utteranceResults = []
             // A new driver turn cancels a pending correction and starts the no-answer clock.
             return cancel(.correction) + cancel(.giveUp) + schedule(.reask, at: now + tuning.emptyResponseReask)
         case .turnOpened(let id):
-            turn = Turn(id: id, phantomSuspect: !freshUtterance)
+            var opened = Turn(id: id, phantomSuspect: !freshUtterance)
+            // A later turn of the same utterance inherits its calls and results.
+            opened.results = utteranceResults
+            opened.pendingCalls = utterancePending
+            opened.hadToolCall = !utteranceCalls.isEmpty
+            turn = opened
             freshUtterance = false
             return modelResponded()
         case .replyText(let id, let text):
@@ -154,6 +167,8 @@ public struct DriverTurnPipeline: Sendable {
                 default: break
                 }
             }
+            utteranceCalls.formUnion(calls.map(\.id))
+            utterancePending.formUnion(calls.map(\.id))
             guard var t = current(id) else { return [] }
             t.pendingCalls.formUnion(calls.map(\.id))
             t.hadToolCall = true
@@ -162,9 +177,12 @@ public struct DriverTurnPipeline: Sendable {
             pendingCorrection = nil
             return modelResponded() + cancel(.correction)
         case .toolResult(let id, let response):
-            guard var t = current(id) else { return [] }
+            let ofUtterance = utterancePending.remove(response.id) != nil
+            if ofUtterance { utteranceResults.append(response) }
+            // The result may arrive after its own turn closed; it then proves the utterance's open turn.
+            guard var t = turn, t.id == id || ofUtterance else { return [] }
             t.pendingCalls.remove(response.id)
-            t.results.append(response)
+            if !t.results.contains(response) { t.results.append(response) }
             turn = t
             return judge(at: now)
         case .audioDone(let id), .turnClosed(let id, _):

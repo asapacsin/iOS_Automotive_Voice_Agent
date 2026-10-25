@@ -10,11 +10,17 @@ packages:
     path: ../Packages/NovaServices
   NovaAudio:
     path: ../Packages/NovaAudio
+  NovaRealtime:
+    path: ../Packages/NovaRealtime
 targets:
   NovaDrive:
     type: application
     platform: iOS
     sources: [NovaDrive]
+    info:
+      path: NovaDrive/Info.plist
+      properties:
+        UIFileSharingEnabled: true
     dependencies:
       - package: NovaCore
         product: NovaKit
@@ -26,6 +32,8 @@ targets:
         product: NovaServices
       - package: NovaAudio
         product: NovaAudio
+      - package: NovaRealtime
+        product: NovaRealtime
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive
@@ -34,6 +42,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: Nova Drive
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Nova Drive listens to your voice commands.
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
         TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"

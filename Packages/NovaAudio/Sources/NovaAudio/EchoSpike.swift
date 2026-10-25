@@ -85,14 +85,14 @@ public final class EchoSpike: @unchecked Sendable {
             engine.stop()
         }
 
-        let reply = Self.speechLikeReply(format: replyFormat, seconds: 3)
+        nonisolated(unsafe) let reply = Self.speechLikeReply(format: replyFormat, seconds: 3)
         var results: [EchoTrial] = []
         for _ in 0..<trials {
             lock.withLock { gate = SpeechUplinkGate(); framer.reset(); opened = false; peak = 0; listening = true }
             // The gate learns the noise bed for 1500 ms and cannot open before that.
             try await Task.sleep(for: .milliseconds(1700))
             // Not awaited: a stopped engine never reports playback, which would hang the spike.
-            player.scheduleBuffer(reply, completionHandler: nil)
+            Self.schedule(reply, on: livePlayer)
             try await Task.sleep(for: .milliseconds(3500))
             results.append(lock.withLock {
                 listening = false
@@ -135,6 +135,11 @@ public final class EchoSpike: @unchecked Sendable {
                 if gate.process(frame).contains(.speechStarted) { opened = true }
             }
         }
+    }
+
+    /// Fire and forget: nothing waits for playback, which a stopped engine never reports.
+    private static func schedule(_ buffer: AVAudioPCMBuffer, on player: AVAudioPlayerNode) {
+        player.scheduleBuffer(buffer, completionHandler: nil)
     }
 
     /// Voiced harmonics on a gliding 120–220 Hz pitch, gated at a 4 Hz syllable rate, near full scale.

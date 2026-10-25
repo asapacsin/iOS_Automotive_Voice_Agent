@@ -241,6 +241,8 @@ struct ICURegex: @unchecked Sendable, Hashable {
 
     init(_ pattern: String) {
         self.pattern = pattern
+        // Patterns are compile-time constants covered by the guard tests; a bad one must fail loudly.
+        // swiftlint:disable:next force_try
         regex = try! NSRegularExpression(pattern: pattern)
     }
 
