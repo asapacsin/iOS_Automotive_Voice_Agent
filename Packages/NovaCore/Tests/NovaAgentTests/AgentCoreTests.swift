@@ -305,6 +305,8 @@ final class RecordingSink: AgentEffectSink, @unchecked Sendable {
     func speak(_ clause: String) async { log.withLock { $0.append("speak:\(clause)") } }
     func publish(_ view: AgentViewState) async {}
     func diagnostic(_ event: DiagnosticEvent) {}
+    func speakGuidance(_ text: String, id: GuidanceID) async { log.withLock { $0.append("guidance:\(text)") } }
+    func uplink(open: Bool) {}
 }
 
 struct OkExecutor: ToolExecutor {

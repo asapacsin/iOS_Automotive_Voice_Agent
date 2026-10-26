@@ -133,7 +133,11 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     public func completeReply(epoch: Epoch) {}
 
     public func playGuidance(_ pcm: PCMBuffer, id: GuidanceID) {
-        guard let buffer = Self.buffer(pcm, format: replyFormat) else { return }
+        guard let buffer = Self.buffer(pcm, format: replyFormat) else {
+            // Nothing to play still ends the sentence, so the relay is never stuck on it (F-14).
+            continuation.yield(.guidanceEnded(id))
+            return
+        }
         lock.withLock { guidanceOutstanding += 1 }
         continuation.yield(.guidanceStarted(id))
         guidance.scheduleBuffer(buffer) { [weak self] in

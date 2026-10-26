@@ -25,15 +25,33 @@ public enum ArbiterEffect: Sendable, Hashable {
     case bargeIn(qualified: Bool)
 }
 
-/// Minimal arbiter for M1 (F-08, T-022): barge-in qualification, flush-then-notify order, R4/R5 and
-/// R1 (guidance) for the reply decision. R0, R6 and R6a come with navigation (T-052). Single owner (I-10).
+/// Arbiter (F-08): barge-in qualification, flush-then-notify order, R4/R5 and R1 (T-022), and with
+/// navigation R6, R6a and the uplink rules R0 / tail / 20 s cap (T-052). Single owner (I-10).
 public struct SpeechArbiter: Sendable {
+    public let tuning: ArbiterTuning
     public private(set) var epoch: Epoch
     public private(set) var focus = AudioFocus.held
     public private(set) var replyPlaying = false
     public private(set) var guidanceSpeaking = false
+    public private(set) var navigating = false
+    /// R6: while navigating she speaks only inside this window after the driver spoke.
+    public private(set) var permittedUntil: NovaInstant?
+    /// The current reply has had a clause released: R6 and R6a judge only an unstarted reply.
+    public private(set) var replyStarted = false
+    /// R6a: distance to the next manoeuvre, and the hold in progress.
+    public private(set) var manoeuvreDistance: Int?
+    private var workloadHold: (since: NovaInstant, distance: Int)?
+    /// Uplink: when guidance began and ended, whether the driver was mid-utterance then (R0).
+    private var driverSpeaking = false
+    private var guidanceSince: NovaInstant?
+    private var guidanceEndedAt: NovaInstant?
+    private var midUtteranceAtGuidance = false
+    private var uplinkClosedSince: NovaInstant?
 
-    public init(epoch: Epoch = .initial) { self.epoch = epoch }
+    public init(epoch: Epoch = .initial, tuning: ArbiterTuning = ArbiterTuning()) {
+        self.epoch = epoch
+        self.tuning = tuning
+    }
 
     /// R4 permanent focus loss → DROP; R1 guidance speaking → HOLD; R5 transient loss → HOLD; else PLAY.
     public var reply: ReplyDecision {
@@ -59,6 +77,7 @@ public struct SpeechArbiter: Sendable {
             return []
         case .guidanceSpeaking(let speaking):
             guidanceSpeaking = speaking
+            if !speaking { guidanceSince = nil }
             return []
         case .audioSession(let event):
             switch event {
@@ -86,4 +105,99 @@ public struct SpeechArbiter: Sendable {
 
     /// A new reply may claim focus again after a permanent loss (the driver spoke to her).
     public mutating func regainFocus() { focus = .held }
+
+    // MARK: Navigation rules (T-052)
+
+    public mutating func setNavigating(_ value: Bool) {
+        navigating = value
+        if !value {
+            manoeuvreDistance = nil
+            workloadHold = nil
+        }
+    }
+
+    /// The driver finished an utterance: R6 permits her to answer for the next 10 s.
+    public mutating func driverSpoke(at now: NovaInstant) {
+        permittedUntil = now + tuning.navigatingPermittedWindow
+    }
+
+    /// A new model reply opened; R6 and R6a judge it afresh.
+    public mutating func newReply() {
+        replyStarted = false
+        workloadHold = nil
+    }
+
+    /// A clause of the current reply went to the revoicer.
+    public mutating func markReplyStarted() { replyStarted = true }
+
+    public mutating func setManoeuvreDistance(_ meters: Int?) { manoeuvreDistance = meters }
+
+    /// The full reply decision at `now`, highest rule first (contracts/voice-agent.md §5).
+    /// `exempt` is a guidance reading (F-14): the relay itself decided she may speak, so R6 and R6a do not
+    /// apply to it. Returns the decision and, for a timed hold, when to ask again.
+    public mutating func decide(at now: NovaInstant, exempt: Bool = false) -> (ReplyDecision, wake: NovaInstant?) {
+        if focus == .permanentLoss { return (.drop, nil) }
+        if navigating, !exempt, !replyStarted, permittedUntil.map({ now > $0 }) ?? true { return (.drop, nil) }
+        if guidanceSpeaking { return (.hold, nil) }
+        if focus == .transientLoss { return (.hold, nil) }
+        if navigating, !exempt, !replyStarted, let distance = manoeuvreDistance {
+            if let hold = workloadHold {
+                // Released by time, or by the distance jumping (the manoeuvre is behind us).
+                let expires = hold.since + tuning.workloadHoldMax
+                if now >= expires || distance > hold.distance + tuning.workloadDistanceJumpMeters {
+                    workloadHold = nil
+                    replyStarted = true
+                    return (.play, nil)
+                }
+                // The jump is measured from the closest point seen: approaching does not count.
+                workloadHold = (hold.since, min(hold.distance, distance))
+                return (.hold, expires)
+            }
+            if distance <= tuning.workloadHoldRadiusMeters {
+                workloadHold = (now, distance)
+                return (.hold, now + tuning.workloadHoldMax)
+            }
+        }
+        return (.play, nil)
+    }
+
+    // MARK: Uplink (R0, tail, cap)
+
+    public mutating func driverSpeech(_ speaking: Bool) { driverSpeaking = speaking }
+
+    /// Guidance started or ended at `now` (fallback voice on the guidance lane).
+    public mutating func guidance(_ speaking: Bool, at now: NovaInstant) {
+        guidanceSpeaking = speaking
+        if speaking {
+            if guidanceSince == nil { midUtteranceAtGuidance = driverSpeaking }
+            guidanceSince = guidanceSince ?? now
+            guidanceEndedAt = nil
+        } else {
+            guidanceSince = nil
+            guidanceEndedAt = now
+        }
+    }
+
+    /// Whether the uplink may send at `now`, and the next instant the answer can change by itself.
+    /// Closed while guidance sounds and for the 500 ms tail after it; R0 keeps an utterance that was
+    /// already open when guidance began for up to 8 s; never closed longer than 20 s in one go.
+    public mutating func uplink(at now: NovaInstant) -> (open: Bool, wake: NovaInstant?) {
+        // `reopen` nil while guidance still sounds (no end known yet).
+        let reopen: NovaInstant?
+        if let since = guidanceSince {
+            let keepOpen = since + tuning.driverMidUtteranceKeepOpen
+            if midUtteranceAtGuidance, now < keepOpen { return (true, keepOpen) }
+            reopen = nil
+        } else if let ended = guidanceEndedAt, now < ended + tuning.guidanceTail {
+            reopen = ended + tuning.guidanceTail
+        } else {
+            uplinkClosedSince = nil
+            return (true, nil)
+        }
+        let closedSince = uplinkClosedSince ?? now
+        uplinkClosedSince = closedSince
+        let cap = closedSince + tuning.uplinkMaxClosed
+        if now >= cap { return (true, nil) }
+        return (false, reopen.map { min($0, cap) } ?? cap)
+    }
 }

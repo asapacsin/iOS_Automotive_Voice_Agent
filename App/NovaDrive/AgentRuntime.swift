@@ -82,6 +82,10 @@ struct RuntimeSink: AgentEffectSink {
     let audio: LiveAudio
     let model: DriveModel
     let speechOutput: SpeechOutputSwitch
+    let fallbackVoice: any FallbackGuidanceVoice
+    let gate: GateBox
+    /// Reports `guidanceEnded` to the core for a sentence that never reached the guidance lane.
+    let guidanceEnded: @Sendable (GuidanceID) async -> Void
 
     func provider(_ command: ProviderCommand) async {
         switch command {
@@ -108,6 +112,27 @@ struct RuntimeSink: AgentEffectSink {
     func diagnostic(_ event: DiagnosticEvent) {
         RuntimeLog.agent.notice("diagnostic \(String(describing: event), privacy: .public)")
     }
+
+    /// F-14 fallback voice: rendered off the core, played on the guidance lane. A sentence that cannot
+    /// be rendered still ends, so the relay moves on.
+    func speakGuidance(_ text: String, id: GuidanceID) async {
+        let voice = fallbackVoice
+        let audio = audio
+        let ended = guidanceEnded
+        // A render that never finishes must not stall the relay: after 6 s the sentence ends unspoken.
+        let once = OnceFlag()
+        Task {
+            let pcm = try? await voice.render(text)
+            guard once.claim() else { return }
+            if let pcm { audio.playGuidance(pcm, id: id) } else { await ended(id) }
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(6))
+            if once.claim() { await ended(id) }
+        }
+    }
+
+    func uplink(open: Bool) { gate.setForcedClosed(!open) }
 }
 
 /// Vehicle tools, refreshing the car card after each call.
@@ -334,9 +359,13 @@ final class AgentRuntime {
         let instruction = PersonaInstruction.build(base: Persona.instruction, style: SpeakingStyle.saved(in: settings))
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         let config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
+        let gate = GateBox()
+        let ended = CoreRelay()
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model,
-                               speechOutput: speechOutput)
+                               speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
+                               guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) })
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
+        ended.core = core
         self.core = core
         self.audio = audio
         speakLine = { line in
@@ -367,32 +396,32 @@ final class AgentRuntime {
         tasks.append(Task {
             for await event in audio.events { await core.send(.playback(event)) }
         })
-        // Navigation: the guards' flags, the screen, and each guidance sentence spoken on the guidance lane.
+        // Navigation: the guards' flags, the screen, and each guidance sentence through the relay (F-14).
         tasks.append(Task {
-            var spoken: String?
+            var relayed: GuidanceID?
+            // Overspeed alerts get ids far above the engine's, so they never collide.
+            var overspeedID = GuidanceID(1 << 40)
             var overspeed = OverspeedMonitor(clock: SystemClock())
             for await snapshot in flags.stream {
-                // F-17: one alert per exceedance, 10 s apart, on the guidance lane.
-                if snapshot.navigating, let info = snapshot.info, let alert = overspeed.observe(info),
-                   let pcm = try? await synthesizer.synthesize(alert, style: .default, deadline: .seconds(6)) {
-                    audio.playGuidance(pcm, id: GuidanceID(UInt64(abs(alert.hashValue % 1_000_000))))
-                }
                 await MainActor.run { model.nav = snapshot }
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen)))
-                if snapshot.navigating, let text = snapshot.lastGuidance, text != spoken {
-                    spoken = text
-                    if let pcm = try? await synthesizer.synthesize(text, style: .default, deadline: .seconds(6)) {
-                        audio.playGuidance(pcm, id: GuidanceID(UInt64(abs(text.hashValue % 1_000_000))))
-                    }
+                await core.send(.manoeuvreDistance(meters: snapshot.navigating ? snapshot.info?.stepDistanceMeters : nil))
+                // F-17 (T-053): the overspeed alert is a guidance sentence, so the arbiter and relay order it.
+                if snapshot.navigating, let info = snapshot.info, let alert = overspeed.observe(info) {
+                    overspeedID = overspeedID.next()
+                    await core.send(.guidancePrompt(alert, overspeedID))
                 }
-                if !snapshot.navigating { spoken = nil }
+                if snapshot.navigating, let text = snapshot.lastGuidance, let id = snapshot.lastGuidanceID, id != relayed {
+                    relayed = id
+                    await core.send(.guidancePrompt(text, id))
+                }
+                if !snapshot.navigating { relayed = nil }
             }
         })
         // Uplink: the local gate decides what is sent and tells the core when the driver speaks.
         let gateEvents = AsyncStream.makeStream(of: UplinkGateOutput.self, bufferingPolicy: .bufferingNewest(512))
-        let gate = GateBox()
         tasks.append(Task {
             for await output in gateEvents.stream {
                 switch output {
@@ -454,6 +483,33 @@ final class GateBox: @unchecked Sendable {
 
     func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] { lock.withLock { gate.process(frame) } }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
+    /// F-08: closed while guidance sounds. The close outputs (stream end) follow on the next frame.
+    func setForcedClosed(_ closed: Bool) { lock.withLock { _ = gate.setForcedClosed(closed) } }
+}
+
+/// True for the first caller only.
+final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.withLock {
+            defer { claimed = true }
+            return !claimed
+        }
+    }
+}
+
+/// Lets the sink report back to the core it belongs to (set once the core exists).
+final class CoreRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private weak var _core: AgentCore?
+    var core: AgentCore? {
+        get { lock.withLock { _core } }
+        set { lock.withLock { _core = newValue } }
+    }
+
+    func send(_ event: AgentEvent) async { await core?.send(event) }
 }
 
 /// Finds the Azure Speech region a key belongs to: the token endpoint answers 200 only there.

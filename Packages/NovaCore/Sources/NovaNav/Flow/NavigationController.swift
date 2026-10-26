@@ -18,6 +18,8 @@ public struct NavigationFlowState: Sendable, Hashable {
     public var selectedRoute: RouteID?
     public var info: NaviInfo?
     public var lastGuidance: String?
+    /// Amap's id of `lastGuidance`: the same sentence twice is two prompts (F-14).
+    public var lastGuidanceID: GuidanceID?
 
     public init() {}
 
@@ -287,8 +289,9 @@ public actor NavigationController: ToolExecutor {
         case .naviInfo(let info):
             snapshot.info = info
             publish()
-        case .guidanceText(let text, _):
+        case .guidanceText(let text, let id):
             snapshot.lastGuidance = text
+            snapshot.lastGuidanceID = id
             publish()
         case .arrived:
             snapshot.phase = .arrived
@@ -343,6 +346,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.selectedRoute = nil
         snapshot.info = nil
         snapshot.lastGuidance = nil
+        snapshot.lastGuidanceID = nil
         listedAt = nil
         publish()
     }
