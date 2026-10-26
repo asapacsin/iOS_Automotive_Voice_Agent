@@ -1,74 +1,48 @@
 import NovaKit
-import NovaServices
+import NovaPorts
 import NovaTools
 import SwiftUI
 
-/// Device test app: drives the vehicle tool handlers against the simulated vehicle.
+/// The app's tabs; `open_app` (F-25) switches between them.
+enum AppTab: Hashable {
+    case drive, vehicle, audio, recorder, settings
+}
+
+/// Which tab is showing. Shared so a tool can switch it.
+@MainActor
+final class AppNavigation: ObservableObject {
+    static let shared = AppNavigation()
+    @Published var tab: AppTab = .drive
+}
+
+/// `open_app` (F-25): maps → the 驾驶 map, settings → 设置. Reports only the switch it made.
+struct OpenAppExecutor: ToolExecutor {
+    func execute(_ call: ToolCall) async -> ToolResult {
+        let app = call.arguments["app"]?.stringValue ?? ""
+        let target: (AppTab, String)? = switch app {
+        case "maps": (.drive, "地图")
+        case "settings": (.settings, "设置")
+        default: nil
+        }
+        guard let (tab, label) = target else { return ToolDispatcher.failure(.appNotAllowed) }
+        await MainActor.run { AppNavigation.shared.tab = tab }
+        return .success(["app": .string(app), "next": .string("已经打开\(label)页面，用一句话告诉用户。")])
+    }
+}
+
 @main
 struct NovaDriveApp: App {
+    @StateObject private var navigation = AppNavigation.shared
+
     var body: some Scene {
         WindowGroup {
-            TabView {
-                DriveView().tabItem { Label("驾驶", systemImage: "steeringwheel") }
-                ContentView().tabItem { Label("车辆", systemImage: "car") }
-                AudioSpikeView().tabItem { Label("音频测试", systemImage: "waveform") }
-                RecorderView().tabItem { Label("录制", systemImage: "record.circle") }
-                SettingsView().tabItem { Label("设置", systemImage: "key") }
+            TabView(selection: $navigation.tab) {
+                DriveView().tabItem { Label("驾驶", systemImage: "steeringwheel") }.tag(AppTab.drive)
+                ContentView().tabItem { Label("车辆", systemImage: "car") }.tag(AppTab.vehicle)
+                AudioSpikeView().tabItem { Label("音频测试", systemImage: "waveform") }.tag(AppTab.audio)
+                RecorderView().tabItem { Label("录制", systemImage: "record.circle") }.tag(AppTab.recorder)
+                SettingsView().tabItem { Label("设置", systemImage: "key") }.tag(AppTab.settings)
             }
-        }
-    }
-}
-
-@MainActor
-final class VehicleModel: ObservableObject {
-    @Published var log: [String] = []
-    private let vehicle = SimulatedVehicle()
-
-    func run(_ tool: String, _ args: [String: JSONValue]) async {
-        let outcome: VehicleToolOutcome
-        switch tool {
-        case "climate": outcome = await ClimateToolHandler(port: vehicle).handle(args)
-        case "seat": outcome = await SeatToolHandler(port: vehicle).handle(args)
-        default: outcome = await WindowToolHandler(port: vehicle).handle(args)
-        }
-        let line = outcome.chip ?? "✗ \(outcome.result.code?.rawValue ?? "failed")"
-        log.insert(line, at: 0)
-    }
-}
-
-struct ContentView: View {
-    @StateObject private var model = VehicleModel()
-
-    private let actions: [(String, String, [String: JSONValue])] = [
-        ("空调开", "climate", ["action": .string("power_on")]),
-        ("空调关", "climate", ["action": .string("power_off")]),
-        ("温度 +1", "climate", ["action": .string("adjust_temperature"), "value": .int(1)]),
-        ("温度 -1", "climate", ["action": .string("adjust_temperature"), "value": .int(-1)]),
-        ("风量 +1", "climate", ["action": .string("adjust_fan"), "value": .int(1)]),
-        ("风量 -1", "climate", ["action": .string("adjust_fan"), "value": .int(-1)]),
-        ("开车窗", "window", ["action": .string("open")]),
-        ("关车窗", "window", ["action": .string("close")]),
-        ("座椅升高", "seat", ["action": .string("adjust_height"), "value": .int(1)]),
-        ("座椅降低", "seat", ["action": .string("adjust_height"), "value": .int(-1)]),
-    ]
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("模拟车辆") {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) {
-                        ForEach(actions, id: \.0) { title, tool, args in
-                            Button(title) { Task { await model.run(tool, args) } }
-                                .buttonStyle(.bordered)
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                }
-                Section("结果") {
-                    ForEach(Array(model.log.enumerated()), id: \.offset) { Text($0.element) }
-                }
-            }
-            .navigationTitle("Nova Drive")
         }
     }
 }

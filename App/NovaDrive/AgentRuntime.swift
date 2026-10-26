@@ -301,6 +301,7 @@ final class AgentRuntime {
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
         executors["place_call"] = PhoneCallHandler(contacts: ContactsStore(), dialer: SystemPhoneDialer(), clock: SystemClock())
+        executors["open_app"] = OpenAppExecutor()
         let settings = DefaultsSettingsStore()
         executors[SpeakingStyleHandler.tool] = SpeakingStyleHandler(settings: settings)
         // F-21: the saved tone is read once here, at session start.
