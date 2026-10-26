@@ -215,8 +215,15 @@ public struct DriverTurnPipeline: Sendable {
     /// Tools that only read: their ok result proves no action.
     static let readOnlyTools: Set<String> = ["query_live_info", "describe_camera_view"]
 
+    /// Tools whose ok result changes nothing in the car: a tone change, muting or ending the
+    /// conversation, or a call not yet dialled (`place_call` proves a call only with status `dialing`, F-19 §8).
+    static let nonActingTools: Set<String> = ["set_speaking_style", "set_speech_output", "end_conversation"]
+
     private func acts(_ r: ToolResponse) -> Bool {
-        !Self.readOnlyTools.contains(r.name) && r.result.data["action"] != .string("get_state")
+        if Self.readOnlyTools.contains(r.name) || Self.nonActingTools.contains(r.name) { return false }
+        // A failed call still disproves a call claim at once.
+        if r.name == "place_call" { return r.result.data["status"] == .string("dialing") || !r.result.ok }
+        return r.result.data["action"] != .string("get_state")
     }
 
     /// Whether the turn must be held whole: audio can run ahead of its transcript, so in a turn that

@@ -10,25 +10,33 @@ Full-screen map with a small assistant bubble (latest exchange only), a status c
 Bubble shows 你: … / 小诺: …, fades by itself; chip 聆听中 / PROCESSING (amber) / SPEAKING; choice overlay lists candidates/routes; tapping = same executor as voice (I-6).
 
 ## 3. Preconditions
-See depends-on contracts.
+None for the screen; a session for the bubble and chip; navigation for the list and HUD.
 
 ## 4. Inputs and outputs
-See contracts/navigation.md.
+- In: session UI state, latest user transcript and reply text, navigation snapshot (places, routes, phase,
+  HUD), simulated car position.
+- Out: status chip, bubble (你: … / 小诺: …, latest exchange only), choice list rows, map overlays,
+  camera icon and preview window (F-20a). Accessibility identifiers (e.g. `status-chip`) for UI tests.
 
 ## 5. State transitions
-See contracts.
+Chip mapping (contracts/voice-agent.md §1): DISCONNECTED→IDLE; CONNECTING/RECONNECTING/THINKING→PROCESSING
+(amber); LISTENING/USER_SPEAKING→聆听中; SPEAKING→SPEAKING; ERROR→ERROR (+ code). The list is visible while
+the phase is awaitingDestinationSelection or awaitingRouteSelection; a route line is drawn only for offered
+or chosen routes, never after cancel.
 
 ## 6. Events and triggers
-Tool call or UI event.
+Session state changes, transcripts, navigation snapshot publishes, taps (row, 开始/结束对话, camera).
 
 ## 7. Dependencies and external services
-See contracts/api-contracts.md.
+SwiftUI `DriveView` over the map (Amap map view later, T-044); `AgentRuntime` composition root.
 
 ## 8. Error handling and recovery
-Errors are ok=false results with codes; see refs.
+- The error chip shows the session error code so device runs can be diagnosed.
+- A tap on a row calls the same executor as the voice choice (I-6) and gets the same codes (`OPTIONS_STALE`, …).
 
 ## 9. Concurrency, cancellation, timeouts
-See contracts.
+All view state updates on the main actor; the bubble fades on its own after the Android constant; a new
+exchange replaces the bubble at once.
 
 ## 10. Acceptance criteria (iOS)
 - Chip mapping identical (unit).

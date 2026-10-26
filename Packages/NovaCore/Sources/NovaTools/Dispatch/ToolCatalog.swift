@@ -162,5 +162,8 @@ public enum ToolFailureAdvice {
     /// iOS-only codes (I-2): one honest sentence for a tool with no iOS executor yet.
     static let iosTable: [ToolErrorCode: String] = [
         .notAvailableOnIOSYet: "这个功能在这台 iPhone 上还没有做好，所以没有执行。请用一句话如实告诉用户暂时还不能用，不要说已经做了。",
+        .cameraPermissionDenied: "摄像头没有权限，请在设置里允许。请如实说明，不要描述画面。",
+        .cameraUnavailable: "摄像头现在用不了。请如实说明，不要描述画面。",
+        .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }

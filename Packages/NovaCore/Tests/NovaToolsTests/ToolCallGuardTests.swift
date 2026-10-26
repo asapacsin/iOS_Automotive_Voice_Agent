@@ -277,10 +277,13 @@ struct RepeatAndMediaGuardTests {
 struct DispatchTests {
     @Test("F-09 回家 with no home saved is HOME_NOT_SET; 家乐福 is a search")
     func savedPlaces() {
-        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "回家"]), GuardContext()) == .homeNotSet)
-        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "带我去公司吧"]), GuardContext()) == .workNotSet)
+        let none = GuardContext(savedPlaces: [])
+        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "回家"]), none) == .homeNotSet)
+        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "带我去公司吧"]), none) == .workNotSet)
+        // Unknown saved places: the navigation executor decides from the store.
+        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "回家"]), GuardContext()) == nil)
         #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "回家"]), GuardContext(savedPlaces: [.home])) == nil)
-        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "家乐福"]), GuardContext()) == nil)
+        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "家乐福"]), none) == nil)
         #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "公司附近的星巴克"]), GuardContext()) == nil)
     }
 
@@ -364,6 +367,15 @@ struct DispatchTests {
         let set = call("control_seat", ["action": "set_height", "value": 3])
         guard case .execute = d.decide(set, context: ctx("再低一点。"), clarify: { _ in ["座椅", "温度"] }) else {
             Issue.record("absolute held"); return
+        }
+    }
+
+    @Test("F-10 §9 a call before this turn's words arrive is not refused as ambiguous")
+    func referentStaleWords() {
+        var d = ToolDispatcher()
+        let seat = call("control_seat", ["action": "adjust_height", "value": -1])
+        guard case .execute = d.decide(seat, context: ctx("", epoch: 1, onset: 2), clarify: { _ in ["座椅", "温度"] }) else {
+            Issue.record("stale words refused"); return
         }
     }
 }

@@ -121,7 +121,12 @@ public struct Contact: Sendable, Hashable {
 }
 
 public protocol ContactsDirectory: Sendable {
+    /// Contacts whose name matches; throws `ContactsError.permissionDenied` without access.
     func search(_ name: String) async throws -> [Contact]
+}
+
+public enum ContactsError: Error, Sendable, Hashable {
+    case permissionDenied
 }
 
 public protocol PhoneDialer: Sendable {
@@ -138,7 +143,14 @@ public struct JPEGImage: Sendable, Hashable {
 }
 
 public protocol CameraFrameSource: Sendable {
+    /// One JPEG of the live preview (longest side ≤ 1024 px, not older than 1 s). Throws `CameraError`.
     func captureStill() async throws -> JPEGImage
+}
+
+/// Why `captureStill` failed (F-20a §8).
+public enum CameraError: Error, Sendable, Hashable {
+    case permissionDenied
+    case unavailable
 }
 
 public enum VisionAnswer: Sendable, Hashable {
@@ -148,7 +160,7 @@ public enum VisionAnswer: Sendable, Hashable {
     case failed
 }
 
-/// Qianfan VLM.
+/// Vision backend: Gemini `generateContent` by default (F-20a OQ-CAM-1), Qianfan optional.
 public protocol VisionPort: Sendable {
     func ask(_ question: String, image: JPEGImage) async -> VisionAnswer
 }

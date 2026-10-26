@@ -24,6 +24,7 @@ One file per feature. Load one file plus the contracts it lists under "Depends o
 | F-18 | [Live info: weather, route traffic, along-route, place details](live-info.md) | IMPLEMENTED (JVM + EMU live shards ≥9/10) |
 | F-19 | [Phone call with confirmation](phone-call.md) | IMPLEMENTED (JVM) |
 | F-20 | [Camera vision questions](vision.md) | IMPLEMENTED (JVM) |
+| F-20a | [Camera button, live preview window and “what is there?” questions](camera-view.md) | iOS only, APPROVED (2026-10-26); tasks T-071a–d |
 | F-21 | [Persona and speaking style](persona-style.md) | IMPLEMENTED (JVM + LIVE 5/5) |
 | F-22 | [Settings, credentials and consent](settings-credentials.md) | IMPLEMENTED |
 | F-23 | [App lifecycle, background and permissions](app-lifecycle-permissions.md) | IMPLEMENTED: foreground service type microphone, START_NOT_STICKY; no boot start; no accessibility service |

@@ -18,7 +18,19 @@ A session exists.
 In: utterance transcripts, busy/idle signals, wake/UI events, navigation phase. Out: upload on/off, speak on/off, connect/disconnect.
 
 ## 5. State transitions
-See contracts/voice-agent.md §2 table.
+| From | Event | To | Notes |
+|---|---|---|---|
+| DEEP_IDLE | wake word / UI | ACTIVE | new session |
+| SLEEP | wake word / UI | ACTIVE | same connection, context kept |
+| ACTIVE | 「闭嘴」 | SILENT_WAIT | local phrase, whole utterance only |
+| SILENT_WAIT | next real command | ACTIVE | |
+| SILENT_WAIT | 20 s without real speech | SLEEP | |
+| ACTIVE | 30 s idle | SLEEP | timers paused while busy; noise does not extend |
+| ACTIVE/SILENT_WAIT | 「休眠」/「停止监听」 or `end_conversation` | SLEEP | |
+| SLEEP | 5 min | DEEP_IDLE | closes the connection, except while navigating |
+
+Audio is uploaded only in ACTIVE and SILENT_WAIT; replies are spoken only in ACTIVE. A deadline that
+passes while busy fires 1.5 s after becoming idle.
 
 ## 6. Events and triggers
 Local intent (`ListeningIntent`): SHUT_UP, GO_TO_SLEEP, PASS_TO_MODEL; whole utterance only; 「算了/取消」 never intercepted; cancel-like phrases go to the model while a picker is open or a task pending.
