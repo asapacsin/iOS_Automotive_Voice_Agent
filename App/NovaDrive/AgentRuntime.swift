@@ -277,6 +277,7 @@ final class AgentRuntime {
     }
 
     private var scene = AppScenePhase.foreground
+    private var stopPending = false
 
     /// Re-applied on every scene, lifecycle or navigation change (§11.3), not only on a scene change:
     /// a trip that ends while the lifecycle sleeps closes the session (no wake word on iOS yet), and in
@@ -287,13 +288,21 @@ final class AgentRuntime {
         let state = lifecycle.state
         if state == .sleep || state == .deepIdle, await !(navigation?.current.navigating ?? false) {
             // Like the SLEEP stop: give the last sentence (arrival guidance, a goodbye) 3 s, and never
-            // stop mid route swap or while the relay still holds a sentence.
+            // stop mid route swap or while the relay still holds a sentence; re-checked every second
+            // until the session may stop or is needed again. One such wait at a time.
+            guard !stopPending else { return }
+            stopPending = true
+            defer { stopPending = false }
             try? await Task.sleep(for: .seconds(3))
-            guard session == thisSession, let current = await navigation?.current else { return }
-            let busy = [.resolvingDestination, .calculatingRoute, .awaitingRouteSelection, .navigating]
-                .contains(current.phase)
-            guard !busy, await !core.state.relay.busy else { return }
-            stop()
+            while session == thisSession, let current = await navigation?.current {
+                if current.navigating || !(lifecycle.state == .sleep || lifecycle.state == .deepIdle) { return }
+                let busy = [.resolvingDestination, .calculatingRoute, .awaitingRouteSelection].contains(current.phase)
+                if !busy, await !core.state.relay.busy {
+                    stop()
+                    return
+                }
+                try? await Task.sleep(for: .seconds(1))
+            }
             return
         }
         if BackgroundDecision.decide(scene: scene, listening: state, navigating: navigating).keepSocket == false { stop() }
@@ -485,12 +494,13 @@ final class AgentRuntime {
             var overspeedID = GuidanceID(1 << 40)
             var overspeed = OverspeedMonitor(clock: SystemClock())
             for await snapshot in flags.stream {
-                let ended = await MainActor.run { () -> Bool in
-                    let ended = model.nav.navigating && !snapshot.navigating
+                let changed = await MainActor.run { () -> Bool in
+                    let changed = model.nav.phase != snapshot.phase
                     model.nav = snapshot
-                    return ended
+                    return changed
                 }
-                if ended { await self.reevaluate() }
+                // Every phase change re-applies the policy (a failed route swap returns to idle too).
+                if changed { Task { await self.reevaluate() } }
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen)))
