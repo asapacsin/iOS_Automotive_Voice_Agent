@@ -2,8 +2,9 @@ import XCTest
 
 /// T-048 (W8 in UI): search → pick → route → navigate on the 驾驶 screen in the simulator, with the
 /// scripted search and engine (`-uitest-scripted-drive`), so no keys, microphone or network are needed.
+@MainActor
 final class DriveFlowUITests: XCTestCase {
-    override func setUp() { continueAfterFailure = false }
+    override func setUp() async throws { continueAfterFailure = false }
 
     func testSearchPickRouteNavigate() {
         let app = XCUIApplication()
