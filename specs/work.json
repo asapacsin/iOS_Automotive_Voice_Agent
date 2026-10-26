@@ -383,6 +383,47 @@
       "procedure": "Run W1-W4 on device; 20 turns latency",
       "pass_criteria": "W1-W4 PASS; latency recorded",
       "expected_return": "Device log + video, numbers in STATUS.md"
+    },
+    {
+      "id": "T-071a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-20a CameraQuestionHandler (pure, NovaTools/Vision): one in flight, cancel, result/codes; unit",
+      "depends_on": [
+        "T-017"
+      ]
+    },
+    {
+      "id": "T-071c",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-20a GeminiVisionClient (default, OQ-CAM-1) + Qianfan option behind VisionPort; unit, contract",
+      "depends_on": [
+        "T-071a"
+      ]
+    },
+    {
+      "id": "T-071b",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-20a CameraSession adapter (AVCaptureSession back camera, still capture, stop on close); build, D",
+      "depends_on": [
+        "T-071a"
+      ]
+    },
+    {
+      "id": "T-071d",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-20a camera icon, floating preview, 问一下, describe_camera_view wiring; question opens the window (OQ-CAM-2); S, D",
+      "depends_on": [
+        "T-071b",
+        "T-071c"
+      ]
     }
   ]
 }

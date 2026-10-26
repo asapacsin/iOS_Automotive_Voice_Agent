@@ -1,6 +1,6 @@
 # F-20a Camera button, live preview window and "what is there?" questions
 
-**Status:** PROPOSED (iOS only, 2026-10-26). Extends [F-20 Camera vision questions](vision.md); the
+**Status:** APPROVED (iOS only, 2026-10-26; OQ-CAM-1/2 answered by the owner). Extends [F-20 Camera vision questions](vision.md); the
 `describe_camera_view` tool, `CameraFrameSource` and `VisionPort` ports already exist (NovaPorts).
 **Depends on:** F-20, F-25 (drive screen), F-09 (tool dispatch), F-07 (reply voice), contracts/api-contracts.md
 
@@ -94,12 +94,12 @@ closing the window cancels an in-flight request. Camera stops within 1 s of clos
 - Front-facing (selfie) camera is out of scope; a later toggle may add it.
 
 ## Open questions
-- OQ-CAM-1 (OWNER): Gemini as the default vision backend instead of Qianfan? Recommendation: yes —
+- OQ-CAM-1 (ANSWERED 2026-10-26: **Gemini default**, Qianfan optional): Gemini as the default vision backend instead of Qianfan? Recommendation: yes —
   the key is already stored and it understands Chinese questions well; keep Qianfan as an option.
-- OQ-CAM-2 (OWNER): should a camera question while the window is closed open it automatically
+- OQ-CAM-2 (ANSWERED 2026-10-26: **yes, the question opens the window**): should a camera question while the window is closed open it automatically
   (proposed: yes), or answer without showing the preview?
 
-## Tasks (in implementation-plan.md M6, blocked until OQ-CAM-1/2 are answered; added to work.json on approval)
+## Tasks (in implementation-plan.md M6 and specs/work.json)
 | ID | Task | Verification |
 |---|---|---|
 | T-071a | `CameraQuestionHandler` (pure): one in flight, cancel, result/codes | unit |

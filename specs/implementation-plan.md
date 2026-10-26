@@ -118,10 +118,10 @@ NOT_VERIFIED until a device run is attached.
 |---|---|---|---|---|---|---|
 | T-070 | Phone: confirm window, contacts, `tel://`, `NO_TELEPHONY` | F-19 | T-017 | `Core/NovaTools/Phone/`, `Packages/NovaPlatform/Sources/Phone/` | F-19 §10 (2 rows) | unit, M |
 | T-071 | Vision: still frame + Qianfan client | F-20 | T-017 | `Core/NovaTools/Vision/`, `Packages/NovaPlatform/Sources/Camera/`, `Packages/NovaServices/Sources/Qianfan/` | F-20 §10 (2 rows) | unit, contract, D |
-| T-071a | `CameraQuestionHandler` (pure): one in flight, cancel, result/codes — **blocked on OQ-CAM-1/2** | F-20a | T-071 | `Core/NovaTools/Vision/` | F-20a §10 rows 4–5, 7 | unit |
-| T-071b | `CameraSession` adapter (AVCaptureSession, still capture, stop on close) — **blocked on OQ-CAM-1/2** | F-20a | T-071a | `Packages/NovaPlatform/Sources/Camera/` | F-20a §10 row 6 | build, D |
-| T-071c | `GeminiVisionClient` (+ Qianfan option) behind `VisionPort` — **blocked on OQ-CAM-1** | F-20a | T-071a | `Packages/NovaServices/Sources/Vision/` | F-20a §8 codes | unit, contract |
-| T-071d | Camera icon, floating preview, 问一下, wiring to `describe_camera_view` — **blocked on OQ-CAM-2** | F-20a | T-071b, T-071c | `App/NovaDrive/` | F-20a §10 rows 1–3 | S, D |
+| T-071a | `CameraQuestionHandler` (pure): one in flight, cancel, result/codes | F-20a | T-071 | `Core/NovaTools/Vision/` | F-20a §10 rows 4–5, 7 | unit |
+| T-071b | `CameraSession` adapter (AVCaptureSession, still capture, stop on close) | F-20a | T-071a | `Packages/NovaPlatform/Sources/Camera/` | F-20a §10 row 6 | build, D |
+| T-071c | `GeminiVisionClient` (+ Qianfan option) behind `VisionPort` | F-20a | T-071a | `Packages/NovaServices/Sources/Vision/` | F-20a §8 codes | unit, contract |
+| T-071d | Camera icon, floating preview, 问一下, wiring to `describe_camera_view` | F-20a | T-071b, T-071c | `App/NovaDrive/` | F-20a §10 rows 1–3 | S, D |
 | T-072 | MusicKit named music + now-playing check (only if OQ-IOS-7 approves) | F-13 | OQ-IOS-7 | `Packages/NovaPlatform/Sources/Music/` | No claim without verified now-playing; closes OQ-IOS-11 | unit, D |
 
 ### M7 (optional): CarPlay
