@@ -162,6 +162,8 @@ struct ObservedCameraExecutor: ToolExecutor {
 final class AgentRuntime {
     let model = DriveModel()
     private var core: AgentCore?
+    /// Bumped per session so a delayed end_conversation stop never ends a newer session.
+    private var session = 0
     private var audio: LiveAudio?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
@@ -311,10 +313,13 @@ final class AgentRuntime {
         executors[SpeakingStyleHandler.tool] = SpeakingStyleHandler(settings: settings)
         // F-02: end_conversation sleeps the lifecycle; iOS has no wake word yet, so SLEEP ends the
         // session once the short goodbye has had time to play (PROPOSED 3 s).
+        session += 1
+        let thisSession = session
         let lifecycle = ConversationLifecycle(clock: SystemClock()) { effects in
             guard effects.contains(.stateChanged(.sleep)) else { return }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
+                guard self.session == thisSession else { return }
                 self.stop()
             }
         }
@@ -416,6 +421,7 @@ final class AgentRuntime {
     }
 
     func stop() {
+        session += 1
         // F-20a §5: session stop closes the camera.
         if model.cameraOpen { closeCamera() }
         speakLine = nil
