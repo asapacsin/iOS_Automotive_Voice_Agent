@@ -1,3 +1,4 @@
+import AVFAudio
 import Foundation
 import os
 import NovaAgent
@@ -297,6 +298,23 @@ final class AgentRuntime {
     func start() async {
         guard !model.running else { return }
         model.notice = nil
+        // F-23 (T-063): the microphone is asked at the first talk; a denial is explained.
+        let mic: PermissionStatus = switch AVAudioApplication.shared.recordPermission {
+        case .granted: .granted
+        case .denied: .denied
+        default: .notDetermined
+        }
+        switch PermissionCoordinator.action(for: .firstTalk, status: mic) {
+        case .proceed: break
+        case .request:
+            guard await AVAudioApplication.requestRecordPermission() else {
+                model.notice = PermissionCoordinator.explanation(.microphone)
+                return
+            }
+        case .explain(_, let message):
+            model.notice = message
+            return
+        }
         let store = KeychainCredentialStore()
         switch SettingsReadiness(credentials: store, settings: DefaultsSettingsStore()).sessionBlocker {
         case .geminiConsentMissing?:
