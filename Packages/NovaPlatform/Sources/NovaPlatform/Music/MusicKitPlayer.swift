@@ -17,6 +17,11 @@ public final class MusicKitPlayer: NamedMusicPort, @unchecked Sendable {
         var request = MusicCatalogSearchRequest(term: query, types: [Song.self])
         request.limit = 1
         guard let song = try await request.response().songs.first else { throw MusicKitError.noMatch }
+        try await Self.start(song)
+    }
+
+    /// The player's queue is main-actor state.
+    @MainActor private static func start(_ song: Song) async throws {
         let player = ApplicationMusicPlayer.shared
         player.queue = [song]
         try await player.play()

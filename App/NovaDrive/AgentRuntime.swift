@@ -384,9 +384,17 @@ final class AgentRuntime {
         let navigationClock = SystemClock()
         let location: any LocationProvider = UserDefaults.standard.bool(forKey: DriveSettings.useDeviceLocation)
             ? CoreLocationProvider(clock: navigationClock) : DemoLocation(clock: navigationClock)
+        // Starts CoreLocation now, so the first request already has a fix.
+        _ = await location.latestFix()
         let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
         let web = AmapWebClient(key: amapKey)
-        let engine = AmapRouteEngine(key: amapKey, origin: { await location.latestFix().map { CoordinateConverter.gcj02($0.coordinate) } },
+        let engine = AmapRouteEngine(key: amapKey, origin: {
+            // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise.
+            guard let fix = await location.latestFix(), LocationQuality.of(fix, at: navigationClock.now) != nil else {
+                return DriveSettings.demoOrigin
+            }
+            return CoordinateConverter.gcj02(fix.coordinate)
+        },
                                      onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
