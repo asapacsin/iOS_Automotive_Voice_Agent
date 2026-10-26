@@ -79,6 +79,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case noDestination = "NO_DESTINATION"
     /// PROPOSED: `save_place` read the slot back and it does not hold the found place.
     case placeNotSaved = "PLACE_NOT_SAVED"
+    /// PROPOSED: `open_app` read the screen back and it is not the asked one.
+    case appNotOpened = "APP_NOT_OPENED"
     case liveInfoUnavailable = "LIVE_INFO_UNAVAILABLE"
     case liveInfoQuota = "LIVE_INFO_QUOTA"
     case noResults = "NO_RESULTS"

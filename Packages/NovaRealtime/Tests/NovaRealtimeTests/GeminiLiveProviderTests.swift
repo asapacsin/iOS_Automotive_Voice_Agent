@@ -304,7 +304,8 @@ final class StalledConnector: WebSocketConnector, @unchecked Sendable {
                 await inbox.push(.success(Data(#"{"setupComplete":{}}"#.utf8)))
                 return
             }
-            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+            // Never completes, but ends with the writer task when the socket shuts down.
+            try? await Task.sleep(for: .seconds(3600))
         }
         func receive() async throws -> Data {
             switch await inbox.next() {

@@ -36,6 +36,6 @@ struct OpenAppExecutorTests {
         #expect(!unknown.ok && unknown.code == .appNotAllowed)
         #expect(surfaces.shown.withLock { $0.isEmpty })
         let stuck = await OpenAppExecutor(surfaces: surfaces).execute(call("maps"))
-        #expect(!stuck.ok && stuck.code == .actionNotAllowed && stuck.advice != nil)
+        #expect(!stuck.ok && stuck.code == .appNotOpened && stuck.advice != nil)
     }
 }
