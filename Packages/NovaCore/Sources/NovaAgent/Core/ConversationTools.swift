@@ -49,7 +49,7 @@ public struct EndConversationHandler: ToolExecutor {
 
 /// Whether replies are voiced. Silent keeps listening and acting; only speech is muted.
 public enum SpeechOutputMode: String, Sendable, Hashable, CaseIterable {
-    case spoken, silent
+    case silent, spoken
 }
 
 /// The live speech-output switch the reply path consults before voicing a clause.
