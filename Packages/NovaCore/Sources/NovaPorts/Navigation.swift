@@ -203,3 +203,12 @@ public struct StaticMapRequest: Sendable, Hashable {
 public protocol StaticMapService: Sendable {
     func image(_ request: StaticMapRequest) async throws -> [UInt8]
 }
+
+/// Why an Amap Web request gave nothing. Codes only; the response text never leaves the adapter (I-8).
+public enum AmapWebError: Error, Sendable, Hashable {
+    case keyMissing
+    case keyRejected
+    case quota
+    case timeout
+    case failed
+}

@@ -17,6 +17,21 @@ public enum AgentEvent: Sendable, Hashable {
     case playback(PlaybackEvent)
     case audioSession(AudioSessionEvent)
     case timer(AgentTimer)
+    /// The navigation flow's phase changed; the guards read it (F-09, F-15).
+    case navigation(NavigationFlags)
+}
+
+/// What the dispatch guards need to know about navigation (`navigatingNow`, `guidanceRunningNow`).
+public struct NavigationFlags: Sendable, Hashable {
+    public var navigating: Bool
+    public var guidanceRunning: Bool
+    public var listOpen: Bool
+
+    public init(navigating: Bool = false, guidanceRunning: Bool = false, listOpen: Bool = false) {
+        self.navigating = navigating
+        self.guidanceRunning = guidanceRunning
+        self.listOpen = listOpen
+    }
 }
 
 public enum AgentTimer: Sendable, Hashable {
@@ -67,6 +82,9 @@ public struct AgentState: Sendable {
     public private(set) var arbiter = SpeechArbiter()
     public private(set) var view = AgentViewState()
     private var dispatcher = ToolDispatcher()
+    /// F-10 referents: what the driver really changed lately.
+    public private(set) var context = DriverContext()
+    private var navigation = NavigationFlags()
     private var segmenter = ClauseSegmenter()
     /// Turn state of the current socket. TurnIDs restart at 1 on every socket, so all of it is reset
     /// when a new socket is opened.
@@ -132,6 +150,7 @@ public struct AgentState: Sendable {
             return session(.speechStopped, at: now) + pipeline(.driverUtterance(transcript), at: now)
         case .toolFinished(let turn, let call, let result):
             guard session.state != .disconnected, session.state != .error else { return [] }
+            context.record(call, ok: result.ok, at: now)
             let finished = dispatcher.finish(call, result)
             let response = ToolResponse(id: call.id, name: call.name, result: finished)
             // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
@@ -165,6 +184,9 @@ public struct AgentState: Sendable {
         case .timer(.pipeline(let timer)):
             pipelineTimers[timer.kind] = nil
             return pipeline(.timerFired(timer), at: now)
+        case .navigation(let flags):
+            navigation = flags
+            return []
         }
     }
 
@@ -266,9 +288,13 @@ public struct AgentState: Sendable {
         case .toolCalls(let turn, let calls):
             var effects = pipeline(.toolCalls(turn, calls), at: now)
             for call in calls {
-                let context = GuardContext(requestText: transcript, currentEpoch: transcriptEpoch,
-                                           capabilityEpoch: speechOnsets)
-                switch dispatcher.decide(call, context: context) {
+                let guardContext = GuardContext(requestText: transcript, currentEpoch: transcriptEpoch,
+                                                capabilityEpoch: speechOnsets, navigating: navigation.navigating,
+                                                guidanceRunning: navigation.guidanceRunning,
+                                                listOpen: navigation.listOpen)
+                let referents = context
+                switch dispatcher.decide(call, context: guardContext,
+                                         clarify: { referents.clarify($0, at: now) }) {
                 case .execute(let running):
                     effects.append(.startTool(turn, running))
                 case .refuse(let result):
