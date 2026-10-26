@@ -1,4 +1,9 @@
-# Open EVIDENCE_REQUESTs (batch 2, 2026-10-26)
+# EVIDENCE_REQUESTs batch 2 (2026-10-26) — CLOSED, not needed
+
+**Owner decision 2026-10-26: the product is iOS only; Android parity is not required.** The iOS values
+currently marked PROPOSED for the items below are adopted as the product values. The requests are kept
+for history; nobody needs to answer them. Bubble fade uses `BubbleFadeTuning` (F-25).
+
 
 Raised per specs/ai-agent-workflow.md. A human or a read-only helper answers each with the excerpt and
 the Android commit; the answer is appended to the named feature file (version bump) and the PROPOSED

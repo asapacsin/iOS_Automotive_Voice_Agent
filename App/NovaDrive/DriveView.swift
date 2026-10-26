@@ -118,6 +118,7 @@ private struct DriveContent: View {
     let toggle: () -> Void
     let runtime: AgentRuntime
     @Environment(\.scenePhase) private var scenePhase
+    @State private var bubble = BubbleFade()
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -323,25 +324,46 @@ private struct DriveContent: View {
 
     // MARK: Conversation, car and button
 
+    private static func now() -> NovaInstant {
+        NovaInstant(milliseconds: Int64(ProcessInfo.processInfo.systemUptime * 1000))
+    }
+
+    /// F-25: the latest exchange, held by `BubbleFade` and faded on its own.
     private var conversation: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !model.driverLine.isEmpty {
-                HStack {
-                    Spacer()
-                    Text(model.driverLine).padding(8)
-                        .background(.green.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            let phase = bubble.phase(at: Self.now())
+            VStack(alignment: .leading, spacing: 6) {
+                if phase != .hidden {
+                    if !model.driverLine.isEmpty {
+                        HStack {
+                            Spacer()
+                            Text(model.driverLine).padding(8)
+                                .background(.green.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
+                    if !model.view.subtitle.isEmpty {
+                        Text(model.view.subtitle).padding(8)
+                            .background(.blue.opacity(0.2), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+                if let notice = model.notice {
+                    Text(notice).font(.footnote).foregroundStyle(.red)
                 }
             }
-            if !model.view.subtitle.isEmpty {
-                Text(model.view.subtitle).padding(8)
-                    .background(.blue.opacity(0.2), in: RoundedRectangle(cornerRadius: 12))
-            }
-            if let notice = model.notice {
-                Text(notice).font(.footnote).foregroundStyle(.red)
-            }
+            .opacity(phase == .fading ? 0.4 : 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeOut(duration: 0.5), value: phase)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.easeOut(duration: 0.2), value: model.view.subtitle)
+        .onChange(of: model.driverLine) { _, line in
+            // A new driver line starts a new exchange.
+            bubble.update(line, at: Self.now())
+        }
+        .onChange(of: model.view.subtitle) { _, text in
+            bubble.update(model.driverLine + text, at: Self.now())
+        }
+        .onChange(of: model.view.chip) { _, chip in
+            bubble.pin(chip == .speaking, at: Self.now())
+        }
     }
 
     private var carCard: some View {

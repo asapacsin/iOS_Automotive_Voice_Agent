@@ -360,8 +360,8 @@
     },
     {
       "id": "T-025",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
       "priority": 43,
       "action": "App vertical slice",
       "depends_on": [
@@ -369,9 +369,9 @@
         "T-023",
         "T-024"
       ],
-      "blocked_by": "EVIDENCE_REQUEST raised (specs/evidence-requests.md, H-evidence) for A/ui/TranscriptBubbleFade.kt; device acceptance in T-026",
       "evidence": [
-        "App slice built and in CI: composition root, tap-to-talk, chip mapping (unit in VoiceSessionTests), drive screen"
+        "App slice built and in CI: composition root, tap-to-talk, chip mapping (unit in VoiceSessionTests), drive screen",
+        "Bubble fade: BubbleFade (NovaAgent/UI) with iOS values, BubbleFadeTests green on Linux 2026-10-26, wired in DriveView; app build in CI xcode; device acceptance in T-026"
       ]
     },
     {
@@ -885,15 +885,17 @@
     },
     {
       "id": "H-evidence",
-      "owner": "HUMAN_CREDENTIAL",
-      "status": "HUMAN_REQUIRED",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
       "priority": 5,
       "action": "Answer EVIDENCE_REQUEST batch 2 (specs/evidence-requests.md)",
       "depends_on": [],
-      "automation_blocker": "android_repo_access",
       "procedure": "Paste each Android excerpt + commit, or add 'allowed Android lookup' lines to the feature files",
       "pass_criteria": "Every request answered and appended to its feature file",
-      "expected_return": "Excerpts with Android commit"
+      "expected_return": "Excerpts with Android commit",
+      "evidence": [
+        "Owner 2026-10-26: iOS only, no Android parity; PROPOSED iOS values adopted"
+      ]
     }
   ]
 }

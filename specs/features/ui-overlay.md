@@ -35,13 +35,14 @@ SwiftUI `DriveView` over the map (Amap map view later, T-044); `AgentRuntime` co
 - A tap on a row calls the same executor as the voice choice (I-6) and gets the same codes (`OPTIONS_STALE`, …).
 
 ## 9. Concurrency, cancellation, timeouts
-All view state updates on the main actor; the bubble fades on its own after the Android constant; a new
+All view state updates on the main actor; the bubble fades on its own (`BubbleFadeTuning`, iOS values); a new
 exchange replaces the bubble at once.
 
 ## 10. Acceptance criteria (iOS)
 - Chip mapping identical (unit).
 - A tap on a choice row calls the same executor as the voice choice (unit).
-- Bubble fade timing identical to Android constants (unit).
+- Bubble holds 4 s + 120 ms per character (max 10 s), never while speaking, then fades over 500 ms; a
+  new exchange replaces it at once (unit; iOS values, owner decision 2026-10-26, no Android parity).
 - `open_app` maps/settings switches the screen and the reply comes from the screen read back; an
   unknown app is `APP_NOT_ALLOWED`; a switch that did not happen is `APP_NOT_OPENED`, never claimed (unit, PROPOSED iOS row).
 
