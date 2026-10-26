@@ -45,3 +45,5 @@ None beyond the contracts.
 
 ## iOS notes (PROPOSED unless labelled)
 `AVCaptureSession` photo/frame capture (B). Qianfan is HTTP (A).
+
+**iOS extension:** the camera icon, live preview window and tap-to-ask flow are specified in [F-20a](camera-view.md) (PROPOSED).
