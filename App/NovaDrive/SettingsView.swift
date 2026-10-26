@@ -87,6 +87,10 @@ struct SettingsView: View {
     }
 
     private func refresh() {
+        // Sessions use the default voice when none was typed; store it so readiness says so too.
+        if settings.string(SettingsKey.azureVoice)?.isEmpty != false {
+            settings.set(DriveSettings.defaultVoice, for: SettingsKey.azureVoice)
+        }
         saved = Set(keys.map(\.0).filter { SecretField.display($0, in: store) == .saved })
         readiness = SettingsReadiness(credentials: store, settings: settings)
     }
