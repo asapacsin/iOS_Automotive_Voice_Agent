@@ -181,4 +181,71 @@ struct GuidanceWalkthroughTests {
         d.realtime(.responseDone(t, outcome: .completed))
         #expect(spoken(d.effects).isEmpty)
     }
+
+    @Test("W5 re-review B1: after a tool result the model owes a turn; guidance in that gap goes to the fallback")
+    func toolResultGap() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("打开空调", isFinal: true))
+        d.send(.speechStopped)
+        let t1 = TurnID(1)
+        d.realtime(.responseStarted(t1))
+        d.realtime(.toolCalls(t1, [climateOn()]))
+        d.realtime(.responseDone(t1, outcome: .completed))
+        d.send(.toolFinished(t1, climateOn(), .success(["power_on": true])))
+        let out = d.send(.guidancePrompt("前方右转", GuidanceID(1)))
+        #expect(guidance(out) == ["前方右转"] && sentText(out).isEmpty)
+        // Her announcement goes through the claim gate as usual.
+        let t2 = TurnID(2)
+        d.realtime(.responseStarted(t2))
+        d.send(.playback(.guidanceEnded(GuidanceID(1))))
+        d.now = NovaInstant(milliseconds: 1000)
+        d.realtime(.replyText(t2, "空调已经打开了。"))
+        d.realtime(.responseDone(t2, outcome: .completed))
+        #expect(spoken(d.effects) == "空调已经打开了。")
+    }
+
+    @Test("W5 re-review B2: the driver speaking after the prompt does not turn her reading into the answer")
+    func driverAfterPrompt() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        d.send(.guidancePrompt("前方右转", GuidanceID(1)))
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("打开空调", isFinal: true))
+        d.send(.speechStopped)
+        let reading = TurnID(1)
+        d.realtime(.responseStarted(reading))
+        d.realtime(.replyText(reading, "前方右转。"))
+        d.realtime(.responseDone(reading, outcome: .completed))
+        #expect(d.state.relay.fidelityStrikes == 0 && !d.state.relay.busy)
+        let answer = TurnID(2)
+        d.realtime(.responseStarted(answer))
+        let calls = d.realtime(.toolCalls(answer, [climateOn()]))
+        #expect(calls.contains(.startTool(answer, climateOn())))
+    }
+
+    @Test("W5 re-review B3: a fallback after the reply turn closed still stops its remaining audio")
+    func overlapAfterClose() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("今天天气怎么样", isFinal: true))
+        d.send(.speechStopped)
+        let t = TurnID(1)
+        d.realtime(.responseStarted(t))
+        d.realtime(.replyText(t, "今天晴。"))
+        d.realtime(.responseDone(t, outcome: .completed))
+        #expect(spoken(d.effects) == "今天晴。")
+        d.send(.playback(.replyStarted(d.state.arbiter.epoch)))
+        // Cooldown or deadline: the sentence goes to the fallback voice while her audio still sounds.
+        d.send(.guidanceRelay(enabled: false))
+        let out = d.send(.guidancePrompt("前方右转", GuidanceID(1)))
+        let flush = out.firstIndex { if case .flushPlayback = $0 { true } else { false } }
+        let speak = out.firstIndex { if case .speakGuidance = $0 { true } else { false } }
+        #expect(flush != nil && speak != nil && flush! < speak!)
+    }
 }

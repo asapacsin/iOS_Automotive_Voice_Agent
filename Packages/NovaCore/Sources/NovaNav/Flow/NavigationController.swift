@@ -429,7 +429,8 @@ public actor NavigationController: ToolExecutor {
         }
         let detail: Place?
         do {
-            detail = try await search.detail(id: place.id)
+            // A saved 家/公司 is not an Amap POI: only what was saved is known about it.
+            detail = place.id.hasPrefix("saved_") ? place : try await search.detail(id: place.id)
         } catch {
             return LiveInfoFailure.result(error, what: "\(place.name)的详情")
         }

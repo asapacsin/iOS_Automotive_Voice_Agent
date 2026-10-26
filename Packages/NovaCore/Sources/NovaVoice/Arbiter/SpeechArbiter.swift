@@ -103,6 +103,7 @@ public struct SpeechArbiter: Sendable {
     public mutating func void() -> [ArbiterEffect] {
         epoch = epoch.next()
         replyPlaying = false
+        replyStarted = false
         return [.flushPlayback(epoch), .cancelRevoicing(epoch)]
     }
 

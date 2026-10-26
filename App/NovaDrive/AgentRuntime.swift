@@ -69,8 +69,11 @@ struct KeychainRealtimeCredentials: RealtimeCredentialSource {
 
 /// The demo start point stands in for the car's position.
 struct DemoLocation: LocationProvider {
+    /// The navigation flow's own clock: a fix is judged fresh against it (F-16 §3).
+    let clock: SystemClock
+
     func latestFix() async -> LocationFix? {
-        LocationFix(coordinate: DriveSettings.demoOrigin, horizontalAccuracyMeters: 10, timestamp: SystemClock().now)
+        LocationFix(coordinate: DriveSettings.demoOrigin, horizontalAccuracyMeters: 10, timestamp: clock.now)
     }
 }
 
@@ -321,14 +324,15 @@ final class AgentRuntime {
         let audio = LiveAudio()
         let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials())
         let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
-        let location = DemoLocation()
+        let navigationClock = SystemClock()
+        let location = DemoLocation(clock: navigationClock)
         let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
         let web = AmapWebClient(key: amapKey)
         let engine = AmapRouteEngine(key: amapKey, origin: { await location.latestFix()?.coordinate },
                                      onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
-        let navigation = NavigationController(search: web, engine: engine, location: location, clock: SystemClock(),
+        let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
                                               saved: savedPlaces) { snapshot in
             flags.continuation.yield(snapshot)
         }

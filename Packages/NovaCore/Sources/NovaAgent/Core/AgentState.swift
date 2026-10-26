@@ -204,6 +204,8 @@ public struct AgentState: Sendable {
             let finished = dispatcher.finish(call, result)
             let response = ToolResponse(id: call.id, name: call.name, result: finished)
             // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
+            // The model answers a tool result with a new turn: guidance waits for it (F-14 RESPONSE_OPEN).
+            answerOwed = true
             return [.provider(.toolResponses([response]))] + pipeline(.toolResult(turn, response), at: now)
         case .playback(let playback):
             switch playback {
@@ -295,8 +297,21 @@ public struct AgentState: Sendable {
                 // (they may be at Azure or sounding) is cut whole (PROPOSED: guidance is the safety-relevant
                 // voice; a reply not yet started is only held).
                 arbiter.guidance(true, at: now)
-                if let turn = openTurn, !silenced.contains(turn), arbiter.replyStarted || arbiter.replyPlaying {
-                    effects += stopReply(turn)
+                if arbiter.replyStarted || arbiter.replyPlaying {
+                    if let turn = openTurn, !silenced.contains(turn) {
+                        effects += stopReply(turn)
+                    } else {
+                        // The turn has closed but its audio may still sound or be at Azure: stop that too.
+                        segmenter.reset()
+                        heldClauses = []
+                        effects += arbiter.void().compactMap { effect in
+                            switch effect {
+                            case .flushPlayback(let epoch): return .flushPlayback(epoch)
+                            case .cancelRevoicing(let epoch): return .cancelRevoicing(epoch)
+                            case .bargeIn: return nil
+                            }
+                        }
+                    }
                 }
                 effects.append(.speakGuidance(text, id))
             case .silenceAssistant(let id):
@@ -429,8 +444,9 @@ public struct AgentState: Sendable {
             openTurn = turn
             segmenter.reset()
             arbiter.newReply()
-            // With no answer owed, a turn after a prompt is its reading (prompts are only sent then).
-            if let id = relayAwaiting, !answerOwed {
+            // A prompt is only sent when no answer is owed, and Gemini answers its inputs in order, so the
+            // first turn after a prompt is its reading, even if the driver spoke meanwhile.
+            if let id = relayAwaiting {
                 relayAwaiting = nil
                 relayTurns[turn] = id
                 if silenceNextRelayTurn {
@@ -479,6 +495,7 @@ public struct AgentState: Sendable {
                 case .refuse(let result):
                     let response = ToolResponse(id: call.id, name: call.name, result: result)
                     effects.append(.diagnostic(.toolRefused(code: result.code ?? .invalidValue)))
+                    answerOwed = true
                     effects.append(.provider(.toolResponses([response])))
                     effects += pipeline(.toolResult(turn, response), at: now)
                 }

@@ -41,7 +41,8 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
 
     public func polygon(_ keywords: String, vertices: [GeoCoordinate]) async throws -> [Place] {
         Self.places(try await get("/v3/place/polygon", [
-            "keywords": keywords, "polygon": vertices.map(Self.lngLat).joined(separator: "|"), "offset": "10",
+            "keywords": keywords, "polygon": vertices.map(Self.lngLat).joined(separator: "|"),
+            "offset": String(AmapWebTuning().corridorPageSize),
         ]))
     }
 
