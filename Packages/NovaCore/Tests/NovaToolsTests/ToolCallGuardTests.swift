@@ -277,10 +277,13 @@ struct RepeatAndMediaGuardTests {
 struct DispatchTests {
     @Test("F-09 回家 with no home saved is HOME_NOT_SET; 家乐福 is a search")
     func savedPlaces() {
-        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "回家"]), GuardContext()) == .homeNotSet)
-        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "带我去公司吧"]), GuardContext()) == .workNotSet)
+        let none = GuardContext(savedPlaces: [])
+        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "回家"]), none) == .homeNotSet)
+        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "带我去公司吧"]), none) == .workNotSet)
+        // Unknown saved places: the navigation executor decides from the store.
+        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "回家"]), GuardContext()) == nil)
         #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "回家"]), GuardContext(savedPlaces: [.home])) == nil)
-        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "家乐福"]), GuardContext()) == nil)
+        #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "家乐福"]), none) == nil)
         #expect(ToolCallGuards.savedPlaceMissing(call("navigate_to", ["destination": "公司附近的星巴克"]), GuardContext()) == nil)
     }
 

@@ -282,7 +282,9 @@ final class AgentRuntime {
         let engine = AmapRouteEngine(key: amapKey, origin: { await location.latestFix()?.coordinate },
                                      onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
-        let navigation = NavigationController(search: web, engine: engine, location: location, clock: SystemClock()) { snapshot in
+        let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
+        let navigation = NavigationController(search: web, engine: engine, location: location, clock: SystemClock(),
+                                              saved: savedPlaces) { snapshot in
             flags.continuation.yield(snapshot)
         }
         await navigation.start()
@@ -292,6 +294,7 @@ final class AgentRuntime {
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
         for name in NavigationController.tools { executors[name] = navigation }
         executors["query_live_info"] = liveInfo
+        executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
         executors["place_call"] = PhoneCallHandler(contacts: ContactsStore(), dialer: SystemPhoneDialer(), clock: SystemClock())
         let settings = DefaultsSettingsStore()

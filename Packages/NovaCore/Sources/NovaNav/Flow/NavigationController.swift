@@ -44,6 +44,8 @@ public actor NavigationController: ToolExecutor {
     public static let tools: Set<String> = ["navigate_to", "choose_navigation_option", "exit_navigation_mode"]
 
     private let search: any PlaceSearch
+    /// F-16 home/work; nil leaves 家/公司 to the dispatcher guard.
+    private let saved: SavedPlaces?
     private let engine: any NaviEngine
     private let location: any LocationProvider
     private let clock: any NovaClock
@@ -59,8 +61,9 @@ public actor NavigationController: ToolExecutor {
     private enum Wait { case routes, started }
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
-                clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(),
+                clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(), saved: SavedPlaces? = nil,
                 onChange: @escaping @Sendable (NavigationFlowState) -> Void = { _ in }) {
+        self.saved = saved
         self.search = search
         self.engine = engine
         self.location = location
@@ -93,6 +96,17 @@ public actor NavigationController: ToolExecutor {
 
     private func navigate(_ destination: String) async -> ToolResult {
         if snapshot.navigating { await engine.stop(generation: snapshot.generation) }
+        // F-16: 家/公司 (whole utterance, never 家乐福) is the saved place or a refusal, never a POI search.
+        if let saved, let slot = PlaceSlot.slot(for: destination) {
+            if let place = saved.place(slot) {
+                snapshot.routes = []
+                snapshot.info = nil
+                return await route(to: place)
+            }
+            reset()
+            let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
+            return .failure(code, advice: ToolFailureAdvice.forCode(code))
+        }
         let generation = advance(to: .resolvingDestination)
         snapshot.places = []
         snapshot.routes = []
