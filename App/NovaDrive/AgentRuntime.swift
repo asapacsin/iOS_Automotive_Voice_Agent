@@ -172,7 +172,8 @@ final class AgentRuntime {
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
         for name in NavigationController.tools { executors[name] = navigation }
         executors["query_live_info"] = liveInfo
-        let config = SessionConfig(systemInstruction: Persona.instruction, tools: ToolCatalog.declarations)
+        // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
+        let config = SessionConfig(systemInstruction: Persona.instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model)
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
         self.core = core
