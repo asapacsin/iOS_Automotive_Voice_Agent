@@ -140,6 +140,7 @@ private struct DriveContent: View {
         }
         .onChange(of: model.geometry) { _, geometry in focus(geometry) }
         // F-20a §5: the camera never runs in the background.
+        .task { if UITestDrive.enabled { await runtime.startUITestDrive() } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && model.cameraOpen { runtime.closeCamera() }
             let mapped: AppScenePhase = switch phase {
@@ -292,6 +293,9 @@ private struct DriveContent: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { Task { await runtime.tapChoice(row: index) } }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("place-row-\(index)")
                 }
             case .resolvingDestination:
                 Label("正在搜索地点…", systemImage: "magnifyingglass")
@@ -312,6 +316,9 @@ private struct DriveContent: View {
                                 in: RoundedRectangle(cornerRadius: 8))
                     .contentShape(Rectangle())
                     .onTapGesture { Task { await runtime.tapChoice(row: index) } }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("route-row-\(index)")
                 }
             default:
                 EmptyView()
@@ -383,6 +390,17 @@ private struct DriveContent: View {
     }
 
     private var talkButton: some View {
+        VStack {
+            if UITestDrive.enabled {
+                // T-048: stands in for the driver's 「导航去珠海站」 in the simulator drive.
+                Button("导航去珠海站") { Task { await runtime.navigate(to: "珠海站") } }
+                    .accessibilityIdentifier("uitest-navigate")
+            }
+            voiceButton
+        }
+    }
+
+    private var voiceButton: some View {
         Button(action: toggle) {
             Label(model.running ? "结束对话" : "开始对话", systemImage: model.running ? "stop.circle.fill" : "mic.circle.fill")
                 .font(.headline)

@@ -36,3 +36,17 @@ jobs:
             (cd Packages/$pkg && xcodebuild -scheme $pkg -destination 'generic/platform=iOS' \
               -derivedDataPath ../../build/$pkg CODE_SIGNING_ALLOWED=NO build | tail -n 20; test ${PIPESTATUS[0]} -eq 0)
           done
+  simulator:
+    # T-048: W8 in UI on the iOS Simulator (scripted search and engine; no keys, mic or network).
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate --spec App/project.yml
+      - run: |
+          set -o pipefail
+          device=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [0-9]+[^(]*' | sed 's/ *$//')
+          echo "simulator: $device"
+          xcodebuild -project App/NovaDrive.xcodeproj -scheme NovaDrive \
+            -destination "platform=iOS Simulator,name=$device" -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO test 2>&1 | tail -n 80

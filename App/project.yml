@@ -62,3 +62,24 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
+  NovaDriveUITests:
+    # T-048: simulator drive (scripted search and engine); CI job `simulator`.
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [NovaDriveUITests]
+    dependencies:
+      - target: NovaDrive
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive.uitests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+schemes:
+  NovaDrive:
+    build:
+      targets:
+        NovaDrive: all
+        NovaDriveUITests: [test]
+    test:
+      targets: [NovaDriveUITests]

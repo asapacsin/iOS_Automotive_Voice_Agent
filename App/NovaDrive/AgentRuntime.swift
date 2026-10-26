@@ -266,7 +266,38 @@ final class AgentRuntime {
     /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the
     /// dispatcher and executor of the voice choice and she announces its read-back.
     func tapChoice(row: Int) async {
-        await core?.send(.ui(.choose(row: row)))
+        if let core {
+            await core.send(.ui(.choose(row: row)))
+        } else if let navigation, UITestDrive.enabled {
+            // T-048: no voice session in the simulator test; the same executor and arguments as the
+            // `.choose(row:)` intent (row + 1).
+            _ = await navigation.execute(ToolCall(id: CallID("ui-\(row)")!, name: "choose_navigation_option",
+                                                  arguments: ["index": .int(Int64(row + 1))]))
+        }
+    }
+
+    /// T-048: the simulator drive. The real `NavigationController` over a scripted search and engine;
+    /// `navigate(to:)` stands in for the driver's 「导航去…」.
+    func startUITestDrive() async {
+        guard UITestDrive.enabled, navigation == nil else { return }
+        let model = model
+        let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
+        let clock = SystemClock()
+        let navigation = NavigationController(search: ScriptedPlaceSearch(), engine: ScriptedRouteEngine(),
+                                              location: DemoLocation(clock: clock), clock: clock,
+                                              saved: SavedPlaces(settings: DefaultsSettingsStore())) { snapshot in
+            flags.continuation.yield(snapshot)
+        }
+        await navigation.start()
+        self.navigation = navigation
+        tasks.append(Task {
+            for await snapshot in flags.stream { await MainActor.run { model.nav = snapshot } }
+        })
+    }
+
+    func navigate(to destination: String) async {
+        _ = await navigation?.execute(ToolCall(id: CallID("ui-nav")!, name: "navigate_to",
+                                               arguments: ["destination": .string(destination)]))
     }
 
     private var lifecycle: ConversationLifecycle?
