@@ -258,8 +258,15 @@ final class AgentRuntime {
         return result
     }
 
-    /// The flow of the running session, for taps on the choice list (I-6: the same executor as voice).
+    /// The flow of the running session (background policy reads its phase).
     private var navigation: NavigationController?
+
+    /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the
+    /// dispatcher and executor of the voice choice and she announces its read-back.
+    func tapChoice(row: Int) async {
+        await core?.send(.ui(.choose(row: row)))
+    }
+
     private var lifecycle: ConversationLifecycle?
 
     /// T-062 scene-phase bridge: ios-architecture §11.3. In the background only a navigating or
@@ -269,16 +276,6 @@ final class AgentRuntime {
         let navigating = await navigation?.current.navigating ?? false
         let decision = BackgroundDecision.decide(scene: phase, listening: lifecycle.state, navigating: navigating)
         if decision.keepSocket == false { stop() }
-    }
-    private var taps = 0
-
-    /// F-25 §10 row 2: a row tap is `choose_navigation_option(index)` on the navigation executor, with the
-    /// same result codes as the voice choice; a failure is shown, never papered over.
-    func tapChoice(row: Int) async {
-        guard let navigation else { return }
-        taps += 1
-        let result = await navigation.execute(ChoiceTap.call(row: row, id: CallID("tap_\(taps)")!))
-        if !result.ok { model.notice = result.advice?.components(separatedBy: "请").first ?? result.code?.rawValue }
     }
 
     /// Speaks a line in her voice while a session runs (set in `start()`, cleared in `stop()`).

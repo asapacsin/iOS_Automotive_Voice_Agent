@@ -106,6 +106,12 @@ public struct GuidanceRelay: Sendable {
 
     public var busy: Bool { current != nil }
 
+    /// The sentence of `id` while the relay still holds it.
+    public func text(for id: GuidanceID) -> String? {
+        if let current, current.item.id == id { return current.item.text }
+        return queue.first { $0.id == id }?.text
+    }
+
     // MARK: Inputs
 
     /// Amap gave a sentence (`playNaviSoundString:`).
@@ -255,7 +261,7 @@ public struct GuidanceRelay: Sendable {
     }
 
     /// Letters and digits only: punctuation, spaces and 「。」 do not make a reading unfaithful.
-    static func normalised(_ text: String) -> String {
+    public static func normalised(_ text: String) -> String {
         var kept = String.UnicodeScalarView()
         kept.append(contentsOf: text.unicodeScalars.filter { $0.properties.isAlphabetic || $0.properties.numericType != nil })
         return String(kept)

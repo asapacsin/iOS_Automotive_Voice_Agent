@@ -64,6 +64,10 @@ public struct MusicToolHandler: ToolExecutor {
             .filter { !$0.isEmpty }
         guard !parts.isEmpty else { return .failure(.invalidFields, advice: "请用户说想听什么。") }
         let exclude = args["exclude_title"]?.stringValue
+        // What played before the request is no evidence for it (music.md contract), unless it is the
+        // very title asked for.
+        let before = await named.nowPlaying()
+        let wanted = args["title"]?.stringValue
         do {
             try await named.play(query: parts.joined(separator: " "))
         } catch {
@@ -73,7 +77,8 @@ public struct MusicToolHandler: ToolExecutor {
         // the driver just rejected) is evidence.
         let deadline = clock.now + tuning.timeout
         while clock.now < deadline {
-            if let playing = await named.nowPlaying(), playing.title != exclude {
+            if let playing = await named.nowPlaying(), playing.title != exclude,
+               playing != before || playing.title == wanted {
                 var nowPlaying: [String: JSONValue] = ["title": .string(playing.title)]
                 if let artist = playing.artist { nowPlaying["artist"] = .string(artist) }
                 return .success(["status": "playing", "now_playing": .object(nowPlaying),

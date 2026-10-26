@@ -135,6 +135,9 @@ public struct SpeechArbiter: Sendable {
     /// A clause of the current reply went to the revoicer.
     public mutating func markReplyStarted() { replyStarted = true }
 
+    /// Everything of the reply has sounded (lane drained, turn closed).
+    public mutating func replyDrained() { replyStarted = false }
+
     public mutating func setManoeuvreDistance(_ meters: Int?) { manoeuvreDistance = meters }
 
     /// The full reply decision at `now`, highest rule first (contracts/voice-agent.md §5).

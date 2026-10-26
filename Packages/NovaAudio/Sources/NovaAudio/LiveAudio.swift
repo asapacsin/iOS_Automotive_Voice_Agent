@@ -157,13 +157,23 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     /// F-13 bundled track on the media lane, looped. A bundled file named `track.resourceName` is used
     /// when present; otherwise a generated loop, so play works offline without shipping audio.
     public func playMedia(_ track: BundledTrack) {
-        guard lock.withLock({ running && !mediaOn }) else { return }
+        // music.md lane contract: a new play request reports false, then true once it is playing, so a
+        // repeated 放首歌 over the running loop is fresh evidence.
+        if lock.withLock({ mediaOn }), media.isPlaying {
+            continuation.yield(.mediaPlaying(false))
+            continuation.yield(.mediaPlaying(true))
+            return
+        }
+        // An engine stopped by an interruption cannot play (AVAudioPlayerNode raises): report not playing.
+        guard lock.withLock({ running }), engine.isRunning else { return }
         let buffer = Self.bundledBuffer(track, format: replyFormat) ?? BundledLoop.buffer(format: replyFormat)
         guard let buffer else { return }
         media.scheduleBuffer(buffer, at: nil, options: .loops)
         media.play()
-        lock.withLock { mediaOn = true }
-        continuation.yield(.mediaPlaying(true))
+        // Read back from the node, not assumed.
+        let playing = media.isPlaying
+        lock.withLock { mediaOn = playing }
+        if playing { continuation.yield(.mediaPlaying(true)) }
     }
 
     public func stopMedia() {
@@ -173,7 +183,7 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         continuation.yield(.mediaPlaying(false))
     }
 
-    public var mediaPlaying: Bool { lock.withLock { mediaOn } }
+    public var mediaPlaying: Bool { lock.withLock { mediaOn } && media.isPlaying }
 
     static func bundledBuffer(_ track: BundledTrack, format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let url = ["m4a", "mp3", "wav", "caf"].lazy.compactMap {

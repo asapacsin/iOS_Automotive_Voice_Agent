@@ -227,7 +227,7 @@ struct GuidanceWalkthroughTests {
         #expect(calls.contains(.startTool(answer, climateOn())))
     }
 
-    @Test("W5 re-review B3: a fallback after the reply turn closed still stops its remaining audio")
+    @Test("W5 round 3: a fallback after the reply closed waits for her audio to drain, at most 4 s, never overlapping")
     func overlapAfterClose() {
         var d = Drive()
         d.connect()
@@ -240,12 +240,88 @@ struct GuidanceWalkthroughTests {
         d.realtime(.replyText(t, "今天晴。"))
         d.realtime(.responseDone(t, outcome: .completed))
         #expect(spoken(d.effects) == "今天晴。")
-        d.send(.playback(.replyStarted(d.state.arbiter.epoch)))
-        // Cooldown or deadline: the sentence goes to the fallback voice while her audio still sounds.
+        let epoch = d.state.arbiter.epoch
+        d.send(.playback(.replyStarted(epoch)))
         d.send(.guidanceRelay(enabled: false))
-        let out = d.send(.guidancePrompt("前方右转", GuidanceID(1)))
+        var out = d.send(.guidancePrompt("前方右转", GuidanceID(1)))
+        #expect(guidance(out).isEmpty)  // her sentence is still sounding
+        out = d.send(.playback(.replyFinished(epoch)))
+        #expect(guidance(out) == ["前方右转"])
+        #expect(!out.contains { if case .flushPlayback = $0 { true } else { false } })
+
+        // A lane that never reports the end is cut after 4 s, flush before the guidance.
+        d.send(.playback(.guidanceEnded(GuidanceID(1))))
+        d.now = NovaInstant(milliseconds: 10_000)
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("再说一遍", isFinal: true))
+        d.send(.speechStopped)
+        let t2 = TurnID(2)
+        d.realtime(.responseStarted(t2))
+        d.realtime(.replyText(t2, "今天晴。"))
+        d.realtime(.responseDone(t2, outcome: .completed))
+        d.send(.playback(.replyStarted(d.state.arbiter.epoch)))
+        out = d.send(.guidancePrompt("进入辅路", GuidanceID(2)))
+        #expect(guidance(out).isEmpty)
+        d.now = NovaInstant(milliseconds: 14_000)
+        out = d.send(.timer(.arbiter(d.now)))
         let flush = out.firstIndex { if case .flushPlayback = $0 { true } else { false } }
         let speak = out.firstIndex { if case .speakGuidance = $0 { true } else { false } }
         #expect(flush != nil && speak != nil && flush! < speak!)
+    }
+
+    @Test("W5 round 3: when Gemini drops the reading because the driver spoke, their answer is not silenced")
+    func droppedReading() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        let g = GuidanceID(1)
+        d.send(.guidancePrompt("前方右转", g))
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("打开空调", isFinal: true))
+        d.send(.speechStopped)
+        d.now = NovaInstant(milliseconds: 1200)
+        #expect(guidance(d.send(.timer(.guidance(g)))) == ["前方右转"])
+        let answer = TurnID(1)
+        d.realtime(.responseStarted(answer))
+        let calls = d.realtime(.toolCalls(answer, [climateOn()]))
+        #expect(calls.contains(.startTool(answer, climateOn())))
+    }
+
+    @Test("W5 round 3: a turn after the prompt whose words are the sentence is the reading")
+    func classifiedReading() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        d.send(.guidancePrompt("前方300米右转", GuidanceID(1)))
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("嗯", isFinal: true))
+        d.send(.speechStopped)
+        let t = TurnID(1)
+        d.realtime(.responseStarted(t))
+        d.realtime(.replyText(t, "前方300米"))
+        d.realtime(.replyText(t, "右转。"))
+        d.realtime(.responseDone(t, outcome: .completed))
+        #expect(spoken(d.effects) == "前方300米右转。")
+        #expect(!d.state.relay.busy && d.state.relay.fidelityStrikes == 0)
+    }
+}
+
+@Suite("T-047 F-25 taps through AgentCore (I-6)")
+struct UITapTests {
+    @Test("F-25 §10 row 2: a row tap is the voice choice call through the dispatcher; she announces the read-back")
+    func tap() {
+        var d = Drive()
+        d.connect()
+        d.send(.navigation(NavigationFlags(listOpen: true)))
+        let out = d.send(.ui(.choose(row: 1)))
+        guard case .startTool(_, let call)? = out.first else {
+            Issue.record("no tool start")
+            return
+        }
+        #expect(call.name == "choose_navigation_option" && call.arguments["index"] == .int(2))
+        let done = d.send(.toolFinished(.initial, call, .success(["status": "destination_selected"])))
+        #expect(!done.contains { if case .provider(.toolResponses) = $0 { true } else { false } })
+        let notes = done.compactMap { if case .provider(.text(let t, _)) = $0 { t.first?.text } else { nil } }
+        #expect(notes.count == 1 && notes[0].contains("destination_selected"))
     }
 }
