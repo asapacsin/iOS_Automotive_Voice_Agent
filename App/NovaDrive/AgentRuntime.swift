@@ -346,7 +346,9 @@ final class AgentRuntime {
         await navigation.start()
         self.navigation = navigation
         let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: vehicle), vehicle: vehicle, model: model)
-        let liveInfo = LiveInfoExecutor(navigation: navigation, weather: web, geocoder: web, location: location)
+        // F-18: weather cached 10 min, adcodes 30 min (T-033).
+        let cache = LiveInfoCache(weather: web, geocoder: web, clock: SystemClock())
+        let liveInfo = LiveInfoExecutor(navigation: navigation, weather: cache, geocoder: cache, location: location)
         var executors: [String: any ToolExecutor] = [:]
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
         // F-12: scenarios go through the same simulated vehicle; the car card refreshes after each run.
