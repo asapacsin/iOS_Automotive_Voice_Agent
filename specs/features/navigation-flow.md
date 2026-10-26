@@ -10,25 +10,53 @@ Take the driver from a spoken destination to running guidance with voice selecti
 导航去珠海站 → 「找到5个地点，请说第几个」 → 第一个 → 「有3条路线…说开始导航」 → 开始导航 → 导航已开始; 算了 cancels a list; 结束导航 stops guidance.
 
 ## 3. Preconditions
-See depends-on contracts.
+- Amap Web key saved in 设置 (`AMAP_WEB_KEY`); missing or rejected → `AMAP_WEB_KEY_MISSING`.
+- Location permission (When In Use) for "near me" search; without a fix, search falls back to text search.
+- A running live session for the voice path; the choice list can also be tapped (F-25).
 
 ## 4. Inputs and outputs
-See contracts/navigation.md.
+- `navigate_to(destination ≤120 chars)` → `candidates_listed` {count, candidates[], next} for 2–5 places,
+  or goes straight to route calculation for exactly one place.
+- `choose_navigation_option` (exactly one of index / preference / name) → routes listed
+  (AWAITING_ROUTE_SELECTION) or guidance started (NAVIGATING).
+- `exit_navigation_mode()` → stopped guidance, closed list, or nothing active.
+- Every result carries a `next` sentence that tells the model what to say (never read the list aloud).
+- Published snapshot for the UI: phase, generation, places, routes, destination, live info, last guidance.
 
 ## 5. State transitions
-See contracts.
+As contracts/navigation.md. iOS phases (`NavigationPhase`): idle, resolvingDestination,
+awaitingDestinationSelection, calculatingRoute, awaitingRouteSelection, navigating, arrived, error.
+Each request or cancel calls `advance(to:)`, which raises the generation.
 
 ## 6. Events and triggers
-Tool call or UI event.
+Tool calls (`navigate_to`, `choose_navigation_option`, `exit_navigation_mode`); a tap on a list row;
+the local picker intercept (ordinals, preferences, 开始导航); engine events (routesReady,
+routeCalculationFailed, naviStarted, naviInfo, guidanceText, arrived, naviStopped, cameraInfo).
 
 ## 7. Dependencies and external services
-See contracts/api-contracts.md.
+`PlaceSearch` (Amap Web `/v3/place/around`, `/v3/place/text`), `LocationProvider` (CoreLocation,
+WGS-84 → GCJ-02), `NaviEngine` port: `AmapRouteEngine` (Amap Web driving + simulated movement, current
+build) and `AmapNaviEngine` (Navi SDK, T-043). Guidance voice through F-14.
 
 ## 8. Error handling and recovery
-Errors are ok=false results with codes; see refs.
+| Case | Code | What she says (from `next`/advice) |
+|---|---|---|
+| Key missing/rejected | `AMAP_WEB_KEY_MISSING` | the search service is not set up; says nothing was found |
+| Network / HTTP failure | `LIVE_INFO_UNAVAILABLE` | search failed, asks to say it again |
+| 0 places | `NO_CANDIDATES` | not found, asks for another wording |
+| No route / calc failure | `ROUTE_CALCULATION_FAILED` | route could not be planned |
+| Start did not confirm in 8 s | `START_FAILED` | navigation did not start; never claims it did (I-1) |
+| Pick with no list / old list | `NO_OPTIONS_ON_SCREEN` / `OPTIONS_STALE` | see F-10 navigation ambiguity |
+| Pick while still searching | `OPTIONS_NOT_READY` | asks to wait a moment |
+Failures reset to idle; the map stops drawing any route.
 
 ## 9. Concurrency, cancellation, timeouts
-See contracts.
+- Route wait 10 s, start wait 8 s, choice lifetime 120 s, at most 5 candidates, search radius 50 km
+  (`NavigationTuning`).
+- A result or engine event with an older generation is dropped; a request that finishes after a newer
+  one returns `OPTIONS_STALE` and changes nothing.
+- A new destination while navigating stops the old guidance first.
+- Duplicate model picks within 5 s of a local pick are suppressed; `开始导航` starts at most one navigation.
 
 ## 10. Acceptance criteria (iOS)
 - Phase transitions match contracts/navigation.md for scripted SDK fakes (unit).

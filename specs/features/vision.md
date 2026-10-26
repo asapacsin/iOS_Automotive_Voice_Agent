@@ -10,25 +10,35 @@ Answer questions about what the camera sees.
 前面那是什么车 → camera look → answer; images sent only on open and on a question.
 
 ## 3. Preconditions
-See depends-on contracts.
+- Camera permission (`NSCameraUsageDescription`); denied → `CAMERA_PERMISSION_DENIED`.
+- A vision key: Qianfan (Android parity) or Gemini (iOS default proposed in F-20a OQ-CAM-1).
+  None → `NotConfigured`.
 
 ## 4. Inputs and outputs
-See refs.
+- In: `describe_camera_view(question)` (non-blank, length-limited: `BLANK_QUESTION` / `QUESTION_TOO_LONG`)
+  and one still frame (JPEG, longest side ≤ 1024 px, not older than 1 s).
+- Out: `{ok:true, answer, seen_at_ms}`, or ok=false with `NOT_CONFIGURED`, `AUTH_FAILED`,
+  `VISION_FAILED`, `CAMERA_UNAVAILABLE`, `CAMERA_PERMISSION_DENIED`. `VisionPort` results:
+  Answer, NotConfigured, AuthFailed, Failed.
+- `describe_camera_view` is not an acting tool: its result never proves an action claim (F-06).
 
 ## 5. State transitions
-See contracts.
+Per question: idle → capturing → asking → idle. Preview window states are in F-20a §5.
 
 ## 6. Events and triggers
-Tool call or UI event.
+`describe_camera_view` tool call; camera open / 问一下 tap (F-20a).
 
 ## 7. Dependencies and external services
-See contracts/api-contracts.md.
+Qianfan `POST https://qianfan.baidubce.com/v2/chat/completions` (bearer token, image as JPEG);
+Gemini `generateContent` (F-20a); `AVCaptureSession` in NovaPlatform/Camera; HTTP clients in NovaServices.
 
 ## 8. Error handling and recovery
-Errors are ok=false results with codes; see refs.
+See the F-20a §8 table for the spoken sentences. If the model cannot tell, the answer says so; it never
+guesses (I-1). The image and question are never logged (I-8).
 
 ## 9. Concurrency, cancellation, timeouts
-See contracts.
+8 s deadline; one request in flight, a newer question cancels the older one and its answer is dropped;
+barge-in stops speaking the answer (F-08).
 
 ## 10. Acceptance criteria (iOS)
 - No key → NotConfigured sentence; auth failure → AuthFailed sentence.
