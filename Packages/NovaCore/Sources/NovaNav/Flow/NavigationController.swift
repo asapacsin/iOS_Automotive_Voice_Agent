@@ -97,18 +97,19 @@ public actor NavigationController: ToolExecutor {
     // MARK: navigate_to
 
     private func navigate(_ destination: String) async -> ToolResult {
-        if snapshot.navigating { await engine.stop(generation: snapshot.generation) }
         // F-16: 家/公司 (whole utterance, never 家乐福) is the saved place or a refusal, never a POI search.
+        // An unset slot is refused before anything stops, so the current route keeps going (I-14).
         if let saved, let slot = PlaceSlot.slot(for: destination) {
-            if let place = saved.place(slot) {
-                snapshot.routes = []
-                snapshot.info = nil
-                return await route(to: place)
+            guard let place = saved.place(slot) else {
+                let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
+                return .failure(code, advice: ToolFailureAdvice.forCode(code))
             }
-            reset()
-            let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
-            return .failure(code, advice: ToolFailureAdvice.forCode(code))
+            if snapshot.navigating { await engine.stop(generation: snapshot.generation) }
+            snapshot.routes = []
+            snapshot.info = nil
+            return await route(to: place)
         }
+        if snapshot.navigating { await engine.stop(generation: snapshot.generation) }
         let generation = advance(to: .resolvingDestination)
         snapshot.places = []
         snapshot.routes = []

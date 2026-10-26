@@ -87,6 +87,22 @@ struct SavedPlacesTests {
         #expect(await nav.current.phase == .idle)
     }
 
+    @Test("unset 回家 while navigating keeps the current guidance running")
+    func unsetSlotKeepsGuidance() async {
+        let engine = ScriptedNaviEngine(routes: routes)
+        let search = CountingSearch(places: [place("珠海站", 1)])
+        let nav = await navigation(engine, search: search, saved: SavedPlaces(settings: MemorySettingsStore()))
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        _ = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        _ = await nav.execute(tool("choose_navigation_option", ["preference": "recommended"]))
+        #expect(await nav.current.phase == .navigating)
+        let callsBefore = engine.calls.withLock { $0 }
+        let home = await nav.execute(tool("navigate_to", ["destination": "回家"]))
+        #expect(!home.ok && home.code == .homeNotSet)
+        #expect(await nav.current.phase == .navigating)
+        #expect(engine.calls.withLock { $0 } == callsBefore)
+    }
+
     @Test("家乐福 is a normal search, not 家")
     func carrefour() async {
         let saved = SavedPlaces(settings: MemorySettingsStore())
