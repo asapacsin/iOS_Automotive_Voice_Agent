@@ -885,12 +885,12 @@
     },
     {
       "id": "H-evidence",
-      "owner": "HUMAN_DECISION",
+      "owner": "HUMAN_CREDENTIAL",
       "status": "HUMAN_REQUIRED",
       "priority": 5,
       "action": "Answer EVIDENCE_REQUEST batch 2 (specs/evidence-requests.md)",
       "depends_on": [],
-      "automation_blocker": "android_repo_access_not_allowed",
+      "automation_blocker": "android_repo_access",
       "procedure": "Paste each Android excerpt + commit, or add 'allowed Android lookup' lines to the feature files",
       "pass_criteria": "Every request answered and appended to its feature file",
       "expected_return": "Excerpts with Android commit"
