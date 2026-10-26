@@ -14,7 +14,7 @@ import SwiftUI
 @MainActor
 final class DriveModel: ObservableObject {
     @Published var view = AgentViewState()
-    @Published var nav = NavigationSnapshot()
+    @Published var nav = NavigationFlowState()
     @Published var geometry = RouteGeometry()
     @Published var climate = ClimateState.default
     @Published var cabin = CabinState.default
@@ -158,10 +158,9 @@ final class AgentRuntime {
         let location = DemoLocation()
         let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
         let web = AmapWebClient(key: amapKey)
-        let engine = AmapRouteEngine(key: amapKey, origin: { await location.latestFix()?.coordinate }) { geometry in
-            Task { @MainActor in model.geometry = geometry }
-        }
-        let flags = AsyncStream.makeStream(of: NavigationSnapshot.self, bufferingPolicy: .bufferingNewest(16))
+        let engine = AmapRouteEngine(key: amapKey, origin: { await location.latestFix()?.coordinate },
+                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
+        let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         let navigation = NavigationController(search: web, engine: engine, location: location, clock: SystemClock()) { snapshot in
             flags.continuation.yield(snapshot)
         }

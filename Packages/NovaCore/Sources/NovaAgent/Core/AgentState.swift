@@ -54,6 +54,8 @@ public struct AgentViewState: Sendable, Hashable {
     public var subtitle = ""
     /// Terminal error: the settings message for this code.
     public var configError: RealtimeErrorCode?
+
+    public init() {}
 }
 
 /// Effects in the order they must run (ios-architecture §5.3): flush before notify, and so on.

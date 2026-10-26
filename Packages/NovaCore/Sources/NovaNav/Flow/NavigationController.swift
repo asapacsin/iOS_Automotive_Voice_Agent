@@ -9,7 +9,7 @@ public enum NavigationPhase: String, Sendable, Hashable {
 }
 
 /// What the screen and the guards see of the flow. A snapshot, not the flow's own state.
-public struct NavigationSnapshot: Sendable, Hashable {
+public struct NavigationFlowState: Sendable, Hashable {
     public var phase: NavigationPhase = .idle
     public var generation: Generation = .initial
     public var places: [Place] = []
@@ -48,8 +48,8 @@ public actor NavigationController: ToolExecutor {
     private let location: any LocationProvider
     private let clock: any NovaClock
     private let tuning: NavigationTuning
-    private let onChange: @Sendable (NavigationSnapshot) -> Void
-    private var snapshot = NavigationSnapshot()
+    private let onChange: @Sendable (NavigationFlowState) -> Void
+    private var snapshot = NavigationFlowState()
     private var listedAt: NovaInstant?
     private var waiting: (kind: Wait, continuation: CheckedContinuation<NaviEngineEvent?, Never>)?
     private var listener: Task<Void, Never>?
@@ -60,7 +60,7 @@ public actor NavigationController: ToolExecutor {
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
                 clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(),
-                onChange: @escaping @Sendable (NavigationSnapshot) -> Void = { _ in }) {
+                onChange: @escaping @Sendable (NavigationFlowState) -> Void = { _ in }) {
         self.search = search
         self.engine = engine
         self.location = location
@@ -78,7 +78,7 @@ public actor NavigationController: ToolExecutor {
         }
     }
 
-    public var current: NavigationSnapshot { snapshot }
+    public var current: NavigationFlowState { snapshot }
 
     public func execute(_ call: ToolCall) async -> ToolResult {
         switch call.name {
