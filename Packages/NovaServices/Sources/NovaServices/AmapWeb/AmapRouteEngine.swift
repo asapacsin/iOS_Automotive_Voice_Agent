@@ -233,7 +233,8 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
             let int: (String) -> Int = { Int(Double(path[$0] as? String ?? "") ?? 0) }
             let summary = RouteSummary(id: RouteID(index + 1), lengthMeters: int("distance"),
                                        durationSeconds: int("duration"), tollYuan: int("tolls"),
-                                       trafficLights: int("traffic_lights"), label: path["strategy"] as? String)
+                                       trafficLights: int("traffic_lights"), label: path["strategy"] as? String,
+                                       polyline: points)
             return PlannedRoute(summary: summary, points: points, steps: steps)
         }
     }

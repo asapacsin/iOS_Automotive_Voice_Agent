@@ -41,9 +41,12 @@ public struct RouteSummary: Sendable, Hashable {
     public let tollYuan: Int
     public let trafficLights: Int
     public let label: String?
+    /// The route's shape, GCJ-02, for the along-route corridor (F-16). Empty when the engine has none.
+    public let polyline: [GeoCoordinate]
 
     public init(id: RouteID, lengthMeters: Int, durationSeconds: Int, tollYuan: Int, trafficLights: Int,
-                label: String?) {
+                label: String?, polyline: [GeoCoordinate] = []) {
+        self.polyline = polyline
         self.id = id
         self.lengthMeters = lengthMeters
         self.durationSeconds = durationSeconds
@@ -146,8 +149,14 @@ public struct Place: Sendable, Hashable {
     public let address: String?
     public let coordinate: GeoCoordinate
     public let distanceMeters: Int?
+    /// From the place detail only (F-18 place_details); nil when Amap gives none.
+    public let openingHours: String?
+    public let phone: String?
 
-    public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?) {
+    public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
+                openingHours: String? = nil, phone: String? = nil) {
+        self.openingHours = openingHours
+        self.phone = phone
         self.id = id
         self.name = name
         self.address = address

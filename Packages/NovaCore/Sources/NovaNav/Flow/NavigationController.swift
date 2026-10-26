@@ -20,11 +20,15 @@ public struct NavigationFlowState: Sendable, Hashable {
     public var lastGuidance: String?
     /// Amap's id of `lastGuidance`: the same sentence twice is two prompts (F-14).
     public var lastGuidanceID: GuidanceID?
+    /// An along-route list is open over the running guidance (contracts/navigation.md keepGuidance).
+    public var alongRouteList = false
 
     public init() {}
 
     public var navigating: Bool { phase == .navigating }
-    public var listOpen: Bool { phase == .awaitingDestinationSelection || phase == .awaitingRouteSelection }
+    public var listOpen: Bool {
+        phase == .awaitingDestinationSelection || phase == .awaitingRouteSelection || alongRouteList
+    }
 }
 
 public struct NavigationTuning: Sendable, Hashable {
@@ -118,13 +122,20 @@ public actor NavigationController: ToolExecutor {
         snapshot.destination = nil
         snapshot.info = nil
         publish()
-        let places: [Place]
+        var places: [Place] = []
         do {
-            if let fix = await location.latestFix() {
-                places = try await search.around(destination, center: fix.coordinate,
-                                                 radiusMeters: tuning.searchRadiusMeters, sort: .weight)
-            } else {
-                places = try await search.text(destination, city: nil)
+            // F-16: stripped query first, verbatim once if it found nothing; nearby and categories by
+            // distance. A stale or coarse fix is not used (text search, no city); Amap wants GCJ-02.
+            let query = DestinationQuery(destination)
+            let center = await usableFix()
+            for keywords in query.attempts where places.isEmpty {
+                if let center {
+                    places = try await search.around(keywords, center: center,
+                                                     radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
+                } else {
+                    places = try await search.text(keywords, city: nil)
+                }
+                guard generation == snapshot.generation else { return .failure(.optionsStale) }
             }
         } catch let error as AmapWebError {
             guard generation == snapshot.generation else { return .failure(.optionsStale) }
@@ -158,6 +169,21 @@ public actor NavigationController: ToolExecutor {
     // MARK: choose_navigation_option
 
     private func choose(_ args: JSONValue) async -> ToolResult {
+        if snapshot.alongRouteList {
+            if let stale = staleList() { return stale }
+            switch pick(snapshot.places, args, distance: { $0.distanceMeters }, name: { $0.name }) {
+            case .success(let index):
+                // An explicit pick replaces the route: the old guidance stops first.
+                let place = snapshot.places[index]
+                await engine.stop(generation: snapshot.generation)
+                snapshot.alongRouteList = false
+                snapshot.routes = []
+                snapshot.info = nil
+                return await route(to: place)
+            case .failure(let box):
+                return box.result
+            }
+        }
         switch snapshot.phase {
         case .awaitingDestinationSelection:
             if let stale = staleList() { return stale }
@@ -243,6 +269,11 @@ public actor NavigationController: ToolExecutor {
     // MARK: exit_navigation_mode
 
     private func exit() async -> ToolResult {
+        if snapshot.alongRouteList {
+            // Cancel with a list over kept guidance closes the list only.
+            closeAlongRouteList()
+            return .success(["status": "list_closed_guidance_kept", "next": "说一句：好的，继续按原路线导航。"])
+        }
         switch snapshot.phase {
         case .navigating, .arrived:
             let generation = snapshot.generation
@@ -329,6 +360,105 @@ public actor NavigationController: ToolExecutor {
 
     // MARK: Helpers
 
+    // MARK: query_live_info along_route / place_details (F-18, F-16)
+
+    /// Category keywords for `/v3/place/polygon` (catalog enum: fuel, charging, service_area, toilet).
+    static let categories = ["fuel": "加油站", "charging": "充电站", "service_area": "服务区", "toilet": "厕所"]
+
+    /// Up to 5 places of `category` in the route corridor, listed over the running guidance.
+    public func alongRoute(category: String?) async -> ToolResult {
+        guard snapshot.navigating else {
+            return .failure(.notNavigating, advice: "现在没有在导航，不能查沿途。请如实说明，可以问附近的。")
+        }
+        guard let category, let keywords = Self.categories[category] else {
+            return .failure(.invalidArgument, advice: "沿途只能查加油站、充电站、服务区或厕所。请如实说明。")
+        }
+        let line = snapshot.routes.first?.polyline ?? []
+        let polygon = AlongRouteCorridor.polygon(line)
+        guard !polygon.isEmpty else {
+            return .failure(.liveInfoUnavailable, advice: "拿不到当前路线的形状，没法查沿途。请如实说明，不要编造。")
+        }
+        let generation = snapshot.generation
+        let places: [Place]
+        do {
+            places = try await search.polygon(keywords, vertices: polygon)
+        } catch {
+            return LiveInfoFailure.result(error, what: "沿途的\(keywords)")
+        }
+        guard generation == snapshot.generation, snapshot.navigating else { return .failure(.optionsStale) }
+        let top = Array(places.prefix(tuning.maxCandidates))
+        guard !top.isEmpty else {
+            // 0 results: the guidance was never touched (keepGuidance).
+            return .failure(.noResults, advice: "沿途没有找到\(keywords)。请如实说明，导航继续。")
+        }
+        snapshot.places = top
+        snapshot.alongRouteList = true
+        listedAt = clock.now
+        publish()
+        return .success([
+            "status": "along_route_listed",
+            "category": .string(category),
+            "count": .int(Int64(top.count)),
+            "candidates": .array(top.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
+            "guidance_kept": true,
+            "next": .string("只说一句：沿途找到\(top.count)个\(keywords)，说第几个可以改去那里，导航仍按原路线继续。"),
+        ])
+    }
+
+    /// Details of the destination or of the n-th place on screen, from Amap's place detail only.
+    public func placeDetails(target: JSONValue?) async -> ToolResult {
+        let place: Place
+        switch target {
+        case .string("destination"):
+            guard let destination = snapshot.destination else {
+                return .failure(.noDestination, advice: "现在没有导航目的地。请如实说明。")
+            }
+            place = destination
+        case .some(let value):
+            guard let index = Self.index(["index": value]) else {
+                return .failure(.invalidArgument, advice: "请用户说是目的地还是第几个。")
+            }
+            guard index >= 1, index <= snapshot.places.count else {
+                return snapshot.places.isEmpty
+                    ? .failure(.noOptionsOnScreen, advice: "屏幕上没有候选列表。请如实说明。")
+                    : Self.outOfRange(snapshot.places.count).result
+            }
+            place = snapshot.places[index - 1]
+        case .none:
+            return .failure(.invalidArgument, advice: "请用户说是目的地还是第几个。")
+        }
+        let detail: Place?
+        do {
+            detail = try await search.detail(id: place.id)
+        } catch {
+            return LiveInfoFailure.result(error, what: "\(place.name)的详情")
+        }
+        guard let detail else {
+            return .failure(.noResults, advice: "没有查到\(place.name)的详情。请如实说明，不要编造营业时间。")
+        }
+        var object: [String: JSONValue] = ["name": .string(detail.name)]
+        if let address = detail.address { object["address"] = .string(address) }
+        if let hours = detail.openingHours { object["opening_hours"] = .string(hours) }
+        if let phone = detail.phone { object["phone"] = .string(phone) }
+        object["next"] = .string(detail.openingHours == nil
+            ? "高德没有给出营业时间。只按这些字段回答；问营业时间就如实说查不到，不要编造。"
+            : "只按这些字段用一两句话回答，不要编造。")
+        return .success(object)
+    }
+
+    private func closeAlongRouteList() {
+        snapshot.alongRouteList = false
+        snapshot.places = []
+        listedAt = nil
+        publish()
+    }
+
+    /// The latest fix if F-16 may use it, converted to GCJ-02 for Amap.
+    private func usableFix() async -> GeoCoordinate? {
+        guard let fix = await location.latestFix(), LocationQuality.of(fix, at: clock.now) != nil else { return nil }
+        return CoordinateConverter.gcj02(fix.coordinate)
+    }
+
     private func advance(to phase: NavigationPhase) -> Generation {
         snapshot.generation = snapshot.generation.next()
         snapshot.phase = phase
@@ -339,6 +469,7 @@ public actor NavigationController: ToolExecutor {
     }
 
     private func reset() {
+        snapshot.alongRouteList = false
         _ = advance(to: .idle)
         snapshot.places = []
         snapshot.routes = []
@@ -355,7 +486,7 @@ public actor NavigationController: ToolExecutor {
 
     private func staleList() -> ToolResult? {
         guard let listedAt, clock.now - listedAt > tuning.choiceLifetime else { return nil }
-        reset()
+        if snapshot.alongRouteList { closeAlongRouteList() } else { reset() }
         return .failure(.optionsStale, advice: "候选列表已经过期。请如实说明，请用户重新说目的地。")
     }
 

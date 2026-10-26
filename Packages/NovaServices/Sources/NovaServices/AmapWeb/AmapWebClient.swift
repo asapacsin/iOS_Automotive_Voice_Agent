@@ -46,7 +46,7 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
     }
 
     public func detail(id: String) async throws -> Place? {
-        Self.places(try await get("/v3/place/detail", ["id": id])).first
+        Self.places(try await get("/v3/place/detail", ["id": id, "extensions": "all"])).first
     }
 
     // MARK: ReverseGeocoder
@@ -137,9 +137,15 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
                   let location = poi["location"] as? String else { return nil }
             let parts = location.split(separator: ",").compactMap { Double($0) }
             guard parts.count == 2 else { return nil }
-            return Place(id: id, name: name, address: poi["address"] as? String,
+            // Amap gives an empty field as `[]`, so only non-empty strings count. Opening hours sit in
+            // `biz_ext.open_time` (or `opentime2`) of a detail with extensions=all.
+            let text: (Any?) -> String? = { ($0 as? String).flatMap { $0.isEmpty ? nil : $0 } }
+            let business = poi["biz_ext"] as? [String: Any]
+            return Place(id: id, name: name, address: text(poi["address"]),
                          coordinate: GeoCoordinate(latitude: parts[1], longitude: parts[0], datum: .gcj02),
-                         distanceMeters: (poi["distance"] as? String).flatMap { Int($0) })
+                         distanceMeters: (poi["distance"] as? String).flatMap { Int($0) },
+                         openingHours: text(business?["open_time"]) ?? text(business?["opentime2"]),
+                         phone: text(poi["tel"]))
         }
     }
 }

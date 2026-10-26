@@ -24,6 +24,10 @@ public struct LiveInfoExecutor: ToolExecutor {
             return await navigation.routeStatus()
         case "weather":
             return await weatherReport(call.arguments)
+        case "along_route":
+            return await navigation.alongRoute(category: call.arguments["category"]?.stringValue)
+        case "place_details":
+            return await navigation.placeDetails(target: call.arguments["target"])
         default:
             return .failure(.liveInfoUnavailable, advice: "这项信息在 iOS 上还没有数据源。请如实说暂时查不到，不要编造。")
         }
@@ -63,15 +67,19 @@ public struct LiveInfoExecutor: ToolExecutor {
         }
     }
 
-    /// F-18 §8: the cause she names must be the real one (key, quota, or network/timeout).
-    static func failure(_ error: any Error) -> ToolResult {
+    static func failure(_ error: any Error) -> ToolResult { LiveInfoFailure.result(error, what: "天气") }
+}
+
+/// F-18 §8: the cause she names must be the real one (key, quota, or network/timeout).
+enum LiveInfoFailure {
+    static func result(_ error: any Error, what: String) -> ToolResult {
         switch error as? AmapWebError {
         case .keyMissing, .keyRejected:
             .failure(.amapWebKeyMissing, advice: "高德的查询服务没有配置好或密钥无效，所以没有查到。请如实说明，不要编造。")
         case .quota:
             .failure(.liveInfoQuota, advice: "今天的查询次数用完了，没有查到。请如实说明，不要编造。")
         default:
-            .failure(.liveInfoUnavailable, advice: "天气没有查到。请如实说明，不要编造。")
+            .failure(.liveInfoUnavailable, advice: "\(what)没有查到。请如实说明，不要编造。")
         }
     }
 }
