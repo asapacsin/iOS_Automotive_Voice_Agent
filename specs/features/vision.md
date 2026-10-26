@@ -33,7 +33,15 @@ Qianfan `POST https://qianfan.baidubce.com/v2/chat/completions` (bearer token, i
 Gemini `generateContent` (F-20a); `AVCaptureSession` in NovaPlatform/Camera; HTTP clients in NovaServices.
 
 ## 8. Error handling and recovery
-See the F-20a §8 table for the spoken sentences. If the model cannot tell, the answer says so; it never
+| Case | Code | What she says |
+|---|---|---|
+| No permission | `CAMERA_PERMISSION_DENIED` | 「摄像头没有权限，请在设置里允许。」 |
+| Camera busy / start failed | `CAMERA_UNAVAILABLE` | 「摄像头现在用不了。」 |
+| No vision key | `NOT_CONFIGURED` | 「看图功能还没有配置。」 |
+| Auth failure (401/403) | `AUTH_FAILED` | 「看图服务的密钥无效。」 |
+| Timeout (8 s) / network | `VISION_FAILED` | 「刚才没看清楚，再问我一次吧。」 |
+
+If the model cannot tell, the answer says so; it never
 guesses (I-1). The image and question are never logged (I-8).
 
 ## 9. Concurrency, cancellation, timeouts

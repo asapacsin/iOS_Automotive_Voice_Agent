@@ -10,7 +10,10 @@ Keep the voice session alive while the app is in use, ask for permissions when n
 Notification permission at start, location at start, microphone and camera on first need; a config banner when settings are incomplete.
 
 ## 3. Preconditions
-See ios-feasibility.md for the background decision (OQ-IOS-4).
+Background policy (OQ-IOS-4, ANSWERED with review risk): `UIBackgroundModes` `audio` + `location`, used only
+while a voice session or route guidance is active (App Review guideline 2.5.4); the mic indicator stays
+visible; no background listening just for the wake word; `allowsBackgroundLocationUpdates = true` during
+guidance so it continues with the screen locked; the use is described in the review notes.
 
 ## 4. Inputs and outputs
 Permissions and their purpose strings (Info.plist via `App/project.yml`):
