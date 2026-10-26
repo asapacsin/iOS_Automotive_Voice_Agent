@@ -10,25 +10,35 @@ Keep the voice session alive while the app is in use, ask for permissions when n
 Notification permission at start, location at start, microphone and camera on first need; a config banner when settings are incomplete.
 
 ## 3. Preconditions
-See depends-on contracts.
+See ios-feasibility.md for the background decision (OQ-IOS-4).
 
 ## 4. Inputs and outputs
-See refs.
+Permissions and their purpose strings (Info.plist via `App/project.yml`):
+- Microphone `NSMicrophoneUsageDescription` (present): first 开始对话.
+- Location When In Use `NSLocationWhenInUseUsageDescription` (PROPOSED): first navigation / weather here.
+- Camera `NSCameraUsageDescription` (PROPOSED, F-20a): first camera tap.
+- Contacts `NSContactsUsageDescription` (PROPOSED, F-19): first call.
+Out: a config banner on the drive screen when `SettingsReadiness` blocks a session.
 
 ## 5. State transitions
-See contracts.
+App: active → inactive → background → (suspended). Session: started on 开始对话; stopped on 结束对话, on
+background unless background audio is kept (PROPOSED: only while NAVIGATING), and on termination.
 
 ## 6. Events and triggers
-Tool call or UI event.
+Scene phase changes, audio session interruptions (call, Siri) and route changes, permission results.
 
 ## 7. Dependencies and external services
-See contracts/api-contracts.md.
+`AVAudioSession` (playAndRecord, voice processing), `UIBackgroundModes: audio` (PROPOSED, App Review risk),
+CoreLocation, AVFoundation camera.
 
 ## 8. Error handling and recovery
-Errors are ok=false results with codes; see refs.
+- Denied permission → the feature returns its permission code and the UI explains how to allow it in
+  Settings; the rest of the app keeps working.
+- Audio interruption → the uplink pauses; it resumes when the interruption ends with shouldResume.
 
 ## 9. Concurrency, cancellation, timeouts
-See contracts.
+The camera stops within 1 s of closing or backgrounding; the session socket closes on background unless
+background audio is kept (T-062, T-064 device rows).
 
 ## 10. Acceptance criteria (iOS)
 - Permission prompts appear only when needed and the app explains a denial.

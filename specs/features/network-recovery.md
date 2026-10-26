@@ -10,25 +10,31 @@ Survive brief network loss without losing the conversation.
 UI shows PROCESSING while reconnecting; conversation resumes with context.
 
 ## 3. Preconditions
-See depends-on contracts.
+A session that reached LISTENING at least once (with a resumption handle when the server gave one).
 
 ## 4. Inputs and outputs
-See refs.
+- In: socket close / error with a code.
+- Out: UI state RECONNECTING (chip PROCESSING, amber) then LISTENING, or ERROR with the code on the chip.
 
 ## 5. State transitions
-See contracts.
+LISTENING/THINKING/SPEAKING → RECONNECTING → LISTENING (resumed with the handle), or → ERROR after 5 failed
+attempts. Terminal errors go straight to ERROR (contracts/voice-agent.md §8).
 
 ## 6. Events and triggers
-Tool call or UI event.
+WebSocket close/failure, setup timeout, server goAway; optional `NWPathMonitor` path change (PROPOSED).
 
 ## 7. Dependencies and external services
-See contracts/api-contracts.md.
+Gemini Live WebSocket (F-05).
 
 ## 8. Error handling and recovery
-Errors are ok=false results with codes; see refs.
+- Retryable: DISCONNECT, CONNECTION, DNS, TIMEOUT, WS_FAILED, TLS_FAILED, UNAVAILABLE, RESUME_UNAVAILABLE.
+- Terminal: auth, credential, quota/rate, malformed/invalid model (e.g. close 1007 MALFORMED).
+- Reply audio of the dropped turn is flushed (epoch); a tool already executed is not repeated.
+- RESUME_UNAVAILABLE → a new session without the handle; she does not claim to remember the lost turn.
 
 ## 9. Concurrency, cancellation, timeouts
-See contracts.
+5 attempts, 200 ms initial, doubling, 8 s cap. A second error from the same dying socket joins the
+reconnect in flight. Setup must complete within 10 s per attempt.
 
 ## 10. Acceptance criteria (iOS)
 - Given a forced socket drop, reconnect within the policy and resume with the handle (integration test against a fake server).
