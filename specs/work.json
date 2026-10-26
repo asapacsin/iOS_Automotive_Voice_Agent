@@ -369,7 +369,7 @@
         "T-023",
         "T-024"
       ],
-      "blocked_by": "bubble fade constants need the Android EVIDENCE_REQUEST (A/ui/TranscriptBubbleFade.kt; no allowed Android lookup in ui-overlay.md, so OWNER must supply it); device acceptance in T-026",
+      "blocked_by": "EVIDENCE_REQUEST raised (specs/evidence-requests.md, H-evidence) for A/ui/TranscriptBubbleFade.kt; device acceptance in T-026",
       "evidence": [
         "App slice built and in CI: composition root, tap-to-talk, chip mapping (unit in VoiceSessionTests), drive screen"
       ]
@@ -882,6 +882,18 @@
       "procedure": "Run F-01/F-23 device rows",
       "pass_criteria": "F-01/F-23 device rows PASS",
       "expected_return": "Device log in STATUS.md"
+    },
+    {
+      "id": "H-evidence",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "Answer EVIDENCE_REQUEST batch 2 (specs/evidence-requests.md)",
+      "depends_on": [],
+      "automation_blocker": "android_repo_access_not_allowed",
+      "procedure": "Paste each Android excerpt + commit, or add 'allowed Android lookup' lines to the feature files",
+      "pass_criteria": "Every request answered and appended to its feature file",
+      "expected_return": "Excerpts with Android commit"
     }
   ]
 }
