@@ -22,6 +22,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: brew install xcodegen swiftlint
+      - name: AIKit wake SDK (T-060; only when the AIKIT_SDK_URL secret is set)
+        env:
+          AIKIT_SDK_URL: ${{ secrets.AIKIT_SDK_URL }}
+        run: |
+          if [ -n "$AIKIT_SDK_URL" ]; then
+            curl -fsSL "$AIKIT_SDK_URL" -o aikit.zip && scripts/vendor_aikit.sh aikit.zip && rm aikit.zip
+          else
+            echo "AIKIT_SDK_URL not set: building without the wake SDK"
+          fi
       - run: swiftlint lint --strict --quiet
       - run: xcodegen generate --spec App/project.yml
       - run: |

@@ -12,6 +12,9 @@ struct SettingsView: View {
         (.amapSDKKey, "高德 iOS SDK key"),
         (.amapWebKey, "高德 Web 服务 key"),
         (.qianfanKey, "千帆 key（可选，视觉备用）"),
+        (.iflytekAppID, "讯飞 APPID（唤醒词）"),
+        (.iflytekAPIKey, "讯飞 APIKey"),
+        (.iflytekAPISecret, "讯飞 APISecret"),
     ]
     private let settings = DefaultsSettingsStore()
     @State private var drafts: [CredentialKey: String] = [:]

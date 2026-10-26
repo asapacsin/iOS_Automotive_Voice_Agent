@@ -15,6 +15,9 @@ IMPORT = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s*)*"
 OWNERS = {
     "AMapNaviKit": {"NovaNavAmap"}, "AMapFoundationKit": {"NovaNavAmap"}, "MAMapKit": {"NovaNavAmap"},
     "iflyMSC": {"NovaWakeIflytek"},
+    # AIKit ships device-only frameworks (no simulator slice), so it links into the app's device build
+    # only; App/NovaDrive/Wake/AIKitWakeEngine.swift is its single importer.
+    "AIKIT": {"App"}, "ef7d69542_v1009_aee": {"App"},
     "AVFAudio": {"NovaAudio"},
     "AVFoundation": {"NovaPlatform"},
     "CoreLocation": {"NovaPlatform"}, "Contacts": {"NovaPlatform"}, "MusicKit": {"NovaPlatform"},

@@ -62,6 +62,29 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
+        # T-060 AIKit wake SDK: device-only and git-ignored (scripts/vendor_aikit.sh). Found only by device
+        # builds, so `#if canImport(AIKIT)` is false on the simulator and when the SDK is absent.
+        "FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]": $(inherited) $(SRCROOT)/Vendor/AIKit
+        "LD_RUNPATH_SEARCH_PATHS": $(inherited) @executable_path/Frameworks
+    postBuildScripts:
+      - name: Embed AIKit (device, when vendored)
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          src="$SRCROOT/Vendor/AIKit"
+          [ "$PLATFORM_NAME" = "iphoneos" ] && [ -d "$src/AIKIT.framework" ] || exit 0
+          dest="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
+          mkdir -p "$dest"
+          for fw in "$src"/*.framework; do
+            rm -rf "$dest/$(basename "$fw")"
+            cp -R "$fw" "$dest/"
+            rm -rf "$dest/$(basename "$fw")/Headers" "$dest/$(basename "$fw")/Modules"
+            if [ -n "$EXPANDED_CODE_SIGN_IDENTITY" ]; then
+              codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --preserve-metadata=identifier,entitlements "$dest/$(basename "$fw")"
+            fi
+          done
+          rm -rf "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AEEResource.bundle"
+          cp -R "$src/AEEResource.bundle" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
   NovaDriveUITests:
     # T-048: simulator drive (scripted search and engine); CI job `simulator`.
     type: bundle.ui-testing

@@ -174,6 +174,9 @@ public enum CredentialKey: String, Sendable, Hashable, CaseIterable {
     case amapSDKKey = "amap_sdk_key"
     case amapWebKey = "amap_web_key"
     case iflytekAppID = "iflytek_app_id"
+    /// AIKit wake word (T-060): the app's APIKey and APISecret from the iFlytek console.
+    case iflytekAPIKey = "iflytek_api_key"
+    case iflytekAPISecret = "iflytek_api_secret"
     case qianfanKey = "qianfan_key"
 }
 

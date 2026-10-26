@@ -14,7 +14,7 @@ None; the 设置 tab is always reachable.
 
 ## 4. Inputs and outputs
 - Secrets (Keychain, `KeychainCredentialStore`): Gemini API key, Azure Speech key, Amap SDK key, Amap Web key,
-  iFlytek app id, Qianfan key.
+  iFlytek app id, iFlytek APIKey and APISecret (AIKit wake word, T-060), Qianfan key.
 - Non-secrets (UserDefaults): `gemini_consent_accepted`, `gemini_model`, `azure_voice`, `persona_style`.
 - Out: `SettingsReadiness` (status card: which items are set) and `sessionBlocker`.
 

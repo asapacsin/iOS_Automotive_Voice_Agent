@@ -11,7 +11,6 @@ let package = Package(
         .target(name: "NovaWakeIflytek", dependencies: [
             .product(name: "NovaKit", package: "NovaCore"),
             .product(name: "NovaPorts", package: "NovaCore"),
-            .product(name: "NovaVoice", package: "NovaCore"),
         ]),
     ]
 )
