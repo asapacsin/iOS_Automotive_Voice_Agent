@@ -142,9 +142,12 @@ private struct DriveContent: View {
 
     // MARK: Map
 
+    private var presentation: MapPresentation { MapPresentation(model.nav) }
+
     private var map: some View {
         Map(position: $camera) {
-            ForEach(model.geometry.routes, id: \.summary.id) { route in
+            // T-044: only what the flow allows is drawn (offered or chosen routes; nothing after 算了).
+            ForEach(model.geometry.routes.filter { presentation.routes.contains($0.summary.id) }, id: \.summary.id) { route in
                 let selected = route.summary.id == model.geometry.selected
                 MapPolyline(coordinates: route.points.map { CLLocationCoordinate2D($0) })
                     .stroke(selected ? Color.blue : Color.gray.opacity(0.6), lineWidth: selected ? 7 : 4)
@@ -155,24 +158,24 @@ private struct DriveContent: View {
                         .font(.title).foregroundStyle(.white, .blue)
                 }
             }
-            if let destination = model.nav.destination {
+            if let destination = presentation.destination {
                 Marker(destination.name, coordinate: CLLocationCoordinate2D(destination.coordinate)).tint(.red)
             }
-            ForEach(Array(model.nav.places.enumerated()), id: \.offset) { index, place in
+            ForEach(Array(presentation.markers.enumerated()), id: \.offset) { index, place in
                 Marker("\(index + 1) \(place.name)", coordinate: CLLocationCoordinate2D(place.coordinate)).tint(.orange)
             }
         }
     }
 
     private func focus(_ geometry: RouteGeometry) {
-        if model.nav.navigating, let car = geometry.car {
+        if presentation.followCar, let car = geometry.car {
             withAnimation(.linear(duration: 1)) {
                 camera = .region(MKCoordinateRegion(center: CLLocationCoordinate2D(car), latitudinalMeters: 1_500,
                                                     longitudinalMeters: 1_500))
             }
             return
         }
-        let points = geometry.routes.flatMap(\.points)
+        let points = geometry.routes.filter { presentation.routes.contains($0.summary.id) }.flatMap(\.points)
         guard !points.isEmpty else { return }
         let lats = points.map(\.latitude), lngs = points.map(\.longitude)
         let center = CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2, longitude: (lngs.min()! + lngs.max()!) / 2)
@@ -266,8 +269,9 @@ private struct DriveContent: View {
                 Label("正在搜索地点…", systemImage: "magnifyingglass")
             case .calculatingRoute:
                 Label("正在计算路线…", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-            case .awaitingDestinationSelection:
-                Text("请说第几个").font(.caption).foregroundStyle(.secondary)
+            case .awaitingDestinationSelection, .navigating where model.nav.alongRouteList:
+                Text(model.nav.alongRouteList ? "沿途结果：说第几个改去那里，或点一下" : "请说第几个，或点一下")
+                    .font(.caption).foregroundStyle(.secondary)
                 ForEach(Array(model.nav.places.enumerated()), id: \.offset) { index, place in
                     HStack {
                         Text("\(index + 1)").font(.headline).frame(width: 22)
@@ -278,6 +282,8 @@ private struct DriveContent: View {
                         Spacer()
                         if let meters = place.distanceMeters { Text(Self.distance(meters)).font(.caption) }
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture { Task { await runtime.tapChoice(row: index) } }
                 }
             case .awaitingRouteSelection:
                 Text("说第几条，或者「开始导航」").font(.caption).foregroundStyle(.secondary)
@@ -292,6 +298,8 @@ private struct DriveContent: View {
                     .padding(4)
                     .background(route.id == model.nav.selectedRoute ? Color.blue.opacity(0.15) : .clear,
                                 in: RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
+                    .onTapGesture { Task { await runtime.tapChoice(row: index) } }
                 }
             default:
                 EmptyView()

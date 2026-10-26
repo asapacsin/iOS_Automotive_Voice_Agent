@@ -255,6 +255,19 @@ final class AgentRuntime {
         return result
     }
 
+    /// The flow of the running session, for taps on the choice list (I-6: the same executor as voice).
+    private var navigation: NavigationController?
+    private var taps = 0
+
+    /// F-25 §10 row 2: a row tap is `choose_navigation_option(index)` on the navigation executor, with the
+    /// same result codes as the voice choice; a failure is shown, never papered over.
+    func tapChoice(row: Int) async {
+        guard let navigation else { return }
+        taps += 1
+        let result = await navigation.execute(ChoiceTap.call(row: row, id: CallID("tap_\(taps)")!))
+        if !result.ok { model.notice = result.advice?.components(separatedBy: "请").first ?? result.code?.rawValue }
+    }
+
     /// Speaks a line in her voice while a session runs (set in `start()`, cleared in `stop()`).
     private var speakLine: (@Sendable (String) async -> Void)?
 
@@ -320,6 +333,7 @@ final class AgentRuntime {
             flags.continuation.yield(snapshot)
         }
         await navigation.start()
+        self.navigation = navigation
         let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: vehicle), vehicle: vehicle, model: model)
         let liveInfo = LiveInfoExecutor(navigation: navigation, weather: web, geocoder: web, location: location)
         var executors: [String: any ToolExecutor] = [:]
@@ -457,6 +471,7 @@ final class AgentRuntime {
         // F-20a §5: session stop closes the camera.
         if model.cameraOpen { closeCamera() }
         speakLine = nil
+        navigation = nil
         guard let core else { return }
         let audio = audio
         Task {
