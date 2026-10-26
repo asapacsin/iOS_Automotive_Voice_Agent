@@ -1,6 +1,7 @@
 import Synchronization
 import Testing
 import NovaKit
+import NovaPorts
 import NovaTools
 import NovaVoice
 @testable import NovaAgent
