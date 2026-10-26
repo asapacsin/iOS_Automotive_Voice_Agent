@@ -7,4 +7,3 @@ Secrets.xcconfig
 .ai-native/
 __pycache__/
 App/*.xcodeproj/
-App/Vendor/
