@@ -140,7 +140,7 @@ private struct DriveContent: View {
         }
         .onChange(of: model.geometry) { _, geometry in focus(geometry) }
         // F-20a §5: the camera never runs in the background.
-        .task { if UITestDrive.enabled { await runtime.startUITestDrive() } }
+        .task { if UITestDrive.enabled { await runtime.startUITestDrive() } else { await runtime.refreshWake() } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && model.cameraOpen { runtime.closeCamera() }
             let mapped: AppScenePhase = switch phase {

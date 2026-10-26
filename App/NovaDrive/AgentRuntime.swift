@@ -191,6 +191,8 @@ struct ObservedCameraExecutor: ToolExecutor {
 @MainActor
 final class AgentRuntime {
     let model = DriveModel()
+    /// T-061: 你好小诺 while idle starts a session (off in the simulator drive test).
+    private lazy var wake = WakeListener { [weak self] in await self?.start() }
     private var core: AgentCore?
     /// Bumped per session so a delayed end_conversation stop never ends a newer session.
     private var session = 0
@@ -306,6 +308,7 @@ final class AgentRuntime {
     /// mid-conversation session keeps the mic and socket; SLEEP and DEEP_IDLE end the session.
     func sceneChanged(_ phase: AppScenePhase) async {
         scene = phase
+        if !UITestDrive.enabled { await wake.update(scene: phase) }
         await reevaluate()
     }
 
@@ -580,6 +583,8 @@ final class AgentRuntime {
             if case .audio(let frame) = output { provider.sendAudio(frame) } else { gateEvents.continuation.yield(output) }
         }
         gate.onOutput(route)
+        // One capture only (ADR-006): the wake listener lets go of the mic before the session takes it.
+        await wake.update(sessionRunning: true)
         do {
             try audio.start { frame in gate.process(frame).forEach(route) }
         } catch {
@@ -611,6 +616,13 @@ final class AgentRuntime {
         self.audio = nil
         model.running = false
         model.view = AgentViewState()
+        if !UITestDrive.enabled { Task { await wake.update(sessionRunning: false) } }
+    }
+
+    /// Applies the wake policy at launch and after settings change.
+    func refreshWake() async {
+        guard !UITestDrive.enabled else { return }
+        await wake.update(sessionRunning: model.running)
     }
 }
 

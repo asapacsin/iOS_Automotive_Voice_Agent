@@ -97,3 +97,21 @@ struct WakeDetectorTests {
         #expect(engine.starts.withLock { $0 } == 2)
     }
 }
+
+@Suite("T-061 F-01 when the idle app listens for the wake word")
+struct WakeListenPolicyTests {
+    @Test("F-01: listens only in the foreground, idle, linked, configured, mic granted, and not given up")
+    func policy() {
+        var p = WakeListenPolicy()
+        p.engineLinked = true; p.configured = true; p.micGranted = true
+        #expect(p.shouldListen)
+        for change in [\WakeListenPolicy.sessionRunning, \.gaveUp] {
+            var q = p; q[keyPath: change] = true
+            #expect(!q.shouldListen)
+        }
+        for change in [\WakeListenPolicy.foreground, \.engineLinked, \.configured, \.micGranted] {
+            var q = p; q[keyPath: change] = false
+            #expect(!q.shouldListen)
+        }
+    }
+}
