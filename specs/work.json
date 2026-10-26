@@ -369,7 +369,7 @@
         "T-023",
         "T-024"
       ],
-      "blocked_by": "bubble fade constants need the Android EVIDENCE_REQUEST (A/ui/TranscriptBubbleFade.kt); device acceptance in T-026",
+      "blocked_by": "bubble fade constants need the Android EVIDENCE_REQUEST (A/ui/TranscriptBubbleFade.kt; no allowed Android lookup in ui-overlay.md, so OWNER must supply it); device acceptance in T-026",
       "evidence": [
         "App slice built and in CI: composition root, tap-to-talk, chip mapping (unit in VoiceSessionTests), drive screen"
       ]
@@ -549,8 +549,8 @@
     },
     {
       "id": "T-050",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 30,
       "action": "F-14 fallback guidance voice: AVSpeechSynthesizer zh-CN to PCM on the guidance lane (OQ-IOS-10 still open on device)",
       "depends_on": [
@@ -559,7 +559,8 @@
       "evidence": [
         "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED",
         "Fallback voice is build-only; OQ-IOS-10 needs a device run"
-      ]
+      ],
+      "blocked_by": "off-device part done (logic PASS, Linux gates green 2026-10-26); remaining OQ-IOS-10 fallback voice needs a device run"
     },
     {
       "id": "T-051",
@@ -721,8 +722,8 @@
     },
     {
       "id": "T-072",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 40,
       "action": "F-13 MusicKitPlayer (NamedMusicPort) built in NovaPlatform, not wired until OQ-IOS-7",
       "depends_on": [
@@ -730,12 +731,13 @@
       ],
       "evidence": [
         "Build only (CI xcode); wiring waits on the OWNER decision OQ-IOS-7; now-playing check needs a device (OQ-IOS-11)"
-      ]
+      ],
+      "blocked_by": "MusicKitPlayer built (CI xcode); wiring needs OWNER OQ-IOS-7, now-playing check needs a device (OQ-IOS-11)"
     },
     {
       "id": "T-080",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 40,
       "action": "CarPlay template scene (status + choice list, taps as UIIntent), inert until entitlement",
       "depends_on": [
@@ -743,12 +745,13 @@
       ],
       "evidence": [
         "Build only (CI xcode); needs the CarPlay entitlement and OQ-IOS-8 category; CarPlay Simulator test not run"
-      ]
+      ],
+      "blocked_by": "scene built (CI xcode); needs the CarPlay entitlement, OWNER OQ-IOS-8 and the CarPlay Simulator (Mac)"
     },
     {
       "id": "T-042b",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 40,
       "action": "CoreLocationProvider (WGS-84 fix, When In Use on first need), behind use_device_location; GCJ-02 conversion for route origin and weather here",
       "depends_on": [
@@ -756,7 +759,129 @@
       ],
       "evidence": [
         "Build only (CI xcode); default stays DemoLocation for recordings (REC-003)"
+      ],
+      "blocked_by": "CoreLocationProvider built (CI xcode); WGS-84 fix and permission flow need a device"
+    },
+    {
+      "id": "T-031",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-12 comfort scenarios",
+      "depends_on": [
+        "T-018"
+      ],
+      "evidence": [
+        "STATUS 2026-10-26 F-12 PASS (review 1, a16728a); ScenarioToolHandlerTests green on Linux 2026-10-26; drowsy music wired via MusicPort in AgentRuntime"
       ]
+    },
+    {
+      "id": "T-034",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-21 persona and speaking style (implemented as T-021p)",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "Delivered as T-021p (PASS review 1); SpeakingStyleTests green on Linux 2026-10-26"
+      ]
+    },
+    {
+      "id": "T-041",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-15 choice resolver, 120 s expiry, duplicate suppression (delivered with T-040)",
+      "depends_on": [
+        "T-040"
+      ],
+      "evidence": [
+        "Delivered in NavigationController with T-040 (re-review PASS 33abee5); OPTIONS_STALE tests in NavigationControllerTests green on Linux 2026-10-26"
+      ]
+    },
+    {
+      "id": "T-071",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20 vision (split into T-071a-d)",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "Superseded by T-071a, T-071b, T-071c, T-071d, all PASS; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-048",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 45,
+      "action": "Simulator drive end to end (UITests)",
+      "depends_on": [
+        "T-040",
+        "T-047"
+      ],
+      "blocked_by": "needs a Mac with Xcode iOS Simulator (H-hardware); logic covered by NavigationController unit tests"
+    },
+    {
+      "id": "T-060",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 45,
+      "action": "IflytekWakeDetector adapter (F-01)",
+      "depends_on": [
+        "T-021"
+      ],
+      "blocked_by": "iFlytek iOS SDK not provided (OWNER OQ-IOS-1)"
+    },
+    {
+      "id": "T-035",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M2 device run (W6)",
+      "depends_on": [
+        "T-031",
+        "T-034"
+      ],
+      "automation_blocker": "physical_device_audio",
+      "procedure": "Run W6 on a device",
+      "pass_criteria": "W6 PASS",
+      "expected_return": "Device log in STATUS.md"
+    },
+    {
+      "id": "T-054",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M4 device run (W5, guidance spoken once)",
+      "depends_on": [
+        "T-050",
+        "T-053"
+      ],
+      "automation_blocker": "physical_device_audio",
+      "procedure": "Run W5 on a device",
+      "pass_criteria": "W5 PASS; guidance spoken exactly once",
+      "expected_return": "Device log in STATUS.md"
+    },
+    {
+      "id": "T-064",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M5 device run incl. screen lock during navigation",
+      "depends_on": [
+        "T-060",
+        "T-062",
+        "T-063"
+      ],
+      "automation_blocker": "physical_device",
+      "procedure": "Run F-01/F-23 device rows",
+      "pass_criteria": "F-01/F-23 device rows PASS",
+      "expected_return": "Device log in STATUS.md"
     }
   ]
 }
