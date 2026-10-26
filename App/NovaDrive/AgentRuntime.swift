@@ -305,6 +305,7 @@ final class AgentRuntime {
             }
             return
         }
+        let navigating = await navigation?.current.navigating ?? false
         if BackgroundDecision.decide(scene: scene, listening: state, navigating: navigating).keepSocket == false { stop() }
     }
 

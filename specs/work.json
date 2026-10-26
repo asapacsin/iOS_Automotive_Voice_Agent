@@ -553,26 +553,27 @@
         "T-021"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED",
+        "Fallback voice is build-only; OQ-IOS-10 needs a device run"
       ]
     },
     {
       "id": "T-051",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-14 GuidanceRelay: deadline, cooldown, fidelity, bracket, echo, reason codes; AgentState relay wiring",
       "depends_on": [
         "T-023"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-052",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-08 full arbiter: R6, R6a, R1 tail, uplink R0/tail/20 s cap",
       "depends_on": [
@@ -580,13 +581,13 @@
         "T-051"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-053",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-17 overspeed alert through the relay/arbiter",
       "depends_on": [
@@ -594,124 +595,124 @@
         "T-052"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-042",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-16 query building, fix freshness, GCJ-02, along-route corridor",
       "depends_on": [
         "T-040"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-046",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-18 along_route and place_details",
       "depends_on": [
         "T-042"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-044",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-25 MapPresentation policy (MapKit stands in for AmapMapView)",
       "depends_on": [
         "T-040"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-047",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-25 choice-row taps as UIIntent through AgentCore (I-6)",
       "depends_on": [
         "T-044"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-032",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-13 control_music on the media lane with read-back; play_music honest until OQ-IOS-7",
       "depends_on": [
         "T-021"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-033",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-18 weather/adcode TTL caches",
       "depends_on": [
         "T-046"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-061",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-01 wake arming, mic router, bounded retry (logic; iFlytek adapter T-060 waits on the SDK)",
       "depends_on": [
         "T-012"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-062",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-23 BackgroundPolicy + scene-phase bridge + background modes",
       "depends_on": [
         "T-061"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-063",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-23 permission coordinator; microphone asked at first talk",
       "depends_on": [
         "T-024"
       ],
       "evidence": [
-        "Linux gates green (swift test NovaCore 298, NovaServices 28); CI xcode job builds App/NovaAudio; independent high-effort review rounds 1-4 REWORK fixed, round 5 pending; device rows NOT_VERIFIED"
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
       ]
     }
   ]
