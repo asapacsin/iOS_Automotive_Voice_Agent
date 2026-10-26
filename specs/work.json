@@ -500,6 +500,42 @@
         "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
         "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); LIVE row NOT_VERIFIED"
       ]
+    },
+    {
+      "id": "T-030",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 15,
+      "action": "F-10 ambiguity: ContextResolver clarify (座椅/温度) wired in AgentState; unit",
+      "depends_on": [],
+      "evidence": [
+        "unit tests green in CI core-linux/core-macos on feat/live-agent-nav (PR #7)",
+        "Independent review pending; device row NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-040",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 15,
+      "action": "F-15 NavigationController flow (search, pick, routes, start, exit; generation-tagged); unit",
+      "depends_on": [],
+      "evidence": [
+        "NavigationControllerTests green in CI on feat/live-agent-nav (PR #7)",
+        "Independent review pending; device row NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-041",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 15,
+      "action": "F-15/F-18 Amap Web route engine with labelled simulated movement, route_traffic, weather; build",
+      "depends_on": [],
+      "evidence": [
+        "CI xcode + ipa green at a16728a; live session connects on iPhone 17 (no MALFORMED)",
+        "Independent review pending; device run of 导航去珠海站 NOT_VERIFIED"
+      ]
     }
   ]
 }
