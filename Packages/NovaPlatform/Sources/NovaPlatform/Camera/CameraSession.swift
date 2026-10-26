@@ -46,7 +46,11 @@ public final class CameraSession: NSObject, CameraFrameSource, @unchecked Sendab
                 do {
                     try configureIfNeeded()
                     if !session.isRunning { session.startRunning() }
-                    session.isRunning ? done.resume() : done.resume(throwing: CameraError.unavailable)
+                    if session.isRunning {
+                        done.resume()
+                    } else {
+                        done.resume(throwing: CameraError.unavailable)
+                    }
                 } catch {
                     done.resume(throwing: error)
                 }

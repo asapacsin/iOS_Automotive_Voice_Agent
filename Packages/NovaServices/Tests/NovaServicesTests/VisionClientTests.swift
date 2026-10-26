@@ -11,12 +11,16 @@ import NovaPorts
 struct VisionClientTests {
     let image = JPEGImage(data: [0xFF, 0xD8, 0xFF])
 
+    func json(_ object: Any) -> Data {
+        (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
+    }
+
     func reply(_ text: String) -> Data {
-        try! JSONSerialization.data(withJSONObject: ["candidates": [["content": ["parts": [["text": text]]]]]])
+        json(["candidates": [["content": ["parts": [["text": text]]]]]])
     }
 
     func choice(_ text: String) -> Data {
-        try! JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": text]]]])
+        json(["choices": [["message": ["content": text]]]])
     }
 
     @Test("Gemini request: model path, key header, system text, image and question")
@@ -47,7 +51,7 @@ struct VisionClientTests {
         t.status = 403
         #expect(await client.ask("q", image: image) == .authFailed)
         t.status = 400
-        t.body = try! JSONSerialization.data(withJSONObject: ["error": ["message": "API key not valid."]])
+        t.body = json(["error": ["message": "API key not valid."]])
         #expect(await client.ask("q", image: image) == .authFailed)
         t.status = 500
         #expect(await client.ask("q", image: image) == .failed)
