@@ -23,6 +23,8 @@ targets:
       path: NovaDrive/Info.plist
       properties:
         UIFileSharingEnabled: true
+        # F-23 / OQ-IOS-4: used only while a voice session or route guidance is active (review notes).
+        UIBackgroundModes: [audio, location]
     dependencies:
       - package: NovaCore
         product: NovaKit
@@ -54,6 +56,7 @@ targets:
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Nova Drive listens to your voice commands.
         INFOPLIST_KEY_NSCameraUsageDescription: Nova Drive 需要用摄像头回答你关于画面的问题。
         INFOPLIST_KEY_NSContactsUsageDescription: Nova Drive 需要读取通讯录，才能按名字帮你打电话。
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Nova Drive 用你的位置搜索附近的地点、规划路线和查询当地天气。
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
         TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "0.1.0"

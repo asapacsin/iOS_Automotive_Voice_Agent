@@ -137,7 +137,15 @@ private struct DriveContent: View {
         }
         .onChange(of: model.geometry) { _, geometry in focus(geometry) }
         // F-20a §5: the camera never runs in the background.
-        .onChange(of: scenePhase) { _, phase in if phase == .background && model.cameraOpen { runtime.closeCamera() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background && model.cameraOpen { runtime.closeCamera() }
+            let mapped: AppScenePhase = switch phase {
+            case .background: .background
+            case .inactive: .inactive
+            default: .foreground
+            }
+            Task { await runtime.sceneChanged(mapped) }
+        }
     }
 
     // MARK: Map

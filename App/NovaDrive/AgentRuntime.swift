@@ -260,6 +260,16 @@ final class AgentRuntime {
 
     /// The flow of the running session, for taps on the choice list (I-6: the same executor as voice).
     private var navigation: NavigationController?
+    private var lifecycle: ConversationLifecycle?
+
+    /// T-062 scene-phase bridge: ios-architecture §11.3. In the background only a navigating or
+    /// mid-conversation session keeps the mic and socket; SLEEP and DEEP_IDLE end the session.
+    func sceneChanged(_ phase: AppScenePhase) async {
+        guard model.running, let lifecycle else { return }
+        let navigating = await navigation?.current.navigating ?? false
+        let decision = BackgroundDecision.decide(scene: phase, listening: lifecycle.state, navigating: navigating)
+        if decision.keepSocket == false { stop() }
+    }
     private var taps = 0
 
     /// F-25 §10 row 2: a row tap is `choose_navigation_option(index)` on the navigation executor, with the
@@ -373,6 +383,7 @@ final class AgentRuntime {
             }
         }
         await lifecycle.send(.wake)
+        self.lifecycle = lifecycle
         executors[EndConversationHandler.tool] = EndConversationHandler(lifecycle: lifecycle)
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
@@ -479,6 +490,7 @@ final class AgentRuntime {
         if model.cameraOpen { closeCamera() }
         speakLine = nil
         navigation = nil
+        lifecycle = nil
         guard let core else { return }
         let audio = audio
         Task {
