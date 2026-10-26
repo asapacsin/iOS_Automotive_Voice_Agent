@@ -831,15 +831,16 @@
     {
       "id": "T-060",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 45,
       "action": "IflytekWakeDetector adapter (F-01)",
       "depends_on": [
         "T-021"
       ],
       "evidence": [
-        "RetryingWakeDetector (bounded retry, unit), AIKitWakeEngine + WakeListener wired; CI green at 60ff742 without the SDK (AIKit path compiled out)",
-        "Owner action: AIKit SDK must reach CI (repo private + commit, or AIKIT_SDK_URL secret) to compile the AIKit path; device row in T-064"
+        "RetryingWakeDetector (bounded retry, unit), AIKitWakeEngine + WakeListener wired",
+        "AIKit path compiled and embedded with the vendored SDK: CI green at ac125f6 (xcode, simulator, core-linux, core-macos, unsigned-ipa)",
+        "Device row (你好小诺 on phone) stays NOT_VERIFIED in T-064"
       ]
     },
     {
