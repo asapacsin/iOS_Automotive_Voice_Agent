@@ -124,6 +124,21 @@ struct ObservedVehicleExecutor: ToolExecutor {
     }
 }
 
+/// F-19 dialler: `tel://` opens the system call sheet, which asks once more before calling.
+struct SystemPhoneDialer: PhoneDialer {
+    var canPlaceCalls: Bool {
+        get async {
+            await MainActor.run { URL(string: "tel://10086").map { UIApplication.shared.canOpenURL($0) } ?? false }
+        }
+    }
+
+    func dial(_ number: String) async -> Bool {
+        let digits = number.filter { $0.isNumber || $0 == "+" }
+        guard !digits.isEmpty, let url = URL(string: "tel://\(digits)") else { return false }
+        return await UIApplication.shared.open(url)
+    }
+}
+
 /// `describe_camera_view` from the model: opens the window first (OQ-CAM-2), shows 看画面中… and the answer.
 struct ObservedCameraExecutor: ToolExecutor {
     let runtime: AgentRuntime
@@ -254,6 +269,7 @@ final class AgentRuntime {
         for name in NavigationController.tools { executors[name] = navigation }
         executors["query_live_info"] = liveInfo
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
+        executors["place_call"] = PhoneCallHandler(contacts: ContactsStore(), dialer: SystemPhoneDialer(), clock: SystemClock())
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         let config = SessionConfig(systemInstruction: Persona.instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model)

@@ -121,7 +121,12 @@ public struct Contact: Sendable, Hashable {
 }
 
 public protocol ContactsDirectory: Sendable {
+    /// Contacts whose name matches; throws `ContactsError.permissionDenied` without access.
     func search(_ name: String) async throws -> [Contact]
+}
+
+public enum ContactsError: Error, Sendable, Hashable {
+    case permissionDenied
 }
 
 public protocol PhoneDialer: Sendable {
