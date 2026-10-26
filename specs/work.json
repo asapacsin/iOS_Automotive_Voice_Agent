@@ -840,6 +840,7 @@
       "evidence": [
         "RetryingWakeDetector (bounded retry, unit), AIKitWakeEngine + WakeListener wired",
         "AIKit path compiled and embedded with the vendored SDK: CI green at ac125f6 (xcode, simulator, core-linux, core-macos, unsigned-ipa)",
+        "Independent high-effort review: round 1 REWORK (lock held across SDK read, callback after start, repeated .failed, stale handle) fixed in 848056d; round 2 PASS; CI green at 848056d (all 5 jobs)",
         "Device row (你好小诺 on phone) stays NOT_VERIFIED in T-064"
       ]
     },
