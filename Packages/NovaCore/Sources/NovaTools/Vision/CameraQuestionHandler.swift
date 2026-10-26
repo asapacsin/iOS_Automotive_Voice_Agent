@@ -1,5 +1,6 @@
 import NovaKit
 import NovaPorts
+import Synchronization
 
 /// `describe_camera_view` (F-20, F-20a): one still at the moment of the question, one vision request
 /// in flight, 8 s deadline. A newer question or `cancel()` (window closed) drops the older answer, so
@@ -73,19 +74,58 @@ public actor CameraQuestionHandler: ToolExecutor {
 
     private static let dropped = ToolResult.failure(.superseded, advice: "这个问题已被新的问题取代，不要回答它。")
 
-    /// The vision answer, or nil when the deadline passes first.
+    /// The vision answer, or nil when the deadline passes first. Returns at the deadline even if the
+    /// backend ignores cancellation (a task group would wait for it).
     private func withDeadline(_ work: @escaping @Sendable () async -> VisionAnswer) async -> VisionAnswer? {
         let clock = self.clock
         let end = clock.now + deadline
-        return await withTaskGroup(of: VisionAnswer?.self) { group in
-            group.addTask { await work() }
-            group.addTask {
+        let race = FirstWins<VisionAnswer?>()
+        return await withCheckedContinuation { continuation in
+            race.set(continuation)
+            let request = Task { race.finish(await work()) }
+            let timer = Task {
                 try? await clock.sleep(until: end)
-                return nil
+                if race.finish(nil) { request.cancel() }
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+            race.onFinish { timer.cancel() }
         }
+    }
+}
+
+/// Resumes one continuation with whichever result arrives first.
+private final class FirstWins<T: Sendable>: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<T, Never>?
+        var done = false
+        var cleanup: (@Sendable () -> Void)?
+    }
+    private let state = Mutex(State())
+
+    func set(_ continuation: CheckedContinuation<T, Never>) {
+        state.withLock { $0.continuation = continuation }
+    }
+
+    /// Runs `cleanup` when the race ends (now, if it already has).
+    func onFinish(_ cleanup: @escaping @Sendable () -> Void) {
+        let ended = state.withLock { s in
+            if !s.done { s.cleanup = cleanup }
+            return s.done
+        }
+        if ended { cleanup() }
+    }
+
+    /// True when this call won the race.
+    @discardableResult
+    func finish(_ value: T) -> Bool {
+        let won: (CheckedContinuation<T, Never>?, (@Sendable () -> Void)?)? = state.withLock { s in
+            guard !s.done else { return nil }
+            s.done = true
+            defer { s.continuation = nil; s.cleanup = nil }
+            return (s.continuation, s.cleanup)
+        }
+        guard let won else { return false }
+        won.0?.resume(returning: value)
+        won.1?()
+        return true
     }
 }

@@ -2,6 +2,7 @@ import MapKit
 import NovaAgent
 import NovaKit
 import NovaNav
+import NovaPlatform
 import NovaPorts
 import NovaServices
 import NovaTools
@@ -18,7 +19,89 @@ struct DriveView: View {
 
     var body: some View {
         DriveContent(model: holder.runtime.model, camera: $camera,
-                     toggle: { Task { model.running ? holder.runtime.stop() : await holder.runtime.start() } })
+                     toggle: { Task { model.running ? holder.runtime.stop() : await holder.runtime.start() } },
+                     runtime: holder.runtime)
+    }
+}
+
+/// Hosts the camera preview layer from NovaPlatform (the app does not import AVFoundation).
+private struct CameraPreview: UIViewRepresentable {
+    let session: CameraSession
+
+    final class Host: UIView {
+        var preview: CALayer?
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            preview?.frame = bounds
+        }
+    }
+
+    func makeUIView(context: Context) -> Host {
+        let view = Host()
+        let layer = session.makePreviewLayer()
+        view.layer.addSublayer(layer)
+        view.preview = layer
+        return view
+    }
+
+    func updateUIView(_ view: Host, context: Context) {}
+}
+
+/// F-20a floating window: live back camera, 问一下 and ×; drag to any corner.
+private struct CameraWindow: View {
+    @ObservedObject var model: DriveModel
+    let runtime: AgentRuntime
+    @State private var corner: Alignment = .topTrailing
+    @State private var drag: CGSize = .zero
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width * 0.4
+            VStack(spacing: 0) {
+                ZStack(alignment: .topTrailing) {
+                    CameraPreview(session: runtime.camera)
+                        .frame(width: width, height: width * 0.75)
+                    Button { runtime.closeCamera() } label: {
+                        Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.white, .black.opacity(0.5))
+                    }
+                    .padding(4)
+                    .accessibilityIdentifier("camera-close")
+                    if model.cameraAsking {
+                        Text("看画面中…").font(.caption2).padding(4)
+                            .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom).padding(4)
+                    }
+                }
+                HStack {
+                    Text(model.cameraAnswer ?? " ").font(.caption2).lineLimit(3)
+                    Spacer(minLength: 4)
+                    Button("问一下") { Task { await runtime.tapAsk() } }
+                        .font(.caption.weight(.semibold)).buttonStyle(.bordered)
+                        .disabled(model.cameraAsking)
+                        .accessibilityIdentifier("camera-ask")
+                }
+                .padding(6)
+                .frame(width: width)
+                .background(.regularMaterial)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(radius: 4)
+            .offset(drag)
+            .gesture(DragGesture()
+                .onChanged { drag = $0.translation }
+                .onEnded { value in
+                    let right = value.location.x > proxy.size.width / 2
+                    let bottom = value.location.y > proxy.size.height / 2
+                    corner = bottom ? (right ? .bottomTrailing : .bottomLeading) : (right ? .topTrailing : .topLeading)
+                    drag = .zero
+                })
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner)
+            .animation(.easeOut(duration: 0.2), value: corner)
+        }
+        .padding(.top, 70)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+        .accessibilityIdentifier("camera-window")
     }
 }
 
@@ -31,6 +114,8 @@ private struct DriveContent: View {
     @ObservedObject var model: DriveModel
     @Binding var camera: MapCameraPosition
     let toggle: () -> Void
+    let runtime: AgentRuntime
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -48,8 +133,11 @@ private struct DriveContent: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
+            if model.cameraOpen { CameraWindow(model: model, runtime: runtime) }
         }
         .onChange(of: model.geometry) { _, geometry in focus(geometry) }
+        // F-20a §5: the camera never runs in the background.
+        .onChange(of: scenePhase) { _, phase in if phase == .background && model.cameraOpen { runtime.closeCamera() } }
     }
 
     // MARK: Map
@@ -99,6 +187,11 @@ private struct DriveContent: View {
         HStack {
             Text("小诺").font(.headline)
             chip
+            Button { Task { await runtime.toggleCamera() } } label: {
+                Image(systemName: model.cameraDenied ? "camera.slash.fill" : "camera.fill")
+                    .foregroundStyle(model.cameraOpen ? .blue : .primary)
+            }
+            .accessibilityIdentifier("camera-button")
             Spacer()
             Text(model.nav.navigating ? "模拟行驶" : "模拟车辆")
                 .font(.caption2).padding(.horizontal, 6).padding(.vertical, 3)

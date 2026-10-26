@@ -4,6 +4,7 @@ import NovaAgent
 import NovaAudio
 import NovaKit
 import NovaNav
+import NovaPlatform
 import NovaPorts
 import NovaRealtime
 import NovaServices
@@ -23,6 +24,11 @@ final class DriveModel: ObservableObject {
     @Published var toolLine = ""
     @Published var running = false
     @Published var notice: String?
+    // F-20a floating camera window
+    @Published var cameraOpen = false
+    @Published var cameraAsking = false
+    @Published var cameraAnswer: String?
+    @Published var cameraDenied = false
 }
 
 /// Non-secret settings of the drive screen (UserDefaults).
@@ -30,6 +36,8 @@ enum DriveSettings {
     static let azureRegion = "azure_region"
     static let azureVoice = "azure_voice"
     static let defaultVoice = "zh-CN-XiaoxiaoNeural"
+    /// Qianfan model for the optional vision backend; the Android name is still an EVIDENCE_REQUEST.
+    static let qianfanVisionModel = "ernie-4.5-turbo-vl"
     /// Demo start point (珠海市人民政府, GCJ-02), so no personal location is shown or used (REC-003).
     static let demoOrigin = GeoCoordinate(latitude: 22.270715, longitude: 113.576726, datum: .gcj02)
 }
@@ -116,6 +124,15 @@ struct ObservedVehicleExecutor: ToolExecutor {
     }
 }
 
+/// `describe_camera_view` from the model: opens the window first (OQ-CAM-2), shows 看画面中… and the answer.
+struct ObservedCameraExecutor: ToolExecutor {
+    let runtime: AgentRuntime
+
+    func execute(_ call: ToolCall) async -> ToolResult {
+        await runtime.askCamera(call.arguments["question"]?.stringValue ?? "")
+    }
+}
+
 /// The composition root (ios-architecture §4): one live session with every adapter wired.
 @MainActor
 final class AgentRuntime {
@@ -124,6 +141,66 @@ final class AgentRuntime {
     private var audio: LiveAudio?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
+    let camera = CameraSession()
+    private lazy var cameraQuestions: CameraQuestionHandler = {
+        let geminiKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .geminiAPIKey) }
+        let qianfanKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qianfanKey) }
+        let vision = PreferredVision(gemini: GeminiVisionClient(key: geminiKey),
+                                     qianfan: QianfanVisionClient(key: qianfanKey, model: DriveSettings.qianfanVisionModel),
+                                     hasGeminiKey: { geminiKey()?.isEmpty == false })
+        return CameraQuestionHandler(camera: camera, vision: vision, clock: SystemClock())
+    }()
+
+    // MARK: Camera (F-20a)
+
+    func toggleCamera() async {
+        model.cameraOpen ? closeCamera() : await openCamera()
+    }
+
+    @discardableResult
+    func openCamera() async -> Bool {
+        model.cameraDenied = false
+        do {
+            try await camera.start()
+            model.cameraOpen = true
+            return true
+        } catch CameraError.permissionDenied {
+            model.cameraDenied = true
+            model.notice = "摄像头没有权限，请在 设置 > Nova Drive 里允许相机。"
+        } catch {
+            model.notice = "摄像头现在用不了。"
+        }
+        return false
+    }
+
+    func closeCamera() {
+        Task { await cameraQuestions.cancel() }
+        camera.stop()
+        model.cameraOpen = false
+        model.cameraAsking = false
+        model.cameraAnswer = nil
+    }
+
+    /// Voice path and 问一下 both come here; a closed window opens first (OQ-CAM-2).
+    func askCamera(_ question: String) async -> ToolResult {
+        if !model.cameraOpen { await openCamera() }
+        model.cameraAsking = true
+        model.cameraAnswer = nil
+        let result = await cameraQuestions.ask(question)
+        if result.code != .superseded {
+            model.cameraAsking = false
+            model.cameraAnswer = result.data["answer"]?.stringValue
+        }
+        return result
+    }
+
+    /// 问一下: the fixed question; with no session running the answer is shown on the window only.
+    func tapAsk() async {
+        let result = await askCamera(CameraQuestionHandler.tapQuestion)
+        if !result.ok, result.code != .superseded {
+            model.cameraAnswer = result.advice?.components(separatedBy: "请如实").first
+        }
+    }
 
     func start() async {
         guard !model.running else { return }
@@ -172,6 +249,7 @@ final class AgentRuntime {
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
         for name in NavigationController.tools { executors[name] = navigation }
         executors["query_live_info"] = liveInfo
+        executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         let config = SessionConfig(systemInstruction: Persona.instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model)
