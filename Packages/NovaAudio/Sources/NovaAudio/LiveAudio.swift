@@ -14,6 +14,8 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let reply = AVAudioPlayerNode()
     private let guidance = AVAudioPlayerNode()
+    private let media = AVAudioPlayerNode()
+    private var mediaOn = false
     private let replyFormat = AVAudioFormat(standardFormatWithSampleRate: Double(PCMBuffer.replySampleRate), channels: 1)!
     private let captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(PCMFrame16k.sampleRate),
                                               channels: 1, interleaved: true)!
@@ -30,8 +32,11 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         (events, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
         engine.attach(reply)
         engine.attach(guidance)
+        engine.attach(media)
         engine.connect(reply, to: engine.mainMixerNode, format: replyFormat)
         engine.connect(guidance, to: engine.mainMixerNode, format: replyFormat)
+        // Music goes through the same voice-processing engine, so it is inside the echo reference.
+        engine.connect(media, to: engine.mainMixerNode, format: replyFormat)
     }
 
     // MARK: CaptureSource
@@ -56,12 +61,14 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             try? self.engine.start()
             self.reply.play()
             self.guidance.play()
+            if self.mediaPlaying { self.media.play() }
         }
         lock.withLock { running = true }
     }
 
     public func stop() {
         guard lock.withLock({ running }) else { return }
+        stopMedia()
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
@@ -147,8 +154,48 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         }
     }
 
-    public func playMedia(_ track: BundledTrack) {}
-    public func stopMedia() {}
+    /// F-13 bundled track on the media lane, looped. A bundled file named `track.resourceName` is used
+    /// when present; otherwise a generated loop, so play works offline without shipping audio.
+    public func playMedia(_ track: BundledTrack) {
+        guard lock.withLock({ running && !mediaOn }) else { return }
+        let buffer = Self.bundledBuffer(track, format: replyFormat) ?? BundledLoop.buffer(format: replyFormat)
+        guard let buffer else { return }
+        media.scheduleBuffer(buffer, at: nil, options: .loops)
+        media.play()
+        lock.withLock { mediaOn = true }
+        continuation.yield(.mediaPlaying(true))
+    }
+
+    public func stopMedia() {
+        guard lock.withLock({ mediaOn }) else { return }
+        media.stop()
+        lock.withLock { mediaOn = false }
+        continuation.yield(.mediaPlaying(false))
+    }
+
+    public var mediaPlaying: Bool { lock.withLock { mediaOn } }
+
+    static func bundledBuffer(_ track: BundledTrack, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let url = ["m4a", "mp3", "wav", "caf"].lazy.compactMap {
+            Bundle.main.url(forResource: track.resourceName, withExtension: $0)
+        }.first
+        guard let url, let file = try? AVAudioFile(forReading: url),
+              let source = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+              (try? file.read(into: source)) != nil else { return nil }
+        if file.processingFormat == format { return source }
+        guard let converter = AVAudioConverter(from: file.processingFormat, to: format),
+              let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(
+                Double(source.frameLength) * format.sampleRate / file.processingFormat.sampleRate) + 64) else { return nil }
+        var fed = false
+        var error: NSError?
+        converter.convert(to: output, error: &error) { _, status in
+            if fed { status.pointee = .endOfStream; return nil }
+            fed = true
+            status.pointee = .haveData
+            return source
+        }
+        return error == nil ? output : nil
+    }
 
     public var guidanceSounding: Bool { lock.withLock { guidanceOutstanding > 0 } }
 

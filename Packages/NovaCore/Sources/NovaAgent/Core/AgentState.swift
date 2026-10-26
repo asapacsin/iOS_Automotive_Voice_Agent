@@ -25,6 +25,8 @@ public enum AgentEvent: Sendable, Hashable {
     case guidanceRelay(enabled: Bool)
     /// Distance to the next manoeuvre while navigating (R6a); nil when unknown.
     case manoeuvreDistance(meters: Int?)
+    /// The media lane's verified now-playing transitions (music.md truthfulness contract).
+    case musicPlaying(Bool)
 }
 
 /// What the dispatch guards need to know about navigation (`navigatingNow`, `guidanceRunningNow`).
@@ -211,6 +213,8 @@ public struct AgentState: Sendable {
             case .replyStarted, .replyFinished: break
             case .guidanceStarted:
                 arbiter.guidance(true, at: now)
+            case .mediaPlaying(let playing):
+                return pipeline(.musicPlaying(playing), at: now)
             case .guidanceEnded(let id):
                 arbiter.guidance(false, at: now)
                 return relayOutputs(relay.fallbackFinished(id, at: now, conditions: relayConditions), at: now)
@@ -257,6 +261,8 @@ public struct AgentState: Sendable {
         case .guidanceRelay(let enabled):
             relayEnabled = enabled
             return []
+        case .musicPlaying(let playing):
+            return pipeline(.musicPlaying(playing), at: now)
         case .manoeuvreDistance(let meters):
             arbiter.setManoeuvreDistance(meters)
             return arbiterChanged(at: now)

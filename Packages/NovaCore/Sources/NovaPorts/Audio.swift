@@ -45,6 +45,8 @@ public enum PlaybackEvent: Sendable, Hashable {
     case replyFinished(Epoch)
     case guidanceStarted(GuidanceID)
     case guidanceEnded(GuidanceID)
+    /// The media lane really started or stopped (F-13): the only now-playing evidence.
+    case mediaPlaying(Bool)
 }
 
 /// Three lanes on one voice-processing engine (ios-architecture §6.4).

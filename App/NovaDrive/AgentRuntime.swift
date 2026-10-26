@@ -339,8 +339,11 @@ final class AgentRuntime {
         var executors: [String: any ToolExecutor] = [:]
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
         // F-12: scenarios go through the same simulated vehicle; the car card refreshes after each run.
-        // No MusicPort adapter exists yet, so drowsy reports its music step as not done (I-14).
-        executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: vehicle),
+        // F-13: the bundled loop on the media lane; play_music stays unavailable until OQ-IOS-7.
+        let music = LaneMusicPlayer(audio: audio)
+        let musicTools = MusicToolHandler(music: music, clock: SystemClock())
+        for name in MusicToolHandler.tools { executors[name] = musicTools }
+        executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: vehicle, music: music),
                                                                       vehicle: vehicle, model: model)
         for name in NavigationController.tools { executors[name] = navigation }
         executors["query_live_info"] = liveInfo
