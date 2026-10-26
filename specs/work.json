@@ -58,7 +58,7 @@
     {
       "id": "T-000x",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 11,
       "action": "Xcode App project + xcodebuild and swiftlint gates",
       "depends_on": [
@@ -67,7 +67,8 @@
         "H-ios-min"
       ],
       "evidence": [
-        "CI xcode job green: xcodegen + xcodebuild iOS (warnings as errors) + adapters + swiftlint --strict"
+        "CI xcode job green: xcodegen + xcodebuild iOS (warnings as errors) + adapters + swiftlint --strict",
+        "CI xcode job (macos-15: xcodegen, xcodebuild iOS with warnings as errors, swiftlint --strict) green on PR #14 heads; it caught and gated two app compile errors this session"
       ]
     },
     {
@@ -368,7 +369,10 @@
         "T-023",
         "T-024"
       ],
-      "blocked_by": "needs Xcode (T-000x)"
+      "blocked_by": "bubble fade constants need the Android EVIDENCE_REQUEST (A/ui/TranscriptBubbleFade.kt); device acceptance in T-026",
+      "evidence": [
+        "App slice built and in CI: composition root, tap-to-talk, chip mapping (unit in VoiceSessionTests), drive screen"
+      ]
     },
     {
       "id": "T-026",
@@ -713,6 +717,45 @@
       ],
       "evidence": [
         "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-072",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "F-13 MusicKitPlayer (NamedMusicPort) built in NovaPlatform, not wired until OQ-IOS-7",
+      "depends_on": [
+        "T-032"
+      ],
+      "evidence": [
+        "Build only (CI xcode); wiring waits on the OWNER decision OQ-IOS-7; now-playing check needs a device (OQ-IOS-11)"
+      ]
+    },
+    {
+      "id": "T-080",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "CarPlay template scene (status + choice list, taps as UIIntent), inert until entitlement",
+      "depends_on": [
+        "T-047"
+      ],
+      "evidence": [
+        "Build only (CI xcode); needs the CarPlay entitlement and OQ-IOS-8 category; CarPlay Simulator test not run"
+      ]
+    },
+    {
+      "id": "T-042b",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "CoreLocationProvider (WGS-84 fix, When In Use on first need), behind use_device_location; GCJ-02 conversion for route origin and weather here",
+      "depends_on": [
+        "T-042"
+      ],
+      "evidence": [
+        "Build only (CI xcode); default stays DemoLocation for recordings (REC-003)"
       ]
     }
   ]

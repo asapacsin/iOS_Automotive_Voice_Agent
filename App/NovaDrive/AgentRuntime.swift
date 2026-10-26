@@ -40,6 +40,8 @@ enum DriveSettings {
     static let qianfanVisionModel = "ernie-4.5-turbo-vl"
     /// Demo start point (珠海市人民政府, GCJ-02), so no personal location is shown or used (REC-003).
     static let demoOrigin = GeoCoordinate(latitude: 22.270715, longitude: 113.576726, datum: .gcj02)
+    /// Off by default for demo recordings (REC-003); on, search and weather use the phone's own fix.
+    static let useDeviceLocation = "use_device_location"
 }
 
 /// 小诺's standing instruction for the Gemini Live session (≤ 4000 characters).
@@ -380,10 +382,11 @@ final class AgentRuntime {
         let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials())
         let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
         let navigationClock = SystemClock()
-        let location = DemoLocation(clock: navigationClock)
+        let location: any LocationProvider = UserDefaults.standard.bool(forKey: DriveSettings.useDeviceLocation)
+            ? CoreLocationProvider(clock: navigationClock) : DemoLocation(clock: navigationClock)
         let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
         let web = AmapWebClient(key: amapKey)
-        let engine = AmapRouteEngine(key: amapKey, origin: { await location.latestFix()?.coordinate },
+        let engine = AmapRouteEngine(key: amapKey, origin: { await location.latestFix().map { CoordinateConverter.gcj02($0.coordinate) } },
                                      onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())

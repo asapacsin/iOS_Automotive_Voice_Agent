@@ -11,7 +11,7 @@ import SwiftUI
 
 /// The product screen: status chip, map with routes, choice list, HUD, simulated car and both voices' lines.
 struct DriveView: View {
-    @StateObject private var holder = RuntimeHolder()
+    @StateObject private var holder = RuntimeHolder.shared
     @State private var camera: MapCameraPosition = .region(MKCoordinateRegion(
         center: CLLocationCoordinate2D(DriveSettings.demoOrigin), latitudinalMeters: 6_000, longitudinalMeters: 6_000))
 
@@ -107,6 +107,8 @@ private struct CameraWindow: View {
 
 @MainActor
 final class RuntimeHolder: ObservableObject {
+    /// One runtime for the phone screen and the CarPlay scene (they read the same snapshots, §11.5).
+    static let shared = RuntimeHolder()
     let runtime = AgentRuntime()
 }
 

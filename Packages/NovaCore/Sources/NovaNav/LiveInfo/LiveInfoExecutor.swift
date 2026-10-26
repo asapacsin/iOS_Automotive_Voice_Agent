@@ -44,7 +44,7 @@ public struct LiveInfoExecutor: ToolExecutor {
             switch target {
             case "here", "":
                 guard let fix = await location.latestFix(), let geocoder,
-                      let adcode = try await geocoder.adcode(at: fix.coordinate) else {
+                      let adcode = try await geocoder.adcode(at: CoordinateConverter.gcj02(fix.coordinate)) else {
                     return .failure(.noLocation, advice: "现在拿不到位置。请如实说明，可以请用户说城市名。")
                 }
                 place = adcode
