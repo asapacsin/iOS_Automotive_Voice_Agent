@@ -282,10 +282,17 @@ final class AgentRuntime {
     /// a trip that ends while the lifecycle sleeps closes the session (no wake word on iOS yet), and in
     /// the background SLEEP / DEEP_IDLE without navigation close the mic and socket.
     func reevaluate() async {
-        guard model.running, let lifecycle else { return }
-        let navigating = await navigation?.current.navigating ?? false
+        guard model.running, let lifecycle, let core else { return }
+        let thisSession = session
         let state = lifecycle.state
-        if !navigating, state == .sleep || state == .deepIdle {
+        if state == .sleep || state == .deepIdle, await !(navigation?.current.navigating ?? false) {
+            // Like the SLEEP stop: give the last sentence (arrival guidance, a goodbye) 3 s, and never
+            // stop mid route swap or while the relay still holds a sentence.
+            try? await Task.sleep(for: .seconds(3))
+            guard session == thisSession, let current = await navigation?.current else { return }
+            let busy = [.resolvingDestination, .calculatingRoute, .awaitingRouteSelection, .navigating]
+                .contains(current.phase)
+            guard !busy, await !core.state.relay.busy else { return }
             stop()
             return
         }

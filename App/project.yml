@@ -24,7 +24,8 @@ targets:
       properties:
         UIFileSharingEnabled: true
         # F-23 / OQ-IOS-4: used only while a voice session or route guidance is active (review notes).
-        UIBackgroundModes: [audio, location]
+        # `location` is added with the CoreLocation provider; the demo route needs no background fix.
+        UIBackgroundModes: [audio]
     dependencies:
       - package: NovaCore
         product: NovaKit
