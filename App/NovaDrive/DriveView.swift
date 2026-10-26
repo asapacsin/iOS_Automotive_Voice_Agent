@@ -114,7 +114,7 @@ private struct DriveContent: View {
         case .processing: ("思考中", .orange)
         case .listening: ("聆听中", .green)
         case .speaking: ("说话中", .blue)
-        case .error: ("出错", .red)
+        case .error: ("出错 \(model.view.configError?.rawValue ?? "")", .red)
         }
         return HStack(spacing: 5) {
             Circle().fill(color).frame(width: 9, height: 9)

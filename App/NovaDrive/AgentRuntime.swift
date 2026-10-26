@@ -1,4 +1,5 @@
 import Foundation
+import os
 import NovaAgent
 import NovaAudio
 import NovaKit
@@ -92,7 +93,7 @@ struct RuntimeSink: AgentEffectSink {
     }
 
     func diagnostic(_ event: DiagnosticEvent) {
-        print("diagnostic: \(event)")
+        RuntimeLog.agent.notice("diagnostic \(String(describing: event), privacy: .public)")
     }
 }
 
@@ -182,8 +183,16 @@ final class AgentRuntime {
         // Provider events, in order, to the core; the driver's words also to the screen.
         tasks.append(Task {
             for await event in provider.events {
-                if case .userTranscript(let text, _) = event.event {
+                switch event.event {
+                case .userTranscript(let text, _):
                     await MainActor.run { model.driverLine = text }
+                case .failed(let error):
+                    RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
+                    await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
+                case .closed, .setupComplete, .goAway:
+                    RuntimeLog.agent.notice("provider \(String(describing: event.event), privacy: .public)")
+                default:
+                    break
                 }
                 await core.send(.realtime(event.event, connection: event.connection))
             }
@@ -255,6 +264,10 @@ final class AgentRuntime {
         model.running = false
         model.view = AgentViewState()
     }
+}
+
+enum RuntimeLog {
+    static let agent = Logger(subsystem: "com.asapacsin.novadrive", category: "agent")
 }
 
 /// The uplink gate behind a lock; it runs on the capture thread.
