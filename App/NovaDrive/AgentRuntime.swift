@@ -81,6 +81,7 @@ struct RuntimeSink: AgentEffectSink {
     let revoicer: Revoicer
     let audio: LiveAudio
     let model: DriveModel
+    let speechOutput: SpeechOutputSwitch
 
     func provider(_ command: ProviderCommand) async {
         switch command {
@@ -94,7 +95,11 @@ struct RuntimeSink: AgentEffectSink {
     func flushPlayback(to epoch: Epoch) { audio.flush(to: epoch) }
     func cancelRevoicing(_ epoch: Epoch) async { await revoicer.cancel(newEpoch: epoch) }
     func newReply() async { await revoicer.newReply() }
-    func speak(_ clause: String) async { await revoicer.speak(clause) }
+    func speak(_ clause: String) async {
+        // set_speech_output silent: keep listening and acting, voice nothing.
+        guard speechOutput.mode == .spoken else { return }
+        await revoicer.speak(clause)
+    }
 
     func publish(_ view: AgentViewState) async {
         await MainActor.run { model.view = view }
@@ -304,11 +309,25 @@ final class AgentRuntime {
         executors["open_app"] = OpenAppExecutor()
         let settings = DefaultsSettingsStore()
         executors[SpeakingStyleHandler.tool] = SpeakingStyleHandler(settings: settings)
+        // F-02: end_conversation sleeps the lifecycle; iOS has no wake word yet, so SLEEP ends the
+        // session once the short goodbye has had time to play (PROPOSED 3 s).
+        let lifecycle = ConversationLifecycle(clock: SystemClock()) { effects in
+            guard effects.contains(.stateChanged(.sleep)) else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                self.stop()
+            }
+        }
+        await lifecycle.send(.wake)
+        executors[EndConversationHandler.tool] = EndConversationHandler(lifecycle: lifecycle)
+        let speechOutput = SpeechOutputSwitch()
+        executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
         // F-21: the saved tone is read once here, at session start.
         let instruction = PersonaInstruction.build(base: Persona.instruction, style: SpeakingStyle.saved(in: settings))
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         let config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
-        let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model)
+        let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model,
+                               speechOutput: speechOutput)
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
         self.core = core
         self.audio = audio
