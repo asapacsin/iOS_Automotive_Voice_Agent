@@ -67,6 +67,8 @@ public struct RealtimeTuning: Sendable, Hashable {
     public var setupCompleteTimeout = NovaDuration.seconds(10)
     public var pingInterval = NovaDuration.seconds(20)
     public var eventBufferLimit = 1024
+    /// Client messages queued on a socket before it counts as stalled (~5 s of 10 ms audio frames).
+    public var outboxLimit = 512
     public init() {}
 }
 

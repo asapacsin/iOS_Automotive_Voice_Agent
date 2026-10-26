@@ -42,6 +42,8 @@ exchange replaces the bubble at once.
 - Chip mapping identical (unit).
 - A tap on a choice row calls the same executor as the voice choice (unit).
 - Bubble fade timing identical to Android constants (unit).
+- `open_app` maps/settings switches the screen and the reply comes from the screen read back; an
+  unknown app is `APP_NOT_ALLOWED`; a switch that did not happen is not claimed (unit, PROPOSED iOS row).
 
 ## 11. Existing Android tests
 `T/ui/AssistantUiStateMapperTest`, `TranscriptBubbleFadeTest`, `TranscriptBubbleSessionSimulationTest`, `RecentTranscriptTest`, `ShownErrorCardTest`, `AffordanceMatcherTest`, `ScreenAffordanceRunnerTest`.

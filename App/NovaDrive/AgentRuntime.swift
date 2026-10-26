@@ -422,7 +422,7 @@ final class AgentRuntime {
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
         executors["place_call"] = PhoneCallHandler(contacts: ContactsStore(), dialer: SystemPhoneDialer(), clock: SystemClock())
-        executors["open_app"] = OpenAppExecutor()
+        executors[OpenAppExecutor.tool] = OpenAppExecutor(surfaces: TabSurfaces())
         let settings = DefaultsSettingsStore()
         executors[SpeakingStyleHandler.tool] = SpeakingStyleHandler(settings: settings)
         // F-02: end_conversation sleeps the lifecycle; iOS has no wake word yet, so SLEEP ends the

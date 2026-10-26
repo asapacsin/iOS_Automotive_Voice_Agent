@@ -28,4 +28,15 @@ public enum GeminiCloseClassifier {
             return .disconnect
         }
     }
+
+    /// A refused upgrade (no 101). PROPOSED: 401/403 is a bad key (terminal, like a 1008 auth close),
+    /// 429 is rate limiting, 5xx is a retryable outage; anything else is a retryable connection error.
+    public static func classify(handshakeStatus status: Int) -> RealtimeErrorCode {
+        switch status {
+        case 401, 403: return .auth
+        case 429: return .rateLimited
+        case 500...599: return .unavailable
+        default: return .connection
+        }
+    }
 }

@@ -136,4 +136,20 @@ struct SavedPlacesTests {
             .execute(tool("save_place", ["slot": "work", "address": "  "]))
         #expect(!blank.ok && blank.code == .invalidFieldValue)
     }
+
+    @Test("save_place claims success only when the slot reads back the found place (I-1)")
+    func saveReadBack() async {
+        let result = await SavePlaceExecutor(places: SavedPlaces(settings: DroppingSettingsStore()),
+                                             search: CountingSearch(places: [home]))
+            .execute(tool("save_place", ["slot": "home", "address": "华发新城"]))
+        #expect(!result.ok && result.code == .placeNotSaved && result.advice != nil)
+    }
+}
+
+/// A store whose writes are lost (full disk, sandbox error).
+final class DroppingSettingsStore: SettingsStore {
+    func string(_ key: String) -> String? { nil }
+    func bool(_ key: String) -> Bool? { nil }
+    func set(_ value: String?, for key: String) {}
+    func set(_ value: Bool, for key: String) {}
 }

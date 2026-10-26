@@ -16,18 +16,17 @@ final class AppNavigation: ObservableObject {
     @Published var tab: AppTab = .drive
 }
 
-/// `open_app` (F-25): maps → the 驾驶 map, settings → 设置. Reports only the switch it made.
-struct OpenAppExecutor: ToolExecutor {
-    func execute(_ call: ToolCall) async -> ToolResult {
-        let app = call.arguments["app"]?.stringValue ?? ""
-        let target: (AppTab, String)? = switch app {
-        case "maps": (.drive, "地图")
-        case "settings": (.settings, "设置")
-        default: nil
+/// `open_app` (F-25) on the tab bar: switches, then reports the tab that is showing.
+struct TabSurfaces: AppSurfacePort {
+    func show(_ surface: AppSurface) async -> AppSurface? {
+        await MainActor.run {
+            AppNavigation.shared.tab = surface == .maps ? .drive : .settings
+            switch AppNavigation.shared.tab {
+            case .drive: return .maps
+            case .settings: return .settings
+            default: return nil
+            }
         }
-        guard let (tab, label) = target else { return ToolDispatcher.failure(.appNotAllowed) }
-        await MainActor.run { AppNavigation.shared.tab = tab }
-        return .success(["app": .string(app), "next": .string("已经打开\(label)页面，用一句话告诉用户。")])
     }
 }
 

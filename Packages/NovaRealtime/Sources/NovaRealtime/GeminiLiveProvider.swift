@@ -31,14 +31,19 @@ public final class GeminiLiveProvider: RealtimeProvider {
         let generation: Generation
         let resumed: Bool
         let outbox: AsyncStream<String>.Continuation
+        /// Messages queued but not yet written. Past the limit the socket is stalled: fail it so the
+        /// session reconnects instead of queueing audio without bound (PROPOSED).
+        private let pending = Mutex(0)
+        private let pendingLimit: Int
         private let sink: AsyncStream<ProviderEvent>.Continuation
         private let ended = Mutex(false)
         private let setupDone = Mutex(false)
         private let tasks = Mutex<[Task<Void, Never>]>([])
 
-        init(connection: any WebSocketConnection, generation: Generation, resumed: Bool,
+        init(connection: any WebSocketConnection, generation: Generation, resumed: Bool, pendingLimit: Int,
              outbox: AsyncStream<String>.Continuation, sink: AsyncStream<ProviderEvent>.Continuation) {
             self.connection = connection
+            self.pendingLimit = pendingLimit
             self.generation = generation
             self.resumed = resumed
             self.outbox = outbox
@@ -46,6 +51,22 @@ public final class GeminiLiveProvider: RealtimeProvider {
         }
 
         var isEnded: Bool { ended.withLock { $0 } }
+
+        /// Queues one client message in order; a stalled writer past the limit ends the socket.
+        func enqueue(_ text: String) {
+            let overflow = pending.withLock { n -> Bool in
+                guard n < pendingLimit else { return true }
+                n += 1
+                return false
+            }
+            if overflow {
+                end(.failed(RealtimeError(.wsFailed)))
+                return
+            }
+            outbox.yield(text)
+        }
+
+        func written() { pending.withLock { $0 -= 1 } }
 
         func emit(_ event: RealtimeEvent) {
             if event == .setupComplete { setupDone.withLock { $0 = true } }
@@ -70,6 +91,11 @@ public final class GeminiLiveProvider: RealtimeProvider {
         func fail(_ error: Error) {
             guard let closed = error as? WebSocketClosed else {
                 end(.failed(RealtimeError(.wsFailed)))
+                return
+            }
+            // The upgrade itself was refused: classify the HTTP status, not the absent close frame.
+            if let status = closed.httpStatus, !setupDone.withLock({ $0 }) {
+                end(.failed(RealtimeError(GeminiCloseClassifier.classify(handshakeStatus: status))))
                 return
             }
             // A 1007 after setupComplete is a rejected client message, not a rejected setup or handle.
@@ -133,10 +159,10 @@ public final class GeminiLiveProvider: RealtimeProvider {
         }
         let (outbox, outboxContinuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .unbounded)
         let socket = Socket(connection: connection, generation: generation, resumed: handle != nil,
-                            outbox: outboxContinuation, sink: continuation)
+                            pendingLimit: tuning.outboxLimit, outbox: outboxContinuation, sink: continuation)
         // Setup is queued before the socket becomes reachable, so no client message can precede it.
         if let setup = try? GeminiCodec.encode(GeminiCodec.setup(config, resume: handle)) {
-            outboxContinuation.yield(String(decoding: setup, as: UTF8.self))
+            socket.enqueue(String(decoding: setup, as: UTF8.self))
         }
         let installed = state.withLock { s -> Bool in
             guard s.attempt == attempt else { return false }
@@ -153,6 +179,7 @@ public final class GeminiLiveProvider: RealtimeProvider {
                     socket.fail(error)
                     return
                 }
+                socket.written()
             }
         }
         let reader = Task {
@@ -204,7 +231,8 @@ public final class GeminiLiveProvider: RealtimeProvider {
 
     private func send(_ message: JSONValue) {
         guard let data = try? GeminiCodec.encode(message) else { return }
-        state.withLock { s in _ = s.socket?.outbox.yield(String(decoding: data, as: UTF8.self)) }
+        let socket = state.withLock { $0.socket }
+        socket?.enqueue(String(decoding: data, as: UTF8.self))
     }
 
     private func yieldIfCurrent(_ attempt: UInt64, _ event: ProviderEvent) {

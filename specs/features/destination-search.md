@@ -55,6 +55,8 @@ cancel restore it.
 - 家乐福 is never treated as 家.
 - Unset home → `HOME_NOT_SET`, no POI search.
 - Coordinates converted to GCJ-02 before Amap calls; saved places are not converted.
+- `save_place` claims success only when the slot reads back the found place, else `PLACE_NOT_SAVED`
+  (unit, PROPOSED iOS row, I-1).
 
 ## 11. Existing Android tests
 `T/nav/LiveDestinationCandidateSourceTest`, `DestinationQueryTest`, `AlongRouteCorridorTest`, `SavedPlacesTest`, `InitialLocationRecenterTest`.
