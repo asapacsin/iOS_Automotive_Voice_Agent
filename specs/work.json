@@ -387,7 +387,7 @@
     {
       "id": "T-071a",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-20a CameraQuestionHandler (pure, NovaTools/Vision): one in flight, cancel, result/codes; unit",
       "depends_on": [
@@ -395,13 +395,14 @@
       ],
       "evidence": [
         "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
-        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending"
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green"
       ]
     },
     {
       "id": "T-071c",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-20a GeminiVisionClient (default, OQ-CAM-1) + Qianfan option behind VisionPort; unit, contract",
       "depends_on": [
@@ -409,13 +410,14 @@
       ],
       "evidence": [
         "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
-        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending"
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green"
       ]
     },
     {
       "id": "T-071b",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-20a CameraSession adapter (AVCaptureSession back camera, still capture, stop on close); build, D",
       "depends_on": [
@@ -423,13 +425,14 @@
       ],
       "evidence": [
         "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending",
-        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending"
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green; device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-071d",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-20a camera icon, floating preview, 问一下, describe_camera_view wiring; question opens the window (OQ-CAM-2); S, D",
       "depends_on": [
@@ -438,7 +441,8 @@
       ],
       "evidence": [
         "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending",
-        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending"
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green; device rows NOT_VERIFIED"
       ]
     },
     {
@@ -452,7 +456,7 @@
       ],
       "evidence": [
         "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
-        "Independent high-effort re-review PASS at c63cccf; CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
       ]
     },
     {
@@ -466,7 +470,7 @@
       ],
       "evidence": [
         "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
-        "Independent high-effort re-review PASS at c63cccf; CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
       ]
     },
     {
@@ -480,7 +484,7 @@
       ],
       "evidence": [
         "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
-        "Independent high-effort re-review PASS at c63cccf; CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
       ]
     },
     {
@@ -494,7 +498,7 @@
       ],
       "evidence": [
         "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
-        "Independent high-effort re-review PASS at c63cccf; CI green (core-linux, core-macos, xcode); LIVE row NOT_VERIFIED"
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); LIVE row NOT_VERIFIED"
       ]
     }
   ]
