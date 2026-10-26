@@ -66,6 +66,8 @@ public struct SpeakingStyleHandler: ToolExecutor {
             return ToolDispatcher.failure(.styleNotAllowed)
         }
         settings.set(style.rawValue, for: SettingsKey.personaStyle)
-        return .success(["style": .string(style.rawValue), "next": .string(style.confirmation)])
+        // The catalog description tells the model to answer from `instruction`; `next` matches the other tools.
+        let reply = "用新语气简短回应，例如：" + style.confirmation
+        return .success(["style": .string(style.rawValue), "instruction": .string(reply), "next": .string(reply)])
     }
 }
