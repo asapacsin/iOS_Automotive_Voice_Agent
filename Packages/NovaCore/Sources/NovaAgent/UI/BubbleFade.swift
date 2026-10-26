@@ -21,13 +21,13 @@ public struct BubbleFade: Sendable, Hashable {
 
     public init(tuning: BubbleFadeTuning = BubbleFadeTuning()) { self.tuning = tuning }
 
-    /// New or longer bubble text (driver line or reply subtitle) at `now`; empty clears at once.
+    /// The bubble text changed (driver line or reply subtitle) at `now`; empty clears at once.
     public mutating func update(_ text: String, at now: NovaInstant) {
         self.text = text
         changedAt = now
     }
 
-    /// While 小诺 is speaking or the driver is talking the bubble never fades; the hold starts again
+    /// While pinned (小诺 speaking) the bubble never fades; the hold starts again
     /// when that ends.
     public mutating func pin(_ pinned: Bool, at now: NovaInstant) {
         if self.pinned && !pinned { changedAt = now }

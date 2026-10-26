@@ -333,24 +333,24 @@ private struct DriveContent: View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
             let phase = bubble.phase(at: Self.now())
             VStack(alignment: .leading, spacing: 6) {
-                if phase != .hidden {
-                    if !model.driverLine.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    if phase != .hidden, !model.driverLine.isEmpty {
                         HStack {
                             Spacer()
                             Text(model.driverLine).padding(8)
                                 .background(.green.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
-                    if !model.view.subtitle.isEmpty {
+                    if phase != .hidden, !model.view.subtitle.isEmpty {
                         Text(model.view.subtitle).padding(8)
                             .background(.blue.opacity(0.2), in: RoundedRectangle(cornerRadius: 12))
                     }
                 }
+                .opacity(phase == .fading ? 0.4 : 1)
                 if let notice = model.notice {
                     Text(notice).font(.footnote).foregroundStyle(.red)
                 }
             }
-            .opacity(phase == .fading ? 0.4 : 1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .animation(.easeOut(duration: 0.5), value: phase)
         }
