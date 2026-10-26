@@ -31,7 +31,7 @@ struct SpeakingStyleTests {
     @Test("styles are exactly the catalog enum; default is 正常")
     func catalogStyles() {
         #expect(SpeakingStyle.allCases.map(\.rawValue) == ToolCatalog.speakingStyles)
-        #expect(SpeakingStyle.saved(in: MemorySettings()) == .normal)
+        #expect(SpeakingStyle.saved(in: MemorySettings()) == .default)
     }
 
     @Test("F-21 row 1: a style change persists and the next session reads it")

@@ -3,24 +3,18 @@ import NovaKit
 import NovaPorts
 import NovaTools
 
-/// F-21 小诺's speaking tone (`A/SpeakingStyle.kt`). Raw values are the catalog's `style` enum.
-public enum SpeakingStyle: String, Sendable, Hashable, CaseIterable {
-    case normal = "default"
-    case sweet
-    case tsundere
-    case gentle
-    case lively
-
+/// F-21 persona behaviour of the shared `SpeakingStyle` (NovaPorts; raw values are the catalog's `style` enum).
+extension SpeakingStyle {
     /// The tone saved in settings; anything unknown or missing reads as 正常 (default).
     public static func saved(in settings: any SettingsStore) -> SpeakingStyle {
-        settings.string(SettingsKey.personaStyle).flatMap(SpeakingStyle.init(rawValue:)) ?? .normal
+        settings.string(SettingsKey.personaStyle).flatMap(SpeakingStyle.init(rawValue:)) ?? .default
     }
 
     /// The style block appended to the base instruction.
     var block: String {
         let rule = "语气只影响说法，绝不影响做事：工具规则永远优先，该调用工具就调用，只按工具结果回答。"
         switch self {
-        case .normal: return "语气：正常、自然、友好。" + rule
+        case .default: return "语气：正常、自然、友好。" + rule
         case .sweet: return "语气：说话嗲一点、甜一点，可以带点撒娇的语气词。" + rule
         case .tsundere: return "语气：傲娇，嘴上有点不情愿，但事情一定认真办好。" + rule
         case .gentle: return "语气：温柔、轻声、体贴。" + rule
@@ -31,7 +25,7 @@ public enum SpeakingStyle: String, Sendable, Hashable, CaseIterable {
     /// One-sentence confirmation in the new tone; claims nothing beyond the tone change.
     var confirmation: String {
         switch self {
-        case .normal: "好的，我恢复正常的语气了。"
+        case .default: "好的，我恢复正常的语气了。"
         case .sweet: "好呀，人家以后就甜甜地跟你说话啦。"
         case .tsundere: "哼，换就换，才不是因为你想听呢。"
         case .gentle: "好的，我会温柔地跟你说话。"
