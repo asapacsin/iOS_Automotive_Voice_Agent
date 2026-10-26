@@ -1,5 +1,6 @@
 import NovaKit
 import NovaPorts
+import NovaTools
 
 /// contracts/navigation.md phases. Cancel resets to idle; there is no cancelled phase.
 public enum NavigationPhase: String, Sendable, Hashable {
@@ -419,4 +420,3 @@ struct ToolResultBox: Error {
     let result: ToolResult
     init(_ result: ToolResult) { self.result = result }
 }
-
