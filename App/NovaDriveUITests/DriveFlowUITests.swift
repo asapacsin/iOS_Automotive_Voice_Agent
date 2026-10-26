@@ -34,6 +34,7 @@ final class DriveFlowUITests: XCTestCase {
         // Guidance started: the HUD shows the destination and the lists are gone.
         XCTAssertTrue(element("hud-panel").waitForExistence(timeout: 10))
         XCTAssertFalse(element("route-row-0").exists)
-        XCTAssertTrue(app.staticTexts["珠海站"].exists)
+        // The HUD title names the destination (inside a longer line such as 「前往 珠海站」).
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "珠海站")).firstMatch.exists)
     }
 }
