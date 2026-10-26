@@ -132,9 +132,11 @@ public struct GuidanceRelay: Sendable {
     }
 
     /// The relay turn ended (completed or cut). Judges fidelity and moves on.
-    public mutating func assistantFinished(at now: NovaInstant, conditions: GuidanceConditions) -> [GuidanceRelayOutput] {
+    /// `cut`: the driver barged in or the turn was interrupted; that is not a fidelity strike.
+    public mutating func assistantFinished(at now: NovaInstant, conditions: GuidanceConditions,
+                                           cut: Bool = false) -> [GuidanceRelayOutput] {
         guard let current, case .assistant = current.phase else { return [] }
-        return finishAssistant(current.item, at: now, conditions: conditions)
+        return finishAssistant(current.item, at: now, conditions: conditions, judge: !cut)
     }
 
     /// The deadline or bracket timer of `id` fired.
@@ -163,9 +165,19 @@ public struct GuidanceRelay: Sendable {
 
     /// Sending the prompt failed (socket closed between routing and send).
     public mutating func sendFailed(_ id: GuidanceID, at now: NovaInstant) -> [GuidanceRelayOutput] {
-        guard let current, current.item.id == id, case .pending = current.phase else { return [] }
-        self.current = (current.item, .fallback)
-        return [.silenceAssistant(id), .speakFallback(id, text: current.item.text, reason: .sendFailed)]
+        guard let current, current.item.id == id else { return [] }
+        switch current.phase {
+        case .pending:
+            self.current = (current.item, .fallback)
+            return [.silenceAssistant(id), .speakFallback(id, text: current.item.text, reason: .sendFailed)]
+        case .assistant:
+            // Her reading died with the socket: release the lane (the sentence was at least begun).
+            reading = ""
+            self.current = nil
+            return [.silenceAssistant(id)] + next(at: now, conditions: GuidanceConditions(connected: false))
+        case .fallback:
+            return []
+        }
     }
 
     /// The fallback voice finished `id` (guidance lane `guidanceEnded`), or could not speak it.
@@ -229,10 +241,10 @@ public struct GuidanceRelay: Sendable {
         return nil
     }
 
-    private mutating func finishAssistant(_ item: Item, at now: NovaInstant,
-                                          conditions: GuidanceConditions) -> [GuidanceRelayOutput] {
+    private mutating func finishAssistant(_ item: Item, at now: NovaInstant, conditions: GuidanceConditions,
+                                          judge: Bool = true) -> [GuidanceRelayOutput] {
         var effects: [GuidanceRelayOutput] = []
-        if Self.normalised(reading) != Self.normalised(item.text) {
+        if judge, Self.normalised(reading) != Self.normalised(item.text) {
             fidelityStrikes += 1
             effects.append(.fidelityStrike(item.id, strikes: fidelityStrikes))
         }

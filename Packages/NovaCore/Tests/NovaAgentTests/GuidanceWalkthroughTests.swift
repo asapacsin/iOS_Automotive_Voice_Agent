@@ -81,10 +81,65 @@ struct GuidanceWalkthroughTests {
         #expect(spoken(out).isEmpty)
         d.now = NovaInstant(milliseconds: 2000)
         out = d.send(.playback(.guidanceEnded(g)))
-        #expect(spoken(out) == "今天晴。")
+        #expect(spoken(out).isEmpty)  // guidance + 500 ms tail first
         d.now = NovaInstant(milliseconds: 2500)
         out = d.send(.timer(.arbiter(d.now)))
+        #expect(spoken(out) == "今天晴。")
         #expect(out.contains(.uplink(open: true)))
+    }
+
+    @Test("W5 review B1: while the driver's answer is owed, guidance is not sent to the model; the answer keeps its tools and claim gate")
+    func answerOwed() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("打开空调", isFinal: true))
+        d.send(.speechStopped)
+        d.now = NovaInstant(milliseconds: 300)
+        let out = d.send(.guidancePrompt("前方右转", GuidanceID(1)))
+        #expect(guidance(out) == ["前方右转"] && sentText(out).isEmpty)
+        let t = TurnID(1)
+        d.realtime(.responseStarted(t))
+        let calls = d.realtime(.toolCalls(t, [climateOn()]))
+        #expect(calls.contains(.startTool(t, climateOn())))
+    }
+
+    @Test("W5 review B2: relay state dies with the socket; the first turn after a reconnect is the driver's")
+    func reconnect() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        let g = GuidanceID(1)
+        d.send(.guidancePrompt("前方右转", g))
+        // The socket drops before her reading opens, and reconnects.
+        d.realtime(.failed(RealtimeError(.disconnect)))
+        let timer = d.effects.compactMap { if case .schedule(.session(let t), _) = $0, t.kind == .reconnectDelay { t } else { nil } }
+        d.send(.timer(.session(timer.last!)))
+        #expect(guidance(d.effects) == ["前方右转"])
+        d.realtime(.setupComplete)
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("打开空调", isFinal: true))
+        d.send(.speechStopped)
+        let t = TurnID(1)
+        d.realtime(.responseStarted(t))
+        let calls = d.realtime(.toolCalls(t, [climateOn()]))
+        #expect(calls.contains(.startTool(t, climateOn())))
+    }
+
+    @Test("W5 review B3: R1 holds from the moment the fallback is issued, before the voice is rendered")
+    func holdFromIssue() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("今天天气怎么样", isFinal: true))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(1)))
+        d.send(.guidancePrompt("前方右转", GuidanceID(1)))
+        // Rendering: no guidanceStarted yet, and still nothing of her reply is released.
+        let out = d.realtime(.replyText(TurnID(1), "今天晴。"))
+        #expect(spoken(out).isEmpty)
     }
 
     @Test("W5 her reading heard back through the microphone does not become a driver utterance")

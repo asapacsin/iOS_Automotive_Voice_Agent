@@ -124,12 +124,18 @@ public struct AgentState: Sendable {
     /// F-14 relay and the model turn that reads its PENDING sentence.
     public private(set) var relay = GuidanceRelay()
     private var relayEnabled = true
-    /// Sent to the model, its reading turn not opened yet.
+    /// Sent to the model on this socket, its reading turn not opened yet.
     private var relayAwaiting: GuidanceID?
-    /// The open turn reads guidance `id`; it bypasses the claim pipeline (nothing is claimed or asked).
-    private var relayTurn: (turn: TurnID, id: GuidanceID)?
+    /// Every turn of this socket that answered a guidance prompt. They bypass the claim pipeline and never
+    /// act (nothing is claimed or asked). TurnIDs restart per socket, so this is cleared with the socket.
+    private var relayTurns: [TurnID: GuidanceID] = [:]
+    /// The reading the relay is waiting on (its ASSISTANT phase).
+    private var relayReading: TurnID?
     /// The relay gave the awaited sentence to the fallback voice: its late reading turn is silenced.
     private var silenceNextRelayTurn = false
+    /// The model owes an answer (the driver stopped, or we sent a correction or re-ask): the next turn is
+    /// that answer, so no guidance prompt may be sent until it opens (F-14 RESPONSE_OPEN).
+    private var answerOwed = false
     private var runningTools = 0
     private var driverSpeaking = false
     private var uplinkOpen = true
@@ -182,6 +188,7 @@ public struct AgentState: Sendable {
             arbiter.driverSpeech(false)
             // R6: she may answer this utterance while navigating.
             arbiter.driverSpoke(at: now)
+            answerOwed = true
             // The no-answer clock (W3) starts when the driver stops, with what we heard so far.
             return session(.speechStopped, at: now) + pipeline(.driverUtterance(transcript), at: now)
                 + arbiterChanged(at: now)
@@ -230,8 +237,13 @@ public struct AgentState: Sendable {
             pipelineTimers[timer.kind] = nil
             return pipeline(.timerFired(timer), at: now)
         case .timer(.guidance(let id)):
-            return relayOutputs(relay.timerFired(id, at: now, conditions: relayConditions), at: now)
-                + arbiterChanged(at: now)
+            var effects = relayOutputs(relay.timerFired(id, at: now, conditions: relayConditions), at: now)
+            // The bracket ended her reading: whatever of that turn is still to come is not heard.
+            if let turn = relayReading, relay.assistantID != relayTurns[turn] {
+                relayReading = nil
+                if openTurn == turn, !silenced.contains(turn) { effects += stopReply(turn) }
+            }
+            return effects + arbiterChanged(at: now)
         case .timer(.arbiter):
             return arbiterChanged(at: now)
         case .navigation(let flags):
@@ -259,7 +271,7 @@ public struct AgentState: Sendable {
         default: false
         }
         return GuidanceConditions(enabled: relayEnabled, connected: connected, capable: true,
-                                  driverSpeaking: driverSpeaking, responseOpen: openTurn != nil,
+                                  driverSpeaking: driverSpeaking, responseOpen: openTurn != nil || answerOwed,
                                   workPending: runningTools > 0, focusHeld: arbiter.focus == .held)
     }
 
@@ -272,14 +284,19 @@ public struct AgentState: Sendable {
                 silenceNextRelayTurn = false
                 effects.append(.provider(.text([TextTurn(role: .user, text: prompt)], turnComplete: true)))
             case .speakFallback(let id, let text, _):
-                // Guidance never overlaps her reply (F-14 §10): a reply still sounding is cut (PROPOSED,
-                // guidance is the safety-relevant voice), and what is left of it is held by R1.
-                if arbiter.replyPlaying, let turn = openTurn, !silenced.contains(turn) { effects += stopReply(turn) }
+                // Guidance never overlaps her reply (F-14 §10). R1 holds from now, not from when the voice
+                // is rendered, so no clause is released in between. A reply that already released clauses
+                // (they may be at Azure or sounding) is cut whole (PROPOSED: guidance is the safety-relevant
+                // voice; a reply not yet started is only held).
+                arbiter.guidance(true, at: now)
+                if let turn = openTurn, !silenced.contains(turn), arbiter.replyStarted || arbiter.replyPlaying {
+                    effects += stopReply(turn)
+                }
                 effects.append(.speakGuidance(text, id))
             case .silenceAssistant(let id):
-                if let reading = relayTurn, reading.id == id {
-                    relayTurn = nil
-                    if !silenced.contains(reading.turn) { effects += stopReply(reading.turn) }
+                if let turn = relayReading, relayTurns[turn] == id {
+                    relayReading = nil
+                    if openTurn == turn, !silenced.contains(turn) { effects += stopReply(turn) }
                 } else if relayAwaiting == id {
                     silenceNextRelayTurn = true
                 }
@@ -315,7 +332,7 @@ public struct AgentState: Sendable {
                 if state == .connecting || state == .listening { view.configError = nil }
                 effects.append(.publish(view))
             case .connect(let connection, let resume):
-                newSocket()
+                effects += newSocket(at: now)
                 effects.append(.provider(.connect(connection: connection, resume: resume)))
             case .close:
                 // The turn in progress dies with its socket (contracts §5: Error/Closed drop the reply).
@@ -335,11 +352,23 @@ public struct AgentState: Sendable {
         return effects
     }
 
-    private mutating func newSocket() {
+    private mutating func newSocket(at now: NovaInstant) -> [AgentEffect] {
+        // A prompt sent on the old socket will never be read: it goes to the fallback voice now.
+        var effects: [AgentEffect] = []
+        if let id = relayAwaiting { effects = relayOutputs(relay.sendFailed(id, at: now), at: now) }
+        if let turn = relayReading, let id = relayTurns[turn] {
+            effects += relayOutputs(relay.sendFailed(id, at: now), at: now)
+        }
+        relayAwaiting = nil
+        relayReading = nil
+        relayTurns = [:]
+        silenceNextRelayTurn = false
+        answerOwed = false
         openTurn = nil
         abandoned = []
         silenced = []
         abandonNextTurn = false
+        return effects
     }
 
     /// Stops what is still playing or being voiced of the open turn and closes it as cancelled.
@@ -394,34 +423,36 @@ public struct AgentState: Sendable {
             openTurn = turn
             segmenter.reset()
             arbiter.newReply()
-            if let id = relayAwaiting {
+            // With no answer owed, a turn after a prompt is its reading (prompts are only sent then).
+            if let id = relayAwaiting, !answerOwed {
                 relayAwaiting = nil
+                relayTurns[turn] = id
                 if silenceNextRelayTurn {
                     // The deadline passed: the fallback voice has this sentence. Nothing of it is heard.
                     silenceNextRelayTurn = false
                     silenced.insert(turn)
-                    relayTurn = (turn, id)
                     return []
                 }
-                relayTurn = (turn, id)
+                relayReading = turn
                 view.subtitle = ""
                 return [.newReply] + relayOutputs(relay.assistantStarted(at: now), at: now)
             }
+            answerOwed = false
             view.subtitle = ""
             return [.newReply] + pipeline(.turnOpened(turn), at: now)
         case .replyText(let turn, let text):
             guard !silenced.contains(turn) else { return [] }
-            if relayTurn?.turn == turn {
+            if relayTurns[turn] != nil {
                 // A guidance reading: spoken as given, judged afterwards for fidelity, never a claim.
-                relay.assistantText(text)
+                if relayReading == turn { relay.assistantText(text) }
                 view.subtitle += text
                 return [.publish(view)] + speak(segmenter.append(text), at: now)
             }
             return pipeline(.replyText(turn, text), at: now)
         case .replyAudio(let turn, let pcm):
-            guard !silenced.contains(turn), relayTurn?.turn != turn else { return [] }
+            guard !silenced.contains(turn), relayTurns[turn] == nil else { return [] }
             return pipeline(.replyAudio(turn, pcm), at: now)
-        case .toolCalls(let turn, let calls) where relayTurn?.turn == turn:
+        case .toolCalls(let turn, let calls) where relayTurns[turn] != nil:
             // A guidance reading never acts: every call of it is refused and nothing runs.
             return [.provider(.toolResponses(calls.map {
                 ToolResponse(id: $0.id, name: $0.name, result: .failure(.actionNotAllowed))
@@ -450,17 +481,21 @@ public struct AgentState: Sendable {
         case .toolCallCancellation(let ids):
             return ids.map { .cancelTool($0) }
         case .audioDone(let turn):
-            if relayTurn?.turn == turn { return [] }
+            if relayTurns[turn] != nil { return [] }
             return pipeline(.audioDone(turn), at: now)
-        case .interrupted(let turn, _) where relayTurn?.turn == turn,
-             .responseDone(let turn, _) where relayTurn?.turn == turn:
-            relayTurn = nil
+        case .interrupted(let turn, _) where relayTurns[turn] != nil,
+             .responseDone(let turn, _) where relayTurns[turn] != nil:
             if openTurn == turn { openTurn = nil }
+            guard relayReading == turn else { return [] }
+            relayReading = nil
             var effects: [AgentEffect] = []
-            if case .responseDone(_, .completed) = event, !silenced.contains(turn), let rest = segmenter.flush() {
+            let completed = if case .responseDone(_, .completed) = event { true } else { false }
+            if completed, !silenced.contains(turn), let rest = segmenter.flush() {
                 effects += speak([rest], at: now)
             }
-            return effects + relayOutputs(relay.assistantFinished(at: now, conditions: relayConditions), at: now)
+            // A reading the driver cut is not unfaithful: no strike for it.
+            return effects + relayOutputs(relay.assistantFinished(at: now, conditions: relayConditions,
+                                                                  cut: !completed), at: now)
         case .interrupted(let turn, _):
             // Server-side interruption: whatever of this reply is still queued must not play.
             let stops = openTurn == turn && !silenced.contains(turn) ? stopReply(turn) : []
@@ -496,10 +531,14 @@ public struct AgentState: Sendable {
                 effects += silenced.contains(turn) ? [] : stopReply(turn)
                 effects.append(.publish(view))
             case .sendCorrection(let reason):
+                answerOwed = true
                 effects.append(.provider(.text([TextTurn(role: .user, text: reason.instruction)], turnComplete: true)))
             case .reask(let text):
+                answerOwed = true
                 effects.append(.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)))
             case .gaveUp:
+                // The model will not answer this utterance any more: guidance may be offered again.
+                answerOwed = false
                 if let turn = openTurn {
                     abandoned.insert(turn)
                     effects += silenced.contains(turn) ? [] : stopReply(turn)
@@ -528,7 +567,7 @@ public struct AgentState: Sendable {
 
     private mutating func releaseHeld(at now: NovaInstant) -> [AgentEffect] {
         guard !heldClauses.isEmpty else { return [] }
-        let (decision, wake) = arbiter.decide(at: now, exempt: relayTurn != nil && relayTurn?.turn == openTurn)
+        let (decision, wake) = arbiter.decide(at: now, exempt: openTurn.map { relayTurns[$0] != nil } ?? false)
         switch decision {
         case .play:
             let clauses = heldClauses

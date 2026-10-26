@@ -38,6 +38,9 @@ public struct SpeechArbiter: Sendable {
     public private(set) var permittedUntil: NovaInstant?
     /// The current reply has had a clause released: R6 and R6a judge only an unstarted reply.
     public private(set) var replyStarted = false
+    /// R6 judged the current reply when it was first ready and let it through; a later hold does not
+    /// make it unprompted.
+    private var replyAdmitted = false
     /// R6a: distance to the next manoeuvre, and the hold in progress.
     public private(set) var manoeuvreDistance: Int?
     private var workloadHold: (since: NovaInstant, distance: Int)?
@@ -124,6 +127,7 @@ public struct SpeechArbiter: Sendable {
     /// A new model reply opened; R6 and R6a judge it afresh.
     public mutating func newReply() {
         replyStarted = false
+        replyAdmitted = false
         workloadHold = nil
     }
 
@@ -137,8 +141,13 @@ public struct SpeechArbiter: Sendable {
     /// apply to it. Returns the decision and, for a timed hold, when to ask again.
     public mutating func decide(at now: NovaInstant, exempt: Bool = false) -> (ReplyDecision, wake: NovaInstant?) {
         if focus == .permanentLoss { return (.drop, nil) }
-        if navigating, !exempt, !replyStarted, permittedUntil.map({ now > $0 }) ?? true { return (.drop, nil) }
+        if navigating, !exempt, !replyStarted, !replyAdmitted {
+            if permittedUntil.map({ now > $0 }) ?? true { return (.drop, nil) }
+            replyAdmitted = true
+        }
         if guidanceSpeaking { return (.hold, nil) }
+        // R1 lasts until the 500 ms tail after guidance has passed.
+        if let ended = guidanceEndedAt, now < ended + tuning.guidanceTail { return (.hold, ended + tuning.guidanceTail) }
         if focus == .transientLoss { return (.hold, nil) }
         if navigating, !exempt, !replyStarted, let distance = manoeuvreDistance {
             if let hold = workloadHold {

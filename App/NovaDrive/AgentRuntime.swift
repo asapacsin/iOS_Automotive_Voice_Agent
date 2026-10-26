@@ -436,12 +436,12 @@ final class AgentRuntime {
                 }
             }
         })
+        let route: @Sendable (UplinkGateOutput) -> Void = { output in
+            if case .audio(let frame) = output { provider.sendAudio(frame) } else { gateEvents.continuation.yield(output) }
+        }
+        gate.onOutput(route)
         do {
-            try audio.start { frame in
-                for output in gate.process(frame) {
-                    if case .audio(let frame) = output { provider.sendAudio(frame) } else { gateEvents.continuation.yield(output) }
-                }
-            }
+            try audio.start { frame in gate.process(frame).forEach(route) }
         } catch {
             model.notice = "麦克风启动失败"
             stop()
@@ -483,8 +483,17 @@ final class GateBox: @unchecked Sendable {
 
     func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] { lock.withLock { gate.process(frame) } }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
-    /// F-08: closed while guidance sounds. The close outputs (stream end) follow on the next frame.
-    func setForcedClosed(_ closed: Bool) { lock.withLock { _ = gate.setForcedClosed(closed) } }
+    /// Where outputs that do not come from a frame go (the force-close of an open segment).
+    private var forward: (@Sendable (UplinkGateOutput) -> Void)?
+
+    func onOutput(_ forward: @escaping @Sendable (UplinkGateOutput) -> Void) { lock.withLock { self.forward = forward } }
+
+    /// F-08: closed while guidance sounds. Closing an open segment yields speechStopped, the closing
+    /// silence and streamEnd, which go out exactly like frame outputs.
+    func setForcedClosed(_ closed: Bool) {
+        let (outputs, forward) = lock.withLock { (gate.setForcedClosed(closed), self.forward) }
+        outputs.forEach { forward?($0) }
+    }
 }
 
 /// True for the first caller only.

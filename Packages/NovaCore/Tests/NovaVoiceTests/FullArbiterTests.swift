@@ -14,7 +14,21 @@ struct FullArbiterTests {
         #expect(v1.0 == .hold)
         a.guidance(false, at: at(2000))
         let v2 = a.decide(at: at(2000))
-        #expect(v2.0 == .play)
+        #expect(v2.0 == .hold && v2.wake == at(2500))
+        let v2b = a.decide(at: at(2500))
+        #expect(v2b.0 == .play)
+    }
+
+    @Test("F-08 R6 judges a reply when it is first ready: a workload hold past the 10 s window still plays")
+    func admittedBeforeHold() {
+        var a = SpeechArbiter()
+        a.setNavigating(true)
+        a.driverSpoke(at: at(0))
+        a.setManoeuvreDistance(120)
+        let held = a.decide(at: at(3000))
+        #expect(held.0 == .hold && held.wake == at(11_000))
+        let late = a.decide(at: at(11_000))
+        #expect(late.0 == .play)
     }
 
     @Test("F-08 §10 row 3: within 150 m of a manoeuvre an unstarted reply is held at most 8 s")
