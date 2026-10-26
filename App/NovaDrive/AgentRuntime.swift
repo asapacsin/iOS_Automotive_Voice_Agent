@@ -274,8 +274,12 @@ final class AgentRuntime {
         executors["query_live_info"] = liveInfo
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
         executors["place_call"] = PhoneCallHandler(contacts: ContactsStore(), dialer: SystemPhoneDialer(), clock: SystemClock())
+        let settings = DefaultsSettingsStore()
+        executors[SpeakingStyleHandler.tool] = SpeakingStyleHandler(settings: settings)
+        // F-21: the saved tone is read once here, at session start.
+        let instruction = PersonaInstruction.build(base: Persona.instruction, style: SpeakingStyle.saved(in: settings))
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
-        let config = SessionConfig(systemInstruction: Persona.instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
+        let config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model)
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
         self.core = core

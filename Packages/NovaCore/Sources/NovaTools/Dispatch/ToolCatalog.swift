@@ -162,5 +162,6 @@ public enum ToolFailureAdvice {
     /// iOS-only codes (I-2): one honest sentence for a tool with no iOS executor yet.
     static let iosTable: [ToolErrorCode: String] = [
         .notAvailableOnIOSYet: "这个功能在这台 iPhone 上还没有做好，所以没有执行。请用一句话如实告诉用户暂时还不能用，不要说已经做了。",
+        .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }
