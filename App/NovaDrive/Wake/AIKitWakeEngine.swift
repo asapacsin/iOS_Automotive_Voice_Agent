@@ -51,7 +51,7 @@ final class AIKitWakeEngine: NSObject, WakeEngine, @unchecked Sendable {
         try lock.withLock {
             if !sdkReady {
                 let code = ILibrary.initSDK { maker in
-                    _ = maker.appId(appID).apiKey(apiKey).apiSecret(apiSecret).ability(Self.abilityID)
+                    _ = maker.appId(appID)?.apiKey(apiKey)?.apiSecret(apiSecret)?.ability(Self.abilityID)
                 }
                 guard code == 0 else { throw Failure.code(Int(code)) }
                 sdkReady = true
