@@ -154,7 +154,11 @@ final class AgentRuntime {
     // MARK: Camera (F-20a)
 
     func toggleCamera() async {
-        model.cameraOpen ? closeCamera() : await openCamera()
+        if model.cameraOpen {
+            closeCamera()
+        } else {
+            await openCamera()
+        }
     }
 
     @discardableResult
