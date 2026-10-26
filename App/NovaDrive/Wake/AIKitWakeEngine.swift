@@ -7,9 +7,9 @@ import AIKIT
 #endif
 
 /// T-060 iFlytek AIKit wake word (`AIKit-语音唤醒` iOS v1.0.13, ability `e867a88f2`), app
-/// NovaDrive车载助手. The SDK is licensed and device-only (arm64, no simulator slice), so it is not in
-/// the public repo: `scripts/vendor_aikit.sh <sdk.zip>` puts it in `App/Vendor/AIKit/`, and only a
-/// device build with it present compiles the AIKit path. Otherwise `start` throws and
+/// NovaDrive车载助手. The SDK is licensed and device-only (arm64, no simulator slice), so it is vendored
+/// in `App/Vendor/AIKit/` of this private repo (`scripts/vendor_aikit.sh <sdk.zip>` refreshes it) and
+/// only device builds link it. Otherwise `start` throws and
 /// `RetryingWakeDetector` reports `.unavailable` after its bounded retries; the talk button stays.
 /// Flow as in the SDK demo (`IVWEngine.m`): initSDK → loadData(key_word) → specifyDataSet → start →
 /// write/read per frame → end. In-app wake only (OQ-IOS-1).
@@ -31,7 +31,10 @@ final class AIKitWakeEngine: NSObject, WakeEngine, @unchecked Sendable {
     }
 
     private let credentials: any CredentialStore
+    /// Guards state. SDK callbacks take only this one, so it is never held across an SDK call.
     private let lock = NSLock()
+    /// Serialises SDK I/O (write/read/end); `read` is synchronous and may call back on this thread.
+    private let ioLock = NSLock()
     private var onEvent: (@Sendable (WakeEngineEvent) -> Void)?
     private var sdkReady = false
     #if canImport(AIKIT)
@@ -48,13 +51,13 @@ final class AIKitWakeEngine: NSObject, WakeEngine, @unchecked Sendable {
             throw Failure.notConfigured
         }
         #if canImport(AIKIT)
-        try lock.withLock {
-            if !sdkReady {
+        try ioLock.withLock {
+            if !lock.withLock({ sdkReady }) {
                 let code = ILibrary.initSDK { maker in
                     _ = maker.appId(appID)?.apiKey(apiKey)?.apiSecret(apiSecret)?.ability(Self.abilityID)
                 }
                 guard code == 0 else { throw Failure.code(Int(code)) }
-                sdkReady = true
+                lock.withLock { sdkReady = true }
             }
             let words = AIKITCustomData()
             words.addText(Self.keyword + ";", key: "key_word", index: 0)
@@ -68,12 +71,18 @@ final class AIKitWakeEngine: NSObject, WakeEngine, @unchecked Sendable {
             let params = AIKITParameters()
             params.add("wdec_param_nCmThreshold", value: Self.threshold)
             params.addBool("gramLoad", value: true)
+            if let old = lock.withLock({ () -> AiHandle? in defer { handle = nil }; return handle }) {
+                _ = AiHelper.end(old)
+            }
+            // Callback target set before start so no early result is dropped.
+            lock.withLock { self.onEvent = onEvent }
+            AiHelper.registerAbilityCallback(Self.abilityID, callback: self)
             let started = AiHelper.start(Self.abilityID, param: params, ctxContent: nil)
             guard started.isSuccess() else { throw Failure.code(started.code) }
-            AiHelper.registerAbilityCallback(Self.abilityID, callback: self)
-            handle = started
-            first = true
-            self.onEvent = onEvent
+            lock.withLock {
+                handle = started
+                first = true
+            }
         }
         #else
         _ = (appID, apiKey, apiSecret, onEvent)
@@ -84,24 +93,37 @@ final class AIKitWakeEngine: NSObject, WakeEngine, @unchecked Sendable {
     /// One 10 ms frame (16 kHz mono s16le), the format the SDK demo writes.
     func write(_ frame: PCMFrame16k) {
         #if canImport(AIKIT)
-        let failed: Bool = lock.withLock {
-            guard let handle else { return false }
-            let bytes = frame.samples.withUnsafeBufferPointer { Data(buffer: $0) }
-            let input = AIKITInputData()
-            input.addAudio(bytes, key: "wav", status: first ? DataStatusBegin : DataStatusContinue)
-            first = false
-            return AiHelper.write(input, handle: handle) != 0 || AiHelper.read(handle) != 0
+        ioLock.lock()
+        defer { ioLock.unlock() }
+        let state: (AiHandle, Bool)? = lock.withLock {
+            guard let handle else { return nil }
+            defer { first = false }
+            return (handle, first)
         }
-        if failed { lock.withLock { onEvent }?(.failed) }
+        guard let (handle, isFirst) = state else { return }
+        let bytes = frame.samples.withUnsafeBufferPointer { Data(buffer: $0) }
+        let input = AIKITInputData()
+        input.addAudio(bytes, key: "wav", status: isFirst ? DataStatusBegin : DataStatusContinue)
+        guard AiHelper.write(input, handle: handle) != 0 || AiHelper.read(handle) != 0 else { return }
+        // Report a failed handle once: drop it so later frames are ignored until the next start.
+        _ = AiHelper.end(handle)
+        let report = lock.withLock { () -> (@Sendable (WakeEngineEvent) -> Void)? in
+            guard self.handle === handle else { return nil }
+            self.handle = nil
+            return onEvent
+        }
+        report?(.failed)
         #endif
     }
 
     func stop() async {
         #if canImport(AIKIT)
-        lock.withLock {
-            if let handle { _ = AiHelper.end(handle) }
-            handle = nil
-            onEvent = nil
+        ioLock.withLock {
+            let old: AiHandle? = lock.withLock {
+                defer { handle = nil; onEvent = nil }
+                return handle
+            }
+            if let old { _ = AiHelper.end(old) }
         }
         #endif
     }
