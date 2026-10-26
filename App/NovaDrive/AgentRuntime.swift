@@ -320,6 +320,9 @@ final class AgentRuntime {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
                 guard self.session == thisSession else { return }
+                // SLEEP keeps the session while navigating (listening-lifecycle §2): guidance goes on.
+                guard await !navigation.current.navigating else { return }
+                guard self.session == thisSession else { return }
                 self.stop()
             }
         }
