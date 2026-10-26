@@ -180,14 +180,21 @@ struct NavigationControllerTests {
             == .routeCalculationFailed)
 
         let clock = ManualClock()
-        let stuck = await controller(ScriptedNaviEngine(routes: routes, failStart: true), clock: clock)
+        let stuckEngine = ScriptedNaviEngine(routes: routes, failStart: true)
+        let stuck = await controller(stuckEngine, clock: clock)
         _ = await stuck.execute(tool("navigate_to", ["destination": "珠海站"]))
         _ = await stuck.execute(tool("choose_navigation_option", ["index": .int(1)]))
         async let start = stuck.execute(tool("choose_navigation_option", ["index": .int(1)]))
         while clock.pendingSleepers == 0 { await Task.yield() }
+        // A second pick in the same turn while the first start waits: refused, no second start.
+        let second = await stuck.execute(tool("choose_navigation_option", ["preference": "recommended"]))
+        #expect(!second.ok && second.code == .optionsNotReady)
         clock.advance(by: .seconds(9))
         #expect(await start.code == .startFailed)
-        #expect(await stuck.current.phase != .navigating)
+        #expect(stuckEngine.calls.withLock { $0.filter { $0.hasPrefix("start") }.count } == 1)
+        #expect(stuckEngine.calls.withLock { $0.last } == "stop")
+        let failed = await stuck.current
+        #expect(failed.phase == .idle && failed.routes.isEmpty)
     }
 
     @Test("F-15: a stale engine callback after cancel changes nothing")

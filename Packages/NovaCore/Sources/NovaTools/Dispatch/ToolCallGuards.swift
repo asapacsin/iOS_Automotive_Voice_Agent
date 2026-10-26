@@ -179,7 +179,7 @@ public enum ToolCallGuards {
         case "control_window": action == "adjust"
         default: action == "adjust_temperature" || action == "adjust_fan"
         }
-        guard relative, c.currentEpoch > 0, let options = clarify(c.requestText), !options.isEmpty else { return nil }
+        guard relative, c.wordsAreCurrent, let options = clarify(c.requestText), !options.isEmpty else { return nil }
         return (.ambiguousReferent, options)
     }
 

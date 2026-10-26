@@ -510,7 +510,8 @@
       "depends_on": [],
       "evidence": [
         "unit tests green in CI core-linux/core-macos on feat/live-agent-nav (PR #7)",
-        "Independent review pending; device row NOT_VERIFIED"
+        "Independent review pending; device row NOT_VERIFIED",
+        "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending"
       ]
     },
     {
@@ -522,19 +523,21 @@
       "depends_on": [],
       "evidence": [
         "NavigationControllerTests green in CI on feat/live-agent-nav (PR #7)",
-        "Independent review pending; device row NOT_VERIFIED"
+        "Independent review pending; device row NOT_VERIFIED",
+        "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending"
       ]
     },
     {
-      "id": "T-041",
+      "id": "T-043",
       "owner": "AUTONOMOUS",
       "status": "RUNNING",
       "priority": 15,
-      "action": "F-15/F-18 Amap Web route engine with labelled simulated movement, route_traffic, weather; build",
+      "action": "F-15/F-18 Amap Web route engine (substitute for the Navi SDK adapter) with generation-safe fetches and labelled simulated movement; live info weather/route_traffic; unit, build",
       "depends_on": [],
       "evidence": [
         "CI xcode + ipa green at a16728a; live session connects on iPhone 17 (no MALFORMED)",
-        "Independent review pending; device run of 导航去珠海站 NOT_VERIFIED"
+        "Independent review pending; device run of 导航去珠海站 NOT_VERIFIED",
+        "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending"
       ]
     }
   ]

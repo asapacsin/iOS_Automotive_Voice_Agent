@@ -53,6 +53,8 @@ public actor NavigationController: ToolExecutor {
     private let onChange: @Sendable (NavigationFlowState) -> Void
     private var snapshot = NavigationFlowState()
     private var listedAt: NovaInstant?
+    /// A start is awaiting the engine; a second pick in the same turn must not start again.
+    private var startInFlight = false
     private var waiting: (kind: Wait, continuation: CheckedContinuation<NaviEngineEvent?, Never>)?
     private var listener: Task<Void, Never>?
     /// An answer that came while the request was still being sent (the actor is free during that await).
@@ -162,6 +164,9 @@ public actor NavigationController: ToolExecutor {
             }
         case .awaitingRouteSelection:
             if let stale = staleList() { return stale }
+            if startInFlight {
+                return .failure(.optionsNotReady, advice: "导航正在启动。请如实说正在启动，稍等一下。")
+            }
             switch pickRoute(args) {
             case .success(let index): return await startGuidance(snapshot.routes[index])
             case .failure(let box): return box.result
@@ -206,12 +211,16 @@ public actor NavigationController: ToolExecutor {
         let generation = snapshot.generation
         snapshot.selectedRoute = route.id
         early[.started] = nil
+        startInFlight = true
+        defer { startInFlight = false }
         publish()
         await engine.selectRoute(route.id, generation: generation)
         await engine.start(tuning.mode, generation: generation)
         let event = await wait(.started, within: tuning.startWait)
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
         guard event == .naviStarted else {
+            await engine.stop(generation: generation)
+            reset()
             return .failure(.startFailed, advice: "导航没有启动成功。请如实说明，不要说已经开始。")
         }
         snapshot.phase = .navigating

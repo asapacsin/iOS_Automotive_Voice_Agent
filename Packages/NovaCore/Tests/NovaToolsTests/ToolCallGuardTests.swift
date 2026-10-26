@@ -369,4 +369,13 @@ struct DispatchTests {
             Issue.record("absolute held"); return
         }
     }
+
+    @Test("F-10 §9 a call before this turn's words arrive is not refused as ambiguous")
+    func referentStaleWords() {
+        var d = ToolDispatcher()
+        let seat = call("control_seat", ["action": "adjust_height", "value": -1])
+        guard case .execute = d.decide(seat, context: ctx("", epoch: 1, onset: 2), clarify: { _ in ["座椅", "温度"] }) else {
+            Issue.record("stale words refused"); return
+        }
+    }
 }

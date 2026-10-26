@@ -47,6 +47,9 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         var geometry = RouteGeometry()
         var drive: Task<Void, Never>?
         var nextGuidance = GuidanceID.initial
+        /// Bumped by every calculation and stop; a fetch whose token is no longer current is dropped
+        /// (算了 or a new destination while it was in flight), F-15 §10.
+        var request = 0
     }
 
     public init(key: @escaping @Sendable () -> String?, origin: @escaping @Sendable () async -> GeoCoordinate?,
@@ -62,12 +65,17 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
 
     public func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
         stopDriving()
+        let token = state.withLock { s -> Int in
+            s.request += 1
+            return s.request
+        }
         let event: NaviEngineEvent
         do {
             guard let key = key(), !key.isEmpty else { throw AmapWebError.keyMissing }
             guard let from = await origin() else { throw AmapWebError.failed }
             let routes = try await fetch(from: from, to: request.destination, key: key)
-            let geometry = state.withLock { s -> RouteGeometry in
+            let geometry = state.withLock { s -> RouteGeometry? in
+                guard s.request == token else { return nil }
                 s.routes = routes
                 s.geometry = RouteGeometry()
                 s.geometry.routes = routes
@@ -75,9 +83,11 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
                 s.geometry.car = from
                 return s.geometry
             }
+            guard let geometry else { return }
             onGeometry(geometry)
             event = routes.isEmpty ? .routeCalculationFailed(code: 0) : .routesReady(routes.map(\.summary))
         } catch {
+            guard state.withLock({ $0.request == token }) else { return }
             event = .routeCalculationFailed(code: (error as? AmapWebError) == .keyMissing ? 1 : 2)
         }
         continuation.yield(NaviEngineEnvelope(generation: generation, event: event))
@@ -107,6 +117,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     public func stop(generation: Generation) async {
         stopDriving()
         let geometry = state.withLock { s -> RouteGeometry in
+            s.request += 1
             s.routes = []
             s.geometry = RouteGeometry()
             return s.geometry
