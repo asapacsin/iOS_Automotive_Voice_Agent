@@ -816,15 +816,17 @@
     },
     {
       "id": "T-048",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
       "priority": 45,
       "action": "Simulator drive end to end (UITests)",
       "depends_on": [
         "T-040",
         "T-047"
       ],
-      "blocked_by": "needs a Mac with Xcode iOS Simulator (H-hardware); logic covered by NavigationController unit tests"
+      "evidence": [
+        "CI simulator job green at b6aff67 (run 40338187418): uitest-scripted-drive search -> pick -> route -> HUD on iOS Simulator; scripted search/engine, no keys"
+      ]
     },
     {
       "id": "T-060",
@@ -835,7 +837,7 @@
       "depends_on": [
         "T-021"
       ],
-      "blocked_by": "iFlytek iOS SDK not provided (OWNER OQ-IOS-1)"
+      "blocked_by": "iFlytek app NovaDrive车载助手 APPID a7f534f1 identified (owner 2026-10-26); waiting for the iOS SDK (iflyMSC.framework) for that APPID and wakeword.jet"
     },
     {
       "id": "T-035",
