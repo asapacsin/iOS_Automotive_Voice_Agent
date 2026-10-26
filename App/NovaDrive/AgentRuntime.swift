@@ -229,9 +229,15 @@ final class AgentRuntime {
         guard !model.running else { return }
         model.notice = nil
         let store = KeychainCredentialStore()
-        guard (try? store.value(for: .geminiAPIKey)) != nil else {
+        switch SettingsReadiness(credentials: store, settings: DefaultsSettingsStore()).sessionBlocker {
+        case .geminiConsentMissing?:
+            model.notice = "请先在设置里同意 Gemini 使用条款"
+            return
+        case .some:
             model.notice = "请先在设置里保存 Gemini key"
             return
+        case nil:
+            break
         }
         guard let azureKey = try? store.value(for: .azureSpeechKey), !azureKey.isEmpty else {
             model.notice = "请先在设置里保存 Azure Speech key"
