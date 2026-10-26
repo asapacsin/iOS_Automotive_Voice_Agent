@@ -109,16 +109,16 @@ final class AIKitWakeEngine: NSObject, WakeEngine, @unchecked Sendable {
 
 #if canImport(AIKIT)
 extension AIKitWakeEngine: AIKitCoreDelegate {
-    func aikitOnResult(_ ability: String, handleId: Int, outputData data: [AIKITDataModel], usrCtx context: AIKITCtxContent) {
+    func aikit(onResult ability: String, handleId: Int, outputData data: [AIKITDataModel], usrCtx context: AIKITCtxContent) {
         lock.withLock { onEvent }?(.detected)
     }
 
-    func aikitOnEvent(_ ability: String, handleId: Int, event: Int, eventData data: [AIKITDataModel], usrCtx context: AIKITCtxContent) {
+    func aikit(onEvent ability: String, handleId: Int, event: Int, eventData data: [AIKITDataModel], usrCtx context: AIKITCtxContent) {
         // 3 = timeout: the session ended without a wake; restart through the bounded retry.
         if event == 3 { lock.withLock { onEvent }?(.failed) }
     }
 
-    func aikitOnError(_ ability: String, handleId: Int, error: AIKITError, usrCtx context: AIKITCtxContent) {
+    func aikit(onError ability: String, handleId: Int, error: AIKITError, usrCtx context: AIKITCtxContent) {
         lock.withLock { onEvent }?(.failed)
     }
 }
