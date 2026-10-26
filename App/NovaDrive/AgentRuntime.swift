@@ -1,0 +1,298 @@
+import Foundation
+import NovaAgent
+import NovaAudio
+import NovaKit
+import NovaNav
+import NovaPorts
+import NovaRealtime
+import NovaServices
+import NovaTools
+import NovaVoice
+import SwiftUI
+
+/// Everything the drive screen shows. Updated on the main actor only.
+@MainActor
+final class DriveModel: ObservableObject {
+    @Published var view = AgentViewState()
+    @Published var nav = NavigationSnapshot()
+    @Published var geometry = RouteGeometry()
+    @Published var climate = ClimateState.default
+    @Published var cabin = CabinState.default
+    @Published var driverLine = ""
+    @Published var toolLine = ""
+    @Published var running = false
+    @Published var notice: String?
+}
+
+/// Non-secret settings of the drive screen (UserDefaults).
+enum DriveSettings {
+    static let azureRegion = "azure_region"
+    static let azureVoice = "azure_voice"
+    static let defaultVoice = "zh-CN-XiaoxiaoNeural"
+    /// Demo start point (珠海市人民政府, GCJ-02), so no personal location is shown or used (REC-003).
+    static let demoOrigin = GeoCoordinate(latitude: 22.270715, longitude: 113.576726, datum: .gcj02)
+}
+
+/// 小诺's standing instruction for the Gemini Live session (≤ 4000 characters).
+enum Persona {
+    static let instruction = """
+    你是小诺，车载语音助手，用户正在开车。用简短、自然的普通话口语回答，一般一两句话，不用列表、不用表情。
+    规则：
+    1. 调空调、温度、风量、车窗、座椅、导航、天气和路况，一定要调用工具，并且只按工具返回的结果回答。没有调用工具或者工具失败时，绝不能说已经做好了。
+    2. 车辆控制是模拟车辆，结果以工具返回为准。
+    3. 工具返回 next 或 instruction 时照着做，只说一句。屏幕上已经显示的列表不要念出来。
+    4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具，系统会判断要不要反问。工具返回 AMBIGUOUS_REFERENT 时，只用一句话反问是哪一项，例如「是座椅还是温度？」，不要再调用工具。用户回答后再调用对应工具。
+    5. 有点热、太热了：调低一度温度。有点冷：调高一度。座位有点高：座椅降低一级。
+    6. 导航：「导航去X」用 navigate_to；用户说第几个、第几条、开始导航用 choose_navigation_option；结束或取消导航用 exit_navigation_mode。导航是模拟行驶。
+    7. 不知道的事情如实说不知道，不要编造。
+    """
+}
+
+/// Keychain Gemini key as the realtime credential (OQ-IOS-15: ephemeral tokens later).
+struct KeychainRealtimeCredentials: RealtimeCredentialSource {
+    func credential() async throws -> RealtimeCredential {
+        guard let key = try KeychainCredentialStore().value(for: .geminiAPIKey), !key.isEmpty else {
+            throw RealtimeError(.credential)
+        }
+        return .apiKey(key)
+    }
+}
+
+/// The demo start point stands in for the car's position.
+struct DemoLocation: LocationProvider {
+    func latestFix() async -> LocationFix? {
+        LocationFix(coordinate: DriveSettings.demoOrigin, horizontalAccuracyMeters: 10, timestamp: SystemClock().now)
+    }
+}
+
+/// Applies AgentCore effects to the real provider, revoicer, playback and screen.
+struct RuntimeSink: AgentEffectSink {
+    let realtime: GeminiLiveProvider
+    let config: SessionConfig
+    let revoicer: Revoicer
+    let audio: LiveAudio
+    let model: DriveModel
+
+    func provider(_ command: ProviderCommand) async {
+        switch command {
+        case .connect(let connection, let resume): await realtime.connect(config, resume: resume, connection: connection)
+        case .close: await realtime.close()
+        case .toolResponses(let responses): await realtime.sendToolResponses(responses)
+        case .text(let turns, let complete): await realtime.sendText(turns, turnComplete: complete)
+        }
+    }
+
+    func flushPlayback(to epoch: Epoch) { audio.flush(to: epoch) }
+    func cancelRevoicing(_ epoch: Epoch) async { await revoicer.cancel(newEpoch: epoch) }
+    func newReply() async { await revoicer.newReply() }
+    func speak(_ clause: String) async { await revoicer.speak(clause) }
+
+    func publish(_ view: AgentViewState) async {
+        await MainActor.run { model.view = view }
+    }
+
+    func diagnostic(_ event: DiagnosticEvent) {
+        print("diagnostic: \(event)")
+    }
+}
+
+/// Vehicle tools, refreshing the car card after each call.
+struct ObservedVehicleExecutor: ToolExecutor {
+    let inner: VehicleToolExecutor
+    let vehicle: SimulatedVehicle
+    let model: DriveModel
+
+    func execute(_ call: ToolCall) async -> ToolResult {
+        let result = await inner.execute(call)
+        let climate = await vehicle.climateState()
+        let cabin = await vehicle.cabinState()
+        await MainActor.run {
+            model.climate = climate
+            model.cabin = cabin
+            model.toolLine = "\(call.name) → \(result.ok ? "ok" : (result.code?.rawValue ?? "failed"))"
+        }
+        return result
+    }
+}
+
+/// The composition root (ios-architecture §4): one live session with every adapter wired.
+@MainActor
+final class AgentRuntime {
+    let model = DriveModel()
+    private var core: AgentCore?
+    private var audio: LiveAudio?
+    private var tasks: [Task<Void, Never>] = []
+    private let vehicle = SimulatedVehicle()
+
+    func start() async {
+        guard !model.running else { return }
+        model.notice = nil
+        let store = KeychainCredentialStore()
+        guard (try? store.value(for: .geminiAPIKey)) != nil else {
+            model.notice = "请先在设置里保存 Gemini key"
+            return
+        }
+        guard let azureKey = try? store.value(for: .azureSpeechKey), !azureKey.isEmpty else {
+            model.notice = "请先在设置里保存 Azure Speech key"
+            return
+        }
+        let defaults = UserDefaults.standard
+        var region = defaults.string(forKey: DriveSettings.azureRegion) ?? ""
+        if region.isEmpty {
+            model.notice = "正在识别 Azure 区域…"
+            guard let found = await AzureRegionProbe.find(key: azureKey) else {
+                model.notice = "Azure key 在常用区域都无效，请在设置里填写区域"
+                return
+            }
+            region = found
+            defaults.set(found, forKey: DriveSettings.azureRegion)
+        }
+        model.notice = nil
+        let voice = defaults.string(forKey: DriveSettings.azureVoice) ?? DriveSettings.defaultVoice
+        let synthesizer = AzureSpeechClient(config: AzureSpeechConfig(key: azureKey, region: region, voice: voice))
+
+        let model = model
+        let audio = LiveAudio()
+        let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials())
+        let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
+        let location = DemoLocation()
+        let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
+        let web = AmapWebClient(key: amapKey)
+        let engine = AmapRouteEngine(key: amapKey, origin: { await location.latestFix()?.coordinate }) { geometry in
+            Task { @MainActor in model.geometry = geometry }
+        }
+        let flags = AsyncStream.makeStream(of: NavigationSnapshot.self, bufferingPolicy: .bufferingNewest(16))
+        let navigation = NavigationController(search: web, engine: engine, location: location, clock: SystemClock()) { snapshot in
+            flags.continuation.yield(snapshot)
+        }
+        await navigation.start()
+        let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: vehicle), vehicle: vehicle, model: model)
+        let liveInfo = LiveInfoExecutor(navigation: navigation, weather: web, geocoder: web, location: location)
+        var executors: [String: any ToolExecutor] = [:]
+        for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
+        for name in NavigationController.tools { executors[name] = navigation }
+        executors["query_live_info"] = liveInfo
+        let config = SessionConfig(systemInstruction: Persona.instruction, tools: ToolCatalog.declarations)
+        let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model)
+        let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
+        self.core = core
+        self.audio = audio
+        model.climate = await vehicle.climateState()
+        model.cabin = await vehicle.cabinState()
+
+        // Provider events, in order, to the core; the driver's words also to the screen.
+        tasks.append(Task {
+            for await event in provider.events {
+                if case .userTranscript(let text, _) = event.event {
+                    await MainActor.run { model.driverLine = text }
+                }
+                await core.send(.realtime(event.event, connection: event.connection))
+            }
+        })
+        tasks.append(Task {
+            for await event in audio.events { await core.send(.playback(event)) }
+        })
+        // Navigation: the guards' flags, the screen, and each guidance sentence spoken on the guidance lane.
+        tasks.append(Task {
+            var spoken: String?
+            for await snapshot in flags.stream {
+                await MainActor.run { model.nav = snapshot }
+                await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
+                                                            guidanceRunning: snapshot.navigating,
+                                                            listOpen: snapshot.listOpen)))
+                if snapshot.navigating, let text = snapshot.lastGuidance, text != spoken {
+                    spoken = text
+                    if let pcm = try? await synthesizer.synthesize(text, style: .default, deadline: .seconds(6)) {
+                        audio.playGuidance(pcm, id: GuidanceID(UInt64(abs(text.hashValue % 1_000_000))))
+                    }
+                }
+                if !snapshot.navigating { spoken = nil }
+            }
+        })
+        // Uplink: the local gate decides what is sent and tells the core when the driver speaks.
+        let gateEvents = AsyncStream.makeStream(of: UplinkGateOutput.self, bufferingPolicy: .bufferingNewest(512))
+        let gate = GateBox()
+        tasks.append(Task {
+            for await output in gateEvents.stream {
+                switch output {
+                case .speechStarted:
+                    await core.send(.speechStarted(recentSpeech: gate.recentSpeech))
+                case .speechStopped:
+                    await core.send(.speechStopped)
+                case .streamEnd:
+                    await provider.sendAudioStreamEnd()
+                case .audio:
+                    break
+                }
+            }
+        })
+        do {
+            try audio.start { frame in
+                for output in gate.process(frame) {
+                    if case .audio(let frame) = output { provider.sendAudio(frame) } else { gateEvents.continuation.yield(output) }
+                }
+            }
+        } catch {
+            model.notice = "麦克风启动失败"
+            stop()
+            return
+        }
+        Task { await synthesizer.warmUp() }
+        await core.send(.start)
+        model.running = true
+    }
+
+    func stop() {
+        guard let core else { return }
+        let audio = audio
+        Task {
+            await core.send(.stop)
+            audio?.stop()
+        }
+        tasks.forEach { $0.cancel() }
+        tasks = []
+        self.core = nil
+        self.audio = nil
+        model.running = false
+        model.view = AgentViewState()
+    }
+}
+
+/// The uplink gate behind a lock; it runs on the capture thread.
+final class GateBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var gate = SpeechUplinkGate()
+
+    func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] { lock.withLock { gate.process(frame) } }
+    var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
+}
+
+/// Finds the Azure Speech region a key belongs to: the token endpoint answers 200 only there.
+enum AzureRegionProbe {
+    static let regions = ["eastasia", "southeastasia", "eastus", "westus2", "westeurope", "japaneast", "eastus2",
+                          "westus", "northeurope", "centralus", "koreacentral", "australiaeast", "uksouth",
+                          "francecentral", "centralindia", "canadacentral", "chinaeast2", "chinanorth2"]
+
+    static func find(key: String) async -> String? {
+        await withTaskGroup(of: String?.self) { group in
+            for region in regions {
+                group.addTask {
+                    let host = region.hasPrefix("china") ? "\(region).api.cognitive.azure.cn" : "\(region).api.cognitive.microsoft.com"
+                    var request = URLRequest(url: URL(string: "https://\(host)/sts/v1.0/issueToken")!)
+                    request.httpMethod = "POST"
+                    request.timeoutInterval = 8
+                    request.setValue(key, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
+                    request.setValue("0", forHTTPHeaderField: "Content-Length")
+                    guard let (_, response) = try? await URLSession.shared.data(for: request),
+                          (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+                    return region
+                }
+            }
+            for await found in group where found != nil {
+                group.cancelAll()
+                return found
+            }
+            return nil
+        }
+    }
+}

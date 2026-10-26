@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var drafts: [CredentialKey: String] = [:]
     @State private var saved: Set<CredentialKey> = []
     @State private var message: String?
+    @AppStorage(DriveSettings.azureRegion) private var azureRegion = ""
+    @AppStorage(DriveSettings.azureVoice) private var azureVoice = DriveSettings.defaultVoice
 
     var body: some View {
         NavigationStack {
@@ -29,6 +31,14 @@ struct SettingsView: View {
                             if saved.contains(key) { Button("删除", role: .destructive) { remove(key) } }
                         }
                     }
+                }
+                Section("Azure 区域和声音") {
+                    TextField("区域（留空自动识别）", text: $azureRegion)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("声音", text: $azureVoice)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                 }
                 if let message { Section { Text(message) } }
             }

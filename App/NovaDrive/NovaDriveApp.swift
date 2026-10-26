@@ -9,6 +9,7 @@ struct NovaDriveApp: App {
     var body: some Scene {
         WindowGroup {
             TabView {
+                DriveView().tabItem { Label("驾驶", systemImage: "steeringwheel") }
                 ContentView().tabItem { Label("车辆", systemImage: "car") }
                 AudioSpikeView().tabItem { Label("音频测试", systemImage: "waveform") }
                 RecorderView().tabItem { Label("录制", systemImage: "record.circle") }

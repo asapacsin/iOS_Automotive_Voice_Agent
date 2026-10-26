@@ -28,6 +28,12 @@ targets:
         product: NovaPorts
       - package: NovaCore
         product: NovaTools
+      - package: NovaCore
+        product: NovaVoice
+      - package: NovaCore
+        product: NovaNav
+      - package: NovaCore
+        product: NovaAgent
       - package: NovaServices
         product: NovaServices
       - package: NovaAudio
