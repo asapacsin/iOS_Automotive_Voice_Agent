@@ -67,15 +67,18 @@ public struct NaviInfo: Sendable, Hashable {
     public let remainingMeters: Int
     public let remainingSeconds: Int
     public let currentSpeedKmh: Int?
+    /// Road-facility speed limit from the navi info (0 = no data); merged with cameras (navigation.md Overspeed).
+    public let facilityLimitKmh: Int
 
     public init(iconType: Int, stepDistanceMeters: Int, nextRoadName: String?, remainingMeters: Int,
-                remainingSeconds: Int, currentSpeedKmh: Int?) {
+                remainingSeconds: Int, currentSpeedKmh: Int?, facilityLimitKmh: Int = 0) {
         self.iconType = iconType
         self.stepDistanceMeters = stepDistanceMeters
         self.nextRoadName = nextRoadName
         self.remainingMeters = remainingMeters
         self.remainingSeconds = remainingSeconds
         self.currentSpeedKmh = currentSpeedKmh
+        self.facilityLimitKmh = facilityLimitKmh
     }
 }
 
