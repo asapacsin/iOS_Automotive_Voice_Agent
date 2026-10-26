@@ -107,7 +107,7 @@ struct RuntimeSink: AgentEffectSink {
 
 /// Vehicle tools, refreshing the car card after each call.
 struct ObservedVehicleExecutor: ToolExecutor {
-    let inner: VehicleToolExecutor
+    let inner: any ToolExecutor
     let vehicle: SimulatedVehicle
     let model: DriveModel
 
@@ -292,6 +292,10 @@ final class AgentRuntime {
         let liveInfo = LiveInfoExecutor(navigation: navigation, weather: web, geocoder: web, location: location)
         var executors: [String: any ToolExecutor] = [:]
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
+        // F-12: scenarios go through the same simulated vehicle; the car card refreshes after each run.
+        // No MusicPort adapter exists yet, so drowsy reports its music step as not done (I-14).
+        executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: vehicle),
+                                                                      vehicle: vehicle, model: model)
         for name in NavigationController.tools { executors[name] = navigation }
         executors["query_live_info"] = liveInfo
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
