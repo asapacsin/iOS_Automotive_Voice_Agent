@@ -99,7 +99,7 @@ closing the window cancels an in-flight request. Camera stops within 1 s of clos
 - OQ-CAM-2 (OWNER): should a camera question while the window is closed open it automatically
   (proposed: yes), or answer without showing the preview?
 
-## Tasks (to add to implementation-plan.md / work.json when approved)
+## Tasks (in implementation-plan.md M6, blocked until OQ-CAM-1/2 are answered; added to work.json on approval)
 | ID | Task | Verification |
 |---|---|---|
 | T-071a | `CameraQuestionHandler` (pure): one in flight, cancel, result/codes | unit |

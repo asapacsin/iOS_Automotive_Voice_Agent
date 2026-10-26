@@ -13,7 +13,19 @@ Natural back-and-forth; reconnects silently after a network blip.
 Gemini API key, consent accepted, network.
 
 ## 4. Inputs and outputs
-See api-contracts.md Gemini section.
+- Transport: WebSocket `BidiGenerateContent` (v1beta), header `x-goog-api-key`; connect timeout 10 s,
+  ping 20 s, `setupComplete` within 10 s.
+- Setup: `responseModalities=[AUDIO]`, `languageCode=zh-CN`, prebuilt voice (default Leda),
+  `systemInstruction` (persona + style, F-21), `tools.functionDeclarations` (`parametersJsonSchema`),
+  automatic activity detection (start LOW, end HIGH), input/output transcription, sliding-window context
+  compression, `sessionResumption{handle}`. **iOS: no `thinkingLevel`** — the live model closes 1007
+  MALFORMED when it is present (device finding 2026-10-26, commit e7ab046).
+- Client → server: `realtimeInput.audio` (16 kHz PCM, base64), `audioStreamEnd`, `clientContent`,
+  `toolResponse.functionResponses`.
+- Server → client: `setupComplete`, `goAway`, `sessionResumptionUpdate`, `serverContent` (transcriptions,
+  model audio, `interrupted`, `generationComplete`, `turnComplete`), `toolCall`, `toolCallCancellation`.
+- Close codes: 1007 on a resumed setup → clear the handle, `RESUME_UNAVAILABLE` (retryable); 1007 on a
+  fresh setup → terminal (MALFORMED); 1008 not about auth/quota → `CONNECTION_CLOSED` (retryable).
 
 ## 5. State transitions
 contracts/voice-agent.md §1 and §4.

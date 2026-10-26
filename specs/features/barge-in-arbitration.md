@@ -16,7 +16,14 @@ Session running.
 In: SpeechStarted, playback state, guidance speaking flag, focus changes, distance to manoeuvre. Out: PLAY/HOLD/DROP, uplink open/closed.
 
 ## 5. State transitions
-See contracts/voice-agent.md §5.
+Reply decision (highest rule first, contracts/voice-agent.md §5):
+R4 permanent audio-focus loss → DROP; R6 navigating outside the 10 s permitted window → DROP;
+R1 guidance speaking → HOLD; R5 transient focus loss → HOLD; R6a an unstarted reply within 150 m of a
+manoeuvre → HOLD up to 8 s or until the distance jumps > 20 m; else PLAY.
+Uplink: open → closed while guidance speaks (+ 500 ms tail, reopens after at most 20 s); R0 if the driver
+is mid-utterance when guidance starts, it stays open up to 8 s.
+Barge-in: SPEAKING + SpeechStarted → playback epoch invalidated, audio flushed, provider notified
+(Gemini answers with `interrupted`) → USER_SPEAKING. An unqualified barge-in is logged as residual echo.
 
 ## 6. Events and triggers
 SpeechStarted during playback; guidance start/end; focus loss/gain.
