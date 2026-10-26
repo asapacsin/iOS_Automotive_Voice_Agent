@@ -830,14 +830,17 @@
     },
     {
       "id": "T-060",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
       "priority": 45,
       "action": "IflytekWakeDetector adapter (F-01)",
       "depends_on": [
         "T-021"
       ],
-      "blocked_by": "iFlytek app NovaDrive车载助手 APPID a7f534f1 identified (owner 2026-10-26); waiting for the iOS SDK (iflyMSC.framework) for that APPID and wakeword.jet"
+      "evidence": [
+        "RetryingWakeDetector (bounded retry, unit), AIKitWakeEngine + WakeListener wired; CI green at 60ff742 without the SDK (AIKit path compiled out)",
+        "Owner action: AIKit SDK must reach CI (repo private + commit, or AIKIT_SDK_URL secret) to compile the AIKit path; device row in T-064"
+      ]
     },
     {
       "id": "T-035",
