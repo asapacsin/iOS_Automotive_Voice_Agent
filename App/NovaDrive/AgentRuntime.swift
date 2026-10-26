@@ -197,16 +197,22 @@ final class AgentRuntime {
     }
 
     func closeCamera() {
-        Task { await cameraQuestions.cancel() }
         camera.stop()
         model.cameraOpen = false
         model.cameraAsking = false
         model.cameraAnswer = nil
+        let questions = cameraQuestions
+        Task { await questions.cancel() }
     }
 
-    /// Voice path and 问一下 both come here; a closed window opens first (OQ-CAM-2).
+    /// Voice path and 问一下 both come here; a closed window opens first (OQ-CAM-2). If it cannot open,
+    /// nothing is captured and the honest code goes back (§8).
     func askCamera(_ question: String) async -> ToolResult {
-        if !model.cameraOpen { await openCamera() }
+        if !model.cameraOpen, !(await openCamera()) {
+            return model.cameraDenied
+                ? ToolDispatcher.failure(.cameraPermissionDenied)
+                : ToolDispatcher.failure(.cameraUnavailable)
+        }
         model.cameraAsking = true
         model.cameraAnswer = nil
         let result = await cameraQuestions.ask(question)
@@ -217,12 +223,19 @@ final class AgentRuntime {
         return result
     }
 
-    /// 问一下: the fixed question; with no session running the answer is shown on the window only.
+    /// Speaks a line in her voice while a session runs (set in `start()`, cleared in `stop()`).
+    private var speakLine: (@Sendable (String) async -> Void)?
+
+    /// 问一下: the fixed question. The answer shows as her bubble and on the window, and is spoken in her
+    /// voice while a session runs; with no session it is shown only (F-20a §7 as amended).
     func tapAsk() async {
         let result = await askCamera(CameraQuestionHandler.tapQuestion)
-        if !result.ok, result.code != .superseded {
-            model.cameraAnswer = result.advice?.components(separatedBy: "请如实").first
-        }
+        guard result.code != .superseded else { return }
+        let line = result.data["answer"]?.stringValue
+            ?? result.advice?.components(separatedBy: "请如实").first ?? "刚才没看清楚，再问我一次吧。"
+        model.cameraAnswer = line
+        model.view.subtitle = line
+        await speakLine?(line)
     }
 
     func start() async {
@@ -290,6 +303,11 @@ final class AgentRuntime {
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
         self.core = core
         self.audio = audio
+        speakLine = { line in
+            if let pcm = try? await synthesizer.synthesize(line, style: .default, deadline: .seconds(6)) {
+                audio.playGuidance(pcm, id: GuidanceID(UInt64(abs(line.hashValue % 1_000_000))))
+            }
+        }
         model.climate = await vehicle.climateState()
         model.cabin = await vehicle.cabinState()
 
@@ -370,6 +388,9 @@ final class AgentRuntime {
     }
 
     func stop() {
+        // F-20a §5: session stop closes the camera.
+        if model.cameraOpen { closeCamera() }
+        speakLine = nil
         guard let core else { return }
         let audio = audio
         Task {

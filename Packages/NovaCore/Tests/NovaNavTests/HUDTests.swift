@@ -50,12 +50,17 @@ struct HUDPanelModelTests {
         #expect(HUDPanelModel.stepDistance(2_460) == "2.5 公里")
     }
 
-    @Test("F-17 turn table (PROPOSED) and unknown fallback")
+    @Test("F-17 turn table (PROPOSED); an unknown icon type invents no manoeuvre")
     func turnTable() {
-        #expect(TurnIndicator.forIconType(3).word == "右转")
-        #expect(TurnIndicator.forIconType(8).word == "掉头")
-        #expect(TurnIndicator.forIconType(9).word == "直行")
-        #expect(TurnIndicator.forIconType(99).word == "直行")
+        #expect(TurnIndicator.forIconType(3)?.word == "右转")
+        #expect(TurnIndicator.forIconType(8)?.word == "掉头")
+        #expect(TurnIndicator.forIconType(9)?.word == "直行")
+        #expect(TurnIndicator.forIconType(0) == nil)
+        #expect(TurnIndicator.forIconType(99) == nil)
+        let panel = HUDPanelModel(destinationName: "A", naviInfo: info(icon: 0))
+        #expect(panel.turn == nil)
+        #expect(panel.stepDistanceText == "300 米")
+        #expect(panel.nextRoadText == "进入 东风路")
     }
 }
 

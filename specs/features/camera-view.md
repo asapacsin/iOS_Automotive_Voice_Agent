@@ -51,9 +51,9 @@ Icon tap, × tap, 问一下 tap, `describe_camera_view` tool call, app scene goi
   - Default **Gemini** `generateContent` (model `gemini-flash-latest`, image + question, system text
     「只根据图片回答，看不清就说看不清，不要猜。用一两句中文口语回答。」), same Keychain key as Live.
   - Optional **Qianfan** (F-20 Android parity) when a Qianfan key is saved.
-- Answer voiced through the normal reply path (Gemini Live → revoicer → Azure); the tap path sends the
-  answer to the model as text so she speaks it, or speaks it directly through the revoicer when no
-  session runs.
+- Answer voiced through the normal reply path (Gemini Live → revoicer → Azure). The tap path (as built
+  2026-10-26) shows the answer as her bubble and speaks it in her Azure voice while a session runs; with no
+  session it is shown on the window only. Sending it to the model as text is a later option.
 
 ## 8. Error handling and recovery
 | Case | Result / what she says |

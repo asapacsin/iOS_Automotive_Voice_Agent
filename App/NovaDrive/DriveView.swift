@@ -227,10 +227,10 @@ private struct DriveContent: View {
             if let status = panel.statusText {
                 Text(status).font(.subheadline)
             }
-            if let turn = panel.turn, let step = panel.stepDistanceText {
+            if let step = panel.stepDistanceText {
                 HStack(spacing: 6) {
-                    Text(turn.arrow).font(.title2.weight(.bold))
-                    Text("\(step) \(turn.word)").font(.title3.weight(.semibold))
+                    if let turn = panel.turn { Text(turn.arrow).font(.title2.weight(.bold)) }
+                    Text([step, panel.turn?.word].compactMap { $0 }.joined(separator: " ")).font(.title3.weight(.semibold))
                     if let road = panel.nextRoadText { Text(road).font(.subheadline) }
                 }
             }

@@ -17,7 +17,7 @@ public struct ContactsStore: ContactsDirectory {
             throw ContactsError.permissionDenied
         }
         let keys = [CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
-                    CNContactPhoneNumbersKey as CNKeyDescriptor]
+                    CNContactPhoneNumbersKey as CNKeyDescriptor, CNContactNicknameKey as CNKeyDescriptor]
         let found = try store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: name), keysToFetch: keys)
         return found.compactMap { contact in
             let display = CNContactFormatter.string(from: contact, style: .fullName) ?? contact.nickname

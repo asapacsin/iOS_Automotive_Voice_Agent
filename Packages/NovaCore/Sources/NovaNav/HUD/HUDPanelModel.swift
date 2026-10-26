@@ -11,8 +11,9 @@ public struct TurnIndicator: Sendable, Hashable {
     }
 
     /// PROPOSED table from the public `AMapNaviIconType` enum; pending the Android
-    /// `TextNavigationPanelModel.kt:56-87` table via EVIDENCE_REQUEST. Unknown types fall back to 直行.
-    public static func forIconType(_ iconType: Int) -> TurnIndicator {
+    /// `TextNavigationPanelModel.kt:56-87` table via EVIDENCE_REQUEST. Unknown types (the simulated engine
+    /// sends 0) give nil: the panel shows distance and road only, never an invented manoeuvre (§8).
+    public static func forIconType(_ iconType: Int) -> TurnIndicator? {
         switch iconType {
         case 2: TurnIndicator(word: "左转", arrow: "←")
         case 3: TurnIndicator(word: "右转", arrow: "→")
@@ -29,7 +30,7 @@ public struct TurnIndicator: Sendable, Hashable {
         case 14: TurnIndicator(word: "到达收费站", arrow: "●")
         case 15: TurnIndicator(word: "到达目的地", arrow: "●")
         case 16: TurnIndicator(word: "进入隧道", arrow: "↑")
-        default: TurnIndicator(word: "直行", arrow: "↑")
+        default: nil
         }
     }
 }
@@ -39,7 +40,7 @@ public struct HUDPanelModel: Sendable, Hashable {
     public static let waitingText = "等待导航数据…"
 
     public let title: String
-    /// nil until the first `naviInfo` arrives; the view then shows `waitingText`.
+    /// nil before the first `naviInfo` (the view shows `waitingText`) or for an unknown icon type.
     public let turn: TurnIndicator?
     public let stepDistanceText: String?
     /// 「进入 {road}」; omitted when the road name is missing or blank (§8).

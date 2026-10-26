@@ -71,8 +71,8 @@ public final class CameraSession: NSObject, CameraFrameSource, @unchecked Sendab
     // MARK: CameraFrameSource
 
     public func captureStill() async throws -> JPEGImage {
+        // Only the runtime starts the camera (F-20a §13): a closed window never captures.
         if AVCaptureDevice.authorizationStatus(for: .video) != .authorized { throw CameraError.permissionDenied }
-        if !session.isRunning { try await start() }
         return try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
                 guard session.isRunning else { continuation.resume(throwing: CameraError.unavailable); return }
