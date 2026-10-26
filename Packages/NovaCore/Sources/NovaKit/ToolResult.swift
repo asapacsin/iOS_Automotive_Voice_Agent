@@ -83,6 +83,14 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case invalidKind = "INVALID_KIND"
     case invalidArgument = "INVALID_ARGUMENT"
     case notADriverTurn = "NOT_A_DRIVER_TURN"
+    // F-20a camera questions
+    case cameraPermissionDenied = "CAMERA_PERMISSION_DENIED"
+    case cameraUnavailable = "CAMERA_UNAVAILABLE"
+    case notConfigured = "NOT_CONFIGURED"
+    case authFailed = "AUTH_FAILED"
+    case visionFailed = "VISION_FAILED"
+    /// A newer camera question replaced this one; its answer is dropped, never spoken.
+    case superseded = "SUPERSEDED"
 
     public var description: String { rawValue }
 }
