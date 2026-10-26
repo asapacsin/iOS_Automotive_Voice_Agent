@@ -387,42 +387,106 @@
     {
       "id": "T-071a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 20,
       "action": "F-20a CameraQuestionHandler (pure, NovaTools/Vision): one in flight, cancel, result/codes; unit",
       "depends_on": [
         "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
       ]
     },
     {
       "id": "T-071c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 20,
       "action": "F-20a GeminiVisionClient (default, OQ-CAM-1) + Qianfan option behind VisionPort; unit, contract",
       "depends_on": [
         "T-071a"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
       ]
     },
     {
       "id": "T-071b",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 20,
       "action": "F-20a CameraSession adapter (AVCaptureSession back camera, still capture, stop on close); build, D",
       "depends_on": [
         "T-071a"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending"
       ]
     },
     {
       "id": "T-071d",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 20,
       "action": "F-20a camera icon, floating preview, 问一下, describe_camera_view wiring; question opens the window (OQ-CAM-2); S, D",
       "depends_on": [
         "T-071b",
         "T-071c"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending"
+      ]
+    },
+    {
+      "id": "T-070",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 20,
+      "action": "F-19 place_call with confirmation (PhoneCallHandler, ContactsStore, tel:// dialer); window 30 s PROPOSED",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
+      ]
+    },
+    {
+      "id": "T-045",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 20,
+      "action": "F-17 HUD panel model (turn table PROPOSED pending Android EVIDENCE_REQUEST)",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
+      ]
+    },
+    {
+      "id": "T-053a",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 20,
+      "action": "F-17 overspeed monitor logic (voice through arbiter is T-053, device)",
+      "depends_on": [
+        "T-045"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
+      ]
+    },
+    {
+      "id": "T-021p",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 20,
+      "action": "F-21 set_speaking_style, persisted tone, instruction cap 4000",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
       ]
     }
   ]
