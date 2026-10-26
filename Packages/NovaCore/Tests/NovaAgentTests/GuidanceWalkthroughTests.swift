@@ -245,7 +245,10 @@ struct GuidanceWalkthroughTests {
         d.send(.guidanceRelay(enabled: false))
         var out = d.send(.guidancePrompt("前方右转", GuidanceID(1)))
         #expect(guidance(out).isEmpty)  // her sentence is still sounding
+        // Between clauses the lane may drain while the next clause is at Azure: not yet.
         out = d.send(.playback(.replyFinished(epoch)))
+        #expect(guidance(out).isEmpty)
+        out = d.send(.playback(.replyIdle(epoch)))
         #expect(guidance(out) == ["前方右转"])
         #expect(!out.contains { if case .flushPlayback = $0 { true } else { false } })
 
@@ -323,5 +326,66 @@ struct UITapTests {
         #expect(!done.contains { if case .provider(.toolResponses) = $0 { true } else { false } })
         let notes = done.compactMap { if case .provider(.text(let t, _)) = $0 { t.first?.text } else { nil } }
         #expect(notes.count == 1 && notes[0].contains("destination_selected"))
+    }
+}
+
+@Suite("T-051 round 4 regressions")
+struct RelayRound4Tests {
+    @Test("F-14 a reading that arrives after the fallback spoke is recognised and stays silent")
+    func lateReading() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        let g = GuidanceID(1)
+        d.send(.guidancePrompt("前方300米右转", g))
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.now = NovaInstant(milliseconds: 1200)
+        d.send(.timer(.guidance(g)))
+        d.send(.playback(.guidanceStarted(g)))
+        d.now = NovaInstant(milliseconds: 3000)
+        d.send(.playback(.guidanceEnded(g)))
+        let t = TurnID(1)
+        d.realtime(.responseStarted(t))
+        d.realtime(.replyText(t, "前方"))
+        d.realtime(.replyText(t, "300米右转。"))
+        d.realtime(.responseDone(t, outcome: .completed))
+        #expect(spoken(d.effects).isEmpty)
+    }
+
+    @Test("F-14 a short shared start (前方…) is not enough: 前方有点堵 is the driver's answer")
+    func sharedStart() {
+        var d = Drive()
+        d.connect()
+        d.navigate()
+        d.send(.guidancePrompt("前方300米右转", GuidanceID(1)))
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.userTranscript("前面堵不堵", isFinal: true))
+        d.send(.speechStopped)
+        let t = TurnID(1)
+        d.realtime(.responseStarted(t))
+        d.realtime(.replyText(t, "前方"))
+        d.realtime(.replyText(t, "有点堵。"))
+        #expect(d.state.relay.fidelityStrikes == 0)
+        #expect(!spoken(d.effects).contains("前方300米"))
+    }
+
+    @Test("F-25 a tap that starts navigation opens the R6 window, so her announcement is heard")
+    func tapAnnounced() {
+        var d = Drive()
+        d.connect()
+        d.send(.navigation(NavigationFlags(listOpen: true)))
+        guard case .startTool(_, let call)? = d.send(.ui(.choose(row: 0))).first else {
+            Issue.record("no start")
+            return
+        }
+        d.now = NovaInstant(milliseconds: 30_000)
+        d.navigate()
+        d.send(.toolFinished(.initial, call, .success(["status": "navigation_started"])))
+        let t = TurnID(1)
+        d.realtime(.responseStarted(t))
+        d.realtime(.replyText(t, "导航已开始。"))
+        d.realtime(.responseDone(t, outcome: .completed))
+        #expect(spoken(d.effects) == "导航已开始。")
     }
 }

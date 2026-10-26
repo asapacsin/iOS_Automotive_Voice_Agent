@@ -47,6 +47,9 @@ public enum PlaybackEvent: Sendable, Hashable {
     case guidanceEnded(GuidanceID)
     /// The media lane really started or stopped (F-13): the only now-playing evidence.
     case mediaPlaying(Bool)
+    /// The reply lane drained and the revoicer holds no clause of `epoch`: nothing of her reply is left
+    /// to sound (the shell sends it; `replyFinished` alone also fires between clauses).
+    case replyIdle(Epoch)
 }
 
 /// Three lanes on one voice-processing engine (ios-architecture §6.4).

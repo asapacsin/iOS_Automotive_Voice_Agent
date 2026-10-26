@@ -150,6 +150,11 @@ public struct AgentState: Sendable {
     /// (its server VAD interrupts a generation that has not opened a turn), so the turn is classified by its
     /// first words or call (`classify`).
     private var unclassified: (turn: TurnID, id: GuidanceID)?
+    /// Words of the unclassified turn so far, replayed once it is classified.
+    private var unclassifiedText = ""
+    /// The sentence of the prompt in flight, kept after the relay let it go (deadline fallback), so a
+    /// late reading is still recognised.
+    private var awaitingText: String?
     /// A fallback sentence waiting for her reply audio to drain (never cut a sentence just sent to Azure).
     private var waitingFallback: (text: String, id: GuidanceID, since: NovaInstant)?
     /// How long a fallback waits for trailing reply audio before cutting it (PROPOSED).
@@ -218,7 +223,7 @@ public struct AgentState: Sendable {
             runningTools = max(runningTools - 1, 0)
             if uiCalls.remove(call.id) != nil {
                 context.record(call, ok: result.ok, at: now)
-                return uiResult(call, dispatcher.finish(call, result))
+                return uiResult(call, dispatcher.finish(call, result), at: now)
             }
             guard session.state != .disconnected, session.state != .error else { return [] }
             // R6: the answer to a tool the driver asked for may be spoken (PROPOSED: a navigation start
@@ -237,7 +242,8 @@ public struct AgentState: Sendable {
             case .replyStarted(let epoch) where epoch == arbiter.epoch: _ = arbiter.handle(.replyPlaying(true))
             case .replyFinished(let epoch) where epoch == arbiter.epoch:
                 _ = arbiter.handle(.replyPlaying(false))
-                // The lane drained with no turn open: nothing of hers is left to sound.
+            case .replyIdle(let epoch) where epoch == arbiter.epoch:
+                // Nothing of hers is left to sound. With her turn closed, a waiting fallback may speak.
                 if openTurn == nil || openTurn.map({ relayTurns[$0] != nil && relayReading == nil }) == true {
                     arbiter.replyDrained()
                     if let waiting = waitingFallback {
@@ -245,6 +251,8 @@ public struct AgentState: Sendable {
                         return [.speakGuidance(waiting.text, waiting.id)] + arbiterChanged(at: now)
                     }
                 }
+            case .replyIdle:
+                break
             case .replyStarted, .replyFinished: break
             case .guidanceStarted:
                 arbiter.guidance(true, at: now)
@@ -286,11 +294,15 @@ public struct AgentState: Sendable {
         case .timer(.arbiter):
             return arbiterChanged(at: now)
         case .navigation(let flags):
+            let wasNavigating = navigation.navigating
             let tripEnded = navigation.navigating && !flags.navigating
             navigation = flags
             arbiter.setNavigating(flags.navigating)
             let ended = tripEnded ? relayOutputs(relay.tripEnded(), at: now) : []
-            return ended + arbiterChanged(at: now)
+            // F-06: NAVIGATING is the evidence for a navigation claim; the pipeline needs each transition.
+            let phase = wasNavigating == flags.navigating ? []
+                : pipeline(.navigationPhase(flags.navigating ? .navigating : .idle), at: now)
+            return ended + phase + arbiterChanged(at: now)
         case .guidancePrompt(let text, let id):
             return relayOutputs(relay.enqueue(text, id: id, at: now, conditions: relayConditions), at: now)
         case .guidanceRelay(let enabled):
@@ -310,7 +322,8 @@ public struct AgentState: Sendable {
                 runningTools += 1
                 return [.startTool(openTurn ?? .initial, running)]
             case .refuse(let result):
-                return [.diagnostic(.toolRefused(code: result.code ?? .invalidValue))]
+                // The driver gets the refusal from her, like any tap result.
+                return [.diagnostic(.toolRefused(code: result.code ?? .invalidValue))] + uiResult(call, result, at: now)
             }
         case .musicPlaying(let playing):
             return pipeline(.musicPlaying(playing), at: now)
@@ -321,7 +334,7 @@ public struct AgentState: Sendable {
     }
 
     /// I-6 / I-14: she announces a tap's outcome from its read-back, like a voice choice.
-    private mutating func uiResult(_ call: ToolCall, _ result: ToolResult) -> [AgentEffect] {
+    private mutating func uiResult(_ call: ToolCall, _ result: ToolResult, at now: NovaInstant) -> [AgentEffect] {
         let connected: Bool = switch session.state {
         case .listening, .userSpeaking, .thinking, .speaking: true
         default: false
@@ -334,6 +347,8 @@ public struct AgentState: Sendable {
         let json = (try? JSONValue.canonicalEncoder().encode(JSONValue.object(payload)))
             .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         answerOwed = true
+        // The tap is the driver's own request: she may answer it while navigating (R6).
+        arbiter.driverSpoke(at: now)
         let note = "[系统] 用户在屏幕上点选了 \(call.name)\(call.arguments["index"].map { " index=\($0)" } ?? "")，"
             + "结果：\(json)。只按这个结果用一句话告诉用户，不要再调用工具。"
         return [.provider(.text([TextTurn(role: .user, text: note)], turnComplete: true))]
@@ -357,6 +372,7 @@ public struct AgentState: Sendable {
             switch output {
             case .sendToModel(let id, let prompt):
                 relayAwaiting = id
+                awaitingText = relay.text(for: id)
                 silenceNextRelayTurn = false
                 answerOwed = false
                 effects.append(.provider(.text([TextTurn(role: .user, text: prompt)], turnComplete: true)))
@@ -536,6 +552,7 @@ public struct AgentState: Sendable {
             if let id = relayAwaiting, answerOwed {
                 // The driver spoke after the prompt: this may be the reading or their answer.
                 unclassified = (turn, id)
+                unclassifiedText = ""
                 view.subtitle = ""
                 return [.newReply]
             }
@@ -630,42 +647,56 @@ public struct AgentState: Sendable {
         }
     }
 
-    /// Decides an unclassified turn on its first words: the start of the sentence means her reading,
-    /// anything else (or a tool call) the driver's answer.
+    /// Decides an unclassified turn on its first words (at least 4 letters or digits, or the whole
+    /// sentence if shorter): the start of the sentence means her reading, anything else (or a tool
+    /// call, or a turn that ends first) the driver's answer.
     private mutating func classify(_ event: RealtimeEvent, _ pending: (turn: TurnID, id: GuidanceID),
                                    at now: NovaInstant) -> [AgentEffect] {
-        let sentence = relay.text(for: pending.id).map(GuidanceRelay.normalised) ?? ""
-        let isReading: Bool
+        let sentence = GuidanceRelay.normalised(relay.text(for: pending.id) ?? awaitingText ?? "")
+        var isReading = false
         switch event {
         case .replyText(_, let text):
-            let words = GuidanceRelay.normalised(text)
-            if words.isEmpty { return [] }
+            unclassifiedText += text
+            let words = GuidanceRelay.normalised(unclassifiedText)
+            let enough = min(4, max(sentence.count, 1))
+            guard words.count >= enough || words.count >= sentence.count && !sentence.isEmpty else { return [] }
             isReading = !sentence.isEmpty && (sentence.hasPrefix(words) || words.hasPrefix(sentence))
         case .replyAudio:
             return []  // revoicing: the provider's audio is never played; wait for the words
         default:
-            isReading = false
+            let words = GuidanceRelay.normalised(unclassifiedText)
+            isReading = !words.isEmpty && !sentence.isEmpty && sentence.hasPrefix(words)
+            if case .toolCalls = event { isReading = false }
         }
         unclassified = nil
+        let heard = unclassifiedText
+        unclassifiedText = ""
+        var effects: [AgentEffect] = []
         if isReading {
             relayAwaiting = nil
+            awaitingText = nil
             relayTurns[pending.turn] = pending.id
-            var effects: [AgentEffect] = []
-            if silenceNextRelayTurn {
+            if silenceNextRelayTurn || relay.assistantID != pending.id {
+                // The deadline passed: the fallback voice has (or had) this sentence.
                 silenceNextRelayTurn = false
                 silenced.insert(pending.turn)
             } else {
                 relayReading = pending.turn
                 effects += relayOutputs(relay.assistantStarted(at: now), at: now)
             }
-            return effects + reply(event, at: now)
+        } else {
+            // The driver's answer; the reading was dropped by Gemini and the deadline covers it.
+            answerOwed = false
+            relayAwaiting = nil
+            awaitingText = nil
+            silenceNextRelayTurn = false
+            effects += pipeline(.turnOpened(pending.turn), at: now)
         }
-        // The driver's answer. If the reading never comes, the relay's deadline already covers it; a
-        // late reading after this answer is not expected, so nothing waits for it.
-        answerOwed = false
-        relayAwaiting = nil
-        silenceNextRelayTurn = false
-        return pipeline(.turnOpened(pending.turn), at: now) + reply(event, at: now)
+        if case .replyText = event {
+            return effects + reply(.replyText(pending.turn, heard), at: now)
+        }
+        if !heard.isEmpty { effects += reply(.replyText(pending.turn, heard), at: now) }
+        return effects + reply(event, at: now)
     }
 
     private mutating func pipeline(_ input: PipelineInput, at now: NovaInstant) -> [AgentEffect] {

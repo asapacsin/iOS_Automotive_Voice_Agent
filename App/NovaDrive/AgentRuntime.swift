@@ -272,10 +272,24 @@ final class AgentRuntime {
     /// T-062 scene-phase bridge: ios-architecture §11.3. In the background only a navigating or
     /// mid-conversation session keeps the mic and socket; SLEEP and DEEP_IDLE end the session.
     func sceneChanged(_ phase: AppScenePhase) async {
+        scene = phase
+        await reevaluate()
+    }
+
+    private var scene = AppScenePhase.foreground
+
+    /// Re-applied on every scene, lifecycle or navigation change (§11.3), not only on a scene change:
+    /// a trip that ends while the lifecycle sleeps closes the session (no wake word on iOS yet), and in
+    /// the background SLEEP / DEEP_IDLE without navigation close the mic and socket.
+    func reevaluate() async {
         guard model.running, let lifecycle else { return }
         let navigating = await navigation?.current.navigating ?? false
-        let decision = BackgroundDecision.decide(scene: phase, listening: lifecycle.state, navigating: navigating)
-        if decision.keepSocket == false { stop() }
+        let state = lifecycle.state
+        if !navigating, state == .sleep || state == .deepIdle {
+            stop()
+            return
+        }
+        if BackgroundDecision.decide(scene: scene, listening: state, navigating: navigating).keepSocket == false { stop() }
     }
 
     /// Speaks a line in her voice while a session runs (set in `start()`, cleared in `stop()`).
@@ -388,6 +402,13 @@ final class AgentRuntime {
         session += 1
         let thisSession = session
         let lifecycle = ConversationLifecycle(clock: SystemClock()) { effects in
+            // Any state change re-applies the background policy (T-062).
+            if effects.contains(where: { if case .stateChanged = $0 { true } else { false } }) {
+                Task { @MainActor in
+                    guard self.session == thisSession, self.scene == .background else { return }
+                    await self.reevaluate()
+                }
+            }
             guard effects.contains(.stateChanged(.sleep)) else { return }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
@@ -442,7 +463,13 @@ final class AgentRuntime {
             }
         })
         tasks.append(Task {
-            for await event in audio.events { await core.send(.playback(event)) }
+            for await event in audio.events {
+                await core.send(.playback(event))
+                // F-14: a fallback waits until nothing of her reply is left, at the revoicer or on the lane.
+                if case .replyFinished(let epoch) = event, await revoicer.pendingClauses == 0 {
+                    await core.send(.playback(.replyIdle(epoch)))
+                }
+            }
         })
         // Navigation: the guards' flags, the screen, and each guidance sentence through the relay (F-14).
         tasks.append(Task {
@@ -451,7 +478,12 @@ final class AgentRuntime {
             var overspeedID = GuidanceID(1 << 40)
             var overspeed = OverspeedMonitor(clock: SystemClock())
             for await snapshot in flags.stream {
-                await MainActor.run { model.nav = snapshot }
+                let ended = await MainActor.run { () -> Bool in
+                    let ended = model.nav.navigating && !snapshot.navigating
+                    model.nav = snapshot
+                    return ended
+                }
+                if ended { await self.reevaluate() }
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen)))

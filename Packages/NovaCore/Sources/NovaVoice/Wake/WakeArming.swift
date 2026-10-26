@@ -38,8 +38,9 @@ public struct WakeArming: Sendable {
     }
 
     public mutating func lifecycle(_ state: ListeningState) {
+        // A start that never reached ACTIVE (the lifecycle timed out to another idle state) releases.
+        if state == .active || state == .silentWait || state != listening { starting = false }
         listening = state
-        if state == .active || state == .silentWait { starting = false }
     }
 
     /// The session start failed (e.g. config error): wake may be tried again.
