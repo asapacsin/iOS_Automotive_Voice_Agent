@@ -273,11 +273,8 @@ private struct DriveContent: View {
     @ViewBuilder private var choices: some View {
         VStack(alignment: .leading, spacing: 6) {
             switch model.nav.phase {
-            case .resolvingDestination:
-                Label("正在搜索地点…", systemImage: "magnifyingglass")
-            case .calculatingRoute:
-                Label("正在计算路线…", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-            case .awaitingDestinationSelection, .navigating where model.nav.alongRouteList:
+            // A place list: the destination list, or the along-route list over the running guidance.
+            case _ where presentation.list == .places:
                 Text(model.nav.alongRouteList ? "沿途结果：说第几个改去那里，或点一下" : "请说第几个，或点一下")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(Array(model.nav.places.enumerated()), id: \.offset) { index, place in
@@ -293,6 +290,10 @@ private struct DriveContent: View {
                     .contentShape(Rectangle())
                     .onTapGesture { Task { await runtime.tapChoice(row: index) } }
                 }
+            case .resolvingDestination:
+                Label("正在搜索地点…", systemImage: "magnifyingglass")
+            case .calculatingRoute:
+                Label("正在计算路线…", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
             case .awaitingRouteSelection:
                 Text("说第几条，或者「开始导航」").font(.caption).foregroundStyle(.secondary)
                 ForEach(Array(model.nav.routes.enumerated()), id: \.offset) { index, route in
