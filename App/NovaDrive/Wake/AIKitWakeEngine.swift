@@ -67,7 +67,7 @@ final class AIKitWakeEngine: NSObject, WakeEngine, @unchecked Sendable {
             guard code == 0 else { throw Failure.code(Int(code)) }
             let params = AIKITParameters()
             params.add("wdec_param_nCmThreshold", value: Self.threshold)
-            params.add("gramLoad", value: true)
+            params.addBool("gramLoad", value: true)
             let started = AiHelper.start(Self.abilityID, param: params, ctxContent: nil)
             guard started.isSuccess() else { throw Failure.code(started.code) }
             AiHelper.registerAbilityCallback(Self.abilityID, callback: self)
