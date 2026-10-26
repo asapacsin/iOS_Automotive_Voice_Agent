@@ -4,7 +4,7 @@ import Testing
 @testable import NovaPorts
 @testable import NovaTools
 
-private struct FakeContacts: ContactsDirectory {
+struct FakeContacts: ContactsDirectory {
     var all: [Contact] = [Contact(displayName: "妈妈", phoneNumbers: ["10086"]),
                           Contact(displayName: "张伟", phoneNumbers: ["1"]),
                           Contact(displayName: "张伟（公司）", phoneNumbers: ["2"])]
@@ -15,7 +15,7 @@ private struct FakeContacts: ContactsDirectory {
     }
 }
 
-private final class FakeDialer: PhoneDialer {
+final class FakeDialer: PhoneDialer {
     let telephony: Bool
     let opens: Bool
     let dialled = Mutex<[String]>([])

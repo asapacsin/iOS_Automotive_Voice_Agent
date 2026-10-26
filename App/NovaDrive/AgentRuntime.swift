@@ -135,7 +135,11 @@ struct SystemPhoneDialer: PhoneDialer {
     func dial(_ number: String) async -> Bool {
         let digits = number.filter { $0.isNumber || $0 == "+" }
         guard !digits.isEmpty, let url = URL(string: "tel://\(digits)") else { return false }
-        return await UIApplication.shared.open(url)
+        return await withCheckedContinuation { done in
+            Task { @MainActor in
+                UIApplication.shared.open(url, options: [:]) { opened in done.resume(returning: opened) }
+            }
+        }
     }
 }
 
