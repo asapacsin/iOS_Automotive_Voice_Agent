@@ -230,7 +230,8 @@ final class AgentRuntime {
     /// voice while a session runs; with no session it is shown only (F-20a §7 as amended).
     func tapAsk() async {
         let result = await askCamera(CameraQuestionHandler.tapQuestion)
-        guard result.code != .superseded else { return }
+        // Window closed meanwhile (or a newer question): say nothing.
+        guard result.code != .superseded, model.cameraOpen else { return }
         let line = result.data["answer"]?.stringValue
             ?? result.advice?.components(separatedBy: "请如实").first ?? "刚才没看清楚，再问我一次吧。"
         model.cameraAnswer = line

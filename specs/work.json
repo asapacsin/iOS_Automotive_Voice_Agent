@@ -394,7 +394,8 @@
         "T-017"
       ],
       "evidence": [
-        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending"
       ]
     },
     {
@@ -407,7 +408,8 @@
         "T-071a"
       ],
       "evidence": [
-        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending"
       ]
     },
     {
@@ -420,7 +422,8 @@
         "T-071a"
       ],
       "evidence": [
-        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending"
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending"
       ]
     },
     {
@@ -434,59 +437,64 @@
         "T-071c"
       ],
       "evidence": [
-        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending"
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending"
       ]
     },
     {
       "id": "T-070",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-19 place_call with confirmation (PhoneCallHandler, ContactsStore, tel:// dialer); window 30 s PROPOSED",
       "depends_on": [
         "T-017"
       ],
       "evidence": [
-        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf; CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-045",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-17 HUD panel model (turn table PROPOSED pending Android EVIDENCE_REQUEST)",
       "depends_on": [
         "T-017"
       ],
       "evidence": [
-        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf; CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-053a",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-17 overspeed monitor logic (voice through arbiter is T-053, device)",
       "depends_on": [
         "T-045"
       ],
       "evidence": [
-        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf; CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
       ]
     },
     {
       "id": "T-021p",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-21 set_speaking_style, persisted tone, instruction cap 4000",
       "depends_on": [
         "T-017"
       ],
       "evidence": [
-        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review"
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf; CI green (core-linux, core-macos, xcode); LIVE row NOT_VERIFIED"
       ]
     }
   ]

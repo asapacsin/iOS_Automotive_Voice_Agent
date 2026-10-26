@@ -221,7 +221,8 @@ public struct DriverTurnPipeline: Sendable {
 
     private func acts(_ r: ToolResponse) -> Bool {
         if Self.readOnlyTools.contains(r.name) || Self.nonActingTools.contains(r.name) { return false }
-        if r.name == "place_call" { return r.result.data["status"] == .string("dialing") }
+        // A failed call still disproves a call claim at once.
+        if r.name == "place_call" { return r.result.data["status"] == .string("dialing") || !r.result.ok }
         return r.result.data["action"] != .string("get_state")
     }
 
