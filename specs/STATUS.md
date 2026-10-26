@@ -1,4 +1,4 @@
-﻿# Implementation status
+# Implementation status
 
 One line per task (ai-agent-workflow.md "Recording results"). Levels: U unit, S simulator, D device.
 
