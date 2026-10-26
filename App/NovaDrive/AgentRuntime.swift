@@ -316,7 +316,13 @@ final class AgentRuntime {
         // Navigation: the guards' flags, the screen, and each guidance sentence spoken on the guidance lane.
         tasks.append(Task {
             var spoken: String?
+            var overspeed = OverspeedMonitor(clock: SystemClock())
             for await snapshot in flags.stream {
+                // F-17: one alert per exceedance, 10 s apart, on the guidance lane.
+                if snapshot.navigating, let info = snapshot.info, let alert = overspeed.observe(info),
+                   let pcm = try? await synthesizer.synthesize(alert, style: .default, deadline: .seconds(6)) {
+                    audio.playGuidance(pcm, id: GuidanceID(UInt64(abs(alert.hashValue % 1_000_000))))
+                }
                 await MainActor.run { model.nav = snapshot }
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,

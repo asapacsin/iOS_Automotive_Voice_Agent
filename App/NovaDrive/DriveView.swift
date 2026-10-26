@@ -218,22 +218,35 @@ private struct DriveContent: View {
         .accessibilityIdentifier("status-chip")
     }
 
+    /// F-17 panel from `HUDPanelModel`; the limit stays hidden until an engine reports one (limit 0 = no data).
     private var hud: some View {
-        let info = model.nav.info
+        let panel = HUDPanelModel(destinationName: model.nav.destination?.name ?? "", naviInfo: model.nav.info,
+                                  lastGuidance: model.nav.lastGuidance, speedLimitKmh: model.nav.info?.facilityLimitKmh ?? 0)
         return VStack(alignment: .leading, spacing: 4) {
-            Text("导航中 → \(model.nav.destination?.name ?? "")").font(.headline)
-            if let info {
-                Text("\(Self.distance(info.stepDistanceMeters))后 进入\(info.nextRoadName ?? "前方道路")")
-                    .font(.title3.weight(.semibold))
-                Text("剩余 \(String(format: "%.1f", Double(info.remainingMeters) / 1000)) km · \(max(1, info.remainingSeconds / 60)) 分钟")
-                    .font(.subheadline)
-            } else {
-                Text("等待导航数据…").font(.subheadline)
+            Text(panel.title).font(.headline)
+            if let status = panel.statusText {
+                Text(status).font(.subheadline)
             }
-            if let guidance = model.nav.lastGuidance {
+            if let turn = panel.turn, let step = panel.stepDistanceText {
+                HStack(spacing: 6) {
+                    Text(turn.arrow).font(.title2.weight(.bold))
+                    Text("\(step) \(turn.word)").font(.title3.weight(.semibold))
+                    if let road = panel.nextRoadText { Text(road).font(.subheadline) }
+                }
+            }
+            HStack {
+                if let remaining = panel.remainingText { Text(remaining).font(.subheadline) }
+                Spacer()
+                if let limit = panel.speedLimitText {
+                    Text(limit).font(.caption.weight(.bold)).padding(4)
+                        .background(Circle().stroke(.red, lineWidth: 2))
+                }
+            }
+            if let guidance = panel.lastGuidance {
                 Text(guidance).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
             }
         }
+        .accessibilityIdentifier("hud-panel")
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(.green.opacity(0.18), in: RoundedRectangle(cornerRadius: 14))
