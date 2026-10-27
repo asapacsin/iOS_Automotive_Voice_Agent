@@ -174,9 +174,14 @@ public actor NavigationController: ToolExecutor {
             switch pick(snapshot.places, args, distance: { $0.distanceMeters }, name: { $0.name }) {
             case .success(let index):
                 // An explicit pick replaces the route: the old guidance stops first.
+                // Capture the pick and close the list before suspending, so an exit during the stop
+                // does not treat it as an open list.
                 let place = snapshot.places[index]
-                await engine.stop(generation: snapshot.generation)
+                let generation = snapshot.generation
                 snapshot.alongRouteList = false
+                await engine.stop(generation: generation)
+                // 算了 or a new request while the old guidance stopped: this pick is stale.
+                guard generation == snapshot.generation else { return .failure(.optionsStale) }
                 snapshot.routes = []
                 snapshot.info = nil
                 return await route(to: place)

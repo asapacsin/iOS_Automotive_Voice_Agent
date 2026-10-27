@@ -48,6 +48,11 @@ public actor CameraQuestionHandler: ToolExecutor {
             return .failure(.notConfigured, advice: "看图功能还没有配置。请如实说明，不要描述画面。")
         }
         await acquire()
+        // Cancelled or superseded while waiting for a switch: never switch the lens for a dropped question.
+        guard mine == generation else {
+            release()
+            return Self.dropped
+        }
         let target = named ?? CameraLensChooser.choose(question, current: lens)
         let seenAt: NovaInstant
         let image: JPEGImage

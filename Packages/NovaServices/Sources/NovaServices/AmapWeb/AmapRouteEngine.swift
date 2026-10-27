@@ -50,6 +50,8 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         /// Bumped by every calculation and stop; a fetch whose token is no longer current is dropped
         /// (算了 or a new destination while it was in flight), F-15 §10.
         var request = 0
+        /// Newest generation of any calculation, start or stop; a stop of an older one is ignored.
+        var latest = Generation.initial
     }
 
     public init(key: @escaping @Sendable () -> String?, origin: @escaping @Sendable () async -> GeoCoordinate?,
@@ -66,6 +68,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     public func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
         stopDriving()
         let token = state.withLock { s -> Int in
+            s.latest = max(s.latest, generation)
             s.request += 1
             return s.request
         }
@@ -106,6 +109,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         // Only simulated movement exists here; GPS guidance needs the Navi SDK.
         guard mode == .emulator, let route, route.points.count >= 2 else { return }
         state.withLock { s in
+            s.latest = max(s.latest, generation)
             s.geometry.routes = [route]
             s.drive?.cancel()
             s.drive = Task { [weak self] in await self?.drive(route, generation: generation) }
@@ -115,6 +119,13 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     }
 
     public func stop(generation: Generation) async {
+        // A late stop of an older request must not cancel a newer calculation or guidance.
+        let current = state.withLock { s -> Bool in
+            guard generation >= s.latest else { return false }
+            s.latest = generation
+            return true
+        }
+        guard current else { return }
         stopDriving()
         let geometry = state.withLock { s -> RouteGeometry in
             s.request += 1

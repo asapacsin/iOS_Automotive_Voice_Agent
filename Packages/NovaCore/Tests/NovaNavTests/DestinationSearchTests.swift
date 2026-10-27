@@ -40,6 +40,31 @@ final class RecordingSearch: PlaceSearch, @unchecked Sendable {
     func detail(id: String) async throws -> Place? { details[id] }
 }
 
+/// The scripted engine, except that the next `stop` can be held until `release()`.
+final class HeldStopEngine: NaviEngine, @unchecked Sendable {
+    let inner: ScriptedNaviEngine
+    private let hold = Mutex(false)
+    private let held = Mutex<CheckedContinuation<Void, Never>?>(nil)
+    init(_ inner: ScriptedNaviEngine) { self.inner = inner }
+
+    var events: AsyncStream<NaviEngineEnvelope> { inner.events }
+    var isHolding: Bool { held.withLock { $0 != nil } }
+    func holdNextStop() { hold.withLock { $0 = true } }
+    func release() { held.withLock { c in defer { c = nil }; return c }?.resume() }
+
+    func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
+        await inner.calculateRoutes(request, generation: generation)
+    }
+    func selectRoute(_ id: RouteID, generation: Generation) async { await inner.selectRoute(id, generation: generation) }
+    func start(_ mode: NaviMode, generation: Generation) async { await inner.start(mode, generation: generation) }
+    func stop(generation: Generation) async {
+        if hold.withLock({ h in defer { h = false }; return h }) {
+            await withCheckedContinuation { c in held.withLock { $0 = c } }
+        }
+        await inner.stop(generation: generation)
+    }
+}
+
 struct FixLocation: LocationProvider {
     let fix: LocationFix
     func latestFix() async -> LocationFix? { fix }
@@ -196,6 +221,29 @@ struct AlongRouteTests {
         #expect(picked.ok && picked.data["destination"] == "中石化A")
         let snapshot = await nav.current
         #expect(snapshot.phase == .awaitingRouteSelection && !snapshot.alongRouteList)
+    }
+
+    @Test("F-18 an exit while the along-route pick stops the old guidance wins; the pick is stale")
+    func exitDuringPick() async {
+        let search = RecordingSearch(["珠海站": [place("珠海站", 3_000)]], corridor: [place("中石化A", 900)])
+        let engine = HeldStopEngine(ScriptedNaviEngine(routes: [RouteSummary(
+            id: RouteID(1), lengthMeters: 12_000, durationSeconds: 900, tollYuan: 0, trafficLights: 3, label: nil,
+            polyline: line)]))
+        let nav = NavigationController(search: search, engine: engine, location: NoLocation(), clock: ManualClock())
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        _ = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        _ = await nav.alongRoute(category: "fuel")
+        engine.holdNextStop()
+        async let picked = nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        while !engine.isHolding { await Task.yield() }
+        #expect(await nav.current.alongRouteList == false)
+        let exited = await nav.execute(tool("exit_navigation_mode"))
+        #expect(exited.data["status"] == "navigation_stopped")
+        engine.release()
+        #expect(await picked.code == .optionsStale)
+        let snapshot = await nav.current
+        #expect(snapshot.phase == .idle && snapshot.destination == nil)
     }
 
     @Test("F-18 place_details answers only from Amap's detail; missing hours are said to be unknown")
