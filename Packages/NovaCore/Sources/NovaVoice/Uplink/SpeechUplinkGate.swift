@@ -66,12 +66,12 @@ public struct SpeechUplinkGate: Sendable {
     /// A classifier has spoken within `activeTimeout`; when it falls silent the gate is F-04 again at once.
     private var classifierActive: Bool {
         guard let at = lastClassifiedAt else { return false }
-        return elapsed - at <= tuning.speechConfirm.activeTimeout
+        return elapsed - at <= (tuning.speechConfirm ?? SpeechConfirmTuning()).activeTimeout
     }
     /// 音频测试: the newest result is within `freshness`, so the shown probability is live.
     public var classifierFresh: Bool {
         guard let at = lastClassifiedAt else { return false }
-        return elapsed - at <= tuning.speechConfirm.freshness
+        return elapsed - at <= (tuning.speechConfirm ?? SpeechConfirmTuning()).freshness
     }
 
     private static let frameDuration = NovaDuration.milliseconds(10)
