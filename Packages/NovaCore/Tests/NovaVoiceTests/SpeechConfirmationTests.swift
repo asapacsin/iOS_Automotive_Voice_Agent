@@ -92,7 +92,7 @@ struct SpeechConfirmationTests {
         #expect(offStarted == 19 && plainStarted == 19)
     }
 
-    @Test("a hold during confirming drops the onset and its pre-roll; after the hold a fresh onset is confirmed")
+    @Test("a hold during confirming drops the confirming state and the held pre-roll")
     func holdDuringConfirming() {
         var gate = warmGate(horn)
         // 22 voiced frames: the onset (20) is reached and waits for confirmation.
@@ -103,9 +103,8 @@ struct SpeechConfirmationTests {
         #expect(startedHeld == nil && held.isEmpty)
         _ = gate.setForcedClosed(false)
         let (after, startedAfter) = feed(&gate, PCM.tone(peak: 4_000, frames: 60), speech)
-        let started = try? #require(startedAfter)
-        // A fresh onset is needed after the hold.
-        #expect((started ?? 0) >= 19)
+        // The voice still going on at release is confirmed afresh (speech results), not by the old onset.
+        #expect(startedAfter != nil)
         // Nothing buffered before or during the hold is uploaded: at most one frame per frame fed since.
         let audio = after.filter { if case .audio = $0 { true } else { false } }
         #expect(audio.count <= 60)

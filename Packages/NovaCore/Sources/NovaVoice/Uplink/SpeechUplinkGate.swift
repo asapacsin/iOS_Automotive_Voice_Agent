@@ -140,9 +140,9 @@ public struct SpeechUplinkGate: Sendable {
     /// Arbiter hold while guidance speaks. Closing an open segment ends the turn as if the driver stopped.
     public mutating func setForcedClosed(_ closed: Bool) -> [UplinkGateOutput] {
         forcedClosed = closed
-        // An onset waiting for confirmation is abandoned, and frames buffered around the hold are never
-        // uploaded as pre-roll: after the hold a fresh onset must start and be confirmed.
-        clearConfirming()
+        // An onset waiting for confirmation is abandoned when the hold starts, and frames buffered around
+        // the hold are never uploaded as pre-roll (F-04: a voice still going on at release opens at once).
+        if closed { clearConfirming() }
         preRoll.removeAll(keepingCapacity: true)
         // Like `onCaptureInterrupted`: frames from the hold must not qualify a barge-in afterwards.
         if !closed { recent.removeAll(keepingCapacity: true) }
