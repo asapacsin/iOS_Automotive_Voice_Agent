@@ -98,11 +98,31 @@ targets:
         SWIFT_VERSION: "6.0"
         GENERATE_INFOPLIST_FILE: YES
         TARGETED_DEVICE_FAMILY: "1"
+  NovaDriveTests:
+    # F-16a row 6: adapter unit tests with a fake CLLocationManager; CI job `simulator`.
+    type: bundle.unit-test
+    platform: iOS
+    sources: [NovaDriveTests]
+    dependencies:
+      - target: NovaDrive
+      - package: NovaCore
+        product: NovaKit
+      - package: NovaCore
+        product: NovaPorts
+      - package: NovaPlatform
+        product: NovaPlatform
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive.tests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
 schemes:
   NovaDrive:
     build:
       targets:
         NovaDrive: all
+        NovaDriveTests: [test]
         NovaDriveUITests: [test]
     test:
-      targets: [NovaDriveUITests]
+      targets: [NovaDriveTests, NovaDriveUITests]

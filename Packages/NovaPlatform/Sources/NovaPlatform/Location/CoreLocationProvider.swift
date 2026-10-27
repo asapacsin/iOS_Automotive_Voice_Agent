@@ -73,7 +73,7 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
         await MainActor.run { apply(action) }
     }
 
-    private func apply(_ action: LocationFixState.ManagerAction) {
+    func apply(_ action: LocationFixState.ManagerAction) {
         // Hops to the main actor can land out of order (a start after a later pause, a stop after a later
         // resume); the state machine's current view decides.
         if (action == .stopUpdates) == state.mayStartUpdates() { return }
