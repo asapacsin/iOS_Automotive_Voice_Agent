@@ -117,6 +117,22 @@ struct CameraLensTests {
         #expect(camera.stills.withLock { $0 } == [.rearView])
     }
 
+    @Test("A question cancelled while waiting for a switch never switches the lens")
+    func cancelledQuestionKeepsLens() async {
+        let camera = TwoLensCamera(gated: true)
+        let handler = CameraQuestionHandler(camera: camera, vision: FixedVision(), clock: ManualClock())
+        async let switched = handler.switchLens()
+        await until { camera.selecting }
+        async let answer = handler.ask("前面是什么？")
+        for _ in 0..<50 { await Task.yield() }
+        await handler.cancel()
+        camera.finishSelect()
+        #expect(await switched == .rearView)
+        #expect(await answer.code == .superseded)
+        #expect(await handler.lens == .rearView)
+        #expect(camera.stills.withLock { $0 }.isEmpty)
+    }
+
     @Test("§10 row 7: rear lens failure says 后面的摄像头现在用不了; 前方 still answers")
     func rearFailure() async {
         let camera = TwoLensCamera(rearBroken: true)

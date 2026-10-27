@@ -197,6 +197,14 @@ struct SystemPhoneDialer: PhoneDialer {
 }
 
 /// `describe_camera_view` from the model: opens the window first (OQ-CAM-2), shows 看画面中… and the answer.
+/// Orders lens-label updates: the newest number wins.
+final class LensOrder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var latest: UInt64 = 0
+    func take() -> UInt64 { lock.withLock { latest += 1; return latest } }
+    func isLatest(_ n: UInt64) -> Bool { lock.withLock { latest == n } }
+}
+
 struct ObservedCameraExecutor: ToolExecutor {
     let runtime: AgentRuntime
 
@@ -227,9 +235,16 @@ final class AgentRuntime {
                                      qianfan: QianfanVisionClient(key: qianfanKey, model: DriveSettings.qianfanVisionModel),
                                      hasGeminiKey: { geminiKey()?.isEmpty == false })
         // F-20b: the 前方/后方 label follows a voice-driven switch before the still is taken.
+        // Each change takes a number in the handler's order; a main-actor hop that arrives after a newer
+        // one is ignored, so the label never ends on a stale lens.
         let model = model
+        let order = LensOrder()
         return CameraQuestionHandler(camera: camera, vision: vision, clock: SystemClock(), lensChanged: { lens in
-            Task { @MainActor in model.cameraLens = lens }
+            let n = order.take()
+            Task { @MainActor in
+                guard order.isLatest(n) else { return }
+                model.cameraLens = lens
+            }
         })
     }()
 
@@ -288,7 +303,12 @@ final class AgentRuntime {
         }
         model.cameraAsking = true
         model.cameraAnswer = nil
+        // F-20b: a voice-driven switch disables the switch button like a tap does.
+        let target = named ?? CameraLensChooser.choose(question, current: model.cameraLens)
+        let switching = target != model.cameraLens && !model.cameraSwitching
+        if switching { model.cameraSwitching = true }
         let result = await cameraQuestions.ask(question, camera: named)
+        if switching { model.cameraSwitching = false }
         if result.code != .superseded {
             model.cameraAsking = false
             model.cameraAnswer = result.data["answer"]?.stringValue
