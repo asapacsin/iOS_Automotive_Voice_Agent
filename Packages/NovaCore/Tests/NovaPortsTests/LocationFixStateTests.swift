@@ -17,7 +17,7 @@ struct LocationFixStateTests {
     @Test("first request right after permission waits and returns the fix that arrives before firstFixWait")
     func firstFixArrives() async {
         let clock = ManualClock()
-        let state = LocationFixState(clock: clock, authorization: .notDetermined)
+        let state = LocationFixState(clock: clock, permission: .notDetermined)
         #expect(state.start() == .requestAndStart)
         #expect(state.start() == nil)
         let task = Task { await state.awaitFix() }
@@ -35,7 +35,7 @@ struct LocationFixStateTests {
     @Test("no fix within firstFixWait times out with nil")
     func timeoutNil() async {
         let clock = ManualClock()
-        let state = LocationFixState(clock: clock, authorization: .authorized)
+        let state = LocationFixState(clock: clock, permission: .authorized)
         _ = state.start()
         let task = Task { await state.awaitFix() }
         for _ in 0..<30 {
@@ -49,7 +49,7 @@ struct LocationFixStateTests {
     @Test("a stale cached fix waits for a fresh one; on timeout the stale fix is returned")
     func staleFix() async {
         let clock = ManualClock()
-        let state = LocationFixState(clock: clock, authorization: .authorized)
+        let state = LocationFixState(clock: clock, permission: .authorized)
         _ = state.start()
         let old = fix(clock, lat: 30)
         state.receive(old)
@@ -74,7 +74,7 @@ struct LocationFixStateTests {
     @Test("deny while waiting clears the fix and returns nil; denied returns at once")
     func deny() async {
         let clock = ManualClock()
-        let state = LocationFixState(clock: clock, authorization: .authorized)
+        let state = LocationFixState(clock: clock, permission: .authorized)
         _ = state.start()
         state.receive(fix(clock))
         clock.advance(by: .seconds(31))
@@ -92,7 +92,7 @@ struct LocationFixStateTests {
     @Test("grant while paused does not restart; resume does; paused answers at once")
     func grantWhilePaused() async {
         let clock = ManualClock()
-        let state = LocationFixState(clock: clock, authorization: .notDetermined)
+        let state = LocationFixState(clock: clock, permission: .notDetermined)
         #expect(state.pause() == nil)  // not started yet
         _ = state.resume()
         #expect(state.start() == .requestAndStart)
@@ -109,7 +109,7 @@ struct LocationFixStateTests {
     @Test("cancelling a waiting request returns the cached fix without waiting out firstFixWait")
     func cancellation() async {
         let clock = ManualClock()
-        let state = LocationFixState(clock: clock, authorization: .authorized)
+        let state = LocationFixState(clock: clock, permission: .authorized)
         _ = state.start()
         let task = Task { await state.awaitFix() }
         await waitForSleeper(clock)

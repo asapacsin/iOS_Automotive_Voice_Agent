@@ -2,7 +2,7 @@ import NovaKit
 import Synchronization
 
 /// F-16a (T-042a): the platform-free state machine behind the device location provider: first-fix wait,
-/// freshness, authorization changes and background pause/resume. The CoreLocation adapter only forwards
+/// freshness, permission changes and background pause/resume. The CoreLocation adapter only forwards
 /// delegate events here and performs the returned manager actions, so the logic runs under Linux tests.
 public final class LocationFixState: Sendable {
     /// What the adapter must do to the location manager after an event.
@@ -15,7 +15,7 @@ public final class LocationFixState: Sendable {
 
     private struct State {
         var latest: LocationFix?
-        var authorization: LocationAuthorization
+        var permission: LocationAuthorization
         var started = false
         var paused = false
     }
@@ -26,7 +26,7 @@ public final class LocationFixState: Sendable {
     private let pollInterval: NovaDuration
     private let state: Mutex<State>
 
-    public init(clock: any NovaClock, authorization: LocationAuthorization,
+    public init(clock: any NovaClock, permission: LocationAuthorization,
                 firstFixWait: NovaDuration = TuningDefaults.firstFixWait,
                 freshness: NovaDuration = AmapWebTuning().locationFresh,
                 pollInterval: NovaDuration = .milliseconds(100)) {
@@ -34,10 +34,10 @@ public final class LocationFixState: Sendable {
         self.firstFixWait = firstFixWait
         self.freshness = freshness
         self.pollInterval = pollInterval
-        state = Mutex(State(authorization: authorization))
+        state = Mutex(State(permission: permission))
     }
 
-    public var authorization: LocationAuthorization { state.withLock { $0.authorization } }
+    public var permission: LocationAuthorization { state.withLock { $0.permission } }
     public var isPaused: Bool { state.withLock { $0.paused } }
     public var latest: LocationFix? { state.withLock { $0.latest } }
 
@@ -61,15 +61,15 @@ public final class LocationFixState: Sendable {
     public func resume() -> ManagerAction? {
         state.withLock { s -> ManagerAction? in
             defer { s.paused = false }
-            return s.started && s.paused && s.authorization != .denied ? .startUpdates : nil
+            return s.started && s.paused && s.permission != .denied ? .startUpdates : nil
         }
     }
 
     /// F-16a §7: granted → (re)start unless paused; denied → stop and drop the last fix.
-    public func authorizationChanged(_ authorization: LocationAuthorization) -> ManagerAction? {
+    public func authorizationChanged(_ permission: LocationAuthorization) -> ManagerAction? {
         state.withLock { s -> ManagerAction? in
-            s.authorization = authorization
-            switch authorization {
+            s.permission = permission
+            switch permission {
             case .authorized: return s.paused ? nil : .startUpdates
             case .denied:
                 s.latest = nil
@@ -96,7 +96,7 @@ public final class LocationFixState: Sendable {
     /// On timeout or cancellation the old fix (or nil) is returned and NovaNav judges it; denial returns nil.
     public func awaitFix() async -> LocationFix? {
         if let fix = freshFix() { return fix }
-        let blocked = state.withLock { $0.authorization == .denied || $0.paused }
+        let blocked = state.withLock { $0.permission == .denied || $0.paused }
         if blocked { return latest }
         let deadline = clock.now + firstFixWait
         while clock.now < deadline {
@@ -106,7 +106,7 @@ public final class LocationFixState: Sendable {
                 break
             }
             if let fix = freshFix() { return fix }
-            if authorization == .denied { return nil }
+            if permission == .denied { return nil }
         }
         return latest
     }

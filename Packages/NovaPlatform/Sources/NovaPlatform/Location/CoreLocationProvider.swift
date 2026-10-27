@@ -34,7 +34,7 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
                 freshness: NovaDuration = AmapWebTuning().locationFresh) {
         self.clock = clock
         self.manager = manager
-        state = LocationFixState(clock: clock, authorization: Self.map(manager.authorizationStatus),
+        state = LocationFixState(clock: clock, permission: Self.map(manager.authorizationStatus),
                                  firstFixWait: firstFixWait, freshness: freshness)
         super.init()
         manager.delegate = self
