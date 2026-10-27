@@ -216,6 +216,8 @@ public actor NavigationController: ToolExecutor {
         publish()
         await engine.calculateRoutes(RouteRequest(destination: place.coordinate, destinationName: place.name),
                                      generation: generation)
+        // A newer request took over while the engine was busy: its event is not ours to wait for.
+        guard generation == snapshot.generation else { return .failure(.optionsStale) }
         let event = await wait(.routes, within: tuning.routeWait)
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
         guard case .routesReady(let routes) = event, !routes.isEmpty else {
@@ -245,11 +247,13 @@ public actor NavigationController: ToolExecutor {
         publish()
         await engine.selectRoute(route.id, generation: generation)
         await engine.start(tuning.mode, generation: generation)
+        guard generation == snapshot.generation else { return .failure(.optionsStale) }
         let event = await wait(.started, within: tuning.startWait)
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
         guard event == .naviStarted else {
-            await engine.stop(generation: generation)
+            // Reset first so a request that lands while the engine stops is not wiped out.
             reset()
+            await engine.stop(generation: generation)
             return .failure(.startFailed, advice: "导航没有启动成功。请如实说明，不要说已经开始。")
         }
         snapshot.phase = .navigating
@@ -277,12 +281,13 @@ public actor NavigationController: ToolExecutor {
         switch snapshot.phase {
         case .navigating, .arrived:
             let generation = snapshot.generation
-            await engine.stop(generation: generation)
             reset()
+            await engine.stop(generation: generation)
             return .success(["status": "navigation_stopped", "next": "说一句：导航已结束。"])
         case .awaitingDestinationSelection, .awaitingRouteSelection, .resolvingDestination, .calculatingRoute:
-            await engine.stop(generation: snapshot.generation)
+            let generation = snapshot.generation
             reset()
+            await engine.stop(generation: generation)
             return .success(["status": "navigation_selection_cancelled", "next": "说一句：好的，已取消。"])
         case .idle, .error:
             return .success(["status": "no_navigation_active", "next": "如实说当前没有在导航。"])

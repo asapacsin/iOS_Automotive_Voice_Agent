@@ -229,3 +229,53 @@ struct NavigationControllerTests {
         #expect(status.data["next_road"] == "迎宾南路")
     }
 }
+
+/// Holds the first route calculation until `release()`, then answers it late, like a slow network.
+final class SlowFirstEngine: NaviEngine {
+    let events: AsyncStream<NaviEngineEnvelope>
+    private let continuation: AsyncStream<NaviEngineEnvelope>.Continuation
+    let routes: [RouteSummary]
+    private let held = Mutex<CheckedContinuation<Void, Never>?>(nil)
+    private let first = Mutex(true)
+
+    init(routes: [RouteSummary]) {
+        (events, continuation) = AsyncStream.makeStream()
+        self.routes = routes
+    }
+
+    var isHolding: Bool { held.withLock { $0 != nil } }
+
+    func release() { held.withLock { $0?.resume(); $0 = nil } }
+
+    func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
+        if first.withLock({ f in defer { f = false }; return f }) {
+            await withCheckedContinuation { c in held.withLock { $0 = c } }
+            return  // the late fetch is dropped by the engine (AmapRouteEngine token)
+        }
+        continuation.yield(NaviEngineEnvelope(generation: generation, event: .routesReady(routes)))
+    }
+
+    func selectRoute(_ id: RouteID, generation: Generation) async {}
+    func start(_ mode: NaviMode, generation: Generation) async {}
+    func stop(generation: Generation) async {}
+}
+
+@Suite("F-15 §9 concurrent requests")
+struct NavigationRaceTests {
+    @Test("a new destination while the old routes calculate: the new one gets its routes")
+    func newDestinationDuringCalculation() async {
+        let engine = SlowFirstEngine(routes: [route(1, meters: 5_000, seconds: 600)])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: NoLocation(), clock: ManualClock())
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        async let old = nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        while !engine.isHolding { await Task.yield() }
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        let new = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        #expect(new.ok && new.data["status"] == "destination_selected")
+        engine.release()
+        #expect(await old.code == .optionsStale)
+        #expect(await nav.current.phase == .awaitingRouteSelection)
+    }
+}
