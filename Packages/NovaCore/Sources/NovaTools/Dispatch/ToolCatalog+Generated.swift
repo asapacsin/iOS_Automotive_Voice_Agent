@@ -218,7 +218,7 @@ extension ToolCatalog {
             ])),
         ToolSpec(domain: "vision", repeatSensitive: false, declaration: ToolDeclaration(
             name: "describe_camera_view",
-            description: "看摄像头画面回答：「看看前面有什么」「画面里有几个人」「这是什么」（无其他上下文时一律当作问画面），question 填原问题。需几秒，结果返回前什么都不要说（不描述画面，也不说摄像头不能用）。只按返回的 answer 答；ok=false 只转述 message，绝不猜测画面。",
+            description: "看摄像头画面回答：「看看前面有什么」「画面里有几个人」「这是什么」「后面是什么」（无其他上下文时一律当作问画面），question 填原问题；问后面、后排、车里时 camera=rear_view，问前面、路上时 camera=front_view，都没说就不填。需几秒，结果返回前什么都不要说（不描述画面，也不说摄像头不能用）。只按返回的 answer 答；ok=false 只转述 message，绝不猜测画面。",
             parametersJSONSchema: [
                 "type": "object",
                 "properties": [
@@ -226,6 +226,10 @@ extension ToolCatalog {
                         "type": "string",
                         "minLength": .int(1),
                         "maxLength": .int(200),
+                    ],
+                    "camera": [
+                        "type": "string",
+                        "enum": ["front_view", "rear_view"],
                     ],
                 ],
                 "required": ["question"],

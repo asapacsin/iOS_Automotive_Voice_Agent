@@ -145,6 +145,21 @@ public struct JPEGImage: Sendable, Hashable {
 public protocol CameraFrameSource: Sendable {
     /// One JPEG of the live preview (longest side ≤ 1024 px, not older than 1 s). Throws `CameraError`.
     func captureStill() async throws -> JPEGImage
+    /// Switches the preview to `lens` (F-20b, ≤ 1 s); the old lens stays on failure. Throws `CameraError`.
+    func select(_ lens: CameraLens) async throws
+}
+
+extension CameraFrameSource {
+    /// A source with only the world-facing lens.
+    public func select(_ lens: CameraLens) async throws {
+        if lens != .frontView { throw CameraError.unavailable }
+    }
+}
+
+/// What the lens sees with the phone facing the road (F-20b §4): 前方 is the back lens, 后方 the selfie lens.
+public enum CameraLens: String, Sendable, Hashable, CaseIterable {
+    case frontView = "front_view"
+    case rearView = "rear_view"
 }
 
 /// Why `captureStill` failed (F-20a §8).

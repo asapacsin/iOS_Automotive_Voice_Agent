@@ -29,6 +29,9 @@ final class DriveModel: ObservableObject {
     @Published var cameraAsking = false
     @Published var cameraAnswer: String?
     @Published var cameraDenied = false
+    // F-20b 前方/后方 and the switch button (disabled without a selfie lens)
+    @Published var cameraLens = CameraLens.frontView
+    @Published var cameraSwitching = false
     /// F-04a diagnostics for 音频测试: speech probability, noise level, last rejection.
     @Published var noiseLine = ""
 }
@@ -198,7 +201,8 @@ struct ObservedCameraExecutor: ToolExecutor {
     let runtime: AgentRuntime
 
     func execute(_ call: ToolCall) async -> ToolResult {
-        await runtime.askCamera(call.arguments["question"]?.stringValue ?? "")
+        await runtime.askCamera(call.arguments["question"]?.stringValue ?? "",
+                                camera: call.arguments["camera"]?.stringValue.flatMap(CameraLens.init(rawValue:)))
     }
 }
 
@@ -222,7 +226,11 @@ final class AgentRuntime {
         let vision = PreferredVision(gemini: GeminiVisionClient(key: geminiKey),
                                      qianfan: QianfanVisionClient(key: qianfanKey, model: DriveSettings.qianfanVisionModel),
                                      hasGeminiKey: { geminiKey()?.isEmpty == false })
-        return CameraQuestionHandler(camera: camera, vision: vision, clock: SystemClock())
+        // F-20b: the 前方/后方 label follows a voice-driven switch before the still is taken.
+        let model = model
+        return CameraQuestionHandler(camera: camera, vision: vision, clock: SystemClock(), lensChanged: { lens in
+            Task { @MainActor in model.cameraLens = lens }
+        })
     }()
 
     // MARK: Camera (F-20a)
@@ -251,6 +259,16 @@ final class AgentRuntime {
         return false
     }
 
+    /// F-20b switch button: the other lens; a tap while switching is ignored, a failure keeps the old lens.
+    func switchCamera() async {
+        guard model.cameraOpen, !model.cameraSwitching else { return }
+        model.cameraSwitching = true
+        defer { model.cameraSwitching = false }
+        if await cameraQuestions.switchLens() == nil {
+            RuntimeLog.agent.notice("CAMERA_SWITCH_FAILED")
+        }
+    }
+
     func closeCamera() {
         camera.stop()
         model.cameraOpen = false
@@ -262,7 +280,7 @@ final class AgentRuntime {
 
     /// Voice path and 问一下 both come here; a closed window opens first (OQ-CAM-2). If it cannot open,
     /// nothing is captured and the honest code goes back (§8).
-    func askCamera(_ question: String) async -> ToolResult {
+    func askCamera(_ question: String, camera named: CameraLens? = nil) async -> ToolResult {
         if !model.cameraOpen, !(await openCamera()) {
             return model.cameraDenied
                 ? ToolDispatcher.failure(.cameraPermissionDenied)
@@ -270,7 +288,7 @@ final class AgentRuntime {
         }
         model.cameraAsking = true
         model.cameraAnswer = nil
-        let result = await cameraQuestions.ask(question)
+        let result = await cameraQuestions.ask(question, camera: named)
         if result.code != .superseded {
             model.cameraAsking = false
             model.cameraAnswer = result.data["answer"]?.stringValue

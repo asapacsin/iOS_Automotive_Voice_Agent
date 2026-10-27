@@ -909,36 +909,36 @@
     {
       "id": "T-071e",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 20,
       "action": "F-20b CameraLensChooser + camera argument/result in CameraQuestionHandler; catalog property; unit",
       "depends_on": [
         "T-071a"
       ],
-      "evidence": []
+      "evidence": ["CI 935a995 green (ci 40436347754: core-linux, core-macos, xcode, simulator; ipa 40436347738); CameraLensTests rows 3/4/7 + catalog; awaiting independent review"]
     },
     {
       "id": "T-071f",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 20,
       "action": "F-20b CameraSession lens switch (.back <-> .front, unmirrored still, 1 s deadline); build, D",
       "depends_on": [
         "T-071b"
       ],
-      "evidence": []
+      "evidence": ["CI 935a995 green (ci 40436347754 xcode build, ipa 40436347738); awaiting independent review; device rows 1/5/6 NOT_VERIFIED"]
     },
     {
       "id": "T-071g",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 20,
       "action": "F-20b window switch button, 前方/后方 label, voice-driven switch before capture; S, D",
       "depends_on": [
         "T-071e",
         "T-071f"
       ],
-      "evidence": []
+      "evidence": ["CI 935a995 green (ci 40436347754 xcode + simulator, ipa 40436347738); awaiting independent review; device rows 1/2/6 NOT_VERIFIED"]
     },
     {
       "id": "T-013a",
