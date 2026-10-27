@@ -91,7 +91,7 @@ closing the window cancels an in-flight request. Camera stops within 1 s of clos
 - Capture code only in NovaPlatform/Camera; vision HTTP clients in NovaServices; the question handler
   (cancel, one-in-flight, result shape) is pure Swift in NovaTools/Vision with fakes (T-071).
 - The preview must not run while the window is closed (privacy, battery).
-- Front-facing (selfie) camera is out of scope; a later toggle may add it.
+- The front-facing (selfie) lens as a 后方 view is added by [F-20b](camera-rear.md) (2026-10-27).
 
 ## Open questions
 - OQ-CAM-1 (ANSWERED 2026-10-26: **Gemini default**, Qianfan optional): Gemini as the default vision backend instead of Qianfan? Recommendation: yes —

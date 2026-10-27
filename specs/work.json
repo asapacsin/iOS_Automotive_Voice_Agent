@@ -904,6 +904,40 @@
       "evidence": [
         "Owner 2026-10-26: iOS only, no Android parity; PROPOSED iOS values adopted"
       ]
+    },
+    {
+      "id": "T-071e",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-20b CameraLensChooser + camera argument/result in CameraQuestionHandler; catalog property; unit",
+      "depends_on": [
+        "T-071a"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "T-071f",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-20b CameraSession lens switch (.back <-> .front, unmirrored still, 1 s deadline); build, D",
+      "depends_on": [
+        "T-071b"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "T-071g",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-20b window switch button, 前方/后方 label, voice-driven switch before capture; S, D",
+      "depends_on": [
+        "T-071e",
+        "T-071f"
+      ],
+      "evidence": []
     }
   ]
 }
