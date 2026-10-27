@@ -954,7 +954,7 @@
     {
       "id": "T-013a",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 15,
       "action": "F-04a SpeechClassifier port + SpeechConfirmation gate rule (confirming state, fallback, 抗噪 switch); unit",
       "depends_on": [
@@ -962,13 +962,14 @@
       ],
       "evidence": [
         "72afcc2: SpeechConfirmation in SpeechUplinkGate (confirming state, rejection label, silent-classifier fallback, 抗噪 off = F-04); SpeechConfirmationTests rows 1-3, 5-6; CI green",
-        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes 79cbfa0/1ce401f/751cbda, CI green on fix/f04a-review); N1 reset-armed fix committed, CI blocked by Actions billing"
+        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes 79cbfa0/1ce401f/751cbda, CI green on fix/f04a-review); N1 reset-armed fix committed, CI blocked by Actions billing",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) incl. N1 reset-armed fix; re-review PASS"
       ]
     },
     {
       "id": "T-013b",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 15,
       "action": "F-04a NovaAudio SoundAnalysisSpeechClassifier; voice processing pinned; build, D",
       "depends_on": [
@@ -976,13 +977,14 @@
       ],
       "evidence": [
         "72afcc2: NovaAudio SoundAnalysisSpeechClassifier, voice processing pinned; xcode/simulator/ipa green at 175f9fa; device CPU/latency NOT_VERIFIED",
-        "Re-review 2026-10-27: PASS build+unit; device CPU/latency NOT_VERIFIED"
+        "Re-review 2026-10-27: PASS build+unit; device CPU/latency NOT_VERIFIED",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); iOS build of NovaAudio green on fix/f04a-review (751cbda); device CPU/latency rows NOT_VERIFIED (specs/human-test-plan.md)"
       ]
     },
     {
       "id": "T-013c",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 15,
       "action": "F-04a barge-in uses speech confirmation; 音频测试 line; 设置 抗噪 switch; unit, S, D",
       "depends_on": [
@@ -990,13 +992,14 @@
       ],
       "evidence": [
         "175f9fa: classifier wired in AgentRuntime, 设置 抗噪 switch and 音频测试 line visible on iPhone 17; barge-in uses hasRecentSpeech confirmation; device noise rows NOT_VERIFIED",
-        "Re-review 2026-10-27: PASS; device rows NOT_VERIFIED"
+        "Re-review 2026-10-27: PASS; device rows NOT_VERIFIED",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); App build green on fix/f04a-review (751cbda); device rows NOT_VERIFIED (specs/human-test-plan.md)"
       ]
     },
     {
       "id": "T-013d",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 15,
       "action": "F-04a noise corpus fixtures + corpus tests; unit",
       "depends_on": [
@@ -1004,7 +1007,8 @@
       ],
       "evidence": [
         "10 synthetic seeded clips Fixtures/audio/noise (scripts/fixtures/gen_noise_corpus.py, --check clean); NoiseCorpusTests rows 1-3, 5-6; check_imports 0 violations; swift test not run locally (Windows) - awaiting CI core-linux/core-macos and independent review; known gap: 5 dB SNR raw PCM under the F-04 2.2x energy rule (withKnownIssue), device row decides",
-        "Re-review 2026-10-27: PASS unit rows 1,2(10 dB),3,5,6; 5 dB SNR row withKnownIssue -> device run; CI for 797d3b3 green via b7a1714 (ci 40443350576)"
+        "Re-review 2026-10-27: PASS unit rows 1,2(10 dB),3,5,6; 5 dB SNR row withKnownIssue -> device run; CI for 797d3b3 green via b7a1714 (ci 40443350576)",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); 5 dB SNR row is a known issue left to the device run"
       ]
     },
     {
@@ -1018,13 +1022,14 @@
       ],
       "evidence": [
         "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa",
-        "Re-review FAIL (background start skipped permission; start/pause race); fixed in fix/firstfix-core (LocationFixState in NovaPorts + tests, core-linux green at 224b528); final CI blocked by Actions billing"
+        "Re-review FAIL (background start skipped permission; start/pause race); fixed in fix/firstfix-core (LocationFixState in NovaPorts + tests, core-linux green at 224b528); final CI blocked by Actions billing",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) (LocationFixState tests); D1 stale-stop fix and NovaDriveTests fake-manager adapter tests not yet compiled: iOS builds need a Mac/SDK and macOS CI is forbidden (owner rule 2026-10-27)"
       ]
     },
     {
       "id": "T-046a",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 15,
       "action": "F-16a query_live_info current_location (regeo address), codes, catalog + persona; unit, contract, D",
       "depends_on": [
@@ -1033,7 +1038,8 @@
       ],
       "evidence": [
         "c390f64: query_live_info current_location (regeo address, source, LOCATION_PERMISSION_DENIED/NO_LOCATION/key codes), catalog + persona; unit tests; CI green at 175f9fa; device answer NOT_VERIFIED",
-        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes b7a1714, CI green ci 40443350576); stays RUNNING until merged head CI runs (Actions billing block)"
+        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes b7a1714, CI green ci 40443350576); stays RUNNING until merged head CI runs (Actions billing block)",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); re-review PASS 2026-10-27"
       ]
     }
   ]

@@ -1,0 +1,5 @@
+# Shell scripts run in WSL / Linux (scripts/local_ci.ps1): keep LF on Windows checkouts.
+*.sh text eol=lf
+# Test fixtures are split on "\n" by Linux tests.
+*.jsonl text eol=lf
+*.json text eol=lf
