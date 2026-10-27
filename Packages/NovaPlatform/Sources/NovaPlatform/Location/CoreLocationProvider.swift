@@ -74,8 +74,9 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
     }
 
     private func apply(_ action: LocationFixState.ManagerAction) {
-        // A start hop to the main actor can land after a later pause(); the state machine decides.
-        if action != .stopUpdates, !state.mayStartUpdates() { return }
+        // Hops to the main actor can land out of order (a start after a later pause, a stop after a later
+        // resume); the state machine's current view decides.
+        if (action == .stopUpdates) == state.mayStartUpdates() { return }
         switch action {
         case .requestAndStart:
             if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
