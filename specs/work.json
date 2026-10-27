@@ -752,14 +752,15 @@
     {
       "id": "T-042b",
       "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "status": "RUNNING",
       "priority": 40,
       "action": "CoreLocationProvider (WGS-84 fix, When In Use on first need), behind use_device_location; GCJ-02 conversion for route origin and weather here",
       "depends_on": [
         "T-042"
       ],
       "evidence": [
-        "Build only (CI xcode); default stays DemoLocation for recordings (REC-003)"
+        "Build only (CI xcode); default stays DemoLocation for recordings (REC-003)",
+        "175f9fa on iPhone 17 (2026-10-27): 设置 shows 位置来源 (手机定位 selected), 定位权限 未询问; 演示位置 label code; D rows 1/4 permission + voice NOT_VERIFIED (needs a person to answer the iOS location prompt)"
       ],
       "blocked_by": "CoreLocationProvider built (CI xcode); WGS-84 fix and permission flow need a device"
     },
@@ -942,35 +943,41 @@
     {
       "id": "T-013a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 15,
       "action": "F-04a SpeechClassifier port + SpeechConfirmation gate rule (confirming state, fallback, 抗噪 switch); unit",
       "depends_on": [
         "T-013"
       ],
-      "evidence": []
+      "evidence": [
+        "72afcc2: SpeechConfirmation in SpeechUplinkGate (confirming state, rejection label, silent-classifier fallback, 抗噪 off = F-04); SpeechConfirmationTests rows 1-3, 5-6; CI green"
+      ]
     },
     {
       "id": "T-013b",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 15,
       "action": "F-04a NovaAudio SoundAnalysisSpeechClassifier; voice processing pinned; build, D",
       "depends_on": [
         "T-013a"
       ],
-      "evidence": []
+      "evidence": [
+        "72afcc2: NovaAudio SoundAnalysisSpeechClassifier, voice processing pinned; xcode/simulator/ipa green at 175f9fa; device CPU/latency NOT_VERIFIED"
+      ]
     },
     {
       "id": "T-013c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 15,
       "action": "F-04a barge-in uses speech confirmation; 音频测试 line; 设置 抗噪 switch; unit, S, D",
       "depends_on": [
         "T-013a"
       ],
-      "evidence": []
+      "evidence": [
+        "175f9fa: classifier wired in AgentRuntime, 设置 抗噪 switch and 音频测试 line visible on iPhone 17; barge-in uses hasRecentSpeech confirmation; device noise rows NOT_VERIFIED"
+      ]
     },
     {
       "id": "T-013d",
@@ -986,25 +993,29 @@
     {
       "id": "T-042a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 15,
       "action": "F-16a CoreLocationProvider first-fix wait, authorization changes, denied state; SwitchableLocationProvider; unit, build",
       "depends_on": [
         "T-042"
       ],
-      "evidence": []
+      "evidence": [
+        "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa"
+      ]
     },
     {
       "id": "T-046a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 15,
       "action": "F-16a query_live_info current_location (regeo address), codes, catalog + persona; unit, contract, D",
       "depends_on": [
         "T-046",
         "T-042a"
       ],
-      "evidence": []
+      "evidence": [
+        "c390f64: query_live_info current_location (regeo address, source, LOCATION_PERMISSION_DENIED/NO_LOCATION/key codes), catalog + persona; unit tests; CI green at 175f9fa; device answer NOT_VERIFIED"
+      ]
     }
   ]
 }
