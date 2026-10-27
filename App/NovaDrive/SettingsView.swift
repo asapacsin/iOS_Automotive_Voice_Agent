@@ -1,5 +1,5 @@
-import CoreLocation
 import NovaAgent
+import NovaPlatform
 import NovaPorts
 import NovaServices
 import SwiftUI
@@ -136,37 +136,5 @@ struct SettingsView: View {
         drafts = [:]
         message = failed.isEmpty ? "已清除所有密钥" : "以下 key 清除失败：\(failed.map(\.rawValue).joined(separator: ", "))"
         refresh()
-    }
-}
-
-/// F-16a: the When In Use state for 设置 → 位置来源; asks once when 手机定位 is chosen.
-@MainActor
-final class LocationPermission: NSObject, ObservableObject, CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
-    @Published private(set) var status: CLAuthorizationStatus
-
-    override init() {
-        status = manager.authorizationStatus
-        super.init()
-        manager.delegate = self
-    }
-
-    var denied: Bool { status == .denied || status == .restricted }
-
-    var label: String {
-        switch status {
-        case .notDetermined: "未询问"
-        case .denied, .restricted: "未允许"
-        default: "已允许"
-        }
-    }
-
-    func request() {
-        if status == .notDetermined { manager.requestWhenInUseAuthorization() }
-    }
-
-    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
-        Task { @MainActor in self.status = status }
     }
 }
