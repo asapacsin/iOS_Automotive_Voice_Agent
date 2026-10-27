@@ -36,6 +36,8 @@ def owner_of(path: pathlib.Path, root: pathlib.Path) -> str:
     parts = path.relative_to(root).parts
     if parts[0] == "Packages":
         return parts[1]
+    if parts[:2] == ("App", "NovaDriveTests"):
+        return "NovaPlatform"  # NovaPlatform adapter tests (iOS-only package, so hosted in the app's test bundle).
     return parts[0]
 
 
