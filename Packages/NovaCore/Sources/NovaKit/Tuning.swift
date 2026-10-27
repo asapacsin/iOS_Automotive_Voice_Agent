@@ -34,6 +34,8 @@ public struct SpeechConfirmTuning: Sendable, Hashable {
     public var maxWait = NovaDuration.milliseconds(600)
     /// Results older than this (gate time) no longer count.
     public var freshness = NovaDuration.milliseconds(700)
+    /// No result for this long (gate time): the classifier counts as gone and F-04 rules apply at once.
+    public var activeTimeout = NovaDuration.milliseconds(2000)
     public init() {}
 }
 

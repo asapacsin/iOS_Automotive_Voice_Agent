@@ -88,4 +88,23 @@ struct AmapRouteEngineTests {
         let first = await iterator.next()
         #expect(first?.generation == g2)
     }
+
+    @Test("a late stop of an older generation leaves the newer calculation alone")
+    func staleStopIgnored() async {
+        let transport = HeldTransport()
+        let drawn = Drawn()
+        let engine = engine(transport, drawn: drawn)
+        let g1 = Generation.initial.next()
+        let g2 = g1.next()
+        async let calc: Void = engine.calculateRoutes(destination, generation: g2)
+        while !transport.isHolding { await Task.yield() }
+        await engine.stop(generation: g1)
+        transport.release()
+        await calc
+        #expect(drawn.last?.routes.isEmpty == false)
+        var iterator = engine.events.makeAsyncIterator()
+        let first = await iterator.next()
+        #expect(first?.generation == g2)
+        #expect(first?.event != .naviStopped)
+    }
 }
