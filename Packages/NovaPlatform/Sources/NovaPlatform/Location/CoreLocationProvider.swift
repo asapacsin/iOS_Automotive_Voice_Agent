@@ -23,13 +23,9 @@ extension CLLocationManager: LocationManaging {}
 /// Updates pause in the background and resume in the foreground (F-16a §5, When In Use only).
 public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationManagerDelegate, @unchecked Sendable {
     private let manager: any LocationManaging
-    private let lock = NSLock()
     private let clock: any NovaClock
-    private let firstFixWait: NovaDuration
-    private let freshness: NovaDuration
-    private var latest: LocationFix?
-    private var started = false
-    private var paused = false
+    /// Fix-wait / freshness / authorization / pause logic lives in NovaPorts (Linux-tested); this is the adapter.
+    let state: LocationFixState
 
     /// `clock` must be the clock that judges the fix (the navigation flow's). `manager` defaults to a real
     /// `CLLocationManager`; tests pass a fake. Create on the main thread (CoreLocation's delegate thread).
@@ -38,81 +34,54 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
                 freshness: NovaDuration = AmapWebTuning().locationFresh) {
         self.clock = clock
         self.manager = manager
-        self.firstFixWait = firstFixWait
-        self.freshness = freshness
+        state = LocationFixState(clock: clock, permission: Self.map(manager.authorizationStatus),
+                                 firstFixWait: firstFixWait, freshness: freshness)
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
     }
 
-    /// Denied or restricted: features fall back to text search and say why (F-16 §3, F-16a §8).
-    public var denied: Bool {
-        let status = manager.authorizationStatus
-        return status == .denied || status == .restricted
-    }
-
-    public func authorization() async -> LocationAuthorization {
-        switch manager.authorizationStatus {
+    static func map(_ status: CLAuthorizationStatus) -> LocationAuthorization {
+        switch status {
         case .notDetermined: .notDetermined
         case .denied, .restricted: .denied
         default: .authorized
         }
     }
 
-    /// Asks for When In Use now (设置 → 手机定位) and starts updates; no-op once started.
-    public func start() async {
-        let start = lock.withLock { () -> Bool in
-            defer { started = true }
-            return !started && !paused
-        }
-        guard start else { return }
-        await MainActor.run {
-            if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
-            manager.startUpdatingLocation()
-        }
-    }
+    /// Denied or restricted: features fall back to text search and say why (F-16 §3, F-16a §8).
+    public var denied: Bool { Self.map(manager.authorizationStatus) == .denied }
+
+    public func authorization() async -> LocationAuthorization { Self.map(manager.authorizationStatus) }
+
+    /// Asks for When In Use now and starts updates; no-op once started.
+    public func start() async { await perform(state.start()) }
 
     /// F-16a §5: app in the background → updates paused (no background location).
-    public func pause() async {
-        let wasRunning = lock.withLock { () -> Bool in
-            defer { paused = true }
-            return started && !paused
-        }
-        guard wasRunning else { return }
-        await MainActor.run { manager.stopUpdatingLocation() }
-    }
+    public func pause() async { await perform(state.pause()) }
 
     /// F-16a §5: foreground → updates resume if they were started and permission allows.
-    public func resume() async {
-        let restart = lock.withLock { () -> Bool in
-            defer { paused = false }
-            return started && paused
-        }
-        guard restart, !denied else { return }
-        await MainActor.run { manager.startUpdatingLocation() }
-    }
+    public func resume() async { await perform(state.resume()) }
 
     public func latestFix() async -> LocationFix? {
         await start()
-        if let fix = freshFix() { return fix }
-        guard !denied, !lock.withLock({ paused }) else { return lock.withLock { latest } }
-        // F-16a §4: the first request after start (or right after permission), or one that only has an
-        // old fix, waits for a fresh one. On timeout the old fix is returned and NovaNav judges it.
-        let deadline = clock.now + firstFixWait
-        while clock.now < deadline {
-            try? await clock.sleep(until: min(clock.now + .milliseconds(100), deadline))
-            if Task.isCancelled { break }
-            if let fix = freshFix() { return fix }
-            if denied { return nil }
-        }
-        return lock.withLock { latest }
+        return await state.awaitFix()
     }
 
-    private func freshFix() -> LocationFix? {
-        let now = clock.now
-        return lock.withLock { () -> LocationFix? in
-            guard let latest, now - latest.timestamp <= freshness else { return nil }
-            return latest
+    private func perform(_ action: LocationFixState.ManagerAction?) async {
+        guard let action else { return }
+        await MainActor.run { apply(action) }
+    }
+
+    private func apply(_ action: LocationFixState.ManagerAction) {
+        // A start hop to the main actor can land after a later pause(); the state machine decides.
+        if action != .stopUpdates, !state.mayStartUpdates() { return }
+        switch action {
+        case .requestAndStart:
+            if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
+            manager.startUpdatingLocation()
+        case .startUpdates: manager.startUpdatingLocation()
+        case .stopUpdates: manager.stopUpdatingLocation()
         }
     }
 
@@ -125,20 +94,12 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
                                                         longitude: location.coordinate.longitude, datum: .wgs84),
                               horizontalAccuracyMeters: location.horizontalAccuracy,
                               timestamp: clock.now - NovaDuration(milliseconds: age))
-        lock.withLock { latest = fix }
+        state.receive(fix)
     }
 
     /// F-16a §7: granted → updates (re)start unless paused; denied → the last fix is dropped.
     func authorizationChanged(_ status: CLAuthorizationStatus) {
-        switch status {
-        case .authorizedWhenInUse, .authorizedAlways:
-            if !lock.withLock({ paused }) { manager.startUpdatingLocation() }
-        case .denied, .restricted:
-            manager.stopUpdatingLocation()
-            lock.withLock { latest = nil }
-        default:
-            break
-        }
+        if let action = state.authorizationChanged(Self.map(status)) { apply(action) }
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
