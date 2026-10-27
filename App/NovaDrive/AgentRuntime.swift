@@ -342,11 +342,21 @@ final class AgentRuntime {
     /// mid-conversation session keeps the mic and socket; SLEEP and DEEP_IDLE end the session.
     func sceneChanged(_ phase: AppScenePhase) async {
         scene = phase
+        // F-16a §5: When In Use only, so location updates pause in the background.
+        if let deviceLocation {
+            switch phase {
+            case .background: await deviceLocation.pause()
+            case .foreground: await deviceLocation.resume()
+            default: break
+            }
+        }
         if !UITestDrive.enabled { await wake.update(scene: phase) }
         await reevaluate()
     }
 
     private var scene = AppScenePhase.foreground
+    /// F-16a: the phone's location provider of the running session (paused in the background).
+    private var deviceLocation: CoreLocationProvider?
     private var stopPending = false
 
     /// Re-applied on every scene, lifecycle or navigation change (§11.3), not only on a scene change:
@@ -451,11 +461,17 @@ final class AgentRuntime {
         let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
         let navigationClock = SystemClock()
         // F-16a: read per request, so switching 位置来源 in 设置 applies to the next question.
-        let location = SwitchableLocationProvider(device: CoreLocationProvider(clock: navigationClock),
+        let device = CoreLocationProvider(clock: navigationClock)
+        deviceLocation = device
+        let location = SwitchableLocationProvider(device: device,
                                                   demo: DemoLocation(clock: navigationClock),
                                                   useDevice: { DriveSettings.usesDeviceLocation() })
-        // Starts CoreLocation now, so the first request already has a fix.
-        _ = await location.latestFix()
+        // Starts CoreLocation now without waiting for a fix, so setup is not held up; the first request
+        // waits up to `firstFixWait` itself (F-16a §4).
+        if DriveSettings.usesDeviceLocation() {
+            if scene == .background { await device.pause() }
+            Task { await device.start() }
+        }
         let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
         let web = AmapWebClient(key: amapKey)
         let engine = AmapRouteEngine(key: amapKey, origin: {

@@ -184,6 +184,12 @@ public struct AmapWebTuning: Sendable, Hashable {
     public init() {}
 }
 
+/// Defaults read by adapters that take a plain value rather than a tuning struct.
+public enum TuningDefaults {
+    /// F-16a §4: how long `latestFix()` waits for a fresh fix after start or permission.
+    public static let firstFixWait = NovaDuration.seconds(3)
+}
+
 /// features/ambiguity-context.md.
 public struct DriverContextTuning: Sendable, Hashable {
     public var referentWindow = NovaDuration.seconds(180)

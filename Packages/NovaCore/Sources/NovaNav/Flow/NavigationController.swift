@@ -461,12 +461,20 @@ public actor NavigationController: ToolExecutor {
 
     /// The latest fix if F-16 may use it, converted to GCJ-02 for Amap.
     /// F-16a: the position every location answer uses (fresh enough, GCJ-02), or nil.
-    public func currentPosition() async -> GeoCoordinate? { await usableFix() }
+    public func currentPosition() async -> GeoCoordinate? { await currentFix()?.coordinate }
 
-    private func usableFix() async -> GeoCoordinate? {
-        guard let fix = await location.latestFix(), LocationQuality.of(fix, at: clock.now) != nil else { return nil }
-        return CoordinateConverter.gcj02(fix.coordinate)
+    /// F-16a §4: the usable fix with its accuracy and age (`current_location` reports both), or nil when
+    /// there is no fix or it is too old or too coarse (F-16 §3).
+    public func currentFix() async -> UsableFix? {
+        guard let fix = await location.latestFix(), let quality = LocationQuality.of(fix, at: clock.now) else {
+            return nil
+        }
+        let age = max(0, (clock.now - fix.timestamp).milliseconds)
+        return UsableFix(coordinate: CoordinateConverter.gcj02(fix.coordinate),
+                         accuracyMeters: fix.horizontalAccuracyMeters, ageSeconds: Int(age / 1000), quality: quality)
     }
+
+    private func usableFix() async -> GeoCoordinate? { await currentFix()?.coordinate }
 
     private func advance(to phase: NavigationPhase) -> Generation {
         snapshot.generation = snapshot.generation.next()
@@ -587,4 +595,19 @@ public actor NavigationController: ToolExecutor {
 struct ToolResultBox: Error {
     let result: ToolResult
     init(_ result: ToolResult) { self.result = result }
+}
+
+/// A fix F-16 may use: GCJ-02 position, horizontal accuracy and age at the time it was read.
+public struct UsableFix: Sendable, Hashable {
+    public let coordinate: GeoCoordinate
+    public let accuracyMeters: Double
+    public let ageSeconds: Int
+    public let quality: LocationQuality
+
+    public init(coordinate: GeoCoordinate, accuracyMeters: Double, ageSeconds: Int, quality: LocationQuality) {
+        self.coordinate = coordinate
+        self.accuracyMeters = accuracyMeters
+        self.ageSeconds = ageSeconds
+        self.quality = quality
+    }
 }

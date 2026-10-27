@@ -46,10 +46,16 @@ public struct LiveInfoExecutor: ToolExecutor {
             switch target {
             case "here", "":
                 if await location.authorization() == .denied { return Self.permissionDenied }
-                guard let here = await navigation.currentPosition(), let geocoder,
-                      let adcode = try await geocoder.adcode(at: here) else {
-                    return .failure(.noLocation, advice: "现在拿不到位置。请如实说明，可以请用户说城市名。")
+                let noLocation = ToolResult.failure(.noLocation, advice: "现在拿不到位置。请如实说明，可以请用户说城市名。")
+                guard let here = await navigation.currentPosition(), let geocoder else { return noLocation }
+                // F-16a §8 / F-18 §8: a regeo network failure or timeout is "no location".
+                let adcode: String?
+                do {
+                    adcode = try await geocoder.adcode(at: here)
+                } catch let error as AmapWebError where error == .timeout || error == .failed {
+                    return noLocation
                 }
+                guard let adcode else { return noLocation }
                 place = adcode
             case "destination":
                 guard let destination = await navigation.current.destination else {
@@ -80,22 +86,24 @@ public struct LiveInfoExecutor: ToolExecutor {
         guard let geocoder else {
             return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置，所以查不到地址。请如实说明，不要猜位置。")
         }
-        guard let here = await navigation.currentPosition() else {
+        guard let fix = await navigation.currentFix() else {
             return .failure(.noLocation, advice: "现在还没定位到。请如实说还没定位到，稍后再问；不要猜位置。")
         }
         do {
-            guard let address = try await geocoder.address(at: here), !address.formatted.isEmpty else {
+            guard let address = try await geocoder.address(at: fix.coordinate), !address.formatted.isEmpty else {
                 return .failure(.noLocation, advice: "地址没有查到。请如实说明，不要猜位置。")
             }
             let demo = location.source == .demo
             var data: [String: JSONValue] = [
                 "address": .string(Self.trimProvince(address.formatted)),
+                "district": .string(address.district ?? ""),
+                "accuracy_m": .int(Int64(fix.accuracyMeters.rounded())),
+                "fix_age_s": .int(Int64(fix.ageSeconds)),
                 "source": .string(location.source.rawValue),
                 "next": .string(demo
                     ? "只按 address 用一句话回答，并说明这是演示起点，不是真实位置。不要编造。"
                     : "只按 address 用一句话回答（例如：你现在在……附近）。不要编造。"),
             ]
-            if let district = address.district { data["district"] = .string(district) }
             if let road = address.road, !road.isEmpty { data["road"] = .string(road) }
             return .success(data)
         } catch let error as AmapWebError where error != .timeout && error != .failed {
@@ -109,13 +117,25 @@ public struct LiveInfoExecutor: ToolExecutor {
     static let permissionDenied = ToolResult.failure(
         .locationPermissionDenied, advice: "定位权限没有打开。请用一句话如实说定位权限没有打开，可以在设置里允许；不要猜位置。")
 
-    /// 「广东省珠海市香洲区…」 → 「珠海市香洲区…」: the province adds nothing when a city follows it.
+    /// F-16a §4: 「广东省珠海市香洲区…」 → 「珠海市香洲区…」. The province is dropped only when the address goes on
+    /// with the city right after it; a municipality named twice (「北京市北京市朝阳区」) keeps one name. Anything
+    /// else (no province, or no city right after it) is left as Amap wrote it.
     static func trimProvince(_ address: String) -> String {
-        for marker in ["省", "自治区"] {
-            if let range = address.range(of: marker) {
-                let rest = address[range.upperBound...]
-                return rest.contains("市") ? String(rest) : address
+        for marker in ["省", "自治区", "市"] {
+            guard let range = address.range(of: marker) else { continue }
+            let province = address[..<range.upperBound]
+            let rest = address[range.upperBound...]
+            if marker == "市" {
+                // Municipality: province and city are the same name.
+                return rest.hasPrefix(province) ? String(rest) : address
             }
+            if rest.hasPrefix(province) { return String(rest) }
+            guard let city = rest.firstIndex(where: { $0 == "市" || $0 == "州" || $0 == "盟" }) else { return address }
+            let cityName = rest[..<city]
+            // The city must follow directly: a short name, no district/county marker before it.
+            let direct = !cityName.isEmpty && cityName.count <= 12
+                && !cityName.contains(where: { "区县镇乡街路道号".contains($0) })
+            return direct ? String(rest) : address
         }
         return address
     }

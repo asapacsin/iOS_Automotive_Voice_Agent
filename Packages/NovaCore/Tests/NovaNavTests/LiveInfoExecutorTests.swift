@@ -35,12 +35,31 @@ struct FixedLocation: LocationProvider {
     }
 }
 
+/// A fix with a chosen accuracy and timestamp (the test clock starts at 0).
+struct AgedLocation: LocationProvider {
+    var accuracy: Double = 10
+    var timestamp = NovaInstant(milliseconds: 0)
+
+    func latestFix() async -> LocationFix? {
+        LocationFix(coordinate: GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .wgs84),
+                    horizontalAccuracyMeters: accuracy, timestamp: timestamp)
+    }
+}
+
+struct FailingAdcodeGeocoder: ReverseGeocoder {
+    var error: AmapWebError
+
+    func adcode(at coordinate: GeoCoordinate) async throws -> String? { throw error }
+    func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress? { nil }
+}
+
 @Suite("T-041 F-18 live info")
 struct LiveInfoExecutorTests {
     func executor(_ weather: FakeWeather?, location: any LocationProvider = FixedLocation(),
-                  geocoder: FakeGeocoder = FakeGeocoder()) async -> LiveInfoExecutor {
+                  geocoder: any ReverseGeocoder = FakeGeocoder(), clock: ManualClock = ManualClock()) async
+        -> LiveInfoExecutor {
         let nav = NavigationController(search: FixedSearch(places: []), engine: ScriptedNaviEngine(routes: []),
-                                       location: location, clock: ManualClock())
+                                       location: location, clock: clock)
         return LiveInfoExecutor(navigation: nav, weather: weather, geocoder: geocoder, location: location)
     }
 
@@ -51,6 +70,37 @@ struct LiveInfoExecutorTests {
         let r = await ask(await executor(FakeWeather()), here)
         #expect(r.ok && r.data["address"] == "珠海市香洲区情侣中路" && r.data["road"] == "情侣中路")
         #expect(r.data["source"] == "device")
+    }
+
+    @Test("F-16a §4 result shape: address, district, road, accuracy_m, source, fix_age_s")
+    func currentLocationShape() async {
+        let clock = ManualClock(start: NovaInstant(milliseconds: 12_000))
+        let r = await ask(await executor(FakeWeather(), location: AgedLocation(accuracy: 35.4), clock: clock), here)
+        #expect(r.ok)
+        #expect(r.data["district"] == "香洲区")
+        #expect(r.data["accuracy_m"] == .int(35))
+        #expect(r.data["fix_age_s"] == .int(12))
+        #expect(r.data["source"] == "device")
+        #expect(r.data["address"] != nil && r.data["road"] != nil && r.data["next"] != nil)
+    }
+
+    @Test("F-16a §4: a stale (> 10 min) or coarse (> 2000 m) fix is refused as NO_LOCATION")
+    func currentLocationStaleOrCoarse() async {
+        let clock = ManualClock(start: NovaInstant(milliseconds: 11 * 60_000))
+        #expect(await ask(await executor(FakeWeather(), location: AgedLocation(), clock: clock), here).code
+            == .noLocation)
+        #expect(await ask(await executor(FakeWeather(), location: AgedLocation(accuracy: 2500)), here).code
+            == .noLocation)
+    }
+
+    @Test("F-18 §8: weather here with a failed regeo is NO_LOCATION, a rejected key stays a key problem")
+    func weatherHereRegeoFailure() async {
+        #expect(await ask(await executor(FakeWeather(), geocoder: FailingAdcodeGeocoder(error: .timeout))).code
+            == .noLocation)
+        #expect(await ask(await executor(FakeWeather(), geocoder: FailingAdcodeGeocoder(error: .failed))).code
+            == .noLocation)
+        #expect(await ask(await executor(FakeWeather(), geocoder: FailingAdcodeGeocoder(error: .keyRejected))).code
+            == .amapWebKeyMissing)
     }
 
     @Test("F-16a demo source is named as such")
@@ -91,6 +141,11 @@ struct LiveInfoExecutorTests {
         #expect(LiveInfoExecutor.trimProvince("广东省珠海市香洲区") == "珠海市香洲区")
         #expect(LiveInfoExecutor.trimProvince("北京市朝阳区") == "北京市朝阳区")
         #expect(LiveInfoExecutor.trimProvince("广西壮族自治区南宁市青秀区") == "南宁市青秀区")
+        // Municipality named twice: one name kept.
+        #expect(LiveInfoExecutor.trimProvince("北京市北京市朝阳区") == "北京市朝阳区")
+        // No city right after the province: left as written.
+        #expect(LiveInfoExecutor.trimProvince("广东省香洲区情侣路市场") == "广东省香洲区情侣路市场")
+        #expect(LiveInfoExecutor.trimProvince("珠海市香洲区省道") == "珠海市香洲区省道")
     }
 
     func ask(_ e: LiveInfoExecutor, _ args: [String: JSONValue] = ["kind": "weather"]) async -> ToolResult {
