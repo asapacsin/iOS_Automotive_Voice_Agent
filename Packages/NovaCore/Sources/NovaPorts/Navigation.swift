@@ -141,6 +141,36 @@ public struct LocationFix: Sendable, Hashable {
 
 public protocol LocationProvider: Sendable {
     func latestFix() async -> LocationFix?
+    /// F-16a: whether the position may be read at all (denied → `LOCATION_PERMISSION_DENIED`).
+    func authorization() async -> LocationAuthorization
+    /// F-16a: the phone's own position, or the fixed demo start point.
+    var source: LocationSource { get }
+}
+
+public enum LocationAuthorization: Sendable, Hashable {
+    case notDetermined, authorized, denied
+}
+
+public enum LocationSource: String, Sendable, Hashable {
+    case device, demo
+}
+
+public extension LocationProvider {
+    func authorization() async -> LocationAuthorization { .authorized }
+    var source: LocationSource { .device }
+}
+
+/// F-16a: the regeo address of a point, for 「我现在在哪？」.
+public struct PlaceAddress: Sendable, Hashable {
+    public let formatted: String
+    public let district: String?
+    public let road: String?
+
+    public init(formatted: String, district: String?, road: String?) {
+        self.formatted = formatted
+        self.district = district
+        self.road = road
+    }
 }
 
 public struct Place: Sendable, Hashable {
@@ -193,6 +223,11 @@ public protocol WeatherService: Sendable {
 
 public protocol ReverseGeocoder: Sendable {
     func adcode(at coordinate: GeoCoordinate) async throws -> String?
+    func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress?
+}
+
+public extension ReverseGeocoder {
+    func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress? { nil }
 }
 
 public struct StaticMapRequest: Sendable, Hashable {

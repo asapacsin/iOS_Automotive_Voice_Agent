@@ -119,6 +119,7 @@ private struct DriveContent: View {
     let runtime: AgentRuntime
     @Environment(\.scenePhase) private var scenePhase
     @State private var bubble = BubbleFade()
+    @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -208,6 +209,13 @@ private struct DriveContent: View {
             }
             .accessibilityIdentifier("camera-button")
             Spacer()
+            if !useDeviceLocation {
+                // F-16a: a viewer is never misled about where the car is.
+                Text("演示位置")
+                    .font(.caption2).padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(.orange.opacity(0.85), in: Capsule())
+                    .accessibilityIdentifier("demo-location")
+            }
             Text(model.nav.navigating ? "模拟行驶" : "模拟车辆")
                 .font(.caption2).padding(.horizontal, 6).padding(.vertical, 3)
                 .background(.yellow.opacity(0.85), in: Capsule())

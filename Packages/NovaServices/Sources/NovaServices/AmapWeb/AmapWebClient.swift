@@ -58,6 +58,22 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
         return component?["adcode"] as? String
     }
 
+    /// F-16a: `formatted_address` plus district and street; Amap sends `[]` for an empty field.
+    public func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress? {
+        let body = try await get("/v3/geocode/regeo", ["location": Self.lngLat(coordinate)])
+        return Self.address(body)
+    }
+
+    static func address(_ body: [String: Any]) -> PlaceAddress? {
+        guard let regeocode = body["regeocode"] as? [String: Any],
+              let formatted = regeocode["formatted_address"] as? String, !formatted.isEmpty else { return nil }
+        let component = regeocode["addressComponent"] as? [String: Any]
+        let district = component?["district"] as? String
+        let street = (component?["streetNumber"] as? [String: Any])?["street"] as? String
+        return PlaceAddress(formatted: formatted, district: district?.isEmpty == false ? district : nil,
+                            road: street?.isEmpty == false ? street : nil)
+    }
+
     // MARK: WeatherService
 
     /// `adcode` may also be a city name; it is geocoded first.

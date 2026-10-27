@@ -460,6 +460,9 @@ public actor NavigationController: ToolExecutor {
     }
 
     /// The latest fix if F-16 may use it, converted to GCJ-02 for Amap.
+    /// F-16a: the position every location answer uses (fresh enough, GCJ-02), or nil.
+    public func currentPosition() async -> GeoCoordinate? { await usableFix() }
+
     private func usableFix() async -> GeoCoordinate? {
         guard let fix = await location.latestFix(), LocationQuality.of(fix, at: clock.now) != nil else { return nil }
         return CoordinateConverter.gcj02(fix.coordinate)

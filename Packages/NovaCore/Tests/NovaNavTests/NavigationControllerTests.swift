@@ -265,7 +265,8 @@ struct NavigationRaceTests {
     @Test("a new destination while the old routes calculate: the new one gets its routes")
     func newDestinationDuringCalculation() async {
         let engine = SlowFirstEngine(routes: [route(1, meters: 5_000, seconds: 600)])
-        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+        let search = FixedSearch(places: [place("珠海站", 3_000), place("珠海北站", 9_000)])
+        let nav = NavigationController(search: search, engine: engine,
                                        location: NoLocation(), clock: ManualClock())
         await nav.start()
         _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))

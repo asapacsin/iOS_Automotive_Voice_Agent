@@ -17,7 +17,7 @@ public enum ToolCatalog {
     public static let maxArgumentBytes = 4096
     public static let maxChoiceIndex = 10
     public static let choicePreferences: Set<String> = ["fastest", "shortest", "recommended", "no_toll", "fewest_lights", "nearest"]
-    public static let liveInfoKinds = ["weather", "route_traffic", "along_route", "place_details"]
+    public static let liveInfoKinds = ["weather", "route_traffic", "along_route", "place_details", "current_location"]
     public static let climateActions = ["power_on", "power_off", "set_temperature", "adjust_temperature", "set_fan",
                                         "adjust_fan", "get_state"]
     public static let windowActions = ["open", "close", "set", "adjust", "get_state"]

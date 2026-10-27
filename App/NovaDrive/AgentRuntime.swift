@@ -40,8 +40,12 @@ enum DriveSettings {
     static let qianfanVisionModel = "ernie-4.5-turbo-vl"
     /// Demo start point (珠海市人民政府, GCJ-02), so no personal location is shown or used (REC-003).
     static let demoOrigin = GeoCoordinate(latitude: 22.270715, longitude: 113.576726, datum: .gcj02)
-    /// Off by default for demo recordings (REC-003); on, search and weather use the phone's own fix.
+    /// F-16a 位置来源: on (default) = the phone's own fix; off = the demo start point for recordings (REC-003).
     static let useDeviceLocation = "use_device_location"
+
+    static func usesDeviceLocation(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: useDeviceLocation) as? Bool ?? true
+    }
 }
 
 /// 小诺's standing instruction for the Gemini Live session (≤ 4000 characters).
@@ -55,7 +59,8 @@ enum Persona {
     4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具，系统会判断要不要反问。工具返回 AMBIGUOUS_REFERENT 时，只用一句话反问是哪一项，例如「是座椅还是温度？」，不要再调用工具。用户回答后再调用对应工具。
     5. 有点热、太热了：调低一度温度。有点冷：调高一度。座位有点高：座椅降低一级。
     6. 导航：「导航去X」用 navigate_to；用户说第几个、第几条、开始导航用 choose_navigation_option；结束或取消导航用 exit_navigation_mode。导航是模拟行驶。
-    7. 不知道的事情如实说不知道，不要编造。
+    7. 问「我现在在哪」「这是哪里」：调用 query_live_info（kind=current_location），只按返回的 address 回答；没有返回 LOCATION_PERMISSION_DENIED 就不要说没有定位权限。
+    8. 不知道的事情如实说不知道，不要编造。
     """
 }
 
@@ -77,6 +82,8 @@ struct DemoLocation: LocationProvider {
     func latestFix() async -> LocationFix? {
         LocationFix(coordinate: DriveSettings.demoOrigin, horizontalAccuracyMeters: 10, timestamp: clock.now)
     }
+
+    var source: LocationSource { .demo }
 }
 
 /// Applies AgentCore effects to the real provider, revoicer, playback and screen.
@@ -416,8 +423,10 @@ final class AgentRuntime {
         let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials())
         let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
         let navigationClock = SystemClock()
-        let location: any LocationProvider = UserDefaults.standard.bool(forKey: DriveSettings.useDeviceLocation)
-            ? CoreLocationProvider(clock: navigationClock) : DemoLocation(clock: navigationClock)
+        // F-16a: read per request, so switching 位置来源 in 设置 applies to the next question.
+        let location = SwitchableLocationProvider(device: CoreLocationProvider(clock: navigationClock),
+                                                  demo: DemoLocation(clock: navigationClock),
+                                                  useDevice: { DriveSettings.usesDeviceLocation() })
         // Starts CoreLocation now, so the first request already has a fix.
         _ = await location.latestFix()
         let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }

@@ -24,6 +24,8 @@ public struct LiveInfoExecutor: ToolExecutor {
             return await navigation.routeStatus()
         case "weather":
             return await weatherReport(call.arguments)
+        case "current_location":
+            return await currentLocation()
         case "along_route":
             return await navigation.alongRoute(category: call.arguments["category"]?.stringValue)
         case "place_details":
@@ -43,8 +45,9 @@ public struct LiveInfoExecutor: ToolExecutor {
             let place: String
             switch target {
             case "here", "":
-                guard let fix = await location.latestFix(), let geocoder,
-                      let adcode = try await geocoder.adcode(at: CoordinateConverter.gcj02(fix.coordinate)) else {
+                if await location.authorization() == .denied { return Self.permissionDenied }
+                guard let here = await navigation.currentPosition(), let geocoder,
+                      let adcode = try await geocoder.adcode(at: here) else {
                     return .failure(.noLocation, advice: "现在拿不到位置。请如实说明，可以请用户说城市名。")
                 }
                 place = adcode
@@ -68,6 +71,54 @@ public struct LiveInfoExecutor: ToolExecutor {
     }
 
     static func failure(_ error: any Error) -> ToolResult { LiveInfoFailure.result(error, what: "天气") }
+
+    // MARK: current_location
+
+    /// F-16a 「我现在在哪？」: the regeo address of the same position search, weather and routing use.
+    private func currentLocation() async -> ToolResult {
+        if await location.authorization() == .denied { return Self.permissionDenied }
+        guard let geocoder else {
+            return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置，所以查不到地址。请如实说明，不要猜位置。")
+        }
+        guard let here = await navigation.currentPosition() else {
+            return .failure(.noLocation, advice: "现在还没定位到。请如实说还没定位到，稍后再问；不要猜位置。")
+        }
+        do {
+            guard let address = try await geocoder.address(at: here), !address.formatted.isEmpty else {
+                return .failure(.noLocation, advice: "地址没有查到。请如实说明，不要猜位置。")
+            }
+            let demo = location.source == .demo
+            var data: [String: JSONValue] = [
+                "address": .string(Self.trimProvince(address.formatted)),
+                "source": .string(location.source.rawValue),
+                "next": .string(demo
+                    ? "只按 address 用一句话回答，并说明这是演示起点，不是真实位置。不要编造。"
+                    : "只按 address 用一句话回答（例如：你现在在……附近）。不要编造。"),
+            ]
+            if let district = address.district { data["district"] = .string(district) }
+            if let road = address.road, !road.isEmpty { data["road"] = .string(road) }
+            return .success(data)
+        } catch let error as AmapWebError where error != .timeout && error != .failed {
+            return LiveInfoFailure.result(error, what: "地址")
+        } catch {
+            // F-18 §8: a failed regeo is "no location", not a generic outage.
+            return .failure(.noLocation, advice: "地址没有查到。请如实说明，不要猜位置。")
+        }
+    }
+
+    static let permissionDenied = ToolResult.failure(
+        .locationPermissionDenied, advice: "定位权限没有打开。请用一句话如实说定位权限没有打开，可以在设置里允许；不要猜位置。")
+
+    /// 「广东省珠海市香洲区…」 → 「珠海市香洲区…」: the province adds nothing when a city follows it.
+    static func trimProvince(_ address: String) -> String {
+        for marker in ["省", "自治区"] {
+            if let range = address.range(of: marker) {
+                let rest = address[range.upperBound...]
+                return rest.contains("市") ? String(rest) : address
+            }
+        }
+        return address
+    }
 }
 
 /// F-18 §8: the cause she names must be the real one (key, quota, or network/timeout).
