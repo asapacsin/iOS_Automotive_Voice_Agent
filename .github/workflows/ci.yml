@@ -1,7 +1,8 @@
 name: ci
+# Manual only (owner rule 2026-10-27: no automatic CI, it used up the Actions minutes).
+# Start with: gh workflow run ci.yml --ref <branch>
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 jobs:
   core-linux:
     runs-on: ubuntu-24.04
