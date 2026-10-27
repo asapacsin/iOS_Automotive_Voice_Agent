@@ -140,15 +140,15 @@ struct SpeechConfirmationTests {
         #expect(started == 19)
     }
 
-    @Test("resetClassifier forgets results: the gate is F-04 until the classifier speaks again")
+    @Test("resetClassifier forgets results but stays armed: an onset right after it is not opened unconfirmed")
     func resetClassifierOnLifecycle() {
         var gate = warmGate(horn)
         gate.resetClassifier()
-        #expect(!gate.classifierFresh && gate.lastSpeechProbability == nil)
+        #expect(gate.lastSpeechProbability == nil)
         var started: Int?
         for (i, frame) in PCM.tone(peak: 4_000, frames: 40).enumerated() where started == nil {
             if gate.process(frame).contains(.speechStarted) { started = i }
         }
-        #expect(started == 19)
+        #expect(started == nil)
     }
 }

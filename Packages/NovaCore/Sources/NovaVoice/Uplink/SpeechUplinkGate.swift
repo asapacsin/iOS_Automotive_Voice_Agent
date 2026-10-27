@@ -160,7 +160,9 @@ public struct SpeechUplinkGate: Sendable {
     /// Lifecycle change (F-04a §6): forget classifier results and any onset waiting for confirmation.
     public mutating func resetClassifier() {
         classifications.removeAll(keepingCapacity: true)
-        lastClassifiedAt = nil
+        // Stay armed: a live classifier keeps confirming across the reset (an onset waits for fresh results);
+        // a dead one still expires after `activeTimeout`.
+        if lastClassifiedAt != nil { lastClassifiedAt = elapsed }
         clearConfirming()
     }
 
