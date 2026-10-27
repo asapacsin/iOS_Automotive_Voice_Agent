@@ -533,7 +533,8 @@
         "NavigationControllerTests green in CI on feat/live-agent-nav (PR #7)",
         "Independent review pending; device row NOT_VERIFIED",
         "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending",
-        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED"
+        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED",
+        "Final independent review 2026-10-27 at ea7e649: PASS; along-route pick race fixed in 0052d4c (CI green)"
       ]
     },
     {
@@ -547,7 +548,8 @@
         "CI xcode + ipa green at a16728a; live session connects on iPhone 17 (no MALFORMED)",
         "Independent review pending; device run of 导航去珠海站 NOT_VERIFIED",
         "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending",
-        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED"
+        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED",
+        "Final independent review 2026-10-27 at ea7e649: PASS; stale stop guard fixed in 0052d4c (CI green ci 40443375548)"
       ]
     },
     {
@@ -909,36 +911,45 @@
     {
       "id": "T-071e",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-20b CameraLensChooser + camera argument/result in CameraQuestionHandler; catalog property; unit",
       "depends_on": [
         "T-071a"
       ],
-      "evidence": ["CI 935a995 green (ci 40436347754: core-linux, core-macos, xcode, simulator; ipa 40436347738); CameraLensTests rows 3/4/7 + catalog; awaiting independent review"]
+      "evidence": [
+        "CI 935a995 green (ci 40436347754: core-linux, core-macos, xcode, simulator; ipa 40436347738); CameraLensTests rows 3/4/7 + catalog; awaiting independent review",
+        "Independent high-effort review 2026-10-27 at ea7e649: PASS (CI ea7e649 green: ci 40435697186, ipa 40435697228); low findings fixed in 0052d4c (CI green ci 40443375548)"
+      ]
     },
     {
       "id": "T-071f",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-20b CameraSession lens switch (.back <-> .front, unmirrored still, 1 s deadline); build, D",
       "depends_on": [
         "T-071b"
       ],
-      "evidence": ["CI 935a995 green (ci 40436347754 xcode build, ipa 40436347738); awaiting independent review; device rows 1/5/6 NOT_VERIFIED"]
+      "evidence": [
+        "CI 935a995 green (ci 40436347754 xcode build, ipa 40436347738); awaiting independent review; device rows 1/5/6 NOT_VERIFIED",
+        "Independent high-effort review 2026-10-27 at ea7e649: PASS (CI ea7e649 green); low findings fixed in 0052d4c (CI green)"
+      ]
     },
     {
       "id": "T-071g",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 20,
       "action": "F-20b window switch button, 前方/后方 label, voice-driven switch before capture; S, D",
       "depends_on": [
         "T-071e",
         "T-071f"
       ],
-      "evidence": ["CI 935a995 green (ci 40436347754 xcode + simulator, ipa 40436347738); awaiting independent review; device rows 1/2/6 NOT_VERIFIED"]
+      "evidence": [
+        "CI 935a995 green (ci 40436347754 xcode + simulator, ipa 40436347738); awaiting independent review; device rows 1/2/6 NOT_VERIFIED",
+        "Independent high-effort review 2026-10-27 at ea7e649: PASS (CI ea7e649 green); device rows NOT_VERIFIED"
+      ]
     },
     {
       "id": "T-013a",
@@ -950,7 +961,8 @@
         "T-013"
       ],
       "evidence": [
-        "72afcc2: SpeechConfirmation in SpeechUplinkGate (confirming state, rejection label, silent-classifier fallback, 抗噪 off = F-04); SpeechConfirmationTests rows 1-3, 5-6; CI green"
+        "72afcc2: SpeechConfirmation in SpeechUplinkGate (confirming state, rejection label, silent-classifier fallback, 抗噪 off = F-04); SpeechConfirmationTests rows 1-3, 5-6; CI green",
+        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes 79cbfa0/1ce401f/751cbda, CI green on fix/f04a-review); N1 reset-armed fix committed, CI blocked by Actions billing"
       ]
     },
     {
@@ -963,7 +975,8 @@
         "T-013a"
       ],
       "evidence": [
-        "72afcc2: NovaAudio SoundAnalysisSpeechClassifier, voice processing pinned; xcode/simulator/ipa green at 175f9fa; device CPU/latency NOT_VERIFIED"
+        "72afcc2: NovaAudio SoundAnalysisSpeechClassifier, voice processing pinned; xcode/simulator/ipa green at 175f9fa; device CPU/latency NOT_VERIFIED",
+        "Re-review 2026-10-27: PASS build+unit; device CPU/latency NOT_VERIFIED"
       ]
     },
     {
@@ -976,7 +989,8 @@
         "T-013a"
       ],
       "evidence": [
-        "175f9fa: classifier wired in AgentRuntime, 设置 抗噪 switch and 音频测试 line visible on iPhone 17; barge-in uses hasRecentSpeech confirmation; device noise rows NOT_VERIFIED"
+        "175f9fa: classifier wired in AgentRuntime, 设置 抗噪 switch and 音频测试 line visible on iPhone 17; barge-in uses hasRecentSpeech confirmation; device noise rows NOT_VERIFIED",
+        "Re-review 2026-10-27: PASS; device rows NOT_VERIFIED"
       ]
     },
     {
@@ -988,7 +1002,10 @@
       "depends_on": [
         "T-013a"
       ],
-      "evidence": ["10 synthetic seeded clips Fixtures/audio/noise (scripts/fixtures/gen_noise_corpus.py, --check clean); NoiseCorpusTests rows 1-3, 5-6; check_imports 0 violations; swift test not run locally (Windows) - awaiting CI core-linux/core-macos and independent review; known gap: 5 dB SNR raw PCM under the F-04 2.2x energy rule (withKnownIssue), device row decides"]
+      "evidence": [
+        "10 synthetic seeded clips Fixtures/audio/noise (scripts/fixtures/gen_noise_corpus.py, --check clean); NoiseCorpusTests rows 1-3, 5-6; check_imports 0 violations; swift test not run locally (Windows) - awaiting CI core-linux/core-macos and independent review; known gap: 5 dB SNR raw PCM under the F-04 2.2x energy rule (withKnownIssue), device row decides",
+        "Re-review 2026-10-27: PASS unit rows 1,2(10 dB),3,5,6; 5 dB SNR row withKnownIssue -> device run; CI for 797d3b3 green via b7a1714 (ci 40443350576)"
+      ]
     },
     {
       "id": "T-042a",
@@ -1000,7 +1017,8 @@
         "T-042"
       ],
       "evidence": [
-        "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa"
+        "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa",
+        "Re-review FAIL (background start skipped permission; start/pause race); fixed in fix/firstfix-core (LocationFixState in NovaPorts + tests, core-linux green at 224b528); final CI blocked by Actions billing"
       ]
     },
     {
@@ -1014,7 +1032,8 @@
         "T-042a"
       ],
       "evidence": [
-        "c390f64: query_live_info current_location (regeo address, source, LOCATION_PERMISSION_DENIED/NO_LOCATION/key codes), catalog + persona; unit tests; CI green at 175f9fa; device answer NOT_VERIFIED"
+        "c390f64: query_live_info current_location (regeo address, source, LOCATION_PERMISSION_DENIED/NO_LOCATION/key codes), catalog + persona; unit tests; CI green at 175f9fa; device answer NOT_VERIFIED",
+        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes b7a1714, CI green ci 40443350576); stays RUNNING until merged head CI runs (Actions billing block)"
       ]
     }
   ]
