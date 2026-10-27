@@ -31,22 +31,30 @@ final class HeldTransport: HTTPTransport, @unchecked Sendable {
     }
 }
 
+/// What the engine drew, in order.
+final class Drawn: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [RouteGeometry] = []
+    func append(_ g: RouteGeometry) { lock.withLock { items.append(g) } }
+    var last: RouteGeometry? { lock.withLock { items.last } }
+}
+
 @Suite("T-043 Amap Web route engine: stale fetches dropped")
 struct AmapRouteEngineTests {
     let origin = GeoCoordinate(latitude: 22.270715, longitude: 113.576726, datum: .gcj02)
     let destination = RouteRequest(destination: GeoCoordinate(latitude: 22.21, longitude: 113.55, datum: .gcj02),
                                    destinationName: "珠海站")
 
-    func engine(_ transport: HeldTransport, drawn: Mutex<[RouteGeometry]>) -> AmapRouteEngine {
+    func engine(_ transport: HeldTransport, drawn: Drawn) -> AmapRouteEngine {
         let origin = origin
         return AmapRouteEngine(key: { "k" }, origin: { origin }, transport: transport,
-                               onGeometry: { g in drawn.withLock { $0.append(g) } })
+                               onGeometry: { drawn.append($0) })
     }
 
     @Test("F-15 §10: after 算了 a late route fetch draws nothing and sends no event")
     func stopThenLateFetch() async {
         let transport = HeldTransport()
-        let drawn = Mutex<[RouteGeometry]>([])
+        let drawn = Drawn()
         let engine = engine(transport, drawn: drawn)
         let g1 = Generation.initial.next()
         async let calc: Void = engine.calculateRoutes(destination, generation: g1)
@@ -54,7 +62,7 @@ struct AmapRouteEngineTests {
         await engine.stop(generation: g1)
         transport.release()
         await calc
-        #expect(drawn.withLock { $0.last?.routes.isEmpty } == true)
+        #expect(drawn.last?.routes.isEmpty == true)
         var events: [NaviEngineEvent] = []
         for await envelope in engine.events {
             events.append(envelope.event)
@@ -66,7 +74,7 @@ struct AmapRouteEngineTests {
     @Test("a new destination wins over the slower old fetch")
     func newDestinationWins() async {
         let transport = HeldTransport()
-        let drawn = Mutex<[RouteGeometry]>([])
+        let drawn = Drawn()
         let engine = engine(transport, drawn: drawn)
         let g1 = Generation.initial.next()
         let g2 = g1.next()
@@ -75,7 +83,7 @@ struct AmapRouteEngineTests {
         await engine.calculateRoutes(destination, generation: g2)
         transport.release()
         await old
-        #expect(drawn.withLock { $0.last?.routes.first?.summary.lengthMeters } == 2_000)
+        #expect(drawn.last?.routes.first?.summary.lengthMeters == 2_000)
         var iterator = engine.events.makeAsyncIterator()
         let first = await iterator.next()
         #expect(first?.generation == g2)

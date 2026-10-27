@@ -19,6 +19,21 @@ public struct UplinkGateTuning: Sendable, Hashable {
     public var holdVoicedRatio: Double = 0.60
     /// Digital silence sent before `audioStreamEnd`.
     public var closingSilence = NovaDuration.milliseconds(1500)
+    /// F-04a: speech confirmation by the sound classifier; nil = 抗噪 off (F-04 rules only).
+    public var speechConfirm: SpeechConfirmTuning? = SpeechConfirmTuning()
+    public init() {}
+}
+
+/// F-04a §4: onset → open needs `required` of the last `window` classifier results at or above
+/// `threshold`; an onset not confirmed within `maxWait` is rejected, or opens on F-04 rules alone when the
+/// classifier sent nothing fresh, so a slow classifier never loses speech.
+public struct SpeechConfirmTuning: Sendable, Hashable {
+    public var threshold: Double = 0.6
+    public var required = 2
+    public var window = 3
+    public var maxWait = NovaDuration.milliseconds(600)
+    /// Results older than this (gate time) no longer count.
+    public var freshness = NovaDuration.milliseconds(700)
     public init() {}
 }
 

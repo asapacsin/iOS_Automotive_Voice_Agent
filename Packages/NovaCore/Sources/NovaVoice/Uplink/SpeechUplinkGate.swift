@@ -48,6 +48,18 @@ public struct SpeechUplinkGate: Sendable {
     private var recent: [Bool] = []
     /// RMS of the frames of the open segment, last `steadyWindowFrames` only.
     private var openRMS: [Double] = []
+    /// F-04a: classifier results stamped with gate time, newest last (`window` kept).
+    private var classifications: [(at: NovaDuration, result: SpeechClassification)] = []
+    /// F-04a: when the current onset started waiting for confirmation, and when its first voiced frame came.
+    private var confirmingSince: NovaDuration?
+    private var onsetBegan: NovaDuration?
+    /// F-04a diagnostics (音频测试): the last onset rejected as non-speech and why.
+    public private(set) var lastRejection: String?
+    public private(set) var rejections = 0
+    public var lastSpeechProbability: Double? { classifications.last?.result.speechProbability }
+    /// 抗噪 switch (F-04a §2): off = F-04 behaviour exactly.
+    public var suppressionEnabled = true
+    private var classifierActive = false
 
     private static let frameDuration = NovaDuration.milliseconds(10)
     /// Weight of one unvoiced frame in the noise bed after warm-up (≈ 1 s time constant).
@@ -63,7 +75,10 @@ public struct SpeechUplinkGate: Sendable {
     /// `hasRecentSpeech` (Astra P4): somebody is speaking now — at least the onset (200 ms) of voiced
     /// frames within the last 600 ms evidence window. This, not the open gate, qualifies a barge-in.
     public var hasRecentSpeech: Bool {
-        recent.filter { $0 }.count >= Int(tuning.onset.milliseconds / Self.frameDuration.milliseconds)
+        let voiced = recent.filter { $0 }.count >= Int(tuning.onset.milliseconds / Self.frameDuration.milliseconds)
+        // F-04a: a barge-in also needs the classifier to hear a voice, so a horn or music never interrupts her.
+        guard voiced, let t = confirmTuning else { return voiced }
+        return speechConfirmed(t) ?? true
     }
 
     public var threshold: Double { max(tuning.rmsFloor, noiseRMS * tuning.noiseFactor) }
@@ -86,9 +101,13 @@ public struct SpeechUplinkGate: Sendable {
         case .closed:
             if !voiced { noiseRMS += (rms - noiseRMS) * Self.noiseAdaptation }
             remember(frame)
+            if voiced, onset == .zero, confirmingSince == nil { onsetBegan = elapsed - Self.frameDuration }
             onset = voiced ? onset + Self.frameDuration : .zero
+            if confirmingSince != nil { return forcedClosed ? [] : confirm() }
             guard onset >= tuning.onset, !forcedClosed else { return [] }
-            return open()
+            guard confirmTuning != nil else { return open() }
+            confirmingSince = elapsed
+            return confirm()
         case .open:
             openRMS.append(rms)
             if openRMS.count > Self.steadyWindowFrames { openRMS.removeFirst() }
@@ -110,6 +129,49 @@ public struct SpeechUplinkGate: Sendable {
         return close()
     }
 
+    // MARK: F-04a speech confirmation
+
+    /// Only once a classifier has spoken: without one (not attached, failed to start) the gate is F-04 exactly.
+    private var confirmTuning: SpeechConfirmTuning? {
+        suppressionEnabled && classifierActive ? tuning.speechConfirm : nil
+    }
+
+    /// A classifier result; the caller serialises it with `process` (same lock).
+    public mutating func classified(_ result: SpeechClassification) {
+        classifierActive = true
+        classifications.append((elapsed, result))
+        let keep = max(1, confirmTuning?.window ?? 3)
+        if classifications.count > keep { classifications.removeFirst(classifications.count - keep) }
+    }
+
+    /// From fresh results only; nil when the classifier has said nothing lately (then F-04 rules decide).
+    private func speechConfirmed(_ t: SpeechConfirmTuning) -> Bool? {
+        let fresh = classifications.filter { elapsed - $0.at <= t.freshness }.suffix(t.window)
+        guard !fresh.isEmpty else { return nil }
+        let speech = fresh.filter { $0.result.speechProbability >= t.threshold }.count
+        return speech >= min(t.required, t.window)
+    }
+
+    private mutating func confirm() -> [UplinkGateOutput] {
+        guard let t = confirmTuning, let since = confirmingSince else { return open() }
+        let waited = elapsed - since >= t.maxWait
+        switch speechConfirmed(t) {
+        case true?:
+            return open()
+        case false? where waited:
+            lastRejection = classifications.last?.result.topNonSpeech ?? "非语音"
+            rejections += 1
+            confirmingSince = nil
+            onsetBegan = nil
+            onset = .zero
+            return []
+        case nil where waited:
+            return open()  // §8: a silent or late classifier never costs real speech
+        default:
+            return []
+        }
+    }
+
     private mutating func open() -> [UplinkGateOutput] {
         phase = .open
         openRMS.removeAll(keepingCapacity: true)
@@ -118,9 +180,16 @@ public struct SpeechUplinkGate: Sendable {
         segmentVoiced = onset
         trailingUnvoiced = .zero
         hangover = .zero
+        // While confirming, the buffer grew past the pre-roll: keep only the pre-roll before the first voiced frame.
+        if let began = onsetBegan {
+            let keep = Int(((elapsed - began) + tuning.preRoll).milliseconds / Self.frameDuration.milliseconds)
+            if preRoll.count > keep { preRoll.removeFirst(preRoll.count - keep) }
+        }
         let frames = preRoll.map(UplinkGateOutput.audio)
         preRoll.removeAll(keepingCapacity: true)
         onset = .zero
+        confirmingSince = nil
+        onsetBegan = nil
         return [.speechStarted] + frames
     }
 
@@ -160,7 +229,9 @@ public struct SpeechUplinkGate: Sendable {
     /// Keeps the last 300 ms of closed-gate frames for the pre-roll.
     private mutating func remember(_ frame: PCMFrame16k) {
         preRoll.append(frame)
-        let keep = Int(tuning.preRoll.milliseconds / Self.frameDuration.milliseconds)
+        // F-04a: while an onset waits for confirmation every frame since it began is kept.
+        let extra = confirmTuning.map { tuning.onset + $0.maxWait } ?? .zero
+        let keep = Int((tuning.preRoll + extra).milliseconds / Self.frameDuration.milliseconds)
         if preRoll.count > keep { preRoll.removeFirst(preRoll.count - keep) }
     }
 
