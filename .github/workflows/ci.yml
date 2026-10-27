@@ -1,6 +1,7 @@
 name: ci
 # Manual only (owner rule 2026-10-27: no automatic CI, it used up the Actions minutes).
 # Start with: gh workflow run ci.yml --ref <branch>
+# Owner rule 2026-10-27: no macOS runners (billed 10x). scripts/gates/check_runners.py enforces it.
 on:
   workflow_dispatch:
 jobs:
@@ -11,52 +12,3 @@ jobs:
       - uses: actions/checkout@v4
       - run: apt-get update && apt-get install -y python3
       - run: scripts/gates/run_all.sh
-  core-macos:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - run: scripts/gates/run_all.sh
-  xcode:
-    # T-000x: the Xcode gates the Linux job cannot run: app project, iOS build of the app and every
-    # iOS-only adapter package, and swiftlint --strict.
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - run: brew install xcodegen swiftlint
-      - name: AIKit wake SDK (T-060; only when the AIKIT_SDK_URL secret is set)
-        env:
-          AIKIT_SDK_URL: ${{ secrets.AIKIT_SDK_URL }}
-        run: |
-          if [ -n "$AIKIT_SDK_URL" ]; then
-            curl -fsSL "$AIKIT_SDK_URL" -o aikit.zip && scripts/vendor_aikit.sh aikit.zip && rm aikit.zip
-          else
-            echo "AIKIT_SDK_URL not set: building without the wake SDK"
-          fi
-      - run: swiftlint lint --strict --quiet
-      - run: xcodegen generate --spec App/project.yml
-      - run: |
-          xcodebuild -project App/NovaDrive.xcodeproj -scheme NovaDrive -configuration Debug \
-            -destination 'generic/platform=iOS' -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build > xcodebuild.log 2>&1 || true
-          grep -E ': (error|warning):' xcodebuild.log | sort -u | head -n 60
-          grep -q '\*\* BUILD SUCCEEDED \*\*' xcodebuild.log
-      - run: |
-          for pkg in NovaAudio NovaNavAmap NovaPlatform NovaWakeIflytek; do
-            echo "== iOS build: $pkg"
-            (cd Packages/$pkg && xcodebuild -scheme $pkg -destination 'generic/platform=iOS' \
-              -derivedDataPath ../../build/$pkg CODE_SIGNING_ALLOWED=NO build | tail -n 20; test ${PIPESTATUS[0]} -eq 0)
-          done
-  simulator:
-    # T-048: W8 in UI on the iOS Simulator (scripted search and engine; no keys, mic or network).
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - run: brew install xcodegen
-      - run: xcodegen generate --spec App/project.yml
-      - run: |
-          set -o pipefail
-          device=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [0-9]+[^(]*' | sed 's/ *$//')
-          echo "simulator: $device"
-          xcodebuild -project App/NovaDrive.xcodeproj -scheme NovaDrive \
-            -destination "platform=iOS Simulator,name=$device" -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO test 2>&1 | tail -n 80
