@@ -16,8 +16,8 @@ the reviewer verdicts PASS / REWORK / BLOCKED / NOT_VERIFIED. Paths are relative
 | Amap iOS SDK key (bound to the bundle id) + Amap Web key | M0 spike, M3 | OWNER | needed by T-002 |
 | iFlytek iOS SDK downloaded for the same app id | M5 | OWNER (OQ-IOS-1) | needed by T-060 |
 | Background SLEEP policy | M5 | OWNER (OQ-IOS-13) | needed by T-062 |
-| Apple Music only for named music? | M6 | OWNER (OQ-IOS-7) | needed by T-072 |
-| CarPlay category | M7 | OWNER (OQ-IOS-8) | needed by T-080 |
+| Apple Music only for named music? | M6 | OWNER (OQ-IOS-7) | DECIDED 2026-10-27: no named music; T-072 not applicable |
+| CarPlay category | M7 | OWNER (OQ-IOS-8) | DECIDED 2026-10-27: skip CarPlay; T-080 not applicable |
 | Ephemeral-token backend | release | OWNER (OQ-IOS-15) | not blocking |
 
 The Android test tables (guards, context resolver, vehicle golden files, uplink-gate PCM corpus,

@@ -722,31 +722,29 @@
     },
     {
       "id": "T-072",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
       "priority": 40,
       "action": "F-13 MusicKitPlayer (NamedMusicPort) built in NovaPlatform, not wired until OQ-IOS-7",
       "depends_on": [
         "T-032"
       ],
       "evidence": [
-        "Build only (CI xcode); wiring waits on the OWNER decision OQ-IOS-7; now-playing check needs a device (OQ-IOS-11)"
-      ],
-      "blocked_by": "MusicKitPlayer built (CI xcode); wiring needs OWNER OQ-IOS-7, now-playing check needs a device (OQ-IOS-11)"
+        "Owner 2026-10-27 OQ-IOS-7: no named music. MusicToolHandler without NamedMusicPort answers MUSIC_HANDOFF_UNAVAILABLE (play/pause/next unaffected); MusicKitPlayer stays unwired"
+      ]
     },
     {
       "id": "T-080",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
       "priority": 40,
       "action": "CarPlay template scene (status + choice list, taps as UIIntent), inert until entitlement",
       "depends_on": [
         "T-047"
       ],
       "evidence": [
-        "Build only (CI xcode); needs the CarPlay entitlement and OQ-IOS-8 category; CarPlay Simulator test not run"
-      ],
-      "blocked_by": "scene built (CI xcode); needs the CarPlay entitlement, OWNER OQ-IOS-8 and the CarPlay Simulator (Mac)"
+        "Owner 2026-10-27 OQ-IOS-8: skip CarPlay (M7 optional); scene code stays inert, no entitlement requested"
+      ]
     },
     {
       "id": "T-042b",
