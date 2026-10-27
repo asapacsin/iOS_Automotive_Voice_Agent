@@ -938,6 +938,73 @@
         "T-071f"
       ],
       "evidence": []
+    },
+    {
+      "id": "T-013a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 15,
+      "action": "F-04a SpeechClassifier port + SpeechConfirmation gate rule (confirming state, fallback, 抗噪 switch); unit",
+      "depends_on": [
+        "T-013"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "T-013b",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 15,
+      "action": "F-04a NovaAudio SoundAnalysisSpeechClassifier; voice processing pinned; build, D",
+      "depends_on": [
+        "T-013a"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "T-013c",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 15,
+      "action": "F-04a barge-in uses speech confirmation; 音频测试 line; 设置 抗噪 switch; unit, S, D",
+      "depends_on": [
+        "T-013a"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "T-013d",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 15,
+      "action": "F-04a noise corpus fixtures + corpus tests; unit",
+      "depends_on": [
+        "T-013a"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "T-042a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 15,
+      "action": "F-16a CoreLocationProvider first-fix wait, authorization changes, denied state; SwitchableLocationProvider; unit, build",
+      "depends_on": [
+        "T-042"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "T-046a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 15,
+      "action": "F-16a query_live_info current_location (regeo address), codes, catalog + persona; unit, contract, D",
+      "depends_on": [
+        "T-046",
+        "T-042a"
+      ],
+      "evidence": []
     }
   ]
 }
