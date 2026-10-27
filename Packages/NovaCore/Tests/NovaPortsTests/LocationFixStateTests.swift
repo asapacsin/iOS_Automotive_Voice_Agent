@@ -101,7 +101,9 @@ struct LocationFixStateTests {
         #expect(state.authorizationChanged(.authorized) == nil)
         #expect(await state.awaitFix() == nil)
         #expect(clock.pendingSleepers == 0)
-        #expect(state.resume() == .startUpdates)
+        #expect(state.mayStartUpdates() == false)
+        #expect(state.resume() == .requestAndStart)
+        #expect(state.mayStartUpdates())
         #expect(state.resume() == nil)
         #expect(state.authorizationChanged(.authorized) == .startUpdates)
     }
@@ -117,5 +119,31 @@ struct LocationFixStateTests {
         #expect(await task.value == nil)
         #expect(clock.pendingSleepers == 0)
         #expect(clock.now == .zero)
+    }
+
+    @Test("session started in the background asks permission and starts on first foreground")
+    func backgroundStartThenForeground() {
+        let clock = ManualClock()
+        let state = LocationFixState(clock: clock, permission: .notDetermined)
+        #expect(state.pause() == nil)
+        #expect(state.start() == nil)  // paused: nothing starts, the need is recorded
+        #expect(state.mayStartUpdates() == false)
+        #expect(state.resume() == .requestAndStart)
+        #expect(state.mayStartUpdates())
+        #expect(state.start() == nil)
+    }
+
+    @Test("a start that loses the race to pause is suppressed; pause/resume cycles")
+    func startPauseRace() {
+        let clock = ManualClock()
+        let state = LocationFixState(clock: clock, permission: .authorized)
+        #expect(state.start() == .requestAndStart)
+        #expect(state.pause() == .stopUpdates)  // runs before the start hop reaches the main actor
+        #expect(state.mayStartUpdates() == false)
+        #expect(state.resume() == .requestAndStart)
+        #expect(state.pause() == .stopUpdates)
+        #expect(state.authorizationChanged(.denied) == .stopUpdates)
+        #expect(state.resume() == nil)  // denied: no restart
+        #expect(state.mayStartUpdates() == false)
     }
 }

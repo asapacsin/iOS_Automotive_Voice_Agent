@@ -41,7 +41,8 @@ public final class LocationFixState: Sendable {
     public var isPaused: Bool { state.withLock { $0.paused } }
     public var latest: LocationFix? { state.withLock { $0.latest } }
 
-    /// First need: returns `.requestAndStart` once (not while paused); nil afterwards.
+    /// First need: returns `.requestAndStart` once. While paused (session began in the background) the need
+    /// is recorded but nothing starts; `resume()` then asks permission and starts.
     public func start() -> ManagerAction? {
         state.withLock { s -> ManagerAction? in
             defer { s.started = true }
@@ -61,7 +62,8 @@ public final class LocationFixState: Sendable {
     public func resume() -> ManagerAction? {
         state.withLock { s -> ManagerAction? in
             defer { s.paused = false }
-            return s.started && s.paused && s.permission != .denied ? .startUpdates : nil
+            // `.requestAndStart` asks When In Use only if still not determined (background start never asked).
+            return s.started && s.paused && s.permission != .denied ? .requestAndStart : nil
         }
     }
 
@@ -77,6 +79,11 @@ public final class LocationFixState: Sendable {
             case .notDetermined: return nil
             }
         }
+    }
+
+    /// Re-check just before a start action reaches the manager: false once a later `pause()` won the race.
+    public func mayStartUpdates() -> Bool {
+        state.withLock { $0.started && !$0.paused && $0.permission != .denied }
     }
 
     public func receive(_ fix: LocationFix) {
