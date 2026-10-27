@@ -35,4 +35,9 @@ public actor LiveInfoCache: WeatherService, ReverseGeocoder {
         adcodes[key] = (code, clock.now)
         return code
     }
+
+    /// F-16a 「我现在在哪？」: never cached, the street changes as the car moves.
+    public func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress? {
+        try await geocoder.address(at: coordinate)
+    }
 }

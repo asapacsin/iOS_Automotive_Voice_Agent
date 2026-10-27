@@ -226,10 +226,6 @@ public protocol ReverseGeocoder: Sendable {
     func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress?
 }
 
-public extension ReverseGeocoder {
-    func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress? { nil }
-}
-
 public struct StaticMapRequest: Sendable, Hashable {
     public let center: GeoCoordinate
     public let zoom: Int

@@ -16,6 +16,9 @@ final class CountingWeather: WeatherService, ReverseGeocoder, @unchecked Sendabl
         calls.withLock { $0.regeo += 1 }
         return "440402"
     }
+    func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress? {
+        PlaceAddress(formatted: "广东省珠海市香洲区情侣中路", district: "香洲区", road: "情侣中路")
+    }
 }
 
 @Suite("T-033 F-18 live-info caches")
@@ -44,5 +47,13 @@ struct LiveInfoCacheTests {
         clock.advance(by: .minutes(1))
         _ = try await cache.adcode(at: here)
         #expect(source.calls.withLock { $0.regeo } == 2)
+    }
+
+    @Test("F-16a 「我现在在哪？」: the cache passes the regeo address through (it used to answer nil)")
+    func addressPassesThrough() async throws {
+        let source = CountingWeather()
+        let cache = LiveInfoCache(weather: source, geocoder: source, clock: ManualClock())
+        let address = try await cache.address(at: GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .gcj02))
+        #expect(address?.formatted == "广东省珠海市香洲区情侣中路")
     }
 }
