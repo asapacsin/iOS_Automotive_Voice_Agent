@@ -16,7 +16,7 @@
     {
       "id": "H-ios-min",
       "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
+      "status": "PASS",
       "priority": 5,
       "action": "Decide minimum iOS version (OQ-IOS-12)",
       "depends_on": [],
@@ -29,7 +29,10 @@
           "iOS 18 (proposed: Observation + Synchronization.Mutex)",
           "iOS 26.4 (needed only for CarPlay voice-conversational)"
         ]
-      }
+      },
+      "evidence": [
+        "iOS 18.0 recorded in specs/open-questions.md OQ-IOS-12; iOS 26.4 option moot after owner skipped CarPlay (OQ-IOS-8, 2026-10-27)"
+      ]
     },
     {
       "id": "H-keys",

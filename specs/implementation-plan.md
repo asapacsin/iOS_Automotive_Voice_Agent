@@ -11,7 +11,7 @@ the reviewer verdicts PASS / REWORK / BLOCKED / NOT_VERIFIED. Paths are relative
 | Need | For | Who | Status |
 |---|---|---|---|
 | A Mac with Xcode (Swift 6) and a physical iPhone; an Apple developer account | all; device rows | OWNER | needed by T-000 |
-| Minimum iOS version (iOS 18 proposed) | T-000 | OWNER (OQ-IOS-12) | open |
+| Minimum iOS version (iOS 18 proposed) | T-000 | OWNER (OQ-IOS-12) | DECIDED: iOS 18.0 |
 | Gemini API key + consent, Azure Speech key + voice | M1 | OWNER | needed by T-003 |
 | Amap iOS SDK key (bound to the bundle id) + Amap Web key | M0 spike, M3 | OWNER | needed by T-002 |
 | iFlytek iOS SDK downloaded for the same app id | M5 | OWNER (OQ-IOS-1) | needed by T-060 |
