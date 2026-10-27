@@ -60,7 +60,7 @@ struct SettingsView: View {
                 }
                 Section("声音") {
                     Toggle("抗噪", isOn: $noiseSuppression)
-                    Text("开：只有人声才会打开麦克风或打断小诺，喇叭、音乐、路噪不会。下次开始对话时生效。")
+                    Text("开：只有人声才会打开麦克风或打断小诺，喇叭、音乐、路噪不会。切换后立即生效。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("位置来源") {

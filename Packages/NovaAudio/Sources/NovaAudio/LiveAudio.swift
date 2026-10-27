@@ -3,6 +3,7 @@ import Foundation
 import NovaKit
 import NovaPorts
 import NovaVoice
+import os
 
 /// One voice-processing `AVAudioEngine` (ios-architecture §6.4): echo-cancelled 16 kHz capture, a reply
 /// lane with epoch flush, and a guidance lane. Apple voice processing is the G0 choice for now
@@ -47,13 +48,18 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
         try session.setActive(true)
-        try engine.inputNode.setVoiceProcessingEnabled(true)
-        // F-04a §4 layer 1: echo cancellation, noise suppression and AGC stay on; her own playback is not
-        // ducked into the mic path.
-        engine.inputNode.isVoiceProcessingBypassed = false
-        engine.inputNode.isVoiceProcessingAGCEnabled = true
-        engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
-            AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
+        do {
+            try engine.inputNode.setVoiceProcessingEnabled(true)
+            // F-04a §4 layer 1: echo cancellation, noise suppression and AGC stay on; her own playback is
+            // not ducked into the mic path.
+            engine.inputNode.isVoiceProcessingBypassed = false
+            engine.inputNode.isVoiceProcessingAGCEnabled = true
+            engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
+                AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
+        } catch {
+            // §4/§8: capture keeps going without it; the classifier and gate (layers 2-3) still apply.
+            Logger(subsystem: "com.asapacsin.novadrive", category: "audio").error("VOICE_PROCESSING_OFF")
+        }
         engine.inputNode.installTap(onBus: 0, bufferSize: 480, format: nil) { [weak self] buffer, _ in
             self?.capture(buffer)
         }
