@@ -11,5 +11,6 @@ for pkg in NovaCore NovaRealtime NovaServices; do
   swift build --package-path "$root/Packages/$pkg" -Xswiftc -warnings-as-errors
   if [ -d "$root/Packages/$pkg/Tests" ]; then swift test --package-path "$root/Packages/$pkg"; fi
 done
+python3 "$root/scripts/ios_spec_check.py"
 python3 "$root/scripts/gates/spec_trace.py" "$@"
 echo "gates: PASS"
