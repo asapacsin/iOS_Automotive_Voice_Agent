@@ -91,4 +91,65 @@ struct SpeechConfirmationTests {
         }
         #expect(offStarted == 19 && plainStarted == 19)
     }
+
+    @Test("a hold during confirming drops the onset and its pre-roll; after the hold a fresh onset is confirmed")
+    func holdDuringConfirming() {
+        var gate = warmGate(horn)
+        // 22 voiced frames: the onset (20) is reached and waits for confirmation.
+        let (before, startedBefore) = feed(&gate, PCM.tone(peak: 4_000, frames: 22), horn)
+        #expect(startedBefore == nil && before.isEmpty)
+        #expect(gate.setForcedClosed(true).isEmpty)
+        let (held, startedHeld) = feed(&gate, PCM.tone(peak: 4_000, frames: 60), speech)
+        #expect(startedHeld == nil && held.isEmpty)
+        _ = gate.setForcedClosed(false)
+        let (after, startedAfter) = feed(&gate, PCM.tone(peak: 4_000, frames: 60), speech)
+        let started = try? #require(startedAfter)
+        // A fresh onset is needed after the hold.
+        #expect((started ?? 0) >= 19)
+        // Nothing buffered before or during the hold is uploaded: at most one frame per frame fed since.
+        let audio = after.filter { if case .audio = $0 { true } else { false } }
+        #expect(audio.count <= 60)
+    }
+
+    @Test("抗噪 switched off mid-session applies at once; switched on again it confirms again")
+    func suppressionToggledMidSession() {
+        var gate = warmGate(horn)
+        let (_, rejected) = feed(&gate, PCM.tone(peak: 4_000, frames: 120), horn)
+        #expect(rejected == nil && gate.rejections >= 1)
+        _ = feed(&gate, PCM.noise(rms: 60, frames: 100), horn)
+        gate.suppressionEnabled = false
+        let (_, offStarted) = feed(&gate, PCM.tone(peak: 4_000, frames: 40), horn)
+        #expect(offStarted == 19)
+        // Let the segment close (hangover 1200 ms), then switch back on.
+        _ = feed(&gate, PCM.noise(rms: 60, frames: 300), horn)
+        #expect(gate.phase == .closed)
+        gate.suppressionEnabled = true
+        let (_, onStarted) = feed(&gate, PCM.tone(peak: 4_000, frames: 120), horn)
+        #expect(onStarted == nil)
+    }
+
+    @Test("a classifier silent for longer than activeTimeout no longer delays an onset (F-04 at once)")
+    func classifierActiveExpires() {
+        var gate = warmGate(horn)
+        // 2.5 s with no results at all.
+        for frame in PCM.noise(rms: 60, frames: 250) { _ = gate.process(frame) }
+        #expect(!gate.classifierFresh)
+        var started: Int?
+        for (i, frame) in PCM.tone(peak: 4_000, frames: 40).enumerated() where started == nil {
+            if gate.process(frame).contains(.speechStarted) { started = i }
+        }
+        #expect(started == 19)
+    }
+
+    @Test("resetClassifier forgets results: the gate is F-04 until the classifier speaks again")
+    func resetClassifierOnLifecycle() {
+        var gate = warmGate(horn)
+        gate.resetClassifier()
+        #expect(!gate.classifierFresh && gate.lastSpeechProbability == nil)
+        var started: Int?
+        for (i, frame) in PCM.tone(peak: 4_000, frames: 40).enumerated() where started == nil {
+            if gate.process(frame).contains(.speechStarted) { started = i }
+        }
+        #expect(started == 19)
+    }
 }

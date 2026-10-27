@@ -10,14 +10,16 @@ import SoundAnalysis
 /// windows with 0.75 overlap (a result about every 125 ms), on its own queue so capture never waits.
 /// Only labels leave this type; no audio is stored or uploaded (I-8).
 public final class SoundAnalysisSpeechClassifier: NSObject, SpeechClassifier, SNResultsObserving, @unchecked Sendable {
-    /// Human-voice labels of the version 1 classifier; singing is music, not a command.
-    static let speechLabels: Set<String> = ["speech", "conversation", "shout", "yell", "whispering"]
+    /// Human-voice labels of the version 1 classifier (spec §4 list only); singing is music, not a command.
+    static let speechLabels: Set<String> = ["speech", "conversation", "shout", "whispering"]
 
     private let queue = DispatchQueue(label: "nova.speech-classifier")
     private let logger = Logger(subsystem: "com.asapacsin.novadrive", category: "audio")
     private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(PCMFrame16k.sampleRate),
                                        channels: 1, interleaved: false)!
     private var analyzer: SNAudioStreamAnalyzer?
+    /// Set by `start`/`stop`, read on SoundAnalysis's result thread: guarded by `resultLock`.
+    private let resultLock = NSLock()
     private var onResult: (@Sendable (SpeechClassification) -> Void)?
     private var position: AVAudioFramePosition = 0
 
@@ -29,8 +31,8 @@ public final class SoundAnalysisSpeechClassifier: NSObject, SpeechClassifier, SN
         request.overlapFactor = 0.75
         let analyzer = SNAudioStreamAnalyzer(format: format)
         try analyzer.add(request, withObserver: self)
+        resultLock.withLock { self.onResult = onResult }
         queue.sync {
-            self.onResult = onResult
             self.analyzer = analyzer
             self.position = 0
         }
@@ -53,7 +55,7 @@ public final class SoundAnalysisSpeechClassifier: NSObject, SpeechClassifier, SN
         queue.async { [self] in
             analyzer?.removeAllRequests()
             analyzer = nil
-            onResult = nil
+            resultLock.withLock { onResult = nil }
         }
     }
 
@@ -70,7 +72,8 @@ public final class SoundAnalysisSpeechClassifier: NSObject, SpeechClassifier, SN
                 other = (item.identifier, item.confidence)
             }
         }
-        onResult?(SpeechClassification(speechProbability: speech, topNonSpeech: other?.label))
+        let deliver = resultLock.withLock { onResult }
+        deliver?(SpeechClassification(speechProbability: speech, topNonSpeech: other?.label))
     }
 
     public func request(_ request: any SNRequest, didFailWithError error: any Error) {

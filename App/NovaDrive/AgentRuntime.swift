@@ -217,6 +217,8 @@ final class AgentRuntime {
     private var session = 0
     private var audio: LiveAudio?
     private var classifier: SoundAnalysisSpeechClassifier?
+    /// F-04a: re-reads the 抗噪 switch when UserDefaults change during a session.
+    private var defaultsObserver: NSObjectProtocol?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
     let camera = CameraSession()
@@ -499,9 +501,12 @@ final class AgentRuntime {
         // session once the short goodbye has had time to play (PROPOSED 3 s).
         session += 1
         let thisSession = session
+        let gate = GateBox()
         let lifecycle = ConversationLifecycle(clock: SystemClock()) { effects in
             // Any state change re-applies the background policy (T-062).
             if effects.contains(where: { if case .stateChanged = $0 { true } else { false } }) {
+                // F-04a §6: lifecycle changes reset the classifier state.
+                gate.resetClassifier()
                 Task { @MainActor in
                     guard self.session == thisSession, self.scene == .background else { return }
                     await self.reevaluate()
@@ -526,7 +531,6 @@ final class AgentRuntime {
         let instruction = PersonaInstruction.build(base: Persona.instruction, style: SpeakingStyle.saved(in: settings))
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         let config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
-        let gate = GateBox()
         let ended = CoreRelay()
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
@@ -624,6 +628,12 @@ final class AgentRuntime {
         // F-04a: the sound classifier confirms that an onset is a human voice; if it cannot start, the gate
         // keeps F-04 rules (it only confirms once a result has arrived).
         gate.setSuppression(DriveSettings.usesNoiseSuppression())
+        // §6: the 抗噪 switch also applies when changed mid-session.
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
+                                                                  object: nil, queue: nil) { _ in
+            gate.setSuppression(DriveSettings.usesNoiseSuppression())
+        }
         let classifier = SoundAnalysisSpeechClassifier()
         do {
             try classifier.start { result in gate.classified(result) }
@@ -664,6 +674,8 @@ final class AgentRuntime {
         let audio = audio
         classifier?.stop()
         classifier = nil
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        defaultsObserver = nil
         Task {
             await core.send(.stop)
             audio?.stop()
@@ -699,6 +711,23 @@ final class GateBox: @unchecked Sendable {
     /// F-04a: classifier results arrive on the classifier's queue; the lock orders them with frames.
     func classified(_ result: SpeechClassification) { lock.withLock { gate.classified(result) } }
     func setSuppression(_ on: Bool) { lock.withLock { gate.suppressionEnabled = on } }
+    /// F-04a §6: called on every lifecycle change.
+    func resetClassifier() { lock.withLock { gate.resetClassifier() } }
+
+    /// 音频测试 labels for common SoundAnalysis identifiers; anything else shows its raw id.
+    static let rejectionLabels: [String: String] = [
+        "car_horn": "喇叭", "air_horn": "喇叭", "honk": "喇叭",
+        "music": "音乐", "singing": "唱歌", "siren": "警笛", "emergency_vehicle": "警笛",
+        "police_siren": "警笛", "ambulance_siren": "警笛", "fire_engine_siren": "警笛",
+        "engine": "发动机", "engine_idling": "发动机", "engine_starting": "发动机",
+        "car_passing_by": "路过车辆", "traffic_noise": "交通噪声", "wind": "风声", "wind_noise_microphone": "风噪",
+        "rain": "雨声", "door": "关门", "door_slam": "关门", "dog": "狗叫", "dog_bark": "狗叫",
+        "typing": "键盘", "typing_computer_keyboard": "键盘", "telephone_bell_ringing": "铃声",
+        "ringtone": "铃声", "laughter": "笑声", "cough": "咳嗽", "clapping": "拍手",
+        "tick": "滴答声", "tick_tock": "滴答声",
+    ]
+
+    static func rejectionLabel(_ id: String) -> String { rejectionLabels[id] ?? id }
 
     /// 「语音概率 0.91 · 噪声 62 dB · 上次拒绝：car_horn」, labels only.
     var diagnostics: String {
@@ -706,8 +735,10 @@ final class GateBox: @unchecked Sendable {
             guard gate.suppressionEnabled else { return "抗噪已关闭" }
             let probability = gate.lastSpeechProbability.map { String(format: "%.2f", $0) } ?? "—"
             let decibels = Int((20 * log10(max(gate.noiseRMS, 1) / 32_768) + 96).rounded())
-            let rejected = gate.lastRejection.map { "上次拒绝：\($0)（共 \(gate.rejections) 次）" } ?? "未拒绝"
-            return gate.lastSpeechProbability == nil
+            let rejected = gate.lastRejection.map { "上次拒绝：\(Self.rejectionLabel($0))（共 \(gate.rejections) 次）" }
+                ?? "未拒绝"
+            // A stale probability is not shown as live: the classifier failed or stopped sending results.
+            return !gate.classifierFresh
                 ? "抗噪不可用（分类器没有结果）· 噪声 \(decibels) dB"
                 : "语音概率 \(probability) · 噪声 \(decibels) dB · \(rejected)"
         }
