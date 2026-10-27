@@ -27,6 +27,7 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.azureRegion) private var azureRegion = ""
     @AppStorage(DriveSettings.azureVoice) private var azureVoice = DriveSettings.defaultVoice
     @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
+    @AppStorage(DriveSettings.noiseSuppression) private var noiseSuppression = true
     @StateObject private var locationPermission = LocationPermission()
 
     var body: some View {
@@ -56,6 +57,11 @@ struct SettingsView: View {
                     TextField("声音", text: $azureVoice)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                }
+                Section("声音") {
+                    Toggle("抗噪", isOn: $noiseSuppression)
+                    Text("开：只有人声才会打开麦克风或打断小诺，喇叭、音乐、路噪不会。下次开始对话时生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("位置来源") {
                     Picker("位置来源", selection: $useDeviceLocation) {

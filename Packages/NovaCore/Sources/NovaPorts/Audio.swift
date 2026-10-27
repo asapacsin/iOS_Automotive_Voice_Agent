@@ -122,3 +122,23 @@ public protocol WakeWordDetector: Sendable {
     func feed(_ frame: PCMFrame16k)
     var events: AsyncStream<WakeEvent> { get }
 }
+
+/// F-04a: one result of the on-device sound classifier for a 0.5 s window of cleaned mic audio.
+public struct SpeechClassification: Sendable, Hashable {
+    /// Highest of the speech-like labels (speech, conversation, shout, whispering), 0...1.
+    public let speechProbability: Double
+    /// The best non-speech label (for example car_horn or music), for diagnostics only.
+    public let topNonSpeech: String?
+
+    public init(speechProbability: Double, topNonSpeech: String?) {
+        self.speechProbability = speechProbability
+        self.topNonSpeech = topNonSpeech
+    }
+}
+
+/// F-04a: classifies cleaned 16 kHz frames off the capture path; results arrive on its own queue.
+public protocol SpeechClassifier: Sendable {
+    func start(onResult: @escaping @Sendable (SpeechClassification) -> Void) throws
+    func feed(_ frame: PCMFrame16k)
+    func stop()
+}

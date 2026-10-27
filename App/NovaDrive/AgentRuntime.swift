@@ -32,6 +32,8 @@ final class DriveModel: ObservableObject {
     // F-20b 前方/后方 and the switch button (disabled without a selfie lens)
     @Published var cameraLens = CameraLens.frontView
     @Published var cameraSwitching = false
+    /// F-04a diagnostics for 音频测试: speech probability, noise level, last rejection.
+    @Published var noiseLine = ""
 }
 
 /// Non-secret settings of the drive screen (UserDefaults).
@@ -45,6 +47,12 @@ enum DriveSettings {
     static let demoOrigin = GeoCoordinate(latitude: 22.270715, longitude: 113.576726, datum: .gcj02)
     /// F-16a 位置来源: on (default) = the phone's own fix; off = the demo start point for recordings (REC-003).
     static let useDeviceLocation = "use_device_location"
+    /// F-04a 抗噪: only a human voice opens the mic or interrupts her (default on).
+    static let noiseSuppression = "noise_suppression"
+
+    static func usesNoiseSuppression(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: noiseSuppression) as? Bool ?? true
+    }
 
     static func usesDeviceLocation(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: useDeviceLocation) as? Bool ?? true
@@ -208,6 +216,7 @@ final class AgentRuntime {
     /// Bumped per session so a delayed end_conversation stop never ends a newer session.
     private var session = 0
     private var audio: LiveAudio?
+    private var classifier: SoundAnalysisSpeechClassifier?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
     let camera = CameraSession()
@@ -612,8 +621,28 @@ final class AgentRuntime {
         gate.onOutput(route)
         // One capture only (ADR-006): the wake listener lets go of the mic before the session takes it.
         await wake.update(sessionRunning: true)
+        // F-04a: the sound classifier confirms that an onset is a human voice; if it cannot start, the gate
+        // keeps F-04 rules (it only confirms once a result has arrived).
+        gate.setSuppression(DriveSettings.usesNoiseSuppression())
+        let classifier = SoundAnalysisSpeechClassifier()
         do {
-            try audio.start { frame in gate.process(frame).forEach(route) }
+            try classifier.start { result in gate.classified(result) }
+        } catch {
+            RuntimeLog.agent.error("SPEECH_CLASSIFIER_FAILED")
+        }
+        self.classifier = classifier
+        tasks.append(Task { [model] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                let line = gate.diagnostics
+                await MainActor.run { model.noiseLine = line }
+            }
+        })
+        do {
+            try audio.start { frame in
+                classifier.feed(frame)
+                gate.process(frame).forEach(route)
+            }
         } catch {
             model.notice = "麦克风启动失败"
             stop()
@@ -633,6 +662,8 @@ final class AgentRuntime {
         lifecycle = nil
         guard let core else { return }
         let audio = audio
+        classifier?.stop()
+        classifier = nil
         Task {
             await core.send(.stop)
             audio?.stop()
@@ -664,6 +695,23 @@ final class GateBox: @unchecked Sendable {
 
     func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] { lock.withLock { gate.process(frame) } }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
+
+    /// F-04a: classifier results arrive on the classifier's queue; the lock orders them with frames.
+    func classified(_ result: SpeechClassification) { lock.withLock { gate.classified(result) } }
+    func setSuppression(_ on: Bool) { lock.withLock { gate.suppressionEnabled = on } }
+
+    /// 「语音概率 0.91 · 噪声 62 dB · 上次拒绝：car_horn」, labels only.
+    var diagnostics: String {
+        lock.withLock {
+            guard gate.suppressionEnabled else { return "抗噪已关闭" }
+            let probability = gate.lastSpeechProbability.map { String(format: "%.2f", $0) } ?? "—"
+            let decibels = Int((20 * log10(max(gate.noiseRMS, 1) / 32_768) + 96).rounded())
+            let rejected = gate.lastRejection.map { "上次拒绝：\($0)（共 \(gate.rejections) 次）" } ?? "未拒绝"
+            return gate.lastSpeechProbability == nil
+                ? "抗噪不可用（分类器没有结果）· 噪声 \(decibels) dB"
+                : "语音概率 \(probability) · 噪声 \(decibels) dB · \(rejected)"
+        }
+    }
     /// Where outputs that do not come from a frame go (the force-close of an open segment).
     private var forward: (@Sendable (UplinkGateOutput) -> Void)?
 

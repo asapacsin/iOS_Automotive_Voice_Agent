@@ -48,6 +48,12 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
         try session.setActive(true)
         try engine.inputNode.setVoiceProcessingEnabled(true)
+        // F-04a §4 layer 1: echo cancellation, noise suppression and AGC stay on; her own playback is not
+        // ducked into the mic path.
+        engine.inputNode.isVoiceProcessingBypassed = false
+        engine.inputNode.isVoiceProcessingAGCEnabled = true
+        engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
+            AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
         engine.inputNode.installTap(onBus: 0, bufferSize: 480, format: nil) { [weak self] buffer, _ in
             self?.capture(buffer)
         }

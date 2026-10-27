@@ -6,10 +6,16 @@ struct AudioSpikeView: View {
     @State private var voiceProcessing = true
     @State private var running = false
     @State private var report: String?
+    @ObservedObject private var drive = RuntimeHolder.shared.runtime.model
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("抗噪（对话进行中）") {
+                    Text(drive.running ? (drive.noiseLine.isEmpty ? "等待数据…" : drive.noiseLine) : "在「驾驶」里开始对话后显示")
+                        .font(.footnote.monospacedDigit())
+                        .accessibilityIdentifier("noise-line")
+                }
                 Section {
                     Text("把音量调到最大，测试时保持安静。手机会播放 10 次类似说话的声音，检查麦克风是否把它误当成你在说话。约 30 秒。")
                     Toggle("Apple 回声消除", isOn: $voiceProcessing)
