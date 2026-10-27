@@ -127,8 +127,11 @@ public enum ToolCatalog {
             guard let n = str("name") else { return .invalidFieldType }
             if !scenarios.contains(n) { return .invalidFieldValue }
         case "describe_camera_view":
-            if keys != ["question"] { return .invalidFields }
+            if !keys.contains("question") || !keys.isSubset(of: ["question", "camera"]) { return .invalidFields }
             guard let q = str("question") else { return .invalidFieldType }
+            if keys.contains("camera") && str("camera").flatMap(CameraLens.init(rawValue:)) == nil {
+                return .invalidFieldValue
+            }
             if trimmed(q).isEmpty { return .blankQuestion }
             if q.utf16.count > 200 { return .questionTooLong }
         case "place_call":

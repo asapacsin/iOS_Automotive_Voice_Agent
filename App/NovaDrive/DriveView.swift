@@ -47,12 +47,19 @@ private struct CameraPreview: UIViewRepresentable {
     func updateUIView(_ view: Host, context: Context) {}
 }
 
-/// F-20a floating window: live back camera, 问一下 and ×; drag to any corner.
+/// F-20a floating window: live camera, 问一下 and ×; drag to any corner. F-20b: 前方/后方 label and switch.
 private struct CameraWindow: View {
     @ObservedObject var model: DriveModel
     let runtime: AgentRuntime
     @State private var corner: Alignment = .topTrailing
     @State private var drag: CGSize = .zero
+    private let canSwitch: Bool
+
+    init(model: DriveModel, runtime: AgentRuntime) {
+        self.model = model
+        self.runtime = runtime
+        canSwitch = runtime.camera.hasRearLens
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -66,6 +73,10 @@ private struct CameraWindow: View {
                     }
                     .padding(4)
                     .accessibilityIdentifier("camera-close")
+                    Text(model.cameraLens == .rearView ? "后方" : "前方").font(.caption2.weight(.semibold)).padding(.horizontal, 6)
+                        .padding(.vertical, 2).background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(6)
+                        .accessibilityIdentifier("camera-lens")
                     if model.cameraAsking {
                         Text("看画面中…").font(.caption2).padding(4)
                             .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.white)
@@ -75,6 +86,13 @@ private struct CameraWindow: View {
                 HStack {
                     Text(model.cameraAnswer ?? " ").font(.caption2).lineLimit(3)
                     Spacer(minLength: 4)
+                    Button { Task { await runtime.switchCamera() } } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath.camera")
+                    }
+                    .font(.caption.weight(.semibold)).buttonStyle(.bordered)
+                    .disabled(!canSwitch || model.cameraSwitching)
+                    .accessibilityLabel(model.cameraLens == .rearView ? "切换到前方" : "切换到后方")
+                    .accessibilityIdentifier("camera-switch")
                     Button("问一下") { Task { await runtime.tapAsk() } }
                         .font(.caption.weight(.semibold)).buttonStyle(.bordered)
                         .disabled(model.cameraAsking)
