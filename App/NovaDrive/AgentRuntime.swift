@@ -365,20 +365,29 @@ final class AgentRuntime {
     func sceneChanged(_ phase: AppScenePhase) async {
         scene = phase
         // F-16a §5: When In Use only, so location updates pause in the background.
-        if let deviceLocation {
-            switch phase {
-            case .background: await deviceLocation.pause()
-            case .foreground: await deviceLocation.resume()
-            default: break
-            }
+        switch phase {
+        case .background: await deviceLocation.pause()
+        case .foreground: await deviceLocation.resume()
+        default: break
         }
         if !UITestDrive.enabled { await wake.update(scene: phase) }
         await reevaluate()
     }
 
     private var scene = AppScenePhase.foreground
-    /// F-16a: the phone's location provider of the running session (paused in the background).
-    private var deviceLocation: CoreLocationProvider?
+    /// F-16a: the clock that judges fixes, and the phone's location provider. Both live as long as the app,
+    /// so a new session keeps the fix it already has; a per-session provider started from nothing and
+    /// answered 「还没定位到」 for ~40 s indoors (phone log 2026-10-28). Paused in the background.
+    private let navigationClock = SystemClock()
+    private lazy var deviceLocation = CoreLocationProvider(clock: navigationClock)
+
+    /// Starts location at launch when permission was already given, so the first question has a fix.
+    /// A first-time permission is still asked at first need (F-23).
+    func warmLocation() async {
+        guard !UITestDrive.enabled, DriveSettings.usesDeviceLocation(),
+              await deviceLocation.authorization() == .authorized else { return }
+        await deviceLocation.start()
+    }
     private var stopPending = false
 
     /// Re-applied on every scene, lifecycle or navigation change (§11.3), not only on a scene change:
@@ -481,10 +490,9 @@ final class AgentRuntime {
         let audio = LiveAudio()
         let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials())
         let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
-        let navigationClock = SystemClock()
+        let navigationClock = self.navigationClock
+        let device = deviceLocation
         // F-16a: read per request, so switching 位置来源 in 设置 applies to the next question.
-        let device = CoreLocationProvider(clock: navigationClock)
-        deviceLocation = device
         let location = SwitchableLocationProvider(device: device,
                                                   demo: DemoLocation(clock: navigationClock),
                                                   useDevice: { DriveSettings.usesDeviceLocation() })
@@ -739,6 +747,7 @@ final class AgentRuntime {
     /// Applies the wake policy at launch and after settings change.
     func refreshWake() async {
         guard !UITestDrive.enabled else { return }
+        await warmLocation()
         await wake.update(sessionRunning: model.running)
     }
 }
