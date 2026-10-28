@@ -5,12 +5,12 @@ import Testing
 
 @Suite("T-022 F-08 minimal arbiter")
 struct SpeechArbiterTests {
-    @Test("F-08 W2 qualified barge-in: flush first, then cancel revoicing, then notify; new epoch")
+    @Test("F-08 W2 stop-phrase barge-in: flush first, then cancel revoicing, then notify; new epoch")
     func bargeInOrder() {
         var a = SpeechArbiter()
         _ = a.handle(.replyPlaying(true))
         let e = a.epoch.next()
-        let effects = a.handle(.speechStarted(recentSpeech: true))
+        let effects = a.handle(.stopPhrase)
         #expect(effects == [.flushPlayback(e), .cancelRevoicing(e), .bargeIn(qualified: true)])
         #expect(a.epoch == e && !a.replyPlaying)
     }
@@ -25,7 +25,7 @@ struct SpeechArbiterTests {
         _ = q.handle(.synthesized(epoch: old, sequence: 0, .success(pcm)))
         _ = a.handle(.replyPlaying(true))
         var played: [RevoicerOutput] = []
-        for effect in a.handle(.speechStarted(recentSpeech: true)) {
+        for effect in a.handle(.stopPhrase) {
             if case .cancelRevoicing(let e) = effect { played += q.handle(.cancel(newEpoch: e)) }
         }
         played += q.handle(.synthesized(epoch: old, sequence: 1, .success(pcm)))
@@ -34,15 +34,17 @@ struct SpeechArbiterTests {
         #expect(q.epoch == a.epoch)
     }
 
-    @Test("F-08 unqualified speech over playback is residual echo: nothing is flushed")
+    @Test("F-08 owner rule 2026-10-28: sound over playback never stops her, even confirmed speech")
     func unqualified() {
         var a = SpeechArbiter()
         _ = a.handle(.replyPlaying(true))
         let before = a.epoch
         #expect(a.handle(.speechStarted(recentSpeech: false)) == [.bargeIn(qualified: false)])
+        #expect(a.handle(.speechStarted(recentSpeech: true)) == [.bargeIn(qualified: false)])
         #expect(a.epoch == before && a.replyPlaying)
         var idle = SpeechArbiter()
         #expect(idle.handle(.speechStarted(recentSpeech: true)).isEmpty)
+        #expect(idle.handle(.stopPhrase).isEmpty)
     }
 
     @Test("F-08 R1 guidance speaking holds a ready reply until guidance ends")
@@ -85,5 +87,17 @@ struct SpeechArbiterTests {
         #expect(gate.hasRecentSpeech)
         for f in PCM.noise(rms: 60, frames: 41, seed: 3) { _ = gate.process(f) }
         #expect(!gate.hasRecentSpeech)
+    }
+}
+
+@Suite("Reply language guard")
+struct ReplyLanguageTests {
+    @Test("owner rule 2026-10-28: only Mandarin; a short Latin token inside Chinese is fine")
+    func guardText() {
+        #expect(ReplyLanguage.isNotMandarin("Encontré 5 lugares, por favor dime cuál quieres."))
+        #expect(ReplyLanguage.isNotMandarin("Sure, I can help."))
+        #expect(!ReplyLanguage.isNotMandarin("找到5个地方，请问你要哪一个？"))
+        #expect(!ReplyLanguage.isNotMandarin("OK"))
+        #expect(!ReplyLanguage.isNotMandarin("已经帮你导航到 Starbucks。"))
     }
 }

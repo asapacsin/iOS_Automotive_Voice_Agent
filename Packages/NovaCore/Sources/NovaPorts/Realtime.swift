@@ -59,6 +59,9 @@ public struct ActivityDetectionConfig: Sendable, Hashable {
     /// from the local gate. gemini-3.8-live never detects speech on its own: it stayed silent until the
     /// re-ask text arrived, then answered twice (phone log 2026-10-28).
     public var manual = false
+    /// Driver activity does not drop the model's reply (Gemini `activityHandling: NO_INTERRUPTION`).
+    /// Owner rule 2026-10-28: only a stop phrase stops her, and that is decided locally.
+    public var interruptsReply = false
     public init() {}
 }
 

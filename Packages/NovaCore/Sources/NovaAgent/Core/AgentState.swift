@@ -195,20 +195,7 @@ public struct AgentState: Sendable {
             abandonNextTurn = false
             // The driver speaks to her: a reply may claim focus again after a permanent loss (R4).
             if recentSpeech { arbiter.regainFocus() }
-            var effects: [AgentEffect] = []
-            for effect in arbiter.handle(.speechStarted(recentSpeech: recentSpeech)) {
-                switch effect {
-                case .flushPlayback(let epoch):
-                    if let turn = openTurn { silenced.insert(turn) }
-                    heldClauses = []
-                    effects.append(.flushPlayback(epoch))
-                case .cancelRevoicing(let epoch):
-                    segmenter.reset()
-                    effects.append(.cancelRevoicing(epoch))
-                case .bargeIn(let qualified):
-                    effects += session(.bargeIn(qualified: qualified), at: now)
-                }
-            }
+            let effects = bargeIn(.speechStarted(recentSpeech: recentSpeech), at: now)
             return effects + session(.speechStarted, at: now) + arbiterChanged(at: now)
         case .speechStopped:
             driverSpeaking = false
@@ -501,6 +488,25 @@ public struct AgentState: Sendable {
     }
 
     /// Raises the epoch: playback flushed, revoicing cancelled, held clauses dropped.
+    /// Arbiter barge-in effects in contract order: flush, cancel revoicing, then the session.
+    private mutating func bargeIn(_ input: ArbiterInput, at now: NovaInstant) -> [AgentEffect] {
+        var effects: [AgentEffect] = []
+        for effect in arbiter.handle(input) {
+            switch effect {
+            case .flushPlayback(let epoch):
+                if let turn = openTurn { silenced.insert(turn) }
+                heldClauses = []
+                effects.append(.flushPlayback(epoch))
+            case .cancelRevoicing(let epoch):
+                segmenter.reset()
+                effects.append(.cancelRevoicing(epoch))
+            case .bargeIn(let qualified):
+                effects += session(.bargeIn(qualified: qualified), at: now)
+            }
+        }
+        return effects
+    }
+
     private mutating func stopReply(_ turn: TurnID) -> [AgentEffect] {
         silenced.insert(turn)
         segmenter.reset()
@@ -531,6 +537,15 @@ public struct AgentState: Sendable {
             // Her own guidance reading heard back through the microphone is not the driver (F-14 §8).
             if isFinal, relay.isEcho(text, at: now) { return [] }
             transcriptEpoch = speechOnsets
+            // Barge-in is a stop phrase only (owner rule 2026-10-28). It stops her at once, and the model's
+            // answer to it is not heard: she just stops.
+            let heard = isFinal ? text : transcript + text
+            if ListeningIntent.classify(heard) == .shutUp {
+                transcript = heard
+                let stop = bargeIn(.stopPhrase, at: now)
+                if isFinal { abandonNextTurn = true }
+                return stop.isEmpty ? [] : stop + arbiterChanged(at: now)
+            }
             if isFinal {
                 transcript = text
                 // The flushed transcript of an utterance already given up on does not revive it.

@@ -28,7 +28,11 @@ public enum GeminiCodec {
             "model": .string(config.model.hasPrefix("models/") ? config.model : "models/\(config.model)"),
             "generationConfig": .object(generation),
             "systemInstruction": ["parts": [["text": .string(config.systemInstruction)]]],
-            "realtimeInputConfig": ["automaticActivityDetection": .object(detection)],
+            "realtimeInputConfig": [
+                "automaticActivityDetection": .object(detection),
+                "activityHandling": .string(config.activityDetection.interruptsReply
+                    ? "START_OF_ACTIVITY_INTERRUPTS" : "NO_INTERRUPTION"),
+            ],
             "sessionResumption": handle.map { ["handle": .string($0)] } ?? [:],
             // Lets the session outlive the server's context limit; resumption then extends it.
             "contextWindowCompression": ["slidingWindow": [:]],

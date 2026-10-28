@@ -207,6 +207,12 @@ struct GeminiClientMessageTests {
         config.activityDetection.manual = true
         let msg = GeminiCodec.setup(config, resume: nil)["setup"]
         #expect(msg?["realtimeInputConfig"]?["automaticActivityDetection"] == ["disabled": true])
+        // Owner rule 2026-10-28: driver activity never drops her reply; only a stop phrase stops her.
+        #expect(msg?["realtimeInputConfig"]?["activityHandling"] == "NO_INTERRUPTION")
+        // Owner rule 2026-10-28: driver activity never drops her reply; only a stop phrase stops her.
+        #expect(msg?["realtimeInputConfig"]?["activityHandling"] == "NO_INTERRUPTION")
+        // Owner rule 2026-10-28: driver activity never drops her reply; only a stop phrase stops her.
+        #expect(msg?["realtimeInputConfig"]?["activityHandling"] == "NO_INTERRUPTION")
         #expect(GeminiCodec.activityStart == ["realtimeInput": ["activityStart": [:]]])
         #expect(GeminiCodec.activityEnd == ["realtimeInput": ["activityEnd": [:]]])
     }

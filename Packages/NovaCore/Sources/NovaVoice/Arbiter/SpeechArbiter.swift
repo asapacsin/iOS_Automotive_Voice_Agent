@@ -12,6 +12,8 @@ public enum AudioFocus: Sendable, Hashable { case held, transientLoss, permanent
 public enum ArbiterInput: Sendable, Hashable {
     /// Local VAD onset. `recentSpeech` is `SpeechUplinkGate.hasRecentSpeech` at that moment.
     case speechStarted(recentSpeech: Bool)
+    /// The driver said a stop phrase (ListeningIntent `shutUp`, 「别说了」): the only barge-in.
+    case stopPhrase
     case replyPlaying(Bool)
     case guidanceSpeaking(Bool)
     case audioSession(AudioSessionEvent)
@@ -21,11 +23,12 @@ public enum ArbiterEffect: Sendable, Hashable {
     /// Stop the reply lane and raise the epoch. Always before `cancelRevoicing` and `notifyProvider`.
     case flushPlayback(Epoch)
     case cancelRevoicing(Epoch)
-    /// Tell the session (VoiceSession `.bargeIn`). Gemini has no client cancel; its server sends `interrupted`.
+    /// Tell the session (VoiceSession `.bargeIn`). Gemini has no client cancel and runs with
+    /// `activityHandling: NO_INTERRUPTION`, so the provider is not told.
     case bargeIn(qualified: Bool)
 }
 
-/// Arbiter (F-08): barge-in qualification, flush-then-notify order, R4/R5 and R1 (T-022), and with
+/// Arbiter (F-08): stop-phrase barge-in, flush-then-notify order, R4/R5 and R1 (T-022), and with
 /// navigation R6, R6a and the uplink rules R0 / tail / 20 s cap (T-052). Single owner (I-10).
 public struct SpeechArbiter: Sendable {
     public let tuning: ArbiterTuning
@@ -67,10 +70,12 @@ public struct SpeechArbiter: Sendable {
     public mutating func handle(_ input: ArbiterInput) -> [ArbiterEffect] {
         switch input {
         case .speechStarted(let recentSpeech):
-            guard replyPlaying else { return [] }
-            // `playoutBargeInQualified(recentSpeech)`: only time-scoped evidence that somebody speaks now.
+            // Owner rule 2026-10-28: sound during playback (voice, noise or her own echo) never stops her.
             // The diagnostic is the session's (VoiceSession logs `.bargeIn`), so it is not emitted here.
-            guard recentSpeech else { return [.bargeIn(qualified: false)] }
+            _ = recentSpeech
+            return replyPlaying ? [.bargeIn(qualified: false)] : []
+        case .stopPhrase:
+            guard replyPlaying else { return [] }
             epoch = epoch.next()
             replyPlaying = false
             // Contract ordering rule 3: flush playback first, then notify.

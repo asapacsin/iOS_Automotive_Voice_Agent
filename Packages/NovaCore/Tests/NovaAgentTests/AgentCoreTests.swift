@@ -104,7 +104,7 @@ struct AgentWalkthroughTests {
                                                      turnComplete: true))))
     }
 
-    @Test("W2 barge-in: flush, then cancel revoicing, then the session hears the driver; clause 3 never plays")
+    @Test("W2 barge-in: 别说了 flushes, then cancels revoicing; clause 3 never plays and her answer to it is dropped")
     func w2() {
         var d = Drive()
         d.connect()
@@ -118,13 +118,22 @@ struct AgentWalkthroughTests {
         d.send(.playback(.replyStarted(Epoch.initial)))
         #expect(d.state.view.chip == .speaking)
 
-        let barge = d.send(.speechStarted(recentSpeech: true))
+        // The driver's voice alone does not stop her (owner rule 2026-10-28).
+        let sound = d.send(.speechStarted(recentSpeech: true))
+        #expect(!sound.contains { if case .flushPlayback = $0 { true } else { false } })
+        #expect(sound.contains(.diagnostic(.bargeIn(qualified: false))))
+        // The stop phrase does, already from the partial transcript.
+        let barge = d.realtime(.userTranscript("别说", isFinal: false)) + d.realtime(.userTranscript("了", isFinal: false))
         #expect(Array(barge.prefix(2)) == [.flushPlayback(Epoch(1)), .cancelRevoicing(Epoch(1))])
-        #expect(d.state.view.chip == .listening)
+        #expect(barge.contains(.diagnostic(.bargeIn(qualified: true))))
         let late = d.realtime(.replyText(t1, "庙里有个老和尚。"))
-        d.realtime(.interrupted(t1, reason: .serverVAD))
         let after = d.realtime(.replyText(t1, "老和尚在讲故事。"))
         #expect(spoken(late + after).isEmpty)
+        d.send(.speechStopped)
+        d.realtime(.userTranscript("别说了", isFinal: true))
+        let t2 = TurnID(2)
+        d.realtime(.responseStarted(t2))
+        #expect(spoken(d.realtime(.replyText(t2, "好的，我不说了。"))).isEmpty)
     }
 
     @Test("W2 unqualified speech during playback is residual echo: nothing is flushed")
@@ -134,6 +143,22 @@ struct AgentWalkthroughTests {
         d.send(.playback(.replyStarted(Epoch.initial)))
         let out = d.send(.speechStarted(recentSpeech: false))
         #expect(!out.contains { if case .flushPlayback = $0 { true } else { false } })
+    }
+
+    @Test("Mandarin only (owner rule 2026-10-28): a Spanish reply is voided and corrected in Chinese")
+    func notMandarin() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        let t1 = TurnID(1)
+        d.realtime(.userTranscript("¿Qué?", isFinal: true))
+        d.realtime(.responseStarted(t1))
+        let out = d.realtime(.replyText(t1, "Encontré 5 lugares, por favor dime cuál quieres."))
+        #expect(spoken(out).isEmpty)
+        let correction = d.fire(.correction)
+        #expect(correction.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.notMandarin.instruction)],
+                                                     turnComplete: true))))
     }
 
     @Test("W3 timeout: one re-ask at 6 s, silent give-up at 10 s, and a late tool call of that turn is dropped")
