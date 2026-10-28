@@ -79,7 +79,7 @@ has no client cancel; its server sends `interrupted`. Unqualified barge-in is lo
   `ok=false`; partial scenario; 「导航已开始」 without evidence (`NAVIGATION_NOT_STARTED`); music
   unconfirmed (`MUSIC_NOT_CONFIRMED`); clarify referent; unverified claim.
 - Correction grace: 20 000 ms when a tool call may follow, ≤1500 ms for chat turns.
-- Empty response: one re-ask per utterance (「请回应我刚才说的话。」) after 3 s with no output; give up at 5 s.
+- Empty response: one re-ask per utterance (「请回应我刚才说的话。」) after 6 s with no output; give up at 10 s (owner 2026-10-28: Gemini over the VPN often needs 3-6 s; at 3 s the re-ask made her answer twice).
 - Phantom turn gate: short replies ≤12 CJK / ≤40 Latin chars; min transcript 2 chars.
 
 ## 7. Wait cues (`A/voice/WaitCues.kt`)

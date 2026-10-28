@@ -136,7 +136,7 @@ struct AgentWalkthroughTests {
         #expect(!out.contains { if case .flushPlayback = $0 { true } else { false } })
     }
 
-    @Test("W3 timeout: one re-ask at 3 s, silent give-up at 5 s, and a late tool call of that turn is dropped")
+    @Test("W3 timeout: one re-ask at 6 s, silent give-up at 10 s, and a late tool call of that turn is dropped")
     func w3() {
         var d = Drive()
         d.connect()
@@ -144,10 +144,10 @@ struct AgentWalkthroughTests {
         d.realtime(.userTranscript("把空调打开", isFinal: false))
         d.send(.speechStopped)
         let reask = d.fire(.reask)
-        #expect(d.now == NovaInstant(milliseconds: 3_000))
+        #expect(d.now == NovaInstant(milliseconds: 6_000))
         #expect(reask.contains(.provider(.text([TextTurn(role: .user, text: "请回应我刚才说的话。")], turnComplete: true))))
         let giveUp = d.fire(.giveUp)
-        #expect(d.now == NovaInstant(milliseconds: 5_000))
+        #expect(d.now == NovaInstant(milliseconds: 10_000))
         #expect(spoken(giveUp).isEmpty)
 
         let t1 = TurnID(1)

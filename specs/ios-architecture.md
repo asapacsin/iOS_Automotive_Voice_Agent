@@ -408,7 +408,7 @@ NovaAudio changes.
 | `ReconnectPolicy` | `I/ReconnectPolicy.kt` | 5 attempts, 200 ms doubling, 8 s cap; a second error from the same socket joins the reconnect in flight |
 | `ListeningLifecycle`, `ListeningIntent` | F-02 | ACTIVE / SILENT_WAIT / SLEEP / DEEP_IDLE; whole-utterance local phrases |
 | `DriverTurnPipeline` + `ClaimGate` | F-06 | Holds claim audio and text until the matching `ok=true` result |
-| `ActionClaimGuard`, `CorrectionGrace`, `EmptyResponseRetryPolicy`, `PhantomTurnGate` | F-06 | Corrections, the 3 s re-ask / 5 s give-up (W3), phantom suppression |
+| `ActionClaimGuard`, `CorrectionGrace`, `EmptyResponseRetryPolicy`, `PhantomTurnGate` | F-06 | Corrections, the 6 s re-ask / 10 s give-up (W3), phantom suppression |
 | `ClauseSegmenter`, `WaitCues` | F-07 | Judged `SpeechText` → clauses; 3/7/12 s cues |
 | `SpeechArbiter`, `PlayoutBargeInQualification` | F-08 | PLAY/HOLD/DROP, uplink policy, barge-in |
 | `GuidanceRelay`, `GuidanceFidelity` | F-14 | Assistant or fallback voice, with reason codes |

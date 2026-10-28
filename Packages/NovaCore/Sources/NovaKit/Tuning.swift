@@ -94,8 +94,8 @@ public struct TruthfulnessTuning: Sendable, Hashable {
     public var holdBudgetEvents = 120
     public var correctionGraceToolMayFollow = NovaDuration.milliseconds(20_000)
     public var correctionGraceChat = NovaDuration.milliseconds(1500)
-    public var emptyResponseReask = NovaDuration.seconds(3)
-    public var emptyResponseGiveUp = NovaDuration.seconds(5)
+    public var emptyResponseReask = NovaDuration.seconds(6)
+    public var emptyResponseGiveUp = NovaDuration.seconds(10)
     public var phantomMaxCJK = 12
     public var phantomMaxLatin = 40
     public var phantomMinTranscript = 2
