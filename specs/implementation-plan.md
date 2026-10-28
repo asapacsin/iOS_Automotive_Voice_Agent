@@ -93,6 +93,9 @@ NOT_VERIFIED until a device run is attached.
 | T-042b | 设置 → 位置来源, permission state, 打开系统设置; 演示位置 header label | F-16a | T-042a | `App/NovaDrive/` | F-16a §10 rows 1, 4 | S, D |
 | T-043 | `AmapNaviEngine` adapter with generation tagging | F-15 | T-040, T-002 | `Packages/NovaNavAmap/Sources/Engine/` | Stale callback dropped (S) | build, S, imports |
 | T-044 | `AmapMapView` + `MapPresentationPolicy` | F-15, F-25 | T-043 | `Packages/NovaNavAmap/Sources/Map/`, `Core/NovaNav/Presentation/` | No route drawn after 算了 (S) | S |
+| T-044a | `SelfPosition` + `MapCameraPolicy` + `LocationUpdates` port | F-16b | T-044, T-042a | `Core/NovaNav/Presentation/`, `Core/NovaPorts/` | F-16b §10 rows 3–5 | unit |
+| T-044b | Location updates stream in `CoreLocationProvider`, `DemoLocation`, `SwitchableLocationProvider` | F-16b | T-044a | `Packages/NovaPlatform/Sources/Location/`, `Core/NovaNav/Search/` | F-16b §4 | unit, build |
+| T-044c | `DriveView` 我的位置 dot, accuracy circle, locate-me, 定位未开启, follow/free camera | F-16b | T-044a, T-044b | `App/NovaDrive/` | F-16b §10 rows 1–2, 6–9 | S, D |
 | T-045 | HUD panel model + overspeed logic | F-17 | T-043 | `Core/NovaNav/HUD/` | F-17 §10 (2 rows) with fixtures | unit |
 | T-046 | Live info: route_traffic, along_route, place_details | F-18 | T-042, T-040 | `Core/NovaTools/LiveInfo/` | `NOT_NAVIGATING` when idle | unit, contract |
 | T-046a | `query_live_info` `current_location` (regeo address), codes, catalog + persona line | F-16a | T-046, T-042a | `Core/NovaNav/LiveInfo/`, `Packages/NovaServices/`, `Core/NovaTools/Dispatch/` | F-16a §10 rows 2–3, 7 | unit, contract, D |

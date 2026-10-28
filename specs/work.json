@@ -1041,6 +1041,61 @@
         "Re-review 2026-10-27 at 88eaf5c: PASS (fixes b7a1714, CI green ci 40443350576); stays RUNNING until merged head CI runs (Actions billing block)",
         "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); re-review PASS 2026-10-27"
       ]
+    },
+    {
+      "id": "H-F16b",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 10,
+      "action": "Approve specs/features/map-current-location.md (F-16b) and answer OQ-MAP-1..3 or accept the defaults",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read F-16b; reply approve (defaults) or give answers to OQ-MAP-1..3",
+      "pass_criteria": "F-16b status APPROVED in the spec file",
+      "expected_return": "approve, or answers to OQ-MAP-1..3",
+      "quantified": {
+        "options": [
+          "Approve with defaults: follow while idle (OQ-MAP-1), real dot gray during simulated navigation (OQ-MAP-2), no heading arrow (OQ-MAP-3)",
+          "Approve with changes to OQ-MAP-1..3",
+          "Reject / rewrite"
+        ]
+      }
+    },
+    {
+      "id": "T-044a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 15,
+      "action": "F-16b SelfPosition + MapCameraPolicy (pure, NovaNav/Presentation) + LocationUpdates port; unit tests F-16b rows 3-5",
+      "depends_on": [
+        "H-F16b",
+        "T-044",
+        "T-042a"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "T-044b",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-16b location updates stream in CoreLocationProvider, DemoLocation, SwitchableLocationProvider; unit, build",
+      "depends_on": [
+        "T-044a"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "T-044c",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "NOT_RUN",
+      "priority": 25,
+      "action": "F-16b DriveView: 我的位置 dot, accuracy circle, locate-me, 定位未开启 pill, follow/free camera; S, D (needs Mac/SDK build and a phone run)",
+      "depends_on": [
+        "T-044a",
+        "T-044b"
+      ],
+      "evidence": []
     }
   ]
 }

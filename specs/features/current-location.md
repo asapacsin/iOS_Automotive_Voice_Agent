@@ -101,7 +101,8 @@ read once per request.
 - OQ-LOC-1 (default: **手机定位**): should a fresh install start on 手机定位 or 演示起点? Recommendation: 手机定位,
   since the demo source is only for recordings.
 - OQ-LOC-2 (default: **no**): should 「我在哪」 also show the point on the map with a pin? Recommendation: no; the
-  map already follows the position.
+  map already follows the position. **Superseded 2026-10-28:** it did not; the map position is specified in
+  [F-16b](map-current-location.md).
 
 ## Tasks (implementation-plan.md M3, specs/work.json)
 | ID | Task | Verification |
