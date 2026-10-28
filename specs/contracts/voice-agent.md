@@ -68,8 +68,10 @@ Uplink: closed while guidance speaks + 500 ms tail, reopens after at most 20 s; 
 mid-utterance when guidance starts, uplink stays open up to 8 s. R6a workload hold: an unstarted reply
 is held within 150 m of a manoeuvre for up to 8 s or until distance jumps >20 m.
 
-Barge-in: on SpeechStarted during playback → invalidate playback epoch, flush, notify provider. Gemini
-has no client cancel; its server sends `interrupted`. Unqualified barge-in is logged as residual echo.
+Barge-in (owner rule 2026-10-28): only a stop phrase (ListeningIntent `shutUp`, e.g. 「别说了」)
+invalidates the playback epoch and flushes. SpeechStarted during playback never stops her reply and is
+logged as `bargeIn(qualified: false)`; the session sets Gemini `activityHandling: NO_INTERRUPTION` so
+driver activity does not drop the model's reply.
 
 ## 6. Truthfulness gates
 

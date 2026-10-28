@@ -22,8 +22,13 @@ R1 guidance speaking → HOLD; R5 transient focus loss → HOLD; R6a an unstarte
 manoeuvre → HOLD up to 8 s or until the distance jumps > 20 m; else PLAY.
 Uplink: open → closed while guidance speaks (+ 500 ms tail, reopens after at most 20 s); R0 if the driver
 is mid-utterance when guidance starts, it stays open up to 8 s.
-Barge-in: SPEAKING + SpeechStarted → playback epoch invalidated, audio flushed, provider notified
-(Gemini answers with `interrupted`) → USER_SPEAKING. An unqualified barge-in is logged as residual echo.
+Barge-in (owner rule 2026-10-28, replaces sound barge-in): she stops speaking **only** when the driver
+says a stop phrase (ListeningIntent `shutUp`: 「别说了」「不要说了」「闭嘴」「安静」…) → playback epoch
+invalidated, audio flushed. SpeechStarted during playback alone (any sound, voice, or her own echo)
+never stops or flushes her reply; it is logged as `bargeIn(qualified: false)`. The provider must not
+drop its reply on driver activity either (Gemini `activityHandling: NO_INTERRUPTION`).
+Why: phone log 2026-10-28 17:31–17:33 — she was cut off 1–2 s into each answer (bargeIn at 17:31:14,
+17:32:02, 17:32:20) with no driver speech, then the gate stayed open ~16 s on her echo.
 
 ## 6. Events and triggers
 SpeechStarted during playback; guidance start/end; focus loss/gain.
@@ -32,7 +37,7 @@ SpeechStarted during playback; guidance start/end; focus loss/gain.
 None.
 
 ## 8. Error handling and recovery
-Unqualified barge-in suppressed as residual echo.
+Sound during playback is never a barge-in (owner rule 2026-10-28); only a stop phrase stops her.
 
 ## 9. Concurrency, cancellation, timeouts
 Epoch invalidation is synchronous with the decision.

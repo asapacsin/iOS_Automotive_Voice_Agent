@@ -1,0 +1,4 @@
+version: 1
+bundleID: com.asapacsin.novadrive
+product: NovaDrive
+infoPath: xtool-Info.plist
