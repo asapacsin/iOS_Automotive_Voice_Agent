@@ -237,6 +237,34 @@ struct GeminiLiveProviderTests {
         await provider.close()
     }
 
+    @Test("Manual activity: a reconnect mid-utterance opens with activityStart, so its audio and activityEnd are bracketed")
+    func activityAcrossReconnect() async throws {
+        let ready = Data(#"{"setupComplete":{}}"#.utf8)
+        let server = FakeGeminiServer([.init(frames: [ready], closeAfter: nil), .init(frames: [ready], closeAfter: nil)])
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server)
+        let config = SessionConfig(systemInstruction: "p", tools: [])
+        await provider.connect(config, resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        #expect(await it.next()?.event == .setupComplete)
+        provider.sendActivityStart()
+        provider.sendActivityStart()   // nested start is dropped
+        provider.sendAudio(.silence)
+        await provider.connect(config, resume: "h", connection: Generation(2))   // drop mid-utterance
+        #expect(await it.next()?.event == .setupComplete)
+        provider.sendAudio(.silence)
+        provider.sendActivityEnd()
+        provider.sendActivityEnd()     // unmatched end is dropped
+        let sockets = server.opened.withLock { $0 }
+        let second = try #require(sockets.last)
+        for _ in 0..<100 where second.sent.withLock({ $0.count }) < 4 { try await Task.sleep(for: .milliseconds(10)) }
+        let kinds = { (socket: FakeSocket) in socket.sent.withLock { $0 }.map { text -> String in
+            ["setup", "activityStart", "activityEnd", "audio"].first { text.contains("\"\($0)\"") } ?? "?"
+        } }
+        #expect(kinds(sockets[0]) == ["setup", "activityStart", "audio"])
+        #expect(kinds(second) == ["setup", "activityStart", "audio", "activityEnd"])
+        await provider.close()
+    }
+
     @Test("F-05 a socket stopped by close() or a new connect emits nothing more")
     func closeIsSilent() async throws {
         let server = FakeGeminiServer([

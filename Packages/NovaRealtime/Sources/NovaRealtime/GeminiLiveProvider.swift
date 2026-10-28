@@ -22,7 +22,9 @@ public final class GeminiLiveProvider: RealtimeProvider {
     private let connector: any WebSocketConnector
     private let tuning: RealtimeTuning
     /// The live socket and the attempt counter: a `connect` or `close` that started later wins.
-    private let state = Mutex<(socket: Socket?, attempt: UInt64)>((nil, 0))
+    /// `activityOpen`: an activityStart was sent and its activityEnd not yet; a socket installed meanwhile
+    /// (reconnect mid-utterance) opens with activityStart, so its audio and the later activityEnd are bracketed.
+    private let state = Mutex<(socket: Socket?, attempt: UInt64, activityOpen: Bool)>((nil, 0, false))
 
     /// Everything owned by one open socket. `emit` and `end` share one lock, so no event can follow
     /// the socket's terminal event or a `stop()`.
@@ -166,6 +168,9 @@ public final class GeminiLiveProvider: RealtimeProvider {
         }
         let installed = state.withLock { s -> Bool in
             guard s.attempt == attempt else { return false }
+            if s.activityOpen, let start = try? GeminiCodec.encode(GeminiCodec.activityStart) {
+                socket.enqueue(String(decoding: start, as: UTF8.self))
+            }
             s.socket = socket
             return true
         }
@@ -216,8 +221,19 @@ public final class GeminiLiveProvider: RealtimeProvider {
     public func sendAudioStreamEnd() async { send(GeminiCodec.audioStreamEnd) }
 
     /// Manual activity detection; sent from the capture queue so it stays in order with the audio frames.
-    public func sendActivityStart() { send(GeminiCodec.activityStart) }
-    public func sendActivityEnd() { send(GeminiCodec.activityEnd) }
+    /// The flag and the send share the state lock, so a socket being installed sees exactly one activityStart.
+    public func sendActivityStart() { sendActivity(open: true) }
+    public func sendActivityEnd() { sendActivity(open: false) }
+
+    private func sendActivity(open: Bool) {
+        guard let data = try? GeminiCodec.encode(open ? GeminiCodec.activityStart : GeminiCodec.activityEnd) else { return }
+        state.withLock { s in
+            // An end with no open utterance would be unmatched; a second start would nest.
+            guard s.activityOpen != open else { return }
+            s.activityOpen = open
+            s.socket?.enqueue(String(decoding: data, as: UTF8.self))
+        }
+    }
 
     public func sendToolResponses(_ responses: [ToolResponse]) async { send(GeminiCodec.toolResponses(responses)) }
 
@@ -230,6 +246,7 @@ public final class GeminiLiveProvider: RealtimeProvider {
             s.socket?.stop()
             s.socket = nil
             s.attempt += 1
+            s.activityOpen = false
         }
     }
 
