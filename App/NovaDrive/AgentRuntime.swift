@@ -712,9 +712,14 @@ final class AgentRuntime {
         classifier = nil
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         defaultsObserver = nil
-        Task {
+        let wake = UITestDrive.enabled ? nil : wake
+        Task { [model] in
             await core.send(.stop)
             audio?.stop()
+            // ADR-006: the wake listener's voice-processing engine starts only after the session's engine has
+            // stopped; two at once raise in setVoiceProcessingEnabled and abort the app. A session started
+            // meanwhile keeps the listener off.
+            await wake?.update(sessionRunning: model.running)
         }
         tasks.forEach { $0.cancel() }
         tasks = []
@@ -722,7 +727,6 @@ final class AgentRuntime {
         self.audio = nil
         model.running = false
         model.view = AgentViewState()
-        if !UITestDrive.enabled { Task { await wake.update(sessionRunning: false) } }
     }
 
     /// Applies the wake policy at launch and after settings change.
