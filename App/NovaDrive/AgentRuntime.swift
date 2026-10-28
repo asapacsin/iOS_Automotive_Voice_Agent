@@ -566,7 +566,10 @@ final class AgentRuntime {
         // F-21: the saved tone is read once here, at session start.
         let instruction = PersonaInstruction.build(base: Persona.instruction, style: SpeakingStyle.saved(in: settings))
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
-        let config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
+        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
+        // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
+        config.activityDetection.manual = true
+        let manual = config.activityDetection.manual
         let ended = CoreRelay()
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
@@ -649,13 +652,17 @@ final class AgentRuntime {
                 case .speechStopped:
                     await core.send(.speechStopped)
                 case .streamEnd:
-                    await provider.sendAudioStreamEnd()
+                    // Manual detection: activityEnd already closed the utterance.
+                    if !manual { await provider.sendAudioStreamEnd() }
                 case .audio:
                     break
                 }
             }
         })
         let route: @Sendable (UplinkGateOutput) -> Void = { output in
+            // Activity marks go out here, on the capture queue, so activityStart precedes the pre-roll frames.
+            if manual, case .speechStarted = output { provider.sendActivityStart() }
+            if manual, case .speechStopped = output { provider.sendActivityEnd() }
             if case .audio(let frame) = output { provider.sendAudio(frame) } else { gateEvents.continuation.yield(output) }
         }
         gate.onOutput(route)

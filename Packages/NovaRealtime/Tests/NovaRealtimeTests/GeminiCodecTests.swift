@@ -201,6 +201,16 @@ struct GeminiClientMessageTests {
         #expect(GeminiCodec.setup(config, resume: nil)["setup"]?["sessionResumption"] == [:])
     }
 
+    @Test("Manual activity detection disables the server's and brackets the utterance")
+    func manualActivity() {
+        var config = SessionConfig(systemInstruction: "persona", tools: [])
+        config.activityDetection.manual = true
+        let msg = GeminiCodec.setup(config, resume: nil)["setup"]
+        #expect(msg?["realtimeInputConfig"]?["automaticActivityDetection"] == ["disabled": true])
+        #expect(GeminiCodec.activityStart == ["realtimeInput": ["activityStart": [:]]])
+        #expect(GeminiCodec.activityEnd == ["realtimeInput": ["activityEnd": [:]]])
+    }
+
     @Test("F-05 audio is 16 kHz little-endian base64; tool responses carry ok, code and data")
     func audioAndTools() throws {
         var samples = Array(repeating: Int16(0), count: PCMFrame16k.samplesPerFrame)

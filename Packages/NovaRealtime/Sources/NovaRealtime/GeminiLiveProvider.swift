@@ -215,6 +215,10 @@ public final class GeminiLiveProvider: RealtimeProvider {
 
     public func sendAudioStreamEnd() async { send(GeminiCodec.audioStreamEnd) }
 
+    /// Manual activity detection; sent from the capture queue so it stays in order with the audio frames.
+    public func sendActivityStart() { send(GeminiCodec.activityStart) }
+    public func sendActivityEnd() { send(GeminiCodec.activityEnd) }
+
     public func sendToolResponses(_ responses: [ToolResponse]) async { send(GeminiCodec.toolResponses(responses)) }
 
     public func sendText(_ turns: [TextTurn], turnComplete: Bool) async {

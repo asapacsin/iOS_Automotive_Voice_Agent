@@ -23,6 +23,7 @@ public enum GeminiCodec {
         if let silence = config.activityDetection.silenceDuration {
             detection["silenceDurationMs"] = .int(min(max(silence.milliseconds, 100), 3000))
         }
+        if config.activityDetection.manual { detection = ["disabled": true] }
         var setup: [String: JSONValue] = [
             "model": .string(config.model.hasPrefix("models/") ? config.model : "models/\(config.model)"),
             "generationConfig": .object(generation),
@@ -53,6 +54,10 @@ public enum GeminiCodec {
     }
 
     public static var audioStreamEnd: JSONValue { ["realtimeInput": ["audioStreamEnd": true]] }
+
+    /// Manual activity detection: the driver started / stopped speaking.
+    public static var activityStart: JSONValue { ["realtimeInput": ["activityStart": [:]]] }
+    public static var activityEnd: JSONValue { ["realtimeInput": ["activityEnd": [:]]] }
 
     public static func text(_ turns: [TextTurn], turnComplete: Bool) -> JSONValue {
         ["clientContent": [
