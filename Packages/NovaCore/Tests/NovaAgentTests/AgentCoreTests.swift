@@ -263,6 +263,12 @@ struct AgentWalkthroughTests {
         d.send(.timer(.session(timer.last!)))
         d.realtime(.setupComplete)
         d.send(.speechStopped)
+        // F-15a §2.5 (T-040f): the utterance that began during her reply was no driver turn; the driver
+        // speaks again on the new socket.
+        d.send(.playback(.replyFinished(Epoch.initial)))
+        d.now = d.now + .seconds(1)
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
         d.realtime(.userTranscript("你好", isFinal: true))
         let before = d.effects.count
         d.realtime(.responseStarted(t1))
@@ -332,6 +338,7 @@ final class RecordingSink: AgentEffectSink, @unchecked Sendable {
     func diagnostic(_ event: DiagnosticEvent) {}
     func speakGuidance(_ text: String, id: GuidanceID) async { log.withLock { $0.append("guidance:\(text)") } }
     func uplink(open: Bool) {}
+    func modelUplink(muted: Bool) {}
 }
 
 struct OkExecutor: ToolExecutor {
@@ -455,5 +462,92 @@ struct NavigationRequestedTests {
     func tap() {
         var d = listed()
         #expect(started(d.send(.ui(.choose(row: 0)))))
+    }
+}
+
+@Suite("T-040f F-15a AgentState: driver turns only from real driver speech")
+struct DriverTurnSpeechTests {
+    func started(_ out: [AgentEffect]) -> Bool { out.contains { if case .startTool = $0 { true } else { false } } }
+    func muted(_ out: [AgentEffect]) -> Bool? {
+        out.compactMap { if case .modelUplinkMuted(let m) = $0 { m } else { nil } }.last
+    }
+
+    @Test("F-15a row 13: a sound while she reads the route list is no driver turn; a pick after it is still refused")
+    func soundDuringReply() {
+        var d = NavigationRequestedTests().listed()
+        d.realtime(.responseStarted(TurnID(1)))
+        d.realtime(.replyText(TurnID(1), "有两条路线，说第几条或者说开始导航。"))
+        #expect(muted(d.send(.playback(.replyStarted(Epoch.initial)))) == true)
+        // A cough / her own echo during the reply: the gate closes an utterance, but it is not the driver's turn.
+        d.send(.speechStarted(recentSpeech: false))
+        d.send(.speechStopped)
+        let pick = ToolCall(id: CallID("c1")!, name: "choose_navigation_option", arguments: ["index": 1])
+        #expect(!started(d.realtime(.toolCalls(TurnID(1), [pick]))))
+        // She finishes; inside the echo tail a sound still does not count.
+        d.send(.playback(.replyFinished(Epoch.initial)))
+        d.now = d.now + .milliseconds(200)
+        d.send(.speechStarted(recentSpeech: false))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(2)))
+        let again = ToolCall(id: CallID("c2")!, name: "choose_navigation_option", arguments: ["index": 1])
+        #expect(!started(d.realtime(.toolCalls(TurnID(2), [again]))))
+        // Past the tail the model hears the driver again, and the driver's 第一条 starts guidance.
+        d.now = d.now + .seconds(1)
+        #expect(muted(d.send(.timer(.arbiter(d.now)))) == false)
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(3)))
+        let first = ToolCall(id: CallID("c3")!, name: "choose_navigation_option", arguments: ["index": 1])
+        #expect(started(d.realtime(.toolCalls(TurnID(3), [first]))))
+    }
+
+    @Test("F-15a row 13: 别说了 during her reply is a qualified barge-in and counts as the driver's turn")
+    func stopPhraseCounts() {
+        var d = NavigationRequestedTests().listed()
+        d.realtime(.responseStarted(TurnID(1)))
+        d.realtime(.replyText(TurnID(1), "有两条路线，"))
+        d.send(.playback(.replyStarted(Epoch.initial)))
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.driverWords(.final("别说了")))
+        d.send(.speechStopped)
+        // The model's answer to 别说了 is not heard (she just stops); the turn after it may pick.
+        d.realtime(.responseStarted(TurnID(2)))
+        d.realtime(.responseDone(TurnID(2), outcome: .completed))
+        d.realtime(.responseStarted(TurnID(3)))
+        let pick = ToolCall(id: CallID("c1")!, name: "choose_navigation_option", arguments: ["index": 1])
+        #expect(started(d.realtime(.toolCalls(TurnID(3), [pick]))))
+    }
+
+    @Test("F-15a row 13: routeListTurn is set when destination_selected is handled, before the flags stream")
+    func routeListOnResult() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(1)))
+        let go = ToolCall(id: CallID("c1")!, name: "navigate_to", arguments: ["destination": "机场"])
+        #expect(started(d.realtime(.toolCalls(TurnID(1), [go]))))
+        d.send(.toolFinished(TurnID(1), go, .success(["status": "destination_selected"])))
+        // The flags stream has not said routeChoiceOpen yet; the chained pick is still refused.
+        let pick = ToolCall(id: CallID("c2")!, name: "choose_navigation_option", arguments: ["index": 1])
+        #expect(!started(d.realtime(.toolCalls(TurnID(1), [pick]))))
+    }
+
+    @Test("F-15a row 13: a late flags update does not move the route list's turn past the driver's answer")
+    func lateFlags() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(1)))
+        let go = ToolCall(id: CallID("c1")!, name: "navigate_to", arguments: ["destination": "机场"])
+        d.realtime(.toolCalls(TurnID(1), [go]))
+        d.send(.toolFinished(TurnID(1), go, .success(["status": "destination_selected"])))
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.send(.navigation(NavigationFlags(listOpen: true, routeChoiceOpen: true)))
+        d.realtime(.responseStarted(TurnID(2)))
+        let pick = ToolCall(id: CallID("c2")!, name: "choose_navigation_option", arguments: ["index": 1])
+        #expect(started(d.realtime(.toolCalls(TurnID(2), [pick]))))
     }
 }

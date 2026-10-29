@@ -178,6 +178,8 @@ struct RuntimeSink: AgentEffectSink {
     }
 
     func uplink(open: Bool) { gate.setForcedClosed(!open) }
+
+    func modelUplink(muted: Bool) { gate.setModelMuted(muted) }
 }
 
 /// Vehicle tools, refreshing the car card after each call.
@@ -713,15 +715,20 @@ final class AgentRuntime {
         })
         let route: @Sendable (UplinkGateOutput) -> Void = { output in
             // Activity marks go out here, on the capture queue, so activityStart precedes the pre-roll frames.
-            if manual, case .speechStarted = output { provider.sendActivityStart() }
-            if manual, case .speechStopped = output { provider.sendActivityEnd() }
+            let toModel = gate.toModel(output)
+            if manual, toModel, case .speechStarted = output { provider.sendActivityStart() }
+            if manual, toModel, case .speechStopped = output { provider.sendActivityEnd() }
             switch output {
             case .speechStarted: transcriptInputs.continuation.yield(.begin)
             case .speechStopped: transcriptInputs.continuation.yield(.end)
             case .audio(let frame): transcriptInputs.continuation.yield(.frame(frame))
             case .streamEnd: break
             }
-            if case .audio(let frame) = output { provider.sendAudio(frame) } else { gateEvents.continuation.yield(output) }
+            if case .audio(let frame) = output {
+                if toModel { provider.sendAudio(frame) }
+            } else {
+                gateEvents.continuation.yield(output)
+            }
         }
         gate.onOutput(route)
         // One capture only (ADR-006): the wake listener lets go of the mic before the session takes it.
@@ -813,6 +820,19 @@ final class GateBox: @unchecked Sendable {
 
     func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] { lock.withLock { gate.process(frame) } }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
+
+    /// F-15a §2.5 (T-040f): while she is audible, a new utterance is not sent to the model; the gate and the
+    /// transcriber still get it (别说了 is local).
+    private var modelMuted = false
+    private var utteranceToModel = true
+    func setModelMuted(_ muted: Bool) { lock.withLock { modelMuted = muted } }
+    /// Whether this output goes to the model; decided once per utterance, at its start.
+    func toModel(_ output: UplinkGateOutput) -> Bool {
+        lock.withLock {
+            if case .speechStarted = output { utteranceToModel = !modelMuted }
+            return utteranceToModel
+        }
+    }
 
     /// F-04a: classifier results arrive on the classifier's queue; the lock orders them with frames.
     func classified(_ result: SpeechClassification) { lock.withLock { gate.classified(result) } }

@@ -107,6 +107,10 @@ public enum AgentEffect: Sendable, Hashable {
     case speakGuidance(String, GuidanceID)
     /// The uplink may send (F-08 uplink rules). The gate force-closes while false.
     case uplink(open: Bool)
+    /// F-15a §2.5 (T-040f): an utterance that begins while this is true is not sent to the model (no activity
+    /// marks, no audio); the local gate and transcriber still hear it, so 别说了 works. True while her reply or
+    /// guidance sounds and for the echo tail after it.
+    case modelUplinkMuted(Bool)
 }
 
 /// The single serialisation point (Android's session mutex), as a pure value: `VoiceSession`,
@@ -140,6 +144,18 @@ public struct AgentState: Sendable {
     private var closedTurns = 0
     /// F-15a: `closedTurns` when the route list appeared.
     private var routeListTurn = 0
+    /// F-15a §2.5 (T-040f): `destination_selected` was handled and the flags stream has not shown the route
+    /// list yet; the start guard treats the list as open meanwhile.
+    private var routeListPending = false
+    /// F-15a §2.5 (T-040f): the current utterance is a driver turn: it began while she was not audible, or it
+    /// became a qualified barge-in (别说了). Sound during her reply (echo, noise, a cough) is not.
+    private var utteranceCounts = true
+    /// When her reply or guidance last stopped sounding; she counts as audible for `echoTail` after it.
+    private var herVoiceEndedAt: NovaInstant?
+    /// The last `modelUplinkMuted` sent.
+    private var modelMuted = false
+    /// F-04a echo tail: her voice can still come back through the microphone this long after playback ends.
+    public static let echoTail = NovaDuration.milliseconds(500)
     /// F-05a: `TranscriptSelector` feeds the driver's words (`.driverWords`); Gemini's transcript is not used.
     private var selectorOwnsWords = false
     /// Clauses waiting while the arbiter holds the reply (R1 guidance, R5 transient loss).
@@ -201,6 +217,7 @@ public struct AgentState: Sendable {
             guard session.state != .disconnected, session.state != .error else { return effects }
             return effects + reply(realtime, at: now)
         case .speechStarted(let recentSpeech):
+            utteranceCounts = !herVoiceAudible(at: now)
             driverSpeaking = true
             arbiter.driverSpeech(true)
             speechOnsets += 1
@@ -212,8 +229,10 @@ public struct AgentState: Sendable {
             return effects + session(.speechStarted, at: now) + arbiterChanged(at: now)
         case .speechStopped:
             driverSpeaking = false
-            closedTurns += 1
             arbiter.driverSpeech(false)
+            // F-15a §2.5 (T-040f): sound during her reply is no driver turn and opens no answer.
+            guard utteranceCounts else { return session(.speechStopped, at: now) + arbiterChanged(at: now) }
+            closedTurns += 1
             // R6: she may answer this utterance while navigating.
             arbiter.driverSpoke(at: now)
             answerOwed = true
@@ -243,6 +262,13 @@ public struct AgentState: Sendable {
             // can take longer than the 10 s window after the utterance).
             arbiter.driverSpoke(at: now)
             context.record(call, ok: result.ok, at: now)
+            // F-15a §2.5 (T-040f): the route list opens with this result, so the pick guard counts from here,
+            // not from the later flags stream.
+            if result.ok, result.data["status"] == "destination_selected" {
+                routeListTurn = closedTurns
+                routeListPending = true
+            }
+            if ["choose_navigation_option", "exit_navigation_mode"].contains(call.name) { routeListPending = false }
             let finished = dispatcher.finish(call, result)
             let response = ToolResponse(id: call.id, name: call.name, result: finished)
             // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
@@ -255,6 +281,7 @@ public struct AgentState: Sendable {
             case .replyStarted(let epoch) where epoch == arbiter.epoch: _ = arbiter.handle(.replyPlaying(true))
             case .replyFinished(let epoch) where epoch == arbiter.epoch:
                 _ = arbiter.handle(.replyPlaying(false))
+                herVoiceEndedAt = now
             case .replyIdle(let epoch) where epoch == arbiter.epoch:
                 // Nothing of hers is left to sound. With her turn closed, a waiting fallback may speak.
                 if openTurn == nil || openTurn.map({ relayTurns[$0] != nil && relayReading == nil }) == true {
@@ -273,6 +300,7 @@ public struct AgentState: Sendable {
                 return pipeline(.musicPlaying(playing), at: now)
             case .guidanceEnded(let id):
                 arbiter.guidance(false, at: now)
+                herVoiceEndedAt = now
                 return relayOutputs(relay.fallbackFinished(id, at: now, conditions: relayConditions), at: now)
                     + arbiterChanged(at: now)
             }
@@ -309,7 +337,8 @@ public struct AgentState: Sendable {
         case .navigation(let flags):
             let wasNavigating = navigation.navigating
             let tripEnded = navigation.navigating && !flags.navigating
-            if flags.routeChoiceOpen, !navigation.routeChoiceOpen { routeListTurn = closedTurns }
+            if flags.routeChoiceOpen, !navigation.routeChoiceOpen, !routeListPending { routeListTurn = closedTurns }
+            if flags.routeChoiceOpen { routeListPending = false }
             navigation = flags
             arbiter.setNavigating(flags.navigating)
             let ended = tripEnded ? relayOutputs(relay.tripEnded(), at: now) : []
@@ -328,7 +357,7 @@ public struct AgentState: Sendable {
                                 arguments: ["index": .int(Int64(row + 1))])
             let guardContext = GuardContext(turn: 0, closedTurns: closedTurns, now: now, navigating: navigation.navigating,
                                             guidanceRunning: navigation.guidanceRunning, listOpen: navigation.listOpen,
-                                            routeChoiceOpen: navigation.routeChoiceOpen, routeListTurn: routeListTurn,
+                                            routeChoiceOpen: navigation.routeChoiceOpen || routeListPending, routeListTurn: routeListTurn,
                                             fromTap: true)
             switch dispatcher.decide(call, context: guardContext) {
             case .execute(let running):
@@ -448,6 +477,15 @@ public struct AgentState: Sendable {
             effects.append(.uplink(open: open))
         }
         if let wake { effects.append(.schedule(.arbiter(wake), at: wake)) }
+        let muted = herVoiceAudible(at: now)
+        if muted != modelMuted {
+            modelMuted = muted
+            effects.append(.modelUplinkMuted(muted))
+        }
+        // Unmute when the echo tail runs out.
+        if !arbiter.replyPlaying, !arbiter.guidanceSpeaking, let ended = herVoiceEndedAt, now < ended + Self.echoTail {
+            effects.append(.schedule(.arbiter(ended + Self.echoTail), at: ended + Self.echoTail))
+        }
         return effects
     }
 
@@ -514,6 +552,13 @@ public struct AgentState: Sendable {
         return stops + pipeline(.turnClosed(turn, .cancelled), at: now)
     }
 
+    /// F-15a §2.5: her reply or guidance sounds, or stopped less than `echoTail` ago.
+    private func herVoiceAudible(at now: NovaInstant) -> Bool {
+        if arbiter.replyPlaying || arbiter.guidanceSpeaking { return true }
+        guard let ended = herVoiceEndedAt else { return false }
+        return now < ended + Self.echoTail
+    }
+
     /// Raises the epoch: playback flushed, revoicing cancelled, held clauses dropped.
     /// Arbiter barge-in effects in contract order: flush, cancel revoicing, then the session.
     private mutating func bargeIn(_ input: ArbiterInput, at now: NovaInstant) -> [AgentEffect] {
@@ -521,6 +566,7 @@ public struct AgentState: Sendable {
         for effect in arbiter.handle(input) {
             switch effect {
             case .flushPlayback(let epoch):
+                herVoiceEndedAt = now
                 if let turn = openTurn { silenced.insert(turn) }
                 heldClauses = []
                 effects.append(.flushPlayback(epoch))
@@ -559,11 +605,13 @@ public struct AgentState: Sendable {
         // answer to it is not heard: she just stops.
         if ListeningIntent.classify(text) == .shutUp {
             let stop = bargeIn(.stopPhrase, at: now)
+            if !stop.isEmpty { utteranceCounts = true }  // a qualified barge-in is the driver's turn
             if isFinal { abandonNextTurn = true }
             return stop.isEmpty ? [] : stop + arbiterChanged(at: now)
         }
-        // The flushed transcript of an utterance already given up on does not revive it.
-        guard isFinal, !abandonNextTurn else { return [] }
+        // The flushed transcript of an utterance already given up on does not revive it; sound during her
+        // reply is no utterance (T-040f).
+        guard isFinal, !abandonNextTurn, utteranceCounts else { return [] }
         return pipeline(.driverUtterance(text), at: now)
     }
 
@@ -641,7 +689,7 @@ public struct AgentState: Sendable {
                                                 navigating: navigation.navigating,
                                                 guidanceRunning: navigation.guidanceRunning,
                                                 listOpen: navigation.listOpen,
-                                                routeChoiceOpen: navigation.routeChoiceOpen,
+                                                routeChoiceOpen: navigation.routeChoiceOpen || routeListPending,
                                                 routeListTurn: routeListTurn)
                 switch dispatcher.decide(call, context: guardContext) {
                 case .execute(let running):
