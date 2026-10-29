@@ -197,11 +197,14 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
                                 nextRoadName: route.steps[min(stepIndex + 1, route.steps.count - 1)].road,
                                 remainingMeters: Int(remaining), remainingSeconds: Int(remaining * secondsPerMeter),
                                 currentSpeedKmh: Int(speedKmh))
-            continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviInfo(info)))
-            onGeometry(state.withLock { s -> RouteGeometry in
+            // F-15a §9 (T-040g): a stopped or replaced drive never reaches the map, even mid-tick.
+            guard let geometry = state.withLock({ s -> RouteGeometry? in
+                guard !Task.isCancelled, s.latest == generation, s.drive != nil else { return nil }
                 s.geometry.car = car
                 return s.geometry
-            })
+            }) else { return }
+            continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviInfo(info)))
+            onGeometry(geometry)
             if remaining <= 0 {
                 continuation.yield(NaviEngineEnvelope(generation: generation, event: .arrived))
                 return

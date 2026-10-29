@@ -342,8 +342,11 @@ final class AgentRuntime {
         return result
     }
 
-    /// The flow of the running session (background policy reads its phase).
+    /// The navigation flow (background policy reads its phase). F-15a §9 (T-040g): built once and owned by the
+    /// app, not by a voice session, so there is only ever one engine and one drive; sessions attach to it.
     private var navigation: NavigationController?
+    /// The app-owned trip: its engine, location source, saved places and the session currently listening.
+    private var trip: AppTrip?
 
     /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the
     /// dispatcher and executor of the voice choice and she announces its read-back.
@@ -528,25 +531,15 @@ final class AgentRuntime {
             if scene == .background { await device.pause() }
             Task { await device.start() }
         }
-        let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
-        let web = AmapWebClient(key: amapKey)
-        let engine = AmapRouteEngine(key: amapKey, origin: {
-            // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise, but never in 真实导航
-            // (F-15a OQ-NAVM-2: no route rather than a fake start).
-            guard let fix = await location.latestFix(), LocationQuality.of(fix, at: navigationClock.now) != nil else {
-                return DriveSettings.naviMode() == .gps ? nil : DriveSettings.demoOrigin
-            }
-            return CoordinateConverter.gcj02(fix.coordinate)
-        },
-                                     location: location, clock: navigationClock,
-                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
+        let trip = await appTrip(location: location)
+        let web = trip.web
+        let savedPlaces = trip.savedPlaces
+        let navigation = trip.navigation
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
-        let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
-        let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
-                                              saved: savedPlaces, mode: { DriveSettings.naviMode() }) { snapshot in
-            flags.continuation.yield(snapshot)
-        }
-        await navigation.start()
+        // This session listens to the trip from now on; it first sees the trip as it is (a drive that went
+        // on after the last session, F-15a §9 OQ-NAVM-5).
+        trip.listeners.attach(flags.continuation)
+        flags.continuation.yield(await navigation.current)
         self.navigation = navigation
         let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: vehicle), vehicle: vehicle, model: model)
         // F-18: weather cached 10 min, adcodes 30 min (T-033).
@@ -672,13 +665,6 @@ final class AgentRuntime {
             var overspeedID = GuidanceID(1 << 40)
             var overspeed = OverspeedMonitor(clock: SystemClock())
             for await snapshot in flags.stream {
-                let changed = await MainActor.run { () -> Bool in
-                    let changed = model.nav.phase != snapshot.phase
-                    model.nav = snapshot
-                    return changed
-                }
-                // Every phase change re-applies the policy (a failed route swap returns to idle too).
-                if changed { Task { await self.reevaluate() } }
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen,
@@ -771,12 +757,55 @@ final class AgentRuntime {
         model.running = true
     }
 
+    /// F-15a §9 (T-040g): the one trip of the app, built at the first session. The engine's location source is
+    /// the first session's switchable provider (it reads 位置来源 per request, so it stays right).
+    private func appTrip(location: SwitchableLocationProvider) async -> AppTrip {
+        if let trip { return trip }
+        let model = model
+        let navigationClock = self.navigationClock
+        let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
+        let web = AmapWebClient(key: amapKey)
+        let engine = AmapRouteEngine(key: amapKey, origin: {
+            // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise, but never in 真实导航
+            // (F-15a OQ-NAVM-2: no route rather than a fake start).
+            guard let fix = await location.latestFix(), LocationQuality.of(fix, at: navigationClock.now) != nil else {
+                return DriveSettings.naviMode() == .gps ? nil : DriveSettings.demoOrigin
+            }
+            return CoordinateConverter.gcj02(fix.coordinate)
+        },
+                                     location: location, clock: navigationClock,
+                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
+        let listeners = TripListeners()
+        let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
+        // The screen follows the trip with or without a session, in snapshot order.
+        let screen = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
+        Task { @MainActor [weak self] in
+            for await snapshot in screen.stream {
+                let changed = model.nav.phase != snapshot.phase
+                model.nav = snapshot
+                // Every phase change re-applies the policy (a failed route swap returns to idle too).
+                if changed { await self?.reevaluate() }
+            }
+        }
+        let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
+                                              saved: savedPlaces, mode: { DriveSettings.naviMode() }) { snapshot in
+            screen.continuation.yield(snapshot)
+            // The running session, if any, gets the flags.
+            listeners.yield(snapshot)
+        }
+        await navigation.start()
+        let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners)
+        self.trip = trip
+        return trip
+    }
+
     func stop() {
         session += 1
+        // F-15a §9: the trip is the app's; it keeps going (HUD, marker, progress) with no session listening.
+        trip?.listeners.detach()
         // F-20a §5: session stop closes the camera.
         if model.cameraOpen { closeCamera() }
         speakLine = nil
-        navigation = nil
         lifecycle = nil
         guard let core else { return }
         let audio = audio
@@ -935,4 +964,35 @@ enum AzureRegionProbe {
             return nil
         }
     }
+}
+
+/// F-15a §9 (T-040g): the app's one navigation flow and what it was built with.
+struct AppTrip {
+    let navigation: NavigationController
+    let web: AmapWebClient
+    let savedPlaces: SavedPlaces
+    let listeners: TripListeners
+}
+
+/// The trip's snapshots go to the voice session that is running, if any; none while no session is.
+final class TripListeners: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: AsyncStream<NavigationFlowState>.Continuation?
+
+    func attach(_ continuation: AsyncStream<NavigationFlowState>.Continuation) {
+        let old = lock.withLock { () -> AsyncStream<NavigationFlowState>.Continuation? in
+            defer { current = continuation }
+            return current
+        }
+        old?.finish()
+    }
+
+    func detach() {
+        lock.withLock { () -> AsyncStream<NavigationFlowState>.Continuation? in
+            defer { current = nil }
+            return current
+        }?.finish()
+    }
+
+    func yield(_ snapshot: NavigationFlowState) { _ = lock.withLock { current }?.yield(snapshot) }
 }
