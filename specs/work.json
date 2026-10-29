@@ -1014,7 +1014,7 @@
     {
       "id": "T-042a",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 15,
       "action": "F-16a CoreLocationProvider first-fix wait, authorization changes, denied state; SwitchableLocationProvider; unit, build",
       "depends_on": [
@@ -1023,8 +1023,10 @@
       "evidence": [
         "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa",
         "Re-review FAIL (background start skipped permission; start/pause race); fixed in fix/firstfix-core (LocationFixState in NovaPorts + tests, core-linux green at 224b528); final CI blocked by Actions billing",
-        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) (LocationFixState tests); D1 stale-stop fix and NovaDriveTests fake-manager adapter tests not yet compiled: iOS builds need a Mac/SDK and macOS CI is forbidden (owner rule 2026-10-27)"
-      ]
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) (LocationFixState tests); D1 stale-stop fix and NovaDriveTests fake-manager adapter tests not yet compiled: iOS builds need a Mac/SDK and macOS CI is forbidden (owner rule 2026-10-27)",
+        "2026-10-29: LocationFixState suite 8 tests green on Linux Swift 6.0.3; independent read-only re-review at high effort: PASS (both prior failures fixed, T-044b fan-out no regression, unit rows 5-7 covered; 3 non-blocking notes)"
+      ],
+      "blocked_by": "Unit part PASS; NovaPlatform adapter and NovaDriveTests fake-manager tests need an iOS build (no macOS CI per owner rule 2026-10-27)"
     },
     {
       "id": "T-046a",
