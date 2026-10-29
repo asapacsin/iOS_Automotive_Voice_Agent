@@ -7,7 +7,8 @@ switching between two locations, and simulate navigation even though I'm not ask
 **Supersedes:** F-16b OQ-MAP-2 for 真实导航 (there the simulated car stood for 我的位置; it still does in 模拟导航).
 **Depends on:** F-15 (navigation flow, `NaviEngine`, `NaviMode`), F-16 §3 (usable fix), F-16a (`LocationUpdates`,
 `SwitchableLocationProvider`), F-16b/F-16b.1 (`SelfPosition`, `MapCameraPolicy`), F-14 (guidance relay), F-17 (HUD),
-F-09 (guards), F-05a (reliable driver words), contracts/navigation.md, contracts/api-contracts.md
+F-09 (guards), F-04a (uplink gate: driver turns), contracts/navigation.md, contracts/api-contracts.md
+**Revised 2026-10-29:** §2.5 no longer reads the driver's transcript (owner rule: transcript is for display only).
 
 ## 1. Problem (code at aba6829)
 - **Navigation is simulation only.** `AmapRouteEngine.start` returns unless `mode == .emulator` ("GPS guidance needs
@@ -18,8 +19,8 @@ F-09 (guards), F-05a (reliable driver words), contracts/navigation.md, contracts
   `phase != .navigating` or `geometry.car == nil` it draws the real fix. The marker can jump between the fake car and
   the real position, and the fake car can be kilometres away.
 - **Started without being asked.** Guidance starts only through `choose_navigation_option` in
-  `awaitingRouteSelection`, but no guard checks that the driver's words asked to start or pick. A misheard utterance
-  (see F-05a: Mandarin transcribed as Portuguese disables word guards) can let the model start a route.
+  `awaitingRouteSelection`, but nothing stops the model from chaining the route pick into the same turn as the
+  destination pick, so a route can start without the driver saying anything about it.
 - Logs of the failing drive were not captured (recorder stopped 11:48; the drive was later), so the exact sequence
   is unconfirmed; the three causes above are from the code.
 
@@ -64,15 +65,22 @@ In both modes exactly **one** 我的位置 marker is on the map at any time. In 
 in 模拟导航 it is the fake car from 开始 to the end of the trip, including the moments between engine updates.
 
 ### 2.5 Navigation only when asked
-- `choose_navigation_option` that would **start guidance** (phase `awaitingRouteSelection`) runs only when the current
-  driver words contain a pick or start intent: an ordinal (第一条, 第2个, 最后一条), 开始导航 / 开始 / 出发 / 走吧,
-  a route preference that names a listed route (最快的, 不走高速的, 少收费的), or a confirmation (好 / 好的 / 可以 /
-  就这条) said while the route list is on screen and newer than the list. Otherwise it is refused with
-  `.navigationNotRequested`; she says 「要开始导航吗？说第几条或者说开始导航。」
-- `navigate_to` runs only when the current driver words contain a go, place or search intent (去 / 到 / 导航 / 回家 /
-  上班 / 附近 / 找 / 哪里有, a saved-place name, or a place name that matches the `destination` argument). Otherwise
-  `.navigationNotRequested`.
-- If the words are not reliable (F-05a `wordsReliable = false`) both guards refuse with `.wordsUnclear`.
+**Revised 2026-10-29** (owner, after device run 9f48c45, where 「最快的」 was refused three times with `WORDS_UNCLEAR` /
+`NAVIGATION_NOT_REQUESTED`: "abandon the transcript that serve the tool calling, and the transcript only use for
+display the text on the screen"). The first version of this section checked the driver's transcript against a word
+list; that made a bad transcript veto a correct tool call. It is replaced by:
+- **Gemini's tool call is the decision.** Gemini hears the audio and fills the arguments (`index`, `preference`,
+  `name`); the app never reads the driver's transcript to allow or refuse a call (F-05a §6).
+- `choose_navigation_option` that would **start guidance** (phase `awaitingRouteSelection`) runs when the situation
+  allows it — list on screen, not stale, no start in flight (F-15, unchanged) — **and** the call comes in a later
+  driver turn than the one in which the route list appeared. A **driver turn** is one utterance closed by the uplink
+  gate (F-04a `activityEnd`); it is counted from audio boundaries, never from text. A call in the same driver turn
+  as the list (the model chaining "pick destination → pick route" without the driver speaking again) is refused with
+  `.navigationNotRequested`; she says 「有\(n)条路线，要走哪一条？」. Taps are never refused (I-6).
+- `navigate_to` has no start guard: it only lists places and routes, nothing starts.
+- **A refusal is never followed by a success claim.** While guidance is not running, a reply that claims a route was
+  chosen or guidance started (已选/已经为你选/已开始导航/开始导航了) is held by the action-claim guard (F-09
+  `ActionClaimGuard`, applied to her own reply text, not the driver's), and she says the refusal sentence instead.
 
 ## 3. Preconditions
 - `NSLocationWhenInUseUsageDescription` (present). Amap Web key (present) for route calculation and recalculation.
@@ -90,8 +98,10 @@ in 模拟导航 it is the fake car from 开始 to the end of the trip, including
   `offRouteConfirmed`, `arrived`, `signalLost`. Tuned by `RouteProgressTuning` (50 m, 3 fixes / 5 s, 30 m, 10 s, 30 s,
   15 s).
 - `SelfPosition.Input` gains `mode: NaviMode`; rule R1 (simulated car) applies only when `mode == .emulator`.
-- New tool error codes: `navigationNotRequested`, `wordsUnclear` (shared with F-05a), each with one honest advice
-  sentence in `ToolFailureAdvice`.
+- New tool error code: `navigationNotRequested`, with one honest advice sentence in `ToolFailureAdvice`.
+  (`wordsUnclear` is withdrawn, 2026-10-29.)
+- `GuardContext` carries `driverTurn` (count of closed utterances, from the uplink gate) and `routeListTurn` (the
+  `driverTurn` when the route list appeared); no transcript field is read by this guard.
 
 ## 5. State transitions
 Unchanged F-15 phases, plus inside `navigating` (gps mode): `onRoute ⇄ offRoute(counting) → rerouting → onRoute`,
@@ -132,14 +142,15 @@ Location fix, 15 s reroute limiter, 10 s / 30 s signal timers, route recalculati
 | 1 | `NavigationModeSetting`: default `.gps`; 模拟导航 → `.emulator`; 演示起点 → `.emulator` whatever the switch says | unit |
 | 2 | `RouteProgress`: matching, step entry, distance to next turn, remaining; off-route after 3 fixes ≥ 5 s > 50 m; accuracy > 50 m not counted; arrival 30 m; signal lost 10 s | unit |
 | 3 | `SelfPosition`: in `.gps` mode never the simulated car; in `.emulator` mode the car for the whole trip; one marker in every phase | unit |
-| 4 | Guards: start without pick/start intent refused (`navigationNotRequested`); with 第一条 / 开始导航 / 好 (fresh list) allowed; `navigate_to` without go/place words refused; unreliable words → `wordsUnclear` | unit |
+| 4 | Start guard (revised): a pick in a later driver turn than the list starts guidance whatever the transcript says (empty, Portuguese, unrelated text); a pick in the same driver turn as the list → `navigationNotRequested`; taps always allowed; `navigate_to` never refused by this guard; a success claim after a refusal is held | unit |
 | 5 | Engine `.gps` path with a scripted fix stream: guidance texts in order, rerouting once per 15 s, `geometry.car == nil`, old-generation fixes dropped | unit (NovaServices) |
 | 6 | 真实导航 on the road (≥ 2 km, ≥ 3 turns): the marker is the real position, the map follows it, turn instructions come before each turn, no second marker | D |
 | 7 | Leaving the route on purpose: 「已偏离路线，正在重新规划」 within 10 s, a new route from the current position | D |
 | 8 | 模拟导航: fake car drives, HUD shows 「模拟导航」, one marker, back to the real dot after 算了 | S, D |
 | 9 | 演示起点: switch disabled with the note; simulation from the demo origin; no real position on screen (recording) | S, D |
-| 10 | Asking a question that is not a navigation request (e.g. 「这是哪里」) while routes are listed does not start guidance | D |
+| 10 | Asking for a destination does not also start a route in the same turn; she lists the routes and waits | D |
 | 11 | No coordinate in logs during rows 6–7 | D |
+| 12 | With the route list on screen, 「最快的」 / 「第二条」 / 「开始导航」 start guidance on the first try, even when the subtitle shows （没听清） or wrong text | D |
 
 ## 11. Implementation constraints
 - Test names carry `F-15a` for the spec-trace gate.
@@ -165,3 +176,4 @@ Location fix, 15 s reroute limiter, 10 s / 30 s signal timers, route recalculati
 | T-040b | Guards `navigationNotRequested` (start / `navigate_to`) and `wordsUnclear`; advice sentences; row 4 | unit (Linux gates) |
 | T-040c | `AmapRouteEngine` `.gps` path (LocationUpdates, progress events, reroute, generation); row 5 | unit (Linux gates) |
 | T-040d | 设置 导航方式, 演示起点 lock, HUD 「模拟导航」 / 「重新规划中」, mode read at start; rows 6–11 | S, D |
+| T-040e | Revised §2.5: start guard on driver turns (uplink gate count), no transcript; drop the `navigate_to` word guard and `wordsUnclear`; claim guard holds a success claim after a refusal; row 4 (revised), row 12 | unit (Linux gates), D |

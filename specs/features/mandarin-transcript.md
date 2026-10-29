@@ -4,6 +4,7 @@
 aba6829): "the input sometimes interpret as portugese even though that is actually mandarin". Owner chose the
 on-device recognizer 2026-10-29: "Use Apple's on-device recognizer for the transcript … locked to zh-CN and ignore
 Gemini's guess."
+**Revised 2026-10-29:** the transcript is for display only; no tool guard reads it (§6, owner rule after run 9f48c45).
 **Depends on:** F-05 (Gemini Live session, `RealtimeEvent.userTranscript`), F-03 (capture frames), F-04 / F-04a
 (uplink gate: which frames are the driver's utterance), F-02 (`ListeningIntent` stop phrase), F-09
 (`GuardContext.said`), F-14 §8 (echo filter), contracts/voice-agent.md, contracts/audio.md
@@ -17,7 +18,7 @@ Gemini's guess."
   2. the stop phrase (`ListeningIntent.classify` → 别说了 barge-in, owner rule 2026-10-28),
   3. the echo filter (`relay.isEcho`, F-14 §8),
   4. `pipeline(.driverUtterance)` → `GuardContext.said` for every word-based tool guard (F-09: P56, P57, P61, P66,
-     vague exit, …).
+     vague exit, …). Revised 2026-10-29: this use is removed (§6); the transcript is for display only.
 - A Portuguese transcript therefore (a) shows the driver nonsense, (b) cannot match 别说了, so she does not stop,
   and (c) silently disables every word-based guard: the guards look for Chinese words, find none, and let the tool
   call through. The model still hears the audio and may act on it, so the safety net is gone exactly when
@@ -62,28 +63,51 @@ Gemini's guess."
   frames converted to an `AVAudioPCMBuffer`.
 - **Pure policy** (NovaCore, NovaVoice/Transcript): `TranscriptSelector` turns (local events, Gemini
   `userTranscript` events, utterance boundaries, clock) into the **one** `userTranscript(text, isFinal)` stream that
-  `AgentState` already consumes, plus a `wordsReliable: Bool` flag carried into `GuardContext`.
+  `AgentState` uses for the subtitle, the stop phrase and the echo filter (no guard input, §6).
 - Output to the rest of the app is unchanged in shape: `AgentState` still sees `.userTranscript(text, isFinal:)`;
   only its source changes. No change to the Gemini protocol or `RealtimeEvent`.
 
 ## 5. Rules of `TranscriptSelector`
 | # | Situation | Result |
 |---|---|---|
-| S1 | Local transcriber ready | Local partials are forwarded as `isFinal: false`; the local final as `isFinal: true`. Gemini's input transcript for that utterance is **dropped**. `wordsReliable = true`. |
+| S1 | Local transcriber ready | Local partials are forwarded as `isFinal: false`; the local final as `isFinal: true`. Gemini's input transcript for that utterance is **dropped**. |
 | S2 | Local final not yet in when Gemini's turn needs it | Wait up to `localFinalWait` = 800 ms after the utterance ends; then use the last local partial as final. Only if there is no local text at all, go to S3. |
 | S3 | Local unavailable or failed for this utterance | Use Gemini's transcript through the language check (§8). |
-| S4 | Language check fails (S3 text is not Chinese) | Subtitle shows 「（没听清）」; the text is **not** passed as the driver's words: stop-phrase check skipped, `wordsReliable = false`. |
+| S4 | Language check fails (S3 text is not Chinese) | Subtitle shows 「（没听清）」; stop-phrase check skipped. Tool calls are unaffected (§6). |
 | S5 | Local text is empty (silence or noise passed the gate) | No subtitle, no `driverUtterance`; same as today for an empty Gemini transcript. |
 - Traditional characters are kept as recognised; matching code already folds them (`traditional` map in
   `ToolCallGuards`).
 - The stop phrase (F-02/F-08) is checked on **local partials** too, so 别说了 stops her as soon as the phone hears it,
   without waiting for Gemini (keeps the owner rule 2026-10-28 and makes it faster).
 
-## 6. Guards when the words are not reliable
-- `GuardContext` gains `wordsReliable`. When it is false, guards that **allow** an action only on the driver's words
-  (e.g. `set_speech_output` P66, the F-15a start guard) refuse with `.wordsUnclear`; she says one honest sentence:
-  「没听清，请再说一遍。」 Guards that only **narrow or block** keep working as today.
-- This closes the hole of §1(c): a transcript that could not be read never counts as permission.
+## 6. The transcript is for display only (revised 2026-10-29)
+Owner rule 2026-10-29, after device run 9f48c45 (「最快的」 refused three times because the transcript was unreadable or
+off the word list): "abandon the transcript that serve the tool calling, and the transcript only use for display the
+text on the screen". This matches common practice: Gemini Live's input transcript is a separate output from what the
+model acts on and is known to come back in the wrong language while the model understood correctly.
+- **No tool guard reads the driver's transcript.** Gemini hears the audio and its tool call (name + arguments) is the
+  decision. Guards check only the call's arguments, app state and timing (driver turns counted by the uplink gate,
+  F-04a). `wordsReliable` and `.wordsUnclear` are withdrawn.
+- The first version of this section (unreadable words refuse allow-type guards) is withdrawn.
+- Word-based guards that exist today (F-09, ported from Android) lose their transcript input as follows (T-016d):
+
+| Guard | Today (reads transcript) | After |
+|---|---|---|
+| F-15a start (`navigationNotRequested`) | pick/start word list | driver-turn order only (F-15a §2.5 revised) |
+| F-15a `navigate_to` | go/place word list | removed (it only lists) |
+| `wordsUnclear` | unreadable words refuse | removed |
+| `speechOutputNotRequested` (P66) | 别说了-type words required | removed; `set_speech_output` runs on the call |
+| `vagueExitWhileNavigating` | explicit-end words required | state + confirmation: while guidance runs, the first `exit_navigation_mode` returns `CONFIRM_REQUIRED` and she asks 「要结束导航吗？」; a second call in a later driver turn within 15 s ends it |
+| `nearbyQuestionWhileNavigating` (P61) | question words | state: while navigating, `navigate_to` opens the along-route list and never replaces the route until a pick |
+| `sunroofOnWindowTool` (P56) | 天窗 words | removed; the catalog description says sunroof/doors/lights/wipers are unsupported |
+| `driverSideWindow` | 我这边 words | arguments only (the call's window position) |
+| `ambiguousReferent` | relative words in the request | removed; the model asks when it is unsure |
+| `unsupportedMedia` | song-name words | arguments only (a named title/artist in the call) |
+
+- **Not tool calling, kept on the transcript:** the 别说了 stop phrase (owner rule 2026-10-28, local barge-in) and the
+  echo filter (F-14 §8, drops her own voice). They change no car or navigation state. They use the phone's zh-CN text.
+- **Honest replies:** a refused or not-run call must not be followed by a success claim; F-09 `ActionClaimGuard`
+  checks her reply against app state (F-15a §2.5).
 
 ## 7. Dependencies and external services
 - `Speech` framework only in Packages/NovaAudio (`scripts/gates/check_imports.py`: add `"Speech": {"NovaAudio"}`).
@@ -119,7 +143,7 @@ Gemini's guess."
 | 1 | `TranscriptSelector` S1–S5: local wins, Gemini dropped; 800 ms final wait; fallback; language check blocks non-Chinese; empty text ignored | unit |
 | 2 | `TranscriptLanguage.isChinese`: Mandarin sentences true; Portuguese/English false; mixed 「导航去 Costa」 true; digits-only ignored | unit |
 | 3 | Stop phrase from a local partial stops her (no Gemini transcript involved) | unit (AgentState with selector) |
-| 4 | `wordsReliable = false` → allow-type guards refuse with `.wordsUnclear`; block-type guards unchanged | unit |
+| 4 | (revised) No tool guard reads the transcript: the same tool call gives the same guard result with an empty, Portuguese or unrelated transcript; each guard in the §6 table behaves as its "After" column | unit |
 | 5 | 30 short Mandarin commands on the phone (incl. 2-character ones: 别说了, 算了, 回家, 好的): subtitle always Chinese, never Portuguese/Latin; ≥ 27/30 correct characters | D |
 | 6 | Airplane mode: subtitles still appear (on-device) while the session is down | D |
 | 7 | Speech permission denied: app still works, subtitles from Gemini only when Chinese, 「（没听清）」 otherwise; diagnostics line shows the reason | D |
@@ -146,3 +170,4 @@ Gemini's guess."
 | T-016a | `LocalTranscriber` port, `TranscriptSelector`, `TranscriptLanguage`, `GuardContext.wordsReliable` + `.wordsUnclear`; rows 1–4 | unit (Linux gates) |
 | T-016b | `AppleSpeechTranscriber` (NovaAudio), import gate entry, Info.plist key, permission with first mic use | build |
 | T-016c | Wire into `AgentRuntime` (frames to transcriber, selector in front of `AgentState`), 音频测试 diagnostics line; rows 5–9 | S, D |
+| T-016d | §6 revised: remove the transcript from every tool guard (table), withdraw `wordsReliable` / `.wordsUnclear`, `CONFIRM_REQUIRED` for exit while guiding, along-route list instead of P61; row 4 (revised); F-09 guard rows that read words marked superseded | unit (Linux gates) |
