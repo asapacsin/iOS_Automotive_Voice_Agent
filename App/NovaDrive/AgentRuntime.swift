@@ -365,9 +365,8 @@ final class AgentRuntime {
         let clock = SystemClock()
         let navigation = NavigationController(search: ScriptedPlaceSearch(), engine: ScriptedRouteEngine(),
                                               location: DemoLocation(clock: clock), clock: clock,
-                                              saved: SavedPlaces(settings: DefaultsSettingsStore())) { snapshot in
-            flags.continuation.yield(snapshot)
-        }
+                                              saved: SavedPlaces(settings: DefaultsSettingsStore()),
+                                              onChange: { snapshot in flags.continuation.yield(snapshot) })
         await navigation.start()
         self.navigation = navigation
         tasks.append(Task {
