@@ -399,30 +399,19 @@ struct DriverWordsTests {
         #expect(!out.contains { if case .flushPlayback = $0 { true } else { false } })
     }
 
-    @Test("F-05a row 4: after an unclear utterance set_speech_output is refused with WORDS_UNCLEAR")
-    func unclearRefusesAllowType() {
-        var d = Drive()
-        d.connect()
-        d.send(.speechStarted(recentSpeech: true))
-        d.send(.speechStopped)
-        #expect(d.send(.driverWords(.unclear)).isEmpty)
-        d.realtime(.responseStarted(TurnID(1)))
-        let call = ToolCall(id: CallID("c1")!, name: "set_speech_output", arguments: ["mode": "silent"])
-        let out = d.realtime(.toolCalls(TurnID(1), [call]))
-        #expect(out.contains(.provider(.toolResponses([ToolResponse(id: call.id, name: call.name,
-                                                                    result: ToolDispatcher.failure(.wordsUnclear))]))))
-        #expect(!out.contains { if case .startTool = $0 { true } else { false } })
-        // A tool no word-based guard allows still runs.
-        let climate = d.realtime(.toolCalls(TurnID(1), [climateOn("c2")]))
-        #expect(climate.contains { if case .startTool = $0 { true } else { false } })
-
-        // The next utterance's clear words count again.
-        d.send(.speechStarted(recentSpeech: true))
-        d.send(.speechStopped)
-        d.send(.driverWords(.final("你可以继续说了")))
-        d.realtime(.responseStarted(TurnID(2)))
-        let again = ToolCall(id: CallID("c3")!, name: "set_speech_output", arguments: ["mode": "spoken"])
-        #expect(d.realtime(.toolCalls(TurnID(2), [again])).contains { if case .startTool = $0 { true } else { false } })
+    @Test("F-05a row 4 (revised): the same tool call runs whatever the transcript was (unclear, Portuguese, none)")
+    func transcriptNeverGuards() {
+        for words in [DriverWords.unclear, .final("Não fale mais"), .final("今天天气不错"), nil] {
+            var d = Drive()
+            d.connect()
+            d.send(.speechStarted(recentSpeech: true))
+            d.send(.speechStopped)
+            if let words { d.send(.driverWords(words)) }
+            d.realtime(.responseStarted(TurnID(1)))
+            let call = ToolCall(id: CallID("c1")!, name: "set_speech_output", arguments: ["mode": "silent"])
+            #expect(d.realtime(.toolCalls(TurnID(1), [call])).contains { if case .startTool = $0 { true } else { false } },
+                    "\(String(describing: words))")
+        }
     }
 
     @Test("F-05a S4: an unclear utterance is not a stop phrase and starts no pipeline")
@@ -433,7 +422,7 @@ struct DriverWordsTests {
     }
 }
 
-@Suite("T-040b F-15a AgentState: guidance starts only when asked")
+@Suite("T-040e F-15a AgentState: guidance starts on a later driver turn")
 struct NavigationRequestedTests {
     func listed() -> Drive {
         var d = Drive()
@@ -447,18 +436,19 @@ struct NavigationRequestedTests {
 
     func started(_ out: [AgentEffect]) -> Bool { out.contains { if case .startTool = $0 { true } else { false } } }
 
-    @Test("F-15a row 4: the model's own pick right after the list does not start guidance; 好 newer than the list does")
-    func pickNeedsWords() {
+    @Test("F-15a row 4 (revised): the model's pick in the list's own turn is refused; after the driver speaks again it starts, whatever the subtitle")
+    func pickNeedsATurn() {
         var d = listed()
         d.realtime(.responseStarted(TurnID(1)))
         let pick = ToolCall(id: CallID("c1")!, name: "choose_navigation_option", arguments: ["index": 1])
         #expect(!started(d.realtime(.toolCalls(TurnID(1), [pick]))))
         d.send(.speechStarted(recentSpeech: true))
         d.send(.speechStopped)
-        d.send(.driverWords(.final("好的")))
+        // 「最快的」 heard as Portuguese: the subtitle is （没听清）, the call still starts guidance.
+        d.send(.driverWords(.unclear))
         d.realtime(.responseStarted(TurnID(2)))
-        let again = ToolCall(id: CallID("c2")!, name: "choose_navigation_option", arguments: ["index": 1])
-        #expect(started(d.realtime(.toolCalls(TurnID(2), [again]))))
+        let fastest = ToolCall(id: CallID("c2")!, name: "choose_navigation_option", arguments: ["preference": "fastest"])
+        #expect(started(d.realtime(.toolCalls(TurnID(2), [fastest]))))
     }
 
     @Test("F-15a: a tap on a route row is the request (I-6)")

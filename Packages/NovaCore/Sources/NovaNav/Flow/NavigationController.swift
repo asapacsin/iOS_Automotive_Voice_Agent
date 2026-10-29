@@ -112,6 +112,9 @@ public actor NavigationController: ToolExecutor {
     // MARK: navigate_to
 
     private func navigate(_ destination: String) async -> ToolResult {
+        // F-05a §6 (replaces the P61 word guard): while guiding, a new place is listed over the running route;
+        // the route changes only when the driver picks one.
+        if snapshot.navigating { return await listOverGuidance(destination) }
         // F-16: 家/公司 (whole utterance, never 家乐福) is the saved place or a refusal, never a POI search.
         // An unset slot is refused before anything stops, so the current route keeps going (I-14).
         if let saved, let slot = PlaceSlot.slot(for: destination) {
@@ -119,48 +122,24 @@ public actor NavigationController: ToolExecutor {
                 let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
                 return .failure(code, advice: ToolFailureAdvice.forCode(code))
             }
-            if snapshot.navigating { await engine.stop(generation: snapshot.generation) }
             snapshot.routes = []
             snapshot.info = nil
             return await route(to: place)
         }
-        if snapshot.navigating { await engine.stop(generation: snapshot.generation) }
         let generation = advance(to: .resolvingDestination)
         snapshot.places = []
         snapshot.routes = []
         snapshot.destination = nil
         snapshot.info = nil
         publish()
-        var places: [Place] = []
-        do {
-            // F-16: stripped query first, verbatim once if it found nothing; nearby and categories by
-            // distance. A stale or coarse fix is not used (text search, no city); Amap wants GCJ-02.
-            let query = DestinationQuery(destination)
-            let center = await usableFix()
-            for keywords in query.attempts where places.isEmpty {
-                if let center {
-                    places = try await search.around(keywords, center: center,
-                                                     radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
-                } else {
-                    places = try await search.text(keywords, city: nil)
-                }
-                guard generation == snapshot.generation else { return .failure(.optionsStale) }
-            }
-        } catch let error as AmapWebError {
-            guard generation == snapshot.generation else { return .failure(.optionsStale) }
-            reset()
-            return error == .keyMissing || error == .keyRejected
-                ? .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有查到。")
-                : .failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到，可以请用户再说一遍。")
-        } catch {
-            reset()
-            return .failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到。")
-        }
+        let found = await findPlaces(destination, current: { [generation] in generation == self.snapshot.generation })
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
-        let top = Array(places.prefix(tuning.maxCandidates))
-        guard !top.isEmpty else {
+        let top: [Place]
+        switch found {
+        case .success(let places): top = places
+        case .failure(let box):
             reset()
-            return .failure(.noCandidates, advice: "没有找到这个地点。请如实说没找到，请用户换个说法。")
+            return box.result
         }
         if top.count == 1 { return await route(to: top[0]) }
         snapshot.phase = .awaitingDestinationSelection
@@ -172,6 +151,71 @@ public actor NavigationController: ToolExecutor {
             "count": .int(Int64(top.count)),
             "candidates": .array(top.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
             "next": .string("屏幕上列出了\(top.count)个地点。只说一句：找到\(top.count)个地点，请说第几个。不要念列表。"),
+        ])
+    }
+
+    /// Up to `maxCandidates` places for `destination`, or the failure to return. F-16: stripped query first,
+    /// verbatim once if it found nothing; nearby and categories by distance. A stale or coarse fix is not used
+    /// (text search, no city); Amap wants GCJ-02. `current` is false once a newer request owns the flow.
+    private func findPlaces(_ destination: String, current: () -> Bool) async -> Result<[Place], ToolResultBox> {
+        var places: [Place] = []
+        do {
+            let query = DestinationQuery(destination)
+            let center = await usableFix()
+            for keywords in query.attempts where places.isEmpty {
+                if let center {
+                    places = try await search.around(keywords, center: center,
+                                                     radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
+                } else {
+                    places = try await search.text(keywords, city: nil)
+                }
+                guard current() else { return .failure(ToolResultBox(.failure(.optionsStale))) }
+            }
+        } catch let error as AmapWebError {
+            return .failure(ToolResultBox(error == .keyMissing || error == .keyRejected
+                ? .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有查到。")
+                : .failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到，可以请用户再说一遍。")))
+        } catch {
+            return .failure(ToolResultBox(.failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到。")))
+        }
+        let top = Array(places.prefix(tuning.maxCandidates))
+        guard !top.isEmpty else {
+            return .failure(ToolResultBox(.failure(.noCandidates, advice: "没有找到这个地点。请如实说没找到，请用户换个说法。")))
+        }
+        return .success(top)
+    }
+
+    /// While guiding: the places are listed over the running route (as along-route results); nothing stops
+    /// until a pick, which replaces the route (`choose` on the along-route list).
+    private func listOverGuidance(_ destination: String) async -> ToolResult {
+        let generation = snapshot.generation
+        let top: [Place]
+        if let saved, let slot = PlaceSlot.slot(for: destination) {
+            guard let place = saved.place(slot) else {
+                let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
+                return .failure(code, advice: ToolFailureAdvice.forCode(code))
+            }
+            top = [place]
+        } else {
+            let found = await findPlaces(destination, current: { [generation] in
+                generation == self.snapshot.generation && self.snapshot.navigating
+            })
+            switch found {
+            case .success(let places): top = places
+            case .failure(let box): return box.result
+            }
+        }
+        guard generation == snapshot.generation, snapshot.navigating else { return .failure(.optionsStale) }
+        snapshot.places = top
+        snapshot.alongRouteList = true
+        listedAt = clock.now
+        publish()
+        return .success([
+            "status": "candidates_listed_over_guidance",
+            "count": .int(Int64(top.count)),
+            "candidates": .array(top.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
+            "guidance_kept": true,
+            "next": .string("屏幕上列出了\(top.count)个地点，导航仍按原路线继续。只说一句：找到\(top.count)个，说第几个可以改去那里。不要说已经改了路线。"),
         ])
     }
 

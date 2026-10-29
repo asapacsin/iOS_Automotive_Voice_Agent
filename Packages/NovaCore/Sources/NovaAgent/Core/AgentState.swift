@@ -136,10 +136,10 @@ public struct AgentState: Sendable {
     private var transcript = ""
     private var speechOnsets = 0
     private var transcriptEpoch = 0
-    /// F-05a §6: false after an utterance whose transcript could not be read.
-    private var wordsReliable = true
-    /// F-15a: speech-onset epoch when the route list appeared.
-    private var routeListEpoch = 0
+    /// Utterances closed by the uplink gate (F-04a `activityEnd`): F-15a driver turns, counted from audio.
+    private var closedTurns = 0
+    /// F-15a: `closedTurns` when the route list appeared.
+    private var routeListTurn = 0
     /// F-05a: `TranscriptSelector` feeds the driver's words (`.driverWords`); Gemini's transcript is not used.
     private var selectorOwnsWords = false
     /// Clauses waiting while the arbiter holds the reply (R1 guidance, R5 transient loss).
@@ -205,7 +205,6 @@ public struct AgentState: Sendable {
             arbiter.driverSpeech(true)
             speechOnsets += 1
             transcript = ""
-            wordsReliable = true
             abandonNextTurn = false
             // The driver speaks to her: a reply may claim focus again after a permanent loss (R4).
             if recentSpeech { arbiter.regainFocus() }
@@ -213,6 +212,7 @@ public struct AgentState: Sendable {
             return effects + session(.speechStarted, at: now) + arbiterChanged(at: now)
         case .speechStopped:
             driverSpeaking = false
+            closedTurns += 1
             arbiter.driverSpeech(false)
             // R6: she may answer this utterance while navigating.
             arbiter.driverSpoke(at: now)
@@ -227,10 +227,9 @@ public struct AgentState: Sendable {
             case .partial(let text): return heard(text, isFinal: false, at: now)
             case .final(let text): return heard(text, isFinal: true, at: now)
             case .unclear:
-                // S4: not passed as the driver's words; no stop-phrase check, and they allow nothing.
+                // S4: shown as 「（没听清）」 only; no stop-phrase check. Tool calls never read words (F-05a §6).
                 transcriptEpoch = speechOnsets
                 transcript = ""
-                wordsReliable = false
                 return []
             }
         case .toolFinished(let turn, let call, let result):
@@ -310,7 +309,7 @@ public struct AgentState: Sendable {
         case .navigation(let flags):
             let wasNavigating = navigation.navigating
             let tripEnded = navigation.navigating && !flags.navigating
-            if flags.routeChoiceOpen, !navigation.routeChoiceOpen { routeListEpoch = speechOnsets }
+            if flags.routeChoiceOpen, !navigation.routeChoiceOpen { routeListTurn = closedTurns }
             navigation = flags
             arbiter.setNavigating(flags.navigating)
             let ended = tripEnded ? relayOutputs(relay.tripEnded(), at: now) : []
@@ -327,12 +326,11 @@ public struct AgentState: Sendable {
             uiCount += 1
             let call = ToolCall(id: CallID("ui_\(uiCount)")!, name: "choose_navigation_option",
                                 arguments: ["index": .int(Int64(row + 1))])
-            let guardContext = GuardContext(requestText: "", currentEpoch: transcriptEpoch, capabilityEpoch: 0,
-                                            navigating: navigation.navigating,
+            let guardContext = GuardContext(turn: 0, closedTurns: closedTurns, now: now, navigating: navigation.navigating,
                                             guidanceRunning: navigation.guidanceRunning, listOpen: navigation.listOpen,
-                                            routeChoiceOpen: navigation.routeChoiceOpen, fromTap: true)
-            let referents = context
-            switch dispatcher.decide(call, context: guardContext, clarify: { referents.clarify($0, at: now) }) {
+                                            routeChoiceOpen: navigation.routeChoiceOpen, routeListTurn: routeListTurn,
+                                            fromTap: true)
+            switch dispatcher.decide(call, context: guardContext) {
             case .execute(let running):
                 uiCalls.insert(running.id)
                 runningTools += 1
@@ -556,7 +554,6 @@ public struct AgentState: Sendable {
         // Her own guidance reading heard back through the microphone is not the driver (F-14 §8).
         if isFinal, relay.isEcho(text, at: now) { return [] }
         transcriptEpoch = speechOnsets
-        if isFinal { wordsReliable = true }
         transcript = text
         // Barge-in is a stop phrase only (owner rule 2026-10-28). It stops her at once, and the model's
         // answer to it is not heard: she just stops.
@@ -639,15 +636,14 @@ public struct AgentState: Sendable {
         case .toolCalls(let turn, let calls):
             var effects = pipeline(.toolCalls(turn, calls), at: now)
             for call in calls {
-                let guardContext = GuardContext(requestText: transcript, currentEpoch: transcriptEpoch,
-                                                capabilityEpoch: speechOnsets, navigating: navigation.navigating,
+                // F-05a §6: the guards read state and turn counts only, never the transcript.
+                let guardContext = GuardContext(turn: speechOnsets, closedTurns: closedTurns, now: now,
+                                                navigating: navigation.navigating,
                                                 guidanceRunning: navigation.guidanceRunning,
-                                                listOpen: navigation.listOpen, wordsReliable: wordsReliable,
+                                                listOpen: navigation.listOpen,
                                                 routeChoiceOpen: navigation.routeChoiceOpen,
-                                                routeListEpoch: routeListEpoch)
-                let referents = context
-                switch dispatcher.decide(call, context: guardContext,
-                                         clarify: { referents.clarify($0, at: now) }) {
+                                                routeListTurn: routeListTurn)
+                switch dispatcher.decide(call, context: guardContext) {
                 case .execute(let running):
                     runningTools += 1
                     effects.append(.startTool(turn, running))
