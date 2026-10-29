@@ -18,7 +18,7 @@ struct DriveView: View {
     private var model: DriveModel { holder.runtime.model }
 
     var body: some View {
-        DriveContent(model: holder.runtime.model, camera: $camera,
+        DriveContent(model: holder.runtime.model, position: holder.runtime.mapPosition, camera: $camera,
                      toggle: { Task { model.running ? holder.runtime.stop() : await holder.runtime.start() } },
                      runtime: holder.runtime)
     }
@@ -132,7 +132,10 @@ final class RuntimeHolder: ObservableObject {
 
 private struct DriveContent: View {
     @ObservedObject var model: DriveModel
+    @ObservedObject var position: MapPositionModel
     @Binding var camera: MapCameraPosition
+    /// Camera changes until then were commanded by the policy, not made by the driver.
+    @State private var commandedUntil = Date.distantPast
     let toggle: () -> Void
     let runtime: AgentRuntime
     @Environment(\.scenePhase) private var scenePhase
@@ -150,6 +153,7 @@ private struct DriveContent: View {
                     choices
                 }
                 conversation
+                locateRow
                 carCard
                 talkButton
             }
@@ -157,7 +161,16 @@ private struct DriveContent: View {
             .padding(.bottom, 8)
             if model.cameraOpen { CameraWindow(model: model, runtime: runtime) }
         }
-        .onChange(of: model.geometry) { _, geometry in focus(geometry) }
+        // T-044c: 我的位置 and the camera follow the policy (F-16b); the view only applies its commands.
+        .onChange(of: model.geometry) { _, geometry in position.navigation(model.nav, geometry: geometry) }
+        .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }
+        .onChange(of: position.command) { _, command in if let command { apply(command.command) } }
+        .onChange(of: useDeviceLocation) { _, _ in position.sourceChanged() }
+        .onAppear {
+            position.appear()
+            position.navigation(model.nav, geometry: model.geometry)
+        }
+        .onDisappear { position.disappear() }
         // F-20a §5: the camera never runs in the background.
         .task { if UITestDrive.enabled { await runtime.startUITestDrive() } else { await runtime.refreshWake() } }
         .onChange(of: scenePhase) { _, phase in
@@ -183,10 +196,17 @@ private struct DriveContent: View {
                 MapPolyline(coordinates: route.points.map { CLLocationCoordinate2D($0) })
                     .stroke(selected ? Color.blue : Color.gray.opacity(0.6), lineWidth: selected ? 7 : 4)
             }
-            if let car = model.geometry.car {
-                Annotation("", coordinate: CLLocationCoordinate2D(car)) {
-                    Image(systemName: "location.north.circle.fill")
-                        .font(.title).foregroundStyle(.white, .blue)
+            // F-16b: one 我的位置 marker; while navigating it is the simulated car (OQ-MAP-2). GCJ-02 like the
+            // routes, so MapKit's own user annotation is not used.
+            if let marker = position.position.marker {
+                let point = CLLocationCoordinate2D(marker.coordinate)
+                if let radius = marker.accuracyRadiusMeters {
+                    MapCircle(center: point, radius: radius)
+                        .foregroundStyle(Color.blue.opacity(0.15))
+                        .stroke(Color.blue.opacity(0.4), lineWidth: 1)
+                }
+                Annotation(marker.caption ?? "", coordinate: point) {
+                    SelfMarker(marker: marker).accessibilityIdentifier("self-position")
                 }
             }
             if let destination = presentation.destination {
@@ -196,23 +216,53 @@ private struct DriveContent: View {
                 Marker("\(index + 1) \(place.name)", coordinate: CLLocationCoordinate2D(place.coordinate)).tint(.orange)
             }
         }
+        // A pan or zoom by the driver stops following (C7); moves this view commanded do not count.
+        .onMapCameraChange(frequency: .onEnd) { _ in
+            if Date() > commandedUntil { position.userGesture() }
+        }
     }
 
-    private func focus(_ geometry: RouteGeometry) {
-        if presentation.followCar, let car = geometry.car {
-            withAnimation(.linear(duration: 1)) {
-                camera = .region(MKCoordinateRegion(center: CLLocationCoordinate2D(car), latitudinalMeters: 1_500,
-                                                    longitudinalMeters: 1_500))
+    /// Applies a `MapCameraPolicy` command; the resulting camera change is not a driver gesture.
+    private func apply(_ command: MapCameraPolicy.Command) {
+        commandedUntil = Date().addingTimeInterval(1.5)
+        switch command {
+        case .center(let point, let span):
+            withAnimation(.linear(duration: 0.8)) {
+                camera = .region(MKCoordinateRegion(center: CLLocationCoordinate2D(point), latitudinalMeters: span,
+                                                    longitudinalMeters: span))
             }
-            return
+        case .fitContent:
+            // T-044 framing: the routes on offer, or the listed places.
+            var points = model.geometry.routes.filter { presentation.routes.contains($0.summary.id) }.flatMap(\.points)
+            if points.isEmpty { points = presentation.markers.map(\.coordinate) }
+            guard !points.isEmpty else { return }
+            let lats = points.map(\.latitude), lngs = points.map(\.longitude)
+            let center = CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2,
+                                                longitude: (lngs.min()! + lngs.max()!) / 2)
+            let span = MKCoordinateSpan(latitudeDelta: (lats.max()! - lats.min()!) * 1.6 + 0.01,
+                                        longitudeDelta: (lngs.max()! - lngs.min()!) * 1.6 + 0.01)
+            withAnimation { camera = .region(MKCoordinateRegion(center: center, span: span)) }
         }
-        let points = geometry.routes.filter { presentation.routes.contains($0.summary.id) }.flatMap(\.points)
-        guard !points.isEmpty else { return }
-        let lats = points.map(\.latitude), lngs = points.map(\.longitude)
-        let center = CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2, longitude: (lngs.min()! + lngs.max()!) / 2)
-        let span = MKCoordinateSpan(latitudeDelta: (lats.max()! - lats.min()!) * 1.6 + 0.01,
-                                    longitudeDelta: (lngs.max()! - lngs.min()!) * 1.6 + 0.01)
-        withAnimation { camera = .region(MKCoordinateRegion(center: center, span: span)) }
+    }
+
+    /// 定位未开启 pill and 回到我的位置 (F-16b §2), bottom-right above the car card.
+    private var locateRow: some View {
+        HStack {
+            if position.locate.showsPermissionPill {
+                Button("定位未开启") { position.openSettings() }
+                    .font(.caption).padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(.regularMaterial, in: Capsule())
+                    .accessibilityIdentifier("location-off")
+            }
+            Spacer()
+            Button { position.locateMe() } label: {
+                Image(systemName: position.locate.icon.rawValue)
+                    .font(.title3).frame(width: 44, height: 44)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .accessibilityLabel("回到我的位置")
+            .accessibilityIdentifier("locate-me")
+        }
     }
 
     // MARK: Header and HUD
@@ -441,4 +491,26 @@ private struct DriveContent: View {
 
 extension CLLocationCoordinate2D {
     init(_ c: GeoCoordinate) { self.init(latitude: c.latitude, longitude: c.longitude) }
+}
+
+/// 我的位置: a heading arrow while moving, else a dot with a white ring; gray when the fix is provisional.
+private struct SelfMarker: View {
+    let marker: SelfPosition.Marker
+
+    var body: some View {
+        let color: Color = marker.style == .provisional ? .gray : .blue
+        if let heading = marker.headingDegrees {
+            Image(systemName: "location.north.fill")
+                .font(.title2)
+                .foregroundStyle(color)
+                .rotationEffect(.degrees(heading))
+                .shadow(radius: 2)
+        } else {
+            Circle()
+                .fill(color)
+                .frame(width: 16, height: 16)
+                .overlay(Circle().stroke(.white, lineWidth: 3))
+                .shadow(radius: 2)
+        }
+    }
 }

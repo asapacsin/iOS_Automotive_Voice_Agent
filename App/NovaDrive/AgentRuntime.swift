@@ -389,6 +389,9 @@ final class AgentRuntime {
     /// answered 「还没定位到」 for ~40 s indoors (phone log 2026-10-28). Paused in the background.
     private let navigationClock = SystemClock()
     private lazy var deviceLocation = CoreLocationProvider(clock: navigationClock)
+    /// F-16b: 我的位置 on the map, from the same providers and clock as the session (T-044c).
+    lazy var mapPosition = MapPositionModel(device: deviceLocation, demo: DemoLocation(clock: navigationClock),
+                                            clock: navigationClock)
 
     /// Starts location at launch when permission was already given, so the first question has a fix.
     /// A first-time permission is still asked at first need (F-23).
