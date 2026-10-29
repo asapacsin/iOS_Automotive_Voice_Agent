@@ -12,6 +12,9 @@ public enum AgentEvent: Sendable, Hashable {
     /// Local VAD (F-04). `recentSpeech` is `SpeechUplinkGate.hasRecentSpeech` at onset.
     case speechStarted(recentSpeech: Bool)
     case speechStopped
+    /// F-05a: the driver's words chosen by `TranscriptSelector`. Once one arrives, Gemini's own
+    /// `userTranscript` is ignored (the selector already had it).
+    case driverWords(DriverWords)
     /// `ToolRunner` finished `call` of `turn`.
     case toolFinished(TurnID, ToolCall, ToolResult)
     case playback(PlaybackEvent)
@@ -129,6 +132,10 @@ public struct AgentState: Sendable {
     private var transcript = ""
     private var speechOnsets = 0
     private var transcriptEpoch = 0
+    /// F-05a §6: false after an utterance whose transcript could not be read.
+    private var wordsReliable = true
+    /// F-05a: `TranscriptSelector` feeds the driver's words (`.driverWords`); Gemini's transcript is not used.
+    private var selectorOwnsWords = false
     /// Clauses waiting while the arbiter holds the reply (R1 guidance, R5 transient loss).
     private var heldClauses: [String] = []
     /// F-14 relay and the model turn that reads its PENDING sentence.
@@ -192,6 +199,7 @@ public struct AgentState: Sendable {
             arbiter.driverSpeech(true)
             speechOnsets += 1
             transcript = ""
+            wordsReliable = true
             abandonNextTurn = false
             // The driver speaks to her: a reply may claim focus again after a permanent loss (R4).
             if recentSpeech { arbiter.regainFocus() }
@@ -206,6 +214,19 @@ public struct AgentState: Sendable {
             // The no-answer clock (W3) starts when the driver stops, with what we heard so far.
             return session(.speechStopped, at: now) + pipeline(.driverUtterance(transcript), at: now)
                 + arbiterChanged(at: now)
+        case .driverWords(let words):
+            selectorOwnsWords = true
+            guard session.state != .disconnected, session.state != .error else { return [] }
+            switch words {
+            case .partial(let text): return heard(text, isFinal: false, at: now)
+            case .final(let text): return heard(text, isFinal: true, at: now)
+            case .unclear:
+                // S4: not passed as the driver's words; no stop-phrase check, and they allow nothing.
+                transcriptEpoch = speechOnsets
+                transcript = ""
+                wordsReliable = false
+                return []
+            }
         case .toolFinished(let turn, let call, let result):
             runningTools = max(runningTools - 1, 0)
             if uiCalls.remove(call.id) != nil {
@@ -522,6 +543,25 @@ public struct AgentState: Sendable {
 
     // MARK: Reply
 
+    /// The driver's words so far (`text` is the whole utterance), from Gemini or from `TranscriptSelector`.
+    private mutating func heard(_ text: String, isFinal: Bool, at now: NovaInstant) -> [AgentEffect] {
+        // Her own guidance reading heard back through the microphone is not the driver (F-14 §8).
+        if isFinal, relay.isEcho(text, at: now) { return [] }
+        transcriptEpoch = speechOnsets
+        if isFinal { wordsReliable = true }
+        transcript = text
+        // Barge-in is a stop phrase only (owner rule 2026-10-28). It stops her at once, and the model's
+        // answer to it is not heard: she just stops.
+        if ListeningIntent.classify(text) == .shutUp {
+            let stop = bargeIn(.stopPhrase, at: now)
+            if isFinal { abandonNextTurn = true }
+            return stop.isEmpty ? [] : stop + arbiterChanged(at: now)
+        }
+        // The flushed transcript of an utterance already given up on does not revive it.
+        guard isFinal, !abandonNextTurn else { return [] }
+        return pipeline(.driverUtterance(text), at: now)
+    }
+
     private mutating func reply(_ event: RealtimeEvent, at now: NovaInstant) -> [AgentEffect] {
         if let turn = event.turn, abandoned.contains(turn) {
             // W3: the utterance was given up on; a late call is dropped and never executed, nothing is said.
@@ -534,25 +574,9 @@ public struct AgentState: Sendable {
         }
         switch event {
         case .userTranscript(let text, let isFinal):
-            // Her own guidance reading heard back through the microphone is not the driver (F-14 §8).
-            if isFinal, relay.isEcho(text, at: now) { return [] }
-            transcriptEpoch = speechOnsets
-            // Barge-in is a stop phrase only (owner rule 2026-10-28). It stops her at once, and the model's
-            // answer to it is not heard: she just stops.
-            let heard = isFinal ? text : transcript + text
-            if ListeningIntent.classify(heard) == .shutUp {
-                transcript = heard
-                let stop = bargeIn(.stopPhrase, at: now)
-                if isFinal { abandonNextTurn = true }
-                return stop.isEmpty ? [] : stop + arbiterChanged(at: now)
-            }
-            if isFinal {
-                transcript = text
-                // The flushed transcript of an utterance already given up on does not revive it.
-                return abandonNextTurn ? [] : pipeline(.driverUtterance(text), at: now)
-            }
-            transcript += text
-            return []
+            guard !selectorOwnsWords else { return [] }
+            // Gemini's partials are deltas.
+            return heard(isFinal ? text : transcript + text, isFinal: isFinal, at: now)
         case .responseStarted(let turn):
             if abandonNextTurn {
                 abandonNextTurn = false
@@ -610,7 +634,7 @@ public struct AgentState: Sendable {
                 let guardContext = GuardContext(requestText: transcript, currentEpoch: transcriptEpoch,
                                                 capabilityEpoch: speechOnsets, navigating: navigation.navigating,
                                                 guidanceRunning: navigation.guidanceRunning,
-                                                listOpen: navigation.listOpen)
+                                                listOpen: navigation.listOpen, wordsReliable: wordsReliable)
                 let referents = context
                 switch dispatcher.decide(call, context: guardContext,
                                          clarify: { referents.clarify($0, at: now) }) {

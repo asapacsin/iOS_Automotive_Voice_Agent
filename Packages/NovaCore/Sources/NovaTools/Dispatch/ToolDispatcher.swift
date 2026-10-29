@@ -24,7 +24,7 @@ public struct NotYetExecutor: ToolExecutor {
 
 /// Pure decision half of the dispatcher (F-09). Order: validate → driver-side window rewrite →
 /// guards (unsupportedMedia → sunroofOnWindowTool → nearbyQuestionWhileNavigating →
-/// vagueExitWhileNavigating → speechOutputNotRequested → ambiguousReferent → repeatedInTurn) →
+/// vagueExitWhileNavigating → wordsUnclear → speechOutputNotRequested → ambiguousReferent → repeatedInTurn) →
 /// savedPlaceMissing. Keeps the repeat-in-turn record, so it lives inside AgentCore.
 public struct ToolDispatcher: Sendable {
     /// Identical repeat-sensitive calls already dispatched, per driver turn (speech-onset epoch).
@@ -43,7 +43,7 @@ public struct ToolDispatcher: Sendable {
         let guards: [(ToolCall, GuardContext) -> ToolErrorCode?] = [
             ToolCallGuards.unsupportedMedia, ToolCallGuards.sunroofOnWindowTool,
             ToolCallGuards.nearbyQuestionWhileNavigating, ToolCallGuards.vagueExitWhileNavigating,
-            ToolCallGuards.speechOutputNotRequested,
+            ToolCallGuards.wordsUnclear, ToolCallGuards.speechOutputNotRequested,
         ]
         for check in guards {
             if let code = check(running, context) { return .refuse(Self.failure(code)) }

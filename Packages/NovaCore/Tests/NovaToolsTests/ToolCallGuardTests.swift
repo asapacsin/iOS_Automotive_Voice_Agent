@@ -379,3 +379,38 @@ struct DispatchTests {
         }
     }
 }
+
+@Suite("T-016a F-05a guard: wordsUnclear")
+struct WordsUnclearGuardTests {
+    func unclear(_ said: String, navigating: Bool = false) -> GuardContext {
+        var c = ctx(said, navigating: navigating)
+        c.wordsReliable = false
+        return c
+    }
+
+    @Test("F-05a row 4: allow-type guards refuse with WORDS_UNCLEAR when the words are not reliable")
+    func allowType() {
+        let speech = call("set_speech_output", ["mode": "silent"])
+        #expect(ToolCallGuards.wordsUnclear(speech, unclear("")) == .wordsUnclear)
+        var dispatcher = ToolDispatcher()
+        #expect(dispatcher.decide(speech, context: unclear("")) == .refuse(ToolDispatcher.failure(.wordsUnclear)))
+        // Reliable words go on to the speech guard as before.
+        #expect(ToolCallGuards.wordsUnclear(speech, ctx("别说了")) == nil)
+        // Words of an earlier turn are not this turn's (wordsAreCurrent false): unchanged.
+        var old = ctx("", epoch: 1, onset: 2)
+        old.wordsReliable = false
+        #expect(ToolCallGuards.wordsUnclear(speech, old) == nil)
+        #expect(ToolFailureAdvice.forCode(.wordsUnclear)?.contains("没听清，请再说一遍") == true)
+    }
+
+    @Test("F-05a row 4: block-type guards and other tools are unchanged")
+    func blockType() {
+        let gas = call("navigate_to", ["destination": "加油站"])
+        #expect(ToolCallGuards.wordsUnclear(gas, unclear("附近有加油站吗", navigating: true)) == nil)
+        #expect(ToolCallGuards.nearbyQuestionWhileNavigating(gas, unclear("附近有加油站吗", navigating: true))
+            == .nearbyQuestionWhileNavigating)
+        let window = call("control_window", ["action": "open"])
+        #expect(ToolCallGuards.sunroofOnWindowTool(window, unclear("打开天窗")) == .unsupportedBodyPart)
+        #expect(ToolCallGuards.wordsUnclear(call("control_climate", ["action": "power_on"]), unclear("")) == nil)
+    }
+}

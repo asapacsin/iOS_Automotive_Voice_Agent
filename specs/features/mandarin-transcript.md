@@ -93,7 +93,8 @@ Gemini's guess."
 ## 8. Error handling and recovery
 - **Language check** (pure, `TranscriptLanguage.isChinese(text)`): true when ≥ 60 % of the letters are Han
   characters (CJK Unified Ideographs, incl. Ext. A) and the text has at least one Han character; digits and
-  punctuation are ignored. Latin-only text (Portuguese, English) is false.
+  punctuation are ignored. Latin-only text (Portuguese, English) is false. PROPOSED (T-016a): a run of Latin
+  letters counts as one letter (one word), so 「导航去 Costa」 is 3 of 4 = 75 % Chinese; other scripts count per character.
 
 | Case | Behaviour |
 |---|---|

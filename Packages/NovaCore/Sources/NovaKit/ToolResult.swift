@@ -56,6 +56,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case mediaLibraryUnsupported = "MEDIA_LIBRARY_UNSUPPORTED"
     case duplicateInTurn = "DUPLICATE_IN_TURN"
     case speechOutputNotRequested = "SPEECH_OUTPUT_NOT_REQUESTED"
+    /// PROPOSED (F-05a §6): the driver's words could not be read (not Chinese), so they allow nothing.
+    case wordsUnclear = "WORDS_UNCLEAR"
     case noMatch = "NO_MATCH"
     case ambiguous = "AMBIGUOUS"
     case outOfRange = "OUT_OF_RANGE"

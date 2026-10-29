@@ -30,9 +30,12 @@ public struct GuardContext: Sendable, Hashable {
     /// Saved places that are set (`SavedPlaces`); nil when AgentCore does not know them, in which case
     /// the navigation executor decides 家/公司 itself from the store.
     public var savedPlaces: Set<PlaceSlot>?
+    /// F-05a §6: false when this turn's transcript could not be read (Gemini's guess was not Chinese).
+    public var wordsReliable: Bool
 
     public init(requestText: String = "", currentEpoch: Int = 0, capabilityEpoch: Int = 0, navigating: Bool = false,
-                guidanceRunning: Bool = false, listOpen: Bool = false, savedPlaces: Set<PlaceSlot>? = nil) {
+                guidanceRunning: Bool = false, listOpen: Bool = false, savedPlaces: Set<PlaceSlot>? = nil,
+                wordsReliable: Bool = true) {
         self.requestText = requestText
         self.currentEpoch = currentEpoch
         self.capabilityEpoch = capabilityEpoch
@@ -40,6 +43,7 @@ public struct GuardContext: Sendable, Hashable {
         self.guidanceRunning = guidanceRunning
         self.listOpen = listOpen
         self.savedPlaces = savedPlaces
+        self.wordsReliable = wordsReliable
     }
 
     /// A transcript older than the speech onset is the previous turn's and is not used.
@@ -161,6 +165,15 @@ public enum ToolCallGuards {
     public static func vagueExitWhileNavigating(_ call: ToolCall, _ c: GuardContext) -> ToolErrorCode? {
         guard call.name == "exit_navigation_mode", c.guidanceRunning, !c.listOpen, c.wordsAreCurrent else { return nil }
         return isExplicitEnd(c.said) ? nil : .vagueExitWhileNavigating
+    }
+
+    /// Tools a guard lets run only because of the driver's words (allow-type). F-15a's start guard joins them.
+    static let allowedByWordsOnly: Set<String> = ["set_speech_output"]
+
+    /// F-05a §6: words that could not be read never count as permission. Block-type guards are not affected.
+    public static func wordsUnclear(_ call: ToolCall, _ c: GuardContext) -> ToolErrorCode? {
+        guard allowedByWordsOnly.contains(call.name), c.wordsAreCurrent, !c.wordsReliable else { return nil }
+        return .wordsUnclear
     }
 
     /// `set_speech_output` runs only when this turn's words ask to stop or resume talking (P66).

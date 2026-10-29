@@ -366,3 +366,54 @@ struct AgentCoreShellTests {
         #expect(response < speak)
     }
 }
+
+@Suite("T-016a F-05a AgentState with the transcript selector")
+struct DriverWordsTests {
+    func speaking() -> Drive {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.send(.driverWords(.final("讲个故事")))
+        d.realtime(.responseStarted(TurnID(1)))
+        d.realtime(.replyAudio(TurnID(1), PCMBuffer(sampleRate: 24_000, samples: [1, 2, 3])))
+        d.realtime(.replyText(TurnID(1), "从前有一座山，"))
+        d.send(.playback(.replyStarted(Epoch.initial)))
+        return d
+    }
+
+    @Test("F-05a row 3: 别说了 in a local partial stops her; no Gemini transcript is involved")
+    func stopFromLocalPartial() {
+        var d = speaking()
+        d.send(.speechStarted(recentSpeech: true))
+        #expect(d.send(.driverWords(.partial("别说"))).isEmpty)
+        let barge = d.send(.driverWords(.partial("别说了")))
+        #expect(Array(barge.prefix(2)) == [.flushPlayback(Epoch(1)), .cancelRevoicing(Epoch(1))])
+    }
+
+    @Test("F-05a: once the selector feeds the words, Gemini's own transcript is ignored")
+    func geminiIgnored() {
+        var d = speaking()
+        d.send(.speechStarted(recentSpeech: true))
+        let out = d.realtime(.userTranscript("别说了", isFinal: true))
+        #expect(!out.contains { if case .flushPlayback = $0 { true } else { false } })
+    }
+
+    @Test("F-05a row 4: after an unclear utterance set_speech_output is refused with WORDS_UNCLEAR")
+    func unclearRefusesAllowType() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        #expect(d.send(.driverWords(.unclear)).isEmpty)
+        d.realtime(.responseStarted(TurnID(1)))
+        let call = ToolCall(id: CallID("c1")!, name: "set_speech_output", arguments: ["mode": "silent"])
+        let out = d.realtime(.toolCalls(TurnID(1), [call]))
+        #expect(out.contains(.provider(.toolResponses([ToolResponse(id: call.id, name: call.name,
+                                                                    result: ToolDispatcher.failure(.wordsUnclear))]))))
+        #expect(!out.contains { if case .startTool = $0 { true } else { false } })
+        // A tool no word-based guard allows still runs.
+        let climate = d.realtime(.toolCalls(TurnID(1), [climateOn("c2")]))
+        #expect(climate.contains { if case .startTool = $0 { true } else { false } })
+    }
+}
