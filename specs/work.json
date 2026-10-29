@@ -1303,6 +1303,28 @@
         "T-016d"
       ],
       "notes": "Device run ed40023 17:30: 结束导航 refused twice (CONFIRM_REQUIRED); her question took ~17 s so the yes came 20.6 s after the first refusal, past the 15 s window. Owner 2026-10-29: \"Update spec\" — common practice ends navigation on the voice command at once."
+    },
+    {
+      "id": "T-040f",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-15a §2.5 driver turns: count only utterances that begin while she is silent or are qualified barge-ins; no answerOwed from unqualified sound; check and stop uplink of that audio (F-04a); routeListTurn set synchronously on destination_selected; rows 13-14",
+      "depends_on": [
+        "T-040e"
+      ],
+      "notes": "Device run ed40023: guidance started unasked at 17:30:00 and 17:42:57, each ~2 s after bargeIn(qualified: false) while she read the route list; no driver speech in between."
+    },
+    {
+      "id": "T-040g",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-15a §9 one trip at a time: route engine + NavigationController owned by the app (built once), sessions attach; at most one drive; stale engine geometry dropped; trip continues across session end (OQ-NAVM-5 default); rows 15-16",
+      "depends_on": [
+        "T-040d"
+      ],
+      "notes": "Device run ed40023: AgentRuntime.start() builds a new engine per session and stop() never stops it; session 1's simulated drive ran on from 17:30 to ~17:42 with no session; session 3's drive at 17:42:57 ran alongside it, so the marker jumped between two cars."
     }
   ]
 }

@@ -9,6 +9,8 @@ switching between two locations, and simulate navigation even though I'm not ask
 `SwitchableLocationProvider`), F-16b/F-16b.1 (`SelfPosition`, `MapCameraPolicy`), F-14 (guidance relay), F-17 (HUD),
 F-09 (guards), F-04a (uplink gate: driver turns), contracts/navigation.md, contracts/api-contracts.md
 **Revised 2026-10-29:** §2.5 no longer reads the driver's transcript (owner rule: transcript is for display only).
+**Revised 2026-10-29 (run ed40023, owner: "Write the specs"):** §2.5 what counts as a driver turn; §9 one trip at a
+time across voice sessions.
 
 ## 1. Problem (code at aba6829)
 - **Navigation is simulation only.** `AmapRouteEngine.start` returns unless `mode == .emulator` ("GPS guidance needs
@@ -77,6 +79,18 @@ list; that made a bad transcript veto a correct tool call. It is replaced by:
   gate (F-04a `activityEnd`); it is counted from audio boundaries, never from text. A call in the same driver turn
   as the list (the model chaining "pick destination → pick route" without the driver speaking again) is refused with
   `.navigationNotRequested`; she says 「有\(n)条路线，要走哪一条？」. Taps are never refused (I-6).
+- **What counts as a driver turn (revised 2026-10-29, device run ed40023).** Guidance started twice without the driver
+  speaking (17:30:00, 17:42:57). Each time, 2 s after she began reading the route list (「…说第几条或者说开始导航」),
+  the gate heard a sound during her reply that was **not** a qualified barge-in (`bargeIn(qualified: false)`:
+  her own voice echoing, road noise, a cough). It still closed an utterance, so `closedTurns` went up, and the model's
+  later `choose_navigation_option` passed the turn check. Rules:
+  - A driver turn is counted only for an utterance that **began while she was not speaking** (no reply or guidance
+    audio playing, and past the F-04a echo tail), or that was a **qualified barge-in** (F-08: 别说了).
+  - Sound during her reply that is not a qualified barge-in never counts as a driver turn and never opens an answer
+    (`answerOwed`). If the uplink gate sends that audio to Gemini, it stops doing so (F-04a); T-040f checks which it is.
+  - `routeListTurn` is recorded **in the core, synchronously, when the tool result that opens the route list
+    (`destination_selected`) is handled**, not later from the snapshot flags stream; the guard never skips because
+    the route-list flag has not arrived yet (closes the race noted in T-040d).
 - `navigate_to` has no start guard: it only lists places and routes, nothing starts.
 - **A refusal is never followed by a success claim.** While guidance is not running, a reply that claims a route was
   chosen or guidance started (已选/已经为你选/已开始导航/开始导航了) is held by the action-claim guard (F-09
@@ -135,6 +149,21 @@ Location fix, 15 s reroute limiter, 10 s / 30 s signal timers, route recalculati
   newer generation cancels it; a late fix of an old generation is dropped.
 - At most one recalculation in flight; a fix that arrives during it is still matched against the old route.
 - Fix → marker and progress update ≤ 1 s.
+- **One trip at a time, across voice sessions (added 2026-10-29, device run ed40023).** `AgentRuntime.start()` builds
+  a new `AmapRouteEngine` and `NavigationController` for every voice session, and `stop()` drops them without stopping
+  the engine. Session 1's simulated drive (started 17:30:00, session ended 17:30:57) kept running with no session and
+  kept writing `RouteGeometry.car` to the shared map model (marker updates every second from 17:31 to 17:42 while
+  idle); session 3 started a second drive at 17:42:57, and the one 我的位置 marker jumped between the two cars — the
+  "two positions" report. Rules:
+  - The route engine and `NavigationController` belong to the app (built once), not to a voice session. A new session
+    attaches to the existing controller and sees its current phase; it never builds a second engine.
+  - At most **one** drive (emulator task or gps guidance task) exists in the app at any time; starting a trip stops any
+    other first. Only the current engine's geometry reaches the map model (a callback from a stopped or replaced
+    engine is dropped).
+  - Session end while navigating (OQ-NAVM-5, default): the trip **continues** (HUD, marker, progress), as a phone
+    navigator keeps going when the voice assistant closes; guidance speech resumes when a session is running again.
+    The next session sees `navigating` and can end it with 结束导航.
+  - App termination or 算了 / 结束导航 / arrival stops the drive; nothing drives with no trip on screen.
 
 ## 10. Acceptance criteria (iOS)
 | # | Criterion | Level |
@@ -151,6 +180,10 @@ Location fix, 15 s reroute limiter, 10 s / 30 s signal timers, route recalculati
 | 10 | Asking for a destination does not also start a route in the same turn; she lists the routes and waits | D |
 | 11 | No coordinate in logs during rows 6–7 | D |
 | 12 | With the route list on screen, 「最快的」 / 「第二条」 / 「开始导航」 start guidance on the first try, even when the subtitle shows （没听清） or wrong text | D |
+| 13 | Driver turns: an utterance that begins while she speaks and is not a qualified barge-in does not raise the turn count and opens no answer; a route pick after it is still refused; `routeListTurn` is set when `destination_selected` is handled, so a pick arriving before the flags stream is refused | unit |
+| 14 | While she reads the route list, cough / talk to a passenger / play music: navigation does not start; it starts only after the driver picks | D |
+| 15 | One drive: start a trip, end the voice session, start a new session and a new trip → one engine, one drive, the marker never jumps between two positions; a stopped engine's geometry never reaches the map model | unit (App-level model test or NovaServices), D |
+| 16 | Session ends during 模拟导航: the trip continues on screen with one marker; the next session sees navigating and 结束导航 ends it; after it ends no marker updates arrive | D |
 
 ## 11. Implementation constraints
 - Test names carry `F-15a` for the spec-trace gate.
@@ -169,6 +202,9 @@ Location fix, 15 s reroute limiter, 10 s / 30 s signal timers, route recalculati
 - OQ-NAVM-4 **decided 2026-10-29: web route + own matching**. Use the Amap Navi SDK for real guidance instead (better matching,
   lane info, server reroute) — larger vendor integration, separate spec if wanted.
 
+- OQ-NAVM-5 (default taken 2026-10-29; owner may override): a voice session ends while navigating — keep the trip
+  running and let the next session attach (default), or end the trip with the session?
+
 ## Tasks (implementation-plan.md M3 follow-up, specs/work.json)
 | ID | Task | Verification |
 |---|---|---|
@@ -177,3 +213,5 @@ Location fix, 15 s reroute limiter, 10 s / 30 s signal timers, route recalculati
 | T-040c | `AmapRouteEngine` `.gps` path (LocationUpdates, progress events, reroute, generation); row 5 | unit (Linux gates) |
 | T-040d | 设置 导航方式, 演示起点 lock, HUD 「模拟导航」 / 「重新规划中」, mode read at start; rows 6–11 | S, D |
 | T-040e | Revised §2.5: start guard on driver turns (uplink gate count), no transcript; drop the `navigate_to` word guard and `wordsUnclear`; claim guard holds a success claim after a refusal; row 4 (revised), row 12 | unit (Linux gates), D |
+| T-040f | §2.5 driver turns: count only utterances that begin while she is silent or are qualified barge-ins; no `answerOwed` from unqualified sound; check and stop uplink of that audio (F-04a); `routeListTurn` set synchronously on `destination_selected`; rows 13–14 | unit (Linux gates), D |
+| T-040g | §9 one trip at a time: engine + `NavigationController` owned by the app, sessions attach; one drive ever; stale engine geometry dropped; trip continues across session end (OQ-NAVM-5 default); rows 15–16 | unit, build, D |
