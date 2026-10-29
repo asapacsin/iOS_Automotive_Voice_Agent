@@ -1119,6 +1119,102 @@
         "Gesture flag now @GestureState (resets on cancel); C8 restarts at touch end or cancel; independent high-effort review PASS"
       ],
       "blocked_by": "iOS build and phone run (F-16b rows 1, 2, 6-9 S/D NOT_VERIFIED; no macOS CI per owner rule 2026-10-27)"
+    },
+    {
+      "id": "H-F05a",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 10,
+      "action": "Approve specs/features/mandarin-transcript.md (F-05a); decide OQ-STT-1..2 or take the defaults",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read mandarin-transcript.md (F-05a); reply approve (defaults) or give answers to OQ-STT-1..2",
+      "pass_criteria": "Spec status APPROVED in the spec file",
+      "expected_return": "approve, or answers to OQ-STT-1..2"
+    },
+    {
+      "id": "T-016a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 30,
+      "action": "F-05a LocalTranscriber port, TranscriptSelector, TranscriptLanguage, GuardContext.wordsReliable + wordsUnclear; unit rows 1-4",
+      "depends_on": [
+        "H-F05a"
+      ]
+    },
+    {
+      "id": "T-016b",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "NOT_RUN",
+      "priority": 35,
+      "action": "F-05a AppleSpeechTranscriber (NovaAudio, Speech framework), import gate entry, NSSpeechRecognitionUsageDescription, permission with first mic use; iOS build",
+      "depends_on": [
+        "T-016a"
+      ]
+    },
+    {
+      "id": "T-016c",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "NOT_RUN",
+      "priority": 40,
+      "action": "F-05a wire transcriber + selector into AgentRuntime, audio-test diagnostics line; S, D rows 5-9",
+      "depends_on": [
+        "T-016b"
+      ]
+    },
+    {
+      "id": "H-F15a",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 10,
+      "action": "Approve specs/features/navigation-modes.md (F-15a); decide OQ-NAVM-1..4 or take the defaults",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read navigation-modes.md (F-15a); reply approve (defaults) or give answers to OQ-NAVM-1..4",
+      "pass_criteria": "Spec status APPROVED in the spec file",
+      "expected_return": "approve, or answers to OQ-NAVM-1..4"
+    },
+    {
+      "id": "T-040a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 30,
+      "action": "F-15a NavigationModeSetting, RouteProgress + tuning, SelfPosition mode input; unit rows 1-3",
+      "depends_on": [
+        "H-F15a"
+      ]
+    },
+    {
+      "id": "T-040b",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 30,
+      "action": "F-15a guards navigationNotRequested (start / navigate_to) and wordsUnclear, advice sentences; unit row 4",
+      "depends_on": [
+        "H-F15a",
+        "T-016a"
+      ]
+    },
+    {
+      "id": "T-040c",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 35,
+      "action": "F-15a AmapRouteEngine .gps path (LocationUpdates, progress events, reroute, generation); unit row 5",
+      "depends_on": [
+        "T-040a"
+      ]
+    },
+    {
+      "id": "T-040d",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "NOT_RUN",
+      "priority": 40,
+      "action": "F-15a settings navigation mode, demo-origin lock, HUD simulation / rerouting labels, mode read at start; S, D rows 6-11",
+      "depends_on": [
+        "T-040a",
+        "T-040c"
+      ]
     }
   ]
 }
