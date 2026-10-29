@@ -135,7 +135,7 @@ private struct DriveContent: View {
     @ObservedObject var position: MapPositionModel
     @Binding var camera: MapCameraPosition
     /// Camera changes until then were commanded by the policy, not made by the driver.
-    @State private var commandedUntil = Date.distantPast
+    @State private var touching = false
     let toggle: () -> Void
     let runtime: AgentRuntime
     @Environment(\.scenePhase) private var scenePhase
@@ -189,7 +189,7 @@ private struct DriveContent: View {
     private var presentation: MapPresentation { MapPresentation(model.nav) }
 
     private var map: some View {
-        Map(position: $camera) {
+        Map(position: $camera, interactionModes: [.pan, .zoom]) {
             // T-044: only what the flow allows is drawn (offered or chosen routes; nothing after 算了).
             ForEach(model.geometry.routes.filter { presentation.routes.contains($0.summary.id) }, id: \.summary.id) { route in
                 let selected = route.summary.id == model.geometry.selected
@@ -201,9 +201,10 @@ private struct DriveContent: View {
             if let marker = position.position.marker {
                 let point = CLLocationCoordinate2D(marker.coordinate)
                 if let radius = marker.accuracyRadiusMeters {
+                    let tint = marker.style == .provisional ? Color.gray : Color.blue
                     MapCircle(center: point, radius: radius)
-                        .foregroundStyle(Color.blue.opacity(0.15))
-                        .stroke(Color.blue.opacity(0.4), lineWidth: 1)
+                        .foregroundStyle(tint.opacity(0.15))
+                        .stroke(tint.opacity(0.4), lineWidth: 1)
                 }
                 Annotation(marker.caption ?? "", coordinate: point) {
                     SelfMarker(marker: marker).accessibilityIdentifier("self-position")
@@ -216,15 +217,21 @@ private struct DriveContent: View {
                 Marker("\(index + 1) \(place.name)", coordinate: CLLocationCoordinate2D(place.coordinate)).tint(.orange)
             }
         }
-        // A pan or zoom by the driver stops following (C7); moves this view commanded do not count.
-        .onMapCameraChange(frequency: .onEnd) { _ in
-            if Date() > commandedUntil { position.userGesture() }
-        }
+        // A pan or zoom by the driver's finger stops following (C7). Touches are watched directly, so the
+        // map's own load, layout and commanded moves never count as a gesture. Rotation is off (the arrow
+        // is drawn against north).
+        .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { _ in touched() }.onEnded { _ in touching = false })
+        .simultaneousGesture(MagnifyGesture().onChanged { _ in touched() }.onEnded { _ in touching = false })
+    }
+
+    private func touched() {
+        guard !touching else { return }
+        touching = true
+        position.userGesture()
     }
 
     /// Applies a `MapCameraPolicy` command; the resulting camera change is not a driver gesture.
     private func apply(_ command: MapCameraPolicy.Command) {
-        commandedUntil = Date().addingTimeInterval(1.5)
         switch command {
         case .center(let point, let span):
             withAnimation(.linear(duration: 0.8)) {
@@ -232,9 +239,11 @@ private struct DriveContent: View {
                                                     longitudinalMeters: span))
             }
         case .fitContent:
-            // T-044 framing: the routes on offer, or the listed places.
-            var points = model.geometry.routes.filter { presentation.routes.contains($0.summary.id) }.flatMap(\.points)
-            if points.isEmpty { points = presentation.markers.map(\.coordinate) }
+            // T-044 framing: the listed places (also along the route), else the routes on offer.
+            var points = presentation.list == .places ? presentation.markers.map(\.coordinate) : []
+            if points.isEmpty {
+                points = model.geometry.routes.filter { presentation.routes.contains($0.summary.id) }.flatMap(\.points)
+            }
             guard !points.isEmpty else { return }
             let lats = points.map(\.latitude), lngs = points.map(\.longitude)
             let center = CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2,

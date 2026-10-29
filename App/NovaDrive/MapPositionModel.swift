@@ -53,6 +53,12 @@ final class MapPositionModel: ObservableObject {
 
     func appear() {
         guard streaming == nil else { return }
+        // 位置来源 may have changed while another tab was showing.
+        if location.source != source {
+            source = location.source
+            fix = nil
+            apply(policy.handle(.sourceChanged))
+        }
         subscribe()
         ticking = Task { [weak self] in
             // 1 s: drives the 15 s auto-recenter on time; the 5 s re-evaluation is counted inside.
@@ -119,7 +125,7 @@ final class MapPositionModel: ObservableObject {
     /// A pan or zoom the driver made (never a move this model commanded).
     func userGesture() {
         apply(policy.handle(.userGesture(at: clock.now)))
-        locate = LocateButton(position, mode: policy.mode)
+        updateLocate()
     }
 
     /// 回到我的位置 (F-16b §2).
@@ -132,7 +138,7 @@ final class MapPositionModel: ObservableObject {
         case .openSettings:
             openSettings()
         }
-        locate = LocateButton(position, mode: policy.mode)
+        updateLocate()
     }
 
     func openSettings() {
@@ -146,7 +152,7 @@ final class MapPositionModel: ObservableObject {
         apply(policy.handle(.tick(at: now)))
         // §5: fresh → provisional → none by age, re-evaluated every 5 s even without a new fix.
         if now - lastEvaluation >= MapPositionTuning().reevaluateEvery { evaluate() }
-        locate = LocateButton(position, mode: policy.mode)
+        updateLocate()
     }
 
     private func refreshPermission() async {
@@ -162,14 +168,21 @@ final class MapPositionModel: ObservableObject {
     private func evaluate() {
         let now = clock.now
         lastEvaluation = now
-        position = SelfPosition.make(SelfPosition.Input(fix: fix, source: source, permission: permission, now: now,
+        let next = SelfPosition.make(SelfPosition.Input(fix: fix, source: source, permission: permission, now: now,
                                                         phase: phase, simulatedCar: car,
                                                         simulatedHeadingDegrees: carHeading))
+        // Publish only a change: an unchanged assignment would redraw the drive screen every second.
+        if next != position { position = next }
         apply(policy.handle(.position(position, at: now)))
-        locate = LocateButton(position, mode: policy.mode)
+        updateLocate()
         // I-8: only the style reaches diagnostics, never a coordinate.
         let style = position.marker.map { String(describing: $0.style) } ?? "none"
         RuntimeLog.agent.debug("self position \(style, privacy: .public)")
+    }
+
+    private func updateLocate() {
+        let next = LocateButton(position, mode: policy.mode)
+        if next != locate { locate = next }
     }
 
     private func apply(_ next: MapCameraPolicy.Command?) {
