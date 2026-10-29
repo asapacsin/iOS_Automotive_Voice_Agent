@@ -168,7 +168,7 @@ public enum ToolFailureAdvice {
         .cameraPermissionDenied: "摄像头没有权限，请在设置里允许。请如实说明，不要描述画面。",
         .cameraUnavailable: "摄像头现在用不了。请如实说明，不要描述画面。",
         .navigationNotRequested: "司机还没有选路线，所以没有开始导航。不要说已经开始或已经选好；请只问一句：有几条路线（按屏幕上的条数说），要走哪一条？",
-        .confirmRequired: "导航还在继续，没有结束。请只问一句：要结束导航吗？不要说已经结束。",
+        .confirmRequired: "导航还在继续，没有结束。不要说已经结束。",
         .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }

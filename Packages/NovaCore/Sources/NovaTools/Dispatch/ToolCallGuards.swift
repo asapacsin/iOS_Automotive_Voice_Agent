@@ -101,7 +101,7 @@ public enum PlaceSlot: String, Sendable, Hashable, CaseIterable {
 /// a bad transcript must not veto a correct call. What they protected now comes from arguments, state and timing:
 /// a named song cannot reach `control_music` (its only field is `action`; `play_music` takes titles), sunroof and
 /// the other parts have no tool, a place asked for while guiding is listed over the route (NavigationController),
-/// and ending the guidance asks once (`ToolDispatcher.confirmExit`).
+/// and ending the guidance runs on the call with no confirmation (T-016e).
 public enum ToolCallGuards {
     static let temperatureOrFan: Set<String> = ["adjust_temperature", "set_temperature", "adjust_fan", "set_fan"]
 

@@ -157,24 +157,18 @@ struct NoTranscriptGuardTests {
         #expect(d.decide(calls[0], context: ctx()) == .execute(calls[0]))
     }
 
-    @Test("F-05a §6: ending the running guidance asks once; a second call in a later turn within 15 s ends it")
-    func confirmExit() {
+    @Test("F-05a §6 (T-016e): one exit_navigation_mode ends guidance at once; CONFIRM_REQUIRED is never returned")
+    func exitAtOnce() {
         let exit = call("exit_navigation_mode")
-        var d = ToolDispatcher()
-        #expect(d.decide(exit, context: ctx(closed: 3, seconds: 0, guidance: true)) == .refuse(ToolDispatcher.failure(.confirmRequired)))
-        // The same turn again: still asks (the model repeating itself is not the driver's yes).
-        #expect(d.decide(exit, context: ctx(closed: 3, seconds: 1, guidance: true)) == .refuse(ToolDispatcher.failure(.confirmRequired)))
-        #expect(d.decide(exit, context: ctx(closed: 4, seconds: 10, guidance: true)) == .execute(exit))
-        // Too late: asks again.
-        var late = ToolDispatcher()
-        _ = late.decide(exit, context: ctx(closed: 3, seconds: 0, guidance: true))
-        #expect(late.decide(exit, context: ctx(closed: 4, seconds: 16, guidance: true)) == .refuse(ToolDispatcher.failure(.confirmRequired)))
-        // Not guiding, a list open (算了 closes the list), or a tap: no question.
-        for context in [ctx(), ctx(guidance: true, listOpen: true), ctx(guidance: true, tap: true)] {
-            var other = ToolDispatcher()  // fresh: exit is repeat-sensitive within a turn
-            #expect(other.decide(exit, context: context) == .execute(exit))
+        for context in [ctx(closed: 3, guidance: true), ctx(closed: 3, navigating: true, guidance: true), ctx(),
+                        ctx(guidance: true, listOpen: true), ctx(guidance: true, tap: true)] {
+            var d = ToolDispatcher()
+            #expect(d.decide(exit, context: context) == .execute(exit))
         }
-        #expect(ToolFailureAdvice.forCode(.confirmRequired)?.contains("要结束导航吗？") == true)
+        // The next driver turn, any time later: still runs at once, no question in between.
+        var d = ToolDispatcher()
+        #expect(d.decide(exit, context: ctx(turn: 1, closed: 3, guidance: true)) == .execute(exit))
+        #expect(d.decide(exit, context: ctx(turn: 2, closed: 4, seconds: 30, guidance: true)) == .execute(exit))
     }
 }
 

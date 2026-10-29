@@ -358,7 +358,7 @@ public actor NavigationController: ToolExecutor {
             let generation = snapshot.generation
             reset()
             await engine.stop(generation: generation)
-            return .success(["status": "navigation_stopped", "next": "说一句：导航已结束。"])
+            return .success(["status": "navigation_stopped", "next": "说一句：已结束导航。"])
         case .awaitingDestinationSelection, .awaitingRouteSelection, .resolvingDestination, .calculatingRoute:
             let generation = snapshot.generation
             reset()

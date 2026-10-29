@@ -117,6 +117,7 @@ struct NavigationControllerTests {
 
         let stopped = await nav.execute(tool("exit_navigation_mode"))
         #expect(stopped.data["status"] == "navigation_stopped")
+        #expect(stopped.data["next"] == "说一句：已结束导航。")  // F-05a §6 (T-016e): implicit confirmation
         let snapshot = await nav.current
         #expect(snapshot.phase == .idle && snapshot.routes.isEmpty && snapshot.destination == nil)
     }

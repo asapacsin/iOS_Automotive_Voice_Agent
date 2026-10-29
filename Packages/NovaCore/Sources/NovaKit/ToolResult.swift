@@ -56,7 +56,7 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case mediaLibraryUnsupported = "MEDIA_LIBRARY_UNSUPPORTED"
     case duplicateInTurn = "DUPLICATE_IN_TURN"
     case speechOutputNotRequested = "SPEECH_OUTPUT_NOT_REQUESTED"
-    /// PROPOSED (F-05a §6): ending the running guidance asks once; a second call in a later turn ends it.
+    /// Withdrawn by F-05a §6 (T-016e): defined, never returned; 结束导航 ends at once.
     case confirmRequired = "CONFIRM_REQUIRED"
     /// PROPOSED (F-15a §2.5): a route pick in the same driver turn as the route list (the driver did not choose).
     case navigationNotRequested = "NAVIGATION_NOT_REQUESTED"
