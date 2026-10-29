@@ -1330,18 +1330,18 @@
     {
       "id": "T-040g",
       "owner": "AUTONOMOUS",
-      "status": "BLOCKED_EXTERNAL",
+      "status": "PASS",
       "priority": 20,
       "action": "F-15a §9 one trip at a time: route engine + NavigationController owned by the app (built once), sessions attach; at most one drive; stale engine geometry dropped; trip continues across session end (OQ-NAVM-5 default); rows 15-16",
       "depends_on": [
         "T-040d"
       ],
       "notes": "Device run ed40023: AgentRuntime.start() builds a new engine per session and stop() never stops it; session 1's simulated drive ran on from 17:30 to ~17:42 with no session; session 3's drive at 17:42:57 ran alongside it, so the marker jumped between two cars.",
-      "blocked_by": "iOS build of 24c8cc7 (Codemagic) not reported yet; rows 15 (D part), 16 device",
       "evidence": [
         "24c8cc7: AmapRouteEngine + NavigationController built once (AgentRuntime.appTrip), sessions attach via TripListeners and first see the current snapshot; screen follows the trip in order with no session; stop() keeps the trip (OQ-NAVM-5 default); simulated drive draws only while current (stale drive never reaches the map); F-15a row 15 unit (NovaServices OneDriveTests)",
         "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
-        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings; minor: trip keeps the first session's SwitchableLocationProvider (reads 位置来源 per request)"
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings; minor: trip keeps the first session's SwitchableLocationProvider (reads 位置来源 per request)",
+        "iOS build green 2026-10-29: Codemagic NovaDrive iOS Build on 7565bcf (includes 24c8cc7). Rows 15 (D), 16 NOT_VERIFIED (device)"
       ]
     }
   ]
