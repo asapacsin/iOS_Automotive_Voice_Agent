@@ -134,6 +134,7 @@ struct MapCameraPolicyTests {
         #expect(p.mode == .awaitingFirstFix)
         #expect(p.handle(.position(at(zhuhai), at: t0)) == .center(seen(zhuhai), spanMeters: 1500))
         #expect(p.mode == .following)
+        #expect(p.handle(.position(at(north(zhuhai, 5)), at: t0 + .seconds(2))) == nil)  // once, not again
         var panned = MapCameraPolicy()
         _ = panned.handle(.userGesture(at: t0))
         #expect(panned.handle(.position(at(zhuhai), at: t0 + .seconds(1))) == nil)
@@ -144,6 +145,8 @@ struct MapCameraPolicyTests {
         var p = MapCameraPolicy()
         _ = p.handle(.position(at(zhuhai), at: t0))
         #expect(p.handle(.position(at(north(zhuhai, 9)), at: t0 + .seconds(5))) == nil)
+        var edge = p
+        #expect(edge.handle(.position(at(north(zhuhai, 10.5)), at: t0 + .seconds(5))) != nil)  // 10 m threshold
         #expect(p.handle(.position(at(north(zhuhai, 20)), at: t0 + .milliseconds(5_500))) != nil)
         #expect(p.handle(.position(at(north(zhuhai, 60)), at: t0 + .milliseconds(6_000))) == nil)
         #expect(p.handle(.position(at(north(zhuhai, 60)), at: t0 + .milliseconds(6_500)))

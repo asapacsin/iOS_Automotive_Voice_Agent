@@ -57,7 +57,7 @@ Rules, **first match wins**:
 | # | Condition | Result |
 |---|---|---|
 | R1 | `phase == .navigating` and `simulatedCar != nil` | marker at `simulatedCar`, style `.simulated`, heading = `simulatedHeadingDegrees`, no circle; caption 演示位置 if `source == .demo` (OQ-MAP-2: one marker) |
-| R2 | `source == .demo` | marker at the demo fix (already GCJ-02), style `.demo`, no heading, no circle, caption 演示位置 |
+| R2 | `source == .demo` | marker at the demo fix (already GCJ-02), style `.demo`, no heading, no circle, caption 演示位置; no demo fix → hidden `.noFix` |
 | R3 | `permission == .notDetermined` | hidden `.notDetermined` |
 | R4 | `permission == .denied` | hidden `.denied` |
 | R5 | `fix == nil` | hidden `.noFix` |
@@ -69,6 +69,8 @@ For R7/R8:
 - heading = `courseDegrees` only when style is `.fresh`, `speedMetersPerSecond ≥ headingMinSpeed` and
   `0 ≤ courseDegrees < 360`; otherwise nil (a provisional fix never shows an arrow: it is not moving now).
 - accuracy circle = `horizontalAccuracyMeters` when `> accuracyCircleMin`, else nil.
+
+`make` also takes `fixRules: AmapWebTuning = .init()` (the F-16 limits, injectable for tests).
 
 Simulated heading helper: `SelfPosition.bearing(from: GeoCoordinate, to: GeoCoordinate) -> Double?`, initial
 great-circle bearing in degrees `[0, 360)`; nil when the two points are closer than `simulatedHeadingMinStep`. The
@@ -100,6 +102,7 @@ public struct MapCameraPolicy: Sendable {
         case sourceChanged
     }
     public private(set) var mode: Mode = .awaitingFirstFix
+    public private(set) var framing: Framing = .open
     public mutating func handle(_ event: Event) -> Command?
 }
 ```
