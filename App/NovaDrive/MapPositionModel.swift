@@ -93,8 +93,9 @@ final class MapPositionModel: ObservableObject {
         let device = device
         let useDevice = source == .device
         streaming = Task { [weak self] in
+            // UI tests and recordings never show the real position (REC-003), like `warmLocation`.
             // The phone's provider yields only once started; it was asked for permission at first need.
-            if useDevice, await device.authorization() == .authorized { await device.start() }
+            if useDevice, !UITestDrive.enabled, await device.authorization() == .authorized { await device.start() }
             for await fix in stream {
                 guard !Task.isCancelled else { return }
                 self?.received(fix)
@@ -161,7 +162,7 @@ final class MapPositionModel: ObservableObject {
         let granted = current == .authorized && permission != .authorized
         permission = current
         // Permission just given (locate-me asked, or 设置): start the phone's updates now.
-        if granted, source == .device { await device.start() }
+        if granted, source == .device, !UITestDrive.enabled { await device.start() }
         evaluate()
     }
 

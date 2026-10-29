@@ -136,6 +136,7 @@ private struct DriveContent: View {
     @Binding var camera: MapCameraPosition
     /// Camera changes until then were commanded by the policy, not made by the driver.
     @State private var touching = false
+    @State private var visible = false
     let toggle: () -> Void
     let runtime: AgentRuntime
     @Environment(\.scenePhase) private var scenePhase
@@ -167,14 +168,20 @@ private struct DriveContent: View {
         .onChange(of: position.command) { _, command in if let command { apply(command.command) } }
         .onChange(of: useDeviceLocation) { _, _ in position.sourceChanged() }
         .onAppear {
+            visible = true
             position.appear()
             position.navigation(model.nav, geometry: model.geometry)
         }
-        .onDisappear { position.disappear() }
+        .onDisappear {
+            visible = false
+            position.disappear()
+        }
         // F-20a §5: the camera never runs in the background.
         .task { if UITestDrive.enabled { await runtime.startUITestDrive() } else { await runtime.refreshWake() } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && model.cameraOpen { runtime.closeCamera() }
+            // F-16b §9: 我的位置 streams only while the drive screen is visible, not in the background.
+            if phase == .background { position.disappear() } else if phase == .active && visible { position.appear() }
             let mapped: AppScenePhase = switch phase {
             case .background: .background
             case .inactive: .inactive
@@ -220,8 +227,14 @@ private struct DriveContent: View {
         // A pan or zoom by the driver's finger stops following (C7). Touches are watched directly, so the
         // map's own load, layout and commanded moves never count as a gesture. Rotation is off (the arrow
         // is drawn against north).
-        .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { _ in touched() }.onEnded { _ in touching = false })
-        .simultaneousGesture(MagnifyGesture().onChanged { _ in touched() }.onEnded { _ in touching = false })
+        .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { _ in touched() }.onEnded { _ in released() })
+        .simultaneousGesture(MagnifyGesture().onChanged { _ in touched() }.onEnded { _ in released() })
+    }
+
+    /// The 15 s auto-recenter (C8) counts from the end of the touch.
+    private func released() {
+        touching = false
+        position.userGesture()
     }
 
     private func touched() {
