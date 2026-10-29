@@ -32,10 +32,17 @@ public struct GuardContext: Sendable, Hashable {
     public var savedPlaces: Set<PlaceSlot>?
     /// F-05a §6: false when this turn's transcript could not be read (Gemini's guess was not Chinese).
     public var wordsReliable: Bool
+    /// F-15a §2.5: the route list is on screen (`awaitingRouteSelection`): a pick there starts guidance.
+    public var routeChoiceOpen: Bool
+    /// Speech-onset epoch when the route list appeared; a confirmation (好 / 可以) counts only in newer words.
+    public var routeListEpoch: Int
+    /// The call came from a tap on the screen (I-6): the tap itself is the request.
+    public var fromTap: Bool
 
     public init(requestText: String = "", currentEpoch: Int = 0, capabilityEpoch: Int = 0, navigating: Bool = false,
                 guidanceRunning: Bool = false, listOpen: Bool = false, savedPlaces: Set<PlaceSlot>? = nil,
-                wordsReliable: Bool = true) {
+                wordsReliable: Bool = true, routeChoiceOpen: Bool = false, routeListEpoch: Int = 0,
+                fromTap: Bool = false) {
         self.requestText = requestText
         self.currentEpoch = currentEpoch
         self.capabilityEpoch = capabilityEpoch
@@ -44,6 +51,9 @@ public struct GuardContext: Sendable, Hashable {
         self.listOpen = listOpen
         self.savedPlaces = savedPlaces
         self.wordsReliable = wordsReliable
+        self.routeChoiceOpen = routeChoiceOpen
+        self.routeListEpoch = routeListEpoch
+        self.fromTap = fromTap
     }
 
     /// A transcript older than the speech onset is the previous turn's and is not used.
@@ -132,6 +142,12 @@ public enum ToolCallGuards {
     static let mediaNouns = ["音乐", "歌", "曲"]
     static let genericMediaTokens = ICURegex("播放|音乐|歌曲|随便|随意|来点|来首|一下|一首|放|听|来|首|点|歌|曲|吧|我|想|要|给|帮|个|的|了|啊|呢|请|下")
     static let mediaPunctuation: Set<Character> = ["，", "。", "！", "？", "、", ",", ".", "!", "?", " ", "\t", "　"]
+    /// F-15a §2.5 (PROPOSED vocabulary): words that pick a route or start guidance.
+    static let pickIntent = ICURegex("第\\s*[一二两三四五六七八九十0-9]+\\s*(条|个|项|种|号)?|最后一(条|个)|头一(条|个)|开始导航|开始|出发|走吧|就走|导航吧|走这条|选这条|最快|最短|不走高速|少收费|避开拥堵|躲避拥堵|高速优先|大路优先")
+    /// A confirmation, counted only while the route list is on screen and newer than the list.
+    static let confirmIntent = ICURegex("^(好|好的|好啊|好吧|可以|行|行吧|嗯|对|没问题|确定|就这条|就这个|就它)[吧啊呀。！!，,\\s]*$")
+    /// Words that ask to go somewhere or look for a place (`navigate_to`).
+    static let goWords = ICURegex("去|到|导航|回家|上班|附近|周边|周围|找|哪里有|哪儿有|在哪|最近的|带我")
     static let temperatureOrFan: Set<String> = ["adjust_temperature", "set_temperature", "adjust_fan", "set_fan"]
 
     // MARK: Guards, in dispatch order
@@ -167,12 +183,39 @@ public enum ToolCallGuards {
         return isExplicitEnd(c.said) ? nil : .vagueExitWhileNavigating
     }
 
+    /// F-15a §2.5: guidance starts only when asked. A pick on the route list needs a pick, start or (fresh)
+    /// confirmation in this turn's words; with no words of this turn it does not start either. `navigate_to`
+    /// needs go, place or search words (PROPOSED: with no words of this turn yet it runs, as it only lists).
+    public static func navigationNotRequested(_ call: ToolCall, _ c: GuardContext) -> ToolErrorCode? {
+        guard !c.fromTap else { return nil }
+        switch call.name {
+        case "choose_navigation_option":
+            guard c.routeChoiceOpen else { return nil }
+            guard c.wordsAreCurrent else { return .navigationNotRequested }
+            let said = c.said
+            if pickIntent.matches(said) { return nil }
+            if c.currentEpoch > c.routeListEpoch, confirmIntent.matches(said) { return nil }
+            return .navigationNotRequested
+        case "navigate_to":
+            guard c.wordsAreCurrent else { return nil }
+            let said = c.said
+            if goWords.matches(said) || PlaceSlot.slot(for: said) != nil { return nil }
+            let destination = TranscriptText.normalize(call.arguments["destination"]?.stringValue ?? "")
+            if !destination.isEmpty, said.contains(destination) || (said.count >= 2 && destination.contains(said)) {
+                return nil
+            }
+            return .navigationNotRequested
+        default:
+            return nil
+        }
+    }
+
     /// Tools a guard lets run only because of the driver's words (allow-type). F-15a's start guard joins them.
-    static let allowedByWordsOnly: Set<String> = ["set_speech_output"]
+    static let allowedByWordsOnly: Set<String> = ["set_speech_output", "navigate_to", "choose_navigation_option"]
 
     /// F-05a §6: words that could not be read never count as permission. Block-type guards are not affected.
     public static func wordsUnclear(_ call: ToolCall, _ c: GuardContext) -> ToolErrorCode? {
-        guard allowedByWordsOnly.contains(call.name), c.wordsAreCurrent, !c.wordsReliable else { return nil }
+        guard allowedByWordsOnly.contains(call.name), !c.fromTap, c.wordsAreCurrent, !c.wordsReliable else { return nil }
         return .wordsUnclear
     }
 

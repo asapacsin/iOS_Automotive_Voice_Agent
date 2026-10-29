@@ -648,7 +648,8 @@ final class AgentRuntime {
                 if changed { Task { await self.reevaluate() } }
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
-                                                            listOpen: snapshot.listOpen)))
+                                                            listOpen: snapshot.listOpen,
+                                                            routeChoiceOpen: snapshot.phase == .awaitingRouteSelection)))
                 await core.send(.manoeuvreDistance(meters: snapshot.navigating ? snapshot.info?.stepDistanceMeters : nil))
                 // F-17 (T-053): the overspeed alert is a guidance sentence, so the arbiter and relay order it.
                 if snapshot.navigating, let info = snapshot.info, let alert = overspeed.observe(info) {

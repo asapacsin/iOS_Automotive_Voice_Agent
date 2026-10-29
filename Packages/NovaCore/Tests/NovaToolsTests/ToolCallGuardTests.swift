@@ -240,7 +240,8 @@ struct RepeatAndMediaGuardTests {
                       call("control_music", ["action": "play"]), call("query_live_info", ["kind": "weather", "where": "北京"])]
         for first in firsts {
             var d = ToolDispatcher()
-            let c = ctx("说点什么")
+            // Words that ask for each of these (F-15a: navigate_to needs go words).
+            let c = ctx("说点什么，去中交汇通")
             if case .refuse(let r) = d.decide(first, context: c), r.code == .duplicateInTurn { Issue.record("\(first.name)") }
             guard case .refuse(let r) = d.decide(first, context: c) else { Issue.record("\(first.name) ran twice"); continue }
             #expect(r.code == .duplicateInTurn, "\(first.name)")
@@ -250,7 +251,7 @@ struct RepeatAndMediaGuardTests {
     @Test("F-09 different arguments, a new turn, a pure read or no speech onset are not repeats")
     func notRepeats() {
         var d = ToolDispatcher()
-        let c = ctx("说点什么")
+        let c = ctx("说点什么，去A还是B")
         #expect(d.decide(call("navigate_to", ["destination": "A"]), context: c) != .refuse(ToolDispatcher.failure(.duplicateInTurn)))
         guard case .execute = d.decide(call("navigate_to", ["destination": "B"]), context: c) else { Issue.record("B"); return }
         guard case .execute = d.decide(call("navigate_to", ["destination": "A"]), context: ctx("再导航去A", epoch: 2)) else {
@@ -406,11 +407,72 @@ struct WordsUnclearGuardTests {
     @Test("F-05a row 4: block-type guards and other tools are unchanged")
     func blockType() {
         let gas = call("navigate_to", ["destination": "加油站"])
-        #expect(ToolCallGuards.wordsUnclear(gas, unclear("附近有加油站吗", navigating: true)) == nil)
+        #expect(ToolCallGuards.wordsUnclear(call("control_window", ["action": "open"]), unclear("打开天窗")) == nil)
         #expect(ToolCallGuards.nearbyQuestionWhileNavigating(gas, unclear("附近有加油站吗", navigating: true))
             == .nearbyQuestionWhileNavigating)
         let window = call("control_window", ["action": "open"])
         #expect(ToolCallGuards.sunroofOnWindowTool(window, unclear("打开天窗")) == .unsupportedBodyPart)
         #expect(ToolCallGuards.wordsUnclear(call("control_climate", ["action": "power_on"]), unclear("")) == nil)
+    }
+}
+
+@Suite("T-040b F-15a guard: navigationNotRequested")
+struct NavigationNotRequestedGuardTests {
+    let pick = call("choose_navigation_option", ["index": 1])
+
+    /// The route list appeared at onset `listEpoch`; these words are of onset `epoch`.
+    func routes(_ said: String, epoch: Int = 2, listEpoch: Int = 1, reliable: Bool = true) -> GuardContext {
+        var c = ctx(said, epoch: epoch)
+        c.routeChoiceOpen = true
+        c.routeListEpoch = listEpoch
+        c.wordsReliable = reliable
+        return c
+    }
+
+    @Test("F-15a row 4: a pick that would start guidance needs a pick, start or fresh confirmation")
+    func start() {
+        for said in ["第一条", "第 2 个", "最后一条", "开始导航", "出发", "走吧", "走最快的", "不走高速的那条"] {
+            #expect(ToolCallGuards.navigationNotRequested(pick, routes(said)) == nil, "\(said)")
+        }
+        for said in ["好", "好的", "可以", "就这条"] {
+            #expect(ToolCallGuards.navigationNotRequested(pick, routes(said)) == nil, "\(said)")
+            // A confirmation from the utterance that asked for the routes is not newer than the list.
+            #expect(ToolCallGuards.navigationNotRequested(pick, routes(said, epoch: 1)) == .navigationNotRequested)
+        }
+        for said in ["这是哪里", "今天天气怎么样", "嗯……那个……", "好像有点堵"] {
+            #expect(ToolCallGuards.navigationNotRequested(pick, routes(said)) == .navigationNotRequested, "\(said)")
+        }
+        // No words of this turn: nothing starts.
+        var stale = routes("第一条")
+        stale.capabilityEpoch = 3
+        #expect(ToolCallGuards.navigationNotRequested(pick, stale) == .navigationNotRequested)
+        // Picking a destination (no route list yet) and taps are not this guard's.
+        #expect(ToolCallGuards.navigationNotRequested(pick, ctx("这是哪里", listOpen: true)) == nil)
+        var tap = routes("")
+        tap.fromTap = true
+        #expect(ToolCallGuards.navigationNotRequested(pick, tap) == nil)
+        #expect(ToolFailureAdvice.forCode(.navigationNotRequested)?.contains("要开始导航吗？说第几条或者说开始导航。") == true)
+    }
+
+    @Test("F-15a row 4: navigate_to needs go, place or search words")
+    func navigateTo() {
+        let airport = call("navigate_to", ["destination": "珠海机场"])
+        for said in ["导航去珠海机场", "去机场", "回家", "附近有加油站吗", "哪里有充电站", "珠海机场"] {
+            #expect(ToolCallGuards.navigationNotRequested(airport, ctx(said)) == nil, "\(said)")
+        }
+        #expect(ToolCallGuards.navigationNotRequested(call("navigate_to", ["destination": "home"]), ctx("家")) == nil)
+        for said in ["这是哪里", "今天天气怎么样", "嗯……那个……"] {
+            #expect(ToolCallGuards.navigationNotRequested(airport, ctx(said)) == .navigationNotRequested, "\(said)")
+        }
+    }
+
+    @Test("F-15a row 4: unreliable words → wordsUnclear for both, before the intent check")
+    func unclear() {
+        var dispatcher = ToolDispatcher()
+        #expect(dispatcher.decide(pick, context: routes("Não", reliable: false)) == .refuse(ToolDispatcher.failure(.wordsUnclear)))
+        var c = ctx("")
+        c.wordsReliable = false
+        #expect(dispatcher.decide(call("navigate_to", ["destination": "珠海机场"]), context: c)
+            == .refuse(ToolDispatcher.failure(.wordsUnclear)))
     }
 }

@@ -45,11 +45,15 @@ public struct NavigationFlags: Sendable, Hashable {
     public var navigating: Bool
     public var guidanceRunning: Bool
     public var listOpen: Bool
+    /// F-15a §2.5: the route list is on screen (`awaitingRouteSelection`).
+    public var routeChoiceOpen: Bool
 
-    public init(navigating: Bool = false, guidanceRunning: Bool = false, listOpen: Bool = false) {
+    public init(navigating: Bool = false, guidanceRunning: Bool = false, listOpen: Bool = false,
+                routeChoiceOpen: Bool = false) {
         self.navigating = navigating
         self.guidanceRunning = guidanceRunning
         self.listOpen = listOpen
+        self.routeChoiceOpen = routeChoiceOpen
     }
 }
 
@@ -134,6 +138,8 @@ public struct AgentState: Sendable {
     private var transcriptEpoch = 0
     /// F-05a §6: false after an utterance whose transcript could not be read.
     private var wordsReliable = true
+    /// F-15a: speech-onset epoch when the route list appeared.
+    private var routeListEpoch = 0
     /// F-05a: `TranscriptSelector` feeds the driver's words (`.driverWords`); Gemini's transcript is not used.
     private var selectorOwnsWords = false
     /// Clauses waiting while the arbiter holds the reply (R1 guidance, R5 transient loss).
@@ -304,6 +310,7 @@ public struct AgentState: Sendable {
         case .navigation(let flags):
             let wasNavigating = navigation.navigating
             let tripEnded = navigation.navigating && !flags.navigating
+            if flags.routeChoiceOpen, !navigation.routeChoiceOpen { routeListEpoch = speechOnsets }
             navigation = flags
             arbiter.setNavigating(flags.navigating)
             let ended = tripEnded ? relayOutputs(relay.tripEnded(), at: now) : []
@@ -322,7 +329,8 @@ public struct AgentState: Sendable {
                                 arguments: ["index": .int(Int64(row + 1))])
             let guardContext = GuardContext(requestText: "", currentEpoch: transcriptEpoch, capabilityEpoch: 0,
                                             navigating: navigation.navigating,
-                                            guidanceRunning: navigation.guidanceRunning, listOpen: navigation.listOpen)
+                                            guidanceRunning: navigation.guidanceRunning, listOpen: navigation.listOpen,
+                                            routeChoiceOpen: navigation.routeChoiceOpen, fromTap: true)
             let referents = context
             switch dispatcher.decide(call, context: guardContext, clarify: { referents.clarify($0, at: now) }) {
             case .execute(let running):
@@ -634,7 +642,9 @@ public struct AgentState: Sendable {
                 let guardContext = GuardContext(requestText: transcript, currentEpoch: transcriptEpoch,
                                                 capabilityEpoch: speechOnsets, navigating: navigation.navigating,
                                                 guidanceRunning: navigation.guidanceRunning,
-                                                listOpen: navigation.listOpen, wordsReliable: wordsReliable)
+                                                listOpen: navigation.listOpen, wordsReliable: wordsReliable,
+                                                routeChoiceOpen: navigation.routeChoiceOpen,
+                                                routeListEpoch: routeListEpoch)
                 let referents = context
                 switch dispatcher.decide(call, context: guardContext,
                                          clarify: { referents.clarify($0, at: now) }) {

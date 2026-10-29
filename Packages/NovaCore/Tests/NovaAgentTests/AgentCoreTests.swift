@@ -432,3 +432,38 @@ struct DriverWordsTests {
         #expect(d.send(.driverWords(.unclear)).isEmpty)
     }
 }
+
+@Suite("T-040b F-15a AgentState: guidance starts only when asked")
+struct NavigationRequestedTests {
+    func listed() -> Drive {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.send(.driverWords(.final("导航去机场")))
+        d.send(.navigation(NavigationFlags(listOpen: true, routeChoiceOpen: true)))
+        return d
+    }
+
+    func started(_ out: [AgentEffect]) -> Bool { out.contains { if case .startTool = $0 { true } else { false } } }
+
+    @Test("F-15a row 4: the model's own pick right after the list does not start guidance; 好 newer than the list does")
+    func pickNeedsWords() {
+        var d = listed()
+        d.realtime(.responseStarted(TurnID(1)))
+        let pick = ToolCall(id: CallID("c1")!, name: "choose_navigation_option", arguments: ["index": 1])
+        #expect(!started(d.realtime(.toolCalls(TurnID(1), [pick]))))
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.send(.driverWords(.final("好的")))
+        d.realtime(.responseStarted(TurnID(2)))
+        let again = ToolCall(id: CallID("c2")!, name: "choose_navigation_option", arguments: ["index": 1])
+        #expect(started(d.realtime(.toolCalls(TurnID(2), [again]))))
+    }
+
+    @Test("F-15a: a tap on a route row is the request (I-6)")
+    func tap() {
+        var d = listed()
+        #expect(started(d.send(.ui(.choose(row: 0)))))
+    }
+}
