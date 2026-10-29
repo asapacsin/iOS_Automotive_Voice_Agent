@@ -23,6 +23,7 @@ One file per feature. Load one file plus the contracts it lists under "Depends o
 | F-16 | [Destination search and saved places](destination-search.md) | IMPLEMENTED (JVM + LIVE Amap Web) |
 | F-16a | [Use the phone's real location (位置来源, 「我现在在哪？」)](current-location.md) | iOS only, APPROVED (2026-10-27); tasks T-042a–b, T-046a |
 | F-16b | [Show the driver's current position on the map (我的位置)](map-current-location.md) | iOS only, APPROVED (2026-10-29); tasks T-044a–c |
+| F-16b.1 | [Map position logic (marker rules, camera policy)](map-logic.md) | iOS only, APPROVED (2026-10-29); task T-044a |
 | F-17 | [Navigation HUD and overspeed alert](hud-overspeed.md) | IMPLEMENTED (JVM + EMU) |
 | F-18 | [Live info: weather, route traffic, along-route, place details](live-info.md) | IMPLEMENTED (JVM + EMU live shards ≥9/10) |
 | F-19 | [Phone call with confirmation](phone-call.md) | IMPLEMENTED (JVM) |

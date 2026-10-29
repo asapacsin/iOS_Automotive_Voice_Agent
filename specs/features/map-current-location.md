@@ -132,6 +132,6 @@ when the screen disappears. Fix → dot latency ≤ 1 s. No polling of `latestFi
 ## Tasks (implementation-plan.md M3, specs/work.json)
 | ID | Task | Verification |
 |---|---|---|
-| T-044a | `SelfPosition` + `MapCameraPolicy` (pure, NovaNav/Presentation) + `LocationUpdates` port; unit tests F-16b rows 3–5, 4a | unit (Linux gates) |
+| T-044a | `SelfPosition` + `MapCameraPolicy` (pure, NovaNav/Presentation) + `LocationUpdates` port, detailed in [map-logic.md](map-logic.md); unit tests F-16b rows 3–5, 4a | unit (Linux gates) |
 | T-044b | `CoreLocationProvider`/`DemoLocation`/`SwitchableLocationProvider` updates stream; fake-manager test | unit, build (Mac) |
 | T-044c | `DriveView`: dot, accuracy circle, locate-me button, 定位未开启 pill, follow/free camera; rows 1–2, 6–9 | S, D |
