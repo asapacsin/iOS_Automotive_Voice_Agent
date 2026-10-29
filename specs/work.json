@@ -1111,7 +1111,8 @@
       "evidence": [
         "4654317 + review fixes: MapPositionModel (SelfPosition/MapCameraPolicy driver, permission refresh, 5 s re-evaluation, 15 s auto-recenter tick), DriveView 我的位置 marker, accuracy circle, locate-me, 定位未开启 pill, follow/free camera",
         "Independent read-only review at high effort 2026-10-29: REWORK; blocking fixed (gesture now detected from touches, not camera-change callbacks: first fix recenters, pans stop following while the car moves); non-blocking applied: source resync on appear, publish only changes, rotation off, along-route list fits places, gray circle when provisional",
-        "Linux gates green; App code not compiled (needs Mac/SDK)"
+        "Linux gates green; App code not compiled (needs Mac/SDK)",
+        "8985c36: background pause, resume only when visible, no real location under UITestDrive, C8 counted from touch end; independent re-review at high effort 2026-10-29: PASS (1 optional note: cancelled gesture may leave touch flag set)"
       ],
       "blocked_by": "iOS build and phone run (F-16b rows 1, 2, 6-9 S/D NOT_VERIFIED; no macOS CI per owner rule 2026-10-27)"
     }
