@@ -1236,13 +1236,18 @@
     {
       "id": "T-040c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 35,
       "action": "F-15a AmapRouteEngine .gps path (LocationUpdates, progress events, reroute, generation); unit row 5",
       "depends_on": [
         "T-040a"
       ],
-      "notes": "RouteProgress: nearest segment over the whole route (a looping route can jump ahead); out-of-order fixes not dropped; the 15 s reroute limiter is the engine's"
+      "notes": "RouteProgress: nearest segment over the whole route (a looping route can jump ahead); out-of-order fixes not dropped; the 15 s reroute limiter is the engine's",
+      "evidence": [
+        "5254181 + review fixes: AmapRouteEngine .gps path (LocationUpdates → GCJ-02 → RouteProgress; step guidance, naviInfo with fix speed, arrival, 已偏离路线 + one recalculation per 15 s counted from the last try or failure, failure keeps the route, signal-weak sentence, geometry.car nil, old-generation fixes dropped); NaviEngineEvent .rerouting/.rerouted; NavigationFlowState.rerouting; F-15a row 5 (3 tests)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 399 + 1 known issue, NovaServices 35)",
+        "Independent read-only review at high effort 2026-10-29: PASS; applied: retry 15 s after a failure, unbounded input stream (reroute result never dropped)"
+      ]
     },
     {
       "id": "T-040d",
@@ -1254,7 +1259,7 @@
         "T-040a",
         "T-040c"
       ],
-      "notes": "From the T-040a/b review: pass the trip's NaviMode into SelfPosition.Input (default .emulator hides the marker between car updates); routeChoiceOpen reaches AgentState via the snapshot observer, so a very fast pick could precede it; check on device that a 第一条 said before any transcript arrives is not refused (row 10)"
+      "notes": "From the T-040a/b review: pass the trip's NaviMode into SelfPosition.Input (default .emulator hides the marker between car updates); routeChoiceOpen reaches AgentState via the snapshot observer, so a very fast pick could precede it; check on device that a 第一条 said before any transcript arrives is not refused (row 10); App must pass location: deviceLocation (or Switchable) and the clock to AmapRouteEngine, and read NavigationModeSetting at start (NavigationController tuning.mode is fixed .emulator); signal timers use clock.now vs fix timestamps (same SystemClock base on device)"
     }
   ]
 }

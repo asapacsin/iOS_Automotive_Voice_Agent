@@ -220,7 +220,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     }
 
     private func guide(_ initial: PlannedRoute, generation: Generation, location: any LocationUpdates) async {
-        let (inputs, feed) = AsyncStream.makeStream(of: GuideInput.self, bufferingPolicy: .bufferingNewest(32))
+        let (inputs, feed) = AsyncStream.makeStream(of: GuideInput.self)  // unbounded: a reroute result is never dropped
         let clock = clock
         let fixes = Task {
             for await fix in location.updates() { feed.yield(.fix(fix)) }
@@ -240,6 +240,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         var progress = makeProgress(route)
         var spokenStep = -1
         var lastReroute: NovaInstant?
+        var lastFixTime: NovaInstant?
         var rerouting: Task<Void, Never>?
         defer { rerouting?.cancel() }
         for await input in inputs {
@@ -250,6 +251,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
                 let fix = LocationFix(coordinate: CoordinateConverter.gcj02(raw.coordinate),
                                       horizontalAccuracyMeters: raw.horizontalAccuracyMeters, timestamp: raw.timestamp,
                                       speedMetersPerSecond: raw.speedMetersPerSecond, courseDegrees: raw.courseDegrees)
+                lastFixTime = fix.timestamp
                 guard let snap = progress.update(fix) else { continue }
                 let stepIndex = snap.stepIndex
                 // As the simulation: entering a step announces the next manoeuvre.
@@ -285,7 +287,8 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
             case .rerouted(let routes):
                 rerouting = nil
                 guard let fresh = routes?.first, fresh.points.count >= 2 else {
-                    // Keep the old route; the limiter allows the next try after 15 s.
+                    // Keep the old route; the next try comes 15 s after this failure (§8).
+                    if let lastFixTime { lastReroute = lastFixTime }
                     say("重新规划失败，继续按原路线。", generation: generation)
                     continuation.yield(NaviEngineEnvelope(generation: generation, event: .rerouted(nil)))
                     continue
