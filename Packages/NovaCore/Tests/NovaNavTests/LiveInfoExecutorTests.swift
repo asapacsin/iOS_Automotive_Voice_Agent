@@ -180,3 +180,34 @@ struct LiveInfoExecutorTests {
         #expect(!r.ok)
     }
 }
+
+/// A device source with a live stream (F-16b T-044b).
+struct StreamingLocation: LocationProvider, LocationUpdates {
+    let state = LocationFixState(clock: ManualClock(), permission: .authorized)
+    func latestFix() async -> LocationFix? { state.latest }
+    func updates() -> AsyncStream<LocationFix> { state.updates() }
+}
+
+@Suite("T-044b F-16b switchable updates")
+struct SwitchableUpdatesTests {
+    @Test("F-16b updates: the switchable source streams the device's fixes, or the demo fix once")
+    func switchable() async {
+        final class Flag: @unchecked Sendable { var on = true }
+        let flag = Flag()
+        let device = StreamingLocation()
+        let p = SwitchableLocationProvider(device: device, demo: FixedLocation(), useDevice: { flag.on })
+        var live = p.updates().makeAsyncIterator()
+        let moved = LocationFix(coordinate: GeoCoordinate(latitude: 22.3, longitude: 113.6, datum: .wgs84),
+                                horizontalAccuracyMeters: 5, timestamp: .zero, speedMetersPerSecond: 3, courseDegrees: 90)
+        device.state.receive(moved)
+        #expect(await live.next() == moved)
+        // The source is read per call: after the switch a new subscription gets the demo point, then ends.
+        flag.on = false
+        var demo = p.updates().makeAsyncIterator()
+        #expect(await demo.next() == (await FixedLocation().latestFix()))
+        #expect(await demo.next() == nil)
+        let none = SwitchableLocationProvider(device: NoLocation(), demo: FixedLocation(), useDevice: { true })
+        var empty = none.updates().makeAsyncIterator()
+        #expect(await empty.next() == nil)
+    }
+}

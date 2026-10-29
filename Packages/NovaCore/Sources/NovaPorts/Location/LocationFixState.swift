@@ -18,6 +18,9 @@ public final class LocationFixState: Sendable {
         var permission: LocationAuthorization
         var started = false
         var paused = false
+        /// F-16b: open `updates()` streams, by subscription number.
+        var subscribers: [Int: AsyncStream<LocationFix>.Continuation] = [:]
+        var nextSubscriber = 0
     }
 
     private let clock: any NovaClock
@@ -74,6 +77,7 @@ public final class LocationFixState: Sendable {
             switch permission {
             case .authorized: return s.paused ? nil : .startUpdates
             case .denied:
+                // The map drops its marker by permission; streams just get no further fix.
                 s.latest = nil
                 return .stopUpdates
             case .notDetermined: return nil
@@ -87,8 +91,31 @@ public final class LocationFixState: Sendable {
     }
 
     public func receive(_ fix: LocationFix) {
-        state.withLock { $0.latest = fix }
+        let subscribers = state.withLock { s in
+            s.latest = fix
+            return Array(s.subscribers.values)
+        }
+        for subscriber in subscribers { subscriber.yield(fix) }
     }
+
+    /// F-16b (T-044b): every fix from now on, starting with the latest one if there is one, so a screen that
+    /// subscribes late still draws the position at once. Ends when the consumer stops listening.
+    public func updates() -> AsyncStream<LocationFix> {
+        let (stream, continuation) = AsyncStream.makeStream(of: LocationFix.self, bufferingPolicy: .bufferingNewest(1))
+        let (id, latest) = state.withLock { s in
+            let id = s.nextSubscriber
+            s.nextSubscriber += 1
+            s.subscribers[id] = continuation
+            return (id, s.latest)
+        }
+        continuation.onTermination = { [weak self] _ in
+            _ = self?.state.withLock { $0.subscribers.removeValue(forKey: id) }
+        }
+        if let latest { continuation.yield(latest) }
+        return stream
+    }
+
+    var subscriberCount: Int { state.withLock { $0.subscribers.count } }
 
     /// The fix if it is within `freshness` of now.
     public func freshFix() -> LocationFix? {

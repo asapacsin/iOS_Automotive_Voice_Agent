@@ -21,7 +21,8 @@ extension CLLocationManager: LocationManaging {}
 /// converts to GCJ-02. Permission is asked on first need (F-23): the first `latestFix()` requests When In Use
 /// and waits up to `firstFixWait` for a fresh fix instead of answering nil (or an old fix) at once.
 /// Updates pause in the background and resume in the foreground (F-16a §5, When In Use only).
-public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationManagerDelegate, @unchecked Sendable {
+public final class CoreLocationProvider: NSObject, LocationProvider, LocationUpdates, CLLocationManagerDelegate,
+    @unchecked Sendable {
     private let manager: any LocationManaging
     private let clock: any NovaClock
     /// Fix-wait / freshness / authorization / pause logic lives in NovaPorts (Linux-tested); this is the adapter.
@@ -63,6 +64,9 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
     /// F-16a §5: foreground → updates resume if they were started and permission allows.
     public func resume() async { await perform(state.resume()) }
 
+    /// F-16b: every fix for the map's 我的位置 marker. Listening does not start updates; `start()` does.
+    public func updates() -> AsyncStream<LocationFix> { state.updates() }
+
     public func latestFix() async -> LocationFix? {
         await start()
         return await state.awaitFix()
@@ -94,7 +98,10 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
         let fix = LocationFix(coordinate: GeoCoordinate(latitude: location.coordinate.latitude,
                                                         longitude: location.coordinate.longitude, datum: .wgs84),
                               horizontalAccuracyMeters: location.horizontalAccuracy,
-                              timestamp: clock.now - NovaDuration(milliseconds: age))
+                              timestamp: clock.now - NovaDuration(milliseconds: age),
+                              // CoreLocation reports an unknown speed or course as negative.
+                              speedMetersPerSecond: location.speed >= 0 ? location.speed : nil,
+                              courseDegrees: location.course >= 0 ? location.course : nil)
         state.receive(fix)
     }
 
