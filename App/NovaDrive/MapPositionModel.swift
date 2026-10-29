@@ -4,6 +4,7 @@ import NovaKit
 import NovaNav
 import NovaPlatform
 import NovaPorts
+import NovaServices
 import UIKit
 
 /// A camera move the view must apply. `id` changes with every command, so the same command twice moves twice.
@@ -29,7 +30,8 @@ final class MapPositionModel: ObservableObject {
     private var fix: LocationFix?
     private var permission = LocationAuthorization.notDetermined
     private var source: LocationSource
-    private var phase = NavigationPhase.idle
+    // NovaKit has its own NavigationPhase; the flow's is NovaNav's.
+    private var phase = NovaNav.NavigationPhase.idle
     private var car: GeoCoordinate?
     private var carHeading: Double?
     private var streaming: Task<Void, Never>?
