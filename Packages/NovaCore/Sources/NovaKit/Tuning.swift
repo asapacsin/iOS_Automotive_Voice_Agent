@@ -186,6 +186,22 @@ public struct AmapWebTuning: Sendable, Hashable {
     public init() {}
 }
 
+/// features/map-logic.md §1 (F-16b): the 我的位置 marker and the map camera. Freshness and accuracy limits
+/// are `AmapWebTuning`'s, not repeated here.
+public struct MapPositionTuning: Sendable, Hashable {
+    /// 5 km/h: below it the course is noise and the marker stays a dot.
+    public var headingMinSpeedMetersPerSecond = 5.0 / 3.6
+    public var accuracyCircleMinMeters = 30.0
+    public var followMinMoveMeters = 10.0
+    public var followMinInterval = NovaDuration.seconds(1)
+    /// In-car convention: back to the car after this long without a touch.
+    public var autoRecenterAfter = NovaDuration.seconds(15)
+    public var followSpanMeters = 1500.0
+    public var reevaluateEvery = NovaDuration.seconds(5)
+    public var simulatedHeadingMinStepMeters = 1.0
+    public init() {}
+}
+
 /// Defaults read by adapters that take a plain value rather than a tuning struct.
 public enum TuningDefaults {
     /// F-16a §4: how long `latestFix()` waits for a fresh fix after start or permission.

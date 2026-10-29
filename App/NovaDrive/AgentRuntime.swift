@@ -86,7 +86,7 @@ struct KeychainRealtimeCredentials: RealtimeCredentialSource {
 }
 
 /// The demo start point stands in for the car's position.
-struct DemoLocation: LocationProvider {
+struct DemoLocation: LocationProvider, LocationUpdates {
     /// The navigation flow's own clock: a fix is judged fresh against it (F-16 §3).
     let clock: SystemClock
 
@@ -95,6 +95,15 @@ struct DemoLocation: LocationProvider {
     }
 
     var source: LocationSource { .demo }
+
+    /// F-16b: the demo point never moves, so one fix.
+    func updates() -> AsyncStream<LocationFix> {
+        AsyncStream { continuation in
+            continuation.yield(LocationFix(coordinate: DriveSettings.demoOrigin, horizontalAccuracyMeters: 10,
+                                           timestamp: clock.now))
+            continuation.finish()
+        }
+    }
 }
 
 /// Applies AgentCore effects to the real provider, revoicer, playback and screen.
