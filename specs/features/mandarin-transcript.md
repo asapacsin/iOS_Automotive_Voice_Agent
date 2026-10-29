@@ -97,13 +97,21 @@ model acts on and is known to come back in the wrong language while the model un
 | F-15a `navigate_to` | go/place word list | removed (it only lists) |
 | `wordsUnclear` | unreadable words refuse | removed |
 | `speechOutputNotRequested` (P66) | 别说了-type words required | removed; `set_speech_output` runs on the call |
-| `vagueExitWhileNavigating` | explicit-end words required | state + confirmation: while guidance runs, the first `exit_navigation_mode` returns `CONFIRM_REQUIRED` and she asks 「要结束导航吗？」; a second call in a later driver turn within 15 s ends it |
+| `vagueExitWhileNavigating` | explicit-end words required | removed, no confirmation (revised 2026-10-29, T-016e): `exit_navigation_mode` ends guidance on the call; she then says 「已结束导航」. The `CONFIRM_REQUIRED` step of T-016d is withdrawn — see the note below the table |
 | `nearbyQuestionWhileNavigating` (P61) | question words | state: while navigating, `navigate_to` opens the along-route list and never replaces the route until a pick |
 | `sunroofOnWindowTool` (P56) | 天窗 words | removed; the catalog description says sunroof/doors/lights/wipers are unsupported |
 | `driverSideWindow` | 我这边 words | removed (T-016d): the call's window position is used as given |
 | `ambiguousReferent` | relative words in the request | removed; the model asks when it is unsure |
 | `unsupportedMedia` | song-name words | removed (T-016d): `control_music` has no title/artist argument to check |
 
+- **Ending navigation (revised 2026-10-29, owner: "Update spec").** Device run ed40023: 结束导航 was refused twice
+  with `CONFIRM_REQUIRED` and guidance did not end. Her question took ~17 s, so the driver's yes came 20.6 s after the
+  first refusal, past the 15 s window counted from the refusal, and was treated as a new first request. Common practice
+  ends navigation on the voice command at once (Google Maps / Android Auto: "Stop navigation" ends the route; only the
+  touch button asks), and voice-design guidance keeps explicit yes/no questions for costly or irreversible actions;
+  ending a route is reversible (say the destination again). So: no confirmation, no timer; `exit_navigation_mode`
+  executes on the call (a list open or a tap is handled as before, F-15). Implicit confirmation only: the result's
+  `next` makes her say 「已结束导航」. `CONFIRM_REQUIRED` stays defined but is not returned by any guard.
 - **Not tool calling, kept on the transcript:** the 别说了 stop phrase (owner rule 2026-10-28, local barge-in) and the
   echo filter (F-14 §8, drops her own voice). They change no car or navigation state. They use the phone's zh-CN text.
 - **Honest replies:** a refused or not-run call must not be followed by a success claim; F-09 `ActionClaimGuard`
@@ -170,4 +178,5 @@ model acts on and is known to come back in the wrong language while the model un
 | T-016a | `LocalTranscriber` port, `TranscriptSelector`, `TranscriptLanguage`, `GuardContext.wordsReliable` + `.wordsUnclear`; rows 1–4 | unit (Linux gates) |
 | T-016b | `AppleSpeechTranscriber` (NovaAudio), import gate entry, Info.plist key, permission with first mic use | build |
 | T-016c | Wire into `AgentRuntime` (frames to transcriber, selector in front of `AgentState`), 音频测试 diagnostics line; rows 5–9 | S, D |
-| T-016d | §6 revised: remove the transcript from every tool guard (table), withdraw `wordsReliable` / `.wordsUnclear`, `CONFIRM_REQUIRED` for exit while guiding, along-route list instead of P61; row 4 (revised); F-09 guard rows that read words marked superseded | unit (Linux gates) |
+| T-016e | §6 ending navigation: remove `confirmExit` / `exitConfirmWindow` from `ToolDispatcher`; `exit_navigation_mode` ends guidance on the call and the result's `next` says 「已结束导航」; tests: one call ends guidance whatever the transcript, no `CONFIRM_REQUIRED` ever; D: 结束导航 ends at once | unit (Linux gates), D |
+| T-016d | §6 revised: remove the transcript from every tool guard (table), withdraw `wordsReliable` / `.wordsUnclear`, `CONFIRM_REQUIRED` for exit while guiding (withdrawn by T-016e), along-route list instead of P61; row 4 (revised); F-09 guard rows that read words marked superseded | unit (Linux gates) |

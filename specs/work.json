@@ -1292,6 +1292,17 @@
         "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 381 + 1 known issue, NovaServices 35)",
         "Independent read-only review at high effort 2026-10-29: PASS; applied: clear pending exit question when guidance ends, claim-phrase test"
       ]
+    },
+    {
+      "id": "T-016e",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-05a §6 ending navigation: remove confirmExit / exitConfirmWindow; exit_navigation_mode ends guidance on the call, result next says 已结束导航; unit: one call ends guidance whatever the transcript, CONFIRM_REQUIRED never returned",
+      "depends_on": [
+        "T-016d"
+      ],
+      "notes": "Device run ed40023 17:30: 结束导航 refused twice (CONFIRM_REQUIRED); her question took ~17 s so the yes came 20.6 s after the first refusal, past the 15 s window. Owner 2026-10-29: \"Update spec\" — common practice ends navigation on the voice command at once."
     }
   ]
 }

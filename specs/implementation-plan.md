@@ -62,6 +62,7 @@ NOT_VERIFIED until a device run is attached.
 | T-016b | `AppleSpeechTranscriber` (on-device zh-CN), import gate, Info.plist key | F-05a | T-016a | `Packages/NovaAudio/`, `scripts/gates/` | F-05a §4 | build |
 | T-016c | Transcriber wiring in `AgentRuntime`, 音频测试 diagnostics line | F-05a | T-016b | `App/NovaDrive/` | F-05a §10 rows 5–9 | S, D |
 | T-016d | Transcript display-only: no tool guard reads it; withdraw `wordsReliable` / `wordsUnclear` | F-05a | T-016a | `Core/NovaTools/Dispatch/`, `Core/NovaAgent/` | F-05a §10 row 4 (revised) | unit |
+| T-016e | 结束导航 ends at once: remove the exit confirmation (`CONFIRM_REQUIRED`) | F-05a | T-016d | `Core/NovaTools/Dispatch/` | F-05a §6 (ending navigation) | unit, D |
 | T-017 | Tool catalog (Android names and schemas byte-for-byte), validation, guards in order, dispatcher decisions, `ToolFailureAdvice`, `NotYetExecutor` | F-09 | T-011 + Android tables | `Core/NovaTools/Dispatch/` | F-09 §10: every guard table ported; sunroof → `UNSUPPORTED_BODY_PART` | unit, spec-trace |
 | T-018 | Climate/seat/window handlers + `SimulatedVehicle` with fault injection | F-11 | T-017 | `Core/NovaTools/Vehicle/`, `Packages/NovaServices/Sources/Vehicle/` | F-11 §10 golden files; `BACKEND_LABEL=simulated` | unit |
 | T-019 | Reply pipeline: claim gate, `ActionClaimGuard`, correction grace, empty-response re-ask, phantom gate | F-06 | T-011 | `Core/NovaVoice/Reply/` | F-06 §10 (3 rows); W3 | unit, spec-trace |
