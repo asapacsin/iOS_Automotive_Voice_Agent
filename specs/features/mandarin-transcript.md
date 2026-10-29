@@ -1,6 +1,6 @@
 # F-05a Mandarin input transcript on the phone (普通话识别不再被当成葡萄牙语)
 
-**Status:** DRAFT 2026-10-29, waiting for owner approval (H-F05a). iOS only. Owner report 2026-10-29 (device run
+**Status:** APPROVED 2026-10-29 (owner: "Approve defaults"; OQ-STT-1 no, OQ-STT-2 Mandarin only). iOS only. Owner report 2026-10-29 (device run
 aba6829): "the input sometimes interpret as portugese even though that is actually mandarin". Owner chose the
 on-device recognizer 2026-10-29: "Use Apple's on-device recognizer for the transcript … locked to zh-CN and ignore
 Gemini's guess."
@@ -134,9 +134,9 @@ Gemini's guess."
   macOS GitHub runners). Device rows stay NOT_VERIFIED until a phone run.
 
 ## Open questions
-- OQ-STT-1 (default: **no**) Show the local text even while Gemini's answer is already playing for the previous turn?
+- OQ-STT-1 **decided 2026-10-29 (owner: defaults): no**. Show the local text even while Gemini's answer is already playing for the previous turn?
   Default: the subtitle area shows the newest utterance only, as today.
-- OQ-STT-2 (default: **Mandarin only**) Cantonese input? Out of scope; owner rule says Mandarin. A Cantonese
+- OQ-STT-2 **decided 2026-10-29: Mandarin only**. Cantonese input? Out of scope; owner rule says Mandarin. A Cantonese
   utterance is recognised as Mandarin text (possibly wrong) and Gemini still hears the audio.
 
 ## Tasks (implementation-plan.md M1 follow-up, specs/work.json)

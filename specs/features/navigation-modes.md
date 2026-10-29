@@ -1,6 +1,6 @@
 # F-15a Real navigation by default, simulation as a separate mode (真实导航 / 模拟导航)
 
-**Status:** DRAFT 2026-10-29, waiting for owner approval (H-F15a). iOS only. Owner report 2026-10-29 (device run
+**Status:** APPROVED 2026-10-29 (owner: "Approve defaults"; OQ-NAVM-1 no voice switch, OQ-NAVM-2 refuse without a fix, OQ-NAVM-3 foreground only, OQ-NAVM-4 web route + own matching). iOS only. Owner report 2026-10-29 (device run
 aba6829): "During navigation, it's supposed to follow the current location, yet this just shown two locations, keep
 switching between two locations, and simulate navigation even though I'm not asking about that." Owner direction
 2026-10-29: real navigation is the default; simulation stays, as a separate mode chosen by a switch.
@@ -149,13 +149,13 @@ Location fix, 15 s reroute limiter, 10 s / 30 s signal timers, route recalculati
   2026-10-27). Device rows stay NOT_VERIFIED until a phone run; rows 6–7 need a real drive.
 
 ## Open questions
-- OQ-NAVM-1 (default: **no**) Switch mode by voice (「模拟导航去机场」)? Default no: the setting only, so a misheard
+- OQ-NAVM-1 **decided 2026-10-29 (owner: defaults): no**. Switch mode by voice (「模拟导航去机场」)? Default no: the setting only, so a misheard
   word cannot start the wrong mode.
-- OQ-NAVM-2 (default: **refuse**) 真实导航 with no usable fix: refuse with an honest sentence (default), or fall back to
+- OQ-NAVM-2 **decided 2026-10-29: refuse**. 真实导航 with no usable fix: refuse with an honest sentence (default), or fall back to
   模拟导航 with a spoken notice?
-- OQ-NAVM-3 (default: **foreground only**) Keep guiding in the background? Needs Always/background location and a
+- OQ-NAVM-3 **decided 2026-10-29: foreground only**. Keep guiding in the background? Needs Always/background location and a
   new permission text; out of scope by default.
-- OQ-NAVM-4 (default: **web route + own matching**) Use the Amap Navi SDK for real guidance instead (better matching,
+- OQ-NAVM-4 **decided 2026-10-29: web route + own matching**. Use the Amap Navi SDK for real guidance instead (better matching,
   lane info, server reroute) — larger vendor integration, separate spec if wanted.
 
 ## Tasks (implementation-plan.md M3 follow-up, specs/work.json)

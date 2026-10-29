@@ -1123,7 +1123,7 @@
     {
       "id": "H-F05a",
       "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
+      "status": "PASS",
       "priority": 10,
       "action": "Approve specs/features/mandarin-transcript.md (F-05a); decide OQ-STT-1..2 or take the defaults",
       "depends_on": [],
@@ -1137,7 +1137,10 @@
           "Approve with different OQ-STT answers",
           "Rewrite"
         ]
-      }
+      },
+      "evidence": [
+        "2026-10-29 owner: 'Approve defaults' -> spec APPROVED with default answers to all open questions"
+      ]
     },
     {
       "id": "T-016a",
@@ -1172,7 +1175,7 @@
     {
       "id": "H-F15a",
       "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
+      "status": "PASS",
       "priority": 10,
       "action": "Approve specs/features/navigation-modes.md (F-15a); decide OQ-NAVM-1..4 or take the defaults",
       "depends_on": [],
@@ -1186,7 +1189,10 @@
           "Approve with different OQ-NAVM answers",
           "Rewrite"
         ]
-      }
+      },
+      "evidence": [
+        "2026-10-29 owner: 'Approve defaults' -> spec APPROVED with default answers to all open questions"
+      ]
     },
     {
       "id": "T-040a",
