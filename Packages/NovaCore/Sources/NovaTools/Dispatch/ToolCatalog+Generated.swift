@@ -218,7 +218,7 @@ extension ToolCatalog {
             ])),
         ToolSpec(domain: "vision", repeatSensitive: false, declaration: ToolDeclaration(
             name: "describe_camera_view",
-            description: "看摄像头画面回答：「看看前面有什么」「画面里有几个人」「这是什么」（无其他上下文时一律当作问画面），question 填原问题。需几秒，结果返回前什么都不要说（不描述画面，也不说摄像头不能用）。只按返回的 answer 答；ok=false 只转述 message，绝不猜测画面。",
+            description: "看摄像头画面回答：「看看前面有什么」「画面里有几个人」「这是什么」「后面是什么」（无其他上下文时一律当作问画面），question 填原问题；问后面、后排、车里时 camera=rear_view，问前面、路上时 camera=front_view，都没说就不填。需几秒，结果返回前什么都不要说（不描述画面，也不说摄像头不能用）。只按返回的 answer 答；ok=false 只转述 message，绝不猜测画面。",
             parametersJSONSchema: [
                 "type": "object",
                 "properties": [
@@ -226,6 +226,10 @@ extension ToolCatalog {
                         "type": "string",
                         "minLength": .int(1),
                         "maxLength": .int(200),
+                    ],
+                    "camera": [
+                        "type": "string",
+                        "enum": ["front_view", "rear_view"],
                     ],
                 ],
                 "required": ["question"],
@@ -253,13 +257,13 @@ extension ToolCatalog {
             ])),
         ToolSpec(domain: "live_info", repeatSensitive: true, declaration: ToolDeclaration(
             name: "query_live_info",
-            description: "查询高德实时信息，只按返回结果回答，绝不编造天气、路况或地点。weather：「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；问明天加 day=tomorrow。route_traffic（导航中）：「前面堵不堵」「路况怎么样」。along_route（有路线时）：「路上有加油站吗」→category=fuel；「沿途充电站」→charging；「下一个服务区」→service_area；「路上有厕所吗」→toilet；没有路线时「附近有加油站吗」不用 along_route，改用 navigate_to；结果显示在屏幕，用户说第几个再用 choose_navigation_option。place_details：「目的地几点关门」→target=destination；「第二个几点开门」→target=2。新闻、股票、油价、汇率无数据源，不要调用，如实说无法回答。ok=false 按 next 说原因，不要猜。",
+            description: "查询高德实时信息，只按返回结果回答，绝不编造天气、路况或地点。weather：「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；问明天加 day=tomorrow。route_traffic（导航中）：「前面堵不堵」「路况怎么样」。along_route（有路线时）：「路上有加油站吗」→category=fuel；「沿途充电站」→charging；「下一个服务区」→service_area；「路上有厕所吗」→toilet；没有路线时「附近有加油站吗」不用 along_route，改用 navigate_to；结果显示在屏幕，用户说第几个再用 choose_navigation_option。place_details：「目的地几点关门」→target=destination；「第二个几点开门」→target=2。current_location：「我现在在哪」「这是哪里」「我在什么路上」，只按返回的 address 回答，不要说没有定位权限除非返回 LOCATION_PERMISSION_DENIED。新闻、股票、油价、汇率无数据源，不要调用，如实说无法回答。ok=false 按 next 说原因，不要猜。",
             parametersJSONSchema: [
                 "type": "object",
                 "properties": [
                     "kind": [
                         "type": "string",
-                        "enum": ["weather", "route_traffic", "along_route", "place_details"],
+                        "enum": ["weather", "route_traffic", "along_route", "place_details", "current_location"],
                     ],
                     "where": [
                         "type": "string",

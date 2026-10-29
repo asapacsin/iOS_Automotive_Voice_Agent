@@ -237,6 +237,34 @@ struct GeminiLiveProviderTests {
         await provider.close()
     }
 
+    @Test("Manual activity: a reconnect mid-utterance opens with activityStart, so its audio and activityEnd are bracketed")
+    func activityAcrossReconnect() async throws {
+        let ready = Data(#"{"setupComplete":{}}"#.utf8)
+        let server = FakeGeminiServer([.init(frames: [ready], closeAfter: nil), .init(frames: [ready], closeAfter: nil)])
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server)
+        let config = SessionConfig(systemInstruction: "p", tools: [])
+        await provider.connect(config, resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        #expect(await it.next()?.event == .setupComplete)
+        provider.sendActivityStart()
+        provider.sendActivityStart()   // nested start is dropped
+        provider.sendAudio(.silence)
+        await provider.connect(config, resume: "h", connection: Generation(2))   // drop mid-utterance
+        #expect(await it.next()?.event == .setupComplete)
+        provider.sendAudio(.silence)
+        provider.sendActivityEnd()
+        provider.sendActivityEnd()     // unmatched end is dropped
+        let sockets = server.opened.withLock { $0 }
+        let second = try #require(sockets.last)
+        for _ in 0..<100 where second.sent.withLock({ $0.count }) < 4 { try await Task.sleep(for: .milliseconds(10)) }
+        let kinds = { (socket: FakeSocket) in socket.sent.withLock { $0 }.map { text -> String in
+            ["setup", "activityStart", "activityEnd", "audio"].first { text.contains("\"\($0)\"") } ?? "?"
+        } }
+        #expect(kinds(sockets[0]) == ["setup", "activityStart", "audio"])
+        #expect(kinds(second) == ["setup", "activityStart", "audio", "activityEnd"])
+        await provider.close()
+    }
+
     @Test("F-05 a socket stopped by close() or a new connect emits nothing more")
     func closeIsSilent() async throws {
         let server = FakeGeminiServer([
@@ -292,5 +320,66 @@ struct GeminiLiveProviderTests {
         let socket = try #require(server.opened.withLock { $0.first })
         #expect(socket.closed.withLock { $0 })
         #expect(socket.sent.withLock { $0.isEmpty })
+    }
+}
+
+/// A socket whose writes never complete, like a stalled send buffer.
+final class StalledConnector: WebSocketConnector, @unchecked Sendable {
+    final class Conn: WebSocketConnection, @unchecked Sendable {
+        let inbox = FakeInbox()
+        func send(_ text: String) async throws {
+            if text.contains("\"setup\"") {
+                await inbox.push(.success(Data(#"{"setupComplete":{}}"#.utf8)))
+                return
+            }
+            // Never completes, but ends with the writer task when the socket shuts down.
+            try? await Task.sleep(for: .seconds(3600))
+        }
+        func receive() async throws -> Data {
+            switch await inbox.next() {
+            case .success(let d): return d
+            case .failure(let c): throw c
+            }
+        }
+        func ping() async throws {}
+        func close() { let inbox = inbox; Task { await inbox.finish() } }
+    }
+    func open(_ request: URLRequest) async throws -> any WebSocketConnection { Conn() }
+}
+
+@Suite("T-016 F-05 handshake status and outbox bound")
+struct GeminiProviderHandshakeTests {
+    @Test("F-05: a refused upgrade 401/403 is terminal AUTH; 429 RATE_LIMITED; 5xx retryable")
+    func handshakeStatus() async throws {
+        #expect(GeminiCloseClassifier.classify(handshakeStatus: 401) == .auth)
+        #expect(GeminiCloseClassifier.classify(handshakeStatus: 403) == .auth)
+        #expect(GeminiCloseClassifier.classify(handshakeStatus: 429) == .rateLimited)
+        #expect(GeminiCloseClassifier.classify(handshakeStatus: 503).isRetryable)
+        #expect(GeminiCloseClassifier.classify(handshakeStatus: 404) == .connection)
+
+        let server = FakeGeminiServer([
+            .init(frames: [], closeAfter: WebSocketClosed(code: 1006, reason: "", httpStatus: 403)),
+        ])
+        let harness = SessionHarness(server)
+        await harness.run { if case .failed = $0 { true } else { false } }
+        #expect(harness.events.last == .failed(RealtimeError(.auth)))
+        #expect(harness.session.state == .error)
+        #expect(!harness.states.contains(.reconnecting))
+        #expect(server.opened.withLock { $0.count } == 1)
+    }
+
+    @Test("F-24: a stalled writer past the outbox limit ends the socket as a retryable WS_FAILED")
+    func outboxBound() async throws {
+        var tuning = RealtimeTuning()
+        tuning.outboxLimit = 4
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: StalledConnector(), tuning: tuning)
+        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        #expect(await it.next()?.event == .setupComplete)
+        for _ in 0..<10 { provider.sendAudio(.silence) }
+        let event = await it.next()?.event
+        #expect(event == .failed(RealtimeError(.wsFailed)))
+        #expect(RealtimeErrorCode.wsFailed.isRetryable)
+        await provider.close()
     }
 }

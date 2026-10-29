@@ -45,6 +45,11 @@ public enum PlaybackEvent: Sendable, Hashable {
     case replyFinished(Epoch)
     case guidanceStarted(GuidanceID)
     case guidanceEnded(GuidanceID)
+    /// The media lane really started or stopped (F-13): the only now-playing evidence.
+    case mediaPlaying(Bool)
+    /// The reply lane drained and the revoicer holds no clause of `epoch`: nothing of her reply is left
+    /// to sound (the shell sends it; `replyFinished` alone also fires between clauses).
+    case replyIdle(Epoch)
 }
 
 /// Three lanes on one voice-processing engine (ios-architecture §6.4).
@@ -116,4 +121,24 @@ public protocol WakeWordDetector: Sendable {
     func disarm() async
     func feed(_ frame: PCMFrame16k)
     var events: AsyncStream<WakeEvent> { get }
+}
+
+/// F-04a: one result of the on-device sound classifier for a 0.5 s window of cleaned mic audio.
+public struct SpeechClassification: Sendable, Hashable {
+    /// Highest of the speech-like labels (speech, conversation, shout, whispering), 0...1.
+    public let speechProbability: Double
+    /// The best non-speech label (for example car_horn or music), for diagnostics only.
+    public let topNonSpeech: String?
+
+    public init(speechProbability: Double, topNonSpeech: String?) {
+        self.speechProbability = speechProbability
+        self.topNonSpeech = topNonSpeech
+    }
+}
+
+/// F-04a: classifies cleaned 16 kHz frames off the capture path; results arrive on its own queue.
+public protocol SpeechClassifier: Sendable {
+    func start(onResult: @escaping @Sendable (SpeechClassification) -> Void) throws
+    func feed(_ frame: PCMFrame16k)
+    func stop()
 }

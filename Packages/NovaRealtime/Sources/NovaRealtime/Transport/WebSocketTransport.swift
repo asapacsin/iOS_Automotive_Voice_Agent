@@ -17,13 +17,16 @@ public protocol WebSocketConnector: Sendable {
     func open(_ request: URLRequest) async throws -> any WebSocketConnection
 }
 
-/// How a socket ended. `code` 1006 means no close frame arrived (network drop).
+/// How a socket ended. `code` 1006 means no close frame arrived (network drop). `httpStatus` is set
+/// when the upgrade itself was refused (no 101), e.g. 401/403 for a bad key.
 public struct WebSocketClosed: Error, Sendable, Hashable {
     public let code: Int
     public let reason: String
-    public init(code: Int, reason: String) {
+    public let httpStatus: Int?
+    public init(code: Int, reason: String, httpStatus: Int? = nil) {
         self.code = code
         self.reason = reason
+        self.httpStatus = httpStatus
     }
 }
 
@@ -74,6 +77,8 @@ final class URLSessionWebSocketConnection: WebSocketConnection, @unchecked Senda
 
     private func closed() -> WebSocketClosed {
         let code = task.closeCode == .invalid ? 1006 : task.closeCode.rawValue
-        return WebSocketClosed(code: code, reason: task.closeReason.map { String(decoding: $0, as: UTF8.self) } ?? "")
+        let status = (task.response as? HTTPURLResponse)?.statusCode
+        return WebSocketClosed(code: code, reason: task.closeReason.map { String(decoding: $0, as: UTF8.self) } ?? "",
+                               httpStatus: status == 101 ? nil : status)
     }
 }

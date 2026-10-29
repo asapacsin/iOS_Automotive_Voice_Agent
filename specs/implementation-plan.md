@@ -11,13 +11,13 @@ the reviewer verdicts PASS / REWORK / BLOCKED / NOT_VERIFIED. Paths are relative
 | Need | For | Who | Status |
 |---|---|---|---|
 | A Mac with Xcode (Swift 6) and a physical iPhone; an Apple developer account | all; device rows | OWNER | needed by T-000 |
-| Minimum iOS version (iOS 18 proposed) | T-000 | OWNER (OQ-IOS-12) | open |
+| Minimum iOS version (iOS 18 proposed) | T-000 | OWNER (OQ-IOS-12) | DECIDED: iOS 18.0 |
 | Gemini API key + consent, Azure Speech key + voice | M1 | OWNER | needed by T-003 |
 | Amap iOS SDK key (bound to the bundle id) + Amap Web key | M0 spike, M3 | OWNER | needed by T-002 |
 | iFlytek iOS SDK downloaded for the same app id | M5 | OWNER (OQ-IOS-1) | needed by T-060 |
 | Background SLEEP policy | M5 | OWNER (OQ-IOS-13) | needed by T-062 |
-| Apple Music only for named music? | M6 | OWNER (OQ-IOS-7) | needed by T-072 |
-| CarPlay category | M7 | OWNER (OQ-IOS-8) | needed by T-080 |
+| Apple Music only for named music? | M6 | OWNER (OQ-IOS-7) | DECIDED 2026-10-27: no named music; T-072 not applicable |
+| CarPlay category | M7 | OWNER (OQ-IOS-8) | DECIDED 2026-10-27: skip CarPlay; T-080 not applicable |
 | Ephemeral-token backend | release | OWNER (OQ-IOS-15) | not blocking |
 
 The Android test tables (guards, context resolver, vehicle golden files, uplink-gate PCM corpus,
@@ -51,6 +51,10 @@ NOT_VERIFIED until a device run is attached.
 | T-011 | NovaPorts: the protocols and `RealtimeEvent` from ios-architecture §4 | — | T-010 | `Core/NovaPorts/` | Compiles under Swift 6 strict concurrency; every type `Sendable` | build |
 | T-012 | Listening lifecycle + local intents | F-02 | T-011 | `Core/NovaVoice/Lifecycle/` | F-02 §10 (4 rows) | unit, spec-trace |
 | T-013 | Mic gain, 10 ms framer, uplink gate (PCM corpus) | F-03 (logic), F-04 | T-011 | `Core/NovaVoice/Uplink/` | F-04 §10 (3 rows); F-03 frame-size row | unit, spec-trace |
+| T-013a | `SpeechClassifier` port + `SpeechConfirmation` gate rule (confirming state, fallback, 抗噪 switch) | F-04a | T-013 | `Core/NovaVoice/Uplink/`, `Core/NovaPorts/` | F-04a §10 rows 5–6 | unit |
+| T-013b | `SoundAnalysisSpeechClassifier` (SNAudioStreamAnalyzer); voice processing pinned | F-04a | T-013a | `Packages/NovaAudio/` | F-04a §10 rows 4, 8 | build, D |
+| T-013c | Barge-in uses speech confirmation; 音频测试 diagnostics line; 设置 抗噪 switch | F-04a | T-013a | `Core/NovaVoice/Arbiter/`, `App/NovaDrive/` | F-04a §10 rows 3, 7 | unit, S, D |
+| T-013d | Noise corpus fixtures + corpus tests | F-04a | T-013a | `Fixtures/audio/noise/`, tests | F-04a §10 rows 1–2 | unit |
 | T-014 | `VoiceSession` state machine + `ReconnectPolicy` | F-05 core, F-24 | T-011 | `Core/NovaVoice/Session/` | contracts/voice-agent.md §1 and §8 transitions; auth error → no retry | unit |
 | T-015 | Gemini codec, turn assembler, error classifier | F-05 | T-011, T-003 | `Packages/NovaRealtime/Sources/Codec/` | Fixture replay gives the §4 event order; 1007/1008 classification | unit, contract |
 | T-016 | Gemini transport + provider; local fake WebSocket server | F-05, F-24 | T-015 | `Packages/NovaRealtime/` | F-05 §10 rows 2–3; F-24 §10 row 1 (W4) | unit, contract |
@@ -85,10 +89,16 @@ NOT_VERIFIED until a device run is attached.
 | T-040 | `NavigationController` phase machine + `NavigationActor` + `ScriptedNaviEngine` | F-15 | T-011, T-002 | `Core/NovaNav/Flow/`, `Core/NovaAgent/Navigation/` | contracts/navigation.md transitions; W8; no double start | unit |
 | T-041 | Choice resolver (index/preference/name), 120 s expiry, picker intercept, 5 s duplicate suppression | F-15 | T-040 | `Core/NovaNav/Choice/` | Ported choice tables; `OPTIONS_STALE` | unit |
 | T-042 | Destination queries, saved places, along-route corridor, WGS-84→GCJ-02; `CoreLocationProvider` | F-16 | T-033 | `Core/NovaNav/Search/`, `Packages/NovaPlatform/Sources/Location/` | F-16 §10 (4 rows) | unit, contract |
+| T-042a | `CoreLocationProvider` first-fix wait, authorization changes, denied state; `SwitchableLocationProvider` | F-16a | T-042 | `Packages/NovaPlatform/Sources/Location/`, `Core/NovaNav/Search/` | F-16a §10 rows 5–7 | unit, build |
+| T-042b | 设置 → 位置来源, permission state, 打开系统设置; 演示位置 header label | F-16a | T-042a | `App/NovaDrive/` | F-16a §10 rows 1, 4 | S, D |
 | T-043 | `AmapNaviEngine` adapter with generation tagging | F-15 | T-040, T-002 | `Packages/NovaNavAmap/Sources/Engine/` | Stale callback dropped (S) | build, S, imports |
 | T-044 | `AmapMapView` + `MapPresentationPolicy` | F-15, F-25 | T-043 | `Packages/NovaNavAmap/Sources/Map/`, `Core/NovaNav/Presentation/` | No route drawn after 算了 (S) | S |
+| T-044a | `SelfPosition` + `MapCameraPolicy` + `LocationUpdates` port | F-16b | T-044, T-042a | `Core/NovaNav/Presentation/`, `Core/NovaPorts/` | F-16b §10 rows 3–5 | unit |
+| T-044b | Location updates stream in `CoreLocationProvider`, `DemoLocation`, `SwitchableLocationProvider` | F-16b | T-044a | `Packages/NovaPlatform/Sources/Location/`, `Core/NovaNav/Search/` | F-16b §4 | unit, build |
+| T-044c | `DriveView` 我的位置 dot, accuracy circle, locate-me, 定位未开启, follow/free camera | F-16b | T-044a, T-044b | `App/NovaDrive/` | F-16b §10 rows 1–2, 6–9 | S, D |
 | T-045 | HUD panel model + overspeed logic | F-17 | T-043 | `Core/NovaNav/HUD/` | F-17 §10 (2 rows) with fixtures | unit |
 | T-046 | Live info: route_traffic, along_route, place_details | F-18 | T-042, T-040 | `Core/NovaTools/LiveInfo/` | `NOT_NAVIGATING` when idle | unit, contract |
+| T-046a | `query_live_info` `current_location` (regeo address), codes, catalog + persona line | F-16a | T-046, T-042a | `Core/NovaNav/LiveInfo/`, `Packages/NovaServices/`, `Core/NovaTools/Dispatch/` | F-16a §10 rows 2–3, 7 | unit, contract, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 
@@ -118,6 +128,13 @@ NOT_VERIFIED until a device run is attached.
 |---|---|---|---|---|---|---|
 | T-070 | Phone: confirm window, contacts, `tel://`, `NO_TELEPHONY` | F-19 | T-017 | `Core/NovaTools/Phone/`, `Packages/NovaPlatform/Sources/Phone/` | F-19 §10 (2 rows) | unit, M |
 | T-071 | Vision: still frame + Qianfan client | F-20 | T-017 | `Core/NovaTools/Vision/`, `Packages/NovaPlatform/Sources/Camera/`, `Packages/NovaServices/Sources/Qianfan/` | F-20 §10 (2 rows) | unit, contract, D |
+| T-071a | `CameraQuestionHandler` (pure): one in flight, cancel, result/codes | F-20a | T-071 | `Core/NovaTools/Vision/` | F-20a §10 rows 4–5, 7 | unit |
+| T-071b | `CameraSession` adapter (AVCaptureSession, still capture, stop on close) | F-20a | T-071a | `Packages/NovaPlatform/Sources/Camera/` | F-20a §10 row 6 | build, D |
+| T-071c | `GeminiVisionClient` (+ Qianfan option) behind `VisionPort` | F-20a | T-071a | `Packages/NovaServices/Sources/Vision/` | F-20a §8 codes | unit, contract |
+| T-071d | Camera icon, floating preview, 问一下, wiring to `describe_camera_view` | F-20a | T-071b, T-071c | `App/NovaDrive/` | F-20a §10 rows 1–3 | S, D |
+| T-071e | `CameraLensChooser` + `camera` argument/result in `CameraQuestionHandler`; catalog property | F-20b | T-071a | `Core/NovaTools/Vision/`, `Core/NovaTools/Dispatch/` | F-20b §10 rows 3, 4, 7 | unit |
+| T-071f | `CameraSession` lens switch (`.back` ↔ `.front`, unmirrored still, 1 s deadline) | F-20b | T-071b | `Packages/NovaPlatform/Sources/Camera/` | F-20b §10 rows 1, 5, 6 | build, D |
+| T-071g | Window switch button, 前方/后方 label, voice-driven switch before capture | F-20b | T-071e, T-071f | `App/NovaDrive/` | F-20b §10 rows 1–2 | S, D |
 | T-072 | MusicKit named music + now-playing check (only if OQ-IOS-7 approves) | F-13 | OQ-IOS-7 | `Packages/NovaPlatform/Sources/Music/` | No claim without verified now-playing; closes OQ-IOS-11 | unit, D |
 
 ### M7 (optional): CarPlay

@@ -28,7 +28,7 @@ struct PortsTests {
 
     @Test("F-22 credential list covers every secret named in the spec")
     func credentialKeys() {
-        #expect(CredentialKey.allCases.count == 6)
+        #expect(CredentialKey.allCases.count == 8)
     }
 
     @Test("session config defaults follow the Gemini contract")

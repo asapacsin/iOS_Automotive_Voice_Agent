@@ -46,3 +46,24 @@ ASR mishearing is common (再低一点→第一点); guard must not depend on ex
 
 ## iOS notes (PROPOSED unless labelled)
 Portable (A).
+
+## Navigation ambiguity (iOS, PROPOSED 2026-10-26)
+F-10 above covers vehicle referents. Ambiguous **destinations and picks** follow contracts/navigation.md
+(F-15/F-16); they are listed here so both kinds of clarification behave the same way: one short question,
+never a guess, never a tool call until the driver answers.
+
+| Situation | Result | What she says |
+|---|---|---|
+| `navigate_to` finds more than 1 place (e.g. 珠海站 → railway station, bus station, ...) | candidate list, AWAITING_DESTINATION_SELECTION | 「找到N个地点，请说第几个」 |
+| A pick by name matches 2+ candidates (「珠海站那个」 with two 珠海站…) | `AMBIGUOUS` (`NavigationController.swift:344`) | asks which number; does not pick |
+| A pick by name matches none | `NO_MATCH` | says the name is not in the list, asks for the number |
+| Ordinal out of range (「第七个」 of 5) | `OUT_OF_RANGE` | says there are only N |
+| 「就那个」/「第一个」 with no list on screen, or a list older than 120 s | `NO_OPTIONS_ON_SCREEN` / `OPTIONS_STALE` | says there is no list, asks where to go |
+| 「去那里」/「刚才那个地方」 with no earlier place in this session | no `navigate_to` | asks where |
+| Vague exit while navigating (「好了」「不用了」) | `VAGUE_EXIT_WHILE_NAVIGATING` | asks whether to end navigation |
+| Nearby *question* while navigating (「附近有加油站吗」) | `NEARBY_QUESTION_WHILE_NAVIGATING`, route kept | answers or offers a list; route unchanged |
+
+**Acceptance (iOS, added):**
+- Two candidates both containing the spoken name → `AMBIGUOUS`, phase unchanged, no route calculated (unit).
+- ASR variants of ordinals (第一个/第1个/一号) resolve the same index (unit, table-driven).
+- 「去那里」 with no earlier place → no `navigate_to` call, one question (unit).

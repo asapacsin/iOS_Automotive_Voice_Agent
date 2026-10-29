@@ -19,6 +19,23 @@ public struct UplinkGateTuning: Sendable, Hashable {
     public var holdVoicedRatio: Double = 0.60
     /// Digital silence sent before `audioStreamEnd`.
     public var closingSilence = NovaDuration.milliseconds(1500)
+    /// F-04a: speech confirmation by the sound classifier; nil = 抗噪 off (F-04 rules only).
+    public var speechConfirm: SpeechConfirmTuning? = SpeechConfirmTuning()
+    public init() {}
+}
+
+/// F-04a §4: onset → open needs `required` of the last `window` classifier results at or above
+/// `threshold`; an onset not confirmed within `maxWait` is rejected, or opens on F-04 rules alone when the
+/// classifier sent nothing fresh, so a slow classifier never loses speech.
+public struct SpeechConfirmTuning: Sendable, Hashable {
+    public var threshold: Double = 0.6
+    public var required = 2
+    public var window = 3
+    public var maxWait = NovaDuration.milliseconds(600)
+    /// Results older than this (gate time) no longer count.
+    public var freshness = NovaDuration.milliseconds(700)
+    /// No result for this long (gate time): the classifier counts as gone and F-04 rules apply at once.
+    public var activeTimeout = NovaDuration.milliseconds(2000)
     public init() {}
 }
 
@@ -67,6 +84,8 @@ public struct RealtimeTuning: Sendable, Hashable {
     public var setupCompleteTimeout = NovaDuration.seconds(10)
     public var pingInterval = NovaDuration.seconds(20)
     public var eventBufferLimit = 1024
+    /// Client messages queued on a socket before it counts as stalled (~5 s of 10 ms audio frames).
+    public var outboxLimit = 512
     public init() {}
 }
 
@@ -75,8 +94,8 @@ public struct TruthfulnessTuning: Sendable, Hashable {
     public var holdBudgetEvents = 120
     public var correctionGraceToolMayFollow = NovaDuration.milliseconds(20_000)
     public var correctionGraceChat = NovaDuration.milliseconds(1500)
-    public var emptyResponseReask = NovaDuration.seconds(3)
-    public var emptyResponseGiveUp = NovaDuration.seconds(5)
+    public var emptyResponseReask = NovaDuration.seconds(6)
+    public var emptyResponseGiveUp = NovaDuration.seconds(10)
     public var phantomMaxCJK = 12
     public var phantomMaxLatin = 40
     public var phantomMinTranscript = 2
@@ -165,6 +184,28 @@ public struct AmapWebTuning: Sendable, Hashable {
     public var locationProvisional = NovaDuration.minutes(10)
     public var locationMaxAccuracyMeters = 2000
     public init() {}
+}
+
+/// features/map-logic.md §1 (F-16b): the 我的位置 marker and the map camera. Freshness and accuracy limits
+/// are `AmapWebTuning`'s, not repeated here.
+public struct MapPositionTuning: Sendable, Hashable {
+    /// 5 km/h: below it the course is noise and the marker stays a dot.
+    public var headingMinSpeedMetersPerSecond = 5.0 / 3.6
+    public var accuracyCircleMinMeters = 30.0
+    public var followMinMoveMeters = 10.0
+    public var followMinInterval = NovaDuration.seconds(1)
+    /// In-car convention: back to the car after this long without a touch.
+    public var autoRecenterAfter = NovaDuration.seconds(15)
+    public var followSpanMeters = 1500.0
+    public var reevaluateEvery = NovaDuration.seconds(5)
+    public var simulatedHeadingMinStepMeters = 1.0
+    public init() {}
+}
+
+/// Defaults read by adapters that take a plain value rather than a tuning struct.
+public enum TuningDefaults {
+    /// F-16a §4: how long `latestFix()` waits for a fresh fix after start or permission.
+    public static let firstFixWait = NovaDuration.seconds(3)
 }
 
 /// features/ambiguity-context.md.

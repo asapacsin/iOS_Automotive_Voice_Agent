@@ -64,7 +64,7 @@ public struct SettingsReadiness: Sendable, Hashable {
         azureVoice = has(.azureSpeechKey) && settings.string(SettingsKey.azureVoice)?.isEmpty == false
         amapSDKKey = has(.amapSDKKey)
         amapWebKey = has(.amapWebKey)
-        wakeAppID = has(.iflytekAppID)
+        wakeAppID = has(.iflytekAppID) && has(.iflytekAPIKey) && has(.iflytekAPISecret)
         vision = has(.qianfanKey)
     }
 

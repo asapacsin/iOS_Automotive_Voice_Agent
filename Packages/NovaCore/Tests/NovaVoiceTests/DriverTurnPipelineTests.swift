@@ -228,22 +228,22 @@ struct DriverTurnPipelineTests {
         #expect(ClaimLexicon.claim(in: "导航已开始，请注意安全") == .navigationStarted)
     }
 
-    @Test("F-06 W3 no output 3 s after the driver: one re-ask; give up at 5 s")
+    @Test("F-06 W3 no output 6 s after the driver: one re-ask; give up at 10 s")
     func emptyResponse() {
         var h = PipelineHarness()
         h.send(.driverUtterance("今天天气怎么样"))
-        h.advance(by: .milliseconds(2999))
+        h.advance(by: .milliseconds(5999))
         #expect(!h.out.contains(.reask(DriverTurnPipeline.reaskText)))
         h.advance(by: .milliseconds(1))
         #expect(h.out.contains(.reask("请回应我刚才说的话。")))
-        h.advance(by: .milliseconds(1999))
+        h.advance(by: .milliseconds(3999))
         #expect(!h.out.contains(.gaveUp))
         h.advance(by: .milliseconds(1))
         #expect(h.out.contains(.gaveUp))
         #expect(h.out.filter { if case .reask = $0 { true } else { false } }.count == 1)
     }
 
-    @Test("F-06 an answer within 3 s cancels the re-ask")
+    @Test("F-06 an answer within 6 s cancels the re-ask")
     func answerCancelsReask() {
         var h = PipelineHarness()
         h.driver("今天天气怎么样")

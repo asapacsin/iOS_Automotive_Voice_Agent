@@ -14,6 +14,11 @@ public protocol AgentEffectSink: Sendable {
     func speak(_ clause: String) async
     func publish(_ view: AgentViewState) async
     func diagnostic(_ event: DiagnosticEvent)
+    /// Fallback voice on the guidance lane (F-14). Must report `guidanceEnded(id)` through the playback
+    /// events even when the sentence cannot be rendered.
+    func speakGuidance(_ text: String, id: GuidanceID) async
+    /// The uplink gate force-closes while `open` is false (F-08).
+    func uplink(open: Bool)
 }
 
 /// Runs tool calls as child tasks (ios-architecture §5.1): cancellable, always ends in a `ToolResult`.
@@ -114,6 +119,8 @@ public actor AgentCore {
         case .cancelTimer(let timer): timers.cancel(timer)
         case .publish(let view): await sink.publish(view)
         case .diagnostic(let event): sink.diagnostic(event)
+        case .speakGuidance(let text, let id): await sink.speakGuidance(text, id: id)
+        case .uplink(let open): sink.uplink(open: open)
         }
     }
 }

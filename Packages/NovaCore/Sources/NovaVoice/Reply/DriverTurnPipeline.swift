@@ -10,6 +10,7 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case musicNotConfirmed = "MUSIC_NOT_CONFIRMED"
     case clarifyReferent = "CLARIFY_REFERENT"
     case unverifiedClaim = "UNVERIFIED_CLAIM"
+    case notMandarin = "NOT_MANDARIN"
 
     /// Sent to the model as a text turn. Code decides when; the sentence only explains (I-11).
     public var instruction: String {
@@ -21,6 +22,7 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         case .musicNotConfirmed: "[系统] MUSIC_NOT_CONFIRMED：没有确认音乐正在播放，不要说正在播放。"
         case .clarifyReferent: "[系统] 指代不明确。请用一句简短的话问司机具体指哪一项。"
         case .unverifiedClaim: "[系统] 你声称已完成操作，但没有成功的工具结果。请先调用工具，或如实说明。"
+        case .notMandarin: "[系统] NOT_MANDARIN：只能用普通话回答，不能用其他语言。没听清就用中文说「没听清，请再说一遍」。"
         }
     }
 }
@@ -154,6 +156,8 @@ public struct DriverTurnPipeline: Sendable {
             // Re-judged on the whole text each time: a later sentence may make a stronger claim.
             t.claims.formUnion(ClaimLexicon.claims(in: t.text))
             turn = t
+            // Mandarin only (owner rule 2026-10-28): a reply in another language is voided, not spoken on.
+            if ReplyLanguage.isNotMandarin(t.text) { return modelResponded() + void(.notMandarin, at: now) }
             return modelResponded() + route(.speechText(id, text), at: now)
         case .replyAudio(let id, let pcm):
             guard current(id) != nil else { return [] }
@@ -215,8 +219,15 @@ public struct DriverTurnPipeline: Sendable {
     /// Tools that only read: their ok result proves no action.
     static let readOnlyTools: Set<String> = ["query_live_info", "describe_camera_view"]
 
+    /// Tools whose ok result changes nothing in the car: a tone change, muting or ending the
+    /// conversation, or a call not yet dialled (`place_call` proves a call only with status `dialing`, F-19 §8).
+    static let nonActingTools: Set<String> = ["set_speaking_style", "set_speech_output", "end_conversation"]
+
     private func acts(_ r: ToolResponse) -> Bool {
-        !Self.readOnlyTools.contains(r.name) && r.result.data["action"] != .string("get_state")
+        if Self.readOnlyTools.contains(r.name) || Self.nonActingTools.contains(r.name) { return false }
+        // A failed call still disproves a call claim at once.
+        if r.name == "place_call" { return r.result.data["status"] == .string("dialing") || !r.result.ok }
+        return r.result.data["action"] != .string("get_state")
     }
 
     /// Whether the turn must be held whole: audio can run ahead of its transcript, so in a turn that

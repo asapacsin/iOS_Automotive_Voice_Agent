@@ -41,8 +41,8 @@ later. Every feature in feature-inventory.md appears here.
 **W2 interruption.** Given she is speaking clause 2 of 3, when the driver starts speaking, then
 playback stops (epoch flushed), clause 3 is never played, and the driver's words reach the model.
 
-**W3 timeout.** Given the driver finished speaking, when no model output arrives within 3 s, then one
-re-ask 「请回应我刚才说的话。」 is sent; when still nothing by 5 s, she gives up silently and a late tool
+**W3 timeout.** Given the driver finished speaking, when no model output arrives within 6 s, then one
+re-ask 「请回应我刚才说的话。」 is sent; when still nothing by 10 s, she gives up silently and a late tool
 call from that turn is dropped.
 
 **W4 failure recovery.** Given a turn in progress, when the socket drops (retryable), then the UI shows

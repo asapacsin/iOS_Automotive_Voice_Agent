@@ -16,7 +16,7 @@
     {
       "id": "H-ios-min",
       "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
+      "status": "PASS",
       "priority": 5,
       "action": "Decide minimum iOS version (OQ-IOS-12)",
       "depends_on": [],
@@ -29,7 +29,10 @@
           "iOS 18 (proposed: Observation + Synchronization.Mutex)",
           "iOS 26.4 (needed only for CarPlay voice-conversational)"
         ]
-      }
+      },
+      "evidence": [
+        "iOS 18.0 recorded in specs/open-questions.md OQ-IOS-12; iOS 26.4 option moot after owner skipped CarPlay (OQ-IOS-8, 2026-10-27)"
+      ]
     },
     {
       "id": "H-keys",
@@ -58,7 +61,7 @@
     {
       "id": "T-000x",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 11,
       "action": "Xcode App project + xcodebuild and swiftlint gates",
       "depends_on": [
@@ -67,7 +70,8 @@
         "H-ios-min"
       ],
       "evidence": [
-        "CI xcode job green: xcodegen + xcodebuild iOS (warnings as errors) + adapters + swiftlint --strict"
+        "CI xcode job green: xcodegen + xcodebuild iOS (warnings as errors) + adapters + swiftlint --strict",
+        "CI xcode job (macos-15: xcodegen, xcodebuild iOS with warnings as errors, swiftlint --strict) green on PR #14 heads; it caught and gated two app compile errors this session"
       ]
     },
     {
@@ -359,8 +363,8 @@
     },
     {
       "id": "T-025",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
       "priority": 43,
       "action": "App vertical slice",
       "depends_on": [
@@ -368,7 +372,10 @@
         "T-023",
         "T-024"
       ],
-      "blocked_by": "needs Xcode (T-000x)"
+      "evidence": [
+        "App slice built and in CI: composition root, tap-to-talk, chip mapping (unit in VoiceSessionTests), drive screen",
+        "Bubble fade: BubbleFade (NovaAgent/UI) with iOS values, BubbleFadeTests green on Linux 2026-10-26, wired in DriveView; app build in CI xcode; device acceptance in T-026"
+      ]
     },
     {
       "id": "T-026",
@@ -383,6 +390,725 @@
       "procedure": "Run W1-W4 on device; 20 turns latency",
       "pass_criteria": "W1-W4 PASS; latency recorded",
       "expected_return": "Device log + video, numbers in STATUS.md"
+    },
+    {
+      "id": "T-071a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20a CameraQuestionHandler (pure, NovaTools/Vision): one in flight, cancel, result/codes; unit",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green"
+      ]
+    },
+    {
+      "id": "T-071c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20a GeminiVisionClient (default, OQ-CAM-1) + Qianfan option behind VisionPort; unit, contract",
+      "depends_on": [
+        "T-071a"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green"
+      ]
+    },
+    {
+      "id": "T-071b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20a CameraSession adapter (AVCaptureSession back camera, still capture, stop on close); build, D",
+      "depends_on": [
+        "T-071a"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-071d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20a camera icon, floating preview, 问一下, describe_camera_view wiring; question opens the window (OQ-CAM-2); S, D",
+      "depends_on": [
+        "T-071b",
+        "T-071c"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-070",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-19 place_call with confirmation (PhoneCallHandler, ContactsStore, tel:// dialer); window 30 s PROPOSED",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-045",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-17 HUD panel model (turn table PROPOSED pending Android EVIDENCE_REQUEST)",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-053a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-17 overspeed monitor logic (voice through arbiter is T-053, device)",
+      "depends_on": [
+        "T-045"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-021p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-21 set_speaking_style, persisted tone, instruction cap 4000",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); LIVE row NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-030",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-10 ambiguity: ContextResolver clarify (座椅/温度) wired in AgentState; unit",
+      "depends_on": [],
+      "evidence": [
+        "unit tests green in CI core-linux/core-macos on feat/live-agent-nav (PR #7)",
+        "Independent review pending; device row NOT_VERIFIED",
+        "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending",
+        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-040",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-15 NavigationController flow (search, pick, routes, start, exit; generation-tagged); unit",
+      "depends_on": [],
+      "evidence": [
+        "NavigationControllerTests green in CI on feat/live-agent-nav (PR #7)",
+        "Independent review pending; device row NOT_VERIFIED",
+        "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending",
+        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED",
+        "Final independent review 2026-10-27 at ea7e649: PASS; along-route pick race fixed in 0052d4c (CI green)"
+      ]
+    },
+    {
+      "id": "T-043",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-15/F-18 Amap Web route engine (substitute for the Navi SDK adapter) with generation-safe fetches and labelled simulated movement; live info weather/route_traffic; unit, build",
+      "depends_on": [],
+      "evidence": [
+        "CI xcode + ipa green at a16728a; live session connects on iPhone 17 (no MALFORMED)",
+        "Independent review pending; device run of 导航去珠海站 NOT_VERIFIED",
+        "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending",
+        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED",
+        "Final independent review 2026-10-27 at ea7e649: PASS; stale stop guard fixed in 0052d4c (CI green ci 40443375548)"
+      ]
+    },
+    {
+      "id": "T-050",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 30,
+      "action": "F-14 fallback guidance voice: AVSpeechSynthesizer zh-CN to PCM on the guidance lane (OQ-IOS-10 still open on device)",
+      "depends_on": [
+        "T-021"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED",
+        "Fallback voice is build-only; OQ-IOS-10 needs a device run"
+      ],
+      "blocked_by": "off-device part done (logic PASS, Linux gates green 2026-10-26); remaining OQ-IOS-10 fallback voice needs a device run"
+    },
+    {
+      "id": "T-051",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-14 GuidanceRelay: deadline, cooldown, fidelity, bracket, echo, reason codes; AgentState relay wiring",
+      "depends_on": [
+        "T-023"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-052",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-08 full arbiter: R6, R6a, R1 tail, uplink R0/tail/20 s cap",
+      "depends_on": [
+        "T-022",
+        "T-051"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-053",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-17 overspeed alert through the relay/arbiter",
+      "depends_on": [
+        "T-045",
+        "T-052"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-042",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-16 query building, fix freshness, GCJ-02, along-route corridor",
+      "depends_on": [
+        "T-040"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-046",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-18 along_route and place_details",
+      "depends_on": [
+        "T-042"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-044",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-25 MapPresentation policy (MapKit stands in for AmapMapView)",
+      "depends_on": [
+        "T-040"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-047",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-25 choice-row taps as UIIntent through AgentCore (I-6)",
+      "depends_on": [
+        "T-044"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-032",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-13 control_music on the media lane with read-back; play_music honest until OQ-IOS-7",
+      "depends_on": [
+        "T-021"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-033",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-18 weather/adcode TTL caches",
+      "depends_on": [
+        "T-046"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-061",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-01 wake arming, mic router, bounded retry (logic; iFlytek adapter T-060 waits on the SDK)",
+      "depends_on": [
+        "T-012"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-062",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-23 BackgroundPolicy + scene-phase bridge + background modes",
+      "depends_on": [
+        "T-061"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-063",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-23 permission coordinator; microphone asked at first talk",
+      "depends_on": [
+        "T-024"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-072",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "priority": 40,
+      "action": "F-13 MusicKitPlayer (NamedMusicPort) built in NovaPlatform, not wired until OQ-IOS-7",
+      "depends_on": [
+        "T-032"
+      ],
+      "evidence": [
+        "Owner 2026-10-27 OQ-IOS-7: no named music. MusicToolHandler without NamedMusicPort answers MUSIC_HANDOFF_UNAVAILABLE (play/pause/next unaffected); MusicKitPlayer stays unwired"
+      ]
+    },
+    {
+      "id": "T-080",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "priority": 40,
+      "action": "CarPlay template scene (status + choice list, taps as UIIntent), inert until entitlement",
+      "depends_on": [
+        "T-047"
+      ],
+      "evidence": [
+        "Owner 2026-10-27 OQ-IOS-8: skip CarPlay (M7 optional); scene code stays inert, no entitlement requested"
+      ]
+    },
+    {
+      "id": "T-042b",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "CoreLocationProvider (WGS-84 fix, When In Use on first need), behind use_device_location; GCJ-02 conversion for route origin and weather here",
+      "depends_on": [
+        "T-042"
+      ],
+      "evidence": [
+        "Build only (CI xcode); default stays DemoLocation for recordings (REC-003)",
+        "175f9fa on iPhone 17 (2026-10-27): 设置 shows 位置来源 (手机定位 selected), 定位权限 未询问; 演示位置 label code; D rows 1/4 permission + voice NOT_VERIFIED (needs a person to answer the iOS location prompt)"
+      ],
+      "blocked_by": "CoreLocationProvider built (CI xcode); WGS-84 fix and permission flow need a device"
+    },
+    {
+      "id": "T-031",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-12 comfort scenarios",
+      "depends_on": [
+        "T-018"
+      ],
+      "evidence": [
+        "STATUS 2026-10-26 F-12 PASS (review 1, a16728a); ScenarioToolHandlerTests green on Linux 2026-10-26; drowsy music wired via MusicPort in AgentRuntime"
+      ]
+    },
+    {
+      "id": "T-034",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-21 persona and speaking style (implemented as T-021p)",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "Delivered as T-021p (PASS review 1); SpeakingStyleTests green on Linux 2026-10-26"
+      ]
+    },
+    {
+      "id": "T-041",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-15 choice resolver, 120 s expiry, duplicate suppression (delivered with T-040)",
+      "depends_on": [
+        "T-040"
+      ],
+      "evidence": [
+        "Delivered in NavigationController with T-040 (re-review PASS 33abee5); OPTIONS_STALE tests in NavigationControllerTests green on Linux 2026-10-26"
+      ]
+    },
+    {
+      "id": "T-071",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20 vision (split into T-071a-d)",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "Superseded by T-071a, T-071b, T-071c, T-071d, all PASS; device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-048",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 45,
+      "action": "Simulator drive end to end (UITests)",
+      "depends_on": [
+        "T-040",
+        "T-047"
+      ],
+      "evidence": [
+        "CI simulator job green at b6aff67 (run 40338187418): uitest-scripted-drive search -> pick -> route -> HUD on iOS Simulator; scripted search/engine, no keys"
+      ]
+    },
+    {
+      "id": "T-060",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 45,
+      "action": "IflytekWakeDetector adapter (F-01)",
+      "depends_on": [
+        "T-021"
+      ],
+      "evidence": [
+        "RetryingWakeDetector (bounded retry, unit), AIKitWakeEngine + WakeListener wired",
+        "AIKit path compiled and embedded with the vendored SDK: CI green at ac125f6 (xcode, simulator, core-linux, core-macos, unsigned-ipa)",
+        "Independent high-effort review: round 1 REWORK (lock held across SDK read, callback after start, repeated .failed, stale handle) fixed in 848056d; round 2 PASS; CI green at 848056d (all 5 jobs)",
+        "Device row (你好小诺 on phone) stays NOT_VERIFIED in T-064"
+      ]
+    },
+    {
+      "id": "T-035",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M2 device run (W6)",
+      "depends_on": [
+        "T-031",
+        "T-034"
+      ],
+      "automation_blocker": "physical_device_audio",
+      "procedure": "Run W6 on a device",
+      "pass_criteria": "W6 PASS",
+      "expected_return": "Device log in STATUS.md"
+    },
+    {
+      "id": "T-054",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M4 device run (W5, guidance spoken once)",
+      "depends_on": [
+        "T-050",
+        "T-053"
+      ],
+      "automation_blocker": "physical_device_audio",
+      "procedure": "Run W5 on a device",
+      "pass_criteria": "W5 PASS; guidance spoken exactly once",
+      "expected_return": "Device log in STATUS.md"
+    },
+    {
+      "id": "T-064",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M5 device run incl. screen lock during navigation",
+      "depends_on": [
+        "T-060",
+        "T-062",
+        "T-063"
+      ],
+      "automation_blocker": "physical_device",
+      "procedure": "Run F-01/F-23 device rows",
+      "pass_criteria": "F-01/F-23 device rows PASS",
+      "expected_return": "Device log in STATUS.md"
+    },
+    {
+      "id": "H-evidence",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "priority": 5,
+      "action": "Answer EVIDENCE_REQUEST batch 2 (specs/evidence-requests.md)",
+      "depends_on": [],
+      "procedure": "Paste each Android excerpt + commit, or add 'allowed Android lookup' lines to the feature files",
+      "pass_criteria": "Every request answered and appended to its feature file",
+      "expected_return": "Excerpts with Android commit",
+      "evidence": [
+        "Owner 2026-10-26: iOS only, no Android parity; PROPOSED iOS values adopted"
+      ]
+    },
+    {
+      "id": "T-071e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20b CameraLensChooser + camera argument/result in CameraQuestionHandler; catalog property; unit",
+      "depends_on": [
+        "T-071a"
+      ],
+      "evidence": [
+        "CI 935a995 green (ci 40436347754: core-linux, core-macos, xcode, simulator; ipa 40436347738); CameraLensTests rows 3/4/7 + catalog; awaiting independent review",
+        "Independent high-effort review 2026-10-27 at ea7e649: PASS (CI ea7e649 green: ci 40435697186, ipa 40435697228); low findings fixed in 0052d4c (CI green ci 40443375548)"
+      ]
+    },
+    {
+      "id": "T-071f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20b CameraSession lens switch (.back <-> .front, unmirrored still, 1 s deadline); build, D",
+      "depends_on": [
+        "T-071b"
+      ],
+      "evidence": [
+        "CI 935a995 green (ci 40436347754 xcode build, ipa 40436347738); awaiting independent review; device rows 1/5/6 NOT_VERIFIED",
+        "Independent high-effort review 2026-10-27 at ea7e649: PASS (CI ea7e649 green); low findings fixed in 0052d4c (CI green)"
+      ]
+    },
+    {
+      "id": "T-071g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20b window switch button, 前方/后方 label, voice-driven switch before capture; S, D",
+      "depends_on": [
+        "T-071e",
+        "T-071f"
+      ],
+      "evidence": [
+        "CI 935a995 green (ci 40436347754 xcode + simulator, ipa 40436347738); awaiting independent review; device rows 1/2/6 NOT_VERIFIED",
+        "Independent high-effort review 2026-10-27 at ea7e649: PASS (CI ea7e649 green); device rows NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-013a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-04a SpeechClassifier port + SpeechConfirmation gate rule (confirming state, fallback, 抗噪 switch); unit",
+      "depends_on": [
+        "T-013"
+      ],
+      "evidence": [
+        "72afcc2: SpeechConfirmation in SpeechUplinkGate (confirming state, rejection label, silent-classifier fallback, 抗噪 off = F-04); SpeechConfirmationTests rows 1-3, 5-6; CI green",
+        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes 79cbfa0/1ce401f/751cbda, CI green on fix/f04a-review); N1 reset-armed fix committed, CI blocked by Actions billing",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) incl. N1 reset-armed fix; re-review PASS"
+      ]
+    },
+    {
+      "id": "T-013b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-04a NovaAudio SoundAnalysisSpeechClassifier; voice processing pinned; build, D",
+      "depends_on": [
+        "T-013a"
+      ],
+      "evidence": [
+        "72afcc2: NovaAudio SoundAnalysisSpeechClassifier, voice processing pinned; xcode/simulator/ipa green at 175f9fa; device CPU/latency NOT_VERIFIED",
+        "Re-review 2026-10-27: PASS build+unit; device CPU/latency NOT_VERIFIED",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); iOS build of NovaAudio green on fix/f04a-review (751cbda); device CPU/latency rows NOT_VERIFIED (specs/human-test-plan.md)"
+      ]
+    },
+    {
+      "id": "T-013c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-04a barge-in uses speech confirmation; 音频测试 line; 设置 抗噪 switch; unit, S, D",
+      "depends_on": [
+        "T-013a"
+      ],
+      "evidence": [
+        "175f9fa: classifier wired in AgentRuntime, 设置 抗噪 switch and 音频测试 line visible on iPhone 17; barge-in uses hasRecentSpeech confirmation; device noise rows NOT_VERIFIED",
+        "Re-review 2026-10-27: PASS; device rows NOT_VERIFIED",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); App build green on fix/f04a-review (751cbda); device rows NOT_VERIFIED (specs/human-test-plan.md)"
+      ]
+    },
+    {
+      "id": "T-013d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-04a noise corpus fixtures + corpus tests; unit",
+      "depends_on": [
+        "T-013a"
+      ],
+      "evidence": [
+        "10 synthetic seeded clips Fixtures/audio/noise (scripts/fixtures/gen_noise_corpus.py, --check clean); NoiseCorpusTests rows 1-3, 5-6; check_imports 0 violations; swift test not run locally (Windows) - awaiting CI core-linux/core-macos and independent review; known gap: 5 dB SNR raw PCM under the F-04 2.2x energy rule (withKnownIssue), device row decides",
+        "Re-review 2026-10-27: PASS unit rows 1,2(10 dB),3,5,6; 5 dB SNR row withKnownIssue -> device run; CI for 797d3b3 green via b7a1714 (ci 40443350576)",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); 5 dB SNR row is a known issue left to the device run"
+      ]
+    },
+    {
+      "id": "T-042a",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 15,
+      "action": "F-16a CoreLocationProvider first-fix wait, authorization changes, denied state; SwitchableLocationProvider; unit, build",
+      "depends_on": [
+        "T-042"
+      ],
+      "evidence": [
+        "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa",
+        "Re-review FAIL (background start skipped permission; start/pause race); fixed in fix/firstfix-core (LocationFixState in NovaPorts + tests, core-linux green at 224b528); final CI blocked by Actions billing",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) (LocationFixState tests); D1 stale-stop fix and NovaDriveTests fake-manager adapter tests not yet compiled: iOS builds need a Mac/SDK and macOS CI is forbidden (owner rule 2026-10-27)"
+      ]
+    },
+    {
+      "id": "T-046a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-16a query_live_info current_location (regeo address), codes, catalog + persona; unit, contract, D",
+      "depends_on": [
+        "T-046",
+        "T-042a"
+      ],
+      "evidence": [
+        "c390f64: query_live_info current_location (regeo address, source, LOCATION_PERMISSION_DENIED/NO_LOCATION/key codes), catalog + persona; unit tests; CI green at 175f9fa; device answer NOT_VERIFIED",
+        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes b7a1714, CI green ci 40443350576); stays RUNNING until merged head CI runs (Actions billing block)",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); re-review PASS 2026-10-27"
+      ]
+    },
+    {
+      "id": "H-F16b",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "priority": 10,
+      "action": "Approve specs/features/map-current-location.md (F-16b); OQ-MAP-1 and OQ-MAP-3 decided 2026-10-29 (in-car conventions), OQ-MAP-2 open",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read F-16b; reply approve (defaults) or give answers to OQ-MAP-1..3",
+      "pass_criteria": "F-16b status APPROVED in the spec file",
+      "expected_return": "approve, or answers to OQ-MAP-1..3",
+      "quantified": {
+        "options": [
+          "Approve with OQ-MAP-2 default (real dot gray during simulated navigation)",
+          "Approve with a different OQ-MAP-2 answer",
+          "Rewrite"
+        ]
+      },
+      "evidence": [
+        "2026-10-29 owner: 'in car then' -> OQ-MAP-1 follow + 15 s auto-recenter, OQ-MAP-3 heading arrow >= 5 km/h",
+        "2026-10-29 owner: OQ-MAP-2 'for simulation the two should be the same' -> one marker; spec APPROVED"
+      ]
+    },
+    {
+      "id": "T-044a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-16b SelfPosition + MapCameraPolicy (pure, NovaNav/Presentation) + LocationUpdates port; unit tests F-16b rows 3-5, 4a",
+      "depends_on": [
+        "H-F16b",
+        "T-044",
+        "T-042a"
+      ],
+      "evidence": [
+        "fcf92b3 + review nits: SelfPosition R1-R8, LocateButton, MapCameraPolicy C1-C11, MapPositionTuning, LocationFix speed/course, LocationUpdates port; 14 F-16b tests",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (scripts/gates/run_all.sh: NovaCore 367 tests + 1 known issue, NovaRealtime 22, NovaServices 32, imports/secrets/runners/spec-trace)",
+        "Independent read-only review at high effort 2026-10-29: PASS (5 non-blocking notes; 4 applied: two test boundaries, two spec lines)"
+      ]
+    },
+    {
+      "id": "T-044b",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 20,
+      "action": "F-16b location updates stream in CoreLocationProvider, DemoLocation, SwitchableLocationProvider; unit, build",
+      "depends_on": [
+        "T-044a"
+      ],
+      "evidence": [
+        "3fd2f1a + race fix: LocationFixState.updates() fan-out (latest first, under lock), CoreLocationProvider LocationUpdates + speed/course (negative -> nil), SwitchableLocationProvider.updates(), DemoLocation one fix; 4 F-16b tests",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 371 tests + 1 known issue, NovaRealtime 22, NovaServices 32, imports/secrets/runners/spec-trace)",
+        "Independent read-only review at high effort 2026-10-29: PASS; non-blocking race (stale latest could overtake a newer fix) fixed; NovaPlatform and App files not compiled (Linux)"
+      ],
+      "blocked_by": "Unit part done; CoreLocationProvider/DemoLocation changes need an iOS build (Mac/SDK; no macOS CI per owner rule 2026-10-27)"
+    },
+    {
+      "id": "T-044c",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "NOT_RUN",
+      "priority": 25,
+      "action": "F-16b DriveView: 我的位置 dot, accuracy circle, locate-me, 定位未开启 pill, follow/free camera; S, D (needs Mac/SDK build and a phone run)",
+      "depends_on": [
+        "T-044a",
+        "T-044b"
+      ],
+      "evidence": []
     }
   ]
 }

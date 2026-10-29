@@ -1,0 +1,6 @@
+framework module ef7d69542_v1009_aee {
+  umbrella header "ef7d69542_v1009_aee.h"
+
+  export *
+  module * { export * }
+}

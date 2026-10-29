@@ -1,7 +1,9 @@
 name: ci
+# Manual only (owner rule 2026-10-27: no automatic CI, it used up the Actions minutes).
+# Start with: gh workflow run ci.yml --ref <branch>
+# Owner rule 2026-10-27: no macOS runners (billed 10x). scripts/gates/check_runners.py enforces it.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 jobs:
   core-linux:
     runs-on: ubuntu-24.04
@@ -10,29 +12,3 @@ jobs:
       - uses: actions/checkout@v4
       - run: apt-get update && apt-get install -y python3
       - run: scripts/gates/run_all.sh
-  core-macos:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - run: scripts/gates/run_all.sh
-  xcode:
-    # T-000x: the Xcode gates the Linux job cannot run: app project, iOS build of the app and every
-    # iOS-only adapter package, and swiftlint --strict.
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - run: brew install xcodegen swiftlint
-      - run: swiftlint lint --strict --quiet
-      - run: xcodegen generate --spec App/project.yml
-      - run: |
-          xcodebuild -project App/NovaDrive.xcodeproj -scheme NovaDrive -configuration Debug \
-            -destination 'generic/platform=iOS' -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build > xcodebuild.log 2>&1 || true
-          grep -E ': (error|warning):' xcodebuild.log | sort -u | head -n 60
-          grep -q '\*\* BUILD SUCCEEDED \*\*' xcodebuild.log
-      - run: |
-          for pkg in NovaAudio NovaNavAmap NovaPlatform NovaWakeIflytek; do
-            echo "== iOS build: $pkg"
-            (cd Packages/$pkg && xcodebuild -scheme $pkg -destination 'generic/platform=iOS' \
-              -derivedDataPath ../../build/$pkg CODE_SIGNING_ALLOWED=NO build | tail -n 20; test ${PIPESTATUS[0]} -eq 0)
-          done

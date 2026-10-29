@@ -6,6 +6,8 @@
 - Pure logic goes in Packages/NovaCore (no UIKit/AVFoundation). Vendor SDKs only in their adapter
   package (specs/ios-architecture.md §3.2); `scripts/gates/check_imports.py` enforces it.
 - Product invariants I-1..I-14 (specs/product-spec.md) are code-enforced, never prompt-only.
+- Owner rule (2026-10-27): no macOS GitHub Actions runners and no automatic CI triggers; workflows are
+  `workflow_dispatch` only and are started only when the owner asks. `scripts/gates/check_runners.py` enforces it.
 - Gates: `scripts/gates/run_all.sh`. Done = gates green + reviewer PASS. Device-only acceptance rows
   stay NOT_VERIFIED until a device run. Record results in specs/STATUS.md.
 

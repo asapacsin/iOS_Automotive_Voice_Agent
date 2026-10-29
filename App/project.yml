@@ -12,6 +12,8 @@ packages:
     path: ../Packages/NovaAudio
   NovaRealtime:
     path: ../Packages/NovaRealtime
+  NovaPlatform:
+    path: ../Packages/NovaPlatform
 targets:
   NovaDrive:
     type: application
@@ -21,6 +23,9 @@ targets:
       path: NovaDrive/Info.plist
       properties:
         UIFileSharingEnabled: true
+        # F-23 / OQ-IOS-4: used only while a voice session or route guidance is active (review notes).
+        # `location` is added with the CoreLocation provider; the demo route needs no background fix.
+        UIBackgroundModes: [audio]
     dependencies:
       - package: NovaCore
         product: NovaKit
@@ -28,12 +33,20 @@ targets:
         product: NovaPorts
       - package: NovaCore
         product: NovaTools
+      - package: NovaCore
+        product: NovaVoice
+      - package: NovaCore
+        product: NovaNav
+      - package: NovaCore
+        product: NovaAgent
       - package: NovaServices
         product: NovaServices
       - package: NovaAudio
         product: NovaAudio
       - package: NovaRealtime
         product: NovaRealtime
+      - package: NovaPlatform
+        product: NovaPlatform
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive
@@ -42,7 +55,74 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: Nova Drive
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Nova Drive listens to your voice commands.
+        INFOPLIST_KEY_NSCameraUsageDescription: Nova Drive 需要用摄像头回答你关于画面的问题。
+        INFOPLIST_KEY_NSContactsUsageDescription: Nova Drive 需要读取通讯录，才能按名字帮你打电话。
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Nova Drive 用你的位置搜索附近的地点、规划路线和查询当地天气。
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
         TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
+        # T-060 AIKit wake SDK: device-only and git-ignored (scripts/vendor_aikit.sh). Found only by device
+        # builds, so `#if canImport(AIKIT)` is false on the simulator and when the SDK is absent.
+        "FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]": $(inherited) $(SRCROOT)/Vendor/AIKit
+        "LD_RUNPATH_SEARCH_PATHS": $(inherited) @executable_path/Frameworks
+    postBuildScripts:
+      - name: Embed AIKit (device, when vendored)
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          src="$SRCROOT/Vendor/AIKit"
+          [ "$PLATFORM_NAME" = "iphoneos" ] && [ -d "$src/AIKIT.framework" ] || exit 0
+          dest="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
+          mkdir -p "$dest"
+          for fw in "$src"/*.framework; do
+            rm -rf "$dest/$(basename "$fw")"
+            cp -R "$fw" "$dest/"
+            rm -rf "$dest/$(basename "$fw")/Headers" "$dest/$(basename "$fw")/Modules"
+            if [ -n "$EXPANDED_CODE_SIGN_IDENTITY" ]; then
+              codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --preserve-metadata=identifier,entitlements "$dest/$(basename "$fw")"
+            fi
+          done
+          rm -rf "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AEEResource.bundle"
+          cp -R "$src/AEEResource.bundle" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
+  NovaDriveUITests:
+    # T-048: simulator drive (scripted search and engine); CI job `simulator`.
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [NovaDriveUITests]
+    dependencies:
+      - target: NovaDrive
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive.uitests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+  NovaDriveTests:
+    # F-16a row 6: adapter unit tests with a fake CLLocationManager; CI job `simulator`.
+    type: bundle.unit-test
+    platform: iOS
+    sources: [NovaDriveTests]
+    dependencies:
+      - target: NovaDrive
+      - package: NovaCore
+        product: NovaKit
+      - package: NovaCore
+        product: NovaPorts
+      - package: NovaPlatform
+        product: NovaPlatform
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive.tests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+schemes:
+  NovaDrive:
+    build:
+      targets:
+        NovaDrive: all
+        NovaDriveTests: [test]
+        NovaDriveUITests: [test]
+    test:
+      targets: [NovaDriveTests, NovaDriveUITests]

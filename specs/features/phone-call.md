@@ -10,25 +10,41 @@ Call a contact by voice after an explicit confirmation turn.
 打电话给妈妈 → 「要打给妈妈吗？」 → 是 → dials.
 
 ## 3. Preconditions
-See depends-on contracts.
+- A device that can place calls (`canPlaceCalls`); otherwise `NO_TELEPHONY`.
+- Contacts permission (`NSContactsUsageDescription`, PROPOSED); denied → `CONTACTS_PERMISSION_DENIED`.
 
 ## 4. Inputs and outputs
-See refs.
+`place_call(contact, confirmed?)`:
+- first call (no `confirmed`): look up the contact → `status: confirm_required` (one match) or
+  `ambiguous` with the matching names (several); nothing is dialled;
+- second call `confirmed=true` for the same contact within the window → dial.
+Contact records: display name + phone numbers.
 
 ## 5. State transitions
-See contracts.
+idle → awaiting_confirmation (contact, time) → dialling → idle. A different contact or an expired window
+returns to idle.
 
 ## 6. Events and triggers
-Tool call or UI event.
+`place_call` tool calls; the driver's yes/no answer (a new turn).
 
 ## 7. Dependencies and external services
-See contracts/api-contracts.md.
+Contacts port (CNContactStore) and telephony port opening `tel://`; iOS then shows its own call
+confirmation (PROPOSED). CallKit is not used for outgoing calls.
 
 ## 8. Error handling and recovery
-Errors are ok=false results with codes; see refs.
+| Case | Code |
+|---|---|
+| Not found | `CONTACT_NOT_FOUND` |
+| Several matches | status `ambiguous` (asks which) |
+| `confirmed=true` without a prior confirm | `CALL_NOT_CONFIRMED` |
+| Confirmation too old | `CONFIRMATION_STALE` |
+| Opening the URL failed | `CALL_FAILED` |
+| No telephony | `NO_TELEPHONY` |
+She never says she is calling before the dial result is ok (I-1). Numbers are not logged (I-8).
 
 ## 9. Concurrency, cancellation, timeouts
-See contracts.
+Short confirmation window (Android value, ported in the tool executor); one pending confirmation at a
+time; a new `place_call` replaces it.
 
 ## 10. Acceptance criteria (iOS)
 - First call returns confirm_required; only `confirmed=true` for the same contact within the short window dials.

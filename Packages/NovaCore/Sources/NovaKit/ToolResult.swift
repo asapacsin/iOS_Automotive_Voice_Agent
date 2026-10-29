@@ -76,13 +76,27 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case musicStillPlaying = "MUSIC_STILL_PLAYING"
     case musicHandoffUnavailable = "MUSIC_HANDOFF_UNAVAILABLE"
     case noLocation = "NO_LOCATION"
+    /// F-16a: location permission denied or restricted.
+    case locationPermissionDenied = "LOCATION_PERMISSION_DENIED"
     case noDestination = "NO_DESTINATION"
+    /// PROPOSED: `save_place` read the slot back and it does not hold the found place.
+    case placeNotSaved = "PLACE_NOT_SAVED"
+    /// PROPOSED: `open_app` read the screen back and it is not the asked one.
+    case appNotOpened = "APP_NOT_OPENED"
     case liveInfoUnavailable = "LIVE_INFO_UNAVAILABLE"
     case liveInfoQuota = "LIVE_INFO_QUOTA"
     case noResults = "NO_RESULTS"
     case invalidKind = "INVALID_KIND"
     case invalidArgument = "INVALID_ARGUMENT"
     case notADriverTurn = "NOT_A_DRIVER_TURN"
+    // F-20a camera questions
+    case cameraPermissionDenied = "CAMERA_PERMISSION_DENIED"
+    case cameraUnavailable = "CAMERA_UNAVAILABLE"
+    case notConfigured = "NOT_CONFIGURED"
+    case authFailed = "AUTH_FAILED"
+    case visionFailed = "VISION_FAILED"
+    /// A newer camera question replaced this one; its answer is dropped, never spoken.
+    case superseded = "SUPERSEDED"
 
     public var description: String { rawValue }
 }

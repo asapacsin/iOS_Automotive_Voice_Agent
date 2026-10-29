@@ -10,25 +10,31 @@ Let the owner enter keys and consent, see readiness, and wipe secrets.
 Developer settings cards: status, Gemini (consent, key, model), persona, Amap, wake, vision, diagnostics, danger (清除所有密钥).
 
 ## 3. Preconditions
-See depends-on contracts.
+None; the 设置 tab is always reachable.
 
 ## 4. Inputs and outputs
-See refs.
+- Secrets (Keychain, `KeychainCredentialStore`): Gemini API key, Azure Speech key, Amap SDK key, Amap Web key,
+  iFlytek app id, iFlytek APIKey and APISecret (AIKit wake word, T-060), Qianfan key.
+- Non-secrets (UserDefaults): `gemini_consent_accepted`, `gemini_model`, `azure_voice`, `persona_style`.
+- Out: `SettingsReadiness` (status card: which items are set) and `sessionBlocker`.
 
 ## 5. State transitions
-See contracts.
+Per secret: notSet ↔ saved (「已保存」). Consent: not accepted → accepted; wipe → not accepted.
 
 ## 6. Events and triggers
-Tool call or UI event.
+Save per card, consent toggle, 清除所有密钥 (with a confirmation dialog).
 
 ## 7. Dependencies and external services
-See contracts/api-contracts.md.
+iOS Keychain (this-device-only accessibility, PROPOSED), UserDefaults. The Azure region is detected from the key.
 
 ## 8. Error handling and recovery
-Errors are ok=false results with codes; see refs.
+- A blank field on save keeps the stored value; values are never displayed after save (`SecretField`).
+- Session start: no consent → `GEMINI_CONSENT_MISSING` (checked first), no key → `GEMINI_KEY_MISSING`.
+- Wipe tries every key and reports the ones it could not remove; consent is cleared too.
+- A Keychain error is shown as a short message; the key never appears in logs (I-7, I-8).
 
 ## 9. Concurrency, cancellation, timeouts
-See contracts.
+Settings are read when a session starts; a change while a session runs applies at the next start.
 
 ## 10. Acceptance criteria (iOS)
 - Keys never shown after save; blank field keeps the stored value.

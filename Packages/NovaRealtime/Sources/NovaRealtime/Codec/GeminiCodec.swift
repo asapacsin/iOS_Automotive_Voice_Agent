@@ -23,11 +23,16 @@ public enum GeminiCodec {
         if let silence = config.activityDetection.silenceDuration {
             detection["silenceDurationMs"] = .int(min(max(silence.milliseconds, 100), 3000))
         }
+        if config.activityDetection.manual { detection = ["disabled": true] }
         var setup: [String: JSONValue] = [
             "model": .string(config.model.hasPrefix("models/") ? config.model : "models/\(config.model)"),
             "generationConfig": .object(generation),
             "systemInstruction": ["parts": [["text": .string(config.systemInstruction)]]],
-            "realtimeInputConfig": ["automaticActivityDetection": .object(detection)],
+            "realtimeInputConfig": [
+                "automaticActivityDetection": .object(detection),
+                "activityHandling": .string(config.activityDetection.interruptsReply
+                    ? "START_OF_ACTIVITY_INTERRUPTS" : "NO_INTERRUPTION"),
+            ],
             "sessionResumption": handle.map { ["handle": .string($0)] } ?? [:],
             // Lets the session outlive the server's context limit; resumption then extends it.
             "contextWindowCompression": ["slidingWindow": [:]],
@@ -53,6 +58,10 @@ public enum GeminiCodec {
     }
 
     public static var audioStreamEnd: JSONValue { ["realtimeInput": ["audioStreamEnd": true]] }
+
+    /// Manual activity detection: the driver started / stopped speaking.
+    public static var activityStart: JSONValue { ["realtimeInput": ["activityStart": [:]]] }
+    public static var activityEnd: JSONValue { ["realtimeInput": ["activityEnd": [:]]] }
 
     public static func text(_ turns: [TextTurn], turnComplete: Bool) -> JSONValue {
         ["clientContent": [

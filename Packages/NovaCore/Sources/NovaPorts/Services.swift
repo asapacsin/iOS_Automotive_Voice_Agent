@@ -121,7 +121,12 @@ public struct Contact: Sendable, Hashable {
 }
 
 public protocol ContactsDirectory: Sendable {
+    /// Contacts whose name matches; throws `ContactsError.permissionDenied` without access.
     func search(_ name: String) async throws -> [Contact]
+}
+
+public enum ContactsError: Error, Sendable, Hashable {
+    case permissionDenied
 }
 
 public protocol PhoneDialer: Sendable {
@@ -138,7 +143,29 @@ public struct JPEGImage: Sendable, Hashable {
 }
 
 public protocol CameraFrameSource: Sendable {
+    /// One JPEG of the live preview (longest side ≤ 1024 px, not older than 1 s). Throws `CameraError`.
     func captureStill() async throws -> JPEGImage
+    /// Switches the preview to `lens` (F-20b, ≤ 1 s); the old lens stays on failure. Throws `CameraError`.
+    func select(_ lens: CameraLens) async throws
+}
+
+extension CameraFrameSource {
+    /// A source with only the world-facing lens.
+    public func select(_ lens: CameraLens) async throws {
+        if lens != .frontView { throw CameraError.unavailable }
+    }
+}
+
+/// What the lens sees with the phone facing the road (F-20b §4): 前方 is the back lens, 后方 the selfie lens.
+public enum CameraLens: String, Sendable, Hashable, CaseIterable {
+    case frontView = "front_view"
+    case rearView = "rear_view"
+}
+
+/// Why `captureStill` failed (F-20a §8).
+public enum CameraError: Error, Sendable, Hashable {
+    case permissionDenied
+    case unavailable
 }
 
 public enum VisionAnswer: Sendable, Hashable {
@@ -148,7 +175,7 @@ public enum VisionAnswer: Sendable, Hashable {
     case failed
 }
 
-/// Qianfan VLM.
+/// Vision backend: Gemini `generateContent` by default (F-20a OQ-CAM-1), Qianfan optional.
 public protocol VisionPort: Sendable {
     func ask(_ question: String, image: JPEGImage) async -> VisionAnswer
 }
@@ -162,6 +189,9 @@ public enum CredentialKey: String, Sendable, Hashable, CaseIterable {
     case amapSDKKey = "amap_sdk_key"
     case amapWebKey = "amap_web_key"
     case iflytekAppID = "iflytek_app_id"
+    /// AIKit wake word (T-060): the app's APIKey and APISecret from the iFlytek console.
+    case iflytekAPIKey = "iflytek_api_key"
+    case iflytekAPISecret = "iflytek_api_secret"
     case qianfanKey = "qianfan_key"
 }
 

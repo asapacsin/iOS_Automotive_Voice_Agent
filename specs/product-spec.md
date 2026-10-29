@@ -14,6 +14,10 @@ with a small assistant overlay.
 - One driver, eyes on the road. Spoken output is short; the screen is secondary.
 - Language: Mandarin (zh-CN). Cantonese is partially handled (ADR-002 addendum, YUE-RATE-001 low
   success) and is **not** a port requirement (owner decision "Mandarin-only", 2026-10-20).
+- Reply language (owner rule 2026-10-28): she replies **only in Mandarin Chinese**, whatever language she
+  thinks she heard. Never Spanish, Portuguese, English or any other language; when unsure she asks in
+  Chinese (「没听清，请再说一遍」). Device evidence: 2026-10-28 she heard 「¿Qué?」 and answered
+  「Encontré 5 lugares, por favor dime cuál quieres.」
 - Network: mobile data in mainland China and abroad; Gemini may be unreachable from mainland networks
   (consent notice `GeminiAppSettings.CONSENT_NOTICE`).
 
@@ -26,7 +30,7 @@ with a small assistant overlay.
 | J3 | While navigating, ask "还要多久", "附近有加油站吗" without losing the route | live-info, navigation-guards |
 | J4 | "有点热" → cooler; "再凉一点" → cooler again; "再低一点" after seat and temperature both changed → one question | vehicle-controls, ambiguity-context |
 | J5 | "有蚊子" → windows half open; "蚊子出去了" → closed | comfort-scenarios |
-| J6 | Interrupt her while she speaks; she stops at once | barge-in-arbitration |
+| J6 | Say 「别说了」 while she speaks; she stops at once. Other sound never stops her (owner rule 2026-10-28) | barge-in-arbitration |
 | J7 | Guidance prompt and assistant reply never talk over each other | guidance-voice, barge-in-arbitration |
 | J8 | "放首歌" / "放周杰伦的歌" → music plays, and she only says so if it really plays | music |
 | J9 | "打电话给妈妈" → confirm → call | phone-call |

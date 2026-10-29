@@ -1,18 +1,47 @@
 import NovaKit
+import NovaPorts
 import NovaServices
 import NovaTools
 import SwiftUI
 
-/// Device test app: drives the vehicle tool handlers against the simulated vehicle.
+/// The app's tabs; `open_app` (F-25) switches between them.
+enum AppTab: Hashable {
+    case drive, vehicle, audio, recorder, settings
+}
+
+/// Which tab is showing. Shared so a tool can switch it.
+@MainActor
+final class AppNavigation: ObservableObject {
+    static let shared = AppNavigation()
+    @Published var tab: AppTab = .drive
+}
+
+/// `open_app` (F-25) on the tab bar: switches, then reports the tab that is showing.
+struct TabSurfaces: AppSurfacePort {
+    func show(_ surface: AppSurface) async -> AppSurface? {
+        await MainActor.run {
+            AppNavigation.shared.tab = surface == .maps ? .drive : .settings
+            switch AppNavigation.shared.tab {
+            case .drive: return .maps
+            case .settings: return .settings
+            default: return nil
+            }
+        }
+    }
+}
+
 @main
 struct NovaDriveApp: App {
+    @StateObject private var navigation = AppNavigation.shared
+
     var body: some Scene {
         WindowGroup {
-            TabView {
-                ContentView().tabItem { Label("车辆", systemImage: "car") }
-                AudioSpikeView().tabItem { Label("音频测试", systemImage: "waveform") }
-                RecorderView().tabItem { Label("录制", systemImage: "record.circle") }
-                SettingsView().tabItem { Label("设置", systemImage: "key") }
+            TabView(selection: $navigation.tab) {
+                DriveView().tabItem { Label("驾驶", systemImage: "steeringwheel") }.tag(AppTab.drive)
+                ContentView().tabItem { Label("车辆", systemImage: "car") }.tag(AppTab.vehicle)
+                AudioSpikeView().tabItem { Label("音频测试", systemImage: "waveform") }.tag(AppTab.audio)
+                RecorderView().tabItem { Label("录制", systemImage: "record.circle") }.tag(AppTab.recorder)
+                SettingsView().tabItem { Label("设置", systemImage: "key") }.tag(AppTab.settings)
             }
         }
     }

@@ -17,7 +17,7 @@ public enum ToolCatalog {
     public static let maxArgumentBytes = 4096
     public static let maxChoiceIndex = 10
     public static let choicePreferences: Set<String> = ["fastest", "shortest", "recommended", "no_toll", "fewest_lights", "nearest"]
-    public static let liveInfoKinds = ["weather", "route_traffic", "along_route", "place_details"]
+    public static let liveInfoKinds = ["weather", "route_traffic", "along_route", "place_details", "current_location"]
     public static let climateActions = ["power_on", "power_off", "set_temperature", "adjust_temperature", "set_fan",
                                         "adjust_fan", "get_state"]
     public static let windowActions = ["open", "close", "set", "adjust", "get_state"]
@@ -127,8 +127,11 @@ public enum ToolCatalog {
             guard let n = str("name") else { return .invalidFieldType }
             if !scenarios.contains(n) { return .invalidFieldValue }
         case "describe_camera_view":
-            if keys != ["question"] { return .invalidFields }
+            if !keys.contains("question") || !keys.isSubset(of: ["question", "camera"]) { return .invalidFields }
             guard let q = str("question") else { return .invalidFieldType }
+            if keys.contains("camera") && str("camera").flatMap(CameraLens.init(rawValue:)) == nil {
+                return .invalidFieldValue
+            }
             if trimmed(q).isEmpty { return .blankQuestion }
             if q.utf16.count > 200 { return .questionTooLong }
         case "place_call":
@@ -162,5 +165,8 @@ public enum ToolFailureAdvice {
     /// iOS-only codes (I-2): one honest sentence for a tool with no iOS executor yet.
     static let iosTable: [ToolErrorCode: String] = [
         .notAvailableOnIOSYet: "这个功能在这台 iPhone 上还没有做好，所以没有执行。请用一句话如实告诉用户暂时还不能用，不要说已经做了。",
+        .cameraPermissionDenied: "摄像头没有权限，请在设置里允许。请如实说明，不要描述画面。",
+        .cameraUnavailable: "摄像头现在用不了。请如实说明，不要描述画面。",
+        .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }

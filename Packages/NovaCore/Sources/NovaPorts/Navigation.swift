@@ -41,9 +41,12 @@ public struct RouteSummary: Sendable, Hashable {
     public let tollYuan: Int
     public let trafficLights: Int
     public let label: String?
+    /// The route's shape, GCJ-02, for the along-route corridor (F-16). Empty when the engine has none.
+    public let polyline: [GeoCoordinate]
 
     public init(id: RouteID, lengthMeters: Int, durationSeconds: Int, tollYuan: Int, trafficLights: Int,
-                label: String?) {
+                label: String?, polyline: [GeoCoordinate] = []) {
+        self.polyline = polyline
         self.id = id
         self.lengthMeters = lengthMeters
         self.durationSeconds = durationSeconds
@@ -67,15 +70,18 @@ public struct NaviInfo: Sendable, Hashable {
     public let remainingMeters: Int
     public let remainingSeconds: Int
     public let currentSpeedKmh: Int?
+    /// Road-facility speed limit from the navi info (0 = no data); merged with cameras (navigation.md Overspeed).
+    public let facilityLimitKmh: Int
 
     public init(iconType: Int, stepDistanceMeters: Int, nextRoadName: String?, remainingMeters: Int,
-                remainingSeconds: Int, currentSpeedKmh: Int?) {
+                remainingSeconds: Int, currentSpeedKmh: Int?, facilityLimitKmh: Int = 0) {
         self.iconType = iconType
         self.stepDistanceMeters = stepDistanceMeters
         self.nextRoadName = nextRoadName
         self.remainingMeters = remainingMeters
         self.remainingSeconds = remainingSeconds
         self.currentSpeedKmh = currentSpeedKmh
+        self.facilityLimitKmh = facilityLimitKmh
     }
 }
 
@@ -125,16 +131,57 @@ public struct LocationFix: Sendable, Hashable {
     public let coordinate: GeoCoordinate
     public let horizontalAccuracyMeters: Double
     public let timestamp: NovaInstant
+    /// F-16b: ground speed and course; nil when unknown (the adapter maps CoreLocation's negative values to nil).
+    public let speedMetersPerSecond: Double?
+    public let courseDegrees: Double?
 
-    public init(coordinate: GeoCoordinate, horizontalAccuracyMeters: Double, timestamp: NovaInstant) {
+    public init(coordinate: GeoCoordinate, horizontalAccuracyMeters: Double, timestamp: NovaInstant,
+                speedMetersPerSecond: Double? = nil, courseDegrees: Double? = nil) {
         self.coordinate = coordinate
         self.horizontalAccuracyMeters = horizontalAccuracyMeters
         self.timestamp = timestamp
+        self.speedMetersPerSecond = speedMetersPerSecond
+        self.courseDegrees = courseDegrees
     }
+}
+
+/// F-16b: every new fix of the current source, for the map's 我的位置 marker.
+public protocol LocationUpdates: Sendable {
+    func updates() -> AsyncStream<LocationFix>
 }
 
 public protocol LocationProvider: Sendable {
     func latestFix() async -> LocationFix?
+    /// F-16a: whether the position may be read at all (denied → `LOCATION_PERMISSION_DENIED`).
+    func authorization() async -> LocationAuthorization
+    /// F-16a: the phone's own position, or the fixed demo start point.
+    var source: LocationSource { get }
+}
+
+public enum LocationAuthorization: Sendable, Hashable {
+    case notDetermined, authorized, denied
+}
+
+public enum LocationSource: String, Sendable, Hashable {
+    case device, demo
+}
+
+public extension LocationProvider {
+    func authorization() async -> LocationAuthorization { .authorized }
+    var source: LocationSource { .device }
+}
+
+/// F-16a: the regeo address of a point, for 「我现在在哪？」.
+public struct PlaceAddress: Sendable, Hashable {
+    public let formatted: String
+    public let district: String?
+    public let road: String?
+
+    public init(formatted: String, district: String?, road: String?) {
+        self.formatted = formatted
+        self.district = district
+        self.road = road
+    }
 }
 
 public struct Place: Sendable, Hashable {
@@ -143,8 +190,14 @@ public struct Place: Sendable, Hashable {
     public let address: String?
     public let coordinate: GeoCoordinate
     public let distanceMeters: Int?
+    /// From the place detail only (F-18 place_details); nil when Amap gives none.
+    public let openingHours: String?
+    public let phone: String?
 
-    public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?) {
+    public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
+                openingHours: String? = nil, phone: String? = nil) {
+        self.openingHours = openingHours
+        self.phone = phone
         self.id = id
         self.name = name
         self.address = address
@@ -181,6 +234,7 @@ public protocol WeatherService: Sendable {
 
 public protocol ReverseGeocoder: Sendable {
     func adcode(at coordinate: GeoCoordinate) async throws -> String?
+    func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress?
 }
 
 public struct StaticMapRequest: Sendable, Hashable {
@@ -202,4 +256,13 @@ public struct StaticMapRequest: Sendable, Hashable {
 /// Amap Web `/v3/staticmap`; returns PNG bytes.
 public protocol StaticMapService: Sendable {
     func image(_ request: StaticMapRequest) async throws -> [UInt8]
+}
+
+/// Why an Amap Web request gave nothing. Codes only; the response text never leaves the adapter (I-8).
+public enum AmapWebError: Error, Sendable, Hashable {
+    case keyMissing
+    case keyRejected
+    case quota
+    case timeout
+    case failed
 }

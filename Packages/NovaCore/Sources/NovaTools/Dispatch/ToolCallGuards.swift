@@ -27,11 +27,12 @@ public struct GuardContext: Sendable, Hashable {
     public var guidanceRunning: Bool
     /// A destination or route list waits for a choice.
     public var listOpen: Bool
-    /// Saved places that are set (`SavedPlaces`).
-    public var savedPlaces: Set<PlaceSlot>
+    /// Saved places that are set (`SavedPlaces`); nil when AgentCore does not know them, in which case
+    /// the navigation executor decides 家/公司 itself from the store.
+    public var savedPlaces: Set<PlaceSlot>?
 
     public init(requestText: String = "", currentEpoch: Int = 0, capabilityEpoch: Int = 0, navigating: Bool = false,
-                guidanceRunning: Bool = false, listOpen: Bool = false, savedPlaces: Set<PlaceSlot> = []) {
+                guidanceRunning: Bool = false, listOpen: Bool = false, savedPlaces: Set<PlaceSlot>? = nil) {
         self.requestText = requestText
         self.currentEpoch = currentEpoch
         self.capabilityEpoch = capabilityEpoch
@@ -178,7 +179,7 @@ public enum ToolCallGuards {
         case "control_window": action == "adjust"
         default: action == "adjust_temperature" || action == "adjust_fan"
         }
-        guard relative, c.currentEpoch > 0, let options = clarify(c.requestText), !options.isEmpty else { return nil }
+        guard relative, c.wordsAreCurrent, let options = clarify(c.requestText), !options.isEmpty else { return nil }
         return (.ambiguousReferent, options)
     }
 
@@ -195,7 +196,7 @@ public enum ToolCallGuards {
     /// 「回家」 with no home saved: refuse rather than search for 家 (`savedPlaceMissing`).
     public static func savedPlaceMissing(_ call: ToolCall, _ c: GuardContext) -> ToolErrorCode? {
         guard call.name == "navigate_to", let destination = call.arguments["destination"]?.stringValue,
-              let slot = PlaceSlot.slot(for: destination), !c.savedPlaces.contains(slot) else { return nil }
+              let saved = c.savedPlaces, let slot = PlaceSlot.slot(for: destination), !saved.contains(slot) else { return nil }
         return slot == .home ? .homeNotSet : .workNotSet
     }
 

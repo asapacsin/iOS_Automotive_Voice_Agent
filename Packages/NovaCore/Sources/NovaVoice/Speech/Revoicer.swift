@@ -22,6 +22,8 @@ public actor Revoicer {
     }
 
     public var epoch: Epoch { queue.epoch }
+    /// Clauses not yet played (waiting, at Azure, or ready out of order).
+    public var pendingClauses: Int { queue.pendingClauses }
 
     public func newReply() { apply(queue.handle(.newReply)) }
 

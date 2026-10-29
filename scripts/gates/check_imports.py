@@ -15,7 +15,10 @@ IMPORT = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s*)*"
 OWNERS = {
     "AMapNaviKit": {"NovaNavAmap"}, "AMapFoundationKit": {"NovaNavAmap"}, "MAMapKit": {"NovaNavAmap"},
     "iflyMSC": {"NovaWakeIflytek"},
-    "AVFAudio": {"NovaAudio"},
+    # AIKit ships device-only frameworks (no simulator slice), so it links into the app's device build
+    # only; App/NovaDrive/Wake/AIKitWakeEngine.swift is its single importer.
+    "AIKIT": {"App"}, "ef7d69542_v1009_aee": {"App"},
+    "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"},
     "AVFoundation": {"NovaPlatform"},
     "CoreLocation": {"NovaPlatform"}, "Contacts": {"NovaPlatform"}, "MusicKit": {"NovaPlatform"},
     "Security": {"NovaServices"},
@@ -33,6 +36,8 @@ def owner_of(path: pathlib.Path, root: pathlib.Path) -> str:
     parts = path.relative_to(root).parts
     if parts[0] == "Packages":
         return parts[1]
+    if parts[:2] == ("App", "NovaDriveTests"):
+        return "NovaPlatform"  # NovaPlatform adapter tests (iOS-only package, so hosted in the app's test bundle).
     return parts[0]
 
 

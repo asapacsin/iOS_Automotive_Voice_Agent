@@ -1,7 +1,8 @@
 name: ai-native
+# Manual only (owner rule 2026-10-27: no automatic CI, it used up the Actions minutes).
+# Start with: gh workflow run ai-native.yml --ref <branch>
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 jobs:
   controller:
     runs-on: ubuntu-latest
