@@ -49,6 +49,7 @@ public struct ToolDispatcher: Sendable {
     /// `exit_navigation_mode` is answered with `CONFIRM_REQUIRED` (she asks 「要结束导航吗？」); a second call in a
     /// later driver turn within `exitConfirmWindow` ends it. Taps are the request (I-6). True = refuse.
     private mutating func confirmExit(_ call: ToolCall, _ c: GuardContext) -> Bool {
+        if !c.guidanceRunning { exitAsked = nil }
         guard call.name == "exit_navigation_mode", c.guidanceRunning, !c.listOpen, !c.fromTap else { return false }
         if let asked = exitAsked, c.closedTurns > asked.turn, c.now - asked.at <= Self.exitConfirmWindow {
             exitAsked = nil

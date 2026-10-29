@@ -754,3 +754,14 @@ struct DriverTurnPipelineReview8Tests {
     }
 }
 }
+
+@Suite("T-040e F-15a row 4 (revised): a route-chosen claim is a navigation claim")
+struct RouteChosenClaimTests {
+    @Test("F-15a: 已选好路线 / 已经为你选 count as navigation claims, a negated one does not")
+    func chosen() {
+        for said in ["好的，已选好路线。", "已经为你选了最快的路线", "已为您选择最快的路线"] {
+            #expect(ClaimLexicon.claims(in: said).contains(.navigationStarted), "\(said)")
+        }
+        #expect(!ClaimLexicon.claims(in: "还没有选好路线").contains(.navigationStarted))
+    }
+}

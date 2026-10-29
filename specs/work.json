@@ -1264,23 +1264,33 @@
     {
       "id": "T-016d",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 20,
       "action": "F-05a §6 revised: remove the driver transcript from every tool guard (table in §6), withdraw wordsReliable / WORDS_UNCLEAR, CONFIRM_REQUIRED for exit while guiding, along-route list instead of P61; unit row 4 (revised)",
       "depends_on": [
         "T-016a"
       ],
-      "notes": "Owner rule 2026-10-29 after run 9f48c45 (最快的 refused 3x: WORDS_UNCLEAR x2, NAVIGATION_NOT_REQUESTED x1): transcript is for display only. Stop phrase and echo filter keep using the zh-CN text (not tool calling)."
+      "notes": "Owner rule 2026-10-29 after run 9f48c45 (最快的 refused 3x: WORDS_UNCLEAR x2, NAVIGATION_NOT_REQUESTED x1): transcript is for display only. Stop phrase and echo filter keep using the zh-CN text (not tool calling).",
+      "evidence": [
+        "1f35bac + review fix: GuardContext without transcript (turn, closedTurns, now, nav state, fromTap); word guards and WORDS_UNCLEAR removed; CONFIRM_REQUIRED for exit while guiding (later driver turn within 15 s, taps exempt, cleared when guidance ends); navigate_to while guiding lists over the route; F-05a row 4 (revised)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 381 + 1 known issue, NovaServices 35)",
+        "Independent read-only review at high effort 2026-10-29: PASS; applied: clear pending exit question when guidance ends, claim-phrase test"
+      ]
     },
     {
       "id": "T-040e",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 20,
       "action": "F-15a §2.5 revised: start guard on driver turns counted by the uplink gate (no transcript), drop the navigate_to word guard, claim guard holds a success claim after a refusal; unit row 4 (revised), D row 12",
       "depends_on": [
         "T-040b",
         "T-016d"
+      ],
+      "evidence": [
+        "1f35bac + review fix: choose_navigation_option needs closedTurns > routeListTurn (uplink-gate closes), taps exempt; route-chosen claims (已选好路线, 已为您选...) are navigation claims with test; F-15a row 4 (revised). D row 12 NOT_VERIFIED (device)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 381 + 1 known issue, NovaServices 35)",
+        "Independent read-only review at high effort 2026-10-29: PASS; applied: clear pending exit question when guidance ends, claim-phrase test"
       ]
     }
   ]
