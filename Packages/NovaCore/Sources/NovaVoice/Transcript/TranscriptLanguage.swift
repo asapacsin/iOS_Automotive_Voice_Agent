@@ -12,8 +12,10 @@ public enum TranscriptLanguage {
             if isHan(scalar) {
                 han += 1
                 inLatinWord = false
+            } else if inLatinWord, scalar.properties.generalCategory == .nonspacingMark {
+                continue  // a decomposed accent (a + ◌̃) stays inside its word
             } else if scalar.properties.isAlphabetic {
-                if scalar.isASCII || scalar.properties.generalCategory != .otherLetter {
+                if isLatin(scalar) {
                     if !inLatinWord { other += 1 }
                     inLatinWord = true
                 } else {
@@ -25,6 +27,11 @@ public enum TranscriptLanguage {
             }
         }
         return han > 0 && Double(han) >= 0.6 * Double(han + other)
+    }
+
+    /// Basic Latin through Latin Extended-B and Latin Extended Additional (Portuguese ã, ç, ê).
+    static func isLatin(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.value < 0x0250 || (0x1E00...0x1EFF).contains(scalar.value)
     }
 
     /// CJK Unified Ideographs and Extension A.

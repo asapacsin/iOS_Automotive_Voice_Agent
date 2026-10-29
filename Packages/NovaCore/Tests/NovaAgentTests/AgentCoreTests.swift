@@ -415,5 +415,20 @@ struct DriverWordsTests {
         // A tool no word-based guard allows still runs.
         let climate = d.realtime(.toolCalls(TurnID(1), [climateOn("c2")]))
         #expect(climate.contains { if case .startTool = $0 { true } else { false } })
+
+        // The next utterance's clear words count again.
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.send(.driverWords(.final("你可以继续说了")))
+        d.realtime(.responseStarted(TurnID(2)))
+        let again = ToolCall(id: CallID("c3")!, name: "set_speech_output", arguments: ["mode": "spoken"])
+        #expect(d.realtime(.toolCalls(TurnID(2), [again])).contains { if case .startTool = $0 { true } else { false } })
+    }
+
+    @Test("F-05a S4: an unclear utterance is not a stop phrase and starts no pipeline")
+    func unclearNoStop() {
+        var d = speaking()
+        d.send(.speechStarted(recentSpeech: true))
+        #expect(d.send(.driverWords(.unclear)).isEmpty)
     }
 }

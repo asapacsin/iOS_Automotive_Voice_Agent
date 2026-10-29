@@ -17,6 +17,9 @@ struct TranscriptLanguageTests {
         #expect(TranscriptLanguage.isChinese("导航去 Costa 2 号"))
         // Mostly Latin words around one character is not Chinese.
         #expect(!TranscriptLanguage.isChinese("vai para o 家 agora mesmo"))
+        // Decomposed accents stay in their word; other scripts count per character.
+        #expect(TranscriptLanguage.isChinese("回家 Na\u{0303}o"))
+        #expect(!TranscriptLanguage.isChinese("家 привет"))
     }
 }
 
@@ -91,6 +94,13 @@ struct TranscriptSelectorTests {
         _ = s.end(u2, at: t0)
         #expect(words(s.local(.failed(u2, reason: "error"), at: t0)).isEmpty)
         #expect(words(s.gemini("Não fale", isFinal: true, at: t0)) == [.unclear])
+
+        // Failure before the end with no text: Gemini's transcript at once, no 800 ms wait.
+        let u3 = UtteranceID(3)
+        _ = s.begin(u3, localReady: true)
+        _ = s.local(.failed(u3, reason: "error"), at: t0)
+        #expect(s.end(u3, at: t0).isEmpty)
+        #expect(words(s.gemini("回家", isFinal: true, at: t0)) == [.final("回家")])
     }
 
     @Test("F-05a row 1 S4: Gemini's non-Chinese text is never the driver's words")

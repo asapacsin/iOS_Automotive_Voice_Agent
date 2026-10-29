@@ -1145,11 +1145,16 @@
     {
       "id": "T-016a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-05a LocalTranscriber port, TranscriptSelector, TranscriptLanguage, GuardContext.wordsReliable + wordsUnclear; unit rows 1-4",
       "depends_on": [
         "H-F05a"
+      ],
+      "evidence": [
+        "f7c3623 + review notes: LocalTranscriber port (NovaPorts), TranscriptLanguage + TranscriptSelector S1-S5 (NovaVoice/Transcript), GuardContext.wordsReliable, ToolCallGuards.wordsUnclear (allow-type: set_speech_output), WORDS_UNCLEAR (PROPOSED) + advice, AgentEvent.driverWords; F-05a unit rows 1-4",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 388 tests + 1 known issue; spec-trace 36 ids incl. T-016a: F-05a)",
+        "Independent read-only review at high effort 2026-10-29: PASS (no blocking; applied: decomposed accents, per-character counting for non-Latin scripts, tests for failure-before-end and reliability reset)"
       ]
     },
     {
@@ -1170,7 +1175,8 @@
       "action": "F-05a wire transcriber + selector into AgentRuntime, audio-test diagnostics line; S, D rows 5-9",
       "depends_on": [
         "T-016b"
-      ]
+      ],
+      "notes": "From the T-016a review: tag Gemini transcript with its utterance (a late u1 final after begin(u2) is booked to u2); show 「（没听清）」 for DriverWords.unclear (no view state yet); always route words through the selector once wired (AgentState latches selectorOwnsWords)"
     },
     {
       "id": "H-F15a",
