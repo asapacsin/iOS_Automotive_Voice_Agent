@@ -1130,7 +1130,14 @@
       "automation_blocker": "owner_decision",
       "procedure": "Read mandarin-transcript.md (F-05a); reply approve (defaults) or give answers to OQ-STT-1..2",
       "pass_criteria": "Spec status APPROVED in the spec file",
-      "expected_return": "approve, or answers to OQ-STT-1..2"
+      "expected_return": "approve, or answers to OQ-STT-1..2",
+      "quantified": {
+        "options": [
+          "Approve with defaults (OQ-STT-1 no, OQ-STT-2 Mandarin only)",
+          "Approve with different OQ-STT answers",
+          "Rewrite"
+        ]
+      }
     },
     {
       "id": "T-016a",
@@ -1172,7 +1179,14 @@
       "automation_blocker": "owner_decision",
       "procedure": "Read navigation-modes.md (F-15a); reply approve (defaults) or give answers to OQ-NAVM-1..4",
       "pass_criteria": "Spec status APPROVED in the spec file",
-      "expected_return": "approve, or answers to OQ-NAVM-1..4"
+      "expected_return": "approve, or answers to OQ-NAVM-1..4",
+      "quantified": {
+        "options": [
+          "Approve with defaults (OQ-NAVM-1 no voice switch, 2 refuse without fix, 3 foreground only, 4 web route + own matching)",
+          "Approve with different OQ-NAVM answers",
+          "Rewrite"
+        ]
+      }
     },
     {
       "id": "T-040a",
