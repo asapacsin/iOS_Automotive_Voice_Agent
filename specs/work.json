@@ -1024,7 +1024,8 @@
         "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa",
         "Re-review FAIL (background start skipped permission; start/pause race); fixed in fix/firstfix-core (LocationFixState in NovaPorts + tests, core-linux green at 224b528); final CI blocked by Actions billing",
         "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) (LocationFixState tests); D1 stale-stop fix and NovaDriveTests fake-manager adapter tests not yet compiled: iOS builds need a Mac/SDK and macOS CI is forbidden (owner rule 2026-10-27)",
-        "2026-10-29: LocationFixState suite 8 tests green on Linux Swift 6.0.3; independent read-only re-review at high effort: PASS (both prior failures fixed, T-044b fan-out no regression, unit rows 5-7 covered; 3 non-blocking notes)"
+        "2026-10-29: LocationFixState suite 8 tests green on Linux Swift 6.0.3; independent read-only re-review at high effort: PASS (both prior failures fixed, T-044b fan-out no regression, unit rows 5-7 covered; 3 non-blocking notes)",
+        "Notes fixed 2026-10-29: grant before any need starts nothing, pause ends the first-fix wait, §8 sentence asserted; 2 new tests; NovaCore 373 tests green; independent high-effort review PASS"
       ],
       "blocked_by": "Unit part PASS; NovaPlatform adapter and NovaDriveTests fake-manager tests need an iOS build (no macOS CI per owner rule 2026-10-27)"
     },
@@ -1114,7 +1115,8 @@
         "4654317 + review fixes: MapPositionModel (SelfPosition/MapCameraPolicy driver, permission refresh, 5 s re-evaluation, 15 s auto-recenter tick), DriveView 我的位置 marker, accuracy circle, locate-me, 定位未开启 pill, follow/free camera",
         "Independent read-only review at high effort 2026-10-29: REWORK; blocking fixed (gesture now detected from touches, not camera-change callbacks: first fix recenters, pans stop following while the car moves); non-blocking applied: source resync on appear, publish only changes, rotation off, along-route list fits places, gray circle when provisional",
         "Linux gates green; App code not compiled (needs Mac/SDK)",
-        "8985c36: background pause, resume only when visible, no real location under UITestDrive, C8 counted from touch end; independent re-review at high effort 2026-10-29: PASS (1 optional note: cancelled gesture may leave touch flag set)"
+        "8985c36: background pause, resume only when visible, no real location under UITestDrive, C8 counted from touch end; independent re-review at high effort 2026-10-29: PASS (1 optional note: cancelled gesture may leave touch flag set)",
+        "Gesture flag now @GestureState (resets on cancel); C8 restarts at touch end or cancel; independent high-effort review PASS"
       ],
       "blocked_by": "iOS build and phone run (F-16b rows 1, 2, 6-9 S/D NOT_VERIFIED; no macOS CI per owner rule 2026-10-27)"
     }

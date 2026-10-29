@@ -108,6 +108,26 @@ struct LocationFixStateTests {
         #expect(state.authorizationChanged(.authorized) == .startUpdates)
     }
 
+    @Test("granted before anything needed location does not start updates")
+    func grantBeforeStart() {
+        let state = LocationFixState(clock: ManualClock(), permission: .notDetermined)
+        #expect(state.authorizationChanged(.authorized) == nil)
+        #expect(state.start() == .requestAndStart)
+        #expect(state.authorizationChanged(.authorized) == .startUpdates)
+    }
+
+    @Test("a pause during the first-fix wait ends the wait without waiting out firstFixWait")
+    func pauseDuringWait() async {
+        let clock = ManualClock()
+        let state = LocationFixState(clock: clock, permission: .authorized)
+        _ = state.start()
+        let task = Task { await state.awaitFix() }
+        await waitForSleeper(clock)
+        _ = state.pause()
+        clock.advance(by: .milliseconds(100))
+        #expect(await task.value == nil)
+    }
+
     @Test("cancelling a waiting request returns the cached fix without waiting out firstFixWait")
     func cancellation() async {
         let clock = ManualClock()

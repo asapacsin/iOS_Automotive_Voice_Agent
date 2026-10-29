@@ -135,7 +135,8 @@ private struct DriveContent: View {
     @ObservedObject var position: MapPositionModel
     @Binding var camera: MapCameraPosition
     /// Camera changes until then were commanded by the policy, not made by the driver.
-    @State private var touching = false
+    @GestureState private var dragging = false
+    @GestureState private var magnifying = false
     @State private var visible = false
     let toggle: () -> Void
     let runtime: AgentRuntime
@@ -227,20 +228,12 @@ private struct DriveContent: View {
         // A pan or zoom by the driver's finger stops following (C7). Touches are watched directly, so the
         // map's own load, layout and commanded moves never count as a gesture. Rotation is off (the arrow
         // is drawn against north).
-        .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { _ in touched() }.onEnded { _ in released() })
-        .simultaneousGesture(MagnifyGesture().onChanged { _ in touched() }.onEnded { _ in released() })
-    }
-
-    /// The 15 s auto-recenter (C8) counts from the end of the touch.
-    private func released() {
-        touching = false
-        position.userGesture()
-    }
-
-    private func touched() {
-        guard !touching else { return }
-        touching = true
-        position.userGesture()
+        .simultaneousGesture(DragGesture(minimumDistance: 8).updating($dragging) { _, touching, _ in touching = true })
+        .simultaneousGesture(MagnifyGesture().updating($magnifying) { _, touching, _ in touching = true })
+        // A touch beginning stops following; its end (or cancel) restarts the 15 s auto-recenter (C8). Gesture state
+        // resets itself when a touch is cancelled, so the next touch always counts.
+        .onChange(of: dragging) { position.userGesture() }
+        .onChange(of: magnifying) { position.userGesture() }
     }
 
     /// Applies a `MapCameraPolicy` command; the resulting camera change is not a driver gesture.

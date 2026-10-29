@@ -70,12 +70,12 @@ public final class LocationFixState: Sendable {
         }
     }
 
-    /// F-16a §7: granted → (re)start unless paused; denied → stop and drop the last fix.
+    /// F-16a §7: granted → (re)start if something needed location and not paused; denied → stop and drop the last fix.
     public func authorizationChanged(_ permission: LocationAuthorization) -> ManagerAction? {
         state.withLock { s -> ManagerAction? in
             s.permission = permission
             switch permission {
-            case .authorized: return s.paused ? nil : .startUpdates
+            case .authorized: return s.started && !s.paused ? .startUpdates : nil
             case .denied:
                 // The map drops its marker by permission; streams just get no further fix.
                 s.latest = nil
@@ -142,7 +142,10 @@ public final class LocationFixState: Sendable {
                 break
             }
             if let fix = freshFix() { return fix }
-            if permission == .denied { return nil }
+            // Denied ends the wait at once; so does a pause (background), with whatever fix there is.
+            let (denied, paused) = state.withLock { ($0.permission == .denied, $0.paused) }
+            if denied { return nil }
+            if paused { return latest }
         }
         return latest
     }

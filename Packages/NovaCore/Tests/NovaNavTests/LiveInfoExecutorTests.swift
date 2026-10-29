@@ -119,7 +119,9 @@ struct LiveInfoExecutorTests {
         #expect(await ask(await executor(FakeWeather(), geocoder: FakeGeocoder(error: .keyRejected)), here).code
             == .amapWebKeyMissing)
         let r = await ask(await executor(FakeWeather(), location: DeniedLocation()), here)
-        #expect(r.advice != nil && r.data["address"] == nil)
+        // §8: she says permission is off and can be allowed in 设置; never an address.
+        #expect(r.advice?.contains("定位权限没有打开") == true && r.advice?.contains("设置里允许") == true)
+        #expect(r.data["address"] == nil)
     }
 
     @Test("F-16a switchable source follows the setting per request")
