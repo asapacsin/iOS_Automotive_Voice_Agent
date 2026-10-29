@@ -131,12 +131,23 @@ public struct LocationFix: Sendable, Hashable {
     public let coordinate: GeoCoordinate
     public let horizontalAccuracyMeters: Double
     public let timestamp: NovaInstant
+    /// F-16b: ground speed and course; nil when unknown (the adapter maps CoreLocation's negative values to nil).
+    public let speedMetersPerSecond: Double?
+    public let courseDegrees: Double?
 
-    public init(coordinate: GeoCoordinate, horizontalAccuracyMeters: Double, timestamp: NovaInstant) {
+    public init(coordinate: GeoCoordinate, horizontalAccuracyMeters: Double, timestamp: NovaInstant,
+                speedMetersPerSecond: Double? = nil, courseDegrees: Double? = nil) {
         self.coordinate = coordinate
         self.horizontalAccuracyMeters = horizontalAccuracyMeters
         self.timestamp = timestamp
+        self.speedMetersPerSecond = speedMetersPerSecond
+        self.courseDegrees = courseDegrees
     }
+}
+
+/// F-16b: every new fix of the current source, for the map's 我的位置 marker.
+public protocol LocationUpdates: Sendable {
+    func updates() -> AsyncStream<LocationFix>
 }
 
 public protocol LocationProvider: Sendable {

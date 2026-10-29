@@ -49,7 +49,7 @@ public struct SelfPosition: Sendable, Hashable {
     public static func make(_ input: Input, tuning: MapPositionTuning = .init()) -> SelfPosition
 }
 public struct Input {
-    fix: LocationFix?, source: LocationSource, authorization: LocationAuthorization, now: NovaInstant,
+    fix: LocationFix?, source: LocationSource, permission: LocationAuthorization, now: NovaInstant,
     phase: NavigationPhase, simulatedCar: GeoCoordinate?, simulatedHeadingDegrees: Double?
 }
 ```
@@ -58,8 +58,8 @@ Rules, **first match wins**:
 |---|---|---|
 | R1 | `phase == .navigating` and `simulatedCar != nil` | marker at `simulatedCar`, style `.simulated`, heading = `simulatedHeadingDegrees`, no circle; caption 演示位置 if `source == .demo` (OQ-MAP-2: one marker) |
 | R2 | `source == .demo` | marker at the demo fix (already GCJ-02), style `.demo`, no heading, no circle, caption 演示位置 |
-| R3 | `authorization == .notDetermined` | hidden `.notDetermined` |
-| R4 | `authorization == .denied` | hidden `.denied` |
+| R3 | `permission == .notDetermined` | hidden `.notDetermined` |
+| R4 | `permission == .denied` | hidden `.denied` |
 | R5 | `fix == nil` | hidden `.noFix` |
 | R6 | `LocationQuality.of(fix, at: now) == nil` (too old or too coarse) | hidden `.unusable` |
 | R7 | quality `.fresh` | marker, style `.fresh` |
