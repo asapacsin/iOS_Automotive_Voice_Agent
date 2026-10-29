@@ -100,9 +100,9 @@ model acts on and is known to come back in the wrong language while the model un
 | `vagueExitWhileNavigating` | explicit-end words required | state + confirmation: while guidance runs, the first `exit_navigation_mode` returns `CONFIRM_REQUIRED` and she asks 「要结束导航吗？」; a second call in a later driver turn within 15 s ends it |
 | `nearbyQuestionWhileNavigating` (P61) | question words | state: while navigating, `navigate_to` opens the along-route list and never replaces the route until a pick |
 | `sunroofOnWindowTool` (P56) | 天窗 words | removed; the catalog description says sunroof/doors/lights/wipers are unsupported |
-| `driverSideWindow` | 我这边 words | arguments only (the call's window position) |
+| `driverSideWindow` | 我这边 words | removed (T-016d): the call's window position is used as given |
 | `ambiguousReferent` | relative words in the request | removed; the model asks when it is unsure |
-| `unsupportedMedia` | song-name words | arguments only (a named title/artist in the call) |
+| `unsupportedMedia` | song-name words | removed (T-016d): `control_music` has no title/artist argument to check |
 
 - **Not tool calling, kept on the transcript:** the 别说了 stop phrase (owner rule 2026-10-28, local barge-in) and the
   echo filter (F-14 §8, drops her own voice). They change no car or navigation state. They use the phone's zh-CN text.
