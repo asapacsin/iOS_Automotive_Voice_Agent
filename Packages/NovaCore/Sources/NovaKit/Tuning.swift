@@ -202,6 +202,25 @@ public struct MapPositionTuning: Sendable, Hashable {
     public init() {}
 }
 
+/// features/navigation-modes.md §2.2 / §4 (F-15a): 真实导航 progress on the Amap Web route from GPS fixes.
+public struct RouteProgressTuning: Sendable, Hashable {
+    /// A fix farther than this from the route counts towards off-route.
+    public var offRouteMeters = 50.0
+    /// Off-route is confirmed after this many counted fixes spanning at least `offRouteSpan`.
+    public var offRouteFixes = 3
+    public var offRouteSpan = NovaDuration.seconds(5)
+    /// A coarser fix moves the marker but is not counted for off-route.
+    public var countedAccuracyMeters = 50.0
+    public var arrivalMeters = 30.0
+    /// No fix for this long: progress holds (signal lost).
+    public var signalLostAfter = NovaDuration.seconds(10)
+    /// No fix for this long: 「定位信号弱，导航暂停更新。」 once.
+    public var signalWeakSentenceAfter = NovaDuration.seconds(30)
+    /// At most one recalculation per this interval.
+    public var rerouteMinInterval = NovaDuration.seconds(15)
+    public init() {}
+}
+
 /// Defaults read by adapters that take a plain value rather than a tuning struct.
 public enum TuningDefaults {
     /// F-16a §4: how long `latestFix()` waits for a fresh fix after start or permission.
