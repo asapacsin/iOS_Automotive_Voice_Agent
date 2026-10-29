@@ -21,7 +21,7 @@ public struct SwitchableLocationProvider: LocationProvider, LocationUpdates {
     public var source: LocationSource { useDevice() ? .device : .demo }
 
     /// F-16b: the current source's fixes. The source is read once per call: the screen subscribes again on a
-    /// 位置来源 switch (MapCameraPolicy `.sourceChanged`). A source without a stream yields its latest fix once.
+    /// 位置来源 switch (MapCameraPolicy `.sourceChanged`); an earlier stream stays bound to its source. A source without a stream yields its latest fix once.
     public func updates() -> AsyncStream<LocationFix> {
         let active = self.active
         if let live = active as? any LocationUpdates { return live.updates() }

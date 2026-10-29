@@ -102,16 +102,18 @@ public final class LocationFixState: Sendable {
     /// subscribes late still draws the position at once. Ends when the consumer stops listening.
     public func updates() -> AsyncStream<LocationFix> {
         let (stream, continuation) = AsyncStream.makeStream(of: LocationFix.self, bufferingPolicy: .bufferingNewest(1))
-        let (id, latest) = state.withLock { s in
+        // The latest fix is yielded under the lock, so a `receive` racing with this call cannot be overtaken
+        // by the older fix in the one-slot buffer.
+        let id = state.withLock { s in
             let id = s.nextSubscriber
             s.nextSubscriber += 1
             s.subscribers[id] = continuation
-            return (id, s.latest)
+            if let latest = s.latest { continuation.yield(latest) }
+            return id
         }
         continuation.onTermination = { [weak self] _ in
             _ = self?.state.withLock { $0.subscribers.removeValue(forKey: id) }
         }
-        if let latest { continuation.yield(latest) }
         return stream
     }
 

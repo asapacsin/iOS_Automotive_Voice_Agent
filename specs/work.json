@@ -1084,14 +1084,19 @@
     },
     {
       "id": "T-044b",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 20,
       "action": "F-16b location updates stream in CoreLocationProvider, DemoLocation, SwitchableLocationProvider; unit, build",
       "depends_on": [
         "T-044a"
       ],
-      "evidence": []
+      "evidence": [
+        "3fd2f1a + race fix: LocationFixState.updates() fan-out (latest first, under lock), CoreLocationProvider LocationUpdates + speed/course (negative -> nil), SwitchableLocationProvider.updates(), DemoLocation one fix; 4 F-16b tests",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 371 tests + 1 known issue, NovaRealtime 22, NovaServices 32, imports/secrets/runners/spec-trace)",
+        "Independent read-only review at high effort 2026-10-29: PASS; non-blocking race (stale latest could overtake a newer fix) fixed; NovaPlatform and App files not compiled (Linux)"
+      ],
+      "blocked_by": "Unit part done; CoreLocationProvider/DemoLocation changes need an iOS build (Mac/SDK; no macOS CI per owner rule 2026-10-27)"
     },
     {
       "id": "T-044c",
