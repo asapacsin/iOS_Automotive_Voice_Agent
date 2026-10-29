@@ -22,6 +22,8 @@ public struct NavigationFlowState: Sendable, Hashable {
     public var lastGuidanceID: GuidanceID?
     /// An along-route list is open over the running guidance (contracts/navigation.md keepGuidance).
     public var alongRouteList = false
+    /// F-15a: a recalculation is running (the HUD shows 「重新规划中」); the phase stays `navigating`.
+    public var rerouting = false
 
     public init() {}
 
@@ -339,6 +341,16 @@ public actor NavigationController: ToolExecutor {
             publish()
         case .naviStopped:
             if snapshot.phase == .navigating { reset() }
+        case .rerouting:
+            snapshot.rerouting = true
+            publish()
+        case .rerouted(let route):
+            snapshot.rerouting = false
+            if let route {
+                snapshot.routes = [route]
+                snapshot.selectedRoute = route.id
+            }
+            publish()
         case .cameraInfo:
             break
         }
@@ -498,6 +510,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.destination = nil
         snapshot.selectedRoute = nil
         snapshot.info = nil
+        snapshot.rerouting = false
         snapshot.lastGuidance = nil
         snapshot.lastGuidanceID = nil
         listedAt = nil

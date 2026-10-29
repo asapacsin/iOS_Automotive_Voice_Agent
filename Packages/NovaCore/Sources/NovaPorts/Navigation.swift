@@ -105,6 +105,10 @@ public enum NaviEngineEvent: Sendable, Hashable {
     case guidanceText(String, GuidanceID)
     case arrived
     case naviStopped
+    /// F-15a 真实导航: off route, a new route is being calculated from the current fix.
+    case rerouting
+    /// The recalculation finished: the new route, or nil when it failed and the old route stays.
+    case rerouted(RouteSummary?)
 }
 
 /// Every engine event carries the generation of the request it answers; stale ones are dropped.
