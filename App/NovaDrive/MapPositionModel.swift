@@ -32,6 +32,7 @@ final class MapPositionModel: ObservableObject {
     private var source: LocationSource
     // NovaKit has its own NavigationPhase; the flow's is NovaNav's.
     private var phase = NovaNav.NavigationPhase.idle
+    private var mode = NaviMode.emulator
     private var car: GeoCoordinate?
     private var carHeading: Double?
     private var streaming: Task<Void, Never>?
@@ -121,6 +122,7 @@ final class MapPositionModel: ObservableObject {
         car = flow.navigating ? geometry.car : nil
         if car == nil { carHeading = nil }
         phase = flow.phase
+        mode = flow.mode
         apply(policy.handle(.framing(MapCameraPolicy.framing(MapPresentation(flow)), at: clock.now)))
         evaluate()
     }
@@ -173,7 +175,7 @@ final class MapPositionModel: ObservableObject {
         lastEvaluation = now
         let next = SelfPosition.make(SelfPosition.Input(fix: fix, source: source, permission: permission, now: now,
                                                         phase: phase, simulatedCar: car,
-                                                        simulatedHeadingDegrees: carHeading))
+                                                        simulatedHeadingDegrees: carHeading, mode: mode))
         // Publish only a change: an unchanged assignment would redraw the drive screen every second.
         if next != position { position = next }
         apply(policy.handle(.position(position, at: now)))

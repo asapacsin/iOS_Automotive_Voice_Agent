@@ -1,4 +1,5 @@
 import Testing
+import Synchronization
 import NovaKit
 import NovaPorts
 @testable import NovaNav
@@ -126,5 +127,53 @@ struct SelfPositionModeTests {
         // Before and after the trip, the real fix.
         #expect(make(.awaitingRouteSelection, car: nil, mode: .emulator).marker?.style == .fresh)
         #expect(make(.arrived, car: car, mode: .emulator).marker?.style == .fresh)
+    }
+}
+
+@Suite("T-040d F-15a navigation mode read per trip")
+struct NavigationModePerTripTests {
+    let stations = [place("珠海站", 3_000)]
+
+    func trip(_ mode: NaviMode, location: any LocationProvider) async -> (NavigationController, ScriptedNaviEngine) {
+        let engine = ScriptedNaviEngine(routes: [route(1, meters: 12_300, seconds: 1_500)])
+        let nav = NavigationController(search: FixedSearch(places: stations), engine: engine, location: location,
+                                       clock: ManualClock(), mode: { mode })
+        await nav.start()
+        return (nav, engine)
+    }
+
+    @Test("F-15a 真实导航 starts the engine in .gps from a usable fix; the snapshot carries the mode")
+    func realStartsGps() async {
+        let (nav, engine) = await trip(.gps, location: FixedLocation())
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        _ = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        let started = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        #expect(started.ok && started.data["simulated_movement"] == .bool(false))
+        #expect(engine.calls.withLock { $0 }.contains("start gps"))
+        #expect(await nav.current.mode == .gps)
+    }
+
+    @Test("F-15a 真实导航 with no usable fix or no permission: no route, no demo origin (OQ-NAVM-2)")
+    func realRefusesWithoutFix() async {
+        for (location, code) in [(NoLocation() as any LocationProvider, ToolErrorCode.noLocation),
+                                 (DeniedLocation(), .locationPermissionDenied)] {
+            let (nav, engine) = await trip(.gps, location: location)
+            _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+            let picked = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+            #expect(!picked.ok && picked.code == code)
+            #expect(!engine.calls.withLock { $0 }.contains { $0.hasPrefix("calculate") })
+            #expect(await nav.current.phase == .idle)
+        }
+    }
+
+    @Test("F-15a 模拟导航 starts in .emulator without a fix and says 模拟导航")
+    func simulatedNeedsNoFix() async {
+        let (nav, engine) = await trip(.emulator, location: NoLocation())
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        _ = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        let started = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        #expect(started.ok && started.data["simulated_movement"] == .bool(true))
+        #expect(engine.calls.withLock { $0 }.contains("start emulator"))
+        #expect(await nav.current.mode == .emulator)
     }
 }

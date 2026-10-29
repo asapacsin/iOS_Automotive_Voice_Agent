@@ -29,6 +29,8 @@
 	<string>Nova Drive 需要用摄像头回答你关于画面的问题。</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Nova Drive 需要读取通讯录，才能按名字帮你打电话。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>小诺在手机上把你说的普通话转成文字，用来显示字幕和识别“别说了”等指令，录音不会上传。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Nova Drive 用你的位置搜索附近的地点、规划路线和查询当地天气。</string>
 </dict>

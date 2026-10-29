@@ -24,6 +24,8 @@ public struct NavigationFlowState: Sendable, Hashable {
     public var alongRouteList = false
     /// F-15a: a recalculation is running (the HUD shows 「重新规划中」); the phase stays `navigating`.
     public var rerouting = false
+    /// F-15a: the running trip's mode (read when guidance starts). The map and HUD draw by it.
+    public var mode: NaviMode = .emulator
 
     public init() {}
 
@@ -58,6 +60,8 @@ public actor NavigationController: ToolExecutor {
     private let location: any LocationProvider
     private let clock: any NovaClock
     private let tuning: NavigationTuning
+    /// F-15a §2.1: 设置 → 导航方式, read when a route is requested and when guidance starts.
+    private let mode: @Sendable () -> NaviMode
     private let onChange: @Sendable (NavigationFlowState) -> Void
     private var snapshot = NavigationFlowState()
     private var listedAt: NovaInstant?
@@ -72,6 +76,7 @@ public actor NavigationController: ToolExecutor {
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
                 clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(), saved: SavedPlaces? = nil,
+                mode: (@Sendable () -> NaviMode)? = nil,
                 onChange: @escaping @Sendable (NavigationFlowState) -> Void = { _ in }) {
         self.saved = saved
         self.search = search
@@ -79,6 +84,8 @@ public actor NavigationController: ToolExecutor {
         self.location = location
         self.clock = clock
         self.tuning = tuning
+        let fixed = tuning.mode
+        self.mode = mode ?? { fixed }
         self.onChange = onChange
     }
 
@@ -217,6 +224,11 @@ public actor NavigationController: ToolExecutor {
     }
 
     private func route(to place: Place) async -> ToolResult {
+        // F-15a §2.2 (OQ-NAVM-2): 真实导航 starts only from a usable fix; never the demo origin.
+        if mode() == .gps, let refusal = await noUsableFix() {
+            reset()
+            return refusal
+        }
         let generation = advance(to: .calculatingRoute)
         snapshot.destination = place
         snapshot.places = []
@@ -245,15 +257,26 @@ public actor NavigationController: ToolExecutor {
         ])
     }
 
+    private func noUsableFix() async -> ToolResult? {
+        if await location.authorization() == .denied {
+            return .failure(.locationPermissionDenied, advice: "没有定位权限，真实导航不能开始。请如实说：请在设置里打开定位。")
+        }
+        guard let fix = await location.latestFix(), LocationQuality.of(fix, at: clock.now) != nil else {
+            return .failure(.noLocation, advice: "还没有定位，真实导航不能开始。请如实说：还没有定位，暂时不能导航。")
+        }
+        return nil
+    }
+
     private func startGuidance(_ route: RouteSummary) async -> ToolResult {
         let generation = snapshot.generation
+        let mode = mode()
         snapshot.selectedRoute = route.id
         early[.started] = nil
         startInFlight = true
         defer { startInFlight = false }
         publish()
         await engine.selectRoute(route.id, generation: generation)
-        await engine.start(tuning.mode, generation: generation)
+        await engine.start(mode, generation: generation)
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
         let event = await wait(.started, within: tuning.startWait)
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
@@ -264,6 +287,7 @@ public actor NavigationController: ToolExecutor {
             return .failure(.startFailed, advice: "导航没有启动成功。请如实说明，不要说已经开始。")
         }
         snapshot.phase = .navigating
+        snapshot.mode = mode
         snapshot.routes = [route]
         listedAt = nil
         publish()
@@ -272,8 +296,8 @@ public actor NavigationController: ToolExecutor {
             "destination": .string(snapshot.destination?.name ?? ""),
             "distance_km": .double(Self.km(route.lengthMeters)),
             "duration_min": .int(Int64(max(1, route.durationSeconds / 60))),
-            "simulated_movement": .bool(tuning.mode == .emulator),
-            "next": .string("说一句：导航已开始，大约多少分钟到。"),
+            "simulated_movement": .bool(mode == .emulator),
+            "next": .string(mode == .emulator ? "说一句：模拟导航已开始，大约多少分钟到。" : "说一句：导航已开始，大约多少分钟到。"),
         ])
     }
 

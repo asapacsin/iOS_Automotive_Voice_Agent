@@ -299,7 +299,7 @@ private struct DriveContent: View {
                     .background(.orange.opacity(0.85), in: Capsule())
                     .accessibilityIdentifier("demo-location")
             }
-            Text(model.nav.navigating ? "模拟行驶" : "模拟车辆")
+            Text(model.nav.navigating && model.nav.mode == .emulator ? "模拟行驶" : "模拟车辆")
                 .font(.caption2).padding(.horizontal, 6).padding(.vertical, 3)
                 .background(.yellow.opacity(0.85), in: Capsule())
         }
@@ -324,12 +324,22 @@ private struct DriveContent: View {
         .accessibilityIdentifier("status-chip")
     }
 
+    private func badge(_ text: String, _ color: Color) -> some View {
+        Text(text).font(.caption2.weight(.semibold)).padding(.horizontal, 6).padding(.vertical, 3)
+            .background(color.opacity(0.85), in: Capsule())
+    }
+
     /// F-17 panel from `HUDPanelModel`; the limit stays hidden until an engine reports one (limit 0 = no data).
     private var hud: some View {
         let panel = HUDPanelModel(destinationName: model.nav.destination?.name ?? "", naviInfo: model.nav.info,
                                   lastGuidance: model.nav.lastGuidance, speedLimitKmh: model.nav.info?.facilityLimitKmh ?? 0)
         return VStack(alignment: .leading, spacing: 4) {
-            Text(panel.title).font(.headline)
+            HStack(spacing: 6) {
+                Text(panel.title).font(.headline)
+                // F-15a §2.3: a simulation is never mistaken for guidance; §5: rerouting keeps navigating.
+                if model.nav.mode == .emulator { badge("模拟导航", .yellow).accessibilityIdentifier("hud-simulated") }
+                if model.nav.rerouting { badge("重新规划中", .orange).accessibilityIdentifier("hud-rerouting") }
+            }
             if let status = panel.statusText {
                 Text(status).font(.subheadline)
             }

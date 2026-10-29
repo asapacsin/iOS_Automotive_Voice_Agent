@@ -57,6 +57,19 @@ enum DriveSettings {
     static func usesDeviceLocation(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: useDeviceLocation) as? Bool ?? true
     }
+
+    /// F-15a 导航方式: 真实导航 (default) or 模拟导航; 演示起点 always simulates.
+    static let navigationMode = "navigation_mode"
+
+    static func navigationModeSetting(_ defaults: UserDefaults = .standard) -> NavigationModeSetting {
+        defaults.string(forKey: navigationMode).flatMap(NavigationModeSetting.init(rawValue:)) ?? .default
+    }
+
+    /// The trip's mode, read when a route is requested and when guidance starts.
+    static func naviMode(_ defaults: UserDefaults = .standard) -> NaviMode {
+        NavigationModeSetting.mode(navigationModeSetting(defaults),
+                                   source: usesDeviceLocation(defaults) ? .device : .demo)
+    }
 }
 
 /// 小诺's standing instruction for the Gemini Live session (≤ 4000 characters).
@@ -517,17 +530,19 @@ final class AgentRuntime {
         let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
         let web = AmapWebClient(key: amapKey)
         let engine = AmapRouteEngine(key: amapKey, origin: {
-            // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise.
+            // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise, but never in 真实导航
+            // (F-15a OQ-NAVM-2: no route rather than a fake start).
             guard let fix = await location.latestFix(), LocationQuality.of(fix, at: navigationClock.now) != nil else {
-                return DriveSettings.demoOrigin
+                return DriveSettings.naviMode() == .gps ? nil : DriveSettings.demoOrigin
             }
             return CoordinateConverter.gcj02(fix.coordinate)
         },
+                                     location: location, clock: navigationClock,
                                      onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
         let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
-                                              saved: savedPlaces) { snapshot in
+                                              saved: savedPlaces, mode: { DriveSettings.naviMode() }) { snapshot in
             flags.continuation.yield(snapshot)
         }
         await navigation.start()
@@ -597,6 +612,22 @@ final class AgentRuntime {
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
         ended.core = core
         self.core = core
+        // F-05a: the driver's words from the phone's own zh-CN recognizer; Gemini's guess only as a checked
+        // fallback. 语音识别 is asked together with the first microphone use (§2).
+        _ = await AppleSpeechTranscriber.requestPermission()
+        let transcript = DriverTranscript(transcriber: AppleSpeechTranscriber(), core: core, clock: SystemClock()) { words in
+            let line: String? = switch words {
+            case .partial(let text), .final(let text): text
+            case .unclear: "（没听清）"
+            }
+            if let line { Task { @MainActor in model.driverLine = line } }
+        }
+        tasks.append(Task { await transcript.listen() })
+        // Utterance marks and frames in capture order, so the recognizer gets exactly what goes up.
+        let transcriptInputs = AsyncStream.makeStream(of: DriverTranscript.Input.self, bufferingPolicy: .bufferingNewest(1024))
+        tasks.append(Task {
+            for await input in transcriptInputs.stream { await transcript.handle(input) }
+        })
         self.audio = audio
         speakLine = { line in
             if let pcm = try? await synthesizer.synthesize(line, style: .default, deadline: .seconds(6)) {
@@ -610,8 +641,9 @@ final class AgentRuntime {
         tasks.append(Task {
             for await event in provider.events {
                 switch event.event {
-                case .userTranscript(let text, _):
-                    await MainActor.run { model.driverLine = text }
+                case .userTranscript(let text, let isFinal):
+                    // F-05a: the subtitle comes from `DriverTranscript`; Gemini's text is its fallback only.
+                    await transcript.gemini(text, isFinal: isFinal)
                 case .failed(let error):
                     RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
                     await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
@@ -684,6 +716,12 @@ final class AgentRuntime {
             // Activity marks go out here, on the capture queue, so activityStart precedes the pre-roll frames.
             if manual, case .speechStarted = output { provider.sendActivityStart() }
             if manual, case .speechStopped = output { provider.sendActivityEnd() }
+            switch output {
+            case .speechStarted: transcriptInputs.continuation.yield(.begin)
+            case .speechStopped: transcriptInputs.continuation.yield(.end)
+            case .audio(let frame): transcriptInputs.continuation.yield(.frame(frame))
+            case .streamEnd: break
+            }
             if case .audio(let frame) = output { provider.sendAudio(frame) } else { gateEvents.continuation.yield(output) }
         }
         gate.onOutput(route)
@@ -708,7 +746,8 @@ final class AgentRuntime {
         tasks.append(Task { [model] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
-                let line = gate.diagnostics
+                let line = gate.diagnostics + "
+识别：" + (await transcript.source)
                 await MainActor.run { model.noiseLine = line }
             }
         })
