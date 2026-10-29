@@ -3,7 +3,8 @@
 **Status:** DRAFT (owner request 2026-10-28: "on the map there is no current location showing up, write a spec
 to solve this problem"). iOS only. Extends [F-16a Use the phone's real location](current-location.md) and
 [F-25 Main screen](ui-overlay.md). Defaults below are the recommended answers; OQ-MAP-1..3 stay open until the
-owner decides.
+owner decides. Owner decision 2026-10-29: follow in-car map conventions (CarPlay, Android Auto, 高德
+car mode), not phone-map ones: OQ-MAP-1 and OQ-MAP-3 are decided below.
 **Depends on:** F-16a (T-042a `CoreLocationProvider`, `SwitchableLocationProvider`), F-16 §3 fix rules,
 F-15 (simulated car during navigation), F-25 (T-044 `MapPresentationPolicy`), contracts/api-contracts.md
 
@@ -17,8 +18,10 @@ F-15 (simulated car during navigation), F-25 (T-044 `MapPresentationPolicy`), co
 - F-16a OQ-LOC-2 assumed "the map already follows the position"; it does not. This feature closes that gap.
 
 ## 2. User-facing behaviour
-- **我的位置 marker**: a blue dot with a white ring at the current position, whenever a usable fix exists
-  (F-16 §3: age ≤ 10 min, accuracy ≤ 2000 m).
+- **我的位置 marker** at the current position, whenever a usable fix exists (F-16 §3: age ≤ 10 min,
+  accuracy ≤ 2000 m). In-car style: while moving (speed ≥ 5 km/h from `CLLocation.speed`, course valid) it is a
+  **heading arrow** pointing along `CLLocation.course`; when stopped, slower, or with no valid course it is a
+  blue dot with a white ring, so the arrow never points a wrong way at low speed.
   - Fresh fix (≤ 30 s): solid blue dot. When accuracy > 30 m, a translucent blue circle of that radius around it.
   - Provisional fix (30 s – 10 min): the same dot in gray ("last known position").
   - No usable fix (none yet, too old, too coarse, permission denied): no dot. No dot is ever drawn at a guessed place.
@@ -27,8 +30,9 @@ F-15 (simulated car during navigation), F-25 (T-044 `MapPresentationPolicy`), co
 - **Initial recenter**: on the first usable fix after the drive screen appears (or after switching 位置来源), the map
   moves once to the dot at a ~1.5 km span, unless the driver already panned or zoomed the map, or a place list or
   route choice is on screen (those keep their own framing, T-044).
-- **Follow while idle** (default, OQ-MAP-1): while no list, route choice or navigation is shown, the map keeps the dot
-  in view as it moves. A driver's pan or zoom stops following.
+- **Follow while idle** (OQ-MAP-1, decided 2026-10-29): while no list, route choice or navigation is shown, the map
+  keeps the marker centered as the car moves, like a car display. A driver's pan or zoom stops following and shows
+  回到我的位置; after **15 s without touching the map** it snaps back and follows again (in-car auto-recenter).
 - **回到我的位置 button** (`location.fill`, bottom-right above the car card, accessibility id `locate-me`): recenters on
   the dot and resumes following. With no usable fix it shows `location.slash` and, on tap, either asks permission
   (not asked yet), opens 设置 (denied, `UIApplication.openSettingsURLString`), or does nothing but stays visible
@@ -52,24 +56,26 @@ F-15 (simulated car during navigation), F-25 (T-044 `MapPresentationPolicy`), co
 - **New pure model** (NovaNav/Presentation): `SelfPosition` computed from (latest fix, source, permission, now,
   navigation phase):
   `{ visible: Bool, coordinate: GeoCoordinate (GCJ-02), style: fresh|provisional|demo|navigatingSecondary,
-     accuracyRadius_m: Double?, caption: "演示位置"? }`.
+     heading: Double? (degrees, set only when speed ≥ 5 km/h and course ≥ 0), accuracyRadius_m: Double?,
+     caption: "演示位置"? }`. `LocationFix` gains optional `speedMetersPerSecond` and `courseDegrees`.
 - **Datum**: the dot uses the **same datum as routes and markers**: `CoordinateConverter.gcj02(fix)` (no-op outside
   China), so the dot lies on the drawn road in mainland China. MapKit's own `UserAnnotation` is **not** used: it would
   plot a second, independently shifted position and could disagree with the route line and the demo source.
-- **Camera policy** (pure, `MapCameraPolicy`): inputs = SelfPosition, `MapPresentation`, `userMovedMap`, `firstFixShown`;
+- **Camera policy** (pure, `MapCameraPolicy`): inputs = SelfPosition, `MapPresentation`, `userMovedMap` (with the time of
+  the last touch), `firstFixShown`, now;
   output = `.none | .center(GeoCoordinate, spanMeters: 1500) | .fitRoutes | .followCar`. Throttle: re-center only
   when the dot moved ≥ 10 m or ≥ 1 s passed, so the camera does not jitter.
 
 ## 5. State transitions
 `noFix → fresh ⇄ provisional → noFix` (by age/accuracy, re-evaluated every 5 s and on each fix).
-Camera: `awaitingFirstFix → following` (first fix, recenter once) `→ free` (driver pans) `→ following` (locate-me).
+Camera: `awaitingFirstFix → following` (first fix, recenter once) `→ free` (driver pans) `→ following` (locate-me, or 15 s after the last touch).
 List, route choice or navigation override following while shown; when they close, the camera returns to
 `following` only if it was following before.
 Scene background → updates paused (F-16a §5); foreground → resumed, the dot shows provisional until a new fix.
 
 ## 6. Events and triggers
 Location fix, permission change, 位置来源 switch, scene phase, navigation phase change, map pan/zoom gesture,
-locate-me tap, 5 s re-evaluation timer.
+locate-me tap, 15 s auto-recenter timer (restarted by each touch), 5 s re-evaluation timer.
 
 ## 7. Dependencies and external services
 - CoreLocation stays in NovaPlatform/Location (I-9); MapKit only in the App target. `SelfPosition` and
@@ -94,9 +100,10 @@ when the screen disappears. Fix → dot latency ≤ 1 s. No polling of `latestFi
 | # | Criterion | Level |
 |---|---|---|
 | 1 | 手机定位 allowed, not navigating: the blue dot appears at the phone's position within 3 s of opening the app, and the map recenters on it once | D |
-| 2 | Walking/driving 100 m moves the dot and the map follows; a pan stops following; locate-me resumes it | D |
+| 2 | Driving 100 m moves the marker and the map follows; a pan stops following; locate-me resumes it, and so does 15 s without touching | D |
 | 3 | `SelfPosition`: fresh/provisional/none by age and accuracy (30 s, 10 min, 2000 m), accuracy circle only > 30 m, demo style + caption | unit |
-| 4 | `MapCameraPolicy`: first fix recenters once; no recenter after a pan; list/route choice/navigation override; 10 m / 1 s throttle | unit |
+| 4 | `MapCameraPolicy`: first fix recenters once; following stops on a pan and resumes after 15 s idle or locate-me; list/route choice/navigation override; 10 m / 1 s throttle | unit |
+| 4a | `SelfPosition` heading: arrow only at speed ≥ 5 km/h with a valid course; dot otherwise | unit |
 | 5 | The dot uses GCJ-02 like the route line: in mainland China it sits on the road the route is drawn on | unit (converter) + D |
 | 6 | 演示起点: dot at the demo origin with 演示位置; no real position visible (screen recording) | S, D |
 | 7 | Denied: no dot, 定位未开启 pill opens the app's settings page | S, D |
@@ -114,16 +121,16 @@ when the screen disappears. Fix → dot latency ≤ 1 s. No polling of `latestFi
   Device rows stay NOT_VERIFIED until a phone run.
 
 ## Open questions
-- OQ-MAP-1 (default: **follow while idle**): should the map keep following the dot when idle, or only recenter once?
-  Recommendation: follow, stopped by a pan; this matches a car display.
+- OQ-MAP-1 **decided 2026-10-29 (owner: in-car conventions)**: follow while idle; a pan stops it; auto-recenter after
+  15 s untouched or on locate-me.
 - OQ-MAP-2 (default: **car leads, real dot gray**): during simulated navigation, show both markers? Recommendation: yes,
   the real one secondary, so a simulated drive never hides the real position.
-- OQ-MAP-3 (default: **no heading arrow**): rotate the dot with `CLLocation.course`? Recommendation: not now; course
-  is unreliable at low speed.
+- OQ-MAP-3 **decided 2026-10-29 (owner: in-car conventions)**: heading arrow from `CLLocation.course` while moving
+  (≥ 5 km/h), dot when stopped.
 
 ## Tasks (implementation-plan.md M3, specs/work.json)
 | ID | Task | Verification |
 |---|---|---|
-| T-044a | `SelfPosition` + `MapCameraPolicy` (pure, NovaNav/Presentation) + `LocationUpdates` port; unit tests F-16b rows 3–5 | unit (Linux gates) |
+| T-044a | `SelfPosition` + `MapCameraPolicy` (pure, NovaNav/Presentation) + `LocationUpdates` port; unit tests F-16b rows 3–5, 4a | unit (Linux gates) |
 | T-044b | `CoreLocationProvider`/`DemoLocation`/`SwitchableLocationProvider` updates stream; fake-manager test | unit, build (Mac) |
 | T-044c | `DriveView`: dot, accuracy circle, locate-me button, 定位未开启 pill, follow/free camera; rows 1–2, 6–9 | S, D |

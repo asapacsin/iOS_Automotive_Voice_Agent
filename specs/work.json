@@ -1047,7 +1047,7 @@
       "owner": "HUMAN_DECISION",
       "status": "HUMAN_REQUIRED",
       "priority": 10,
-      "action": "Approve specs/features/map-current-location.md (F-16b) and answer OQ-MAP-1..3 or accept the defaults",
+      "action": "Approve specs/features/map-current-location.md (F-16b); OQ-MAP-1 and OQ-MAP-3 decided 2026-10-29 (in-car conventions), OQ-MAP-2 open",
       "depends_on": [],
       "automation_blocker": "owner_decision",
       "procedure": "Read F-16b; reply approve (defaults) or give answers to OQ-MAP-1..3",
@@ -1055,18 +1055,21 @@
       "expected_return": "approve, or answers to OQ-MAP-1..3",
       "quantified": {
         "options": [
-          "Approve with defaults: follow while idle (OQ-MAP-1), real dot gray during simulated navigation (OQ-MAP-2), no heading arrow (OQ-MAP-3)",
-          "Approve with changes to OQ-MAP-1..3",
-          "Reject / rewrite"
+          "Approve with OQ-MAP-2 default (real dot gray during simulated navigation)",
+          "Approve with a different OQ-MAP-2 answer",
+          "Rewrite"
         ]
-      }
+      },
+      "evidence": [
+        "2026-10-29 owner: 'in car then' -> OQ-MAP-1 follow + 15 s auto-recenter, OQ-MAP-3 heading arrow >= 5 km/h"
+      ]
     },
     {
       "id": "T-044a",
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
       "priority": 15,
-      "action": "F-16b SelfPosition + MapCameraPolicy (pure, NovaNav/Presentation) + LocationUpdates port; unit tests F-16b rows 3-5",
+      "action": "F-16b SelfPosition + MapCameraPolicy (pure, NovaNav/Presentation) + LocationUpdates port; unit tests F-16b rows 3-5, 4a",
       "depends_on": [
         "H-F16b",
         "T-044",
