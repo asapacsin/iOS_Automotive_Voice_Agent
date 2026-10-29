@@ -1045,7 +1045,7 @@
     {
       "id": "H-F16b",
       "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
+      "status": "PASS",
       "priority": 10,
       "action": "Approve specs/features/map-current-location.md (F-16b); OQ-MAP-1 and OQ-MAP-3 decided 2026-10-29 (in-car conventions), OQ-MAP-2 open",
       "depends_on": [],
@@ -1061,7 +1061,8 @@
         ]
       },
       "evidence": [
-        "2026-10-29 owner: 'in car then' -> OQ-MAP-1 follow + 15 s auto-recenter, OQ-MAP-3 heading arrow >= 5 km/h"
+        "2026-10-29 owner: 'in car then' -> OQ-MAP-1 follow + 15 s auto-recenter, OQ-MAP-3 heading arrow >= 5 km/h",
+        "2026-10-29 owner: OQ-MAP-2 'for simulation the two should be the same' -> one marker; spec APPROVED"
       ]
     },
     {

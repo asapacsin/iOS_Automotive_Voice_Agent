@@ -1,6 +1,6 @@
 # F-16b Show the driver's current position on the map (我的位置)
 
-**Status:** DRAFT (owner request 2026-10-28: "on the map there is no current location showing up, write a spec
+**Status:** APPROVED 2026-10-29 (OQ-MAP-1..3 decided by the owner) (owner request 2026-10-28: "on the map there is no current location showing up, write a spec
 to solve this problem"). iOS only. Extends [F-16a Use the phone's real location](current-location.md) and
 [F-25 Main screen](ui-overlay.md). Defaults below are the recommended answers; OQ-MAP-1..3 stay open until the
 owner decides. Owner decision 2026-10-29: follow in-car map conventions (CarPlay, Android Auto, 高德
@@ -37,10 +37,11 @@ F-15 (simulated car during navigation), F-25 (T-044 `MapPresentationPolicy`), co
   the dot and resumes following. With no usable fix it shows `location.slash` and, on tap, either asks permission
   (not asked yet), opens 设置 (denied, `UIApplication.openSettingsURLString`), or does nothing but stays visible
   (waiting for the first fix).
-- **While navigating** (default, OQ-MAP-2): navigation is simulated (F-15), so the simulated car marker
-  (`location.north.circle.fill`) is the one that moves along the route and the camera follows it, as today. The
-  我的位置 dot stays drawn but smaller and gray, so the real position is never hidden and is never confused with
-  the simulated car.
+- **While navigating** (OQ-MAP-2, decided 2026-10-29: "for simulation the two should be the same"): there is
+  **one** position marker. The simulated drive starts at the real position (route origin = the current usable fix,
+  F-16 §3; demo origin only with 演示起点 or no usable fix), and while it runs the simulated car *is* 我的位置: the
+  same marker style (heading arrow from the route bearing) moves along the route and the camera follows it. The real
+  fix is not drawn separately. When navigation ends (arrived, 算了, exit) the marker returns to the real fix.
 - Permission denied: a small pill on the map **定位未开启** (tap → 打开系统设置); no dot.
 
 ## 3. Preconditions
@@ -55,7 +56,7 @@ F-15 (simulated car during navigation), F-25 (T-044 `MapPresentationPolicy`), co
   `SwitchableLocationProvider` for the current source (a source switch ends the old stream's use and starts the new).
 - **New pure model** (NovaNav/Presentation): `SelfPosition` computed from (latest fix, source, permission, now,
   navigation phase):
-  `{ visible: Bool, coordinate: GeoCoordinate (GCJ-02), style: fresh|provisional|demo|navigatingSecondary,
+  `{ visible: Bool, coordinate: GeoCoordinate (GCJ-02), style: fresh|provisional|demo|simulated,
      heading: Double? (degrees, set only when speed ≥ 5 km/h and course ≥ 0), accuracyRadius_m: Double?,
      caption: "演示位置"? }`. `LocationFix` gains optional `speedMetersPerSecond` and `courseDegrees`.
 - **Datum**: the dot uses the **same datum as routes and markers**: `CoordinateConverter.gcj02(fix)` (no-op outside
@@ -107,7 +108,7 @@ when the screen disappears. Fix → dot latency ≤ 1 s. No polling of `latestFi
 | 5 | The dot uses GCJ-02 like the route line: in mainland China it sits on the road the route is drawn on | unit (converter) + D |
 | 6 | 演示起点: dot at the demo origin with 演示位置; no real position visible (screen recording) | S, D |
 | 7 | Denied: no dot, 定位未开启 pill opens the app's settings page | S, D |
-| 8 | Navigating: simulated car marker moves and is followed; the real dot stays visible as gray secondary | S, D |
+| 8 | Navigating: one marker; it starts at the real position, moves along the route and is followed; no second dot; after navigation ends it is back at the real fix | unit (SelfPosition), S, D |
 | 9 | No coordinate in logs while the dot moves (log capture during row 2) | D |
 
 ## 11. Implementation constraints
@@ -123,8 +124,8 @@ when the screen disappears. Fix → dot latency ≤ 1 s. No polling of `latestFi
 ## Open questions
 - OQ-MAP-1 **decided 2026-10-29 (owner: in-car conventions)**: follow while idle; a pan stops it; auto-recenter after
   15 s untouched or on locate-me.
-- OQ-MAP-2 (default: **car leads, real dot gray**): during simulated navigation, show both markers? Recommendation: yes,
-  the real one secondary, so a simulated drive never hides the real position.
+- OQ-MAP-2 **decided 2026-10-29 (owner)**: one marker during simulated navigation; the simulated car starts at the real
+  position and stands for it until navigation ends.
 - OQ-MAP-3 **decided 2026-10-29 (owner: in-car conventions)**: heading arrow from `CLLocation.course` while moving
   (≥ 5 km/h), dot when stopped.
 
