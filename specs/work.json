@@ -1205,22 +1205,32 @@
     {
       "id": "T-040a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15a NavigationModeSetting, RouteProgress + tuning, SelfPosition mode input; unit rows 1-3",
       "depends_on": [
         "H-F15a"
+      ],
+      "evidence": [
+        "cde8469: NavigationModeSetting (default real, 演示起点 → emulator + locked), RouteProgress + RouteProgressTuning (matching, step entry, next-turn and remaining distance/time, off-route 3 fixes / 5 s / 50 m with coarse fixes not counted, arrival once, signal lost 10 s / sentence 30 s), SelfPosition mode input (R1 only in .emulator; no real fix between engine updates); F-15a rows 1-3",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 399 tests + 1 known issue)",
+        "Independent read-only review at high effort 2026-10-29: PASS (T-040a + T-040b together)"
       ]
     },
     {
       "id": "T-040b",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15a guards navigationNotRequested (start / navigate_to) and wordsUnclear, advice sentences; unit row 4",
       "depends_on": [
         "H-F15a",
         "T-016a"
+      ],
+      "evidence": [
+        "5dfa6d5 + review fix: navigationNotRequested (route-list pick needs pick/start/confirmation words said after the list appeared; navigate_to needs go/place/search or correction words), wordsUnclear covers both, taps exempt (I-6), NavigationFlags.routeChoiceOpen (App passes phase == awaitingRouteSelection); NAVIGATION_NOT_REQUESTED PROPOSED + advice; F-15a row 4",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 399 tests + 1 known issue)",
+        "Independent read-only review at high effort 2026-10-29: PASS (T-040a + T-040b together); applied: every intent must be newer than the route list, correction words for navigate_to"
       ]
     },
     {
@@ -1231,7 +1241,8 @@
       "action": "F-15a AmapRouteEngine .gps path (LocationUpdates, progress events, reroute, generation); unit row 5",
       "depends_on": [
         "T-040a"
-      ]
+      ],
+      "notes": "RouteProgress: nearest segment over the whole route (a looping route can jump ahead); out-of-order fixes not dropped; the 15 s reroute limiter is the engine's"
     },
     {
       "id": "T-040d",
@@ -1242,7 +1253,8 @@
       "depends_on": [
         "T-040a",
         "T-040c"
-      ]
+      ],
+      "notes": "From the T-040a/b review: pass the trip's NaviMode into SelfPosition.Input (default .emulator hides the marker between car updates); routeChoiceOpen reaches AgentState via the snapshot observer, so a very fast pick could precede it; check on device that a 第一条 said before any transcript arrives is not refused (row 10)"
     }
   ]
 }

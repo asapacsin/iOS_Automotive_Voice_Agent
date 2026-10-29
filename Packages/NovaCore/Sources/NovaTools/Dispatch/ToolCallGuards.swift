@@ -147,7 +147,7 @@ public enum ToolCallGuards {
     /// A confirmation, counted only while the route list is on screen and newer than the list.
     static let confirmIntent = ICURegex("^(好|好的|好啊|好吧|可以|行|行吧|嗯|对|没问题|确定|就这条|就这个|就它)[吧啊呀。！!，,\\s]*$")
     /// Words that ask to go somewhere or look for a place (`navigate_to`).
-    static let goWords = ICURegex("去|到|导航|回家|上班|附近|周边|周围|找|哪里有|哪儿有|在哪|最近的|带我")
+    static let goWords = ICURegex("去|到|导航|回家|上班|附近|周边|周围|找|哪里有|哪儿有|在哪|最近的|带我|不是这个|不是这|换一个|换个|换成|不对|改成")
     static let temperatureOrFan: Set<String> = ["adjust_temperature", "set_temperature", "adjust_fan", "set_fan"]
 
     // MARK: Guards, in dispatch order
@@ -184,18 +184,18 @@ public enum ToolCallGuards {
     }
 
     /// F-15a §2.5: guidance starts only when asked. A pick on the route list needs a pick, start or (fresh)
-    /// confirmation in this turn's words; with no words of this turn it does not start either. `navigate_to`
+    /// confirmation said after the list appeared; with no words of this turn it does not start either. `navigate_to`
     /// needs go, place or search words (PROPOSED: with no words of this turn yet it runs, as it only lists).
     public static func navigationNotRequested(_ call: ToolCall, _ c: GuardContext) -> ToolErrorCode? {
         guard !c.fromTap else { return nil }
         switch call.name {
         case "choose_navigation_option":
             guard c.routeChoiceOpen else { return nil }
-            guard c.wordsAreCurrent else { return .navigationNotRequested }
+            // Only words said after the route list appeared: a 「第二个」 that picked the destination does not
+            // also start guidance when the model chains the next pick in the same turn.
+            guard c.wordsAreCurrent, c.currentEpoch > c.routeListEpoch else { return .navigationNotRequested }
             let said = c.said
-            if pickIntent.matches(said) { return nil }
-            if c.currentEpoch > c.routeListEpoch, confirmIntent.matches(said) { return nil }
-            return .navigationNotRequested
+            return pickIntent.matches(said) || confirmIntent.matches(said) ? nil : .navigationNotRequested
         case "navigate_to":
             guard c.wordsAreCurrent else { return nil }
             let said = c.said

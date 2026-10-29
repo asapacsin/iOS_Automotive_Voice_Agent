@@ -434,9 +434,10 @@ struct NavigationNotRequestedGuardTests {
         for said in ["第一条", "第 2 个", "最后一条", "开始导航", "出发", "走吧", "走最快的", "不走高速的那条"] {
             #expect(ToolCallGuards.navigationNotRequested(pick, routes(said)) == nil, "\(said)")
         }
-        for said in ["好", "好的", "可以", "就这条"] {
+        for said in ["好", "好的", "可以", "就这条", "第二个", "开始导航"] {
             #expect(ToolCallGuards.navigationNotRequested(pick, routes(said)) == nil, "\(said)")
-            // A confirmation from the utterance that asked for the routes is not newer than the list.
+            // Words of the utterance that brought up the route list (e.g. 第二个 picked the destination) are not
+            // newer than the list.
             #expect(ToolCallGuards.navigationNotRequested(pick, routes(said, epoch: 1)) == .navigationNotRequested)
         }
         for said in ["这是哪里", "今天天气怎么样", "嗯……那个……", "好像有点堵"] {
@@ -457,7 +458,7 @@ struct NavigationNotRequestedGuardTests {
     @Test("F-15a row 4: navigate_to needs go, place or search words")
     func navigateTo() {
         let airport = call("navigate_to", ["destination": "珠海机场"])
-        for said in ["导航去珠海机场", "去机场", "回家", "附近有加油站吗", "哪里有充电站", "珠海机场"] {
+        for said in ["导航去珠海机场", "去机场", "回家", "附近有加油站吗", "哪里有充电站", "珠海机场", "不是这个", "换一个"] {
             #expect(ToolCallGuards.navigationNotRequested(airport, ctx(said)) == nil, "\(said)")
         }
         #expect(ToolCallGuards.navigationNotRequested(call("navigate_to", ["destination": "home"]), ctx("家")) == nil)
