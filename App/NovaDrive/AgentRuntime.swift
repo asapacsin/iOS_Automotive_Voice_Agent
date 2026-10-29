@@ -746,8 +746,7 @@ final class AgentRuntime {
         tasks.append(Task { [model] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
-                let line = gate.diagnostics + "
-识别：" + (await transcript.source)
+                let line = gate.diagnostics + "\n识别：" + (await transcript.source)
                 await MainActor.run { model.noiseLine = line }
             }
         })
