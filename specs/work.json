@@ -1296,35 +1296,53 @@
     {
       "id": "T-016e",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 20,
       "action": "F-05a §6 ending navigation: remove confirmExit / exitConfirmWindow; exit_navigation_mode ends guidance on the call, result next says 已结束导航; unit: one call ends guidance whatever the transcript, CONFIRM_REQUIRED never returned",
       "depends_on": [
         "T-016d"
       ],
-      "notes": "Device run ed40023 17:30: 结束导航 refused twice (CONFIRM_REQUIRED); her question took ~17 s so the yes came 20.6 s after the first refusal, past the 15 s window. Owner 2026-10-29: \"Update spec\" — common practice ends navigation on the voice command at once."
+      "notes": "Device run ed40023 17:30: 结束导航 refused twice (CONFIRM_REQUIRED); her question took ~17 s so the yes came 20.6 s after the first refusal, past the 15 s window. Owner 2026-10-29: \"Update spec\" — common practice ends navigation on the voice command at once.",
+      "evidence": [
+        "7ed283f: confirmExit / exitConfirmWindow / exitAsked removed; exit_navigation_mode runs on one call; stop result next 「说一句：已结束导航。」; CONFIRM_REQUIRED defined, never returned; F-05a §6 test exitAtOnce",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings",
+        "D: 结束导航 ends at once NOT_VERIFIED (device)"
+      ]
     },
     {
       "id": "T-040f",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 20,
       "action": "F-15a §2.5 driver turns: count only utterances that begin while she is silent or are qualified barge-ins; no answerOwed from unqualified sound; check and stop uplink of that audio (F-04a); routeListTurn set synchronously on destination_selected; rows 13-14",
       "depends_on": [
         "T-040e"
       ],
-      "notes": "Device run ed40023: guidance started unasked at 17:30:00 and 17:42:57, each ~2 s after bargeIn(qualified: false) while she read the route list; no driver speech in between."
+      "notes": "Device run ed40023: guidance started unasked at 17:30:00 and 17:42:57, each ~2 s after bargeIn(qualified: false) while she read the route list; no driver speech in between.",
+      "evidence": [
+        "0beedf3: utterance counts only if it began while she was silent (reply/guidance + 500 ms echo tail) or became a qualified 别说了; else no closedTurns, no answerOwed, no driverUtterance; App mutes such an utterance to Gemini (activity marks + audio, decided once per utterance) while gate events and transcriber still get it; routeListTurn set on destination_selected with routeListPending until flags show the list; F-15a row 13 (4 tests)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings; minor: mute applied async (first ms of a reply may still go up), test for 别说了 final before speechStopped suggested",
+        "Row 14 NOT_VERIFIED (device)"
+      ]
     },
     {
       "id": "T-040g",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 20,
       "action": "F-15a §9 one trip at a time: route engine + NavigationController owned by the app (built once), sessions attach; at most one drive; stale engine geometry dropped; trip continues across session end (OQ-NAVM-5 default); rows 15-16",
       "depends_on": [
         "T-040d"
       ],
-      "notes": "Device run ed40023: AgentRuntime.start() builds a new engine per session and stop() never stops it; session 1's simulated drive ran on from 17:30 to ~17:42 with no session; session 3's drive at 17:42:57 ran alongside it, so the marker jumped between two cars."
+      "notes": "Device run ed40023: AgentRuntime.start() builds a new engine per session and stop() never stops it; session 1's simulated drive ran on from 17:30 to ~17:42 with no session; session 3's drive at 17:42:57 ran alongside it, so the marker jumped between two cars.",
+      "blocked_by": "iOS build of 24c8cc7 (Codemagic) not reported yet; rows 15 (D part), 16 device",
+      "evidence": [
+        "24c8cc7: AmapRouteEngine + NavigationController built once (AgentRuntime.appTrip), sessions attach via TripListeners and first see the current snapshot; screen follows the trip in order with no session; stop() keeps the trip (OQ-NAVM-5 default); simulated drive draws only while current (stale drive never reaches the map); F-15a row 15 unit (NovaServices OneDriveTests)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings; minor: trip keeps the first session's SwitchableLocationProvider (reads 位置来源 per request)"
+      ]
     }
   ]
 }
