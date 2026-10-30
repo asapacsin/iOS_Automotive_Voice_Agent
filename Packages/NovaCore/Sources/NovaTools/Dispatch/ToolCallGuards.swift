@@ -30,16 +30,12 @@ public struct GuardContext: Sendable, Hashable {
     /// Saved places that are set (`SavedPlaces`); nil when AgentCore does not know them, in which case
     /// the navigation executor decides 家/公司 itself from the store.
     public var savedPlaces: Set<PlaceSlot>?
-    /// F-15a §2.5: the route list is on screen (`awaitingRouteSelection`): a pick there starts guidance.
-    public var routeChoiceOpen: Bool
-    /// `closedTurns` when the route list appeared.
-    public var routeListTurn: Int
     /// The call came from a tap on the screen (I-6): the tap itself is the request.
     public var fromTap: Bool
 
     public init(turn: Int = 0, closedTurns: Int = 0, now: NovaInstant = .zero, navigating: Bool = false,
                 guidanceRunning: Bool = false, listOpen: Bool = false, savedPlaces: Set<PlaceSlot>? = nil,
-                routeChoiceOpen: Bool = false, routeListTurn: Int = 0, fromTap: Bool = false) {
+                fromTap: Bool = false) {
         self.turn = turn
         self.closedTurns = closedTurns
         self.now = now
@@ -47,8 +43,6 @@ public struct GuardContext: Sendable, Hashable {
         self.guidanceRunning = guidanceRunning
         self.listOpen = listOpen
         self.savedPlaces = savedPlaces
-        self.routeChoiceOpen = routeChoiceOpen
-        self.routeListTurn = routeListTurn
         self.fromTap = fromTap
     }
 }
@@ -104,14 +98,6 @@ public enum PlaceSlot: String, Sendable, Hashable, CaseIterable {
 /// and ending the guidance runs on the call with no confirmation (T-016e).
 public enum ToolCallGuards {
     static let temperatureOrFan: Set<String> = ["adjust_temperature", "set_temperature", "adjust_fan", "set_fan"]
-
-    /// F-15a §2.5 (revised): a pick on the route list starts guidance only in a later driver turn than the one in
-    /// which the list appeared, so the model chaining "pick destination → pick route" without the driver speaking
-    /// again starts nothing. Turns are counted by the uplink gate, never from text. Taps are never refused (I-6).
-    public static func navigationNotRequested(_ call: ToolCall, _ c: GuardContext) -> ToolErrorCode? {
-        guard call.name == "choose_navigation_option", c.routeChoiceOpen, !c.fromTap else { return nil }
-        return c.closedTurns > c.routeListTurn ? nil : .navigationNotRequested
-    }
 
     /// 「回家」 with no home saved: refuse rather than search for 家 (`savedPlaceMissing`). Reads the argument.
     public static func savedPlaceMissing(_ call: ToolCall, _ c: GuardContext) -> ToolErrorCode? {

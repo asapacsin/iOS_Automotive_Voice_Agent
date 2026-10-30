@@ -145,9 +145,8 @@ struct NavigationModePerTripTests {
     @Test("F-15a 真实导航 starts the engine in .gps from a usable fix; the snapshot carries the mode")
     func realStartsGps() async {
         let (nav, engine) = await trip(.gps, location: FixedLocation())
-        // One station: navigate_to goes straight to the route list; the pick starts guidance.
-        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
-        let started = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        // One station: navigate_to starts guidance at once on the recommended route (T-040h).
+        let started = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
         #expect(started.ok && started.data["simulated_movement"] == .bool(false))
         #expect(engine.calls.withLock { $0 }.contains("start gps"))
         #expect(await nav.current.mode == .gps)
@@ -169,10 +168,10 @@ struct NavigationModePerTripTests {
     @Test("F-15a 模拟导航 starts in .emulator without a fix and says 模拟导航")
     func simulatedNeedsNoFix() async {
         let (nav, engine) = await trip(.emulator, location: NoLocation())
-        // One station: navigate_to goes straight to the route list; the pick starts guidance.
-        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
-        let started = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        // One station: navigate_to starts guidance at once on the recommended route (T-040h).
+        let started = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
         #expect(started.ok && started.data["simulated_movement"] == .bool(true))
+        #expect(started.data["next"]?.stringValue?.contains("已开始模拟导航") == true)
         #expect(engine.calls.withLock { $0 }.contains("start emulator"))
         #expect(await nav.current.mode == .emulator)
     }

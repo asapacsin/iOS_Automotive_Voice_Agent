@@ -220,7 +220,8 @@ struct AlongRouteTests {
         let picked = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
         #expect(picked.ok && picked.data["destination"] == "中石化A")
         let snapshot = await nav.current
-        #expect(snapshot.phase == .awaitingRouteSelection && !snapshot.alongRouteList)
+        // T-040h: the new place starts guidance at once on its recommended route.
+        #expect(snapshot.phase == .navigating && !snapshot.alongRouteList)
     }
 
     @Test("F-18 an exit while the along-route pick stops the old guidance wins; the pick is stale")

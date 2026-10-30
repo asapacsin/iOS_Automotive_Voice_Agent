@@ -229,7 +229,7 @@ struct AnnouncementTests {
         var dispatcher = ToolDispatcher()
         let open = ToolCall(id: CallID("c1")!, name: "control_window", arguments: ["action": "open", "window": "all"])
         #expect(dispatcher.decide(open, context: GuardContext(navigating: false, guidanceRunning: false, listOpen: false,
-                                                             savedPlaces: [], routeChoiceOpen: false, fromTap: false))
+                                                             savedPlaces: [], fromTap: false))
                 == .execute(open))
     }
 }

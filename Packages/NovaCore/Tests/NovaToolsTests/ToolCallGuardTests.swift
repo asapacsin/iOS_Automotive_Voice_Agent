@@ -13,10 +13,9 @@ func call(_ name: String, _ args: [String: JSONValue] = [:], id: String = "c1") 
 
 /// A call in driver turn `turn`, after `closed` closed utterances, at `seconds`.
 func ctx(turn: Int = 1, closed: Int = 1, seconds: Int64 = 0, navigating: Bool = false, guidance: Bool = false,
-         listOpen: Bool = false, routeList: Int? = nil, tap: Bool = false) -> GuardContext {
+         listOpen: Bool = false, tap: Bool = false) -> GuardContext {
     GuardContext(turn: turn, closedTurns: closed, now: NovaInstant(milliseconds: seconds * 1000), navigating: navigating,
-                 guidanceRunning: guidance, listOpen: listOpen, routeChoiceOpen: routeList != nil,
-                 routeListTurn: routeList ?? 0, fromTap: tap)
+                 guidanceRunning: guidance, listOpen: listOpen, fromTap: tap)
 }
 
 @Suite("T-017 F-09 guard: repeatedInTurn")
@@ -177,18 +176,20 @@ struct NavigationStartTurnTests {
     let pick = call("choose_navigation_option", ["index": 1])
     let fastest = call("choose_navigation_option", ["preference": "fastest"])
 
-    @Test("F-15a row 4 (revised): a pick in a later driver turn than the list starts; in the same turn it is refused")
-    func turns() {
+    @Test("F-15a §2.5 (T-040h): the tool text has no route list; choose changes the route while navigating")
+    func toolText() {
+        for name in ["navigate_to", "choose_navigation_option"] {
+            let text = ToolCatalog.spec(name)?.declaration.description ?? ""
+            #expect(!text.contains("destination_selected") && !text.contains("路线列表") && !text.contains("选好路线前"), "\(name)")
+        }
+        #expect(ToolCatalog.spec("choose_navigation_option")?.declaration.description.contains("route_changed") == true)
+    }
+
+    @Test("F-15a row 12 (T-040h): no start guard; a pick or route change runs in the same turn as the request")
+    func noStartGuard() {
         for c in [pick, fastest] {
             var d = ToolDispatcher()
-            #expect(d.decide(c, context: ctx(closed: 2, routeList: 1)) == .execute(c))
-            #expect(ToolCallGuards.navigationNotRequested(c, ctx(closed: 1, routeList: 1)) == .navigationNotRequested)
+            #expect(d.decide(c, context: ctx(closed: 1, navigating: true, guidance: true)) == .execute(c))
         }
-        // Taps are never refused; picking a destination (no route list yet) is not this guard's.
-        #expect(ToolCallGuards.navigationNotRequested(pick, ctx(closed: 1, routeList: 1, tap: true)) == nil)
-        #expect(ToolCallGuards.navigationNotRequested(pick, ctx(closed: 1, listOpen: true)) == nil)
-        // navigate_to is never refused by it.
-        #expect(ToolCallGuards.navigationNotRequested(call("navigate_to", ["destination": "机场"]), ctx(closed: 1, routeList: 1)) == nil)
-        #expect(ToolFailureAdvice.forCode(.navigationNotRequested)?.contains("要走哪一条") == true)
     }
 }

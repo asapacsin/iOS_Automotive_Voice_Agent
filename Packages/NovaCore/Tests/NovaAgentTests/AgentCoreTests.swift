@@ -428,39 +428,32 @@ struct DriverWordsTests {
     }
 }
 
-@Suite("T-040e F-15a AgentState: guidance starts on a later driver turn")
+@Suite("T-040h F-15a AgentState: no route choice, route changes run on the first try")
 struct NavigationRequestedTests {
-    func listed() -> Drive {
+    func navigating() -> Drive {
         var d = Drive()
         d.connect()
+        d.send(.navigation(NavigationFlags(navigating: true, guidanceRunning: true)))
         d.send(.speechStarted(recentSpeech: true))
         d.send(.speechStopped)
-        d.send(.driverWords(.final("导航去机场")))
-        d.send(.navigation(NavigationFlags(listOpen: true, routeChoiceOpen: true)))
         return d
     }
 
     func started(_ out: [AgentEffect]) -> Bool { out.contains { if case .startTool = $0 { true } else { false } } }
 
-    @Test("F-15a row 4 (revised): the model's pick in the list's own turn is refused; after the driver speaks again it starts, whatever the subtitle")
-    func pickNeedsATurn() {
-        var d = listed()
-        d.realtime(.responseStarted(TurnID(1)))
-        let pick = ToolCall(id: CallID("c1")!, name: "choose_navigation_option", arguments: ["index": 1])
-        #expect(!started(d.realtime(.toolCalls(TurnID(1), [pick]))))
-        d.send(.speechStarted(recentSpeech: true))
-        d.send(.speechStopped)
-        // 「最快的」 heard as Portuguese: the subtitle is （没听清）, the call still starts guidance.
+    @Test("F-15a row 12 (revised): while navigating, 换最快的 runs at once even when the subtitle shows （没听清）")
+    func changeOnFirstTry() {
+        var d = navigating()
         d.send(.driverWords(.unclear))
-        d.realtime(.responseStarted(TurnID(2)))
-        let fastest = ToolCall(id: CallID("c2")!, name: "choose_navigation_option", arguments: ["preference": "fastest"])
-        #expect(started(d.realtime(.toolCalls(TurnID(2), [fastest]))))
+        d.realtime(.responseStarted(TurnID(1)))
+        let fastest = ToolCall(id: CallID("c1")!, name: "choose_navigation_option", arguments: ["preference": "fastest"])
+        #expect(started(d.realtime(.toolCalls(TurnID(1), [fastest]))))
     }
 
-    @Test("F-15a: a tap on a route row is the request (I-6)")
+    @Test("F-15a: a tap on an alternative route is the request (I-6)")
     func tap() {
-        var d = listed()
-        #expect(started(d.send(.ui(.choose(row: 0)))))
+        var d = navigating()
+        #expect(started(d.send(.ui(.choose(row: 1)))))
     }
 }
 

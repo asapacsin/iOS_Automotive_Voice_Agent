@@ -67,6 +67,9 @@ public actor NavigationController: ToolExecutor {
     private var listedAt: NovaInstant?
     /// A start is awaiting the engine; a second pick in the same turn must not start again.
     private var startInFlight = false
+    /// F-15a §2.5 (T-040h): every route of the trip's calculation, recommended first; the driver may change to
+    /// one of them while navigating.
+    private var calculated: [RouteSummary] = []
     private var waiting: (kind: Wait, continuation: CheckedContinuation<NaviEngineEvent?, Never>)?
     private var listener: Task<Void, Never>?
     /// An answer that came while the request was still being sent (the actor is free during that await).
@@ -261,7 +264,7 @@ public actor NavigationController: ToolExecutor {
         case .resolvingDestination, .calculatingRoute:
             return .failure(.optionsNotReady, advice: "路线还在计算。请如实说还在计算，稍等一下。")
         case .navigating:
-            return .failure(.noOptionsOnScreen, advice: "已经在导航了，屏幕上没有候选。请如实说明。")
+            return await changeRoute(args)
         case .idle, .arrived, .error:
             return .failure(.noOptionsOnScreen, advice: "现在屏幕上没有候选列表。请如实说明，不要假装已经选择。")
         }
@@ -287,18 +290,26 @@ public actor NavigationController: ToolExecutor {
             reset()
             return .failure(.routeCalculationFailed, advice: "路线规划失败了。请如实说没有算出路线。")
         }
-        snapshot.phase = .awaitingRouteSelection
-        snapshot.routes = Array(routes.prefix(3))
-        snapshot.selectedRoute = snapshot.routes[0].id
-        listedAt = clock.now
-        publish()
-        return .success([
-            "status": "destination_selected",
-            "destination": .string(place.name),
-            "route_count": .int(Int64(snapshot.routes.count)),
-            "routes": .array(snapshot.routes.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
-            "next": .string("不要念路线细节。只说一句：有\(snapshot.routes.count)条路线，说第几条或者说开始导航。导航还没有开始。"),
-        ])
+        // F-15a §2.5 (T-040h): no route list to wait on; guidance starts on the recommended route at once.
+        calculated = Array(routes.prefix(3))
+        snapshot.routes = calculated
+        return await startGuidance(calculated[0])
+    }
+
+    /// F-15a §2.5 (T-040h): the other routes of the calculation, for her one short offer.
+    private func alternatives(besides chosen: RouteSummary) -> (data: [JSONValue], offer: String?) {
+        let others = calculated.enumerated().filter { $0.element.id != chosen.id }
+        let data = others.map { Self.describe($0.element, index: $0.offset + 1) }
+        let offer: String? = if others.contains(where: { $0.element.durationSeconds < chosen.durationSeconds }) {
+            "还有一条更快的，要换吗？"
+        } else if others.contains(where: { $0.element.lengthMeters < chosen.lengthMeters }) {
+            "还有一条更短的，要换吗？"
+        } else if chosen.tollYuan > 0, others.contains(where: { $0.element.tollYuan == 0 }) {
+            "还有一条不收费的，要换吗？"
+        } else {
+            nil
+        }
+        return (data, offer)
     }
 
     private func noUsableFix() async -> ToolResult? {
@@ -311,7 +322,8 @@ public actor NavigationController: ToolExecutor {
         return nil
     }
 
-    private func startGuidance(_ route: RouteSummary) async -> ToolResult {
+    private func startGuidance(_ route: RouteSummary, replacing label: String? = nil) async -> ToolResult {
+        let replacing = label != nil
         let generation = snapshot.generation
         let mode = mode()
         snapshot.selectedRoute = route.id
@@ -335,14 +347,52 @@ public actor NavigationController: ToolExecutor {
         snapshot.routes = [route]
         listedAt = nil
         publish()
+        let minutes = max(1, route.durationSeconds / 60)
+        let (others, offer) = alternatives(besides: route)
+        let started = mode == .emulator ? "已开始模拟导航" : "已开始导航"
+        let sentence = replacing ? "已换成\(label ?? "")路线，大约\(minutes)分钟。" : "\(started)，大约\(minutes)分钟。" + (offer ?? "")
         return .success([
-            "status": "navigation_started",
+            "status": replacing ? "route_changed" : "navigation_started",
             "destination": .string(snapshot.destination?.name ?? ""),
             "distance_km": .double(Self.km(route.lengthMeters)),
-            "duration_min": .int(Int64(max(1, route.durationSeconds / 60))),
+            "duration_min": .int(Int64(minutes)),
             "simulated_movement": .bool(mode == .emulator),
-            "next": .string(mode == .emulator ? "说一句：模拟导航已开始，大约多少分钟到。" : "说一句：导航已开始，大约多少分钟到。"),
+            "alternatives": .array(others),
+            "next": .string("只说一句：\(sentence)不要念其他路线。"),
         ])
+    }
+
+    /// F-15a §2.5 (T-040h): while navigating, 「换最快的」「不走高速」「换第二条」 replace the route with one of the
+    /// same calculation; one trip, never a second one.
+    private func changeRoute(_ args: JSONValue) async -> ToolResult {
+        guard calculated.count > 1 else {
+            return .failure(.noOptionsOnScreen, advice: "这次只算出一条路线，没有别的可换。请如实说明。")
+        }
+        if startInFlight {
+            return .failure(.optionsNotReady, advice: "正在换路线。请如实说正在换，稍等一下。")
+        }
+        let current = snapshot.routes
+        snapshot.routes = calculated
+        let picked = pickRoute(args)
+        snapshot.routes = current
+        switch picked {
+        case .success(let index):
+            let route = calculated[index]
+            if route.id == current.first?.id {
+                return .success(["status": "route_unchanged", "next": "只说一句：现在走的就是这条路线。"])
+            }
+            let label = switch args["preference"]?.stringValue {
+            case "fastest": "最快的"
+            case "shortest": "最短的"
+            case "no_toll": "不收费的"
+            case "fewest_lights": "红绿灯少的"
+            case "recommended": "推荐的"
+            default: "第\(index + 1)条"
+            }
+            return await startGuidance(route, replacing: label)
+        case .failure(let box):
+            return box.result
+        }
     }
 
     // MARK: exit_navigation_mode
@@ -582,6 +632,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.lastGuidance = nil
         snapshot.lastGuidanceID = nil
         listedAt = nil
+        calculated = []
         publish()
     }
 

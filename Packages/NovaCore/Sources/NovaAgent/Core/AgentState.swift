@@ -46,15 +46,11 @@ public struct NavigationFlags: Sendable, Hashable {
     public var navigating: Bool
     public var guidanceRunning: Bool
     public var listOpen: Bool
-    /// F-15a §2.5: the route list is on screen (`awaitingRouteSelection`).
-    public var routeChoiceOpen: Bool
 
-    public init(navigating: Bool = false, guidanceRunning: Bool = false, listOpen: Bool = false,
-                routeChoiceOpen: Bool = false) {
+    public init(navigating: Bool = false, guidanceRunning: Bool = false, listOpen: Bool = false) {
         self.navigating = navigating
         self.guidanceRunning = guidanceRunning
         self.listOpen = listOpen
-        self.routeChoiceOpen = routeChoiceOpen
     }
 }
 
@@ -139,11 +135,6 @@ public struct AgentState: Sendable {
     private var transcriptEpoch = 0
     /// Utterances closed by the uplink gate (F-04a `activityEnd`): F-15a driver turns, counted from audio.
     private var closedTurns = 0
-    /// F-15a: `closedTurns` when the route list appeared.
-    private var routeListTurn = 0
-    /// F-15a §2.5 (T-040f): `destination_selected` was handled and the flags stream has not shown the route
-    /// list yet; the start guard treats the list as open meanwhile.
-    private var routeListPending = false
     /// F-04 §14 (T-004i): the open utterance was sent to the model (the gate's decision, followed here).
     private var utteranceSent = true
     /// F-05a: `TranscriptSelector` feeds the driver's words (`.driverWords`); Gemini's transcript is not used.
@@ -255,13 +246,6 @@ public struct AgentState: Sendable {
             // can take longer than the 10 s window after the utterance).
             arbiter.driverSpoke(at: now)
             context.record(call, ok: result.ok, at: now)
-            // F-15a §2.5 (T-040f): the route list opens with this result, so the pick guard counts from here,
-            // not from the later flags stream.
-            if result.ok, result.data["status"] == "destination_selected" {
-                routeListTurn = closedTurns
-                routeListPending = true
-            }
-            if ["choose_navigation_option", "exit_navigation_mode"].contains(call.name) { routeListPending = false }
             let finished = dispatcher.finish(call, result)
             let response = ToolResponse(id: call.id, name: call.name, result: finished)
             // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
@@ -328,8 +312,6 @@ public struct AgentState: Sendable {
         case .navigation(let flags):
             let wasNavigating = navigation.navigating
             let tripEnded = navigation.navigating && !flags.navigating
-            if flags.routeChoiceOpen, !navigation.routeChoiceOpen, !routeListPending { routeListTurn = closedTurns }
-            if flags.routeChoiceOpen { routeListPending = false }
             navigation = flags
             arbiter.setNavigating(flags.navigating)
             let ended = tripEnded ? relayOutputs(relay.tripEnded(), at: now) : []
@@ -348,7 +330,6 @@ public struct AgentState: Sendable {
                                 arguments: ["index": .int(Int64(row + 1))])
             let guardContext = GuardContext(turn: 0, closedTurns: closedTurns, now: now, navigating: navigation.navigating,
                                             guidanceRunning: navigation.guidanceRunning, listOpen: navigation.listOpen,
-                                            routeChoiceOpen: navigation.routeChoiceOpen || routeListPending, routeListTurn: routeListTurn,
                                             fromTap: true)
             switch dispatcher.decide(call, context: guardContext) {
             case .execute(let running):
@@ -661,9 +642,7 @@ public struct AgentState: Sendable {
                 let guardContext = GuardContext(turn: speechOnsets, closedTurns: closedTurns, now: now,
                                                 navigating: navigation.navigating,
                                                 guidanceRunning: navigation.guidanceRunning,
-                                                listOpen: navigation.listOpen,
-                                                routeChoiceOpen: navigation.routeChoiceOpen || routeListPending,
-                                                routeListTurn: routeListTurn)
+                                                listOpen: navigation.listOpen)
                 switch dispatcher.decide(call, context: guardContext) {
                 case .execute(let running):
                     runningTools += 1

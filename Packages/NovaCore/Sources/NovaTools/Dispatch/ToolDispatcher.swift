@@ -23,7 +23,7 @@ public struct NotYetExecutor: ToolExecutor {
 }
 
 /// Pure decision half of the dispatcher (F-09, revised by F-05a §6: no guard reads the transcript). Order:
-/// validate → navigationNotRequested → repeatedInTurn → savedPlaceMissing. Keeps the repeat-in-turn record, so it
+/// validate → repeatedInTurn → savedPlaceMissing (the F-15a start guard is withdrawn by T-040h: no route list). Keeps the repeat-in-turn record, so it
 /// lives inside AgentCore. `exit_navigation_mode` is never held for a confirmation (F-05a §6, T-016e).
 public struct ToolDispatcher: Sendable {
     /// Identical repeat-sensitive calls already dispatched, per driver turn (speech-onset epoch).
@@ -33,7 +33,6 @@ public struct ToolDispatcher: Sendable {
 
     public mutating func decide(_ call: ToolCall, context: GuardContext) -> DispatchDecision {
         if let code = ToolCatalog.validate(call) { return .refuse(Self.failure(code)) }
-        if let code = ToolCallGuards.navigationNotRequested(call, context) { return .refuse(Self.failure(code)) }
         if repeatedInTurn(call, context) { return .refuse(Self.failure(.duplicateInTurn)) }
         if let code = ToolCallGuards.savedPlaceMissing(call, context) { return .refuse(Self.failure(code)) }
         return .execute(call)
