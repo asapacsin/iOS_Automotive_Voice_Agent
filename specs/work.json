@@ -1389,6 +1389,17 @@
         "T-004i"
       ],
       "notes": "Device run 7565bcf: 9/52 utterances open 7-13 s for short commands."
+    },
+    {
+      "id": "T-016f",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 15,
+      "action": "F-05a §12: bundled sherpa-onnx streaming Mandarin recognizer (NovaAsrSherpa) replaces AppleSpeechTranscriber; model pick <=80 MB, pinned fetch + SHA-256 at build, not in git; gate utterances drive the stream; remove Speech permission; diagnostics + asr log lines; import gate + architecture §3.2 row; rows 1-10",
+      "depends_on": [
+        "T-016c"
+      ],
+      "notes": "Owner 2026-10-30 \"Yes, write spec\". Device 25a5cd9: phone dictation languages Cantonese/English UK/Japanese only, so SFSpeechRecognizer zh-CN unavailable; owner will not add a Pinyin/Zhuyin keyboard."
     }
   ]
 }
