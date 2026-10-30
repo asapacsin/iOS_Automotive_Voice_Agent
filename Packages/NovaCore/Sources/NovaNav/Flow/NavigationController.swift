@@ -385,13 +385,16 @@ public actor NavigationController: ToolExecutor {
             return .failure(.optionsNotReady, advice: "正在换路线。请如实说正在换，稍等一下。")
         }
         let current = snapshot.routes
+        // 真实导航: the trip has moved, so the routes are recalculated from the current position (T-040h).
+        let fresh = snapshot.mode == .gps
+        if fresh, let failed = await recalculateForChange(keeping: current.first) { return failed }
         snapshot.routes = calculated
         let picked = pickRoute(args)
         snapshot.routes = current
         switch picked {
         case .success(let index):
             let route = calculated[index]
-            if route.id == current.first?.id {
+            if !fresh, route.id == current.first?.id {
                 return .success(["status": "route_unchanged", "next": "只说一句：现在走的就是这条路线。"])
             }
             let label = switch args["preference"]?.stringValue {
@@ -406,6 +409,30 @@ public actor NavigationController: ToolExecutor {
         case .failure(let box):
             return box.result
         }
+    }
+
+    /// One calculation from the current fix to the trip's destination; nil when `calculated` now holds its routes.
+    /// A failed calculation keeps the trip on its current route.
+    private func recalculateForChange(keeping old: RouteSummary?) async -> ToolResult? {
+        guard let place = snapshot.destination else { return nil }
+        let generation = snapshot.generation
+        early[.routes] = nil
+        startInFlight = true
+        await engine.calculateRoutes(RouteRequest(destination: place.coordinate, destinationName: place.name),
+                                     generation: generation)
+        guard generation == snapshot.generation else { startInFlight = false; return .failure(.optionsStale) }
+        let event = await wait(.routes, within: tuning.routeWait)
+        startInFlight = false
+        guard generation == snapshot.generation else { return .failure(.optionsStale) }
+        guard case .routesReady(let routes) = event, !routes.isEmpty else {
+            if let old {
+                await engine.selectRoute(old.id, generation: generation)
+                await engine.start(.gps, generation: generation)
+            }
+            return .failure(.routeCalculationFailed, advice: "没有换成功，继续按原路线导航。请如实说明。")
+        }
+        calculated = Array(routes.prefix(3))
+        return nil
     }
 
     // MARK: exit_navigation_mode

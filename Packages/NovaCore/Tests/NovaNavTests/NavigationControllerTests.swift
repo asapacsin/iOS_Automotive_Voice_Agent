@@ -337,4 +337,59 @@ struct RouteChangeTests {
         let snapshot = await nav.current
         #expect(snapshot.phase == .navigating && snapshot.selectedRoute == RouteID(1))
     }
+
+    @Test("F-15a §2.5 真实导航: a route change recalculates from the current position and picks from the new routes")
+    func gpsChangeRecalculates() async {
+        let engine = RecalcEngine(batches: [[route(1, meters: 12_000, seconds: 1_500), route(2, meters: 13_000, seconds: 1_200)],
+                                            [route(11, meters: 9_000, seconds: 900), route(12, meters: 8_000, seconds: 700)]])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: FixedLocation(), clock: ManualClock(), mode: { .gps })
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        let changed = await nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
+        #expect(changed.ok && changed.data["status"] == "route_changed" && changed.data["duration_min"] == .int(11))
+        #expect(engine.calls.withLock { $0 } == ["calc", "select 1", "start gps", "calc", "select 12", "start gps"])
+        let snapshot = await nav.current
+        #expect(snapshot.phase == .navigating && snapshot.selectedRoute == RouteID(12))
+    }
+
+    @Test("F-15a §2.5 真实导航: a failed recalculation keeps the trip on its current route")
+    func gpsRecalcFailureKeepsTrip() async {
+        let engine = RecalcEngine(batches: [[route(1, meters: 12_000, seconds: 1_500), route(2, meters: 13_000, seconds: 1_200)], []])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: FixedLocation(), clock: ManualClock(), mode: { .gps })
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        let changed = await nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
+        #expect(!changed.ok && changed.code == .routeCalculationFailed)
+        #expect(engine.calls.withLock { $0 }.suffix(3) == ["calc", "select 1", "start gps"])
+        let snapshot = await nav.current
+        #expect(snapshot.phase == .navigating && snapshot.selectedRoute == RouteID(1))
+    }
+}
+
+/// Each calculation returns the next batch of routes (an empty batch fails); every start succeeds.
+final class RecalcEngine: NaviEngine {
+    let events: AsyncStream<NaviEngineEnvelope>
+    private let continuation: AsyncStream<NaviEngineEnvelope>.Continuation
+    let batches: Mutex<[[RouteSummary]]>
+    let calls = Mutex<[String]>([])
+
+    init(batches: [[RouteSummary]]) {
+        (events, continuation) = AsyncStream.makeStream()
+        self.batches = Mutex(batches)
+    }
+
+    func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
+        calls.withLock { $0.append("calc") }
+        let routes = batches.withLock { $0.isEmpty ? [] : $0.removeFirst() }
+        continuation.yield(NaviEngineEnvelope(generation: generation,
+                                              event: routes.isEmpty ? .routeCalculationFailed(code: 2) : .routesReady(routes)))
+    }
+    func selectRoute(_ id: RouteID, generation: Generation) async { calls.withLock { $0.append("select \(id.rawValue)") } }
+    func start(_ mode: NaviMode, generation: Generation) async {
+        calls.withLock { $0.append("start \(mode == .gps ? "gps" : "emulator")") }
+        continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviStarted))
+    }
+    func stop(generation: Generation) async { calls.withLock { $0.append("stop") } }
 }
