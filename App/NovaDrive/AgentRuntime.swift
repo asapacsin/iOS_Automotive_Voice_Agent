@@ -619,7 +619,10 @@ final class AgentRuntime {
         ended.core = core
         self.core = core
         // F-24 §14 item 1: the network path, only while this session exists.
-        let network = NetworkPathWatcher { available in Task { await core.send(.network(available: available)) } }
+        // One consumer, so a quick lost/restored pair reaches the core in order.
+        let paths = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .unbounded)
+        tasks.append(Task { for await available in paths.stream { await core.send(.network(available: available)) } })
+        let network = NetworkPathWatcher { available in paths.continuation.yield(available) }
         network.start()
         self.network = network
         // F-05a §12: the driver's words from the bundled sherpa-onnx recognizer (loaded once per app run);

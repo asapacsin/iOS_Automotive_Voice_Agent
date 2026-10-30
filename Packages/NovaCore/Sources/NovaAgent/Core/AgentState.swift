@@ -497,7 +497,7 @@ public struct AgentState: Sendable {
             switch effect {
             case .stateChanged(let state):
                 view.chip = state.chip
-                if state == .connecting || state == .listening { view.configError = nil }
+                if state == .connecting || state == .reconnecting || state == .listening { view.configError = nil }
                 if state != .disconnected { view.offlineEnded = false }
                 view.waitingForNetwork = session.waitingForNetwork
                 effects.append(.publish(view))
