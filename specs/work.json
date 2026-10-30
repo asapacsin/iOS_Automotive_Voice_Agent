@@ -1411,6 +1411,15 @@
         "T-016f"
       ],
       "notes": "Owner 2026-10-30 \"Yes, spec it\" after community review (Google bare 'stop' while speaking, car command words). Device 25a5cd9: 别说了 never stopped her (bargeIn qualified false x3; unsent, no local recognizer)."
+    },
+    {
+      "id": "T-034a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 12,
+      "action": "F-21 §14: rewrite Persona.instruction as persona -> car scope (strict, tool results only, rules 2-7 kept) -> other scope (own knowledge, 3-5 spoken sentences, continue on request, live facts: say cannot check) -> guardrails; <=1500 chars; no F-09 change; rows 1-8",
+      "depends_on": [],
+      "notes": "Owner 2026-10-30 \"Yes, spec it\" after community review (VW IDA, Mercedes MBUX, Gemini Live / OpenAI Realtime prompt guides). Device 25a5cd9: 介绍一下珠海 got a short no-info answer; no reply longer than ~6 s."
     }
   ]
 }
