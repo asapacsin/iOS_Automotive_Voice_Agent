@@ -32,8 +32,9 @@ public enum StopPhrases {
 
     /// The index of a whole-utterance stop phrase, for the log; nil for the transcript check's extra phrases.
     public static func index(of utterance: String) -> Int? {
+        // The same lead-in and courtesy stripping as the check itself (「小诺别说了」「别说了吧」).
         let phrase = ListeningIntent.normalise(utterance)
-        return all.firstIndex { $0.text == phrase }
+        return all.firstIndex { ListeningIntent.matches(phrase, [$0.text]) }
     }
 }
 

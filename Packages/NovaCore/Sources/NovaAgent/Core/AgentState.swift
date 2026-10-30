@@ -148,8 +148,10 @@ public struct AgentState: Sendable {
     private var lastSpeechEndAt: NovaInstant?
     private var lastStopAt: NovaInstant?
     private var stopUtterance: Int?
-    /// An utterance heard during her reply with no stop yet; logged as a miss when the reply ends.
-    private var missCandidate: Int?
+    private var stopSource: StopPhraseSource?
+    /// An utterance heard during her reply with no stop yet, and that reply's epoch; logged as a miss when that
+    /// reply ends.
+    private var missCandidate: (utterance: Int, epoch: Epoch)?
     /// F-05a: `TranscriptSelector` feeds the driver's words (`.driverWords`); Gemini's transcript is not used.
     private var selectorOwnsWords = false
     /// Clauses waiting while the arbiter holds the reply (R1 guidance, R5 transient loss).
@@ -214,7 +216,7 @@ public struct AgentState: Sendable {
             utterances += 1
             utteranceOpen = true
             lastOnsetAt = now
-            if !sentToModel, arbiter.replyPlaying { missCandidate = utterances }
+            if !sentToModel, arbiter.replyPlaying { missCandidate = (utterances, arbiter.epoch) }
             utteranceSent = sentToModel
             // F-04 §14 item 1: an utterance the gate did not send is ignored (her reply plays on); only the
             // local 别说了 check still hears its words.
@@ -274,13 +276,16 @@ public struct AgentState: Sendable {
         case .playback(let playback):
             switch playback {
             // Only the current reply epoch counts: a late event of a flushed reply changes nothing.
-            case .replyStarted(let epoch) where epoch == arbiter.epoch: _ = arbiter.handle(.replyPlaying(true))
+            case .replyStarted(let epoch) where epoch == arbiter.epoch:
+                _ = arbiter.handle(.replyPlaying(true))
+                // A candidate of a flushed or superseded reply is not this reply's miss.
+                if let missed = missCandidate, missed.epoch != epoch { missCandidate = nil }
             case .replyFinished(let epoch) where epoch == arbiter.epoch:
                 _ = arbiter.handle(.replyPlaying(false))
             case .replyIdle(let epoch) where epoch == arbiter.epoch:
-                if let missed = missCandidate {
+                if let missed = missCandidate, missed.epoch == epoch {
                     missCandidate = nil
-                    return [.diagnostic(.stopPhraseMiss(utterance: missed))] + replyIdle(at: now)
+                    return [.diagnostic(.stopPhraseMiss(utterance: missed.utterance))] + replyIdle(at: now)
                 }
                 return replyIdle(at: now)
             case .replyIdle:
@@ -571,14 +576,16 @@ public struct AgentState: Sendable {
     private mutating func stopPhrase(_ source: StopPhraseSource, phrase: Int, score: Int,
                                      at now: NovaInstant) -> [AgentEffect]? {
         if let last = lastStopAt, now - last < .seconds(1) { return nil }
-        if stopUtterance == utterances { return nil }
+        // Item 5: the other source, in the same open utterance, is ignored (whichever fired first stopped her).
+        if utteranceOpen, stopUtterance == utterances, stopSource != source { return nil }
         let stop = bargeIn(.stopPhrase, at: now)
         guard !stop.isEmpty else { return nil }
         lastStopAt = now
         stopUtterance = utterances
+        stopSource = source
         missCandidate = nil
         let heardDriver = utteranceOpen || lastSpeechEndAt.map { now - $0 <= .seconds(1) } == true
-        let ms = lastOnsetAt.map { Int((now - $0).milliseconds) } ?? -1
+        let ms = heardDriver ? lastOnsetAt.map { Int((now - $0).milliseconds) } ?? -1 : -1
         return stop + [.diagnostic(.stopPhrase(source: source, phrase: phrase, msFromSpeechStart: ms, score: score,
                                                selfStop: !heardDriver))] + arbiterChanged(at: now)
     }
@@ -608,8 +615,16 @@ public struct AgentState: Sendable {
         // answer to it is not heard: she just stops.
         if ListeningIntent.classify(text) == .shutUp {
             let stop = stopPhrase(.transcript, phrase: StopPhrases.index(of: text) ?? -1, score: 0, at: now)
-            if isFinal { abandonNextTurn = true }
-            return stop ?? []
+            // Only a stop that fired gives up the turn: with her silent, 「停」 is a command for the model (music).
+            if let stop {
+                if isFinal { abandonNextTurn = true }
+                return stop
+            }
+            // A stop already fired in this utterance (spotter or an earlier partial): its words are no command either.
+            if stopUtterance == utterances {
+                if isFinal { abandonNextTurn = true }
+                return []
+            }
         }
         // The flushed transcript of an utterance already given up on does not revive it; words of a not-sent
         // utterance never reach the tool path (F-04 §14 item 1).

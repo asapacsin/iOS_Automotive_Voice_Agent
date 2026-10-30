@@ -328,6 +328,7 @@ struct StopPhraseWindowTests {
         let lines = StopPhrases.keywordsFile.split(separator: "\n")
         #expect(lines.count == 7 && lines[0] == "b ié sh uō l e @0")
         #expect(StopPhrases.index(of: "别说了") == 0 && StopPhrases.index(of: "别吵了") == nil)
+        #expect(StopPhrases.index(of: "小诺别说了") == 0 && StopPhrases.index(of: "别说了吧") == 0)
         // Item 5: the transcript check knows the whole stop set.
         for phrase in StopPhrases.all { #expect(ListeningIntent.classify(phrase.text) == .shutUp, "\(phrase.text)") }
     }

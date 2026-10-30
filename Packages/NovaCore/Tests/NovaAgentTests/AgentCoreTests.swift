@@ -529,12 +529,36 @@ struct StopPhraseSpotterCoreTests {
         #expect(!stops(d.send(.driverWords(.final("别说了")))))
     }
 
+    @Test("F-08 §14 (review D1): 「停」 with her silent is a command for the model, not a given-up turn")
+    func stopWordWhileSilent() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        let words = d.send(.driverWords(.final("停")))
+        #expect(!stops(words))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(1)))
+        let call = d.realtime(.toolCalls(TurnID(1), [ToolCall(id: CallID("m1")!, name: "control_music",
+                                                             arguments: ["action": "stop"])]))
+        #expect(call.contains { if case .startTool = $0 { true } else { false } })
+    }
+
+    @Test("F-08 §14 (review D2): after a self-stop, a later hit in a new reply still stops her")
+    func laterHitStops() {
+        var d = SendDecisionTests().playing()
+        d.now = NovaInstant(milliseconds: 5_000)
+        #expect(stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))))
+        d.send(.playback(.replyStarted(Epoch.initial.next())))
+        d.now = NovaInstant(milliseconds: 15_000)
+        #expect(stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))))
+    }
+
     @Test("F-08 §14 item 7: a hit with no driver speech is a self-stop; a reply with an unsent utterance and no hit is a miss")
     func logLines() {
         var d = SendDecisionTests().playing()
         d.now = NovaInstant(milliseconds: 5_000)
         let selfStop = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 6, score: 55)))
-        #expect(diagnostics(selfStop).contains { if case .stopPhrase(.kws, 6, _, 55, true) = $0 { true } else { false } })
+        #expect(diagnostics(selfStop).contains { if case .stopPhrase(.kws, 6, -1, 55, true) = $0 { true } else { false } })
         var m = SendDecisionTests().playing()
         m.send(.speechStarted(recentSpeech: true, sentToModel: false))
         m.send(.speechStopped)
