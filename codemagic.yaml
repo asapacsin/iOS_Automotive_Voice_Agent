@@ -15,6 +15,13 @@ workflows:
         - $HOME/Library/Caches/org.swift.swiftpm
 
     scripts:
+      # F-05a §12 item 3 / F-08 §14 item 2: sherpa-onnx xcframeworks and models, pinned and checksummed.
+      - name: Fetch sherpa-onnx libraries and models
+        script: |
+          set -e
+          scripts/fetch_sherpa_libs.sh
+          scripts/fetch_sherpa_models.sh
+
       - name: Generate Xcode project
         script: |
           command -v xcodegen || brew install xcodegen

@@ -25,7 +25,7 @@ public enum LocalTranscript: Sendable, Hashable {
     }
 }
 
-/// F-05a §4: the on-device `zh-CN` recognizer (adapter `AppleSpeechTranscriber` in NovaAudio). It gets the same
+/// F-05a §4: the on-device `zh-CN` recognizer (adapter `SherpaTranscriber` in NovaAsrSherpa, F-05a §12). It gets the same
 /// frames that go up to Gemini, one request per utterance.
 public protocol LocalTranscriber: Sendable {
     var availability: TranscriberAvailability { get async }

@@ -22,8 +22,6 @@ actor DriverTranscript {
     private var selector = TranscriptSelector()
     private var next = 0
     private var open: UtteranceID?
-    /// For 音频测试: 「本机 zh-CN」 or the reason the phone cannot recognise.
-    private(set) var source = "—"
 
     init(transcriber: any LocalTranscriber, core: AgentCore, clock: SystemClock,
          onWords: @escaping @Sendable (DriverWords) -> Void) {
@@ -48,12 +46,8 @@ actor DriverTranscript {
             open = id
             let ready: Bool
             switch await transcriber.availability {
-            case .ready:
-                ready = true
-                source = "本机 zh-CN"
-            case .unavailable(let reason):
-                ready = false
-                source = "云端（本机不可用：\(reason)）"
+            case .ready: ready = true
+            case .unavailable: ready = false
             }
             await route(selector.begin(id, localReady: ready))
             if ready { await transcriber.begin(utterance: id) }

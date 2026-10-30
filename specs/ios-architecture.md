@@ -133,6 +133,7 @@ NovaDriveIOS/
 |---|---|
 | `AMapNaviKit`, `AMapFoundationKit`, `MAMapKit` | NovaNavAmap |
 | `iflyMSC` | NovaWakeIflytek |
+| `CSherpaOnnx` (sherpa-onnx C API; sherpa-onnx and onnxruntime xcframeworks as `binaryTarget`s) | NovaAsrSherpa |
 | `AVFAudio` (engine, session, player nodes, `AVSpeechSynthesizer`) | NovaAudio |
 | `AVFoundation` capture (`AVCaptureSession`), `CoreLocation`, `Contacts`, `MusicKit` | NovaPlatform |
 | `Security` (Keychain) | NovaServices |

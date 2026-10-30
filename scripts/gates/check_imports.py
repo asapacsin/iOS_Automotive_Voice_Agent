@@ -15,10 +15,12 @@ IMPORT = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s*)*"
 OWNERS = {
     "AMapNaviKit": {"NovaNavAmap"}, "AMapFoundationKit": {"NovaNavAmap"}, "MAMapKit": {"NovaNavAmap"},
     "iflyMSC": {"NovaWakeIflytek"},
+    # sherpa-onnx C API module (c-api.h over the sherpa-onnx/onnxruntime xcframeworks), F-05a §12 item 4.
+    "CSherpaOnnx": {"NovaAsrSherpa"},
     # AIKit ships device-only frameworks (no simulator slice), so it links into the app's device build
     # only; App/NovaDrive/Wake/AIKitWakeEngine.swift is its single importer.
     "AIKIT": {"App"}, "ef7d69542_v1009_aee": {"App"},
-    "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"}, "Speech": {"NovaAudio"},
+    "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"},
     "AVFoundation": {"NovaPlatform"},
     "CoreLocation": {"NovaPlatform"}, "Contacts": {"NovaPlatform"}, "MusicKit": {"NovaPlatform"},
     "Security": {"NovaServices"},

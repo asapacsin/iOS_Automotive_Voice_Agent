@@ -14,6 +14,7 @@ let package = Package(
         .package(path: "../Packages/NovaAudio"),
         .package(path: "../Packages/NovaRealtime"),
         .package(path: "../Packages/NovaPlatform"),
+        .package(path: "../Packages/NovaAsrSherpa"),
     ],
     targets: [
         .target(
@@ -29,8 +30,12 @@ let package = Package(
                 .product(name: "NovaAudio", package: "NovaAudio"),
                 .product(name: "NovaRealtime", package: "NovaRealtime"),
                 .product(name: "NovaPlatform", package: "NovaPlatform"),
+                .product(name: "NovaAsrSherpa", package: "NovaAsrSherpa"),
             ],
-            path: "NovaDrive"
+            path: "NovaDrive",
+            // Bundled by project.yml as a folder resource; this xtool build does not carry the models yet
+            // (no SherpaModels in Bundle.main, so the app falls back as §5 S3 / F-08 §14 item 8).
+            exclude: ["SherpaModels"]
         ),
     ]
 )

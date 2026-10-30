@@ -232,6 +232,10 @@ struct ObservedCameraExecutor: ToolExecutor {
 @MainActor
 final class AgentRuntime {
     let model = DriveModel()
+
+    /// F-05a §12 item 7: the bundled speech models start loading when the app starts, off the main actor.
+    init() { LocalSpeechModels.shared.load() }
+
     /// T-061: 你好小诺 while idle starts a session (off in the simulator drive test).
     private lazy var wake = WakeListener { [weak self] in await self?.start() }
     private var core: AgentCore?
@@ -596,10 +600,11 @@ final class AgentRuntime {
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
         ended.core = core
         self.core = core
-        // F-05a: the driver's words from the phone's own zh-CN recognizer; Gemini's guess only as a checked
-        // fallback. 语音识别 is asked together with the first microphone use (§2).
-        _ = await AppleSpeechTranscriber.requestPermission()
-        let transcript = DriverTranscript(transcriber: AppleSpeechTranscriber(), core: core, clock: SystemClock()) { words in
+        // F-05a §12: the driver's words from the bundled sherpa-onnx recognizer (loaded once per app run);
+        // Gemini's guess only as a checked fallback (§5 S3) until it is loaded or if it fails.
+        let speechModels = LocalSpeechModels.shared
+        speechModels.load()
+        let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core, clock: SystemClock()) { words in
             let line: String? = switch words {
             case .partial(let text), .final(let text): text
             case .unclear: "（没听清）"
@@ -755,7 +760,7 @@ final class AgentRuntime {
         tasks.append(Task { [model] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
-                let line = gate.diagnostics + "\n识别：" + (await transcript.source)
+                let line = gate.diagnostics + "\n" + speechModels.diagnostics
                 // The echo tail ends on a capture frame, not a playback event, so 请说 is refreshed here too.
                 let talking = gate.sheTalks, hint = gate.stopPhraseWindow
                 await MainActor.run {
@@ -765,10 +770,15 @@ final class AgentRuntime {
                 }
             }
         })
+        // F-08 §14 items 3–4: the stop-phrase spotter hears only her reply and its echo tail; a hit stops her.
+        let stopPhrases = StopPhraseFeed(models: speechModels) { hit in
+            Task { await core.send(.stopPhraseSpotted(hit)) }
+        }
         do {
             try audio.start { frame in
                 classifier.feed(frame)
                 gate.process(frame).forEach(route)
+                stopPhrases.frame(frame, inWindow: gate.stopPhraseWindow)
             }
         } catch {
             model.notice = "麦克风启动失败"
