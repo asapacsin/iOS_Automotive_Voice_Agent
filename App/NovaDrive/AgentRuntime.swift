@@ -27,6 +27,8 @@ final class DriveModel: ObservableObject {
     @Published var sheTalks = false
     /// F-08 §14 item 6: her reply (not guidance) plays, so 别说了 stops her: the hint under 「她在说话」.
     @Published var stopHint = false
+    /// F-24 §14 item 4: the offline cap ended the session: 「网络已断开，点按重新开始」 until the next start.
+    @Published var networkEnded = false
     @Published var notice: String?
     // F-20a floating camera window
     @Published var cameraOpen = false
@@ -119,6 +121,8 @@ struct RuntimeSink: AgentEffectSink {
     let gate: GateBox
     /// Reports `guidanceEnded` to the core for a sentence that never reached the guidance lane.
     let guidanceEnded: @Sendable (GuidanceID) async -> Void
+    /// F-24 §14 item 4: the offline cap ended the session; the runtime releases the microphone and audio session.
+    let offlineEnded: @Sendable () async -> Void
 
     func provider(_ command: ProviderCommand) async {
         switch command {
@@ -144,6 +148,7 @@ struct RuntimeSink: AgentEffectSink {
 
     func publish(_ view: AgentViewState) async {
         await MainActor.run { model.view = view }
+        if view.offlineEnded { await offlineEnded() }
     }
 
     func diagnostic(_ event: DiagnosticEvent) {
@@ -252,6 +257,7 @@ final class AgentRuntime {
     private var classifier: SoundAnalysisSpeechClassifier?
     /// F-04a: re-reads the 抗噪 switch when UserDefaults change during a session.
     private var defaultsObserver: NSObjectProtocol?
+    private var network: NetworkPathWatcher?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
     let camera = CameraSession()
@@ -469,6 +475,7 @@ final class AgentRuntime {
     func start() async {
         guard !model.running else { return }
         model.notice = nil
+        model.networkEnded = false
         // F-23 (T-063): the microphone is asked at the first talk; a denial is explained.
         let mic: PermissionStatus = switch MicrophonePermission.current {
         case true?: .granted
@@ -606,10 +613,15 @@ final class AgentRuntime {
         let ended = CoreRelay()
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
-                               guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) })
+                               guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
+                               offlineEnded: { [weak self] in await self?.endedOffline() })
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
         ended.core = core
         self.core = core
+        // F-24 §14 item 1: the network path, only while this session exists.
+        let network = NetworkPathWatcher { available in Task { await core.send(.network(available: available)) } }
+        network.start()
+        self.network = network
         // F-05a §12: the driver's words from the bundled sherpa-onnx recognizer (loaded once per app run);
         // Gemini's guess only as a checked fallback (§5 S3) until it is loaded or if it fails.
         let speechModels = LocalSpeechModels.shared
@@ -842,8 +854,17 @@ final class AgentRuntime {
         return trip
     }
 
+    /// F-24 §14 item 4: the session ended quietly after the offline cap; the chip says why until the next start.
+    private func endedOffline() {
+        guard model.running else { return }
+        stop()
+        model.networkEnded = true
+    }
+
     func stop() {
         session += 1
+        network?.stop()
+        network = nil
         // F-15a §9: the trip is the app's; it keeps going (HUD, marker, progress) with no session listening.
         trip?.listeners.detach()
         // F-20a §5: session stop closes the camera.

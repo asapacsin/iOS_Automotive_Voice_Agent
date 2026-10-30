@@ -28,6 +28,15 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case stopPhrase(source: StopPhraseSource, phrase: Int, msFromSpeechStart: Int, score: Int, selfStop: Bool)
     /// F-08 §14 item 7: a reply ended with an utterance during it and no stop phrase.
     case stopPhraseMiss(utterance: Int)
+    /// F-24 §14 item 6: the network path went away / came back (debounced by the watcher).
+    case networkLost
+    case networkRestored
+    /// F-24 §14 item 2: the immediate attempt when the network returns (the backoff ones are `reconnectAttempt`).
+    case offlineRestoreAttempt
+    /// F-24 §14 item 6: a reconnect was set up again, with or without the resumption handle.
+    case resumed(handle: Bool)
+    /// F-24 §14 item 4: the network stayed gone for `offlineWaitCap`; the session ended.
+    case offlineCapReached
 }
 
 public enum StopPhraseSource: String, Sendable, Hashable {
@@ -58,6 +67,11 @@ extension DiagnosticEvent {
         case sessionError
         case stopPhrase
         case stopPhraseMiss
+        case networkLost
+        case networkRestored
+        case offlineRestoreAttempt
+        case resumed
+        case offlineCapReached
     }
 
     public var kind: Kind {
@@ -82,6 +96,11 @@ extension DiagnosticEvent {
         case .sessionError: .sessionError
         case .stopPhrase: .stopPhrase
         case .stopPhraseMiss: .stopPhraseMiss
+        case .networkLost: .networkLost
+        case .networkRestored: .networkRestored
+        case .offlineRestoreAttempt: .offlineRestoreAttempt
+        case .resumed: .resumed
+        case .offlineCapReached: .offlineCapReached
         }
     }
 }
@@ -93,6 +112,12 @@ extension DiagnosticEvent {
         case .stopPhrase(let source, let phrase, let ms, let score, let selfStop):
             "stopPhrase source=\(source.rawValue) phrase=\(phrase) msFromSpeechStart=\(ms) score=\(score) selfStop=\(selfStop)"
         case .stopPhraseMiss(let utterance): "stopPhraseMiss utterance=\(utterance)"
+        case .reconnectAttempt(let n, let delay): "reconnectAttempt \(n) reason=backoff delay=\(delay)"
+        case .offlineRestoreAttempt: "reconnectAttempt 1 reason=offlineRestore"
+        case .resumed(let handle): "resumed handle=\(handle ? "yes" : "no")"
+        case .networkLost: "networkLost"
+        case .networkRestored: "networkRestored"
+        case .offlineCapReached: "offlineCapReached"
         default: "diagnostic \(self)"
         }
     }

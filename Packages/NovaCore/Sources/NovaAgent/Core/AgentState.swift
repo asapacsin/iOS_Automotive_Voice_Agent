@@ -35,6 +35,8 @@ public enum AgentEvent: Sendable, Hashable {
     case ui(UIIntent)
     /// F-08 §14 item 4 (T-022a): the on-phone keyword spotter heard a stop phrase while she talked.
     case stopPhraseSpotted(StopPhraseHit)
+    /// F-24 §14 item 1: `NetworkPathWatcher` says the path went away (false) or came back (true).
+    case network(available: Bool)
 }
 
 /// Screen actions (ios-architecture §11.1). Each becomes the tool call the voice path would make.
@@ -80,6 +82,10 @@ public struct AgentViewState: Sendable, Hashable {
     public var subtitle = ""
     /// Terminal error: the settings message for this code.
     public var configError: RealtimeErrorCode?
+    /// F-24 §14 item 3: no network; the chip reads 等待网络… instead of PROCESSING.
+    public var waitingForNetwork = false
+    /// F-24 §14 item 4: the offline cap ended the session; the chip reads 网络已断开，点按重新开始 until a start.
+    public var offlineEnded = false
 
     public init() {}
 }
@@ -203,6 +209,13 @@ public struct AgentState: Sendable {
             return session(.start, at: now)
         case .stop:
             return session(.stop, at: now)
+        case .network(let available):
+            var effects = session(available ? .networkRestored : .networkLost, at: now)
+            if view.waitingForNetwork != session.waitingForNetwork {
+                view.waitingForNetwork = session.waitingForNetwork
+                effects.append(.publish(view))
+            }
+            return effects
         case .realtime(let realtime, let connection):
             guard connection == session.connection, session.state != .disconnected, session.state != .error else {
                 return []
@@ -485,7 +498,11 @@ public struct AgentState: Sendable {
             case .stateChanged(let state):
                 view.chip = state.chip
                 if state == .connecting || state == .listening { view.configError = nil }
+                if state != .disconnected { view.offlineEnded = false }
+                view.waitingForNetwork = session.waitingForNetwork
                 effects.append(.publish(view))
+            case .offlineEnded:
+                view.offlineEnded = true
             case .connect(let connection, let resume):
                 effects += newSocket(at: now)
                 effects.append(.provider(.connect(connection: connection, resume: resume)))

@@ -88,6 +88,8 @@ public struct RealtimeTuning: Sendable, Hashable {
     public var eventBufferLimit = 1024
     /// Client messages queued on a socket before it counts as stalled (~5 s of 10 ms audio frames).
     public var outboxLimit = 512
+    /// F-24 §14 item 4: how long she waits for the network before the session ends quietly.
+    public var offlineWaitCap = NovaDuration.seconds(600)
     public init() {}
 }
 

@@ -316,7 +316,13 @@ private struct DriveContent: View {
         case .speaking: ("说话中", .blue)
         case .error: ("出错 \(model.view.configError?.rawValue ?? "")", .red)
         }
-        let (text, color) = model.sheTalks && model.running ? ("她在说话", Color.blue) : state
+        // F-24 §14 items 3–4: no network is not an error.
+        let network: (String, Color)? = if model.networkEnded && !model.running {
+            ("网络已断开，点按重新开始", .red)
+        } else if model.view.waitingForNetwork && model.running {
+            ("等待网络…", .orange)
+        } else { nil }
+        let (text, color) = network ?? (model.sheTalks && model.running ? ("她在说话", Color.blue) : state)
         return HStack(spacing: 5) {
             Circle().fill(color).frame(width: 9, height: 9)
             VStack(alignment: .leading, spacing: 0) {
@@ -329,6 +335,7 @@ private struct DriveContent: View {
         }
         .padding(.horizontal, 9).padding(.vertical, 4)
         .background(color.opacity(0.15), in: Capsule())
+        .onTapGesture { if model.networkEnded && !model.running { Task { await runtime.start() } } }
         .accessibilityIdentifier("status-chip")
     }
 

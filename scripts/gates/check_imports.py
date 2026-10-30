@@ -22,7 +22,7 @@ OWNERS = {
     "AIKIT": {"App"}, "ef7d69542_v1009_aee": {"App"},
     "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"},
     "AVFoundation": {"NovaPlatform"},
-    "CoreLocation": {"NovaPlatform"}, "Contacts": {"NovaPlatform"}, "MusicKit": {"NovaPlatform"},
+    "CoreLocation": {"NovaPlatform"}, "Network": {"NovaPlatform"}, "Contacts": {"NovaPlatform"}, "MusicKit": {"NovaPlatform"},
     "Security": {"NovaServices"},
     "UIKit": {"App", "NovaNavAmap"}, "SwiftUI": {"App", "NovaNavAmap"},
     "CarPlay": {"App"},
