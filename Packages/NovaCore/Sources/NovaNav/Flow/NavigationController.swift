@@ -37,6 +37,13 @@ public struct NavigationFlowState: Sendable, Hashable {
     /// F-15a §2.5 (T-040h): the other routes of the trip's calculation while navigating, for a tap that changes the
     /// route (I-6: the same `choose_navigation_option` index as 「换第N条」).
     public var alternatives: [AlternativeRoute] = []
+    /// The route buttons on screen: none while a list is open (a tap there picks a list row), and in 真实导航 only
+    /// 「第N条」, since a change recalculates from here and the earlier minutes no longer hold.
+    public var routeTapTargets: [AlternativeRoute] {
+        guard phase == .navigating, !alongRouteList else { return [] }
+        guard mode == .gps else { return alternatives }
+        return alternatives.map { AlternativeRoute(row: $0.row, route: $0.route, text: "第\($0.row + 1)条") }
+    }
 
     public init() {}
 

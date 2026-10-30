@@ -406,6 +406,15 @@ extension RouteChangeTests {
         #expect(tapped.ok && tapped.data["status"] == "route_changed")
         snapshot = await nav.current
         #expect(snapshot.selectedRoute == RouteID(2) && snapshot.alternatives.map(\.row) == [0, 2])
+        #expect(snapshot.routeTapTargets == snapshot.alternatives)
+        // A list over the guidance: a tap there picks a list row, so no route buttons are shown.
+        var listed = snapshot
+        listed.alongRouteList = true
+        #expect(listed.routeTapTargets.isEmpty)
+        // 真实导航: no stale minutes or notes on the buttons.
+        var gps = snapshot
+        gps.mode = .gps
+        #expect(gps.routeTapTargets.map(\.text) == ["第1条", "第3条"])
         _ = await nav.execute(tool("exit_navigation_mode"))
         #expect(await nav.current.alternatives.isEmpty)
     }
