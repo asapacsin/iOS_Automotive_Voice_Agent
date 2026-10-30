@@ -8,6 +8,14 @@ public enum NavigationPhase: String, Sendable, Hashable {
     case navigating, arrived, error
 }
 
+/// One tap target on the trip's screen: `row` is the route's 0-based place in the calculation (`UIIntent.choose`).
+public struct AlternativeRoute: Sendable, Hashable {
+    public let row: Int
+    public let route: RouteSummary
+    /// 「第2条 · 约20分钟」, with 更快 / 更短 / 不收费 against the running route.
+    public let text: String
+}
+
 /// What the screen and the guards see of the flow. A snapshot, not the flow's own state.
 public struct NavigationFlowState: Sendable, Hashable {
     public var phase: NavigationPhase = .idle
@@ -26,6 +34,9 @@ public struct NavigationFlowState: Sendable, Hashable {
     public var rerouting = false
     /// F-15a: the running trip's mode (read when guidance starts). The map and HUD draw by it.
     public var mode: NaviMode = .emulator
+    /// F-15a §2.5 (T-040h): the other routes of the trip's calculation while navigating, for a tap that changes the
+    /// route (I-6: the same `choose_navigation_option` index as 「换第N条」).
+    public var alternatives: [AlternativeRoute] = []
 
     public init() {}
 
@@ -312,6 +323,19 @@ public actor NavigationController: ToolExecutor {
         return (data, offer)
     }
 
+    static func alternativeRoutes(_ calculated: [RouteSummary], running: RouteSummary) -> [AlternativeRoute] {
+        calculated.enumerated().compactMap { index, other in
+            guard other.id != running.id else { return nil }
+            var notes: [String] = []
+            if other.durationSeconds < running.durationSeconds { notes.append("更快") }
+            if other.lengthMeters < running.lengthMeters { notes.append("更短") }
+            if other.tollYuan == 0, running.tollYuan > 0 { notes.append("不收费") }
+            let minutes = max(1, other.durationSeconds / 60)
+            let text = (["第\(index + 1)条", "约\(minutes)分钟"] + notes).joined(separator: " · ")
+            return AlternativeRoute(row: index, route: other, text: text)
+        }
+    }
+
     private func noUsableFix() async -> ToolResult? {
         if await location.authorization() == .denied {
             return .failure(.locationPermissionDenied, advice: "没有定位权限，真实导航不能开始。请如实说：请在设置里打开定位。")
@@ -357,6 +381,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.routes = [route]
         // A restart cancels any off-route recalculation in flight, so its 重新规划中 never ends on its own.
         snapshot.rerouting = false
+        snapshot.alternatives = Self.alternativeRoutes(calculated, running: route)
         listedAt = nil
         publish()
         let minutes = max(1, route.durationSeconds / 60)
@@ -503,6 +528,8 @@ public actor NavigationController: ToolExecutor {
             if let route {
                 snapshot.routes = [route]
                 snapshot.selectedRoute = route.id
+                // The other routes started where the trip was; a change now recalculates (§2.5).
+                snapshot.alternatives = []
             }
             publish()
         case .cameraInfo:
@@ -665,6 +692,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.selectedRoute = nil
         snapshot.info = nil
         snapshot.rerouting = false
+        snapshot.alternatives = []
         snapshot.lastGuidance = nil
         snapshot.lastGuidanceID = nil
         listedAt = nil

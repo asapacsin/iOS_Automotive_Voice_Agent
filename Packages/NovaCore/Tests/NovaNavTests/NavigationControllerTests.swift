@@ -389,6 +389,28 @@ extension RouteChangeTests {
     }
 }
 
+extension RouteChangeTests {
+    @Test("F-15a §2.5 (I-6): the trip's other routes are tap targets; a tap index changes the route like 换第N条")
+    func tapTargets() async {
+        let engine = RecalcEngine(batches: [[route(1, meters: 12_000, seconds: 1_500, toll: 5),
+                                             route(2, meters: 13_000, seconds: 1_200), route(3, meters: 11_000, seconds: 1_800, toll: 5)]])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: NoLocation(), clock: ManualClock())
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        var snapshot = await nav.current
+        #expect(snapshot.alternatives.map(\.row) == [1, 2])
+        #expect(snapshot.alternatives.map(\.text) == ["第2条 · 约20分钟 · 更快 · 不收费", "第3条 · 约30分钟 · 更短"])
+        // UIIntent.choose(row: 1) is choose_navigation_option index 2.
+        let tapped = await nav.execute(tool("choose_navigation_option", ["index": 2]))
+        #expect(tapped.ok && tapped.data["status"] == "route_changed")
+        snapshot = await nav.current
+        #expect(snapshot.selectedRoute == RouteID(2) && snapshot.alternatives.map(\.row) == [0, 2])
+        _ = await nav.execute(tool("exit_navigation_mode"))
+        #expect(await nav.current.alternatives.isEmpty)
+    }
+}
+
 /// Each calculation returns the next batch of routes (an empty batch fails); every start succeeds.
 final class RecalcEngine: NaviEngine {
     let events: AsyncStream<NaviEngineEnvelope>

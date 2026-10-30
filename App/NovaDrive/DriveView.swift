@@ -363,6 +363,16 @@ private struct DriveContent: View {
             if let guidance = panel.lastGuidance {
                 Text(guidance).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
             }
+            // F-15a §2.5 (I-6): a tap on another route changes to it, like 「换第N条」.
+            if !model.nav.alternatives.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(model.nav.alternatives, id: \.row) { alternative in
+                        Button("换 " + alternative.text) { Task { await runtime.tapChoice(row: alternative.row) } }
+                            .font(.caption).buttonStyle(.bordered)
+                            .accessibilityIdentifier("hud-alternative-\(alternative.row)")
+                    }
+                }
+            }
         }
         .accessibilityIdentifier("hud-panel")
         .frame(maxWidth: .infinity, alignment: .leading)
