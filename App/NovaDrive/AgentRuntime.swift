@@ -763,7 +763,12 @@ final class AgentRuntime {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
                 let line = gate.diagnostics + "\n识别：" + (await transcript.source)
-                await MainActor.run { model.noiseLine = line }
+                // The echo tail ends on a capture frame, not a playback event, so 请说 is refreshed here too.
+                let talking = gate.sheTalks
+                await MainActor.run {
+                    model.noiseLine = line
+                    if model.sheTalks != talking { model.sheTalks = talking }
+                }
             }
         })
         do {
@@ -873,8 +878,8 @@ final class GateBox: @unchecked Sendable {
 
     func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] { lock.withLock { gate.process(frame) } }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
-    /// 「她在说话」 on screen: her reply or guidance is playing.
-    var sheTalks: Bool { lock.withLock { gate.replyPlaying || gate.guidancePlaying } }
+    /// 「她在说话」 on screen: the driver is not sent to the model (her reply, guidance or the echo tail).
+    var sheTalks: Bool { lock.withLock { gate.muteReason != .none } }
 
     /// F-04 §14 item 3: her playback state, written when it starts and stops, read by the gate at each frame.
     func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
