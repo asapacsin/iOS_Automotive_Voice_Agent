@@ -2,6 +2,7 @@ import AVFAudio
 import Foundation
 import NovaKit
 import NovaPorts
+import os
 
 public struct GuidanceVoiceUnavailable: Error, Sendable {}
 
@@ -24,14 +25,20 @@ public final class SystemSpeechGuidanceVoice: FallbackGuidanceVoice, @unchecked 
         utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
         let collector = SampleCollector()
         return try await withCheckedThrowingContinuation { continuation in
+            // F-05 §14 item 3: an Apple callback; a second completion is dropped and logged, never a crash.
+            let once = ResumeOnce(continuation)
             synthesizer.write(utterance) { buffer in
                 guard let pcm = buffer as? AVAudioPCMBuffer else { return }
                 // The last callback is an empty buffer: the utterance is complete.
                 guard pcm.frameLength > 0 else {
-                    switch collector.finish() {
-                    case .none: break
-                    case .some(.some(let result)): continuation.resume(returning: result)
-                    case .some(.none): continuation.resume(throwing: GuidanceVoiceUnavailable())
+                    let first = switch collector.finish() {
+                    case .none: false
+                    case .some(.some(let result)): once.resume(returning: result)
+                    case .some(.none): once.resume(throwing: GuidanceVoiceUnavailable())
+                    }
+                    if !first {
+                        Logger(subsystem: "com.asapacsin.novadrive", category: "audio")
+                            .notice("\(CallbackSite.guidanceVoice.logLine, privacy: .public)")
                     }
                     return
                 }

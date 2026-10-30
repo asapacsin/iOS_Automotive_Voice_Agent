@@ -202,11 +202,18 @@ struct SystemPhoneDialer: PhoneDialer {
     func dial(_ number: String) async -> Bool {
         let digits = number.filter { $0.isNumber || $0 == "+" }
         guard !digits.isEmpty, let url = URL(string: "tel://\(digits)") else { return false }
-        return await withCheckedContinuation { done in
+        // F-05 §14 item 3: an Apple completion handler; a repeat is dropped and logged.
+        let opened = try? await withCheckedThrowingContinuation { (done: CheckedContinuation<Bool, any Error>) in
+            let once = ResumeOnce(done)
             Task { @MainActor in
-                UIApplication.shared.open(url, options: [:]) { opened in done.resume(returning: opened) }
+                UIApplication.shared.open(url, options: [:]) { opened in
+                    if !once.resume(returning: opened) {
+                        RuntimeLog.agent.notice("\(CallbackSite.phoneDial.logLine, privacy: .public)")
+                    }
+                }
             }
         }
+        return opened ?? false
     }
 }
 
@@ -511,7 +518,10 @@ final class AgentRuntime {
 
         let model = model
         let audio = LiveAudio()
-        let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials())
+        let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
+                                          connector: URLSessionWebSocketConnector(onDuplicate: { site in
+            RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
+        }))
         let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
         let navigationClock = self.navigationClock
         let device = deviceLocation

@@ -23,7 +23,7 @@ public final class CameraSession: NSObject, CameraFrameSource, @unchecked Sendab
     private let queue = DispatchQueue(label: "nova.camera")
     private var configured = false
     private var input: AVCaptureDeviceInput?
-    private var pending: [Int64: CheckedContinuation<JPEGImage, any Error>] = [:]
+    private var pending: [Int64: ResumeOnce<JPEGImage>] = [:]
 
     override public init() { super.init() }
 
@@ -82,10 +82,12 @@ public final class CameraSession: NSObject, CameraFrameSource, @unchecked Sendab
         // Only the runtime starts the camera (F-20a §13): a closed window never captures.
         if AVCaptureDevice.authorizationStatus(for: .video) != .authorized { throw CameraError.permissionDenied }
         return try await withCheckedThrowingContinuation { continuation in
+            // F-05 §14 item 3: the photo delegate is an Apple callback; a repeat for the same id is dropped.
+            let once = ResumeOnce(continuation)
             queue.async { [self] in
-                guard session.isRunning else { continuation.resume(throwing: CameraError.unavailable); return }
+                guard session.isRunning else { once.resume(throwing: CameraError.unavailable); return }
                 let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
-                pending[settings.uniqueID] = continuation
+                pending[settings.uniqueID] = once
                 photoOutput.capturePhoto(with: settings, delegate: self)
             }
         }
@@ -209,11 +211,12 @@ extension CameraSession: AVCapturePhotoCaptureDelegate {
         let id = photo.resolvedSettings.uniqueID
         let jpeg = error == nil ? photo.fileDataRepresentation().flatMap(Self.shrink) : nil
         queue.async { [self] in
-            guard let continuation = pending.removeValue(forKey: id) else { return }
+            // A repeat for the same id, or a photo after stop(), finds nothing pending and is dropped.
+            guard let once = pending.removeValue(forKey: id) else { return }
             if let jpeg {
-                continuation.resume(returning: JPEGImage(data: [UInt8](jpeg)))
+                once.resume(returning: JPEGImage(data: [UInt8](jpeg)))
             } else {
-                continuation.resume(throwing: CameraError.unavailable)
+                once.resume(throwing: CameraError.unavailable)
             }
         }
     }

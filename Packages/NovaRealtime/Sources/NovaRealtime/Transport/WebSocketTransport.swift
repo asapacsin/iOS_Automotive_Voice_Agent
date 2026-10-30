@@ -3,6 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import NovaKit
+import Synchronization
 
 /// One open WebSocket. Production: `URLSessionWebSocketConnector`; tests: a scripted fake server.
 public protocol WebSocketConnection: Sendable {
@@ -32,8 +33,11 @@ public struct WebSocketClosed: Error, Sendable, Hashable {
 
 public struct URLSessionWebSocketConnector: WebSocketConnector {
     private let session: URLSession
+    private let onDuplicate: (@Sendable (CallbackSite) -> Void)?
 
-    public init(tuning: RealtimeTuning = RealtimeTuning()) {
+    /// `onDuplicate`: F-05 §14 item 2, told once per socket when URLSession answers a ping twice.
+    public init(tuning: RealtimeTuning = RealtimeTuning(), onDuplicate: (@Sendable (CallbackSite) -> Void)? = nil) {
+        self.onDuplicate = onDuplicate
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = Double(tuning.connectTimeout.milliseconds) / 1000
         session = URLSession(configuration: config)
@@ -42,14 +46,18 @@ public struct URLSessionWebSocketConnector: WebSocketConnector {
     public func open(_ request: URLRequest) async throws -> any WebSocketConnection {
         let task = session.webSocketTask(with: request)
         task.resume()
-        return URLSessionWebSocketConnection(task: task)
+        return URLSessionWebSocketConnection(task: task, onDuplicate: onDuplicate)
     }
 }
 
 final class URLSessionWebSocketConnection: WebSocketConnection, @unchecked Sendable {
     private let task: URLSessionWebSocketTask
+    private let duplicates: DuplicateReport
 
-    init(task: URLSessionWebSocketTask) { self.task = task }
+    init(task: URLSessionWebSocketTask, onDuplicate: (@Sendable (CallbackSite) -> Void)?) {
+        self.task = task
+        duplicates = DuplicateReport(onDuplicate)
+    }
 
     func send(_ text: String) async throws {
         do { try await task.send(.string(text)) } catch { throw closed() }
@@ -66,9 +74,17 @@ final class URLSessionWebSocketConnection: WebSocketConnection, @unchecked Senda
     }
 
     func ping() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            task.sendPing { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+        try await Self.ping({ [task] handler in task.sendPing(pongReceiveHandler: handler) }, duplicates: duplicates)
+    }
+
+    /// F-05 §14 item 2: when the socket dies URLSession can answer one ping twice (failure, then cancellation).
+    /// The first answer decides; a repeat is dropped and reported.
+    static func ping(_ send: (@escaping @Sendable ((any Error)?) -> Void) -> Void,
+                     duplicates: DuplicateReport) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            let once = ResumeOnce(continuation)
+            send { error in
+                if !once.resume(with: error) { duplicates.report(.ping) }
             }
         }
     }
@@ -80,5 +96,21 @@ final class URLSessionWebSocketConnection: WebSocketConnection, @unchecked Senda
         let status = (task.response as? HTTPURLResponse)?.statusCode
         return WebSocketClosed(code: code, reason: task.closeReason.map { String(decoding: $0, as: UTF8.self) } ?? "",
                                httpStatus: status == 101 ? nil : status)
+    }
+}
+
+/// Reports the first duplicate callback of a socket; later ones are silent (F-05 §14 item 2: once per socket).
+final class DuplicateReport: Sendable {
+    private let reported = Mutex(false)
+    private let sink: (@Sendable (CallbackSite) -> Void)?
+
+    init(_ sink: (@Sendable (CallbackSite) -> Void)?) { self.sink = sink }
+
+    func report(_ site: CallbackSite) {
+        let first = reported.withLock { r -> Bool in
+            defer { r = true }
+            return !r
+        }
+        if first { sink?(site) }
     }
 }

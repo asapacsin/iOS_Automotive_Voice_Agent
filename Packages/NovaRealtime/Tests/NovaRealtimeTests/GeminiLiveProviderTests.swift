@@ -383,3 +383,39 @@ struct GeminiProviderHandshakeTests {
         await provider.close()
     }
 }
+
+@Suite("T-016g F-05 §14 ping answered once")
+struct PingOnceTests {
+    struct Lost: Error {}
+
+    final class Sites: Sendable {
+        let seen = Mutex<[CallbackSite]>([])
+        var all: [CallbackSite] { seen.withLock { $0 } }
+        var sink: @Sendable (CallbackSite) -> Void { { site in self.seen.withLock { $0.append(site) } } }
+    }
+
+    @Test("F-05 §14 row 2: sendPing calls back twice (error, then cancel): ping throws once, one duplicate line")
+    func twice() async {
+        let sites = Sites()
+        let report = DuplicateReport(sites.sink)
+        await #expect(throws: Lost.self) {
+            try await URLSessionWebSocketConnection.ping({ handler in
+                handler(Lost())
+                handler(CancellationError())
+            }, duplicates: report)
+        }
+        // A second ping on the same socket also answered twice: still one line per socket.
+        _ = try? await URLSessionWebSocketConnection.ping({ handler in handler(nil); handler(Lost()) }, duplicates: report)
+        #expect(sites.all == [.ping])
+    }
+
+    @Test("F-05 §14 row 3: one callback behaves as before")
+    func once() async throws {
+        let sites = Sites()
+        try await URLSessionWebSocketConnection.ping({ $0(nil) }, duplicates: DuplicateReport(sites.sink))
+        await #expect(throws: Lost.self) {
+            try await URLSessionWebSocketConnection.ping({ $0(Lost()) }, duplicates: DuplicateReport(sites.sink))
+        }
+        #expect(sites.all.isEmpty)
+    }
+}
