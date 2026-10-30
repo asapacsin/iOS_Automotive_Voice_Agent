@@ -1444,6 +1444,26 @@
         "Independent read-only review at high effort 2026-10-30 (8cb80de): PASS, no blocking findings",
         "Device rows 2-8 NOT_VERIFIED"
       ]
+    },
+    {
+      "id": "T-016g",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 5,
+      "action": "F-05 §14: ResumeOnce one-shot helper; URLSessionWebSocketConnection.ping() resumes once and logs duplicateCallback; audit all checked continuations outside Tests, switch Apple/vendor-callback sites (CameraSession x3, SystemSpeechGuidanceVoice) to ResumeOnce; keep timeouts (no crash->hang); rows 1-8",
+      "depends_on": [],
+      "notes": "Owner 2026-10-30 \"write this is spec\". Device 16a3c13 17:37: airplane mode mid-conversation crashed the app (EXC_BREAKPOINT, CheckedContinuation resumed twice in ping() sendPing handler; NovaDrive-2026-10-30-173715.ips)."
+    },
+    {
+      "id": "T-016h",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 6,
+      "action": "F-24 §14: NetworkPathWatcher (NWPathMonitor, NovaPlatform, 500 ms debounce); VoiceSession networkLost/networkRestored inputs: RECONNECTING waitingForNetwork without counting attempts, immediate attempt with handle on restore, fresh 5-attempt budget, terminal errors unchanged, start-while-offline waits, 600 s offline cap ends session; chip 等待网络… / 网络已断开，点按重新开始; logs; rows 1-10",
+      "depends_on": [
+        "T-016g"
+      ],
+      "notes": "Owner 2026-10-30 \"just write spec to use this approach\" after community comparison. Device 16a3c13 17:39: after airplane mode the app stayed on 连接失败 after the network returned (5 attempts spent offline, no path monitor)."
     }
   ]
 }
