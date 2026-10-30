@@ -48,14 +48,24 @@ final class LocalSpeechModels: @unchecked Sendable {
             Task.detached { await self.forward(asr.events) }
         } catch {
             lock.withLock { asrState = .failed }
-            RuntimeLog.agent.error("ASR_LOAD_FAILED")
+            RuntimeLog.agent.error("ASR_LOAD_FAILED reason=\(Self.reason(error), privacy: .public)")
         }
         do {
             guard let root else { throw CocoaError(.fileNoSuchFile) }
             let kws = try SherpaStopPhraseSpotter(directory: root.appendingPathComponent("kws", isDirectory: true))
             lock.withLock { spotterLoaded = StopPhraseSpotterBox(kws) }
         } catch {
-            RuntimeLog.agent.error("KWS_LOAD_FAILED")
+            RuntimeLog.agent.error("KWS_LOAD_FAILED reason=\(Self.reason(error), privacy: .public)")
+        }
+    }
+
+    /// The failure kind only (no paths or text, I-8).
+    private static func reason(_ error: Error) -> String {
+        switch error as? SherpaError {
+        case .missingFile: "missingFile"
+        case .badManifest: "badManifest"
+        case .loadFailed: "loadFailed"
+        case nil: "noModels"
         }
     }
 

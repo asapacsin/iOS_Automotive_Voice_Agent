@@ -529,6 +529,17 @@ struct StopPhraseSpotterCoreTests {
         #expect(!stops(d.send(.driverWords(.final("别说了")))))
     }
 
+    @Test("F-08 §14 item 5: the transcript final of the stopped utterance, arriving after it closed, stops nothing")
+    func lateFinalIgnored() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        #expect(stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))))
+        d.send(.speechStopped)
+        d.send(.playback(.replyStarted(Epoch.initial.next())))
+        d.now = d.now + .seconds(3)
+        #expect(!stops(d.send(.driverWords(.final("别说了")))))
+    }
+
     @Test("F-08 §14 (review D1): 「停」 with her silent is a command for the model, not a given-up turn")
     func stopWordWhileSilent() {
         var d = Drive()

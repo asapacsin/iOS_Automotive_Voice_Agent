@@ -576,8 +576,9 @@ public struct AgentState: Sendable {
     private mutating func stopPhrase(_ source: StopPhraseSource, phrase: Int, score: Int,
                                      at now: NovaInstant) -> [AgentEffect]? {
         if let last = lastStopAt, now - last < .seconds(1) { return nil }
-        // Item 5: the other source, in the same open utterance, is ignored (whichever fired first stopped her).
-        if utteranceOpen, stopUtterance == utterances, stopSource != source { return nil }
+        // Item 5: the other source, in the same utterance, is ignored (whichever fired first stopped her). The
+        // transcript's final lands after the utterance closed, so for it a closed utterance still counts.
+        if stopUtterance == utterances, stopSource != source, utteranceOpen || source == .transcript { return nil }
         let stop = bargeIn(.stopPhrase, at: now)
         guard !stop.isEmpty else { return nil }
         lastStopAt = now
