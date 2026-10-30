@@ -1390,6 +1390,37 @@
       ],
       "notes": "Device run 7565bcf: 9/52 utterances open 7-13 s for short commands.",
       "blocked_by": "needs the T-004i per-utterance log lines from a device run of 25a5cd9 or later"
+    },
+    {
+      "id": "T-016f",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 15,
+      "action": "F-05a §12: bundled sherpa-onnx streaming Mandarin recognizer (NovaAsrSherpa) replaces AppleSpeechTranscriber; model pick <=80 MB, pinned fetch + SHA-256 at build, not in git; gate utterances drive the stream; remove Speech permission; diagnostics + asr log lines; import gate + architecture §3.2 row; rows 1-10",
+      "depends_on": [
+        "T-016c"
+      ],
+      "notes": "Owner 2026-10-30 \"Yes, write spec\". Device 25a5cd9: phone dictation languages Cantonese/English UK/Japanese only, so SFSpeechRecognizer zh-CN unavailable; owner will not add a Pinyin/Zhuyin keyboard."
+    },
+    {
+      "id": "T-022a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 16,
+      "action": "F-08 §14: stop phrase while she talks via sherpa-onnx KeywordSpotter (NovaAsrSherpa) on a fixed 7-phrase StopPhrases set, fed only during her playback + 500 ms tail; hit -> .stopPhrase (flush, epoch), nothing to Gemini; transcript ListeningIntent check as backup; hint under 她在说话; stopPhrase/stopPhraseMiss log; rows 1-8",
+      "depends_on": [
+        "T-016f"
+      ],
+      "notes": "Owner 2026-10-30 \"Yes, spec it\" after community review (Google bare 'stop' while speaking, car command words). Device 25a5cd9: 别说了 never stopped her (bargeIn qualified false x3; unsent, no local recognizer)."
+    },
+    {
+      "id": "T-034a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 12,
+      "action": "F-21 §14: rewrite Persona.instruction as persona -> car scope (strict, tool results only, rules 2-7 kept) -> other scope (own knowledge, 3-5 spoken sentences, continue on request, live facts: say cannot check) -> guardrails; <=1500 chars; no F-09 change; rows 1-8",
+      "depends_on": [],
+      "notes": "Owner 2026-10-30 \"Yes, spec it\" after community review (VW IDA, Mercedes MBUX, Gemini Live / OpenAI Realtime prompt guides). Device 25a5cd9: 介绍一下珠海 got a short no-info answer; no reply longer than ~6 s."
     }
   ]
 }

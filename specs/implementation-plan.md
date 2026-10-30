@@ -63,6 +63,8 @@ NOT_VERIFIED until a device run is attached.
 | T-016c | Transcriber wiring in `AgentRuntime`, 音频测试 diagnostics line | F-05a | T-016b | `App/NovaDrive/` | F-05a §10 rows 5–9 | S, D |
 | T-016d | Transcript display-only: no tool guard reads it; withdraw `wordsReliable` / `wordsUnclear` | F-05a | T-016a | `Core/NovaTools/Dispatch/`, `Core/NovaAgent/` | F-05a §10 row 4 (revised) | unit |
 | T-016e | 结束导航 ends at once: remove the exit confirmation (`CONFIRM_REQUIRED`) | F-05a | T-016d | `Core/NovaTools/Dispatch/` | F-05a §6 (ending navigation) | unit, D |
+| T-016f | Bundled sherpa-onnx streaming Mandarin recognizer replaces Apple's (no keyboard dependence, no speech permission) | F-05a | T-016c | `Packages/NovaAsrSherpa/`, `App/NovaDrive/`, `scripts/`, `codemagic.yaml` | F-05a §12 rows 1–10 | unit, gate, build, D |
+| T-022a | Stop phrase while she talks: sherpa keyword spotter on a fixed 7-phrase set, transcript as backup | F-08 | T-016f | `Packages/NovaAsrSherpa/`, `Core/NovaVoice/`, `App/NovaDrive/` | F-08 §14 rows 1–8 | unit, build, D |
 | T-017 | Tool catalog (Android names and schemas byte-for-byte), validation, guards in order, dispatcher decisions, `ToolFailureAdvice`, `NotYetExecutor` | F-09 | T-011 + Android tables | `Core/NovaTools/Dispatch/` | F-09 §10: every guard table ported; sunroof → `UNSUPPORTED_BODY_PART` | unit, spec-trace |
 | T-018 | Climate/seat/window handlers + `SimulatedVehicle` with fault injection | F-11 | T-017 | `Core/NovaTools/Vehicle/`, `Packages/NovaServices/Sources/Vehicle/` | F-11 §10 golden files; `BACKEND_LABEL=simulated` | unit |
 | T-019 | Reply pipeline: claim gate, `ActionClaimGuard`, correction grace, empty-response re-ask, phantom gate | F-06 | T-011 | `Core/NovaVoice/Reply/` | F-06 §10 (3 rows); W3 | unit, spec-trace |
@@ -85,6 +87,7 @@ NOT_VERIFIED until a device run is attached.
 | T-032 | Bundled music on the media lane; `control_music` | F-13 | T-021 | `Core/NovaTools/Media/`, `Packages/NovaAudio/Sources/MediaLane/` | F-13 §10 row 1 offline; no self barge-in during music (D) | unit, D |
 | T-033 | Amap Web client (weather, regeo) + live-info weather | F-18 | T-017 | `Packages/NovaServices/Sources/AmapWeb/`, `Core/NovaTools/LiveInfo/` | 4 s timeout → honest failure; TTLs 10/30 min | unit, contract |
 | T-034 | Persona and speaking style | F-21 | T-017 | `Core/NovaTools/Persona/` | F-21 §10 (3 rows) | unit |
+| T-034a | Base instruction scope: strict for car/navigation/weather/location, natural 3–5 sentence answers for general questions | F-21 | T-034 | `App/NovaDrive/` | F-21 §14 rows 1–8 | unit, S, D |
 | T-035 | M2 device run | — | T-030..T-034 | `specs/STATUS.md` | W6 on a device | D |
 
 ### M3: navigation core

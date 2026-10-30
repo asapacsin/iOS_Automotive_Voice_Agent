@@ -5,6 +5,8 @@ aba6829): "the input sometimes interpret as portugese even though that is actual
 on-device recognizer 2026-10-29: "Use Apple's on-device recognizer for the transcript … locked to zh-CN and ignore
 Gemini's guess."
 **Revised 2026-10-29:** the transcript is for display only; no tool guard reads it (§6, owner rule after run 9f48c45).
+**Revised 2026-10-30:** the recognizer is a bundled sherpa-onnx streaming Mandarin model, not Apple's (§12, T-016f);
+§2–§4 and §8 text about `SFSpeechRecognizer`, the 「语音识别」 permission and `AppleSpeechTranscriber` is superseded by §12.
 **Depends on:** F-05 (Gemini Live session, `RealtimeEvent.userTranscript`), F-03 (capture frames), F-04 / F-04a
 (uplink gate: which frames are the driver's utterance), F-02 (`ListeningIntent` stop phrase), F-09
 (`GuardContext.said`), F-14 §8 (echo filter), contracts/voice-agent.md, contracts/audio.md
@@ -180,3 +182,73 @@ model acts on and is known to come back in the wrong language while the model un
 | T-016c | Wire into `AgentRuntime` (frames to transcriber, selector in front of `AgentState`), 音频测试 diagnostics line; rows 5–9 | S, D |
 | T-016e | §6 ending navigation: remove `confirmExit` / `exitConfirmWindow` from `ToolDispatcher`; `exit_navigation_mode` ends guidance on the call and the result's `next` says 「已结束导航」; tests: one call ends guidance whatever the transcript, no `CONFIRM_REQUIRED` ever; D: 结束导航 ends at once | unit (Linux gates), D |
 | T-016d | §6 revised: remove the transcript from every tool guard (table), withdraw `wordsReliable` / `.wordsUnclear`, `CONFIRM_REQUIRED` for exit while guiding (withdrawn by T-016e), along-route list instead of P61; row 4 (revised); F-09 guard rows that read words marked superseded | unit (Linux gates) |
+
+## 12. Bundled recognizer (iOS, APPROVED 2026-10-30, replaces Apple's recognizer)
+
+**Why.** Device run 25a5cd9 (2026-10-30): 音频测试 showed 「识别：云端（本机不可用…）」. The test phone's dictation
+languages are Cantonese, English (UK) and Japanese (keyboard: Traditional Chinese Cangjie). iOS downloads an on-device
+speech model only for the dictation languages of the installed keyboards, so `SFSpeechRecognizer(zh-CN)` has no model,
+and Mandarin (Taiwan) is not there either. The owner will not add a Pinyin or Zhuyin keyboard. Every utterance
+therefore falls back to Gemini's transcript (slow, sometimes not Chinese, 「（没听清）」) and 别说了 is not caught on the
+phone. Owner 2026-10-30 after the comparison (Apple / iFlytek cloud / bundled model; sherpa-onnx vs Whisper): "Yes,
+write spec".
+
+**Rule in plain words.** The app carries its own Mandarin speech model and uses it on every iPhone, whatever keyboards
+or languages the phone has. Nothing is downloaded at run time and no audio leaves the phone.
+
+1. **Engine.** [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0) `OnlineRecognizer` with a
+   **streaming** Mandarin model (streaming Zipformer or streaming Paraformer, int8). Not Whisper: it is not streaming
+   (text in chunks, ~0.5–1.5 s) and it is multilingual (wrong-language output is the problem being fixed).
+2. **Model choice (T-016f picks it and records it in STATUS.md).** Trained for Mandarin (zh-CN); streaming; all model
+   files together ≤ 80 MB; licence allows use in this app (record it); Simplified or Traditional output is fine
+   (matching code folds both). Pick the smallest model that meets rows 5 and 9 on the test phone; a mixed zh/en model
+   is allowed if it meets row 5.
+3. **Bundled, not committed.** The model files are app bundle resources, **not** stored in git. The build fetches them
+   from a pinned sherpa-onnx release URL and checks a SHA-256 kept in the repo (a script under `scripts/`, run by the
+   existing manual Codemagic workflow and by local builds; no new CI trigger, owner rule 2026-10-27). A wrong checksum
+   fails the build.
+4. **Adapter package.** New package `Packages/NovaAsrSherpa` (vendor SDK in its own adapter, ios-architecture §3.2):
+   the sherpa-onnx and onnxruntime xcframeworks as SwiftPM `binaryTarget`s, and `SherpaTranscriber: LocalTranscriber`.
+   Add the sherpa module to `OWNERS` in `scripts/gates/check_imports.py` (NovaAsrSherpa only) and the row to the §3.2
+   table. NovaCore is unchanged: `LocalTranscriber` and `TranscriptSelector` (§4, §5) stay as they are.
+5. **Utterances come from the gate.** One recognizer stream per utterance: `begin` creates it, `append` feeds the same
+   16 kHz mono frames the uplink gate passes (as float samples), `end` marks input finished, decodes the rest and emits
+   the final. sherpa-onnx's own endpoint detection is off; the uplink gate (F-04) decides where an utterance starts and
+   ends. A partial is emitted whenever the decoded text changes.
+6. **Utterances not sent to Gemini are still recognised.** Utterances F-04 §14 does not send (she is talking) are still
+   fed to the recognizer, so 别说了 is caught on the phone while she talks (F-04 §14 item 5).
+7. **Load once.** The model loads off the main actor when the app starts (or at the first session, if simpler), once per
+   app run, and stays loaded. Until then availability is `.unavailable(reason: 模型加载中)` and §5 S3 applies.
+8. **Apple's recognizer is removed.** Delete `AppleSpeechTranscriber`, its `Speech` import and `OWNERS` entry, the
+   `SFSpeechRecognizer.requestAuthorization` call and `NSSpeechRecognitionUsageDescription` (App/project.yml,
+   App/xtool-Info.plist). No 「语音识别」 permission popup any more; the microphone permission is unchanged.
+9. **Fallback unchanged.** If the model fails to load or a stream fails, §5 S3 (Gemini transcript with the language
+   check) applies, as today.
+10. **Diagnostics.** 音频测试 line: `识别：本机（内置 <model short name>）` when ready, otherwise
+    `识别：云端（本机不可用：模型加载中 | 模型加载失败）`. Log (`RuntimeLog.agent`, numbers only, I-8: never the text): one
+    line at load `asrLoaded model=<name> ms=<load time>`; one per utterance `asrUtterance id firstPartialMs finalMs audioMs decodeMs`.
+11. **Load on the phone.** Decode only while an utterance is open (as today). Real-time factor (decodeMs / audioMs)
+    ≤ 0.3 on the test phone.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | `SherpaTranscriber` fed a recorded Mandarin utterance (fixture PCM) through begin / append / end | Partials, then one final, all tagged with the utterance id; the final has the expected words | unit (macOS build) or S |
+| 2 | Events of a closed or superseded utterance | Dropped (§9) | unit |
+| 3 | Build with a wrong model checksum | Build fails with a clear message | build |
+| 4 | Import gate | Only NovaAsrSherpa imports the sherpa module; nothing imports `Speech` | gate |
+| 5 | Test phone as it is (Cangjie keyboard; dictation Cantonese / English / Japanese) | 音频测试 shows 「识别：本机（内置 …）」; no 「语音识别」 popup; the 30 short commands of §10 row 5: ≥ 27/30 correct, all Chinese | D |
+| 6 | Airplane mode | Subtitles still appear | D |
+| 7 | 别说了 while she talks (utterance not sent to Gemini) | Caught from the local partial; she stops at once | D |
+| 8 | Phone log during rows 5–7 | No transcript text; `asrLoaded` and `asrUtterance` lines present | D |
+| 9 | Latency on the test phone | First partial ≤ 500 ms after speech starts; final ≤ 300 ms after the utterance ends; RTF ≤ 0.3 | D (log lines) |
+| 10 | IPA size | Grows by the model size only (≤ ~90 MB in total) | build |
+
+§10 rows 5, 6 and 9 are checked through rows 5, 6 and 9 here; §10 row 7 (speech permission denied) is withdrawn.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-016f | §12 items 1–11: NovaAsrSherpa package (xcframeworks, `SherpaTranscriber`); model pick and pinned fetch with checksum; wiring in `AgentRuntime` in place of `AppleSpeechTranscriber`; remove Apple's recognizer and permission; diagnostics and log lines; import gate and §3.2 row | unit, gate, build, D (rows 5–10) |
