@@ -11,6 +11,8 @@ F-09 (guards), F-04a (uplink gate: driver turns), contracts/navigation.md, contr
 **Revised 2026-10-29:** §2.5 no longer reads the driver's transcript (owner rule: transcript is for display only).
 **Revised 2026-10-29 (run ed40023, owner: "Write the specs"):** §2.5 what counts as a driver turn; §9 one trip at a
 time across voice sessions.
+**Revised 2026-10-29 (owner: "save this drop on spec"):** §2.5 the route-choice step is dropped; guidance starts on
+the recommended route once the destination is known, and the route is changed during the trip (T-040h).
 
 ## 1. Problem (code at aba6829)
 - **Navigation is simulation only.** `AmapRouteEngine.start` returns unless `mode == .emulator` ("GPS guidance needs
@@ -67,6 +69,37 @@ In both modes exactly **one** 我的位置 marker is on the map at any time. In 
 in 模拟导航 it is the fake car from 开始 to the end of the trip, including the moments between engine updates.
 
 ### 2.5 Navigation only when asked
+**Revised again 2026-10-29: the route-choice step is dropped** (owner: "save this drop on spec"). The wait on a route
+list (`AWAITING_ROUTE_SELECTION`) was carried over from the Android app, where the routes are on a touch screen. For a
+voice-first car assistant it is an extra step, and every guard built to protect it (word list, then driver-turn order)
+caused a new failure on the device (最快的 refused on 9f48c45; unasked starts from echo on ed40023). Common practice
+(Google Maps / Android Auto 「导航去 X」) confirms the place only when several match, then starts on the best route;
+alternative routes are chosen by touch or changed during the trip. So, on iOS:
+- **Asking to go somewhere is the request to navigate.** `navigate_to` → (if > 1 place: she lists them, the driver
+  picks the place, unchanged) → routes are calculated → guidance **starts at once on the recommended route** (Amap's
+  first route) in the mode of §2.1. There is no route list to wait on and no start guard.
+- Her start sentence (from the result's `next`): 「已开始导航（模拟导航时：已开始模拟导航），大约 N 分钟。」 and, when
+  another route is faster, shorter or toll-free, one short offer: 「还有一条更快的，要换吗？」 She never reads all routes.
+- **Changing the route is a request during the trip.** While navigating, `choose_navigation_option` with
+  `preference` (fastest / shortest / no_toll / fewest_lights / recommended) or `index` replaces the current route
+  with that route of the same calculation (recalculated from the current position if the trip has moved, gps mode) and
+  says 「已换成最快的路线，大约 N 分钟。」 It never starts a second trip and never needs a list on screen. A tap on an
+  alternative route on the map does the same (I-6).
+- 真实导航 with no usable fix still refuses before anything starts (§2.2, OQ-NAVM-2).
+- Mistakes are undone in one sentence: 结束导航 ends at once (F-05a §6, T-016e), and a new destination replaces the
+  trip (contracts/navigation.md "new destination while navigating").
+- **Tool text** (`choose_navigation_option` description in the catalog): the route-list wording (「路线列表时「开始导航」
+  「就这条」→recommended」, `destination_selected` … 请选路线) is replaced by: places list → pick the place; while
+  navigating → 「最快的」「不走高速」「换第二条」 change the route. `navigate_to`'s result after the routes are ready is
+  `navigation_started` (with `alternatives`: per other route its minutes, km, toll, label), not `destination_selected`.
+- `navigationNotRequested` (driver-turn start guard, T-040e) is withdrawn: nothing starts without a destination
+  request. The rest of this section below is kept as history.
+- Kept from T-040f only: sound during her reply that is not a qualified barge-in never counts as the driver speaking
+  (no `answerOwed`, no uplink if the gate sends it; F-04a) — it still matters for 别说了 and for answering noise.
+  **How it is done is replaced by F-04 §14 (T-004i, 2026-10-30):** one send decision on the capture side that the
+  core follows, cut at unmute, your-turn indicator. The T-040f two-sided mute lost driver turns on device 7565bcf.
+
+*History (superseded by the block above):*
 **Revised 2026-10-29** (owner, after device run 9f48c45, where 「最快的」 was refused three times with `WORDS_UNCLEAR` /
 `NAVIGATION_NOT_REQUESTED`: "abandon the transcript that serve the tool calling, and the transcript only use for
 display the text on the screen"). The first version of this section checked the driver's transcript against a word
@@ -171,17 +204,17 @@ Location fix, 15 s reroute limiter, 10 s / 30 s signal timers, route recalculati
 | 1 | `NavigationModeSetting`: default `.gps`; 模拟导航 → `.emulator`; 演示起点 → `.emulator` whatever the switch says | unit |
 | 2 | `RouteProgress`: matching, step entry, distance to next turn, remaining; off-route after 3 fixes ≥ 5 s > 50 m; accuracy > 50 m not counted; arrival 30 m; signal lost 10 s | unit |
 | 3 | `SelfPosition`: in `.gps` mode never the simulated car; in `.emulator` mode the car for the whole trip; one marker in every phase | unit |
-| 4 | Start guard (revised): a pick in a later driver turn than the list starts guidance whatever the transcript says (empty, Portuguese, unrelated text); a pick in the same driver turn as the list → `navigationNotRequested`; taps always allowed; `navigate_to` never refused by this guard; a success claim after a refusal is held | unit |
+| 4 | (superseded by T-040h: no start guard; rows 10, 12) Start guard (revised): a pick in a later driver turn than the list starts guidance whatever the transcript says (empty, Portuguese, unrelated text); a pick in the same driver turn as the list → `navigationNotRequested`; taps always allowed; `navigate_to` never refused by this guard; a success claim after a refusal is held | unit |
 | 5 | Engine `.gps` path with a scripted fix stream: guidance texts in order, rerouting once per 15 s, `geometry.car == nil`, old-generation fixes dropped | unit (NovaServices) |
 | 6 | 真实导航 on the road (≥ 2 km, ≥ 3 turns): the marker is the real position, the map follows it, turn instructions come before each turn, no second marker | D |
 | 7 | Leaving the route on purpose: 「已偏离路线，正在重新规划」 within 10 s, a new route from the current position | D |
 | 8 | 模拟导航: fake car drives, HUD shows 「模拟导航」, one marker, back to the real dot after 算了 | S, D |
 | 9 | 演示起点: switch disabled with the note; simulation from the demo origin; no real position on screen (recording) | S, D |
-| 10 | Asking for a destination does not also start a route in the same turn; she lists the routes and waits | D |
+| 10 | (revised, no route choice) 「导航去珠海站」 with one match starts guidance on the recommended route at once; with several matches she lists the places, and after 「第二个」 guidance starts at once; no route list is waited on | unit, D |
 | 11 | No coordinate in logs during rows 6–7 | D |
-| 12 | With the route list on screen, 「最快的」 / 「第二条」 / 「开始导航」 start guidance on the first try, even when the subtitle shows （没听清） or wrong text | D |
-| 13 | Driver turns: an utterance that begins while she speaks and is not a qualified barge-in does not raise the turn count and opens no answer; a route pick after it is still refused; `routeListTurn` is set when `destination_selected` is handled, so a pick arriving before the flags stream is refused | unit |
-| 14 | While she reads the route list, cough / talk to a passenger / play music: navigation does not start; it starts only after the driver picks | D |
+| 12 | (revised) While navigating, 「换最快的」 / 「不走高速」 / 「换第二条」 replace the route (one trip, one marker, new ETA spoken), even when the subtitle shows （没听清） or wrong text | unit, D |
+| 13 | (revised) Sound during her reply that is not a qualified barge-in does not count as the driver speaking (no answer owed, not uplinked if the gate sent it) | unit |
+| 14 | (revised) While she speaks, cough / talk to a passenger / play music: she is not interrupted and nothing is started, changed or ended | D |
 | 15 | One drive: start a trip, end the voice session, start a new session and a new trip → one engine, one drive, the marker never jumps between two positions; a stopped engine's geometry never reaches the map model | unit (App-level model test or NovaServices), D |
 | 16 | Session ends during 模拟导航: the trip continues on screen with one marker; the next session sees navigating and 结束导航 ends it; after it ends no marker updates arrive | D |
 
@@ -213,5 +246,6 @@ Location fix, 15 s reroute limiter, 10 s / 30 s signal timers, route recalculati
 | T-040c | `AmapRouteEngine` `.gps` path (LocationUpdates, progress events, reroute, generation); row 5 | unit (Linux gates) |
 | T-040d | 设置 导航方式, 演示起点 lock, HUD 「模拟导航」 / 「重新规划中」, mode read at start; rows 6–11 | S, D |
 | T-040e | Revised §2.5: start guard on driver turns (uplink gate count), no transcript; drop the `navigate_to` word guard and `wordsUnclear`; claim guard holds a success claim after a refusal; row 4 (revised), row 12 | unit (Linux gates), D |
-| T-040f | §2.5 driver turns: count only utterances that begin while she is silent or are qualified barge-ins; no `answerOwed` from unqualified sound; check and stop uplink of that audio (F-04a); `routeListTurn` set synchronously on `destination_selected`; rows 13–14 | unit (Linux gates), D |
+| T-040f | (reduced by T-040h) unqualified sound during her reply never counts as the driver speaking: no `answerOwed`, check and stop its uplink (F-04a); rows 13–14 (revised). The `routeListTurn` part is withdrawn | unit (Linux gates), D |
+| T-040h | §2.5 route choice dropped: routes ready → guidance starts on the recommended route; `navigate_to` returns `navigation_started` + `alternatives`; `choose_navigation_option` while navigating replaces the route (no second trip); withdraw `navigationNotRequested` / `routeListTurn`; catalog tool text; contracts/navigation.md iOS note; rows 10, 12 (revised) | unit (Linux gates), D |
 | T-040g | §9 one trip at a time: engine + `NavigationController` owned by the app, sessions attach; one drive ever; stale engine geometry dropped; trip continues across session end (OQ-NAVM-5 default); rows 15–16 | unit, build, D |

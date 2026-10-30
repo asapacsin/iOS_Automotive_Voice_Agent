@@ -108,6 +108,9 @@ NOT_VERIFIED until a device run is attached.
 | T-040e | Start guard on driver turns (no transcript); claim held after refusal | F-15a | T-040b, T-016d | `Core/NovaTools/Dispatch/`, `Core/NovaVoice/Uplink/` | F-15a §10 row 4 (revised), row 12 | unit, D |
 | T-040f | Driver turns only from real driver speech; `routeListTurn` set on `destination_selected` | F-15a | T-040e | `Core/NovaAgent/Core/`, `Core/NovaVoice/Uplink/` | F-15a §10 rows 13–14 | unit, D |
 | T-040g | One trip at a time: engine + controller app-owned, sessions attach | F-15a | T-040d | `App/NovaDrive/`, `Packages/NovaServices/Sources/NovaServices/AmapWeb/` | F-15a §10 rows 15–16 | unit, build, D |
+| T-040h | Route choice dropped: start on the recommended route; choose while navigating replaces the route | F-15a | T-040e | `Core/NovaNav/Flow/`, `Core/NovaTools/Dispatch/` | F-15a §10 rows 10, 12 (revised) | unit, D |
+| T-004i | Listening while she talks: one send decision, drop together, cut at unmute, your-turn indicator, per-utterance log (replaces T-040f mute) | F-04 | T-040f | `App/NovaDrive/`, `Core/NovaAgent/Core/`, `Core/NovaVoice/Uplink/` | F-04 §14 rows 1–9 | unit, build, D |
+| T-004j | Late end of speech, fixed from the T-004i logs | F-04 | T-004i | `Core/NovaVoice/Uplink/`, `Packages/NovaAudio/` | F-04 §14 late end of speech | unit, D |
 | T-045 | HUD panel model + overspeed logic | F-17 | T-043 | `Core/NovaNav/HUD/` | F-17 §10 (2 rows) with fixtures | unit |
 | T-046 | Live info: route_traffic, along_route, place_details | F-18 | T-042, T-040 | `Core/NovaTools/LiveInfo/` | `NOT_NAVIGATING` when idle | unit, contract |
 | T-046a | `query_live_info` `current_location` (regeo address), codes, catalog + persona line | F-16a | T-046, T-042a | `Core/NovaNav/LiveInfo/`, `Packages/NovaServices/`, `Core/NovaTools/Dispatch/` | F-16a §10 rows 2–3, 7 | unit, contract, D |
