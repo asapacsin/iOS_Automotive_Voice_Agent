@@ -658,16 +658,19 @@ final class AgentRuntime {
                 // F-04 §14: the gate hears whether she is talking first, then the core and the screen.
                 switch event {
                 case .replyStarted: gate.setPlaying(reply: true)
-                case .replyFinished: gate.setPlaying(reply: false)
+                // replyFinished also fires between clauses; she stops talking only when nothing of the reply
+                // is left (replyIdle below), so the microphone is not unmuted in a pause mid-reply.
                 case .guidanceStarted: gate.setPlaying(guidance: true)
                 case .guidanceEnded: gate.setPlaying(guidance: false)
-                case .mediaPlaying, .replyIdle: break
+                case .replyFinished, .mediaPlaying, .replyIdle: break
                 }
                 let talking = gate.sheTalks
                 await MainActor.run { model.sheTalks = talking }
                 await core.send(.playback(event))
                 // F-14: a fallback waits until nothing of her reply is left, at the revoicer or on the lane.
                 if case .replyFinished(let epoch) = event, await revoicer.pendingClauses == 0 {
+                    gate.setPlaying(reply: false)
+                    await MainActor.run { model.sheTalks = gate.sheTalks }
                     await core.send(.playback(.replyIdle(epoch)))
                 }
             }

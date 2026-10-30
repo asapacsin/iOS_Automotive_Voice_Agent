@@ -293,3 +293,48 @@ struct NavigationRaceTests {
         #expect(await nav.current.phase == .navigating)
     }
 }
+
+/// Starts once; every later start never reports started (a route change that fails).
+final class FirstStartOnlyEngine: NaviEngine {
+    let events: AsyncStream<NaviEngineEnvelope>
+    private let continuation: AsyncStream<NaviEngineEnvelope>.Continuation
+    let routes: [RouteSummary]
+    let starts = Mutex(0)
+
+    init(routes: [RouteSummary]) {
+        (events, continuation) = AsyncStream.makeStream()
+        self.routes = routes
+    }
+
+    func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
+        continuation.yield(NaviEngineEnvelope(generation: generation, event: .routesReady(routes)))
+    }
+    func selectRoute(_ id: RouteID, generation: Generation) async {}
+    func start(_ mode: NaviMode, generation: Generation) async {
+        let n = starts.withLock { n -> Int in n += 1; return n }
+        if n == 1 { continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviStarted)) }
+    }
+    func stop(generation: Generation) async {}
+}
+
+@Suite("T-040h F-15a route change during the trip")
+struct RouteChangeTests {
+    @Test("F-15a row 12: a route change that fails keeps the trip on its current route")
+    func failedChangeKeepsTrip() async {
+        let clock = ManualClock()
+        let engine = FirstStartOnlyEngine(routes: [route(1, meters: 12_000, seconds: 1_500),
+                                                   route(2, meters: 13_000, seconds: 1_200)])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: NoLocation(), clock: clock)
+        await nav.start()
+        let started = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        #expect(started.data["offer_preference"] == "fastest")
+        async let change = nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
+        while engine.starts.withLock({ $0 }) < 2 || clock.pendingSleepers == 0 { await Task.yield() }
+        clock.advance(by: .seconds(30))
+        let result = await change
+        #expect(!result.ok && result.code == .startFailed)
+        let snapshot = await nav.current
+        #expect(snapshot.phase == .navigating && snapshot.selectedRoute == RouteID(1))
+    }
+}

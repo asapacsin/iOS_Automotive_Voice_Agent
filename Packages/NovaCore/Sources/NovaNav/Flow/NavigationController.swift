@@ -324,6 +324,7 @@ public actor NavigationController: ToolExecutor {
 
     private func startGuidance(_ route: RouteSummary, replacing label: String? = nil) async -> ToolResult {
         let replacing = label != nil
+        let previous = snapshot.routes.first
         let generation = snapshot.generation
         let mode = mode()
         snapshot.selectedRoute = route.id
@@ -337,6 +338,15 @@ public actor NavigationController: ToolExecutor {
         let event = await wait(.started, within: tuning.startWait)
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
         guard event == .naviStarted else {
+            // A failed route change keeps the trip on its current route (T-040h).
+            if replacing, let old = previous {
+                snapshot.routes = [old]
+                snapshot.selectedRoute = old.id
+                publish()
+                await engine.selectRoute(old.id, generation: generation)
+                await engine.start(mode, generation: generation)
+                return .failure(.startFailed, advice: "没有换成功，继续按原路线导航。请如实说明。")
+            }
             // Reset first so a request that lands while the engine stops is not wiped out.
             reset()
             await engine.stop(generation: generation)
@@ -358,6 +368,9 @@ public actor NavigationController: ToolExecutor {
             "duration_min": .int(Int64(minutes)),
             "simulated_movement": .bool(mode == .emulator),
             "alternatives": .array(others),
+            // F-15a §2.5: what a plain 好 / 换 after her offer means.
+            "offer_preference": offer.map { $0.contains("更快") ? "fastest" : $0.contains("更短") ? "shortest" : "no_toll" }
+                .map(JSONValue.string) ?? .null,
             "next": .string("只说一句：\(sentence)不要念其他路线。"),
         ])
     }
