@@ -1315,7 +1315,7 @@
       "owner": "AUTONOMOUS",
       "status": "PASS",
       "priority": 20,
-      "action": "F-15a §2.5 driver turns: count only utterances that begin while she is silent or are qualified barge-ins; no answerOwed from unqualified sound; check and stop uplink of that audio (F-04a); routeListTurn set synchronously on destination_selected; rows 13-14",
+      "action": "(reduced by T-040h) unqualified sound during her reply never counts as the driver speaking: no answerOwed, check and stop its uplink (F-04a); rows 13-14 (revised). routeListTurn part withdrawn",
       "depends_on": [
         "T-040e"
       ],
@@ -1343,6 +1343,39 @@
         "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
         "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings; minor: trip keeps the first session's SwitchableLocationProvider (reads 位置来源 per request)"
       ]
+    },
+    {
+      "id": "T-040h",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-15a §2.5 route choice dropped: routes ready -> guidance starts on the recommended route; navigate_to returns navigation_started + alternatives; choose_navigation_option while navigating replaces the route (no second trip); withdraw navigationNotRequested / routeListTurn; catalog tool text; contracts/navigation.md iOS note; rows 10, 12 (revised)",
+      "depends_on": [
+        "T-040e"
+      ],
+      "notes": "Owner 2026-10-29: \"save this drop on spec\". AWAITING_ROUTE_SELECTION came from the Android port; guards around it failed on 9f48c45 (最快的 refused) and ed40023 (unasked starts). Common practice starts on the best route once the place is known."
+    },
+    {
+      "id": "T-004i",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 10,
+      "action": "F-04 §14 items 1-7: one send decision carried on the gate event (speechStarted(sentToModel:)); a not-sent utterance drops audio, activity marks, driver turn, answerOwed and reply clock together; cut the utterance at unmute; mute read at the frame under the gate lock; never muted before her first audio (find the 7565bcf 22:38:34 cause); your-turn indicator; per-utterance log line. Replaces the T-040f mute (GateBox.toModel, AgentState.utteranceCounts/modelUplinkMuted); rows 1-9",
+      "depends_on": [
+        "T-040f"
+      ],
+      "notes": "Owner 2026-10-30 \"good just write this to spec\" after community review (Pipecat user-input muting, LiveKit uninterruptible, Gemini Live send flag). Device run 7565bcf: 8/52 turns never sent but awaited (emptyResponseReask), 第二个 lost (lateToolResultDropped)."
+    },
+    {
+      "id": "T-004j",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "F-04 §14 late end of speech: from the T-004i per-utterance log of a device run, fix what keeps the gate open (AGC / noise-floor threshold, then max utterance length, then a trained VAD); no short command open > 3 s",
+      "depends_on": [
+        "T-004i"
+      ],
+      "notes": "Device run 7565bcf: 9/52 utterances open 7-13 s for short commands."
     }
   ]
 }
