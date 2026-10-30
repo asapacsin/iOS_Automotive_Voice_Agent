@@ -355,6 +355,8 @@ public actor NavigationController: ToolExecutor {
         snapshot.phase = .navigating
         snapshot.mode = mode
         snapshot.routes = [route]
+        // A restart cancels any off-route recalculation in flight, so its 重新规划中 never ends on its own.
+        snapshot.rerouting = false
         listedAt = nil
         publish()
         let minutes = max(1, route.durationSeconds / 60)
@@ -381,7 +383,6 @@ public actor NavigationController: ToolExecutor {
         if startInFlight {
             return .failure(.optionsNotReady, advice: "正在换路线。请如实说正在换，稍等一下。")
         }
-        let current = snapshot.routes
         var options = calculated
         // 真实导航: the trip has moved, so the routes come from the current position (T-040h); the trip keeps
         // driving its route while they are calculated, and on any failure.
@@ -400,6 +401,8 @@ public actor NavigationController: ToolExecutor {
         guard options.count > 1 else {
             return .failure(.noOptionsOnScreen, advice: "这次只算出一条路线，没有别的可换。请如实说明。")
         }
+        // Read after the recalculation: an off-route reroute may have replaced the route meanwhile.
+        let current = snapshot.routes
         snapshot.routes = options
         let picked = pickRoute(args)
         snapshot.routes = current
@@ -418,9 +421,10 @@ public actor NavigationController: ToolExecutor {
             default: "第\(index + 1)条"
             }
             let before = calculated
+            let generation = snapshot.generation
             calculated = options
             let result = await startGuidance(route, replacing: label)
-            if !result.ok, snapshot.phase == .navigating { calculated = before }
+            if !result.ok, generation == snapshot.generation { calculated = before }
             return result
         case .failure(let box):
             return box.result
