@@ -25,6 +25,8 @@ final class DriveModel: ObservableObject {
     @Published var running = false
     /// F-04 §14 item 4: her reply or guidance is playing, so the microphone is ignored (「她在说话」).
     @Published var sheTalks = false
+    /// F-08 §14 item 6: her reply (not guidance) plays, so 别说了 stops her: the hint under 「她在说话」.
+    @Published var stopHint = false
     @Published var notice: String?
     // F-20a floating camera window
     @Published var cameraOpen = false
@@ -145,7 +147,7 @@ struct RuntimeSink: AgentEffectSink {
     }
 
     func diagnostic(_ event: DiagnosticEvent) {
-        RuntimeLog.agent.notice("diagnostic \(String(describing: event), privacy: .public)")
+        RuntimeLog.agent.notice("\(event.logLine, privacy: .public)")
     }
 
     /// F-14 fallback voice: rendered off the core, played on the guidance lane. A sentence that cannot
@@ -648,13 +650,20 @@ final class AgentRuntime {
                 case .guidanceEnded: gate.setPlaying(guidance: false)
                 case .replyFinished, .mediaPlaying, .replyIdle: break
                 }
-                let talking = gate.sheTalks
-                await MainActor.run { model.sheTalks = talking }
+                let talking = gate.sheTalks, hint = gate.stopPhraseWindow
+                await MainActor.run {
+                    model.sheTalks = talking
+                    model.stopHint = hint
+                }
                 await core.send(.playback(event))
                 // F-14: a fallback waits until nothing of her reply is left, at the revoicer or on the lane.
                 if case .replyFinished(let epoch) = event, await revoicer.pendingClauses == 0 {
                     gate.setPlaying(reply: false)
-                    await MainActor.run { model.sheTalks = gate.sheTalks }
+                    let talking = gate.sheTalks, hint = gate.stopPhraseWindow
+                    await MainActor.run {
+                        model.sheTalks = talking
+                        model.stopHint = hint
+                    }
                     await core.send(.playback(.replyIdle(epoch)))
                 }
             }
@@ -748,10 +757,11 @@ final class AgentRuntime {
                 try? await Task.sleep(for: .milliseconds(500))
                 let line = gate.diagnostics + "\n识别：" + (await transcript.source)
                 // The echo tail ends on a capture frame, not a playback event, so 请说 is refreshed here too.
-                let talking = gate.sheTalks
+                let talking = gate.sheTalks, hint = gate.stopPhraseWindow
                 await MainActor.run {
                     model.noiseLine = line
                     if model.sheTalks != talking { model.sheTalks = talking }
+                    if model.stopHint != hint { model.stopHint = hint }
                 }
             }
         })
@@ -864,6 +874,8 @@ final class GateBox: @unchecked Sendable {
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
     /// 「她在说话」 on screen: the driver is not sent to the model (her reply, guidance or the echo tail).
     var sheTalks: Bool { lock.withLock { gate.muteReason != .none } }
+    /// F-08 §14 item 3: the keyword spotter's window (her reply and its echo tail).
+    var stopPhraseWindow: Bool { lock.withLock { gate.stopPhraseWindow } }
 
     /// F-04 §14 item 3: her playback state, written when it starts and stops, read by the gate at each frame.
     func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {

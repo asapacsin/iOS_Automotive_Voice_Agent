@@ -319,7 +319,13 @@ private struct DriveContent: View {
         let (text, color) = model.sheTalks && model.running ? ("她在说话", Color.blue) : state
         return HStack(spacing: 5) {
             Circle().fill(color).frame(width: 9, height: 9)
-            Text(text).font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(text).font(.subheadline.weight(.semibold))
+                if model.sheTalks && model.stopHint && model.running {
+                    Text("说「别说了」可打断").font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("stop-hint")
+                }
+            }
         }
         .padding(.horizontal, 9).padding(.vertical, 4)
         .background(color.opacity(0.15), in: Capsule())

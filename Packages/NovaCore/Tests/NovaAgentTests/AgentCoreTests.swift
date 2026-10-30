@@ -498,3 +498,47 @@ struct SendDecisionTests {
         #expect(!d.send(.speechStopped).contains { if case .provider = $0 { true } else { false } })
     }
 }
+
+@Suite("T-022a F-08 §14 stop phrase while she talks")
+struct StopPhraseSpotterCoreTests {
+    func stops(_ out: [AgentEffect]) -> Bool { out.contains { if case .flushPlayback = $0 { true } else { false } } }
+    func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {
+        out.compactMap { if case .diagnostic(let e) = $0 { e } else { nil } }
+    }
+
+    @Test("F-08 §14 row 3: a spotter hit stops her (flush, qualified barge-in), sends nothing, opens no turn")
+    func hit() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        let out = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        #expect(stops(out))
+        #expect(diagnostics(out).contains(.bargeIn(qualified: true)))
+        #expect(diagnostics(out).contains { if case .stopPhrase(.kws, 0, _, 80, false) = $0 { true } else { false } })
+        #expect(!out.contains { if case .provider = $0 { true } else { false } })
+        #expect(!d.send(.speechStopped).contains { if case .provider = $0 { true } else { false } })
+    }
+
+    @Test("F-08 §14 row 3 / item 5: the transcript check after a spotter hit, or a second hit, changes nothing")
+    func secondIgnored() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        #expect(stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))))
+        // Her next reply starts at once; a second hit and the transcript of the same utterance are ignored.
+        d.send(.playback(.replyStarted(Epoch.initial.next())))
+        #expect(!stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 3, score: 70)))))
+        #expect(!stops(d.send(.driverWords(.final("别说了")))))
+    }
+
+    @Test("F-08 §14 item 7: a hit with no driver speech is a self-stop; a reply with an unsent utterance and no hit is a miss")
+    func logLines() {
+        var d = SendDecisionTests().playing()
+        d.now = NovaInstant(milliseconds: 5_000)
+        let selfStop = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 6, score: 55)))
+        #expect(diagnostics(selfStop).contains { if case .stopPhrase(.kws, 6, _, 55, true) = $0 { true } else { false } })
+        var m = SendDecisionTests().playing()
+        m.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        m.send(.speechStopped)
+        let idle = m.send(.playback(.replyIdle(Epoch.initial)))
+        #expect(diagnostics(idle).contains { if case .stopPhraseMiss = $0 { true } else { false } })
+    }
+}

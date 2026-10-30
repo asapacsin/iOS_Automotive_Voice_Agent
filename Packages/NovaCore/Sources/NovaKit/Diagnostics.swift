@@ -23,6 +23,15 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case turnUnanswered(turn: Int)
     case timerFired(stale: Bool)
     case sessionError(SessionErrorCode)
+    /// F-08 §14 item 7: a stop phrase stopped her. `phrase` indexes `StopPhrases.all` (-1: a transcript-only phrase);
+    /// `selfStop`: no driver speech open or ended within 1 s (a false stop).
+    case stopPhrase(source: StopPhraseSource, phrase: Int, msFromSpeechStart: Int, score: Int, selfStop: Bool)
+    /// F-08 §14 item 7: a reply ended with an utterance during it and no stop phrase.
+    case stopPhraseMiss(utterance: Int)
+}
+
+public enum StopPhraseSource: String, Sendable, Hashable {
+    case kws, transcript
 }
 
 extension DiagnosticEvent {
@@ -47,6 +56,8 @@ extension DiagnosticEvent {
         case turnUnanswered
         case timerFired
         case sessionError
+        case stopPhrase
+        case stopPhraseMiss
     }
 
     public var kind: Kind {
@@ -69,6 +80,20 @@ extension DiagnosticEvent {
         case .turnUnanswered: .turnUnanswered
         case .timerFired: .timerFired
         case .sessionError: .sessionError
+        case .stopPhrase: .stopPhrase
+        case .stopPhraseMiss: .stopPhraseMiss
+        }
+    }
+}
+
+extension DiagnosticEvent {
+    /// The phone-log line: F-08 §14 item 7 formats for the stop-phrase lines, the case's description otherwise.
+    public var logLine: String {
+        switch self {
+        case .stopPhrase(let source, let phrase, let ms, let score, let selfStop):
+            "stopPhrase source=\(source.rawValue) phrase=\(phrase) msFromSpeechStart=\(ms) score=\(score) selfStop=\(selfStop)"
+        case .stopPhraseMiss(let utterance): "stopPhraseMiss utterance=\(utterance)"
+        default: "diagnostic \(self)"
         }
     }
 }

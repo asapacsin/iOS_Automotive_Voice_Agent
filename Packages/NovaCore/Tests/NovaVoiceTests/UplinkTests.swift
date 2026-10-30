@@ -312,3 +312,59 @@ struct ListenWhileSheTalksTests {
         #expect(line.contains("endReason=silence sentToModel=true muteReason=none peakDb="))
     }
 }
+
+@Suite("T-022a F-08 §14 stop set and spotter window")
+struct StopPhraseWindowTests {
+    @Test("F-08 §14 row 1: every phrase is pinyin tokens (initials, tone-marked finals); one keyword line each")
+    func tokens() {
+        #expect(StopPhrases.all.map(\.text) == ["别说了", "不要说了", "别说啦", "停", "停一下", "闭嘴", "安静"])
+        let finalLetters = Set("aeiouüāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜnrg")
+        for phrase in StopPhrases.all {
+            #expect(phrase.tokens.count >= phrase.text.count, "\(phrase.text)")
+            for token in phrase.tokens where !StopPhrases.initials.contains(token) {
+                #expect(token.allSatisfy(finalLetters.contains), "\(phrase.text) \(token)")
+            }
+        }
+        let lines = StopPhrases.keywordsFile.split(separator: "\n")
+        #expect(lines.count == 7 && lines[0] == "b ié sh uō l e @0")
+        #expect(StopPhrases.index(of: "别说了") == 0 && StopPhrases.index(of: "别吵了") == nil)
+        // Item 5: the transcript check knows the whole stop set.
+        for phrase in StopPhrases.all { #expect(ListeningIntent.classify(phrase.text) == .shutUp, "\(phrase.text)") }
+    }
+
+    final class CountingSpotter: StopPhraseSpotter {
+        var fed = 0, resets = 0
+        func accept(_ frame: PCMFrame16k) -> StopPhraseHit? { fed += 1; return StopPhraseHit(phrase: 0, score: 90) }
+        func reset() { resets += 1 }
+    }
+
+    @Test("F-08 §14 row 2: fed only during her reply and its 500 ms tail; never for guidance alone")
+    func window() {
+        var gate = SpeechUplinkGate()
+        let spotter = CountingSpotter()
+        var feeder = StopPhraseFeeder()
+        let silence = PCMFrame16k(samples: [Int16](repeating: 0, count: PCMFrame16k.samplesPerFrame))!
+        var muted = 0
+        func run(_ n: Int) -> Int {
+            var hits = 0
+            for _ in 0..<n {
+                _ = gate.process(silence)
+                if gate.muteReason != .none { muted += 1 }
+                if feeder.frame(silence, inWindow: gate.stopPhraseWindow, spotter: spotter) != nil { hits += 1 }
+            }
+            return hits
+        }
+        #expect(run(20) == 0 && spotter.fed == 0)
+        gate.setPlaying(guidance: true)
+        #expect(run(20) == 0)
+        gate.setPlaying(guidance: false)
+        #expect(run(40) == 0 && spotter.fed == 0)
+        gate.setPlaying(reply: true)
+        #expect(run(10) == 10)
+        gate.setPlaying(reply: false)
+        // The 500 ms echo tail: exactly the mute window of F-04 §14 item 2, then closed.
+        muted = 0
+        let tail = run(80)
+        #expect(tail == muted && tail >= 49 && tail <= 50 && spotter.resets == 1)
+    }
+}

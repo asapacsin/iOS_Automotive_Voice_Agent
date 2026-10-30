@@ -74,6 +74,8 @@ public struct SpeechUplinkGate: Sendable {
     /// same lock as `process`), and how much echo tail is left after it.
     public private(set) var replyPlaying = false
     public private(set) var guidancePlaying = false
+    /// The echo tail follows her reply (not only guidance): the stop-phrase window stays open through it.
+    private var tailAfterReply = false
     private var echoTailLeft = NovaDuration.zero
     /// The open utterance: sent to the model or not, why, and its numbers for the log line.
     private var sending = true
@@ -152,12 +154,20 @@ public struct SpeechUplinkGate: Sendable {
         return echoTailLeft > .zero ? .echoTail : .none
     }
 
+    /// F-08 §14 item 3 (T-022a): the keyword spotter is fed only while her reply plays and through its echo tail;
+    /// guidance alone never opens it (别说了 does not stop guidance).
+    public var stopPhraseWindow: Bool { replyPlaying || (echoTailLeft > .zero && tailAfterReply) }
+
     /// F-04 §14 item 3: playback state, set when her reply or guidance starts or stops sounding.
     public mutating func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
         let wasAudible = replyPlaying || guidancePlaying
+        let wasReply = replyPlaying
         if let reply { replyPlaying = reply }
         if let guidance { guidancePlaying = guidance }
-        if wasAudible, !replyPlaying, !guidancePlaying { echoTailLeft = tuning.echoTail }
+        if wasAudible, !replyPlaying, !guidancePlaying {
+            echoTailLeft = tuning.echoTail
+            tailAfterReply = wasReply
+        }
         if replyPlaying || guidancePlaying { echoTailLeft = .zero }
     }
 

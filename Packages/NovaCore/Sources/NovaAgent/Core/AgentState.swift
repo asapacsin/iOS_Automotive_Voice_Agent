@@ -33,6 +33,8 @@ public enum AgentEvent: Sendable, Hashable {
     case musicPlaying(Bool)
     /// A tap on the screen (I-6): it enters the same dispatcher and executor as the voice call.
     case ui(UIIntent)
+    /// F-08 §14 item 4 (T-022a): the on-phone keyword spotter heard a stop phrase while she talked.
+    case stopPhraseSpotted(StopPhraseHit)
 }
 
 /// Screen actions (ios-architecture §11.1). Each becomes the tool call the voice path would make.
@@ -137,6 +139,17 @@ public struct AgentState: Sendable {
     private var closedTurns = 0
     /// F-04 §14 (T-004i): the open utterance was sent to the model (the gate's decision, followed here).
     private var utteranceSent = true
+    /// F-08 §14 items 4, 5, 7: every utterance the gate opened (sent or not), when the last one started and ended,
+    /// whether one is open, and the last stop, so a second hit (either source) within 1 s or in the same
+    /// utterance is ignored.
+    private var utterances = 0
+    private var utteranceOpen = false
+    private var lastOnsetAt: NovaInstant?
+    private var lastSpeechEndAt: NovaInstant?
+    private var lastStopAt: NovaInstant?
+    private var stopUtterance: Int?
+    /// An utterance heard during her reply with no stop yet; logged as a miss when the reply ends.
+    private var missCandidate: Int?
     /// F-05a: `TranscriptSelector` feeds the driver's words (`.driverWords`); Gemini's transcript is not used.
     private var selectorOwnsWords = false
     /// Clauses waiting while the arbiter holds the reply (R1 guidance, R5 transient loss).
@@ -198,6 +211,10 @@ public struct AgentState: Sendable {
             guard session.state != .disconnected, session.state != .error else { return effects }
             return effects + reply(realtime, at: now)
         case .speechStarted(let recentSpeech, let sentToModel):
+            utterances += 1
+            utteranceOpen = true
+            lastOnsetAt = now
+            if !sentToModel, arbiter.replyPlaying { missCandidate = utterances }
             utteranceSent = sentToModel
             // F-04 §14 item 1: an utterance the gate did not send is ignored (her reply plays on); only the
             // local 别说了 check still hears its words.
@@ -212,6 +229,8 @@ public struct AgentState: Sendable {
             let effects = bargeIn(.speechStarted(recentSpeech: recentSpeech), at: now)
             return effects + session(.speechStarted, at: now) + arbiterChanged(at: now)
         case .speechStopped:
+            utteranceOpen = false
+            lastSpeechEndAt = now
             // F-04 §14 item 1: the end of a not-sent utterance changes nothing.
             guard utteranceSent else { return [] }
             driverSpeaking = false
@@ -259,14 +278,11 @@ public struct AgentState: Sendable {
             case .replyFinished(let epoch) where epoch == arbiter.epoch:
                 _ = arbiter.handle(.replyPlaying(false))
             case .replyIdle(let epoch) where epoch == arbiter.epoch:
-                // Nothing of hers is left to sound. With her turn closed, a waiting fallback may speak.
-                if openTurn == nil || openTurn.map({ relayTurns[$0] != nil && relayReading == nil }) == true {
-                    arbiter.replyDrained()
-                    if let waiting = waitingFallback {
-                        waitingFallback = nil
-                        return [.speakGuidance(waiting.text, waiting.id)] + arbiterChanged(at: now)
-                    }
+                if let missed = missCandidate {
+                    missCandidate = nil
+                    return [.diagnostic(.stopPhraseMiss(utterance: missed))] + replyIdle(at: now)
                 }
+                return replyIdle(at: now)
             case .replyIdle:
                 break
             case .replyStarted, .replyFinished: break
@@ -324,6 +340,9 @@ public struct AgentState: Sendable {
         case .guidanceRelay(let enabled):
             relayEnabled = enabled
             return []
+        case .stopPhraseSpotted(let hit):
+            // Nothing is sent to Gemini and no driver turn opens: the utterance stays unsent (F-04 §14 item 1).
+            return stopPhrase(.kws, phrase: hit.phrase, score: hit.score, at: now) ?? []
         case .ui(.choose(let row)):
             uiCount += 1
             let call = ToolCall(id: CallID("ui_\(uiCount)")!, name: "choose_navigation_option",
@@ -535,6 +554,35 @@ public struct AgentState: Sendable {
         return effects
     }
 
+    /// Nothing of hers is left to sound. With her turn closed, a waiting fallback may speak.
+    private mutating func replyIdle(at now: NovaInstant) -> [AgentEffect] {
+        if openTurn == nil || openTurn.map({ relayTurns[$0] != nil && relayReading == nil }) == true {
+            arbiter.replyDrained()
+            if let waiting = waitingFallback {
+                waitingFallback = nil
+                return [.speakGuidance(waiting.text, waiting.id)] + arbiterChanged(at: now)
+            }
+        }
+        return arbiterChanged(at: now)
+    }
+
+    /// F-08 §14 items 4, 5, 7: a stop phrase from the spotter or the transcript, whichever comes first. A second one
+    /// within 1 s or in the same utterance is ignored; nil when it is ignored or she was not talking.
+    private mutating func stopPhrase(_ source: StopPhraseSource, phrase: Int, score: Int,
+                                     at now: NovaInstant) -> [AgentEffect]? {
+        if let last = lastStopAt, now - last < .seconds(1) { return nil }
+        if stopUtterance == utterances { return nil }
+        let stop = bargeIn(.stopPhrase, at: now)
+        guard !stop.isEmpty else { return nil }
+        lastStopAt = now
+        stopUtterance = utterances
+        missCandidate = nil
+        let heardDriver = utteranceOpen || lastSpeechEndAt.map { now - $0 <= .seconds(1) } == true
+        let ms = lastOnsetAt.map { Int((now - $0).milliseconds) } ?? -1
+        return stop + [.diagnostic(.stopPhrase(source: source, phrase: phrase, msFromSpeechStart: ms, score: score,
+                                               selfStop: !heardDriver))] + arbiterChanged(at: now)
+    }
+
     private mutating func stopReply(_ turn: TurnID) -> [AgentEffect] {
         silenced.insert(turn)
         segmenter.reset()
@@ -559,9 +607,9 @@ public struct AgentState: Sendable {
         // Barge-in is a stop phrase only (owner rule 2026-10-28). It stops her at once, and the model's
         // answer to it is not heard: she just stops.
         if ListeningIntent.classify(text) == .shutUp {
-            let stop = bargeIn(.stopPhrase, at: now)
+            let stop = stopPhrase(.transcript, phrase: StopPhrases.index(of: text) ?? -1, score: 0, at: now)
             if isFinal { abandonNextTurn = true }
-            return stop.isEmpty ? [] : stop + arbiterChanged(at: now)
+            return stop ?? []
         }
         // The flushed transcript of an utterance already given up on does not revive it; words of a not-sent
         // utterance never reach the tool path (F-04 §14 item 1).
