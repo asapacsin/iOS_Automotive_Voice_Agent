@@ -348,7 +348,7 @@ struct RouteChangeTests {
         _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
         let changed = await nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
         #expect(changed.ok && changed.data["status"] == "route_changed" && changed.data["duration_min"] == .int(11))
-        #expect(engine.calls.withLock { $0 } == ["calc", "select 1", "start gps", "calc", "select 12", "start gps"])
+        #expect(engine.calls.withLock { $0 } == ["calc", "select 1", "start gps", "recalc", "select 12", "start gps"])
         let snapshot = await nav.current
         #expect(snapshot.phase == .navigating && snapshot.selectedRoute == RouteID(12))
     }
@@ -362,9 +362,30 @@ struct RouteChangeTests {
         _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
         let changed = await nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
         #expect(!changed.ok && changed.code == .routeCalculationFailed)
-        #expect(engine.calls.withLock { $0 }.suffix(3) == ["calc", "select 1", "start gps"])
+        // The trip was never stopped or restarted: it keeps driving route 1.
+        #expect(engine.calls.withLock { $0 } == ["calc", "select 1", "start gps", "recalc"])
         let snapshot = await nav.current
         #expect(snapshot.phase == .navigating && snapshot.selectedRoute == RouteID(1))
+    }
+}
+
+extension RouteChangeTests {
+    @Test("F-15a §2.5 真实导航: a pick the new routes cannot meet changes nothing; one first route still recalculates")
+    func gpsBadPickAndSingleRoute() async {
+        let engine = RecalcEngine(batches: [[route(1, meters: 12_000, seconds: 1_500)],
+                                            [route(11, meters: 9_000, seconds: 900), route(12, meters: 8_000, seconds: 700)]])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: FixedLocation(), clock: ManualClock(), mode: { .gps })
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        let bad = await nav.execute(tool("choose_navigation_option", ["index": 3]))
+        #expect(!bad.ok)
+        #expect(engine.calls.withLock { $0 } == ["calc", "select 1", "start gps", "recalc"])
+        #expect(await nav.current.selectedRoute == RouteID(1))
+        engine.batches.withLock { $0 = [[route(21, meters: 9_000, seconds: 900), route(22, meters: 8_000, seconds: 700)]] }
+        let changed = await nav.execute(tool("choose_navigation_option", ["preference": "shortest"]))
+        #expect(changed.ok && changed.data["status"] == "route_changed")
+        #expect(await nav.current.selectedRoute == RouteID(22))
     }
 }
 
@@ -392,4 +413,9 @@ final class RecalcEngine: NaviEngine {
         continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviStarted))
     }
     func stop(generation: Generation) async { calls.withLock { $0.append("stop") } }
+    func recalculateFromHere(generation: Generation) async -> [RouteSummary]? {
+        calls.withLock { $0.append("recalc") }
+        let routes = batches.withLock { $0.isEmpty ? [] : $0.removeFirst() }
+        return routes.isEmpty ? nil : routes
+    }
 }

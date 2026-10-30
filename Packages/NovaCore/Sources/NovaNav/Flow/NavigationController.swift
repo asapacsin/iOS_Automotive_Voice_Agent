@@ -378,22 +378,34 @@ public actor NavigationController: ToolExecutor {
     /// F-15a §2.5 (T-040h): while navigating, 「换最快的」「不走高速」「换第二条」 replace the route with one of the
     /// same calculation; one trip, never a second one.
     private func changeRoute(_ args: JSONValue) async -> ToolResult {
-        guard calculated.count > 1 else {
-            return .failure(.noOptionsOnScreen, advice: "这次只算出一条路线，没有别的可换。请如实说明。")
-        }
         if startInFlight {
             return .failure(.optionsNotReady, advice: "正在换路线。请如实说正在换，稍等一下。")
         }
         let current = snapshot.routes
-        // 真实导航: the trip has moved, so the routes are recalculated from the current position (T-040h).
+        var options = calculated
+        // 真实导航: the trip has moved, so the routes come from the current position (T-040h); the trip keeps
+        // driving its route while they are calculated, and on any failure.
         let fresh = snapshot.mode == .gps
-        if fresh, let failed = await recalculateForChange(keeping: current.first) { return failed }
-        snapshot.routes = calculated
+        if fresh {
+            let generation = snapshot.generation
+            startInFlight = true
+            let routes = await engine.recalculateFromHere(generation: generation)
+            guard generation == snapshot.generation else { return .failure(.optionsStale) }
+            startInFlight = false
+            guard let routes, !routes.isEmpty else {
+                return .failure(.routeCalculationFailed, advice: "没有换成功，继续按原路线导航。请如实说明。")
+            }
+            options = Array(routes.prefix(3))
+        }
+        guard options.count > 1 else {
+            return .failure(.noOptionsOnScreen, advice: "这次只算出一条路线，没有别的可换。请如实说明。")
+        }
+        snapshot.routes = options
         let picked = pickRoute(args)
         snapshot.routes = current
         switch picked {
         case .success(let index):
-            let route = calculated[index]
+            let route = options[index]
             if !fresh, route.id == current.first?.id {
                 return .success(["status": "route_unchanged", "next": "只说一句：现在走的就是这条路线。"])
             }
@@ -405,34 +417,14 @@ public actor NavigationController: ToolExecutor {
             case "recommended": "推荐的"
             default: "第\(index + 1)条"
             }
-            return await startGuidance(route, replacing: label)
+            let before = calculated
+            calculated = options
+            let result = await startGuidance(route, replacing: label)
+            if !result.ok, snapshot.phase == .navigating { calculated = before }
+            return result
         case .failure(let box):
             return box.result
         }
-    }
-
-    /// One calculation from the current fix to the trip's destination; nil when `calculated` now holds its routes.
-    /// A failed calculation keeps the trip on its current route.
-    private func recalculateForChange(keeping old: RouteSummary?) async -> ToolResult? {
-        guard let place = snapshot.destination else { return nil }
-        let generation = snapshot.generation
-        early[.routes] = nil
-        startInFlight = true
-        await engine.calculateRoutes(RouteRequest(destination: place.coordinate, destinationName: place.name),
-                                     generation: generation)
-        guard generation == snapshot.generation else { startInFlight = false; return .failure(.optionsStale) }
-        let event = await wait(.routes, within: tuning.routeWait)
-        startInFlight = false
-        guard generation == snapshot.generation else { return .failure(.optionsStale) }
-        guard case .routesReady(let routes) = event, !routes.isEmpty else {
-            if let old {
-                await engine.selectRoute(old.id, generation: generation)
-                await engine.start(.gps, generation: generation)
-            }
-            return .failure(.routeCalculationFailed, advice: "没有换成功，继续按原路线导航。请如实说明。")
-        }
-        calculated = Array(routes.prefix(3))
-        return nil
     }
 
     // MARK: exit_navigation_mode

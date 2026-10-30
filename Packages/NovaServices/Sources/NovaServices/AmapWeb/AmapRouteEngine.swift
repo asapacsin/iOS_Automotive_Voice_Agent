@@ -60,6 +60,9 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         var latest = Generation.initial
         /// The destination of the last calculation, for an off-route recalculation.
         var destination: GeoCoordinate?
+        /// A route-change calculation (`recalculateFromHere`), not yet driven; its ids start above every earlier one.
+        var candidates: [PlannedRoute] = []
+        var nextCandidateID = 100
     }
 
     public init(key: @escaping @Sendable () -> String?, origin: @escaping @Sendable () async -> GeoCoordinate?,
@@ -83,6 +86,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         let token = state.withLock { s -> Int in
             s.latest = max(s.latest, generation)
             s.request += 1
+            s.candidates = []
             s.destination = request.destination
             return s.request
         }
@@ -118,12 +122,33 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         onGeometry(geometry)
     }
 
+    public func recalculateFromHere(generation: Generation) async -> [RouteSummary]? {
+        guard let from = await origin(), let routes = await recalculate(from: from) else { return nil }
+        return state.withLock { s -> [RouteSummary]? in
+            guard s.latest == generation, s.drive != nil else { return nil }
+            s.candidates = routes.map { planned in
+                s.nextCandidateID += 1
+                let r = planned.summary
+                let summary = RouteSummary(id: RouteID(s.nextCandidateID), lengthMeters: r.lengthMeters,
+                                           durationSeconds: r.durationSeconds, tollYuan: r.tollYuan,
+                                           trafficLights: r.trafficLights, label: r.label, polyline: r.polyline)
+                return PlannedRoute(summary: summary, points: planned.points, steps: planned.steps)
+            }
+            return s.candidates.map(\.summary)
+        }
+    }
+
     public func start(_ mode: NaviMode, generation: Generation) async {
-        let route = state.withLock { s in s.routes.first { $0.summary.id == s.geometry.selected } }
+        let route = state.withLock { s in
+            (s.candidates + s.routes).first { $0.summary.id == s.geometry.selected }
+        }
         guard let route, route.points.count >= 2 else { return }
         let location = location
         if mode == .gps, location == nil { return }
         state.withLock { s in
+            // A route-change candidate makes its calculation the trip's once it is driven.
+            if s.candidates.contains(route) { s.routes = s.candidates }
+            s.candidates = []
             s.latest = max(s.latest, generation)
             s.geometry.routes = [route]
             s.drive?.cancel()
@@ -153,6 +178,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         let geometry = state.withLock { s -> RouteGeometry in
             s.request += 1
             s.routes = []
+            s.candidates = []
             s.geometry = RouteGeometry()
             return s.geometry
         }

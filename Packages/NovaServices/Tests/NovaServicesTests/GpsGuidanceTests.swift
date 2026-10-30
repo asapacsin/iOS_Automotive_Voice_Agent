@@ -131,6 +131,26 @@ struct GpsGuidanceTests {
         #expect(beforeRerouting.filter { if case .naviInfo = $0.event { true } else { false } }.count == 6)
     }
 
+    @Test("F-15a §2.5 (T-040h): a route change recalculates from here with new ids while the trip keeps driving")
+    func changeFromHere() async {
+        let generation = Generation.initial.next()
+        var rig = await started(generation)
+        let drawnBefore = rig.drawn.last
+        guard let routes = await rig.engine.recalculateFromHere(generation: generation), let first = routes.first else {
+            Issue.record("no routes"); return
+        }
+        #expect(first.id.rawValue > 100 && rig.transport.requests == 2)
+        // Not drawn and not driven yet: the old trip still answers fixes.
+        #expect(rig.drawn.last == drawnBefore)
+        rig.fixes.send(fix(113.5005, at: 1))
+        _ = await rig.until { if case .naviInfo = $0 { true } else { false } }
+        await rig.engine.selectRoute(first.id, generation: generation)
+        await rig.engine.start(.gps, generation: generation)
+        _ = await rig.until { $0 == .naviStarted }
+        #expect(rig.drawn.last?.routes.map(\.summary.id) == [first.id])
+        #expect(rig.drawn.last?.routes.first?.points.first?.latitude == 22.2709)
+    }
+
     @Test("F-15a row 5: after a stop, a late fix of the old trip is dropped")
     func oldGeneration() async {
         let g1 = Generation.initial.next()

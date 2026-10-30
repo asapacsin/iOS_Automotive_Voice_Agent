@@ -129,6 +129,14 @@ public protocol NaviEngine: Sendable {
     func selectRoute(_ id: RouteID, generation: Generation) async
     func start(_ mode: NaviMode, generation: Generation) async
     func stop(generation: Generation) async
+    /// F-15a §2.5 (T-040h) 真实导航 route change: routes from the current position to the trip's destination, with
+    /// ids unused by earlier calculations, for `selectRoute` + `start`. The trip keeps driving its route meanwhile.
+    /// nil when it fails or the engine cannot recalculate.
+    func recalculateFromHere(generation: Generation) async -> [RouteSummary]?
+}
+
+public extension NaviEngine {
+    func recalculateFromHere(generation: Generation) async -> [RouteSummary]? { nil }
 }
 
 public struct LocationFix: Sendable, Hashable {
