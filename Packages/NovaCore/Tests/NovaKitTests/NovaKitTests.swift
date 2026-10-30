@@ -175,7 +175,7 @@ struct DiagnosticsTests {
         .setupTimeout, .toolRefused(code: .ambiguousReferent), .toolFailed(code: .vehicleExecutionFailed),
         .lateToolResultDropped(turn: .initial), .navLateResultDropped(stale: .initial, current: .initial.next()),
         .staleAudioDropped(stale: .initial, current: .initial.next()), .bargeIn(qualified: true),
-        .claimHeld(events: 3), .correctionSent, .emptyResponseReask, .timerFired(stale: false),
+        .claimHeld(events: 3), .correctionSent, .emptyResponseReask, .turnUnanswered(turn: 1), .timerFired(stale: false),
         .sessionError(.audioCaptureFailed),
     ]
 

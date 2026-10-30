@@ -19,8 +19,6 @@ public protocol AgentEffectSink: Sendable {
     func speakGuidance(_ text: String, id: GuidanceID) async
     /// The uplink gate force-closes while `open` is false (F-08).
     func uplink(open: Bool)
-    /// F-15a §2.5: utterances that begin while `muted` are not sent to the model (the gate still hears them).
-    func modelUplink(muted: Bool)
 }
 
 /// Runs tool calls as child tasks (ios-architecture §5.1): cancellable, always ends in a `ToolResult`.
@@ -123,7 +121,6 @@ public actor AgentCore {
         case .diagnostic(let event): sink.diagnostic(event)
         case .speakGuidance(let text, let id): await sink.speakGuidance(text, id: id)
         case .uplink(let open): sink.uplink(open: open)
-        case .modelUplinkMuted(let muted): sink.modelUplink(muted: muted)
         }
     }
 }

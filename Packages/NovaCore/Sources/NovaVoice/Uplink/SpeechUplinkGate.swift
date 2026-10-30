@@ -1,3 +1,4 @@
+import Foundation
 import NovaKit
 import NovaPorts
 
@@ -10,13 +11,47 @@ public enum SegmentVerdict: String, Sendable, Hashable {
     case held
 }
 
+/// F-04 §14: why an utterance was not sent to the model.
+public enum MuteReason: String, Sendable, Hashable {
+    case reply, guidance, echoTail, none
+}
+
+/// F-04 §14 item 7: how an utterance ended.
+public enum UtteranceEnd: String, Sendable, Hashable {
+    case silence, cutAtUnmute, stopPhrase, streamEnd
+}
+
+/// F-04 §14 item 7: one line per utterance, numbers and enums only (no audio, no words; I-8).
+public struct UtteranceRecord: Sendable, Hashable {
+    public var id: Int
+    public var startMs: Int64
+    public var endMs: Int64
+    public var endReason: UtteranceEnd
+    public var sentToModel: Bool
+    public var muteReason: MuteReason
+    public var peakDb: Int
+    public var noiseFloorDb: Int
+    public var classifierMax: Double
+
+    /// `utterance 3 start=1200 end=2950 endReason=silence sentToModel=true muteReason=none peakDb=71 ...`
+    public var logLine: String {
+        "utterance \(id) start=\(startMs) end=\(endMs) endReason=\(endReason.rawValue) sentToModel=\(sentToModel) "
+            + "muteReason=\(muteReason.rawValue) peakDb=\(peakDb) noiseFloorDb=\(noiseFloorDb) "
+            + "classifierMax=\((classifierMax * 100).rounded() / 100)"
+    }
+}
+
 public enum UplinkGateOutput: Sendable, Hashable {
-    case speechStarted
+    /// F-04 §14 item 1: the one decision whether this utterance goes to the model. Everything of a not-sent
+    /// utterance (audio, activity marks, the driver turn, the reply clock) is dropped by whoever follows it.
+    case speechStarted(sentToModel: Bool)
     /// A frame to upload. Pre-roll frames come first after `speechStarted`.
     case audio(PCMFrame16k)
     case speechStopped(SegmentVerdict)
     /// After the closing silence: send `audioStreamEnd`.
     case streamEnd
+    /// F-04 §14 item 7: the utterance that just ended, for the log.
+    case utterance(UtteranceRecord)
 }
 
 /// Local VAD on cleaned 10 ms frames (F-04). closed → onset 200 ms → open → hangover 1200 ms → closed,
@@ -35,6 +70,20 @@ public struct SpeechUplinkGate: Sendable {
     public private(set) var noiseRMS: Double
     /// The arbiter's guidance hold (F-08): no frame is uploaded while set.
     public private(set) var forcedClosed = false
+    /// F-04 §14: her reply / guidance is playing (written by the shell when playback starts and stops, under the
+    /// same lock as `process`), and how much echo tail is left after it.
+    public private(set) var replyPlaying = false
+    public private(set) var guidancePlaying = false
+    private var echoTailLeft = NovaDuration.zero
+    /// The open utterance: sent to the model or not, why, and its numbers for the log line.
+    private var sending = true
+    private var utteranceMute = MuteReason.none
+    private var utteranceID = 0
+    private var utteranceStart = NovaDuration.zero
+    private var utterancePeak = 0.0
+    private var utteranceClassifierMax = 0.0
+    /// The last `preRoll` of frames while open, so a cut at unmute starts with its pre-roll.
+    private var openTail: [PCMFrame16k] = []
     private let tuning: UplinkGateTuning
     private var elapsed = NovaDuration.zero
     private var onset = NovaDuration.zero
@@ -96,10 +145,29 @@ public struct SpeechUplinkGate: Sendable {
 
     public var threshold: Double { max(tuning.rmsFloor, noiseRMS * tuning.noiseFactor) }
 
+    /// F-04 §14 item 2: muted while she talks and for the echo tail; never before any audio of hers.
+    public var muteReason: MuteReason {
+        if replyPlaying { return .reply }
+        if guidancePlaying { return .guidance }
+        return echoTailLeft > .zero ? .echoTail : .none
+    }
+
+    /// F-04 §14 item 3: playback state, set when her reply or guidance starts or stops sounding.
+    public mutating func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
+        let wasAudible = replyPlaying || guidancePlaying
+        if let reply { replyPlaying = reply }
+        if let guidance { guidancePlaying = guidance }
+        if wasAudible, !replyPlaying, !guidancePlaying { echoTailLeft = tuning.echoTail }
+        if replyPlaying || guidancePlaying { echoTailLeft = .zero }
+    }
+
     public mutating func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] {
         let rms = Self.rms(frame)
         let warmingUp = elapsed < tuning.warmUp
         elapsed = elapsed + Self.frameDuration
+        if !replyPlaying, !guidancePlaying, echoTailLeft > .zero {
+            echoTailLeft = max(.zero, echoTailLeft - Self.frameDuration)
+        }
         if warmingUp {
             let n = Double(elapsed.milliseconds / Self.frameDuration.milliseconds)
             noiseRMS += (rms - noiseRMS) / n  // running mean over the warm-up
@@ -126,6 +194,13 @@ public struct SpeechUplinkGate: Sendable {
             confirmingSince = elapsed
             return confirm()
         case .open:
+            utterancePeak = max(utterancePeak, rms)
+            if let p = lastSpeechProbability { utteranceClassifierMax = max(utteranceClassifierMax, p) }
+            // F-04 §14 item 2: she stopped while a muted utterance is open; cut it here and start a sent one.
+            if !sending, muteReason == .none { return cutAtUnmute(frame) }
+            openTail.append(frame)
+            let keep = Int(tuning.preRoll.milliseconds / Self.frameDuration.milliseconds)
+            if openTail.count > keep { openTail.removeFirst(openTail.count - keep) }
             openRMS.append(rms)
             if openRMS.count > Self.steadyWindowFrames { openRMS.removeFirst() }
             if openRMS.count == Self.steadyWindowFrames, let floor = openRMS.min(), floor > threshold {
@@ -147,8 +222,41 @@ public struct SpeechUplinkGate: Sendable {
         // Like `onCaptureInterrupted`: frames from the hold must not qualify a barge-in afterwards.
         if !closed { recent.removeAll(keepingCapacity: true) }
         guard closed, phase == .open else { return [] }
-        return close()
+        return close(.streamEnd)
     }
+
+    /// F-04 §14 item 2: the muted part ends unsent; a fresh utterance starts at this frame with its pre-roll.
+    private mutating func cutAtUnmute(_ frame: PCMFrame16k) -> [UplinkGateOutput] {
+        let ended: [UplinkGateOutput] = [.speechStopped(verdict()), .utterance(record(.cutAtUnmute))]
+        let preRoll = openTail
+        openTail.removeAll(keepingCapacity: true)
+        openRMS.removeAll(keepingCapacity: true)
+        segmentLength = Self.frameDuration
+        segmentVoiced = Self.frameDuration
+        trailingUnvoiced = .zero
+        hangover = .zero
+        beginUtterance()
+        return ended + [.speechStarted(sentToModel: sending)] + preRoll.map(UplinkGateOutput.audio) + [.audio(frame)]
+    }
+
+    private mutating func beginUtterance() {
+        utteranceID += 1
+        utteranceMute = muteReason
+        sending = utteranceMute == .none
+        utteranceStart = elapsed
+        utterancePeak = 0
+        utteranceClassifierMax = lastSpeechProbability ?? 0
+    }
+
+    private func record(_ end: UtteranceEnd) -> UtteranceRecord {
+        UtteranceRecord(id: utteranceID, startMs: utteranceStart.milliseconds, endMs: elapsed.milliseconds,
+                        endReason: end, sentToModel: sending, muteReason: utteranceMute,
+                        peakDb: Self.decibels(utterancePeak), noiseFloorDb: Self.decibels(noiseRMS),
+                        classifierMax: utteranceClassifierMax)
+    }
+
+    /// dB relative to full scale, offset so that full scale is 96 (as 音频测试 shows it).
+    static func decibels(_ rms: Double) -> Int { Int((20 * log10(max(rms, 1) / 32_768) + 96).rounded()) }
 
     // MARK: F-04a speech confirmation
 
@@ -227,9 +335,11 @@ public struct SpeechUplinkGate: Sendable {
             if preRoll.count > keep { preRoll.removeFirst(preRoll.count - keep) }
         }
         let frames = preRoll.map(UplinkGateOutput.audio)
+        openTail = Array(preRoll.suffix(Int(tuning.preRoll.milliseconds / Self.frameDuration.milliseconds)))
         preRoll.removeAll(keepingCapacity: true)
         clearConfirming()
-        return [.speechStarted] + frames
+        beginUtterance()
+        return [.speechStarted(sentToModel: sending)] + frames
     }
 
     private mutating func continueSegment(_ frame: PCMFrame16k, voiced: Bool) -> [UplinkGateOutput] {
@@ -243,16 +353,17 @@ public struct SpeechUplinkGate: Sendable {
             hangover = hangover + Self.frameDuration
         }
         let out: [UplinkGateOutput] = [.audio(frame)]
-        return hangover >= tuning.hangover ? out + close() : out
+        return hangover >= tuning.hangover ? out + close(.silence) : out
     }
 
-    private mutating func close() -> [UplinkGateOutput] {
+    private mutating func close(_ end: UtteranceEnd) -> [UplinkGateOutput] {
         phase = .closed
         let verdict = verdict()
         let silenceFrames = Int(tuning.closingSilence.milliseconds / Self.frameDuration.milliseconds)
         onset = .zero
         hangover = .zero
-        return [.speechStopped(verdict)]
+        openTail.removeAll(keepingCapacity: true)
+        return [.speechStopped(verdict), .utterance(record(end))]
             + Array(repeating: .audio(.silence), count: silenceFrames)
             + [.streamEnd]
     }

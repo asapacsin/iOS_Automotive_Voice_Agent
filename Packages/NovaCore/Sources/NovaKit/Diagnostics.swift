@@ -18,6 +18,9 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case claimHeld(events: Int)
     case correctionSent
     case emptyResponseReask
+    /// F-04 §14 item 7: a sent driver turn got no model response; logged before the re-ask. `turn` counts the
+    /// driver's sent utterances.
+    case turnUnanswered(turn: Int)
     case timerFired(stale: Bool)
     case sessionError(SessionErrorCode)
 }
@@ -41,6 +44,7 @@ extension DiagnosticEvent {
         case claimHeld
         case correctionSent
         case emptyResponseReask
+        case turnUnanswered
         case timerFired
         case sessionError
     }
@@ -62,6 +66,7 @@ extension DiagnosticEvent {
         case .claimHeld: .claimHeld
         case .correctionSent: .correctionSent
         case .emptyResponseReask: .emptyResponseReask
+        case .turnUnanswered: .turnUnanswered
         case .timerFired: .timerFired
         case .sessionError: .sessionError
         }

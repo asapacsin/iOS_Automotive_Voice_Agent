@@ -132,7 +132,7 @@ public final class EchoSpike: @unchecked Sendable {
             for frame in framer.append(samples) {
                 let rms = (frame.samples.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(frame.samples.count)).squareRoot()
                 peak = max(peak, rms)
-                if gate.process(frame).contains(.speechStarted) { opened = true }
+                if gate.process(frame).contains(.speechStarted(sentToModel: true)) { opened = true }
             }
         }
     }

@@ -23,6 +23,8 @@ final class DriveModel: ObservableObject {
     @Published var driverLine = ""
     @Published var toolLine = ""
     @Published var running = false
+    /// F-04 §14 item 4: her reply or guidance is playing, so the microphone is ignored (「她在说话」).
+    @Published var sheTalks = false
     @Published var notice: String?
     // F-20a floating camera window
     @Published var cameraOpen = false
@@ -141,7 +143,11 @@ struct RuntimeSink: AgentEffectSink {
         }
     }
 
-    func flushPlayback(to epoch: Epoch) { audio.flush(to: epoch) }
+    func flushPlayback(to epoch: Epoch) {
+        audio.flush(to: epoch)
+        // F-04 §14: her reply stopped sounding (barge-in or void); the gate's echo tail starts now.
+        gate.setPlaying(reply: false)
+    }
     func cancelRevoicing(_ epoch: Epoch) async { await revoicer.cancel(newEpoch: epoch) }
     func newReply() async { await revoicer.newReply() }
     func speak(_ clause: String) async {
@@ -178,8 +184,6 @@ struct RuntimeSink: AgentEffectSink {
     }
 
     func uplink(open: Bool) { gate.setForcedClosed(!open) }
-
-    func modelUplink(muted: Bool) { gate.setModelMuted(muted) }
 }
 
 /// Vehicle tools, refreshing the car card after each call.
@@ -651,6 +655,16 @@ final class AgentRuntime {
         })
         tasks.append(Task {
             for await event in audio.events {
+                // F-04 §14: the gate hears whether she is talking first, then the core and the screen.
+                switch event {
+                case .replyStarted: gate.setPlaying(reply: true)
+                case .replyFinished: gate.setPlaying(reply: false)
+                case .guidanceStarted: gate.setPlaying(guidance: true)
+                case .guidanceEnded: gate.setPlaying(guidance: false)
+                case .mediaPlaying, .replyIdle: break
+                }
+                let talking = gate.sheTalks
+                await MainActor.run { model.sheTalks = talking }
                 await core.send(.playback(event))
                 // F-14: a fallback waits until nothing of her reply is left, at the revoicer or on the lane.
                 if case .replyFinished(let epoch) = event, await revoicer.pendingClauses == 0 {
@@ -687,8 +701,12 @@ final class AgentRuntime {
         tasks.append(Task {
             for await output in gateEvents.stream {
                 switch output {
-                case .speechStarted:
-                    await core.send(.speechStarted(recentSpeech: gate.recentSpeech))
+                case .speechStarted(let sent):
+                    // F-04 §14 item 1: the core follows the gate's decision, never re-checks it.
+                    await core.send(.speechStarted(recentSpeech: gate.recentSpeech, sentToModel: sent))
+                case .utterance(let record):
+                    // F-04 §14 item 7: numbers and enums only (I-8).
+                    RuntimeLog.agent.notice("\(record.logLine, privacy: .public)")
                 case .speechStopped:
                     await core.send(.speechStopped)
                 case .streamEnd:
@@ -701,17 +719,21 @@ final class AgentRuntime {
         })
         let route: @Sendable (UplinkGateOutput) -> Void = { output in
             // Activity marks go out here, on the capture queue, so activityStart precedes the pre-roll frames.
-            let toModel = gate.toModel(output)
+            // F-04 §14 item 1: the gate decided at the utterance's start; its audio, activity marks and stream end
+            // follow that one decision.
+            let toModel = gate.follow(output)
             if manual, toModel, case .speechStarted = output { provider.sendActivityStart() }
             if manual, toModel, case .speechStopped = output { provider.sendActivityEnd() }
             switch output {
             case .speechStarted: transcriptInputs.continuation.yield(.begin)
             case .speechStopped: transcriptInputs.continuation.yield(.end)
             case .audio(let frame): transcriptInputs.continuation.yield(.frame(frame))
-            case .streamEnd: break
+            case .streamEnd, .utterance: break
             }
             if case .audio(let frame) = output {
                 if toModel { provider.sendAudio(frame) }
+            } else if case .streamEnd = output, !toModel {
+                // Nothing of this utterance went up, so there is no stream to end.
             } else {
                 gateEvents.continuation.yield(output)
             }
@@ -849,17 +871,19 @@ final class GateBox: @unchecked Sendable {
 
     func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] { lock.withLock { gate.process(frame) } }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
+    /// 「她在说话」 on screen: her reply or guidance is playing.
+    var sheTalks: Bool { lock.withLock { gate.replyPlaying || gate.guidancePlaying } }
 
-    /// F-15a §2.5 (T-040f): while she is audible, a new utterance is not sent to the model; the gate and the
-    /// transcriber still get it (别说了 is local).
-    private var modelMuted = false
-    private var utteranceToModel = true
-    func setModelMuted(_ muted: Bool) { lock.withLock { modelMuted = muted } }
-    /// Whether this output goes to the model; decided once per utterance, at its start.
-    func toModel(_ output: UplinkGateOutput) -> Bool {
+    /// F-04 §14 item 3: her playback state, written when it starts and stops, read by the gate at each frame.
+    func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
+        lock.withLock { gate.setPlaying(reply: reply, guidance: guidance) }
+    }
+    /// The gate's decision for the open utterance, as carried by its `speechStarted`; never decided here.
+    private var following = true
+    func follow(_ output: UplinkGateOutput) -> Bool {
         lock.withLock {
-            if case .speechStarted = output { utteranceToModel = !modelMuted }
-            return utteranceToModel
+            if case .speechStarted(let sent) = output { following = sent }
+            return following
         }
     }
 

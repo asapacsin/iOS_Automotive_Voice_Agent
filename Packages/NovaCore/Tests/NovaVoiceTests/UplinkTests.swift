@@ -124,12 +124,12 @@ struct UplinkGateTests {
         var opened = -1
         for (i, frame) in speech.enumerated() {
             let step = gate.process(frame)
-            if step.first == .speechStarted { opened = i }
+            if step.first == .speechStarted(sentToModel: true) { opened = i }
             out += step
         }
         // Onset 200 ms = 20 voiced frames; the gate opens on the 20th.
         #expect(opened == 19)
-        #expect(out.first == .speechStarted)
+        #expect(out.first == .speechStarted(sentToModel: true))
         let audio = out.dropFirst().prefix(30).compactMap { if case .audio(let f) = $0 { f } else { nil } }
         #expect(audio.count == 30)
         // 300 ms pre-roll = 10 frames of the silence before speech + the 20 onset frames.
@@ -150,7 +150,10 @@ struct UplinkGateTests {
         // Hangover: 120 unvoiced frames uploaded, closing on the 120th.
         #expect(outputs[stop].0 == 119)
         #expect(outputs[stop].1 == .speechStopped(.normal))
-        let after = outputs[(stop + 1)...].map(\.1)
+        // F-04 §14 item 7: the utterance's log record follows its end.
+        guard case .utterance(let record) = outputs[stop + 1].1 else { Issue.record("no record"); return }
+        #expect(record.endReason == .silence && record.sentToModel && record.muteReason == .none)
+        let after = outputs[(stop + 2)...].map(\.1)
         #expect(after.count == 151)
         #expect(after.prefix(150).allSatisfy { $0 == .audio(.silence) })
         #expect(after.last == .streamEnd)
@@ -187,7 +190,7 @@ struct UplinkGateTests {
         #expect(out.first == .speechStopped(.normal) && out.last == .streamEnd)
         #expect(run(&gate, PCM.tone(peak: 6000, frames: 50)).isEmpty)
         _ = gate.setForcedClosed(false)
-        #expect(run(&gate, PCM.tone(peak: 6000, frames: 1)).first == .speechStarted)
+        #expect(run(&gate, PCM.tone(peak: 6000, frames: 1)).first == .speechStarted(sentToModel: true))
     }
 
     @Test("F-04 a steady noise rise after warm-up does not hold the gate open")
@@ -196,12 +199,12 @@ struct UplinkGateTests {
         warmed(&gate, rms: 60)
         let out = run(&gate, PCM.noise(rms: 600, frames: 6000, seed: 13))
         let stops = out.filter { if case .speechStopped = $0 { true } else { false } }.count
-        let starts = out.filter { $0 == .speechStarted }.count
+        let starts = out.filter { $0 == .speechStarted(sentToModel: true) }.count
         #expect(gate.phase == .closed)
         #expect(starts == 1 && stops == 1)
         #expect(gate.noiseRMS > 500)
         // Speech above the new bed still opens it.
-        #expect(run(&gate, PCM.tone(peak: 12_000, frames: 20)).first == .speechStarted)
+        #expect(run(&gate, PCM.tone(peak: 12_000, frames: 20)).first == .speechStarted(sentToModel: true))
     }
 
     @Test("F-04 speech with pauses is not mistaken for steady noise")
@@ -226,5 +229,86 @@ struct UplinkGateTests {
         _ = run(&gate, PCM.noise(rms: 110, frames: 500, seed: 11))
         #expect(gate.threshold > before)
         #expect(gate.phase == .closed)
+    }
+}
+
+@Suite("T-004i F-04 §14 one send decision while she talks")
+struct ListenWhileSheTalksTests {
+    static func feed(_ gate: inout SpeechUplinkGate, _ frames: [PCMFrame16k]) -> [UplinkGateOutput] {
+        frames.flatMap { gate.process($0) }
+    }
+    func warm() -> SpeechUplinkGate {
+        var gate = SpeechUplinkGate()
+        _ = Self.feed(&gate, PCM.noise(rms: 40, frames: 160))
+        return gate
+    }
+    func starts(_ out: [UplinkGateOutput]) -> [Bool] {
+        out.compactMap { if case .speechStarted(let sent) = $0 { sent } else { nil } }
+    }
+    func records(_ out: [UplinkGateOutput]) -> [UtteranceRecord] {
+        out.compactMap { if case .utterance(let r) = $0 { r } else { nil } }
+    }
+    let quiet = PCM.noise(rms: 40, frames: 200, seed: 3)
+
+    @Test("F-04 §14 row 1: an utterance inside her reply is not sent and is logged muteReason=reply")
+    func insideReply() {
+        var gate = warm()
+        gate.setPlaying(reply: true)
+        var out = Self.feed(&gate, PCM.tone(peak: 6000, frames: 60))
+        out += Self.feed(&gate, quiet)
+        #expect(starts(out) == [false])
+        #expect(records(out).map(\.sentToModel) == [false])
+        #expect(records(out).first?.muteReason == .reply)
+        #expect(records(out).first?.endReason == .silence)
+    }
+
+    @Test("F-04 §14 row 2: speech that begins 300 ms before she stops is cut at unmute and sent from there")
+    func cutAtUnmute() {
+        var gate = warm()
+        gate.setPlaying(reply: true)
+        var out = Self.feed(&gate, PCM.tone(peak: 6000, frames: 30))  // 300 ms during her reply
+        gate.setPlaying(reply: false)
+        // 500 ms echo tail, then 1.5 s more of the driver's speech.
+        out += Self.feed(&gate, PCM.tone(peak: 6000, frames: 200))
+        out += Self.feed(&gate, quiet)
+        #expect(starts(out) == [false, true])
+        let r = records(out)
+        #expect(r.map(\.endReason) == [.cutAtUnmute, .silence])
+        #expect(r.map(\.sentToModel) == [false, true])
+        #expect(r[0].muteReason == .reply)
+        // The sent utterance starts with its pre-roll (30 frames) right after the cut.
+        guard let cut = out.firstIndex(of: .speechStarted(sentToModel: true)) else { return }
+        #expect(out[(cut + 1)...].prefix(31).allSatisfy { if case .audio = $0 { true } else { false } })
+    }
+
+    @Test("F-04 §14 row 3: after the echo tail an utterance is sent")
+    func afterTail() {
+        var gate = warm()
+        gate.setPlaying(guidance: true)
+        _ = Self.feed(&gate, quiet.prefix(10).map { $0 })
+        gate.setPlaying(guidance: false)
+        #expect(gate.muteReason == .echoTail)
+        _ = Self.feed(&gate, quiet.prefix(50).map { $0 })
+        #expect(gate.muteReason == .none)
+        let out = Self.feed(&gate, PCM.tone(peak: 6000, frames: 30))
+        #expect(starts(out) == [true])
+    }
+
+    @Test("F-04 §14 row 4: the first utterance of a session, nothing of hers played, is sent")
+    func firstUtterance() {
+        var gate = warm()
+        #expect(gate.muteReason == .none)
+        let out = Self.feed(&gate, PCM.tone(peak: 6000, frames: 30))
+        #expect(starts(out) == [true])
+    }
+
+    @Test("F-04 §14 row 6/7: the log line carries numbers and enums only")
+    func logLine() {
+        var gate = warm()
+        var out = Self.feed(&gate, PCM.tone(peak: 6000, frames: 40))
+        out += Self.feed(&gate, quiet)
+        guard let line = records(out).first?.logLine else { Issue.record("no record"); return }
+        #expect(line.hasPrefix("utterance 1 start="))
+        #expect(line.contains("endReason=silence sentToModel=true muteReason=none peakDb="))
     }
 }

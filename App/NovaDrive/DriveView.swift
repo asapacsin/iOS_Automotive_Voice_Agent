@@ -308,13 +308,15 @@ private struct DriveContent: View {
     }
 
     private var chip: some View {
-        let (text, color): (String, Color) = switch model.view.chip {
+        // F-04 §14 item 4: while she talks the microphone is ignored; when she stops it is the driver's turn.
+        let state: (String, Color) = switch model.view.chip {
         case .idle: (model.running ? "待命" : "未开始", .gray)
         case .processing: ("思考中", .orange)
-        case .listening: ("聆听中", .green)
+        case .listening: ("请说", .green)
         case .speaking: ("说话中", .blue)
         case .error: ("出错 \(model.view.configError?.rawValue ?? "")", .red)
         }
+        let (text, color) = model.sheTalks && model.running ? ("她在说话", Color.blue) : state
         return HStack(spacing: 5) {
             Circle().fill(color).frame(width: 9, height: 9)
             Text(text).font(.subheadline.weight(.semibold))

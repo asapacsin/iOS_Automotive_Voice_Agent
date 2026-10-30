@@ -27,7 +27,7 @@ struct SpeechConfirmationTests {
         for (i, frame) in frames.enumerated() {
             if i % 12 == 0 { gate.classified(result) }
             let out = gate.process(frame)
-            if startedAt == nil, out.contains(.speechStarted) { startedAt = i }
+            if startedAt == nil, out.contains(.speechStarted(sentToModel: true)) { startedAt = i }
             outputs += out
         }
         return (outputs, startedAt)
@@ -73,7 +73,7 @@ struct SpeechConfirmationTests {
         var started: Int?
         // No results for 1 s: the last ones go stale, so the onset opens at maxWait.
         for (i, frame) in PCM.tone(peak: 4_000, frames: 100).enumerated() where started == nil {
-            if gate.process(frame).contains(.speechStarted) { started = i }
+            if gate.process(frame).contains(.speechStarted(sentToModel: true)) { started = i }
         }
         #expect(started != nil)
     }
@@ -87,7 +87,7 @@ struct SpeechConfirmationTests {
         for frame in PCM.noise(rms: 60, frames: 200) { _ = plain.process(frame) }
         var plainStarted: Int?
         for (i, frame) in PCM.tone(peak: 4_000, frames: 40).enumerated() where plainStarted == nil {
-            if plain.process(frame).contains(.speechStarted) { plainStarted = i }
+            if plain.process(frame).contains(.speechStarted(sentToModel: true)) { plainStarted = i }
         }
         #expect(offStarted == 19 && plainStarted == 19)
     }
@@ -135,7 +135,7 @@ struct SpeechConfirmationTests {
         #expect(!gate.classifierFresh)
         var started: Int?
         for (i, frame) in PCM.tone(peak: 4_000, frames: 40).enumerated() where started == nil {
-            if gate.process(frame).contains(.speechStarted) { started = i }
+            if gate.process(frame).contains(.speechStarted(sentToModel: true)) { started = i }
         }
         #expect(started == 19)
     }
@@ -147,7 +147,7 @@ struct SpeechConfirmationTests {
         #expect(gate.lastSpeechProbability == nil)
         var started: Int?
         for (i, frame) in PCM.tone(peak: 4_000, frames: 40).enumerated() where started == nil {
-            if gate.process(frame).contains(.speechStarted) { started = i }
+            if gate.process(frame).contains(.speechStarted(sentToModel: true)) { started = i }
         }
         #expect(started == nil)
     }
