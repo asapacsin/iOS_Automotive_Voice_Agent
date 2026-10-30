@@ -96,3 +96,34 @@ struct SpeakingStyleTests {
         #expect(built.hasPrefix("1. 一定要调用工具。"))
     }
 }
+
+@Suite("T-034a F-21 §14 base instruction scope")
+struct BaseInstructionScopeTests {
+    let base = PersonaInstruction.base
+
+    @Test("F-21 §14 row 1: both scopes in order, rules 2–7 kept, ≤ 1 500 characters, no one-or-two-sentence cap")
+    func scopes() throws {
+        let car = try #require(base.range(of: "【车辆与出行（严格）】"))
+        let other = try #require(base.range(of: "【其他问题（自然回答）】"))
+        let guardrails = try #require(base.range(of: "【注意】"))
+        #expect(car.lowerBound < other.lowerBound && other.lowerBound < guardrails.lowerBound)
+        for rule in ["2. 车辆控制是模拟车辆，结果以工具返回为准。",
+                     "3. 工具返回 next 或 instruction 时照着做，只说一句。屏幕上已经显示的列表不要念出来。",
+                     "4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具",
+                     "5. 有点热、太热了：调低一度温度。有点冷：调高一度。座位有点高：座椅降低一级。",
+                     "6. 导航：「导航去X」用 navigate_to；",
+                     "7. 问「我现在在哪」「这是哪里」：调用 query_live_info（kind=current_location）"] {
+            let range = try #require(base.range(of: rule), "\(rule)")
+            #expect(range.lowerBound > car.lowerBound && range.lowerBound < other.lowerBound, "\(rule)")
+        }
+        #expect(base.count <= PersonaInstruction.maxBaseCharacters)
+        #expect(!base.contains("一般一两句话") && !base.contains("不知道的事情如实说不知道"))
+        #expect(base.contains("三到五句") && base.contains("查不了实时信息") && base.contains("绝不能说已经做好了"))
+    }
+
+    @Test("F-21 §14 item 5: the style is still appended after the whole base")
+    func styleAppended() {
+        let built = PersonaInstruction.build(base: base, style: .default)
+        #expect(built.hasPrefix(base) && built.count > base.count && built.count <= PersonaInstruction.maxCharacters)
+    }
+}

@@ -74,22 +74,6 @@ enum DriveSettings {
     }
 }
 
-/// 小诺's standing instruction for the Gemini Live session (≤ 4000 characters).
-enum Persona {
-    static let instruction = """
-    你是小诺，车载语音助手，用户正在开车。用简短、自然的普通话口语回答，一般一两句话，不用列表、不用表情。
-    规则：
-    1. 调空调、温度、风量、车窗、座椅、导航、天气和路况，一定要调用工具，并且只按工具返回的结果回答。没有调用工具或者工具失败时，绝不能说已经做好了。
-    2. 车辆控制是模拟车辆，结果以工具返回为准。
-    3. 工具返回 next 或 instruction 时照着做，只说一句。屏幕上已经显示的列表不要念出来。
-    4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具，系统会判断要不要反问。工具返回 AMBIGUOUS_REFERENT 时，只用一句话反问是哪一项，例如「是座椅还是温度？」，不要再调用工具。用户回答后再调用对应工具。
-    5. 有点热、太热了：调低一度温度。有点冷：调高一度。座位有点高：座椅降低一级。
-    6. 导航：「导航去X」用 navigate_to；用户说第几个、第几条、开始导航用 choose_navigation_option；结束或取消导航用 exit_navigation_mode。导航是模拟行驶。
-    7. 问「我现在在哪」「这是哪里」：调用 query_live_info（kind=current_location），只按返回的 address 回答；没有返回 LOCATION_PERMISSION_DENIED 就不要说没有定位权限。
-    8. 不知道的事情如实说不知道，不要编造。
-    """
-}
-
 /// Keychain Gemini key as the realtime credential (OQ-IOS-15: ephemeral tokens later).
 struct KeychainRealtimeCredentials: RealtimeCredentialSource {
     func credential() async throws -> RealtimeCredential {
@@ -597,7 +581,7 @@ final class AgentRuntime {
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
         // F-21: the saved tone is read once here, at session start.
-        let instruction = PersonaInstruction.build(base: Persona.instruction, style: SpeakingStyle.saved(in: settings))
+        let instruction = PersonaInstruction.build(base: PersonaInstruction.base, style: SpeakingStyle.saved(in: settings))
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
