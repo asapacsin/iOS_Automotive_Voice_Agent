@@ -235,8 +235,12 @@ struct ObservedCameraExecutor: ToolExecutor {
     let runtime: AgentRuntime
 
     func execute(_ call: ToolCall) async -> ToolResult {
-        await runtime.askCamera(call.arguments["question"]?.stringValue ?? "",
-                                camera: call.arguments["camera"]?.stringValue.flatMap(CameraLens.init(rawValue:)))
+        // F-21 §15 item 5: whether the model asked for the camera, and how it went (no image, no answer text).
+        let lens = call.arguments["camera"]?.stringValue.flatMap(CameraLens.init(rawValue:))
+        RuntimeLog.agent.notice("toolCall name=describe_camera_view camera=\(lens?.rawValue ?? "default", privacy: .public)")
+        let result = await runtime.askCamera(call.arguments["question"]?.stringValue ?? "", camera: lens)
+        RuntimeLog.agent.notice("toolResult name=describe_camera_view ok=\(result.ok, privacy: .public) code=\(result.code?.rawValue ?? "none", privacy: .public)")
+        return result
     }
 }
 
