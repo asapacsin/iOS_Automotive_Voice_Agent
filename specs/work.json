@@ -1477,6 +1477,15 @@
         "Independent read-only review at high effort 2026-10-30 (d1e5480, db11c96): PASS, no blocking findings; review fixes: network events delivered in order through one consumer, configError cleared on reconnecting"
       ],
       "blocked_by": "Codemagic build of the App/adapter change; device rows"
+    },
+    {
+      "id": "T-034b",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 4,
+      "action": "F-21 §15: add 摄像头画面 to the strict scope and rule 8 (camera questions -> describe_camera_view, question = utterance, rear lens for 后面/倒车, answer only from the result, failure -> say cannot see); other scope excludes camera questions; base <= 1500 chars; toolCall diagnostic; rows 1-6",
+      "depends_on": [],
+      "notes": "Owner 2026-10-31 \"write this on the spec\". Device ac53787 13:36-13:40: camera questions never opened the camera (claimHeld x5, correctionSent, turnUnanswered x2); T-034a scope sent them to the no-tool scope."
     }
   ]
 }

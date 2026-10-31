@@ -107,3 +107,57 @@ For anything else she answers like a knowledgeable passenger: from her own knowl
 | Task | Scope | Verify |
 |---|---|---|
 | T-034a | §14 items 1–7: rewrite `Persona.instruction` into persona → car scope (strict, rules 2–7 kept) → other scope (natural, 3–5 sentences, live-facts sentence) → guardrails; ≤ 1 500 characters; string tests; device rows | unit, S, D (rows 2–8) |
+
+## 15. Camera questions belong to the strict scope (iOS, APPROVED 2026-10-31)
+
+**Why.** Device run ac53787 (2026-10-31 13:36–13:40): camera questions such as 「前面是什么」 never opened the camera.
+Log: no camera start, no 看画面中…, no `describe_camera_view` result; instead `claimHeld` ×5, `correctionSent` ×1 and
+`turnUnanswered` ×2, i.e. she answered without a tool and the F-09 claim check stopped her. Cause: §14's base
+instruction lists the tool topics in 【车辆与出行（严格）】 without the camera, and 【其他问题（自然回答）】 says
+「不用工具，凭自己的知识回答」, so a camera question lands in the no-tool scope. The camera feature itself is
+implemented (F-20 / F-20a: `describe_camera_view` in the catalog, `CameraQuestionHandler`, `ObservedCameraExecutor`,
+camera window); it was never reached on a device. The old instruction did not mention the camera either but had no
+"no tools" rule, so the model found the tool on its own. Owner 2026-10-31: "write this on the spec".
+
+**Approach decision (community review 2026-10-31).** Two patterns exist: (A) take one photo when asked (Meta Ray-Ban
+"look" phrase → photo → analysis → spoken answer; LiveKit snapshot-on-demand tool calls) and (B) stream camera frames
+into the realtime model continuously (Gemini Live video input, at most 1 frame/s; LiveKit live-video mode). Owner
+2026-10-31: "A. Take a photo when asked probably i prefer this one". NovaDrive keeps (A), which F-20 / F-20a already
+implement: model calls `describe_camera_view` → one still → vision service (Qianfan) → text result → she speaks. (B) is
+out of scope: per-frame cost, a camera that uploads all the time in a car, and video filling the session context. This
+section only fixes the trigger (when she decides to look); an app-side keyword trigger is added later only if device
+rows 2–3 still miss after this change.
+
+**Rule in plain words.** Anything about what the camera sees is a tool question: she always looks through the camera
+first and answers only from what the camera answer says. She never describes a scene from her own knowledge.
+
+1. **Add the camera to the strict scope.** The 【车辆与出行（严格）】 topic list gains 「摄像头画面」, and one rule
+   line is added beside rules 2–7, in this wording (or shorter with the same meaning):
+   「8. 问摄像头、前面/后面/周围有什么、看看画面、这是什么车/什么牌子这类要看画面才能回答的问题：一定调用
+   describe_camera_view（question 填用户原话；说后面、倒车时 camera=rear），只按返回的结果回答；工具失败就照实说
+   看不到，不要猜。」
+2. **Keep the other scope from catching it.** 【其他问题（自然回答）】 gains 「（要看画面的问题除外）」 after 「不用工具」,
+   so the two scopes do not conflict (Gemini/OpenAI prompt guides: no conflicting rules).
+3. **Size.** The base stays ≤ 1 500 characters (it is about 860 today).
+4. **Nothing else changes.** No change to the camera code, the tool schema, the F-09 claim patterns or the tap path
+   (camera window 「问一问」 button, which never goes through the prompt). No video is streamed to Gemini (approach B
+   stays out).
+5. **Diagnostics.** If not already logged, log `toolCall name=describe_camera_view` and its result code (no image, no
+   answer text), so a device log shows whether the model asked for the camera.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Base instruction text | Strict scope lists the camera; rule 8 names `describe_camera_view`; other scope excludes camera questions; ≤ 1 500 characters; §14 row 1 checks still pass | unit (string checks) |
+| 2 | Recorded or live session: 「前面是什么」 | `describe_camera_view` called with `question` = the utterance; no `claimHeld` for it | S / D (log) |
+| 3 | Device: camera window open, 「前面是什么」「这是什么车」「后面有什么」 | Camera opens if closed, 看画面中…, answer from the picture; 「后面」 uses the rear lens | D |
+| 4 | Device: camera permission denied, 「前面是什么」 | Tool called; she says she cannot see (permission), never a made-up scene | D |
+| 5 | Device: 「介绍一下珠海」 after this change | Still a natural answer with no tool (§14 row 2 unchanged) | D |
+| 6 | Device: camera window 「问一问」 button | Answer shown and spoken (tap path, independent of the prompt); if this fails, it is a camera/vision bug, not this task | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-034b | §15 items 1–5: camera topic and rule 8 in the strict scope, exclusion in the other scope, ≤ 1 500 characters, `toolCall` diagnostic; string tests; device rows 2–6 | unit, S, D (rows 2–6) |
