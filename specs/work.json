@@ -1518,24 +1518,34 @@
     {
       "id": "T-071h",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 4,
       "action": "F-20a §14: CredentialKey.zhipuKey + 设置 field 智谱 key（视觉，推荐） + readiness; GLMVisionClient (open.bigmodel.cn v4 chat/completions, glm-4.6v-flash, thinking disabled, base64 image, box markers stripped); VisionChain GLM -> Gemini -> Qianfan (keys present only; 4.5 s first, >= 1.5 s left for next, 8 s total); VisionAnswer.busy + VISION_BUSY and honest advice texts; Gemini pinned gemini-3.5-flash-lite; visionAttempt/visionResult logs; rows 1-15",
       "depends_on": [
         "T-071c"
       ],
-      "notes": "Owner 2026-10-31 prefers GLM-4.6V-Flash (free, Zhipu) and \"just write this into spec\". Device e00fc27 17:43-17:44: describe_camera_view called but Gemini gemini-flash-latest returned 503 twice -> VISION_FAILED -> 刚才没看清楚. Owner enters the Zhipu key in 设置; never in repo or chat."
+      "notes": "Owner 2026-10-31 prefers GLM-4.6V-Flash (free, Zhipu) and \"just write this into spec\". Device e00fc27 17:43-17:44: describe_camera_view called but Gemini gemini-flash-latest returned 503 twice -> VISION_FAILED -> 刚才没看清楚. Owner enters the Zhipu key in 设置; never in repo or chat.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS (Linux, 2026-10-31)",
+        "independent read-only review high effort: PASS, non-blocking notes 1, 2, 6 fixed",
+        "device rows 12-15 NOT_VERIFIED; app build pending Codemagic"
+      ]
     },
     {
       "id": "T-022c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-08 §16: stop utterance not cut at unmute, held unsent to the closing silence (endReason=stopPhrase); utterances starting within 3 s after it are buffered and released only on a local ASR partial with words (or sent whole at close if the final has words), else dropped; stop-phrase transcript dropped; 8 s cap; no reply/re-ask without a sent utterance; postStopReleased/postStopDropped logs; rows 1-12",
       "depends_on": [
         "T-022b"
       ],
-      "notes": "Owner 2026-10-31 \"write spec here\" after community review (LiveKit min_words / false interruption, Pipecat min words + STTMuteFilter). Device e00fc27 18:30: stopSync interrupted 193 ms, but the tail of 别说了 (utterance 3, cutAtUnmute split, no ASR words, peakDb 37) was sent and she resumed at 18:30:39."
+      "notes": "Owner 2026-10-31 \"write spec here\" after community review (LiveKit min_words / false interruption, Pipecat min words + STTMuteFilter). Device e00fc27 18:30: stopSync interrupted 193 ms, but the tail of 别说了 (utterance 3, cutAtUnmute split, no ASR words, peakDb 37) was sent and she resumed at 18:30:39.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS (Linux, 2026-10-31)",
+        "independent read-only review high effort: PASS, non-blocking notes 1, 2, 6 fixed",
+        "device rows 8-12 NOT_VERIFIED; app build pending Codemagic"
+      ]
     }
   ]
 }

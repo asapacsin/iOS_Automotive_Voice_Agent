@@ -45,6 +45,8 @@ public struct PostStopHold: Sendable {
     /// Number of the newest utterance the gate started.
     private var utterance = 0
     private var logs: [String] = []
+    /// End of the post-stop window; a later utterance is never held.
+    private var windowEnd = NovaDuration.zero
 
     public init(tuning: BargeInTuning = BargeInTuning()) { self.tuning = tuning }
 
@@ -68,7 +70,8 @@ public struct PostStopHold: Sendable {
         case .holding, .passing, .dropping: return  // a stop inside a held utterance changes nothing
         default: break
         }
-        state = holdingStopUtterance ? .awaitingStopClose : .window(until: now + tuning.postStopWindow)
+        windowEnd = now + tuning.postStopWindow
+        state = holdingStopUtterance ? .awaitingStopClose : .window(until: windowEnd)
     }
 
     /// One captured frame and what the gate made of it.
@@ -90,11 +93,11 @@ public struct PostStopHold: Sendable {
         if case .speechStarted(let sent) = output {
             utterance += 1
             switch state {
-            case .holding(let id, _, _, _):
+            case .holding(let id, _, let buffer, _):
                 // A new utterance while the last one waits for its final: the late one counts as no words.
+                var out = drop(id, reason: .noWords, buffer: buffer)
                 state = .idle
-                var out = drop(id, reason: .noWords, buffer: [])
-                out += startInWindow(sent: sent, output)
+                out += now <= windowEnd ? startInWindow(sent: sent, output) : [output]
                 return out
             case .window(let until) where now <= until:
                 return startInWindow(sent: sent, output)
@@ -127,7 +130,8 @@ public struct PostStopHold: Sendable {
             return [output]
         case .awaitingStopClose:
             if case .utterance(let record) = output, record.endReason == .stopPhrase {
-                state = .window(until: now + tuning.postStopWindow)
+                windowEnd = now + tuning.postStopWindow
+                state = .window(until: windowEnd)
             }
             return [output]
         default:

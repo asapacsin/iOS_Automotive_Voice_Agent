@@ -645,7 +645,7 @@ final class AgentRuntime {
         speechModels.load()
         // The gate's marks and the driver's words reach the core through one stream, in the order they happened
         // (F-08 §16: an utterance the words release is started before the words arrive).
-        let gateEvents = AsyncStream.makeStream(of: UplinkEvent.self, bufferingPolicy: .bufferingNewest(512))
+        let gateEvents = AsyncStream.makeStream(of: UplinkEvent.self, bufferingPolicy: .unbounded)
         let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core,
                                           clock: SystemClock()) { [gate] words, utterance in
             let line: String? = switch words {

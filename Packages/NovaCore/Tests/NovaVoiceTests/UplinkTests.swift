@@ -555,3 +555,19 @@ struct PostStopHoldTests {
         for line in p.hold.takeLogs() { #expect(!line.contains("空调")) }
     }
 }
+
+@Suite("T-022c review: hold ends with the window")
+struct PostStopHoldWindowTests {
+    @Test("A new utterance while one waits for its final: the old one is dropped with its record; past the window the new one passes")
+    func newUtteranceAfterWindow() {
+        var hold = PostStopHold()
+        hold.stopped(holdingStopUtterance: false, wordsAvailable: true)
+        let record = UtteranceRecord(id: 2, startMs: 0, endMs: 1, endReason: .silence, sentToModel: true,
+                                     muteReason: .none, peakDb: 0, noiseFloorDb: 0, classifierMax: 0)
+        #expect(hold.frame([.speechStarted(sentToModel: true)]).isEmpty)
+        _ = hold.frame([.speechStopped(.normal), .utterance(record)])
+        for _ in 0..<300 { _ = hold.frame([]) }  // 3 s: window over, still under the... final wait reached
+        let out = hold.frame([.speechStarted(sentToModel: true)])
+        #expect(out.last == .speechStarted(sentToModel: true))
+    }
+}
