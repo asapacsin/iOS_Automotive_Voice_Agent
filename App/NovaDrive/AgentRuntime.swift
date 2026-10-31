@@ -130,7 +130,9 @@ struct RuntimeSink: AgentEffectSink {
         case .close: await realtime.close()
         case .toolResponses(let responses): await realtime.sendToolResponses(responses)
         case .text(let turns, let complete): await realtime.sendText(turns, turnComplete: complete)
-        case .interruptReply: realtime.sendEmptyActivity()
+        case .interruptReply:
+            realtime.sendEmptyActivity()
+            gate.endEchoTail()
         }
     }
 
@@ -928,6 +930,7 @@ final class GateBox: @unchecked Sendable {
     var stopPhraseWindow: Bool { lock.withLock { gate.stopPhraseWindow } }
 
     /// F-04 §14 item 3: her playback state, written when it starts and stops, read by the gate at each frame.
+    func endEchoTail() { lock.withLock { gate.endEchoTail() } }
     func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
         lock.withLock { gate.setPlaying(reply: reply, guidance: guidance) }
     }

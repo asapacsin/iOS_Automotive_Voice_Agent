@@ -205,6 +205,8 @@ public struct AgentState: Sendable {
     private var sessionTimers: [SessionTimer.Kind: SessionTimer] = [:]
     /// F-08 §15: when the stop's empty activity went out; cleared by the stopped reply's `interrupted` or after 1 s.
     private var stopSyncAt: NovaInstant?
+    /// The turn the stop cut; only its `interrupted` closes the stop sync.
+    private var stopSyncTurn: TurnID?
     private var pipelineTimers: [PipelineTimer.Kind: PipelineTimer] = [:]
 
     public init() {}
@@ -621,16 +623,21 @@ public struct AgentState: Sendable {
         missCandidate = nil
         let heardDriver = utteranceOpen || lastSpeechEndAt.map { now - $0 <= .seconds(1) } == true
         let ms = heardDriver ? lastOnsetAt.map { Int((now - $0).milliseconds) } ?? -1 : -1
-        // F-08 §15 items 1–3: after the local flush Gemini is told too, the reply mute ends at once, and no
-        // re-ask pulls back to the stopped topic.
+        // F-08 §15 items 1–3: after the local flush Gemini is told too (the shell also ends the echo-tail mute), and
+        // no re-ask pulls back to the stopped topic. Nothing of hers is left to sound: a waiting fallback may speak.
         arbiter.replyDrained()
-        let sync: [AgentEffect]
+        var sync: [AgentEffect] = []
+        if let waiting = waitingFallback {
+            waitingFallback = nil
+            sync.append(.speakGuidance(waiting.text, waiting.id))
+        }
         if session.state != .disconnected, session.state != .error {
             stopSyncAt = now
-            sync = [.provider(.interruptReply), .diagnostic(.stopSyncSent),
-                    .schedule(.stopSync(now), at: now + .seconds(1))]
-        } else {
-            sync = []
+            stopSyncTurn = openTurn
+            // Item 4: a turn Gemini opens for the empty activity is not spoken; a new sent utterance clears this.
+            abandonNextTurn = openTurn == nil
+            sync += [.provider(.interruptReply), .diagnostic(.stopSyncSent),
+                     .schedule(.stopSync(now), at: now + .seconds(1))]
         }
         return stop + sync + [.diagnostic(.stopPhrase(source: source, phrase: phrase, msFromSpeechStart: ms, score: score,
                                                       selfStop: !heardDriver))]
@@ -787,8 +794,9 @@ public struct AgentState: Sendable {
         case .interrupted(let turn, _):
             // F-08 §15 item 1: the stopped reply closed for Gemini too.
             var synced: [AgentEffect] = []
-            if let sent = stopSyncAt {
+            if let sent = stopSyncAt, stopSyncTurn == nil || stopSyncTurn == turn {
                 stopSyncAt = nil
+                stopSyncTurn = nil
                 synced = [.diagnostic(.stopSyncInterrupted(ms: Int((now - sent).milliseconds))), .cancelTimer(.stopSync(sent))]
             }
             // Server-side interruption: whatever of this reply is still queued must not play.

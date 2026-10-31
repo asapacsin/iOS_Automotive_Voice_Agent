@@ -655,4 +655,19 @@ struct StopSyncTests {
         d.realtime(.responseStarted(TurnID(2)))
         #expect(spokeText(d.realtime(.replyText(TurnID(2), "有一只企鹅走进了冰淇淋店。"))))
     }
+
+    @Test("F-08 §15 item 4: server turn already done, local audio still playing: a turn Gemini opens for the empty activity is not spoken")
+    func emptyActivityTurnDropped() {
+        var d = SendDecisionTests().playing()
+        d.realtime(.responseDone(TurnID(1), outcome: .completed))
+        d.send(.playback(.replyStarted(d.state.arbiter.epoch)))
+        #expect(d.state.arbiter.replyPlaying, "epoch \(d.state.arbiter.epoch)")
+        let out = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        #expect(out.contains(.provider(.interruptReply)))
+        d.realtime(.responseStarted(TurnID(2)))
+        #expect(!spokeText(d.realtime(.replyText(TurnID(2), "好的，我不说了。"))))
+        // An unrelated turn's interrupted does not close the sync; the 1 s check still logs it.
+        d.now = d.now + .seconds(1)
+        #expect(diagnostics(d.send(.timer(.stopSync(.zero)))) == [.stopSyncNoInterrupt])
+    }
 }

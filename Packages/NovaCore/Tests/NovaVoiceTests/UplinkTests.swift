@@ -369,3 +369,18 @@ struct StopPhraseWindowTests {
         #expect(tail == muted && tail >= 49 && tail <= 50 && spotter.resets == 1)
     }
 }
+
+@Suite("T-022b F-08 §15 item 2 stop ends the echo-tail mute")
+struct StopEchoTailTests {
+    @Test("F-08 §15 item 2: after a flush, endEchoTail lifts the mute; it never lifts a playing reply's mute")
+    func endTail() {
+        var gate = SpeechUplinkGate()
+        gate.setPlaying(reply: true)
+        gate.endEchoTail()
+        #expect(gate.muteReason == .reply)
+        gate.setPlaying(reply: false)
+        #expect(gate.muteReason == .echoTail)
+        gate.endEchoTail()
+        #expect(gate.muteReason == .none)
+    }
+}

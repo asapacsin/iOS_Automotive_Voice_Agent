@@ -171,6 +171,11 @@ public struct SpeechUplinkGate: Sendable {
         if replyPlaying || guidancePlaying { echoTailLeft = .zero }
     }
 
+    /// F-08 §15 item 2: a stop phrase flushed her reply; the next utterance is sent without waiting out the echo tail.
+    public mutating func endEchoTail() {
+        if !replyPlaying, !guidancePlaying { echoTailLeft = .zero }
+    }
+
     public mutating func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] {
         let rms = Self.rms(frame)
         let warmingUp = elapsed < tuning.warmUp
