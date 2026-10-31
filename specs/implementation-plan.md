@@ -122,6 +122,7 @@ NOT_VERIFIED until a device run is attached.
 | T-045 | HUD panel model + overspeed logic | F-17 | T-043 | `Core/NovaNav/HUD/` | F-17 §10 (2 rows) with fixtures | unit |
 | T-046 | Live info: route_traffic, along_route, place_details | F-18 | T-042, T-040 | `Core/NovaTools/LiveInfo/` | `NOT_NAVIGATING` when idle | unit, contract |
 | T-046a | `query_live_info` `current_location` (regeo address), codes, catalog + persona line | F-16a | T-046, T-042a | `Core/NovaNav/LiveInfo/`, `Packages/NovaServices/`, `Core/NovaTools/Dispatch/` | F-16a §10 rows 2–3, 7 | unit, contract, D |
+| T-046b | `query_live_info` `current_time` from the phone clock and time zone, catalog + persona line | F-18 | T-046a | `Core/NovaNav/LiveInfo/`, `Core/NovaTools/Dispatch/`, `Core/NovaAgent/Persona/` | F-18 §14 rows 1–10 | unit, build, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 
