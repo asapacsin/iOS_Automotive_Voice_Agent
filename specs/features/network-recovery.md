@@ -117,3 +117,91 @@ wrong key or quota, ends in an error.
 | Task | Scope | Verify |
 |---|---|---|
 | T-016h | §14 items 1–6: `NetworkPathWatcher` (NovaPlatform), `VoiceSession` offline wait / immediate restore / fresh budget / offline cap, chip texts, logs; unit rows 1–7; device rows 8–10 | unit, build, D (rows 8–10) |
+
+## 15. See through the VPN, keep trying through a route change (iOS, APPROVED 2026-10-31)
+
+**Why.** Device run ac53787 (2026-10-31, checklist 10-02, VPN on; Gemini needs a VPN in China): after airplane mode
+was turned off the app showed 连接失败 instead of reconnecting. Log (syslog 15:38–15:41):
+- **The watcher never fired.** Zero `networkLost` / `networkRestored` lines. NovaDrive's traffic runs over the VPN
+  tunnel (`utun5`), and the tunnel path stays `satisfied` when the real network under it goes away. The path
+  description shows the gap: normally `interface: utun5 … uses wifi` (or `uses cell`); at 15:38:30–15:38:34 (airplane
+  mode on) and at 15:40:19.6 (airplane mode off, 0.7 s before the drop) it was `interface: utun5, ipv4, dns` with no
+  `uses wifi` / `uses cell`. §14 item 1 checks only `status == .satisfied`, so both gaps counted as "online".
+- **Retries ran out during the route change.** 15:40:17 airplane mode off; 15:40:20 TCP reset (`ECONNRESET`) while the
+  VPN moved to the new route; three attempts got HTTP 101 and were closed about 0.5–1 s later (`provider failed
+  CONNECTION_CLOSED` 15:40:24, 15:40:30, 15:40:35); the 5-attempt budget (§5/§9, about 15 s) ended in ERROR at
+  15:40:35 while the path was already back (`uses wifi` again from 15:40:23.8).
+- **The close reason is not logged,** so whether Gemini refused the resumption handle or the VPN dropped the new
+  socket cannot be told. `GeminiCloseClassifier` maps only the recorded 1008 "session not found" to
+  `RESUME_UNAVAILABLE`; these closes were not that one.
+- **Dead sockets are noticed late.** `RealtimeTuning.pingInterval` is 20 s with a one-interval pong deadline, so a
+  black-holed socket can take up to 40 s to be closed.
+Community review 2026-10-31: Apple DTS: `NWPathMonitor` can give false positives and negatives and is advisory only;
+watch the path that actually carries the traffic; VPN paths report the real interface separately
+(`usesInterfaceType`). Realtime clients (WebSocket guides, y-websocket on iOS, LiveKit with Gemini Live) use an
+application heartbeat to detect a dead connection, back off with a time window rather than a few quick tries, and start
+a fresh session when resuming keeps failing (Gemini Live forum reports: resume after a drop closed at once with
+1007/1011). Owner 2026-10-31: "Yes, spec it".
+
+**Rule in plain words.** A VPN that says "connected" with no Wi-Fi or mobile data under it is no network: she shows
+等待网络… and waits. A network change is given about a minute to settle before anything is called an error, and if
+resuming keeps being refused she starts a fresh session instead of giving up.
+
+1. **Network means a real interface (platform).** `NetworkPathWatcher` reports available only when the path is
+   `satisfied` **and** uses Wi-Fi, cellular or wired Ethernet (`usesInterfaceType(.wifi / .cellular /
+   .wiredEthernet)`). A satisfied path with only a tunnel or other interface counts as unavailable. The decision is a
+   pure function in NovaKit over a snapshot (`NetworkPathSnapshot(satisfied:, wifi:, cellular:, wired:, other:)`), so
+   it is unit-tested without the Network framework; the 500 ms debounce (§14 item 1) is unchanged. A tuning switch
+   `RealtimeTuning.requirePhysicalInterface` (default true) turns the extra check off if a device misreports.
+   Each change logs `networkPath satisfied=<bool> via=wifi|cell|wired|none tunnel=<bool>` (no addresses, no names).
+2. **Unreachable is not a server failure (NovaCore).** A failure is *unreachable* when no server close frame was
+   received: `CONNECTION`, `DNS`, `TIMEOUT` (connect or setup), or a socket closed with 1006 / no close frame,
+   including a ping timeout. It is a *server close* when the socket got HTTP 101 and then a close frame with a code.
+   The close classifier carries this as a flag on the failure; `VoiceSession` stays pure.
+3. **Retry window instead of 5 quick tries.** This replaces "online failures: unchanged" of §14 item 2 and the
+   5-attempt limit of §5/§9 for retryable failures. For retryable failures the budget is both at least 5 attempts and at
+   least `ReconnectTuning.retryWindow` (default 60 s) from the first failure of the run, with the existing backoff
+   (200 ms doubling, 8 s cap: about 11 attempts in 60 s). When the window ends:
+   - all failures of the run were *unreachable* → RECONNECTING with `waitingForNetwork` (§14 chip 「等待网络…」),
+     plus one probe attempt every `ReconnectTuning.probeInterval` (default 15 s) that is not counted, until a probe
+     reaches setupComplete, the watcher reports restored (immediate attempt as §14), or the §14 offline cap ends the
+     session;
+   - otherwise (the server keeps closing a working connection) → ERROR as today.
+   Terminal errors (auth, credential, quota/rate, malformed) still go straight to ERROR. A restore, a setupComplete or
+   a change of `via` (Wi-Fi ↔ cellular) starts the window fresh.
+4. **Faster dead-socket check.** `pingInterval` 10 s and a separate `pongTimeout` 5 s (`RealtimeTuning`), so a dead
+   socket is closed within 15 s. A ping timeout is *unreachable* (item 2).
+5. **Fresh session when resuming keeps failing.** If two attempts in a row that resume with a handle are closed by the
+   server before setupComplete, or within 3 s after it, the handle is dropped and the next attempt opens a new session
+   (log `resumeDropped reason=quickClose`). She then behaves as for `RESUME_UNAVAILABLE` (§14 item 3): no claim to
+   remember the lost turn. The recorded 1008 "session not found" still drops it at once.
+6. **Close details in the log.** Every socket end logs `providerClosed code=<int> reason=<text, max 120 chars>
+   http=<status|none> afterSetup=yes|no resumed=yes|no openMs=<ms since open> kind=unreachable|server`. The reason is
+   the server's close text only; never the URL, query, headers or key (I-7).
+7. **Not in scope.** The degraded answers after the resume at 15:38:41 (「我在哪」 unanswered, `turnUnanswered`,
+   `correctionSent`, `classifierMax` stuck at 0.28 for every later utterance) happened with the network up and are a
+   separate investigation; the `toolCall` diagnostic of F-21 §15 (T-034b) will show whether the location tool ran.
+   The VPN app itself is not controlled by NovaDrive.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Snapshots: satisfied + wifi; satisfied + cellular; satisfied + wired; satisfied + other only; unsatisfied + wifi | available, available, available, unavailable, unavailable; with `requirePhysicalInterface = false` the 4th is available | unit (NovaKit) |
+| 2 | Watcher fed satisfied+wifi, then satisfied+other only for 300 ms, then for 600 ms | No report for the 300 ms gap; `.networkLost` for the 600 ms gap, then `.networkRestored` | unit (fake path source, fake clock) |
+| 3 | Scripted: server-close failures (101 + code 1011) for 70 s | Attempts continue with backoff past attempt 5 until 60 s, then ERROR | unit (VoiceSession, fake clock) |
+| 4 | Scripted: unreachable failures (CONNECTION / ping timeout) for 70 s | After 60 s: RECONNECTING `waitingForNetwork`, chip 「等待网络…」; probes every 15 s, uncounted; a probe succeeding → LISTENING | unit |
+| 5 | Scripted: auth error | ERROR at once; no window, no probe | unit |
+| 6 | Scripted: two resumed attempts closed 0.5 s after 101 | Third attempt sends no handle; `resumeDropped reason=quickClose`; after setupComplete she does not claim the lost turn | unit (VoiceSession + provider fake) |
+| 7 | Provider: socket closed with code 1011 reason "x", and one with no close frame | `providerClosed` lines with code, reason, `kind=server` / `kind=unreachable`; no URL or key in either | unit (log capture) |
+| 8 | Provider: no pong for 5 s | Socket closed as unreachable within 15 s of the last pong | unit (fake connection) |
+| 9 | Device, VPN on: checklist 10-02 (airplane mode on mid-conversation, then off, then 「我在哪」) | `networkLost` / `networkRestored` logged; chip 「等待网络…」, never 连接失败; reconnects without a tap; `providerClosed` lines show the close codes | D |
+| 10 | Device, VPN on: walk from Wi-Fi to cellular (leave the building) mid-conversation | Reconnects within the window; no 连接失败 | D |
+| 11 | Device, VPN on: normal 10-minute conversation | No spurious `networkLost`; no extra reconnects | D (log) |
+| 12 | Device, VPN off (Wi-Fi only, if reachable): §14 rows 8–10 | Still pass | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-016i | §15 items 1–6: physical-interface check (pure snapshot function, tuning switch, `networkPath` log), unreachable vs server-close flag, 60 s retry window and probe wait, ping 10 s / pong 5 s, drop the handle after two quick closes, `providerClosed` log; unit rows 1–8; device rows 9–12 | unit, build, D (rows 9–12) |

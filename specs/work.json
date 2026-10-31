@@ -1479,6 +1479,17 @@
         "Codemagic NovaDrive iOS Build green on ac53787 (2026-10-31)",
         "Device rows 8-10 NOT_VERIFIED"
       ]
+    },
+    {
+      "id": "T-016i",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 5,
+      "action": "F-24 §15: NetworkPathWatcher counts a path as available only when satisfied on wifi/cellular/wired (pure NetworkPathSnapshot function in NovaKit, requirePhysicalInterface switch, networkPath log); unreachable vs server-close flag on failures; retry window 60 s (>= 5 attempts, same backoff), then probe wait (15 s, uncounted) for unreachable or ERROR for server closes; pingInterval 10 s + pongTimeout 5 s; drop the resumption handle after two quick closes of resumed attempts; providerClosed log; rows 1-12",
+      "depends_on": [
+        "T-016h"
+      ],
+      "notes": "Owner 2026-10-31 \"Yes, spec it\" after community review. Device ac53787 10-02 with VPN (utun5): zero networkLost; path satisfied without uses wifi/cell at 15:38:30 and 15:40:19; after airplane mode off three attempts got 101 then closed, ERROR at 15:40:35; close code not logged."
     }
   ]
 }
