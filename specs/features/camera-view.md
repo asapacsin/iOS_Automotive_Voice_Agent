@@ -47,7 +47,8 @@ Icon tap, × tap, 问一下 tap, `describe_camera_view` tool call, app scene goi
 ## 7. Dependencies and external services
 - `AVCaptureSession` (`.builtInWideAngleCamera`, `.back`) feeding an `AVCaptureVideoPreviewLayer`
   and an `AVCapturePhotoOutput`/video-data output for the still — adapter in NovaPlatform (Camera), I-9.
-- Vision backend behind `VisionPort`:
+- Vision backend behind `VisionPort`: **superseded by §14** (GLM-4.6V-Flash → Gemini `gemini-3.5-flash-lite` →
+  Qianfan through `VisionChain`). Original text kept for history:
   - Default **Gemini** `generateContent` (model `gemini-flash-latest`, image + question, system text
     「只根据图片回答，看不清就说看不清，不要猜。用一两句中文口语回答。」), same Keychain key as Live.
   - Optional **Qianfan** (F-20 Android parity) when a Qianfan key is saved.
@@ -56,13 +57,15 @@ Icon tap, × tap, 问一下 tap, `describe_camera_view` tool call, app scene goi
   session it is shown on the window only. Sending it to the model as text is a later option.
 
 ## 8. Error handling and recovery
+Updated by §14 (vision fallback chain); the table below follows §14 item 4.
 | Case | Result / what she says |
 |---|---|
 | No permission | `CAMERA_PERMISSION_DENIED`: 「摄像头没有权限，请在设置里允许。」 |
 | Camera busy / start failed | `CAMERA_UNAVAILABLE`: 「摄像头现在用不了。」 |
 | No vision key | `NOT_CONFIGURED` (VisionAnswer.notConfigured): 「看图功能还没有配置。」 |
 | Auth failure (401/403) | `AUTH_FAILED`: 「看图服务的密钥无效。」 |
-| Timeout (8 s) / network | `VISION_FAILED`: 「刚才没看清楚，再问我一次吧。」 |
+| Busy (429/5xx), timeout (8 s) / network | `VISION_BUSY`: 「识图服务现在忙或者连不上，等一下再问我。」 (§14 item 4) |
+| Other backend failure | `VISION_FAILED`: 「这次看图没有成功，再问我一次吧。」 (§14 item 4) |
 | Model says it cannot tell | spoken as is; never guessed (I-1). |
 Codes only in logs; the image and the question text are never logged (I-8).
 
@@ -94,7 +97,7 @@ closing the window cancels an in-flight request. Camera stops within 1 s of clos
 - The front-facing (selfie) lens as a 后方 view is added by [F-20b](camera-rear.md) (2026-10-27).
 
 ## Open questions
-- OQ-CAM-1 (ANSWERED 2026-10-26: **Gemini default**, Qianfan optional): Gemini as the default vision backend instead of Qianfan? Recommendation: yes —
+- OQ-CAM-1 (SUPERSEDED 2026-10-31 by §14; ANSWERED 2026-10-26: **Gemini default**, Qianfan optional): Gemini as the default vision backend instead of Qianfan? Recommendation: yes —
   the key is already stored and it understands Chinese questions well; keep Qianfan as an option.
 - OQ-CAM-2 (ANSWERED 2026-10-26: **yes, the question opens the window**): should a camera question while the window is closed open it automatically
   (proposed: yes), or answer without showing the preview?
@@ -106,7 +109,7 @@ closing the window cancels an in-flight request. Camera stops within 1 s of clos
 | T-071b | `CameraSession` adapter (AVCaptureSession, still capture, stop on close) | build, D |
 | T-071c | `GeminiVisionClient` (+ Qianfan option) behind `VisionPort` | unit, contract |
 | T-071d | Camera icon, floating preview window, 问一下, wiring to `describe_camera_view` | S, D |
-| T-071e | Vision backends: GLM-4.6V-Flash first, then Gemini (pinned), then Qianfan; honest busy wording (§14) | unit, build, D |
+| T-071h | Vision backends: GLM-4.6V-Flash first, then Gemini (pinned), then Qianfan; honest busy wording (§14) | unit, build, D |
 
 ## 14. Vision backends: GLM-4.6V-Flash first, then a different service (iOS, APPROVED 2026-10-31)
 
@@ -197,4 +200,4 @@ and she says why (busy, wrong key, not set up), never 「没看清楚」 for a p
 
 | Task | Scope | Verify |
 |---|---|---|
-| T-071e | §14 items 1–7: `zhipuKey` + 设置 field + readiness, `GLMVisionClient`, `VisionChain` (GLM → Gemini → Qianfan, 4.5 s / 1.5 s budget inside 8 s), `.busy` + `VISION_BUSY` and the new advice texts, Gemini pinned to `gemini-3.5-flash-lite`, vision logs, §7/§8 edits; unit rows 1–11; device rows 12–15 | unit, build, D (rows 12–15) |
+| T-071h | §14 items 1–7: `zhipuKey` + 设置 field + readiness, `GLMVisionClient`, `VisionChain` (GLM → Gemini → Qianfan, 4.5 s / 1.5 s budget inside 8 s), `.busy` + `VISION_BUSY` and the new advice texts, Gemini pinned to `gemini-3.5-flash-lite`, vision logs, §7/§8 edits; unit rows 1–11; device rows 12–15 | unit, build, D (rows 12–15) |

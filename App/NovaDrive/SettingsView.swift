@@ -13,6 +13,7 @@ struct SettingsView: View {
         (.azureSpeechKey, "Azure Speech key"),
         (.amapSDKKey, "高德 iOS SDK key"),
         (.amapWebKey, "高德 Web 服务 key"),
+        (.zhipuKey, "智谱 key（视觉，推荐）"),
         (.qianfanKey, "千帆 key（可选，视觉备用）"),
         (.iflytekAppID, "讯飞 APPID（唤醒词）"),
         (.iflytekAPIKey, "讯飞 APIKey"),

@@ -65,7 +65,7 @@ public struct SettingsReadiness: Sendable, Hashable {
         amapSDKKey = has(.amapSDKKey)
         amapWebKey = has(.amapWebKey)
         wakeAppID = has(.iflytekAppID) && has(.iflytekAPIKey) && has(.iflytekAPISecret)
-        vision = has(.qianfanKey)
+        vision = has(.zhipuKey) || has(.geminiAPIKey) || has(.qianfanKey)
     }
 
     /// Why a session cannot start, or nil. Consent is checked first (F-22 §10 row 3).

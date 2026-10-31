@@ -99,6 +99,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case notConfigured = "NOT_CONFIGURED"
     case authFailed = "AUTH_FAILED"
     case visionFailed = "VISION_FAILED"
+    /// F-20a §14 item 4: every vision service was busy, slow or unreachable.
+    case visionBusy = "VISION_BUSY"
     /// A newer camera question replaced this one; its answer is dropped, never spoken.
     case superseded = "SUPERSEDED"
 

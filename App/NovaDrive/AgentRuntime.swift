@@ -269,11 +269,17 @@ final class AgentRuntime {
     private let vehicle = SimulatedVehicle()
     let camera = CameraSession()
     private lazy var cameraQuestions: CameraQuestionHandler = {
-        let geminiKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .geminiAPIKey) }
-        let qianfanKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qianfanKey) }
-        let vision = PreferredVision(gemini: GeminiVisionClient(key: geminiKey),
-                                     qianfan: QianfanVisionClient(key: qianfanKey, model: DriveSettings.qianfanVisionModel),
-                                     hasGeminiKey: { geminiKey()?.isEmpty == false })
+        func key(_ k: CredentialKey) -> @Sendable () -> String? { { try? KeychainCredentialStore().value(for: k) } }
+        func has(_ k: CredentialKey) -> @Sendable () -> Bool {
+            { ((try? KeychainCredentialStore().value(for: k)) ?? nil)?.isEmpty == false }
+        }
+        // F-20a §14 item 3: the one place the backend order is set (GLM → Gemini → Qianfan).
+        let vision = VisionChain([
+            VisionBackend(.glm, hasKey: has(.zhipuKey), port: GLMVisionClient(key: key(.zhipuKey))),
+            VisionBackend(.gemini, hasKey: has(.geminiAPIKey), port: GeminiVisionClient(key: key(.geminiAPIKey))),
+            VisionBackend(.qianfan, hasKey: has(.qianfanKey),
+                          port: QianfanVisionClient(key: key(.qianfanKey), model: DriveSettings.qianfanVisionModel)),
+        ], clock: SystemClock(), log: { line in RuntimeLog.agent.notice("\(line, privacy: .public)") })
         // F-20b: the 前方/后方 label follows a voice-driven switch before the still is taken.
         // Each change takes a number in the handler's order; a main-actor hop that arrives after a newer
         // one is ignored, so the label never ends on a stale lens.
