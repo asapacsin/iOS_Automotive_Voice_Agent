@@ -137,6 +137,9 @@ public struct AgentState: Sendable {
     private var abandoned: Set<TurnID> = []
     /// Set by the give-up; the next turn to open still belongs to that utterance.
     private var abandonNextTurn = false
+    /// F-08 §16 item 3: since the last stop no utterance was sent; a turn Gemini opens now answers nothing of the
+    /// driver's and is not spoken (a guidance reading the relay asked for still is).
+    private var noUtteranceSinceStop = false
     /// Turns the driver barged into, or that were voided (W2): nothing more of them is spoken, even
     /// before Gemini's `interrupted` arrives.
     private var silenced: Set<TurnID> = []
@@ -250,6 +253,7 @@ public struct AgentState: Sendable {
             var cleared: [AgentEffect] = []
             if abandonNextTurn { cleared = [.diagnostic(.abandonCleared)] }
             abandonNextTurn = false
+            noUtteranceSinceStop = false
             // The driver speaks to her: a reply may claim focus again after a permanent loss (R4).
             if recentSpeech { arbiter.regainFocus() }
             let effects = cleared + bargeIn(.speechStarted(recentSpeech: recentSpeech), at: now)
@@ -564,6 +568,7 @@ public struct AgentState: Sendable {
         abandoned = []
         silenced = []
         abandonNextTurn = false
+        noUtteranceSinceStop = false
         return effects
     }
 
@@ -636,6 +641,7 @@ public struct AgentState: Sendable {
             stopSyncTurn = openTurn
             // Item 4: a turn Gemini opens for the empty activity is not spoken; a new sent utterance clears this.
             abandonNextTurn = openTurn == nil
+            noUtteranceSinceStop = true
             sync += [.provider(.interruptReply), .diagnostic(.stopSyncSent),
                      .schedule(.stopSync(now), at: now + .seconds(1))]
         }
@@ -706,6 +712,11 @@ public struct AgentState: Sendable {
                 abandonNextTurn = false
                 abandoned.insert(turn)
                 return []
+            }
+            // F-08 §16 item 3: no resume after a stop; she speaks again only to answer an utterance sent since.
+            if noUtteranceSinceStop, relayAwaiting == nil, turn != openTurn {
+                abandoned.insert(turn)
+                return [.diagnostic(.postStopTurnDropped)]
             }
             openTurn = turn
             segmenter.reset()

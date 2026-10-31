@@ -384,3 +384,174 @@ struct StopEchoTailTests {
         #expect(gate.muteReason == .none)
     }
 }
+
+@Suite("T-022c F-08 §16 nothing is sent after a stop until real words")
+struct PostStopHoldTests {
+    typealias T = ListenWhileSheTalksTests
+    let quiet = PCM.noise(rms: 40, frames: 200, seed: 3)
+
+    func starts(_ out: [UplinkGateOutput]) -> [Bool] {
+        out.compactMap { if case .speechStarted(let sent) = $0 { sent } else { nil } }
+    }
+    func records(_ out: [UplinkGateOutput]) -> [UtteranceRecord] {
+        out.compactMap { if case .utterance(let r) = $0 { r } else { nil } }
+    }
+    func audio(_ out: [UplinkGateOutput]) -> Int { out.filter { if case .audio = $0 { true } else { false } }.count }
+
+    /// Gate and hold as the shell runs them: every frame through the gate, then the hold.
+    struct Pipe {
+        var gate = SpeechUplinkGate()
+        var hold = PostStopHold()
+        var raw: [UplinkGateOutput] = []
+        mutating func feed(_ frames: [PCMFrame16k]) -> [UplinkGateOutput] {
+            frames.flatMap { frame -> [UplinkGateOutput] in
+                let r = gate.process(frame)
+                raw += r
+                return hold.frame(r)
+            }
+        }
+        /// She talks; the driver starts 别说了; the stop fires 520 ms in; the speech goes on 1.2 s, then a pause.
+        mutating func stopped() -> [UplinkGateOutput] {
+            _ = feed(PCM.noise(rms: 40, frames: 160))
+            gate.setPlaying(reply: true)
+            var out = feed(PCM.tone(peak: 6000, frames: 52))
+            gate.setPlaying(reply: false)
+            gate.endEchoTail()
+            hold.stopped(holdingStopUtterance: gate.holdStopUtterance(), wordsAvailable: true)
+            out += feed(PCM.tone(peak: 6000, frames: 120))
+            out += feed(PCM.noise(rms: 40, frames: 200, seed: 3))
+            return out
+        }
+    }
+
+    @Test("F-08 §16 row 1: stop at 520 ms, speech goes on 1.2 s: one stopPhrase utterance, unsent, no cut, no audio out")
+    func stopUtteranceHeldToPause() {
+        var p = Pipe()
+        let out = p.stopped()
+        #expect(records(out).map(\.endReason) == [.stopPhrase])
+        #expect(records(out).map(\.sentToModel) == [false])
+        #expect(!starts(out).contains(true))
+        #expect(!p.gate.holdUntilPause)
+    }
+
+    @Test("F-08 §16 row 2: speech within 3 s, partial 现在 at 300 ms: nothing before it, then start, buffer in order, live")
+    func releasedOnWords() {
+        var p = Pipe()
+        _ = p.stopped()
+        p.raw = []
+        var out = p.feed(PCM.tone(peak: 6000, frames: 30))  // onset 200 ms, then 100 ms
+        #expect(out.isEmpty)
+        out = p.hold.partial("现", utterance: 99)  // another utterance's words never release this one
+        #expect(out.isEmpty)
+        out = p.hold.partial("别说", utterance: 2)  // the start of a stop phrase is no words
+        #expect(out.isEmpty)
+        out = p.hold.partial("现在", utterance: 2)
+        #expect(out == p.raw)
+        #expect(out.first == .speechStarted(sentToModel: true))
+        #expect(p.hold.takeLogs().contains { $0.hasPrefix("postStopReleased heldMs=") })
+        let live = p.feed(PCM.tone(peak: 6000, frames: 5))
+        #expect(audio(live) == 5)
+    }
+
+    @Test("F-08 §16 row 3: 1.2 s of speech, no partial, empty final: nothing sent, postStopDropped noWords")
+    func droppedNoWords() {
+        var p = Pipe()
+        _ = p.stopped()
+        var out = p.feed(PCM.tone(peak: 6000, frames: 120))
+        out += p.feed(quiet)
+        #expect(audio(out) == 0)
+        out += p.hold.final("", utterance: 2)
+        #expect(starts(out) == [false])
+        #expect(audio(out) == 0)
+        #expect(records(out).map(\.sentToModel) == [false])
+        #expect(p.hold.takeLogs() == ["postStopDropped reason=noWords"])
+    }
+
+    @Test("F-08 §16 row 3: no final within the wait counts as no words")
+    func droppedNoFinal() {
+        var p = Pipe()
+        _ = p.stopped()
+        var out = p.feed(PCM.tone(peak: 6000, frames: 60))
+        out += p.feed(quiet)
+        out += p.feed(PCM.noise(rms: 40, frames: 300, seed: 5))
+        #expect(starts(out) == [false] && audio(out) == 0)
+        #expect(p.hold.takeLogs() == ["postStopDropped reason=noWords"])
+    }
+
+    @Test("F-08 §16 row 4: no partial, final 几点了 at close: the whole utterance goes at once")
+    func sentWholeAtClose() {
+        var p = Pipe()
+        _ = p.stopped()
+        p.raw = []
+        var out = p.feed(PCM.tone(peak: 6000, frames: 80))
+        out += p.feed(quiet)
+        #expect(out.isEmpty)
+        out = p.hold.final("几点了", utterance: 2)
+        #expect(out == p.raw)
+        #expect(starts(out) == [true])
+        #expect(out.contains(.streamEnd))
+        #expect(out.contains { if case .speechStopped = $0 { true } else { false } })
+    }
+
+    @Test("F-08 §16 row 5: transcript 别说了 again: dropped reason=stopPhrase")
+    func droppedStopPhrase() {
+        var p = Pipe()
+        _ = p.stopped()
+        var out = p.feed(PCM.tone(peak: 6000, frames: 80))
+        out += p.hold.partial("别说了", utterance: 2)
+        out += p.feed(quiet)
+        out += p.hold.final("别说了", utterance: 2)
+        #expect(!starts(out).contains(true) && audio(out) == 0)
+        #expect(p.hold.takeLogs() == ["postStopDropped reason=stopPhrase"])
+    }
+
+    @Test("F-08 §16 item 2: past 8 s of held audio with no words the utterance is dropped (cap)")
+    func cap() {
+        var p = Pipe()
+        _ = p.stopped()
+        // Pauses short enough that the gate stays open (hangover 1.2 s).
+        var out: [UplinkGateOutput] = []
+        for _ in 0..<10 { out += p.feed(PCM.tone(peak: 6000, frames: 50) + PCM.noise(rms: 40, frames: 40, seed: 9)) }
+        #expect(!starts(out).contains(true) && audio(out) == 0)
+        #expect(p.hold.takeLogs().contains("postStopDropped reason=cap"))
+    }
+
+    @Test("F-08 §16 row 6: speech 4 s after the stop takes today's path: streamed from onset")
+    func afterWindow() {
+        var p = Pipe()
+        _ = p.stopped()
+        _ = p.feed(PCM.noise(rms: 40, frames: 400, seed: 4))  // 4 s of quiet
+        let out = p.feed(PCM.tone(peak: 6000, frames: 30))
+        #expect(starts(out) == [true])
+        #expect(audio(out) > 0)
+        #expect(!p.hold.armed)
+    }
+
+    @Test("F-08 §16 item 2: without a local recognizer nothing is held")
+    func noRecognizer() {
+        var hold = PostStopHold()
+        hold.stopped(holdingStopUtterance: false, wordsAvailable: false)
+        #expect(!hold.armed)
+        #expect(hold.frame([.speechStarted(sentToModel: true)]) == [.speechStarted(sentToModel: true)])
+    }
+
+    @Test("F-08 §16 item 2: words are a Han character (not a filler) or two Latin letters, never a stop phrase")
+    func words() {
+        #expect(PostStopHold.hasWords("现在", partial: true))
+        #expect(PostStopHold.hasWords("ok", partial: false))
+        #expect(!PostStopHold.hasWords("嗯", partial: false))
+        #expect(!PostStopHold.hasWords("a", partial: false))
+        #expect(!PostStopHold.hasWords("别说了", partial: false))
+        #expect(!PostStopHold.hasWords("别", partial: true))
+        #expect(PostStopHold.hasWords("打开空调", partial: true))
+    }
+
+    @Test("F-08 §16 item 5: log lines are numbers and enums only")
+    func logs() {
+        var p = Pipe()
+        _ = p.stopped()
+        _ = p.feed(PCM.tone(peak: 6000, frames: 30))
+        _ = p.hold.partial("打开空调", utterance: 2)
+        for line in p.hold.takeLogs() { #expect(!line.contains("空调")) }
+    }
+}

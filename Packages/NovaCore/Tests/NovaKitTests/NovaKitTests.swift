@@ -179,7 +179,7 @@ struct DiagnosticsTests {
         .stopPhrase(source: .kws, phrase: 0, msFromSpeechStart: 600, score: 80, selfStop: false), .stopPhraseMiss(utterance: 2), .timerFired(stale: false),
         .sessionError(.audioCaptureFailed), .networkLost, .networkRestored, .offlineRestoreAttempt,
         .resumed(handle: true), .offlineCapReached, .stopSyncSent, .stopSyncInterrupted(ms: 300), .stopSyncNoInterrupt,
-        .reaskSuppressed, .abandonCleared,
+        .reaskSuppressed, .abandonCleared, .postStopTurnDropped,
     ]
 
     /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").

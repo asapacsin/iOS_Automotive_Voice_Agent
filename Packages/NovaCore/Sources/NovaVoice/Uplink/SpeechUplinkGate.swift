@@ -77,6 +77,9 @@ public struct SpeechUplinkGate: Sendable {
     /// The echo tail follows her reply (not only guidance): the stop-phrase window stays open through it.
     private var tailAfterReply = false
     private var echoTailLeft = NovaDuration.zero
+    /// F-08 §16 item 1: a stop phrase ended her reply while this muted utterance was open; it runs unsent to
+    /// the normal closing silence instead of being cut at the unmute.
+    public private(set) var holdUntilPause = false
     /// The open utterance: sent to the model or not, why, and its numbers for the log line.
     private var sending = true
     private var utteranceMute = MuteReason.none
@@ -176,6 +179,15 @@ public struct SpeechUplinkGate: Sendable {
         if !replyPlaying, !guidancePlaying { echoTailLeft = .zero }
     }
 
+    /// F-08 §16 item 1: a stop phrase ended her reply. A muted utterance still open is held unsent to its pause
+    /// (`endReason=stopPhrase`). True when one was open and is now held.
+    @discardableResult
+    public mutating func holdStopUtterance() -> Bool {
+        guard phase == .open, !sending else { return false }
+        holdUntilPause = true
+        return true
+    }
+
     public mutating func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] {
         let rms = Self.rms(frame)
         let warmingUp = elapsed < tuning.warmUp
@@ -212,7 +224,7 @@ public struct SpeechUplinkGate: Sendable {
             utterancePeak = max(utterancePeak, rms)
             if let p = lastSpeechProbability { utteranceClassifierMax = max(utteranceClassifierMax, p) }
             // F-04 §14 item 2: she stopped while a muted utterance is open; cut it here and start a sent one.
-            if !sending, muteReason == .none { return cutAtUnmute(frame) }
+            if !sending, muteReason == .none, !holdUntilPause { return cutAtUnmute(frame) }
             openTail.append(frame)
             let keep = Int(tuning.preRoll.milliseconds / Self.frameDuration.milliseconds)
             if openTail.count > keep { openTail.removeFirst(openTail.count - keep) }
@@ -373,6 +385,8 @@ public struct SpeechUplinkGate: Sendable {
 
     private mutating func close(_ end: UtteranceEnd) -> [UplinkGateOutput] {
         phase = .closed
+        let end = holdUntilPause ? UtteranceEnd.stopPhrase : end
+        holdUntilPause = false
         let verdict = verdict()
         let silenceFrames = Int(tuning.closingSilence.milliseconds / Self.frameDuration.milliseconds)
         onset = .zero

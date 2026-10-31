@@ -581,6 +581,36 @@ struct StopPhraseSpotterCoreTests {
     }
 }
 
+@Suite("T-022c F-08 §16 after a stop nothing is spoken without a sent utterance")
+struct PostStopCoreTests {
+    func spokeText(_ out: [AgentEffect]) -> Bool { out.contains { if case .speak = $0 { true } else { false } } }
+    func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {
+        out.compactMap { if case .diagnostic(let e) = $0 { e } else { nil } }
+    }
+
+    @Test("F-08 §16 row 7: stop mid-turn, Gemini then opens a turn with no sent utterance: not spoken, no re-ask")
+    func noResume() {
+        var d = SendDecisionTests().playing()
+        d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        d.realtime(.interrupted(TurnID(1), reason: .bargeIn))
+        d.now = d.now + .seconds(2)
+        let opened = d.realtime(.responseStarted(TurnID(2)))
+        #expect(diagnostics(opened).contains(.postStopTurnDropped))
+        #expect(!spokeText(d.realtime(.replyText(TurnID(2), "珠海还有长隆海洋王国……"))))
+        d.realtime(.responseDone(TurnID(2), outcome: .completed))
+        d.now = d.now + .seconds(20)
+        for timer in [PipelineTimer.Kind.reask] {
+            #expect(!d.fire(timer).contains { if case .provider(.text) = $0 { true } else { false } })
+        }
+        // A real question afterwards is answered.
+        d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        d.send(.driverWords(.final("现在几点")))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(3)))
+        #expect(spokeText(d.realtime(.replyText(TurnID(3), "现在是下午三点。"))))
+    }
+}
+
 @Suite("T-022b F-08 §15 a stop phrase also ends the reply for Gemini")
 struct StopSyncTests {
     func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {

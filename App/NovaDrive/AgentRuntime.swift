@@ -132,7 +132,7 @@ struct RuntimeSink: AgentEffectSink {
         case .text(let turns, let complete): await realtime.sendText(turns, turnComplete: complete)
         case .interruptReply:
             realtime.sendEmptyActivity()
-            gate.endEchoTail()
+            gate.stopped()
         }
     }
 
@@ -643,12 +643,18 @@ final class AgentRuntime {
         // Gemini's guess only as a checked fallback (§5 S3) until it is loaded or if it fails.
         let speechModels = LocalSpeechModels.shared
         speechModels.load()
-        let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core, clock: SystemClock()) { words in
+        // The gate's marks and the driver's words reach the core through one stream, in the order they happened
+        // (F-08 §16: an utterance the words release is started before the words arrive).
+        let gateEvents = AsyncStream.makeStream(of: UplinkEvent.self, bufferingPolicy: .bufferingNewest(512))
+        let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core,
+                                          clock: SystemClock()) { [gate] words, utterance in
             let line: String? = switch words {
             case .partial(let text), .final(let text): text
             case .unclear: "（没听清）"
             }
             if let line { Task { @MainActor in model.driverLine = line } }
+            gate.words(words, utterance: utterance)
+            gateEvents.continuation.yield(.words(words))
         }
         tasks.append(Task { await transcript.listen() })
         // Utterance marks and frames in capture order, so the recognizer gets exactly what goes up.
@@ -736,9 +742,15 @@ final class AgentRuntime {
             }
         })
         // Uplink: the local gate decides what is sent and tells the core when the driver speaks.
-        let gateEvents = AsyncStream.makeStream(of: UplinkGateOutput.self, bufferingPolicy: .bufferingNewest(512))
         tasks.append(Task {
-            for await output in gateEvents.stream {
+            for await event in gateEvents.stream {
+                let output: UplinkGateOutput
+                switch event {
+                case .words(let words):
+                    await core.send(.driverWords(words))
+                    continue
+                case .gate(let o): output = o
+                }
                 switch output {
                 case .speechStarted(let sent):
                     // F-04 §14 item 1: the core follows the gate's decision, never re-checks it.
@@ -763,21 +775,26 @@ final class AgentRuntime {
             let toModel = gate.follow(output)
             if manual, toModel, case .speechStarted = output { provider.sendActivityStart() }
             if manual, toModel, case .speechStopped = output { provider.sendActivityEnd() }
+            if case .audio(let frame) = output {
+                if toModel { provider.sendAudio(frame) }
+            } else if case .streamEnd = output, !toModel {
+                // Nothing of this utterance went up, so there is no stream to end.
+            } else {
+                gateEvents.continuation.yield(.gate(output))
+            }
+        }
+        gate.onOutput(route)
+        // F-08 §16: the recognizer hears every utterance as the gate cut it, held or not.
+        gate.onRaw({ output in
             switch output {
             case .speechStarted: transcriptInputs.continuation.yield(.begin)
             case .speechStopped: transcriptInputs.continuation.yield(.end)
             case .audio(let frame): transcriptInputs.continuation.yield(.frame(frame))
             case .streamEnd, .utterance: break
             }
-            if case .audio(let frame) = output {
-                if toModel { provider.sendAudio(frame) }
-            } else if case .streamEnd = output, !toModel {
-                // Nothing of this utterance went up, so there is no stream to end.
-            } else {
-                gateEvents.continuation.yield(output)
-            }
-        }
-        gate.onOutput(route)
+        }, wordsAvailable: {
+            if case .ready = speechModels.availability { true } else { false }
+        })
         // One capture only (ADR-006): the wake listener lets go of the mic before the session takes it.
         await wake.update(sessionRunning: true)
         // F-04a: the sound classifier confirms that an onset is a human voice; if it cannot start, the gate
@@ -816,7 +833,7 @@ final class AgentRuntime {
         do {
             try audio.start { frame in
                 classifier.feed(frame)
-                gate.process(frame).forEach(route)
+                gate.process(frame)
                 stopPhrases.frame(frame, inWindow: gate.stopPhraseWindow)
             }
         } catch {
@@ -923,12 +940,61 @@ enum RuntimeLog {
     static let agent = Logger(subsystem: "com.asapacsin.novadrive", category: "agent")
 }
 
+/// What the uplink tells the core, in order: the gate's marks and the driver's words.
+enum UplinkEvent: Sendable {
+    case gate(UplinkGateOutput)
+    case words(DriverWords)
+}
+
 /// The uplink gate behind a lock; it runs on the capture thread.
 final class GateBox: @unchecked Sendable {
     private let lock = NSLock()
+    /// Held while outputs are computed and forwarded, so a release from the recognizer's thread and live capture
+    /// frames go up in order (`route` takes only `lock`).
+    private let order = NSLock()
     private var gate = SpeechUplinkGate()
+    /// F-08 §16: after a stop, what goes up waits for the phone's words.
+    private var hold = PostStopHold()
+    /// The recognizer hears every gate output, before the hold (so it can hear the words that release it).
+    private var raw: (@Sendable (UplinkGateOutput) -> Void)?
+    /// F-08 §16 item 2: whether the bundled recognizer can give words; without it nothing is held.
+    private var wordsAvailable: @Sendable () -> Bool = { false }
 
-    func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] { lock.withLock { gate.process(frame) } }
+    /// One captured frame: the recognizer gets the gate's outputs, the hold's go to `forward`.
+    func process(_ frame: PCMFrame16k) {
+        order.lock()
+        defer { order.unlock() }
+        let (gated, outputs, rawFeed, forward, logs) = lock.withLock {
+            let r = gate.process(frame)
+            return (r, hold.frame(r), self.raw, self.forward, hold.takeLogs())
+        }
+        gated.forEach { rawFeed?($0) }
+        outputs.forEach { forward?($0) }
+        logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
+    }
+
+    func onRaw(_ raw: @escaping @Sendable (UplinkGateOutput) -> Void, wordsAvailable: @escaping @Sendable () -> Bool) {
+        lock.withLock {
+            self.raw = raw
+            self.wordsAvailable = wordsAvailable
+        }
+    }
+
+    /// F-08 §16: the recognizer's words for utterance `id` (numbered like the gate's starts) may release a held one.
+    func words(_ words: DriverWords, utterance id: Int) {
+        order.lock()
+        defer { order.unlock() }
+        let (outputs, forward, logs) = lock.withLock {
+            let o: [UplinkGateOutput] = switch words {
+            case .partial(let text): hold.partial(text, utterance: id)
+            case .final(let text): hold.final(text, utterance: id)
+            case .unclear: hold.final("", utterance: id)
+            }
+            return (o, self.forward, hold.takeLogs())
+        }
+        outputs.forEach { forward?($0) }
+        logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
+    }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
     /// 「她在说话」 on screen: the driver is not sent to the model (her reply, guidance or the echo tail).
     var sheTalks: Bool { lock.withLock { gate.muteReason != .none } }
@@ -936,7 +1002,15 @@ final class GateBox: @unchecked Sendable {
     var stopPhraseWindow: Bool { lock.withLock { gate.stopPhraseWindow } }
 
     /// F-04 §14 item 3: her playback state, written when it starts and stops, read by the gate at each frame.
-    func endEchoTail() { lock.withLock { gate.endEchoTail() } }
+    /// F-08 §15 item 2 / §16 items 1–2: a stop ended her reply. The echo-tail mute ends, an open muted utterance is
+    /// held unsent to its pause, and the post-stop window starts.
+    func stopped() {
+        lock.withLock {
+            gate.endEchoTail()
+            let holding = gate.holdStopUtterance()
+            hold.stopped(holdingStopUtterance: holding, wordsAvailable: wordsAvailable())
+        }
+    }
     func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
         lock.withLock { gate.setPlaying(reply: reply, guidance: guidance) }
     }
@@ -992,7 +1066,13 @@ final class GateBox: @unchecked Sendable {
     /// F-08: closed while guidance sounds. Closing an open segment yields speechStopped, the closing
     /// silence and streamEnd, which go out exactly like frame outputs.
     func setForcedClosed(_ closed: Bool) {
-        let (outputs, forward) = lock.withLock { (gate.setForcedClosed(closed), self.forward) }
+        order.lock()
+        defer { order.unlock() }
+        let (raw, outputs, rawFeed, forward) = lock.withLock {
+            let r = gate.setForcedClosed(closed)
+            return (r, hold.pass(r), self.raw, self.forward)
+        }
+        raw.forEach { rawFeed?($0) }
         outputs.forEach { forward?($0) }
     }
 }

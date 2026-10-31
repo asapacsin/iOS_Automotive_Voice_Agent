@@ -18,13 +18,15 @@ actor DriverTranscript {
     private let transcriber: any LocalTranscriber
     private let core: AgentCore
     private let clock: SystemClock
-    private let onWords: @Sendable (DriverWords) -> Void
+    /// Gets each result with its utterance number (1 for the first `.begin`) and delivers it to the core; the shell
+    /// passes it through the post-stop hold first (F-08 §16), so a released utterance reaches the core before its words.
+    private let onWords: @Sendable (DriverWords, Int) -> Void
     private var selector = TranscriptSelector()
     private var next = 0
     private var open: UtteranceID?
 
     init(transcriber: any LocalTranscriber, core: AgentCore, clock: SystemClock,
-         onWords: @escaping @Sendable (DriverWords) -> Void) {
+         onWords: @escaping @Sendable (DriverWords, Int) -> Void) {
         self.transcriber = transcriber
         self.core = core
         self.clock = clock
@@ -74,8 +76,8 @@ actor DriverTranscript {
         for output in outputs {
             switch output {
             case .words(let words):
-                onWords(words)
-                await core.send(.driverWords(words))
+                // The selector only speaks for the newest utterance begun.
+                onWords(words, next)
             case .schedule(let id, let at):
                 let delay = max(0, at.milliseconds - clock.now.milliseconds)
                 Task { [weak self] in
