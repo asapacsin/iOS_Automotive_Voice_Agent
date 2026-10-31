@@ -1528,7 +1528,7 @@
       "evidence": [
         "scripts/gates/run_all.sh PASS (Linux, 2026-10-31)",
         "independent read-only review high effort: PASS, non-blocking notes 1, 2, 6 fixed",
-        "device rows 12-15 NOT_VERIFIED; app build pending Codemagic"
+        "device rows 12-15 NOT_VERIFIED; Codemagic NovaDrive iOS Build green on 67118b2 (2026-10-31)"
       ]
     },
     {
@@ -1544,7 +1544,7 @@
       "evidence": [
         "scripts/gates/run_all.sh PASS (Linux, 2026-10-31)",
         "independent read-only review high effort: PASS, non-blocking notes 1, 2, 6 fixed",
-        "device rows 8-12 NOT_VERIFIED; app build pending Codemagic"
+        "device rows 8-12 NOT_VERIFIED; Codemagic NovaDrive iOS Build green on 67118b2 (2026-10-31)"
       ]
     }
   ]
