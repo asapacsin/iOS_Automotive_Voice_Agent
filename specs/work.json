@@ -1483,7 +1483,7 @@
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
       "priority": 4,
-      "action": "F-21 §15: add 摄像头画面 to the strict scope and rule 8 (camera questions -> describe_camera_view, question = utterance, rear lens for 后面/倒车, answer only from the result, failure -> say cannot see); other scope excludes camera questions; base <= 1500 chars; toolCall diagnostic; rows 1-6",
+      "action": "F-21 §15: add 摄像头画面 to the strict scope and rule 8 (camera questions -> describe_camera_view, question = utterance, rear lens for 后面/倒车, answer only from the result, failure -> say cannot see); other scope excludes camera questions; base <= 1500 chars; toolCall diagnostic; catalog-coverage guard test (every ToolCatalog tool mapped to a base phrase or notByVoice); rows 1-8",
       "depends_on": [],
       "notes": "Owner 2026-10-31 \"write this on the spec\". Device ac53787 13:36-13:40: camera questions never opened the camera (claimHeld x5, correctionSent, turnUnanswered x2); T-034a scope sent them to the no-tool scope."
     }

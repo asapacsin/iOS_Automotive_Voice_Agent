@@ -119,11 +119,17 @@ implemented (F-20 / F-20a: `describe_camera_view` in the catalog, `CameraQuestio
 camera window); it was never reached on a device. The old instruction did not mention the camera either but had no
 "no tools" rule, so the model found the tool on its own. Owner 2026-10-31: "write this on the spec".
 
+**Root cause in the spec process.** The gap came from §14 itself (T-034a, written 2026-10-30): its strict-scope topic
+list was written by hand and not checked against the tool catalog, so an existing tool (`describe_camera_view`) was
+left in the no-tool scope; the implementation followed the spec exactly. Item 6 adds a test so that a future prompt
+change cannot lock out a catalog tool again. Owner 2026-10-31: "ok write this in spec".
+
 **Approach decision (community review 2026-10-31).** Two patterns exist: (A) take one photo when asked (Meta Ray-Ban
 "look" phrase → photo → analysis → spoken answer; LiveKit snapshot-on-demand tool calls) and (B) stream camera frames
 into the realtime model continuously (Gemini Live video input, at most 1 frame/s; LiveKit live-video mode). Owner
 2026-10-31: "A. Take a photo when asked probably i prefer this one". NovaDrive keeps (A), which F-20 / F-20a already
-implement: model calls `describe_camera_view` → one still → vision service (Qianfan) → text result → she speaks. (B) is
+implement: model calls `describe_camera_view` → one still → vision service (Gemini vision when a Gemini key is set,
+else Qianfan; `PreferredVision`) → text result → she speaks. (B) is
 out of scope: per-frame cost, a camera that uploads all the time in a car, and video filling the session context. This
 section only fixes the trigger (when she decides to look); an app-side keyword trigger is added later only if device
 rows 2–3 still miss after this change.
@@ -144,6 +150,16 @@ first and answers only from what the camera answer says. She never describes a s
    stays out).
 5. **Diagnostics.** If not already logged, log `toolCall name=describe_camera_view` and its result code (no image, no
    answer text), so a device log shows whether the model asked for the camera.
+6. **Every catalog tool is covered by the instruction (guard test).** A unit test reads the tool names from
+   `ToolCatalog` (the generated catalog, not a hand-copied list) and a coverage table kept next to the test that maps
+   each tool name to the phrase in the base instruction that sends her to it (a topic in 【车辆与出行（严格）】 or a rule
+   line naming the tool, e.g. `describe_camera_view` → 「摄像头画面」 / rule 8, `query_live_info` → 「天气」「当前位置」 /
+   rule 7, `navigate_to` → rule 6). The test fails when:
+   - a catalog tool has no row in the table (a new tool was added without deciding how the prompt reaches it), or
+   - a row's phrase is not found in `PersonaInstruction.base` (the prompt was edited and dropped it).
+   A tool that is deliberately never reached by voice (if any) is listed with the reason `notByVoice: "<why>"` instead of
+   a phrase, so excluding a tool is an explicit, reviewed choice. The failure message names the tool and says to add it
+   to the strict scope or mark it `notByVoice`.
 
 **Acceptance (iOS).**
 
@@ -155,9 +171,11 @@ first and answers only from what the camera answer says. She never describes a s
 | 4 | Device: camera permission denied, 「前面是什么」 | Tool called; she says she cannot see (permission), never a made-up scene | D |
 | 5 | Device: 「介绍一下珠海」 after this change | Still a natural answer with no tool (§14 row 2 unchanged) | D |
 | 6 | Device: camera window 「问一问」 button | Answer shown and spoken (tap path, independent of the prompt); if this fails, it is a camera/vision bug, not this task | D |
+| 7 | Guard test with today's catalog | Passes: every catalog tool has a row whose phrase is in the base (or `notByVoice` with a reason) | unit |
+| 8 | Guard test after removing 「摄像头画面」 and rule 8 from a copy of the base, or adding a fake tool to a copy of the catalog | Fails and names `describe_camera_view` / the fake tool | unit |
 
 **Tasks.**
 
 | Task | Scope | Verify |
 |---|---|---|
-| T-034b | §15 items 1–5: camera topic and rule 8 in the strict scope, exclusion in the other scope, ≤ 1 500 characters, `toolCall` diagnostic; string tests; device rows 2–6 | unit, S, D (rows 2–6) |
+| T-034b | §15 items 1–6: camera topic and rule 8 in the strict scope, exclusion in the other scope, ≤ 1 500 characters, `toolCall` diagnostic, catalog-coverage guard test; string tests rows 1, 7, 8; device rows 2–6 | unit, S, D (rows 2–6) |
