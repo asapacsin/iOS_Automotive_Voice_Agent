@@ -183,3 +183,73 @@ driver's newest question, never the old topic again.
 | Task | Scope | Verify |
 |---|---|---|
 | T-022b | §15 items 1–6: interrupting activity handling, empty activity on a stop, unmute on stop, re-ask suppression and newest-question text, scoped `abandonNextTurn`, logs; unit rows 1–5; recorded row 6; device rows 7–9 | unit, S, D (rows 7–9) |
+
+## 16. After 别说了 nothing is sent until the driver really says something (iOS, APPROVED 2026-10-31)
+
+**Why.** Device run e00fc27 (2026-10-31 18:30, 「珠海有什么好玩的」): §15 works: `stopPhrase source=kws` at 18:30:36.756,
+`stopSync sent`, `stopSync interrupted ms=193`. But she started talking again 2.5 s later (speaking 18:30:39, and again
+18:30:50 after the second 别说了). Log:
+- The spotter fired 524 ms into the phrase (`msFromSpeechStart=524`), before 别说了 was finished.
+- §15 item 2 ends the reply mute at the stop, so the open muted utterance was cut there (`utterance 2 start=15890
+  end=16500 endReason=cutAtUnmute sentToModel=false`) and the rest of the same speech became a new **sent** utterance
+  (`utterance 3 start=16500 end=17700 endReason=silence sentToModel=true`, peakDb 37, local ASR `firstPartialMs=-`: no
+  words). Gemini got a turn with no question and continued the old topic.
+Community review 2026-10-31: a stop command consumes the whole speech run up to the next pause and never reaches the
+model as a question (Home Assistant stop-word discussions, box3-assistant "Stop" barge-in); LiveKit Agents counts an
+interruption as real only with recognised words (`min_words`, `min_duration` 0.5 s) and treats an interruption with no
+transcript within `false_interruption_timeout` (2 s) as false, generating no new reply; Pipecat gates turns on a
+minimum word count and drops audio while muted (`STTMuteFilter`). Unlike LiveKit's default, she does not resume after a
+stop: 别说了 is always intentional. Owner 2026-10-31: "write spec here".
+
+**Rule in plain words.** 别说了 takes the whole stretch of speech it is part of, up to the next pause, and none of it
+is sent. In the next few seconds, a sound is sent to Gemini only once the phone has recognised real words in it;
+coughs, noise or the end of the stop word are dropped. A real question right after 别说了 is still answered.
+
+1. **The stop utterance runs to the pause (uplink gate, NovaVoice).** When a stop phrase (either source) ends her
+   reply while a muted utterance is open, that utterance is not cut at the unmute (§15 item 2 / F-04 §14 item 2 do not
+   apply to it). It stays unsent until the normal closing silence; its record gets `endReason=stopPhrase`,
+   `sentToModel=false`. A new utterance starts only after that close. Implemented as a flag on `SpeechUplinkGate`
+   (e.g. `holdUntilPause`) set by AgentCore on the stop and cleared when the utterance closes; pure, unit-tested.
+2. **Words first, for 3 s after a stop (post-stop window).** For an utterance that starts within
+   `BargeInTuning.postStopWindow` (default 3 s) after the stop utterance closed:
+   - Its audio (with pre-roll) is buffered locally; no `activityStart`, nothing uploaded yet.
+   - As soon as the local Mandarin ASR (F-05a §12) gives a partial with at least one Han character (or two Latin
+     letters) that is not a stop phrase, the app sends `activityStart`, then the buffered audio in order, then streams
+     live as usual. Log `postStopReleased heldMs=<n>`.
+   - If the utterance closes with no such partial, the final transcript decides: words → send the whole utterance at
+     once (`activityStart`, audio, `activityEnd`); no words → dropped, never sent (`postStopDropped reason=noWords`).
+   - If its transcript is a stop phrase → dropped (`postStopDropped reason=stopPhrase`); no second `stopSync`.
+   - Buffer cap 8 s of audio; past that with no words the utterance is dropped (`reason=cap`).
+   - Utterances starting after the window use today's path unchanged (no buffering, no added delay).
+3. **No resume, no reply without a sent utterance.** After a stop she speaks again only for a turn that answers an
+   utterance sent after the stop (§15 item 4 `abandonNextTurn` stays). No re-ask (§15 item 3) and no "continue" text is
+   sent while no new utterance was sent.
+4. **Latency.** The hold adds at most the time to the first partial (device logs: `firstPartialMs` 30–750 ms) and only
+   inside the window; the audio itself is not lost, so Gemini hears the whole question.
+5. **Logs.** `utterance … endReason=stopPhrase`, `postStopReleased heldMs=<n>`, `postStopDropped reason=noWords|
+   stopPhrase|cap`; numbers and enums only, no audio or words (I-8).
+6. **Unchanged.** The §14 stop set, the spotter, §15 interrupt/stopSync, navigation guidance never interrupted (§14
+   row 7), and barge-in outside a stop.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Gate: muted utterance open, stop at 524 ms, speech goes on 1.2 s, then silence | One utterance `endReason=stopPhrase sentToModel=false`; no `cutAtUnmute`; no `speechStarted(sentToModel: true)`, no audio out | unit (SpeechUplinkGate) |
+| 2 | Within 3 s after the stop: speech, ASR partial 「现在」 at 300 ms | Nothing out before the partial; then `activityStart`, buffered audio from onset (with pre-roll) in order, then live audio; `postStopReleased` | unit |
+| 3 | Within 3 s: 1.2 s of speech, no partial, final transcript empty | Nothing sent; `postStopDropped reason=noWords` | unit |
+| 4 | Within 3 s: no partial during speech, final transcript 「几点了」 at close | Whole utterance sent at close: `activityStart`, audio, `activityEnd` | unit |
+| 5 | Within 3 s: transcript 「别说了」 again | Dropped `reason=stopPhrase`; no second `stopSync` | unit (AgentCore + gate) |
+| 6 | Speech 4 s after the stop | Today's path: streamed from onset, no hold | unit |
+| 7 | Scripted provider: stop, then Gemini opens a turn with no sent utterance | Not spoken; no re-ask sent | unit (AgentCore) |
+| 8 | Device: 「珠海有什么好玩的」, 别说了, then silence 10 s | She stays silent; log: stop utterance `endReason=stopPhrase`, no `sentToModel=true` utterance until the next real question | D |
+| 9 | Device: row 8 five times in one session | 5/5 silent after 别说了 | D (log) |
+| 10 | Device: 别说了 then at once 「现在几点」 / 「打开空调」 | Each answered (checklist 11-01); `postStopReleased heldMs` under 1 s | D |
+| 11 | Device: 别说了 then a cough / door slam / music | Silent; `postStopDropped` | D |
+| 12 | Device: §14 and §15 rows (checklist 8-01…8-04, 11-01) | Still pass | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-022c | §16 items 1–5: stop utterance held to the pause (gate flag), 3 s post-stop window with word-gated release / drop (local ASR partials and final), buffer cap, no reply without a sent utterance, logs; unit rows 1–7; device rows 8–12 | unit, build, D (rows 8–12) |
