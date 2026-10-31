@@ -178,7 +178,8 @@ struct DiagnosticsTests {
         .claimHeld(events: 3), .correctionSent, .emptyResponseReask, .turnUnanswered(turn: 1),
         .stopPhrase(source: .kws, phrase: 0, msFromSpeechStart: 600, score: 80, selfStop: false), .stopPhraseMiss(utterance: 2), .timerFired(stale: false),
         .sessionError(.audioCaptureFailed), .networkLost, .networkRestored, .offlineRestoreAttempt,
-        .resumed(handle: true), .offlineCapReached,
+        .resumed(handle: true), .offlineCapReached, .stopSyncSent, .stopSyncInterrupted(ms: 300), .stopSyncNoInterrupt,
+        .reaskSuppressed, .abandonCleared,
     ]
 
     /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").

@@ -170,7 +170,8 @@ struct AgentWalkthroughTests {
         d.send(.speechStopped)
         let reask = d.fire(.reask)
         #expect(d.now == NovaInstant(milliseconds: 6_000))
-        #expect(reask.contains(.provider(.text([TextTurn(role: .user, text: "请回应我刚才说的话。")], turnComplete: true))))
+        // F-08 §15 item 3: the re-ask names the newest words.
+        #expect(reask.contains(.provider(.text([TextTurn(role: .user, text: "请回答我最新的这句话：「把空调打开」")], turnComplete: true))))
         let giveUp = d.fire(.giveUp)
         #expect(d.now == NovaInstant(milliseconds: 10_000))
         #expect(spoken(giveUp).isEmpty)
@@ -494,7 +495,8 @@ struct SendDecisionTests {
         d.send(.speechStarted(recentSpeech: true, sentToModel: false))
         let out = d.send(.driverWords(.final("别说了")))
         #expect(out.contains { if case .flushPlayback = $0 { true } else { false } })
-        #expect(!out.contains { if case .provider = $0 { true } else { false } })
+        // F-08 §15: only the empty activity goes to Gemini (it ends the reply there too); no words, no audio.
+        #expect(out.filter { if case .provider = $0 { true } else { false } } == [.provider(.interruptReply)])
         #expect(!d.send(.speechStopped).contains { if case .provider = $0 { true } else { false } })
     }
 }
@@ -514,7 +516,8 @@ struct StopPhraseSpotterCoreTests {
         #expect(stops(out))
         #expect(diagnostics(out).contains(.bargeIn(qualified: true)))
         #expect(diagnostics(out).contains { if case .stopPhrase(.kws, 0, _, 80, false) = $0 { true } else { false } })
-        #expect(!out.contains { if case .provider = $0 { true } else { false } })
+        // F-08 §15: only the empty activity goes to Gemini (it ends the reply there too); no words, no audio.
+        #expect(out.filter { if case .provider = $0 { true } else { false } } == [.provider(.interruptReply)])
         #expect(!d.send(.speechStopped).contains { if case .provider = $0 { true } else { false } })
     }
 
@@ -575,5 +578,81 @@ struct StopPhraseSpotterCoreTests {
         m.send(.speechStopped)
         let idle = m.send(.playback(.replyIdle(Epoch.initial)))
         #expect(diagnostics(idle).contains { if case .stopPhraseMiss = $0 { true } else { false } })
+    }
+}
+
+@Suite("T-022b F-08 §15 a stop phrase also ends the reply for Gemini")
+struct StopSyncTests {
+    func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {
+        out.compactMap { if case .diagnostic(let e) = $0 { e } else { nil } }
+    }
+    func spokeText(_ out: [AgentEffect]) -> Bool { out.contains { if case .speak = $0 { true } else { false } } }
+
+    @Test("F-08 §15 row 2: local flush first, then the empty activity; stopSync sent; no interrupt in 1 s is logged")
+    func flushThenInterrupt() throws {
+        var d = SendDecisionTests().playing()
+        let out = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        let flush = try #require(out.firstIndex { if case .flushPlayback = $0 { true } else { false } })
+        let sync = try #require(out.firstIndex(of: .provider(.interruptReply)))
+        #expect(flush < sync)
+        #expect(diagnostics(out).contains(.stopSyncSent))
+        d.now = d.now + .seconds(1)
+        #expect(diagnostics(d.send(.timer(.stopSync(.zero)))) == [.stopSyncNoInterrupt])
+    }
+
+    @Test("F-08 §15 row 3: interrupted closes the old turn; the mute is off; the new question is answered")
+    func newQuestionAnswered() {
+        var d = SendDecisionTests().playing()
+        d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        d.now = d.now + .milliseconds(300)
+        let closed = d.realtime(.interrupted(TurnID(1), reason: .bargeIn))
+        #expect(diagnostics(closed).contains(.stopSyncInterrupted(ms: 300)))
+        #expect(!d.state.arbiter.replyPlaying)
+        d.now = d.now + .seconds(2)
+        d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        d.send(.driverWords(.final("现在几点")))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(2)))
+        #expect(spokeText(d.realtime(.replyText(TurnID(2), "现在是下午三点。"))))
+    }
+
+    @Test("F-08 §15 row 4: no answer to the next question: the re-ask names it, never the generic text")
+    func reaskNamesNewest() {
+        var d = SendDecisionTests().playing()
+        d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        d.realtime(.interrupted(TurnID(1), reason: .bargeIn))
+        d.now = d.now + .seconds(2)
+        d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        d.send(.driverWords(.final("讲个笑话")))
+        d.send(.speechStopped)
+        let reask = d.fire(.reask)
+        #expect(reask.contains(.provider(.text([TextTurn(role: .user, text: "请回答我最新的这句话：「讲个笑话」")], turnComplete: true))))
+        #expect(!reask.contains(.provider(.text([TextTurn(role: .user, text: DriverTurnPipeline.reaskText)], turnComplete: true))))
+    }
+
+    @Test("F-08 §15 item 3: the stop's own sent utterance starts no clock")
+    func stopUtteranceNoClock() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        let stopped = d.send(.speechStopped)
+        #expect(diagnostics(stopped).contains(.reaskSuppressed))
+        #expect(!stopped.contains { if case .schedule(.pipeline(let t), _) = $0 { t.kind == .reask } else { false } })
+    }
+
+    @Test("F-08 §15 row 5: transcript stop, new utterance, Gemini's turn: spoken, abandonCleared")
+    func abandonScoped() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        d.send(.driverWords(.final("别说了")))
+        d.send(.speechStopped)
+        d.realtime(.interrupted(TurnID(1), reason: .bargeIn))
+        d.now = d.now + .seconds(2)
+        let started = d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        #expect(diagnostics(started).contains(.abandonCleared))
+        d.send(.driverWords(.final("讲个笑话")))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(2)))
+        #expect(spokeText(d.realtime(.replyText(TurnID(2), "有一只企鹅走进了冰淇淋店。"))))
     }
 }

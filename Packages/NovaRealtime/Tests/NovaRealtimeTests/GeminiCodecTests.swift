@@ -217,6 +217,15 @@ struct GeminiClientMessageTests {
         #expect(GeminiCodec.activityEnd == ["realtimeInput": ["activityEnd": [:]]])
     }
 
+    @Test("F-08 §15 row 1: NovaDrive's setup is manual detection with START_OF_ACTIVITY_INTERRUPTS")
+    func stopSyncSetup() {
+        var config = SessionConfig(systemInstruction: "persona", tools: [])
+        config.activityDetection = .novaDrive
+        let msg = GeminiCodec.setup(config, resume: nil)["setup"]
+        #expect(msg?["realtimeInputConfig"]?["automaticActivityDetection"] == ["disabled": true])
+        #expect(msg?["realtimeInputConfig"]?["activityHandling"] == "START_OF_ACTIVITY_INTERRUPTS")
+    }
+
     @Test("F-05 audio is 16 kHz little-endian base64; tool responses carry ok, code and data")
     func audioAndTools() throws {
         var samples = Array(repeating: Int16(0), count: PCMFrame16k.samplesPerFrame)

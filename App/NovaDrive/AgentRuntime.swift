@@ -130,6 +130,7 @@ struct RuntimeSink: AgentEffectSink {
         case .close: await realtime.close()
         case .toolResponses(let responses): await realtime.sendToolResponses(responses)
         case .text(let turns, let complete): await realtime.sendText(turns, turnComplete: complete)
+        case .interruptReply: realtime.sendEmptyActivity()
         }
     }
 
@@ -612,7 +613,8 @@ final class AgentRuntime {
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
-        config.activityDetection.manual = true
+        // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
+        config.activityDetection = .novaDrive
         let manual = config.activityDetection.manual
         let ended = CoreRelay()
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model,

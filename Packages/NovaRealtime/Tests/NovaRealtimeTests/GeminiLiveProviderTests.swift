@@ -265,6 +265,27 @@ struct GeminiLiveProviderTests {
         await provider.close()
     }
 
+    @Test("F-08 §15 row 2: the empty activity is activityStart then activityEnd, no audio between; skipped mid-utterance")
+    func emptyActivity() async throws {
+        let ready = Data(#"{"setupComplete":{}}"#.utf8)
+        let server = FakeGeminiServer([.init(frames: [ready], closeAfter: nil)])
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server)
+        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        #expect(await it.next()?.event == .setupComplete)
+        provider.sendEmptyActivity()
+        provider.sendActivityStart()
+        provider.sendEmptyActivity()   // a driver utterance is open: nothing extra
+        provider.sendActivityEnd()
+        let socket = try #require(server.opened.withLock { $0 }.first)
+        for _ in 0..<100 where socket.sent.withLock({ $0.count }) < 5 { try await Task.sleep(for: .milliseconds(10)) }
+        let kinds = socket.sent.withLock { $0 }.map { text -> String in
+            ["setup", "activityStart", "activityEnd", "audio"].first { text.contains("\"\($0)\"") } ?? "?"
+        }
+        #expect(kinds == ["setup", "activityStart", "activityEnd", "activityStart", "activityEnd"])
+        await provider.close()
+    }
+
     @Test("F-05 a socket stopped by close() or a new connect emits nothing more")
     func closeIsSilent() async throws {
         let server = FakeGeminiServer([

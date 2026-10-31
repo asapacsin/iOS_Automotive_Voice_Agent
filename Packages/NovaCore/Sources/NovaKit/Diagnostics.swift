@@ -37,6 +37,14 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case resumed(handle: Bool)
     /// F-24 §14 item 4: the network stayed gone for `offlineWaitCap`; the session ended.
     case offlineCapReached
+    /// F-08 §15 item 5: the empty activity that tells Gemini the reply ended; its `interrupted` after `ms`, or none in 1 s.
+    case stopSyncSent
+    case stopSyncInterrupted(ms: Int)
+    case stopSyncNoInterrupt
+    /// F-08 §15 item 3: the no-answer clock of the stop phrase's utterance did not run.
+    case reaskSuppressed
+    /// F-08 §15 item 4: a new sent utterance cleared the transcript stop's `abandonNextTurn`.
+    case abandonCleared
 }
 
 public enum StopPhraseSource: String, Sendable, Hashable {
@@ -72,6 +80,11 @@ extension DiagnosticEvent {
         case offlineRestoreAttempt
         case resumed
         case offlineCapReached
+        case stopSyncSent
+        case stopSyncInterrupted
+        case stopSyncNoInterrupt
+        case reaskSuppressed
+        case abandonCleared
     }
 
     public var kind: Kind {
@@ -101,6 +114,11 @@ extension DiagnosticEvent {
         case .offlineRestoreAttempt: .offlineRestoreAttempt
         case .resumed: .resumed
         case .offlineCapReached: .offlineCapReached
+        case .stopSyncSent: .stopSyncSent
+        case .stopSyncInterrupted: .stopSyncInterrupted
+        case .stopSyncNoInterrupt: .stopSyncNoInterrupt
+        case .reaskSuppressed: .reaskSuppressed
+        case .abandonCleared: .abandonCleared
         }
     }
 }
@@ -118,6 +136,11 @@ extension DiagnosticEvent {
         case .networkLost: "networkLost"
         case .networkRestored: "networkRestored"
         case .offlineCapReached: "offlineCapReached"
+        case .stopSyncSent: "stopSync sent"
+        case .stopSyncInterrupted(let ms): "stopSync interrupted ms=\(ms)"
+        case .stopSyncNoInterrupt: "stopSyncNoInterrupt"
+        case .reaskSuppressed: "reaskSuppressed reason=stop"
+        case .abandonCleared: "abandonCleared reason=newUtterance"
         default: "diagnostic \(self)"
         }
     }

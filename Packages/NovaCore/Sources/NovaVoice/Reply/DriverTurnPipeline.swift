@@ -42,6 +42,8 @@ public enum PipelineInput: Sendable, Hashable {
     /// Verified now-playing state from the media lane (F-13).
     case musicPlaying(Bool)
     case timerFired(PipelineTimer)
+    /// F-08 §15 item 3: a stop phrase ended her reply; the no-answer clock of that utterance stops.
+    case stopped
 }
 
 public struct PipelineTimer: Sendable, Hashable {
@@ -72,6 +74,10 @@ public enum PipelineOutput: Sendable, Hashable {
 /// `ok=true` result proves them, and dropped otherwise. I-11: all of it is code, not prompt.
 public struct DriverTurnPipeline: Sendable {
     public static let reaskText = "请回应我刚才说的话。"
+    /// F-08 §15 item 3: the re-ask names the driver's newest words, so the model never returns to an old topic.
+    public static func reaskText(newest: String) -> String {
+        newest.allSatisfy(\.isWhitespace) ? reaskText : "请回答我最新的这句话：「\(newest)」"
+    }
 
     private struct Turn {
         let id: TurnID
@@ -209,6 +215,10 @@ public struct DriverTurnPipeline: Sendable {
             guard timers[timer.kind] == timer.epoch else { return [] }
             timers[timer.kind] = nil
             return fire(timer.kind, at: now)
+        case .stopped:
+            pendingCorrection = nil
+            let cancelled = cancel(.reask) + cancel(.giveUp) + cancel(.correction)
+            return cancelled.isEmpty ? [] : cancelled + [.diagnostic(.reaskSuppressed)]
         }
     }
 
@@ -458,7 +468,7 @@ public struct DriverTurnPipeline: Sendable {
             reaskedThisUtterance = true
             freshUtterance = true
             let giveUpAfter = tuning.emptyResponseGiveUp - tuning.emptyResponseReask
-            return [.reask(Self.reaskText), .diagnostic(.emptyResponseReask)] + schedule(.giveUp, at: now + giveUpAfter)
+            return [.reask(Self.reaskText(newest: lastUtterance)), .diagnostic(.emptyResponseReask)] + schedule(.giveUp, at: now + giveUpAfter)
         case .giveUp:
             return [.gaveUp]
         }

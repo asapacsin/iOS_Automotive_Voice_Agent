@@ -65,6 +65,8 @@ public enum AgentTimer: Sendable, Hashable {
     case guidance(GuidanceID)
     /// The arbiter asked to be re-evaluated (R6a hold end, uplink tail, R0, 20 s cap).
     case arbiter(NovaInstant)
+    /// F-08 §15 item 1: 1 s after the stop's empty activity; no `interrupted` by then is logged.
+    case stopSync(NovaInstant)
 }
 
 public enum ProviderCommand: Sendable, Hashable {
@@ -73,6 +75,8 @@ public enum ProviderCommand: Sendable, Hashable {
     case close
     case toolResponses([ToolResponse])
     case text([TextTurn], turnComplete: Bool)
+    /// F-08 §15 item 1: `activityStart` then `activityEnd` with no audio between, so Gemini cancels its reply.
+    case interruptReply
 }
 
 /// What the UI shows (contracts/voice-agent.md §1). A snapshot, not product state.
@@ -199,6 +203,8 @@ public struct AgentState: Sendable {
     private var uplinkOpen = true
     /// Session timers by kind, so `cancelTimer` can name the pending one.
     private var sessionTimers: [SessionTimer.Kind: SessionTimer] = [:]
+    /// F-08 §15: when the stop's empty activity went out; cleared by the stopped reply's `interrupted` or after 1 s.
+    private var stopSyncAt: NovaInstant?
     private var pipelineTimers: [PipelineTimer.Kind: PipelineTimer] = [:]
 
     public init() {}
@@ -238,10 +244,13 @@ public struct AgentState: Sendable {
             arbiter.driverSpeech(true)
             speechOnsets += 1
             transcript = ""
+            // F-08 §15 item 4: the transcript stop's give-up never reaches the answer to this new question.
+            var cleared: [AgentEffect] = []
+            if abandonNextTurn { cleared = [.diagnostic(.abandonCleared)] }
             abandonNextTurn = false
             // The driver speaks to her: a reply may claim focus again after a permanent loss (R4).
             if recentSpeech { arbiter.regainFocus() }
-            let effects = bargeIn(.speechStarted(recentSpeech: recentSpeech), at: now)
+            let effects = cleared + bargeIn(.speechStarted(recentSpeech: recentSpeech), at: now)
             return effects + session(.speechStarted, at: now) + arbiterChanged(at: now)
         case .speechStopped:
             utteranceOpen = false
@@ -253,6 +262,10 @@ public struct AgentState: Sendable {
             closedTurns += 1
             // R6: she may answer this utterance while navigating.
             arbiter.driverSpoke(at: now)
+            // F-08 §15 item 3: a stop phrase's own utterance owes no answer and starts no clock.
+            if stopUtterance == utterances {
+                return session(.speechStopped, at: now) + [.diagnostic(.reaskSuppressed)] + arbiterChanged(at: now)
+            }
             answerOwed = true
             // The no-answer clock (W3) starts when the driver stops, with what we heard so far.
             return session(.speechStopped, at: now) + pipeline(.driverUtterance(transcript), at: now)
@@ -343,6 +356,10 @@ public struct AgentState: Sendable {
             return effects + arbiterChanged(at: now)
         case .timer(.arbiter):
             return arbiterChanged(at: now)
+        case .timer(.stopSync(let sent)):
+            guard stopSyncAt == sent else { return [] }
+            stopSyncAt = nil
+            return [.diagnostic(.stopSyncNoInterrupt)]
         case .navigation(let flags):
             let wasNavigating = navigation.navigating
             let tripEnded = navigation.navigating && !flags.navigating
@@ -604,8 +621,20 @@ public struct AgentState: Sendable {
         missCandidate = nil
         let heardDriver = utteranceOpen || lastSpeechEndAt.map { now - $0 <= .seconds(1) } == true
         let ms = heardDriver ? lastOnsetAt.map { Int((now - $0).milliseconds) } ?? -1 : -1
-        return stop + [.diagnostic(.stopPhrase(source: source, phrase: phrase, msFromSpeechStart: ms, score: score,
-                                               selfStop: !heardDriver))] + arbiterChanged(at: now)
+        // F-08 §15 items 1–3: after the local flush Gemini is told too, the reply mute ends at once, and no
+        // re-ask pulls back to the stopped topic.
+        arbiter.replyDrained()
+        let sync: [AgentEffect]
+        if session.state != .disconnected, session.state != .error {
+            stopSyncAt = now
+            sync = [.provider(.interruptReply), .diagnostic(.stopSyncSent),
+                    .schedule(.stopSync(now), at: now + .seconds(1))]
+        } else {
+            sync = []
+        }
+        return stop + sync + [.diagnostic(.stopPhrase(source: source, phrase: phrase, msFromSpeechStart: ms, score: score,
+                                                      selfStop: !heardDriver))]
+            + pipeline(.stopped, at: now) + arbiterChanged(at: now)
     }
 
     private mutating func stopReply(_ turn: TurnID) -> [AgentEffect] {
@@ -756,10 +785,16 @@ public struct AgentState: Sendable {
             return effects + relayOutputs(relay.assistantFinished(at: now, conditions: relayConditions,
                                                                   cut: !completed), at: now)
         case .interrupted(let turn, _):
+            // F-08 §15 item 1: the stopped reply closed for Gemini too.
+            var synced: [AgentEffect] = []
+            if let sent = stopSyncAt {
+                stopSyncAt = nil
+                synced = [.diagnostic(.stopSyncInterrupted(ms: Int((now - sent).milliseconds))), .cancelTimer(.stopSync(sent))]
+            }
             // Server-side interruption: whatever of this reply is still queued must not play.
             let stops = openTurn == turn && !silenced.contains(turn) ? stopReply(turn) : []
             if openTurn == turn { openTurn = nil }
-            return stops + pipeline(.turnClosed(turn, .cancelled), at: now)
+            return synced + stops + pipeline(.turnClosed(turn, .cancelled), at: now)
         case .responseDone(let turn, let outcome):
             if openTurn == turn { openTurn = nil }
             var effects = pipeline(.turnClosed(turn, outcome), at: now)

@@ -1483,22 +1483,33 @@
     {
       "id": "T-034b",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 4,
       "action": "F-21 §15: add 摄像头画面 to the strict scope and rule 8 (camera questions -> describe_camera_view, question = utterance, rear lens for 后面/倒车, answer only from the result, failure -> say cannot see); other scope excludes camera questions; base <= 1500 chars; toolCall diagnostic; catalog-coverage guard test (every ToolCatalog tool mapped to a base phrase or notByVoice); rows 1-8",
       "depends_on": [],
-      "notes": "Owner 2026-10-31 \"write this on the spec\". Device ac53787 13:36-13:40: camera questions never opened the camera (claimHeld x5, correctionSent, turnUnanswered x2); T-034a scope sent them to the no-tool scope."
+      "notes": "Owner 2026-10-31 \"write this on the spec\". Device ac53787 13:36-13:40: camera questions never opened the camera (claimHeld x5, correctionSent, turnUnanswered x2); T-034a scope sent them to the no-tool scope.",
+      "evidence": [
+        "488d112: base instruction strict scope gains 摄像头画面 (and the other catalog topics: 车内场景, 打开地图或设置, 静音, 结束对话), rule 8 describe_camera_view, other scope 「不用工具（要看画面的问题除外）」; base 1093 chars; ToolPromptCoverage guard test over ToolCatalog.declarations (rows 1, 7, 8 unit); toolCall/toolResult log lines for describe_camera_view; Linux gates green",
+        "Waiting: Codemagic build, independent review; S/D rows 2-6 NOT_VERIFIED"
+      ],
+      "blocked_by": "Codemagic build; independent review; S/D rows"
     },
     {
       "id": "T-022b",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 3,
       "action": "F-08 §15: activityHandling START_OF_ACTIVITY_INTERRUPTS (manual detection kept); on a stop phrase send activityStart+activityEnd with no audio so Gemini cancels the reply; replyDrained on stop (unmute); no re-ask for the stop utterance, re-ask text names the newest transcript; abandonNextTurn cleared by a new utterance; stopSync logs; rows 1-9",
       "depends_on": [
         "T-022a"
       ],
-      "notes": "Owner 2026-10-31 \"write this on spec\". Device ac53787 15:23-15:28: after 别说了 new questions got the same answer (turnUnanswered+emptyResponseReask x5, sentToModel=false muteReason=reply after stops); stop was local only and the session uses NO_INTERRUPTION."
+      "notes": "Owner 2026-10-31 \"write this on spec\". Device ac53787 15:23-15:28: after 别说了 new questions got the same answer (turnUnanswered+emptyResponseReask x5, sentToModel=false muteReason=reply after stops); stop was local only and the session uses NO_INTERRUPTION.",
+      "evidence": [
+        "ActivityDetectionConfig.novaDrive (manual + START_OF_ACTIVITY_INTERRUPTS); ProviderCommand.interruptReply -> GeminiLiveProvider.sendEmptyActivity (activityStart+activityEnd under the state lock, skipped mid-utterance); stop phrase: flush, then interruptReply, arbiter.replyDrained, pipeline .stopped (re-ask/give-up/correction cancelled, reaskSuppressed), stop utterance starts no clock; re-ask text names the newest transcript; abandonNextTurn cleared by a new sent utterance (abandonCleared); stopSync sent / interrupted ms / stopSyncNoInterrupt (1 s); unit rows 1-5; Linux gates green",
+        "Re-ask vs 1 s interrupt wait: the stop cancels the pending re-ask and the next utterance's re-ask fires >= 6 s later, so no re-ask is sent inside the 1 s window by construction",
+        "Waiting: Codemagic build, independent review; recorded row 6 (GeminiRecorder) and device rows 7-9 NOT_VERIFIED"
+      ],
+      "blocked_by": "Codemagic build; independent review; S/D rows"
     }
   ]
 }
