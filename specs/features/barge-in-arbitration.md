@@ -118,3 +118,68 @@ else. Hearing one stops her at once. Anything else said while she talks is still
 | Task | Scope | Verify |
 |---|---|---|
 | T-022a | §14 items 1–8: `StopPhrases` (NovaCore), sherpa `KeywordSpotter` in NovaAsrSherpa with a fetched, checksummed Mandarin KWS model, playback-window feeding, `.stopPhrase` on hit, transcript check as backup, hint, log lines, 音频测试 line. Depends on T-016f (library and fetch script) | unit, build, D (rows 4–8) |
+
+## 15. A stop phrase also ends the reply for Gemini (iOS, APPROVED 2026-10-31)
+
+**Why.** Device run ac53787 (2026-10-31 15:23–15:28): 别说了 stopped her every time (`stopPhrase source=kws` ×5,
+`source=transcript` ×1), but afterwards new questions got the same answer whatever was asked. Log pattern after each
+stop: `turnUnanswered` + `emptyResponseReask` ×5 in 4 minutes (15:23:41, 15:25:34, 15:25:45, 15:27:16, 15:27:24,
+15:27:33), and follow-up questions with `sentToModel=false muteReason=reply` (15:27:29, 15:27:38). Causes:
+- **Gemini is never told.** §14 stops her locally only (flush, epoch; "nothing to Gemini"). The session runs with manual
+  activity detection (`automaticActivityDetection.disabled`, App/NovaDrive/AgentRuntime.swift) and
+  `activityHandling: NO_INTERRUPTION` (`interruptsReply = false`, GeminiCodec), so Gemini keeps its old reply going and
+  a new question waits behind it or is not answered in time.
+- **The re-ask points back.** After 6 s without an answer the pipeline sends 「请回应我刚才说的话」
+  (`DriverTurnPipeline.reaskText`); with the old reply still current for Gemini, it answers the old topic again.
+- **The mute outlives the stop.** The T-004i reply mute is still on after a stop, so a question right after it is not
+  sent.
+- **A transcript stop drops the next answer.** `abandonNextTurn` (AgentState `heard`) discards Gemini's next turn to
+  swallow a reply to 别说了; if that next turn is the answer to a new question, the answer is lost.
+Owner 2026-10-31: "write this on spec" (the point: tell Gemini the reply has ended).
+
+**Rule in plain words.** 别说了 ends her answer for both the phone and Gemini. Her next answer is always to the
+driver's newest question, never the old topic again.
+
+1. **Tell Gemini (interrupt).** Switch the session to `activityHandling: START_OF_ACTIVITY_INTERRUPTS`
+   (`interruptsReply = true`). Because activity detection is manual and the T-004i mute sends no `activityStart` while
+   she talks, an interruption only happens when the app sends one on purpose. On a stop phrase (either source), after
+   the local flush, the provider sends `activityStart` immediately followed by `activityEnd` with no audio between,
+   so Gemini cancels the running generation and the stop phrase itself is not a question. The server's `interrupted`
+   for that turn closes it as cancelled (existing `.interrupted` path). If the implementer finds on a recorded session
+   (`GeminiRecorder`) that an empty activity makes Gemini open a reply turn, that one turn is abandoned (item 4) and
+   the finding is recorded in the PR; if no `interrupted` arrives within 1 s, log `stopSyncNoInterrupt` and continue
+   (items 2–4 still apply).
+2. **Unmute at once.** On a stop the arbiter treats her reply as drained (`replyDrained`): the reply mute ends, so the
+   next driver utterance is sent (`sentToModel=true muteReason=none`). The stop phrase's own utterance stays unsent
+   as today.
+3. **No re-ask pulling back.** The no-answer clock does not run for the stop phrase's own utterance. For the next
+   driver utterance the re-ask, if it fires, names the newest question using the local transcript (F-05a §12):
+   「请回答我最新的这句话：「<transcript>」」 (falls back to today's text when no transcript is available). A re-ask
+   is never sent while the stopped reply's `interrupted` / turn close is still awaited (at most 1 s).
+4. **Only the stop's own reply is dropped.** `abandonNextTurn` from a transcript stop is cleared as soon as a new
+   driver utterance is sent; it then never discards the answer to that new question. With item 1 in place, an
+   abandoned turn is one Gemini opens for the empty activity, or the late tail of the stopped reply.
+5. **Logs.** `stopSync sent`, `stopSync interrupted ms=<from send>`, `stopSyncNoInterrupt`, `reaskSuppressed
+   reason=stop`, `abandonCleared reason=newUtterance`; no audio, no text payloads beyond the existing transcript rules.
+6. **Other interruptions unchanged.** No new barge-in trigger: only the §14 stop set stops her. Navigation guidance
+   (F-14) is never interrupted by this path, as §14 row 7.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Session setup | `activityHandling` = `START_OF_ACTIVITY_INTERRUPTS`, `automaticActivityDetection.disabled` = true | unit (codec) |
+| 2 | Scripted: long reply playing, stop phrase spotted | Local flush, then provider sends `activityStart`, `activityEnd` in that order with no audio between; `stopSync sent` | unit (AgentCore + fake provider) |
+| 3 | Scripted: stop, then `interrupted` for the old turn, then a new utterance | Old turn closed as cancelled; mute off; new utterance sent; its reply is spoken | unit |
+| 4 | Scripted: stop, then no answer to the next utterance for 6 s | Re-ask names the newest transcript; never 「请回应我刚才说的话」 when a transcript exists | unit (pipeline) |
+| 5 | Scripted: transcript stop, then a new utterance, then Gemini's turn | That turn is spoken (not abandoned); `abandonCleared` logged | unit |
+| 6 | Recorded Gemini session: long answer, empty activity mid-reply | `interrupted` arrives; outcome (whether a reply turn opens) recorded in the PR | S |
+| 7 | Device: 「介绍一下珠海」, 别说了, then 「现在几点」/「打开空调」/「讲个笑话」 in turn | Each answer matches its own question; never the 珠海 answer again; log shows `stopSync interrupted`, next utterance `sentToModel=true` | D |
+| 8 | Device: repeat row 7 five times in one session | 5/5 answer the new question; no `turnUnanswered` right after a stop | D (log) |
+| 9 | Device: §14 rows (7 stop phrases, no self-stop from music/cough, guidance not interrupted) | Still pass | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-022b | §15 items 1–6: interrupting activity handling, empty activity on a stop, unmute on stop, re-ask suppression and newest-question text, scoped `abandonNextTurn`, logs; unit rows 1–5; recorded row 6; device rows 7–9 | unit, S, D (rows 7–9) |
