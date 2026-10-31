@@ -220,7 +220,8 @@ struct AlongRouteTests {
         let picked = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
         #expect(picked.ok && picked.data["destination"] == "中石化A")
         let snapshot = await nav.current
-        #expect(snapshot.phase == .awaitingRouteSelection && !snapshot.alongRouteList)
+        // T-040h: the new place starts guidance at once on its recommended route.
+        #expect(snapshot.phase == .navigating && !snapshot.alongRouteList)
     }
 
     @Test("F-18 an exit while the along-route pick stops the old guidance wins; the pick is stale")
@@ -262,5 +263,34 @@ struct AlongRouteTests {
                                            engine: ScriptedNaviEngine(routes: []), location: NoLocation(), clock: ManualClock())
         _ = await unknown.execute(tool("navigate_to", ["destination": "X"]))
         #expect(await unknown.placeDetails(target: .int(1)).code == .noResults)
+    }
+}
+
+@Suite("T-016d F-05a §6 navigate_to while guiding lists over the route")
+struct NavigateWhileGuidingTests {
+    @Test("F-05a §6 (replaces P61): navigate_to while guiding lists places; the route changes only on a pick")
+    func listsOverGuidance() async {
+        let search = RecordingSearch(["珠海站": [place("珠海站", 3_000)],
+                                      "附近的加油站": [place("中石化A", 900), place("中石化B", 4_000)],
+                                      "加油站": [place("中石化A", 900), place("中石化B", 4_000)]])
+        let engine = ScriptedNaviEngine(routes: [RouteSummary(id: RouteID(1), lengthMeters: 3_000, durationSeconds: 600,
+                                                              tollYuan: 0, trafficLights: 3, label: nil, polyline: [])])
+        let nav = NavigationController(search: search, engine: engine, location: NoLocation(), clock: ManualClock())
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        _ = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        #expect(await nav.current.navigating)
+        let stopsBefore = engine.calls.withLock { $0.filter { $0 == "stop" }.count }
+        let listed = await nav.execute(tool("navigate_to", ["destination": "附近的加油站"]))
+        #expect(listed.ok && listed.data["guidance_kept"] == true && listed.data["count"] == .int(2))
+        var snapshot = await nav.current
+        #expect(snapshot.navigating && snapshot.listOpen && snapshot.places.count == 2)
+        #expect(engine.calls.withLock { $0.filter { $0 == "stop" }.count } == stopsBefore)
+        // The pick replaces the route.
+        _ = await nav.execute(tool("choose_navigation_option", ["index": .int(2)]))
+        snapshot = await nav.current
+        #expect(!snapshot.alongRouteList)
+        #expect(engine.calls.withLock { $0.filter { $0 == "stop" }.count } == stopsBefore + 1)
+        #expect(snapshot.destination?.name == "中石化B")
     }
 }

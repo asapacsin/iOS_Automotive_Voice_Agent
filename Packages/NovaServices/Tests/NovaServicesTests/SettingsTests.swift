@@ -34,6 +34,21 @@ struct SettingsTests {
         #expect(settings.bool(SettingsKey.geminiConsentAccepted) == false)
     }
 
+    @Test("T-071h F-20a §14 row 10: the Zhipu key is wiped; vision is ready with any one of the three keys")
+    func zhipuKey() throws {
+        #expect(CredentialKey.zhipuKey.rawValue == "zhipu_key")
+        #expect(CredentialKey.allCases.contains(.zhipuKey))
+        let settings = defaults()
+        #expect(SettingsReadiness(credentials: InMemoryCredentialStore(), settings: settings).vision == false)
+        for key in [CredentialKey.zhipuKey, .geminiAPIKey, .qianfanKey] {
+            #expect(SettingsReadiness(credentials: InMemoryCredentialStore([key: "v"]), settings: settings).vision)
+        }
+        let store = InMemoryCredentialStore([.zhipuKey: "z"])
+        #expect(SecretField.display(.zhipuKey, in: store) == .saved)
+        CredentialWipe.wipe(store, settings: settings)
+        #expect(SecretField.display(.zhipuKey, in: store) == .notSet)
+    }
+
     @Test("F-22 wipe keeps going past a failing key and reports it")
     func wipeFailure() {
         let store = InMemoryCredentialStore(Dictionary(uniqueKeysWithValues: CredentialKey.allCases.map { ($0, "v") }))

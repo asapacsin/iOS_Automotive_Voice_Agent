@@ -22,52 +22,34 @@ public struct NotYetExecutor: ToolExecutor {
     }
 }
 
-/// Pure decision half of the dispatcher (F-09). Order: validate → driver-side window rewrite →
-/// guards (unsupportedMedia → sunroofOnWindowTool → nearbyQuestionWhileNavigating →
-/// vagueExitWhileNavigating → speechOutputNotRequested → ambiguousReferent → repeatedInTurn) →
-/// savedPlaceMissing. Keeps the repeat-in-turn record, so it lives inside AgentCore.
+/// Pure decision half of the dispatcher (F-09, revised by F-05a §6: no guard reads the transcript). Order:
+/// validate → repeatedInTurn → savedPlaceMissing (the F-15a start guard is withdrawn by T-040h: no route list). Keeps the repeat-in-turn record, so it
+/// lives inside AgentCore. `exit_navigation_mode` is never held for a confirmation (F-05a §6, T-016e).
 public struct ToolDispatcher: Sendable {
     /// Identical repeat-sensitive calls already dispatched, per driver turn (speech-onset epoch).
     private var dispatched: (epoch: Int, calls: Set<String>) = (0, [])
 
     public init() {}
 
-    public mutating func decide(_ call: ToolCall, context: GuardContext,
-                                clarify: (String) -> [String]? = { _ in nil }) -> DispatchDecision {
+    public mutating func decide(_ call: ToolCall, context: GuardContext) -> DispatchDecision {
         if let code = ToolCatalog.validate(call) { return .refuse(Self.failure(code)) }
-        var running = call
-        if let window = ToolCallGuards.driverSideWindow(call, context), case .object(var args) = call.arguments {
-            args["window"] = .string(window)
-            running = ToolCall(id: call.id, name: call.name, arguments: .object(args))
-        }
-        let guards: [(ToolCall, GuardContext) -> ToolErrorCode?] = [
-            ToolCallGuards.unsupportedMedia, ToolCallGuards.sunroofOnWindowTool,
-            ToolCallGuards.nearbyQuestionWhileNavigating, ToolCallGuards.vagueExitWhileNavigating,
-            ToolCallGuards.speechOutputNotRequested,
-        ]
-        for check in guards {
-            if let code = check(running, context) { return .refuse(Self.failure(code)) }
-        }
-        if let (code, options) = ToolCallGuards.ambiguousReferent(running, context, clarify: clarify) {
-            return .refuse(Self.failure(code, data: ["options": .string(options.joined(separator: "还是"))]))
-        }
-        if repeatedInTurn(running, context) { return .refuse(Self.failure(.duplicateInTurn)) }
-        if let code = ToolCallGuards.savedPlaceMissing(running, context) { return .refuse(Self.failure(code)) }
-        return .execute(running)
-    }
-
-    /// Applied to an executor's result before it goes to the model.
-    public func finish(_ call: ToolCall, _ result: ToolResult) -> ToolResult {
-        ToolCallGuards.withPowerAdvice(call, result)
+        if repeatedInTurn(call, context) { return .refuse(Self.failure(.duplicateInTurn)) }
+        if let code = ToolCallGuards.savedPlaceMissing(call, context) { return .refuse(Self.failure(code)) }
+        return .execute(call)
     }
 
     /// `repeatedInTurn`: the same repeat-sensitive call with the same arguments twice in one driver
     /// turn is a protocol retry. With no speech onset yet there is no turn, and nothing is dropped.
     private mutating func repeatedInTurn(_ call: ToolCall, _ c: GuardContext) -> Bool {
-        guard ToolCatalog.spec(call.name)?.repeatSensitive == true, c.capabilityEpoch > 0 else { return false }
-        if dispatched.epoch != c.capabilityEpoch { dispatched = (c.capabilityEpoch, []) }
+        guard ToolCatalog.spec(call.name)?.repeatSensitive == true, c.turn > 0 else { return false }
+        if dispatched.epoch != c.turn { dispatched = (c.turn, []) }
         let key = call.name + "\u{0}" + Self.canonical(call.arguments)
         return !dispatched.calls.insert(key).inserted
+    }
+
+    /// Applied to an executor's result before it goes to the model.
+    public func finish(_ call: ToolCall, _ result: ToolResult) -> ToolResult {
+        ToolCallGuards.withPowerAdvice(call, result)
     }
 
     public static func failure(_ code: ToolErrorCode, data: [String: JSONValue] = [:]) -> ToolResult {

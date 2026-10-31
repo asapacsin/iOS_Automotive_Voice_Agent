@@ -25,14 +25,22 @@ toolCall from the provider; local picks.
 All executors.
 
 ## 8. Error handling and recovery
-Guard order (first wins): unsupportedMedia → sunroofOnWindowTool → nearbyQuestionWhileNavigating → vagueExitWhileNavigating → speechOutputNotRequested → ambiguousReferent → repeatedInTurn; plus driverSideWindow rewrite, savedPlaceMissing, withPowerAdvice. Failure wording from `ToolFailureAdvice`.
+Guard order (first wins), iOS after F-05a §6 (2026-10-29, T-016d, T-016e): validate → navigationNotRequested (F-15a,
+driver turns) → repeatedInTurn → savedPlaceMissing; plus withPowerAdvice. (confirmExit was added by T-016d and removed
+by T-016e: 结束导航 ends at once, no confirmation.) No guard reads the driver's transcript. **Superseded** (they read
+the transcript): unsupportedMedia, sunroofOnWindowTool, nearbyQuestionWhileNavigating (now: navigate_to while guiding
+lists over the route), vagueExitWhileNavigating (now: no guard), speechOutputNotRequested, ambiguousReferent, driverSideWindow rewrite. Android order, for reference:
+unsupportedMedia → sunroofOnWindowTool → nearbyQuestionWhileNavigating → vagueExitWhileNavigating →
+speechOutputNotRequested → ambiguousReferent → repeatedInTurn. Failure wording from `ToolFailureAdvice`.
 
 ## 9. Concurrency, cancellation, timeouts
 Dispatcher waits: navigation request 10 s, options 8 s.
 
 ## 10. Acceptance criteria (iOS)
-- Each guard has a Given/When/Then unit test identical to the Android test cases (port the tables).
-- Given 「打开天窗」, then `UNSUPPORTED_BODY_PART` and no window moves.
+- Each guard has a Given/When/Then unit test identical to the Android test cases (port the tables). Superseded by
+  F-05a §6 for the word-based guards (their tables were removed with them).
+- ~~Given 「打开天窗」, then `UNSUPPORTED_BODY_PART` and no window moves.~~ Superseded (F-05a §6): no tool controls the
+  sunroof; the model says it is unsupported.
 
 ## 11. Existing Android tests
 `T/ToolCallGuard*Test`, `AndroidToolDispatcherTest`, `RealtimeToolCatalogTest`, `SavedPlaceGuardTest`.

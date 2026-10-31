@@ -19,6 +19,8 @@ public struct UplinkGateTuning: Sendable, Hashable {
     public var holdVoicedRatio: Double = 0.60
     /// Digital silence sent before `audioStreamEnd`.
     public var closingSilence = NovaDuration.milliseconds(1500)
+    /// F-04 §14: her voice can still come back through the microphone this long after her playback ends.
+    public var echoTail = NovaDuration.milliseconds(500)
     /// F-04a: speech confirmation by the sound classifier; nil = 抗噪 off (F-04 rules only).
     public var speechConfirm: SpeechConfirmTuning? = SpeechConfirmTuning()
     public init() {}
@@ -86,6 +88,8 @@ public struct RealtimeTuning: Sendable, Hashable {
     public var eventBufferLimit = 1024
     /// Client messages queued on a socket before it counts as stalled (~5 s of 10 ms audio frames).
     public var outboxLimit = 512
+    /// F-24 §14 item 4: how long she waits for the network before the session ends quietly.
+    public var offlineWaitCap = NovaDuration.seconds(600)
     public init() {}
 }
 
@@ -199,6 +203,25 @@ public struct MapPositionTuning: Sendable, Hashable {
     public var followSpanMeters = 1500.0
     public var reevaluateEvery = NovaDuration.seconds(5)
     public var simulatedHeadingMinStepMeters = 1.0
+    public init() {}
+}
+
+/// features/navigation-modes.md §2.2 / §4 (F-15a): 真实导航 progress on the Amap Web route from GPS fixes.
+public struct RouteProgressTuning: Sendable, Hashable {
+    /// A fix farther than this from the route counts towards off-route.
+    public var offRouteMeters = 50.0
+    /// Off-route is confirmed after this many counted fixes spanning at least `offRouteSpan`.
+    public var offRouteFixes = 3
+    public var offRouteSpan = NovaDuration.seconds(5)
+    /// A coarser fix moves the marker but is not counted for off-route.
+    public var countedAccuracyMeters = 50.0
+    public var arrivalMeters = 30.0
+    /// No fix for this long: progress holds (signal lost).
+    public var signalLostAfter = NovaDuration.seconds(10)
+    /// No fix for this long: 「定位信号弱，导航暂停更新。」 once.
+    public var signalWeakSentenceAfter = NovaDuration.seconds(30)
+    /// At most one recalculation per this interval.
+    public var rerouteMinInterval = NovaDuration.seconds(15)
     public init() {}
 }
 

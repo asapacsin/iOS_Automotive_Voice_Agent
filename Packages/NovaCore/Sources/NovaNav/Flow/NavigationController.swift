@@ -8,6 +8,14 @@ public enum NavigationPhase: String, Sendable, Hashable {
     case navigating, arrived, error
 }
 
+/// One tap target on the trip's screen: `row` is the route's 0-based place in the calculation (`UIIntent.choose`).
+public struct AlternativeRoute: Sendable, Hashable {
+    public let row: Int
+    public let route: RouteSummary
+    /// 「第2条 · 约20分钟」, with 更快 / 更短 / 不收费 against the running route.
+    public let text: String
+}
+
 /// What the screen and the guards see of the flow. A snapshot, not the flow's own state.
 public struct NavigationFlowState: Sendable, Hashable {
     public var phase: NavigationPhase = .idle
@@ -22,6 +30,20 @@ public struct NavigationFlowState: Sendable, Hashable {
     public var lastGuidanceID: GuidanceID?
     /// An along-route list is open over the running guidance (contracts/navigation.md keepGuidance).
     public var alongRouteList = false
+    /// F-15a: a recalculation is running (the HUD shows 「重新规划中」); the phase stays `navigating`.
+    public var rerouting = false
+    /// F-15a: the running trip's mode (read when guidance starts). The map and HUD draw by it.
+    public var mode: NaviMode = .emulator
+    /// F-15a §2.5 (T-040h): the other routes of the trip's calculation while navigating, for a tap that changes the
+    /// route (I-6: the same `choose_navigation_option` index as 「换第N条」).
+    public var alternatives: [AlternativeRoute] = []
+    /// The route buttons on screen: none while a list is open (a tap there picks a list row), and in 真实导航 only
+    /// 「第N条」, since a change recalculates from here and the earlier minutes no longer hold.
+    public var routeTapTargets: [AlternativeRoute] {
+        guard phase == .navigating, !alongRouteList else { return [] }
+        guard mode == .gps else { return alternatives }
+        return alternatives.map { AlternativeRoute(row: $0.row, route: $0.route, text: "第\($0.row + 1)条") }
+    }
 
     public init() {}
 
@@ -56,11 +78,16 @@ public actor NavigationController: ToolExecutor {
     private let location: any LocationProvider
     private let clock: any NovaClock
     private let tuning: NavigationTuning
+    /// F-15a §2.1: 设置 → 导航方式, read when a route is requested and when guidance starts.
+    private let mode: @Sendable () -> NaviMode
     private let onChange: @Sendable (NavigationFlowState) -> Void
     private var snapshot = NavigationFlowState()
     private var listedAt: NovaInstant?
     /// A start is awaiting the engine; a second pick in the same turn must not start again.
     private var startInFlight = false
+    /// F-15a §2.5 (T-040h): every route of the trip's calculation, recommended first; the driver may change to
+    /// one of them while navigating.
+    private var calculated: [RouteSummary] = []
     private var waiting: (kind: Wait, continuation: CheckedContinuation<NaviEngineEvent?, Never>)?
     private var listener: Task<Void, Never>?
     /// An answer that came while the request was still being sent (the actor is free during that await).
@@ -70,6 +97,7 @@ public actor NavigationController: ToolExecutor {
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
                 clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(), saved: SavedPlaces? = nil,
+                mode: (@Sendable () -> NaviMode)? = nil,
                 onChange: @escaping @Sendable (NavigationFlowState) -> Void = { _ in }) {
         self.saved = saved
         self.search = search
@@ -77,6 +105,8 @@ public actor NavigationController: ToolExecutor {
         self.location = location
         self.clock = clock
         self.tuning = tuning
+        let fixed = tuning.mode
+        self.mode = mode ?? { fixed }
         self.onChange = onChange
     }
 
@@ -103,6 +133,9 @@ public actor NavigationController: ToolExecutor {
     // MARK: navigate_to
 
     private func navigate(_ destination: String) async -> ToolResult {
+        // F-05a §6 (replaces the P61 word guard): while guiding, a new place is listed over the running route;
+        // the route changes only when the driver picks one.
+        if snapshot.navigating { return await listOverGuidance(destination) }
         // F-16: 家/公司 (whole utterance, never 家乐福) is the saved place or a refusal, never a POI search.
         // An unset slot is refused before anything stops, so the current route keeps going (I-14).
         if let saved, let slot = PlaceSlot.slot(for: destination) {
@@ -110,48 +143,24 @@ public actor NavigationController: ToolExecutor {
                 let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
                 return .failure(code, advice: ToolFailureAdvice.forCode(code))
             }
-            if snapshot.navigating { await engine.stop(generation: snapshot.generation) }
             snapshot.routes = []
             snapshot.info = nil
             return await route(to: place)
         }
-        if snapshot.navigating { await engine.stop(generation: snapshot.generation) }
         let generation = advance(to: .resolvingDestination)
         snapshot.places = []
         snapshot.routes = []
         snapshot.destination = nil
         snapshot.info = nil
         publish()
-        var places: [Place] = []
-        do {
-            // F-16: stripped query first, verbatim once if it found nothing; nearby and categories by
-            // distance. A stale or coarse fix is not used (text search, no city); Amap wants GCJ-02.
-            let query = DestinationQuery(destination)
-            let center = await usableFix()
-            for keywords in query.attempts where places.isEmpty {
-                if let center {
-                    places = try await search.around(keywords, center: center,
-                                                     radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
-                } else {
-                    places = try await search.text(keywords, city: nil)
-                }
-                guard generation == snapshot.generation else { return .failure(.optionsStale) }
-            }
-        } catch let error as AmapWebError {
-            guard generation == snapshot.generation else { return .failure(.optionsStale) }
-            reset()
-            return error == .keyMissing || error == .keyRejected
-                ? .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有查到。")
-                : .failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到，可以请用户再说一遍。")
-        } catch {
-            reset()
-            return .failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到。")
-        }
+        let found = await findPlaces(destination, current: { [generation] in generation == self.snapshot.generation })
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
-        let top = Array(places.prefix(tuning.maxCandidates))
-        guard !top.isEmpty else {
+        let top: [Place]
+        switch found {
+        case .success(let places): top = places
+        case .failure(let box):
             reset()
-            return .failure(.noCandidates, advice: "没有找到这个地点。请如实说没找到，请用户换个说法。")
+            return box.result
         }
         if top.count == 1 { return await route(to: top[0]) }
         snapshot.phase = .awaitingDestinationSelection
@@ -163,6 +172,71 @@ public actor NavigationController: ToolExecutor {
             "count": .int(Int64(top.count)),
             "candidates": .array(top.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
             "next": .string("屏幕上列出了\(top.count)个地点。只说一句：找到\(top.count)个地点，请说第几个。不要念列表。"),
+        ])
+    }
+
+    /// Up to `maxCandidates` places for `destination`, or the failure to return. F-16: stripped query first,
+    /// verbatim once if it found nothing; nearby and categories by distance. A stale or coarse fix is not used
+    /// (text search, no city); Amap wants GCJ-02. `current` is false once a newer request owns the flow.
+    private func findPlaces(_ destination: String, current: () -> Bool) async -> Result<[Place], ToolResultBox> {
+        var places: [Place] = []
+        do {
+            let query = DestinationQuery(destination)
+            let center = await usableFix()
+            for keywords in query.attempts where places.isEmpty {
+                if let center {
+                    places = try await search.around(keywords, center: center,
+                                                     radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
+                } else {
+                    places = try await search.text(keywords, city: nil)
+                }
+                guard current() else { return .failure(ToolResultBox(.failure(.optionsStale))) }
+            }
+        } catch let error as AmapWebError {
+            return .failure(ToolResultBox(error == .keyMissing || error == .keyRejected
+                ? .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有查到。")
+                : .failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到，可以请用户再说一遍。")))
+        } catch {
+            return .failure(ToolResultBox(.failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到。")))
+        }
+        let top = Array(places.prefix(tuning.maxCandidates))
+        guard !top.isEmpty else {
+            return .failure(ToolResultBox(.failure(.noCandidates, advice: "没有找到这个地点。请如实说没找到，请用户换个说法。")))
+        }
+        return .success(top)
+    }
+
+    /// While guiding: the places are listed over the running route (as along-route results); nothing stops
+    /// until a pick, which replaces the route (`choose` on the along-route list).
+    private func listOverGuidance(_ destination: String) async -> ToolResult {
+        let generation = snapshot.generation
+        let top: [Place]
+        if let saved, let slot = PlaceSlot.slot(for: destination) {
+            guard let place = saved.place(slot) else {
+                let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
+                return .failure(code, advice: ToolFailureAdvice.forCode(code))
+            }
+            top = [place]
+        } else {
+            let found = await findPlaces(destination, current: { [generation] in
+                generation == self.snapshot.generation && self.snapshot.navigating
+            })
+            switch found {
+            case .success(let places): top = places
+            case .failure(let box): return box.result
+            }
+        }
+        guard generation == snapshot.generation, snapshot.navigating else { return .failure(.optionsStale) }
+        snapshot.places = top
+        snapshot.alongRouteList = true
+        listedAt = clock.now
+        publish()
+        return .success([
+            "status": "candidates_listed_over_guidance",
+            "count": .int(Int64(top.count)),
+            "candidates": .array(top.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
+            "guidance_kept": true,
+            "next": .string("屏幕上列出了\(top.count)个地点，导航仍按原路线继续。只说一句：找到\(top.count)个，说第几个可以改去那里。不要说已经改了路线。"),
         ])
     }
 
@@ -208,13 +282,18 @@ public actor NavigationController: ToolExecutor {
         case .resolvingDestination, .calculatingRoute:
             return .failure(.optionsNotReady, advice: "路线还在计算。请如实说还在计算，稍等一下。")
         case .navigating:
-            return .failure(.noOptionsOnScreen, advice: "已经在导航了，屏幕上没有候选。请如实说明。")
+            return await changeRoute(args)
         case .idle, .arrived, .error:
             return .failure(.noOptionsOnScreen, advice: "现在屏幕上没有候选列表。请如实说明，不要假装已经选择。")
         }
     }
 
     private func route(to place: Place) async -> ToolResult {
+        // F-15a §2.2 (OQ-NAVM-2): 真实导航 starts only from a usable fix; never the demo origin.
+        if mode() == .gps, let refusal = await noUsableFix() {
+            reset()
+            return refusal
+        }
         let generation = advance(to: .calculatingRoute)
         snapshot.destination = place
         snapshot.places = []
@@ -229,50 +308,159 @@ public actor NavigationController: ToolExecutor {
             reset()
             return .failure(.routeCalculationFailed, advice: "路线规划失败了。请如实说没有算出路线。")
         }
-        snapshot.phase = .awaitingRouteSelection
-        snapshot.routes = Array(routes.prefix(3))
-        snapshot.selectedRoute = snapshot.routes[0].id
-        listedAt = clock.now
-        publish()
-        return .success([
-            "status": "destination_selected",
-            "destination": .string(place.name),
-            "route_count": .int(Int64(snapshot.routes.count)),
-            "routes": .array(snapshot.routes.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
-            "next": .string("不要念路线细节。只说一句：有\(snapshot.routes.count)条路线，说第几条或者说开始导航。导航还没有开始。"),
-        ])
+        // F-15a §2.5 (T-040h): no route list to wait on; guidance starts on the recommended route at once.
+        calculated = Array(routes.prefix(3))
+        snapshot.routes = calculated
+        return await startGuidance(calculated[0])
     }
 
-    private func startGuidance(_ route: RouteSummary) async -> ToolResult {
+    /// F-15a §2.5 (T-040h): the other routes of the calculation, for her one short offer.
+    private func alternatives(besides chosen: RouteSummary) -> (data: [JSONValue], offer: String?) {
+        let others = calculated.enumerated().filter { $0.element.id != chosen.id }
+        let data = others.map { Self.describe($0.element, index: $0.offset + 1) }
+        let offer: String? = if others.contains(where: { $0.element.durationSeconds < chosen.durationSeconds }) {
+            "还有一条更快的，要换吗？"
+        } else if others.contains(where: { $0.element.lengthMeters < chosen.lengthMeters }) {
+            "还有一条更短的，要换吗？"
+        } else if chosen.tollYuan > 0, others.contains(where: { $0.element.tollYuan == 0 }) {
+            "还有一条不收费的，要换吗？"
+        } else {
+            nil
+        }
+        return (data, offer)
+    }
+
+    static func alternativeRoutes(_ calculated: [RouteSummary], running: RouteSummary) -> [AlternativeRoute] {
+        calculated.enumerated().compactMap { index, other in
+            guard other.id != running.id else { return nil }
+            var notes: [String] = []
+            if other.durationSeconds < running.durationSeconds { notes.append("更快") }
+            if other.lengthMeters < running.lengthMeters { notes.append("更短") }
+            if other.tollYuan == 0, running.tollYuan > 0 { notes.append("不收费") }
+            let minutes = max(1, other.durationSeconds / 60)
+            let text = (["第\(index + 1)条", "约\(minutes)分钟"] + notes).joined(separator: " · ")
+            return AlternativeRoute(row: index, route: other, text: text)
+        }
+    }
+
+    private func noUsableFix() async -> ToolResult? {
+        if await location.authorization() == .denied {
+            return .failure(.locationPermissionDenied, advice: "没有定位权限，真实导航不能开始。请如实说：请在设置里打开定位。")
+        }
+        guard let fix = await location.latestFix(), LocationQuality.of(fix, at: clock.now) != nil else {
+            return .failure(.noLocation, advice: "还没有定位，真实导航不能开始。请如实说：还没有定位，暂时不能导航。")
+        }
+        return nil
+    }
+
+    private func startGuidance(_ route: RouteSummary, replacing label: String? = nil) async -> ToolResult {
+        let replacing = label != nil
+        let previous = snapshot.routes.first
         let generation = snapshot.generation
+        let mode = mode()
         snapshot.selectedRoute = route.id
         early[.started] = nil
         startInFlight = true
         defer { startInFlight = false }
         publish()
         await engine.selectRoute(route.id, generation: generation)
-        await engine.start(tuning.mode, generation: generation)
+        await engine.start(mode, generation: generation)
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
         let event = await wait(.started, within: tuning.startWait)
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
         guard event == .naviStarted else {
+            // A failed route change keeps the trip on its current route (T-040h).
+            if replacing, let old = previous {
+                snapshot.routes = [old]
+                snapshot.selectedRoute = old.id
+                publish()
+                await engine.selectRoute(old.id, generation: generation)
+                await engine.start(mode, generation: generation)
+                return .failure(.startFailed, advice: "没有换成功，继续按原路线导航。请如实说明。")
+            }
             // Reset first so a request that lands while the engine stops is not wiped out.
             reset()
             await engine.stop(generation: generation)
             return .failure(.startFailed, advice: "导航没有启动成功。请如实说明，不要说已经开始。")
         }
         snapshot.phase = .navigating
+        snapshot.mode = mode
         snapshot.routes = [route]
+        // A restart cancels any off-route recalculation in flight, so its 重新规划中 never ends on its own.
+        snapshot.rerouting = false
+        snapshot.alternatives = Self.alternativeRoutes(calculated, running: route)
         listedAt = nil
         publish()
+        let minutes = max(1, route.durationSeconds / 60)
+        let (others, offer) = alternatives(besides: route)
+        let started = mode == .emulator ? "已开始模拟导航" : "已开始导航"
+        let sentence = replacing ? "已换成\(label ?? "")路线，大约\(minutes)分钟。" : "\(started)，大约\(minutes)分钟。" + (offer ?? "")
         return .success([
-            "status": "navigation_started",
+            "status": replacing ? "route_changed" : "navigation_started",
             "destination": .string(snapshot.destination?.name ?? ""),
             "distance_km": .double(Self.km(route.lengthMeters)),
-            "duration_min": .int(Int64(max(1, route.durationSeconds / 60))),
-            "simulated_movement": .bool(tuning.mode == .emulator),
-            "next": .string("说一句：导航已开始，大约多少分钟到。"),
+            "duration_min": .int(Int64(minutes)),
+            "simulated_movement": .bool(mode == .emulator),
+            "alternatives": .array(others),
+            // F-15a §2.5: what a plain 好 / 换 after her offer means.
+            "offer_preference": offer.map { $0.contains("更快") ? "fastest" : $0.contains("更短") ? "shortest" : "no_toll" }
+                .map(JSONValue.string) ?? .null,
+            "next": .string("只说一句：\(sentence)不要念其他路线。"),
         ])
+    }
+
+    /// F-15a §2.5 (T-040h): while navigating, 「换最快的」「不走高速」「换第二条」 replace the route with one of the
+    /// same calculation; one trip, never a second one.
+    private func changeRoute(_ args: JSONValue) async -> ToolResult {
+        if startInFlight {
+            return .failure(.optionsNotReady, advice: "正在换路线。请如实说正在换，稍等一下。")
+        }
+        var options = calculated
+        // 真实导航: the trip has moved, so the routes come from the current position (T-040h); the trip keeps
+        // driving its route while they are calculated, and on any failure.
+        let fresh = snapshot.mode == .gps
+        if fresh {
+            let generation = snapshot.generation
+            startInFlight = true
+            let routes = await engine.recalculateFromHere(generation: generation)
+            guard generation == snapshot.generation else { return .failure(.optionsStale) }
+            startInFlight = false
+            guard let routes, !routes.isEmpty else {
+                return .failure(.routeCalculationFailed, advice: "没有换成功，继续按原路线导航。请如实说明。")
+            }
+            options = Array(routes.prefix(3))
+        }
+        guard options.count > 1 else {
+            return .failure(.noOptionsOnScreen, advice: "这次只算出一条路线，没有别的可换。请如实说明。")
+        }
+        // Read after the recalculation: an off-route reroute may have replaced the route meanwhile.
+        let current = snapshot.routes
+        snapshot.routes = options
+        let picked = pickRoute(args)
+        snapshot.routes = current
+        switch picked {
+        case .success(let index):
+            let route = options[index]
+            if !fresh, route.id == current.first?.id {
+                return .success(["status": "route_unchanged", "next": "只说一句：现在走的就是这条路线。"])
+            }
+            let label = switch args["preference"]?.stringValue {
+            case "fastest": "最快的"
+            case "shortest": "最短的"
+            case "no_toll": "不收费的"
+            case "fewest_lights": "红绿灯少的"
+            case "recommended": "推荐的"
+            default: "第\(index + 1)条"
+            }
+            let before = calculated
+            let generation = snapshot.generation
+            calculated = options
+            let result = await startGuidance(route, replacing: label)
+            if !result.ok, generation == snapshot.generation { calculated = before }
+            return result
+        case .failure(let box):
+            return box.result
+        }
     }
 
     // MARK: exit_navigation_mode
@@ -288,7 +476,7 @@ public actor NavigationController: ToolExecutor {
             let generation = snapshot.generation
             reset()
             await engine.stop(generation: generation)
-            return .success(["status": "navigation_stopped", "next": "说一句：导航已结束。"])
+            return .success(["status": "navigation_stopped", "next": "说一句：已结束导航。"])
         case .awaitingDestinationSelection, .awaitingRouteSelection, .resolvingDestination, .calculatingRoute:
             let generation = snapshot.generation
             reset()
@@ -339,6 +527,18 @@ public actor NavigationController: ToolExecutor {
             publish()
         case .naviStopped:
             if snapshot.phase == .navigating { reset() }
+        case .rerouting:
+            snapshot.rerouting = true
+            publish()
+        case .rerouted(let route):
+            snapshot.rerouting = false
+            if let route {
+                snapshot.routes = [route]
+                snapshot.selectedRoute = route.id
+                // The other routes started where the trip was; a change now recalculates (§2.5).
+                snapshot.alternatives = []
+            }
+            publish()
         case .cameraInfo:
             break
         }
@@ -498,9 +698,12 @@ public actor NavigationController: ToolExecutor {
         snapshot.destination = nil
         snapshot.selectedRoute = nil
         snapshot.info = nil
+        snapshot.rerouting = false
+        snapshot.alternatives = []
         snapshot.lastGuidance = nil
         snapshot.lastGuidanceID = nil
         listedAt = nil
+        calculated = []
         publish()
     }
 

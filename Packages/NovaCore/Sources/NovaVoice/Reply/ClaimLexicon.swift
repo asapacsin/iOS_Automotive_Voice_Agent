@@ -22,7 +22,9 @@ extension ClaimKind {
 /// tables (`ActionClaimGuard.kt:447,671`) are an open EVIDENCE_REQUEST (STATUS.md, T-019).
 public enum ClaimLexicon {
     static let navigation = ["导航已开始", "已开始导航", "已经开始导航", "开始导航了", "正在为您导航", "正在为你导航",
-                             "导航已经开始"]
+                             "导航已经开始",
+                             // F-15a §2.5 (PROPOSED): a route claimed as chosen is a start claim too.
+                             "已选好路线", "已经选好路线", "已选择路线", "已经为你选", "已经为您选", "已为你选", "已为您选"]
     static let music = ["正在播放", "已播放", "已经播放", "开始播放", "为您播放", "为你播放", "放起来了"]
     static let action = ["已打开", "已开启", "已关闭", "已关上", "已调", "已设置", "已为您", "已为你", "已帮您", "已帮你",
                          "已经打开", "已经开启", "已经关闭", "已经关上", "已经调", "已经设置", "已经帮", "已拨打", "正在拨打",

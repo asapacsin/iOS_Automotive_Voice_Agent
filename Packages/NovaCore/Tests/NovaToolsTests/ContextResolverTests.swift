@@ -22,13 +22,9 @@ struct ContextResolverTests {
         let now = t0 + .seconds(20)
         #expect(context.clarify("再低一点", at: now) == ["座椅", "温度"])
         #expect(context.clarify("第 一 点", at: now) == ["座椅", "温度"])
+        // F-05a §6: the dispatcher no longer refuses on the transcript; the model asks when it is unsure.
         var dispatcher = ToolDispatcher()
-        guard case .refuse(let r) = dispatcher.decide(seatDown, context: ctx("再低一点"),
-                                                      clarify: { context.clarify($0, at: now) }) else {
-            Issue.record("seat moved"); return
-        }
-        #expect(r.code == .ambiguousReferent)
-        #expect(r.data["options"] == .string("座椅还是温度"))
+        #expect(dispatcher.decide(seatDown, context: ctx()) == .execute(seatDown))
     }
 
     @Test("F-10: a line that names the dimension runs (the answer 座椅, 再凉一点)")

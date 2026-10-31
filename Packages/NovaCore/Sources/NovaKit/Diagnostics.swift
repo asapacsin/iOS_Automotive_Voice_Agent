@@ -18,8 +18,39 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case claimHeld(events: Int)
     case correctionSent
     case emptyResponseReask
+    /// F-04 §14 item 7: a sent driver turn got no model response; logged before the re-ask. `turn` counts the
+    /// driver's sent utterances.
+    case turnUnanswered(turn: Int)
     case timerFired(stale: Bool)
     case sessionError(SessionErrorCode)
+    /// F-08 §14 item 7: a stop phrase stopped her. `phrase` indexes `StopPhrases.all` (-1: a transcript-only phrase);
+    /// `selfStop`: no driver speech open or ended within 1 s (a false stop).
+    case stopPhrase(source: StopPhraseSource, phrase: Int, msFromSpeechStart: Int, score: Int, selfStop: Bool)
+    /// F-08 §14 item 7: a reply ended with an utterance during it and no stop phrase.
+    case stopPhraseMiss(utterance: Int)
+    /// F-24 §14 item 6: the network path went away / came back (debounced by the watcher).
+    case networkLost
+    case networkRestored
+    /// F-24 §14 item 2: the immediate attempt when the network returns (the backoff ones are `reconnectAttempt`).
+    case offlineRestoreAttempt
+    /// F-24 §14 item 6: a reconnect was set up again, with or without the resumption handle.
+    case resumed(handle: Bool)
+    /// F-24 §14 item 4: the network stayed gone for `offlineWaitCap`; the session ended.
+    case offlineCapReached
+    /// F-08 §15 item 5: the empty activity that tells Gemini the reply ended; its `interrupted` after `ms`, or none in 1 s.
+    case stopSyncSent
+    case stopSyncInterrupted(ms: Int)
+    case stopSyncNoInterrupt
+    /// F-08 §15 item 3: the no-answer clock of the stop phrase's utterance did not run.
+    case reaskSuppressed
+    /// F-08 §15 item 4: a new sent utterance cleared the transcript stop's `abandonNextTurn`.
+    case abandonCleared
+    /// F-08 §16 item 3: Gemini opened a turn after a stop with no utterance sent since; it is not spoken.
+    case postStopTurnDropped
+}
+
+public enum StopPhraseSource: String, Sendable, Hashable {
+    case kws, transcript
 }
 
 extension DiagnosticEvent {
@@ -41,8 +72,22 @@ extension DiagnosticEvent {
         case claimHeld
         case correctionSent
         case emptyResponseReask
+        case turnUnanswered
         case timerFired
         case sessionError
+        case stopPhrase
+        case stopPhraseMiss
+        case networkLost
+        case networkRestored
+        case offlineRestoreAttempt
+        case resumed
+        case offlineCapReached
+        case stopSyncSent
+        case stopSyncInterrupted
+        case stopSyncNoInterrupt
+        case reaskSuppressed
+        case abandonCleared
+        case postStopTurnDropped
     }
 
     public var kind: Kind {
@@ -62,8 +107,46 @@ extension DiagnosticEvent {
         case .claimHeld: .claimHeld
         case .correctionSent: .correctionSent
         case .emptyResponseReask: .emptyResponseReask
+        case .turnUnanswered: .turnUnanswered
         case .timerFired: .timerFired
         case .sessionError: .sessionError
+        case .stopPhrase: .stopPhrase
+        case .stopPhraseMiss: .stopPhraseMiss
+        case .networkLost: .networkLost
+        case .networkRestored: .networkRestored
+        case .offlineRestoreAttempt: .offlineRestoreAttempt
+        case .resumed: .resumed
+        case .offlineCapReached: .offlineCapReached
+        case .stopSyncSent: .stopSyncSent
+        case .stopSyncInterrupted: .stopSyncInterrupted
+        case .stopSyncNoInterrupt: .stopSyncNoInterrupt
+        case .reaskSuppressed: .reaskSuppressed
+        case .abandonCleared: .abandonCleared
+        case .postStopTurnDropped: .postStopTurnDropped
+        }
+    }
+}
+
+extension DiagnosticEvent {
+    /// The phone-log line: F-08 §14 item 7 formats for the stop-phrase lines, the case's description otherwise.
+    public var logLine: String {
+        switch self {
+        case .stopPhrase(let source, let phrase, let ms, let score, let selfStop):
+            "stopPhrase source=\(source.rawValue) phrase=\(phrase) msFromSpeechStart=\(ms) score=\(score) selfStop=\(selfStop)"
+        case .stopPhraseMiss(let utterance): "stopPhraseMiss utterance=\(utterance)"
+        case .reconnectAttempt(let n, let delay): "reconnectAttempt \(n) reason=backoff delay=\(delay)"
+        case .offlineRestoreAttempt: "reconnectAttempt 1 reason=offlineRestore"
+        case .resumed(let handle): "resumed handle=\(handle ? "yes" : "no")"
+        case .networkLost: "networkLost"
+        case .networkRestored: "networkRestored"
+        case .offlineCapReached: "offlineCapReached"
+        case .stopSyncSent: "stopSync sent"
+        case .stopSyncInterrupted(let ms): "stopSync interrupted ms=\(ms)"
+        case .stopSyncNoInterrupt: "stopSyncNoInterrupt"
+        case .reaskSuppressed: "reaskSuppressed reason=stop"
+        case .abandonCleared: "abandonCleared reason=newUtterance"
+        case .postStopTurnDropped: "postStopTurnDropped reason=noSentUtterance"
+        default: "diagnostic \(self)"
         }
     }
 }

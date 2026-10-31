@@ -172,12 +172,32 @@ public enum VisionAnswer: Sendable, Hashable {
     case answer(String)
     case notConfigured
     case authFailed
+    /// F-20a §14 item 4: 429, 5xx, timeout or network error; the next service is tried.
+    case busy
     case failed
 }
 
-/// Vision backend: Gemini `generateContent` by default (F-20a OQ-CAM-1), Qianfan optional.
+/// One backend reply with what to log (F-20a §14 item 6): an HTTP status, `timeout` or `network`.
+public struct VisionReply: Sendable, Hashable {
+    public let answer: VisionAnswer
+    public let status: String
+    public init(_ answer: VisionAnswer, status: String) {
+        self.answer = answer
+        self.status = status
+    }
+}
+
+/// Vision backend (F-20a §14): GLM-4.6V-Flash, Gemini or Qianfan, chained by `VisionChain`.
 public protocol VisionPort: Sendable {
     func ask(_ question: String, image: JPEGImage) async -> VisionAnswer
+    /// The answer plus its status for logs; defaults to `ask` with status `-`.
+    func reply(_ question: String, image: JPEGImage) async -> VisionReply
+}
+
+extension VisionPort {
+    public func reply(_ question: String, image: JPEGImage) async -> VisionReply {
+        VisionReply(await ask(question, image: image), status: "-")
+    }
 }
 
 // MARK: Settings and secrets (F-22)
@@ -193,6 +213,8 @@ public enum CredentialKey: String, Sendable, Hashable, CaseIterable {
     case iflytekAPIKey = "iflytek_api_key"
     case iflytekAPISecret = "iflytek_api_secret"
     case qianfanKey = "qianfan_key"
+    /// F-20a §14 item 1: Zhipu key for GLM-4.6V-Flash, the first vision backend.
+    case zhipuKey = "zhipu_key"
 }
 
 /// Keychain (`kSecAttrAccessibleAfterFirstUnlock`). Values are write-only from the UI.

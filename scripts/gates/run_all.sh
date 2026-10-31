@@ -7,6 +7,7 @@ python3 -m unittest discover -s "$root/scripts/gates/tests"
 python3 "$root/scripts/gates/check_runners.py"
 python3 "$root/scripts/gates/check_imports.py"
 python3 "$root/scripts/gates/check_secrets.py"
+python3 "$root/scripts/gates/check_kws_tokens.py"
 for pkg in NovaCore NovaRealtime NovaServices; do
   echo "== build + unit: $pkg"
   swift build --package-path "$root/Packages/$pkg" -Xswiftc -warnings-as-errors

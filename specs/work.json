@@ -1014,7 +1014,7 @@
     {
       "id": "T-042a",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 15,
       "action": "F-16a CoreLocationProvider first-fix wait, authorization changes, denied state; SwitchableLocationProvider; unit, build",
       "depends_on": [
@@ -1023,8 +1023,12 @@
       "evidence": [
         "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa",
         "Re-review FAIL (background start skipped permission; start/pause race); fixed in fix/firstfix-core (LocationFixState in NovaPorts + tests, core-linux green at 224b528); final CI blocked by Actions billing",
-        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) (LocationFixState tests); D1 stale-stop fix and NovaDriveTests fake-manager adapter tests not yet compiled: iOS builds need a Mac/SDK and macOS CI is forbidden (owner rule 2026-10-27)"
-      ]
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) (LocationFixState tests); D1 stale-stop fix and NovaDriveTests fake-manager adapter tests not yet compiled: iOS builds need a Mac/SDK and macOS CI is forbidden (owner rule 2026-10-27)",
+        "2026-10-29: LocationFixState suite 8 tests green on Linux Swift 6.0.3; independent read-only re-review at high effort: PASS (both prior failures fixed, T-044b fan-out no regression, unit rows 5-7 covered; 3 non-blocking notes)",
+        "Notes fixed 2026-10-29: grant before any need starts nothing, pause ends the first-fix wait, §8 sentence asserted; 2 new tests; NovaCore 373 tests green; independent high-effort review PASS",
+        "Codemagic 'NovaDrive iOS Build' (unsigned Release, iphoneos) green at aba6829 2026-10-29 (after fixing RouteGeometry import and NavigationPhase ambiguity found by the failed run at a96676e)"
+      ],
+      "blocked_by": "NovaDriveTests (fake-manager adapter tests) not run: the Codemagic workflow builds but runs no tests"
     },
     {
       "id": "T-046a",
@@ -1085,7 +1089,7 @@
     {
       "id": "T-044b",
       "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "status": "PASS",
       "priority": 20,
       "action": "F-16b location updates stream in CoreLocationProvider, DemoLocation, SwitchableLocationProvider; unit, build",
       "depends_on": [
@@ -1094,21 +1098,454 @@
       "evidence": [
         "3fd2f1a + race fix: LocationFixState.updates() fan-out (latest first, under lock), CoreLocationProvider LocationUpdates + speed/course (negative -> nil), SwitchableLocationProvider.updates(), DemoLocation one fix; 4 F-16b tests",
         "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 371 tests + 1 known issue, NovaRealtime 22, NovaServices 32, imports/secrets/runners/spec-trace)",
-        "Independent read-only review at high effort 2026-10-29: PASS; non-blocking race (stale latest could overtake a newer fix) fixed; NovaPlatform and App files not compiled (Linux)"
-      ],
-      "blocked_by": "Unit part done; CoreLocationProvider/DemoLocation changes need an iOS build (Mac/SDK; no macOS CI per owner rule 2026-10-27)"
+        "Independent read-only review at high effort 2026-10-29: PASS; non-blocking race (stale latest could overtake a newer fix) fixed; NovaPlatform and App files not compiled (Linux)",
+        "Codemagic 'NovaDrive iOS Build' (unsigned Release, iphoneos) green at aba6829 2026-10-29 (after fixing RouteGeometry import and NavigationPhase ambiguity found by the failed run at a96676e)"
+      ]
     },
     {
       "id": "T-044c",
       "owner": "EXTERNAL_RESOURCE",
-      "status": "NOT_RUN",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 25,
       "action": "F-16b DriveView: 我的位置 dot, accuracy circle, locate-me, 定位未开启 pill, follow/free camera; S, D (needs Mac/SDK build and a phone run)",
       "depends_on": [
         "T-044a",
         "T-044b"
       ],
-      "evidence": []
+      "evidence": [
+        "4654317 + review fixes: MapPositionModel (SelfPosition/MapCameraPolicy driver, permission refresh, 5 s re-evaluation, 15 s auto-recenter tick), DriveView 我的位置 marker, accuracy circle, locate-me, 定位未开启 pill, follow/free camera",
+        "Independent read-only review at high effort 2026-10-29: REWORK; blocking fixed (gesture now detected from touches, not camera-change callbacks: first fix recenters, pans stop following while the car moves); non-blocking applied: source resync on appear, publish only changes, rotation off, along-route list fits places, gray circle when provisional",
+        "Linux gates green; App code not compiled (needs Mac/SDK)",
+        "8985c36: background pause, resume only when visible, no real location under UITestDrive, C8 counted from touch end; independent re-review at high effort 2026-10-29: PASS (1 optional note: cancelled gesture may leave touch flag set)",
+        "Gesture flag now @GestureState (resets on cancel); C8 restarts at touch end or cancel; independent high-effort review PASS",
+        "Codemagic 'NovaDrive iOS Build' (unsigned Release, iphoneos) green at aba6829 2026-10-29 (after fixing RouteGeometry import and NavigationPhase ambiguity found by the failed run at a96676e)"
+      ],
+      "blocked_by": "Phone run only: F-16b rows 1, 2, 6-9 (S/D) NOT_VERIFIED"
+    },
+    {
+      "id": "H-F05a",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "priority": 10,
+      "action": "Approve specs/features/mandarin-transcript.md (F-05a); decide OQ-STT-1..2 or take the defaults",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read mandarin-transcript.md (F-05a); reply approve (defaults) or give answers to OQ-STT-1..2",
+      "pass_criteria": "Spec status APPROVED in the spec file",
+      "expected_return": "approve, or answers to OQ-STT-1..2",
+      "quantified": {
+        "options": [
+          "Approve with defaults (OQ-STT-1 no, OQ-STT-2 Mandarin only)",
+          "Approve with different OQ-STT answers",
+          "Rewrite"
+        ]
+      },
+      "evidence": [
+        "2026-10-29 owner: 'Approve defaults' -> spec APPROVED with default answers to all open questions"
+      ]
+    },
+    {
+      "id": "T-016a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-05a LocalTranscriber port, TranscriptSelector, TranscriptLanguage, GuardContext.wordsReliable + wordsUnclear; unit rows 1-4",
+      "depends_on": [
+        "H-F05a"
+      ],
+      "evidence": [
+        "f7c3623 + review notes: LocalTranscriber port (NovaPorts), TranscriptLanguage + TranscriptSelector S1-S5 (NovaVoice/Transcript), GuardContext.wordsReliable, ToolCallGuards.wordsUnclear (allow-type: set_speech_output), WORDS_UNCLEAR (PROPOSED) + advice, AgentEvent.driverWords; F-05a unit rows 1-4",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 388 tests + 1 known issue; spec-trace 36 ids incl. T-016a: F-05a)",
+        "Independent read-only review at high effort 2026-10-29: PASS (no blocking; applied: decomposed accents, per-character counting for non-Latin scripts, tests for failure-before-end and reliability reset)"
+      ]
+    },
+    {
+      "id": "T-016b",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "NOT_RUN",
+      "priority": 35,
+      "action": "F-05a AppleSpeechTranscriber (NovaAudio, Speech framework), import gate entry, NSSpeechRecognitionUsageDescription, permission with first mic use; iOS build",
+      "depends_on": [
+        "T-016a"
+      ]
+    },
+    {
+      "id": "T-016c",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "NOT_RUN",
+      "priority": 40,
+      "action": "F-05a wire transcriber + selector into AgentRuntime, audio-test diagnostics line; S, D rows 5-9",
+      "depends_on": [
+        "T-016b"
+      ],
+      "notes": "From the T-016a review: tag Gemini transcript with its utterance (a late u1 final after begin(u2) is booked to u2); show 「（没听清）」 for DriverWords.unclear (no view state yet); always route words through the selector once wired (AgentState latches selectorOwnsWords)"
+    },
+    {
+      "id": "H-F15a",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "priority": 10,
+      "action": "Approve specs/features/navigation-modes.md (F-15a); decide OQ-NAVM-1..4 or take the defaults",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read navigation-modes.md (F-15a); reply approve (defaults) or give answers to OQ-NAVM-1..4",
+      "pass_criteria": "Spec status APPROVED in the spec file",
+      "expected_return": "approve, or answers to OQ-NAVM-1..4",
+      "quantified": {
+        "options": [
+          "Approve with defaults (OQ-NAVM-1 no voice switch, 2 refuse without fix, 3 foreground only, 4 web route + own matching)",
+          "Approve with different OQ-NAVM answers",
+          "Rewrite"
+        ]
+      },
+      "evidence": [
+        "2026-10-29 owner: 'Approve defaults' -> spec APPROVED with default answers to all open questions"
+      ]
+    },
+    {
+      "id": "T-040a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15a NavigationModeSetting, RouteProgress + tuning, SelfPosition mode input; unit rows 1-3",
+      "depends_on": [
+        "H-F15a"
+      ],
+      "evidence": [
+        "cde8469: NavigationModeSetting (default real, 演示起点 → emulator + locked), RouteProgress + RouteProgressTuning (matching, step entry, next-turn and remaining distance/time, off-route 3 fixes / 5 s / 50 m with coarse fixes not counted, arrival once, signal lost 10 s / sentence 30 s), SelfPosition mode input (R1 only in .emulator; no real fix between engine updates); F-15a rows 1-3",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 399 tests + 1 known issue)",
+        "Independent read-only review at high effort 2026-10-29: PASS (T-040a + T-040b together)"
+      ]
+    },
+    {
+      "id": "T-040b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15a guards navigationNotRequested (start / navigate_to) and wordsUnclear, advice sentences; unit row 4",
+      "depends_on": [
+        "H-F15a",
+        "T-016a"
+      ],
+      "evidence": [
+        "5dfa6d5 + review fix: navigationNotRequested (route-list pick needs pick/start/confirmation words said after the list appeared; navigate_to needs go/place/search or correction words), wordsUnclear covers both, taps exempt (I-6), NavigationFlags.routeChoiceOpen (App passes phase == awaitingRouteSelection); NAVIGATION_NOT_REQUESTED PROPOSED + advice; F-15a row 4",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 399 tests + 1 known issue)",
+        "Independent read-only review at high effort 2026-10-29: PASS (T-040a + T-040b together); applied: every intent must be newer than the route list, correction words for navigate_to"
+      ]
+    },
+    {
+      "id": "T-040c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 35,
+      "action": "F-15a AmapRouteEngine .gps path (LocationUpdates, progress events, reroute, generation); unit row 5",
+      "depends_on": [
+        "T-040a"
+      ],
+      "notes": "RouteProgress: nearest segment over the whole route (a looping route can jump ahead); out-of-order fixes not dropped; the 15 s reroute limiter is the engine's",
+      "evidence": [
+        "5254181 + review fixes: AmapRouteEngine .gps path (LocationUpdates → GCJ-02 → RouteProgress; step guidance, naviInfo with fix speed, arrival, 已偏离路线 + one recalculation per 15 s counted from the last try or failure, failure keeps the route, signal-weak sentence, geometry.car nil, old-generation fixes dropped); NaviEngineEvent .rerouting/.rerouted; NavigationFlowState.rerouting; F-15a row 5 (3 tests)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 399 + 1 known issue, NovaServices 35)",
+        "Independent read-only review at high effort 2026-10-29: PASS; applied: retry 15 s after a failure, unbounded input stream (reroute result never dropped)"
+      ]
+    },
+    {
+      "id": "T-040d",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "NOT_RUN",
+      "priority": 40,
+      "action": "F-15a settings navigation mode, demo-origin lock, HUD simulation / rerouting labels, mode read at start; S, D rows 6-11",
+      "depends_on": [
+        "T-040a",
+        "T-040c"
+      ],
+      "notes": "From the T-040a/b review: pass the trip's NaviMode into SelfPosition.Input (default .emulator hides the marker between car updates); routeChoiceOpen reaches AgentState via the snapshot observer, so a very fast pick could precede it; check on device that a 第一条 said before any transcript arrives is not refused (row 10); App must pass location: deviceLocation (or Switchable) and the clock to AmapRouteEngine, and read NavigationModeSetting at start (NavigationController tuning.mode is fixed .emulator); signal timers use clock.now vs fix timestamps (same SystemClock base on device)"
+    },
+    {
+      "id": "T-016d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-05a §6 revised: remove the driver transcript from every tool guard (table in §6), withdraw wordsReliable / WORDS_UNCLEAR, CONFIRM_REQUIRED for exit while guiding, along-route list instead of P61; unit row 4 (revised)",
+      "depends_on": [
+        "T-016a"
+      ],
+      "notes": "Owner rule 2026-10-29 after run 9f48c45 (最快的 refused 3x: WORDS_UNCLEAR x2, NAVIGATION_NOT_REQUESTED x1): transcript is for display only. Stop phrase and echo filter keep using the zh-CN text (not tool calling).",
+      "evidence": [
+        "1f35bac + review fix: GuardContext without transcript (turn, closedTurns, now, nav state, fromTap); word guards and WORDS_UNCLEAR removed; CONFIRM_REQUIRED for exit while guiding (later driver turn within 15 s, taps exempt, cleared when guidance ends); navigate_to while guiding lists over the route; F-05a row 4 (revised)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 381 + 1 known issue, NovaServices 35)",
+        "Independent read-only review at high effort 2026-10-29: PASS; applied: clear pending exit question when guidance ends, claim-phrase test"
+      ]
+    },
+    {
+      "id": "T-040e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-15a §2.5 revised: start guard on driver turns counted by the uplink gate (no transcript), drop the navigate_to word guard, claim guard holds a success claim after a refusal; unit row 4 (revised), D row 12",
+      "depends_on": [
+        "T-040b",
+        "T-016d"
+      ],
+      "evidence": [
+        "1f35bac + review fix: choose_navigation_option needs closedTurns > routeListTurn (uplink-gate closes), taps exempt; route-chosen claims (已选好路线, 已为您选...) are navigation claims with test; F-15a row 4 (revised). D row 12 NOT_VERIFIED (device)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 381 + 1 known issue, NovaServices 35)",
+        "Independent read-only review at high effort 2026-10-29: PASS; applied: clear pending exit question when guidance ends, claim-phrase test"
+      ]
+    },
+    {
+      "id": "T-016e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-05a §6 ending navigation: remove confirmExit / exitConfirmWindow; exit_navigation_mode ends guidance on the call, result next says 已结束导航; unit: one call ends guidance whatever the transcript, CONFIRM_REQUIRED never returned",
+      "depends_on": [
+        "T-016d"
+      ],
+      "notes": "Device run ed40023 17:30: 结束导航 refused twice (CONFIRM_REQUIRED); her question took ~17 s so the yes came 20.6 s after the first refusal, past the 15 s window. Owner 2026-10-29: \"Update spec\" — common practice ends navigation on the voice command at once.",
+      "evidence": [
+        "7ed283f: confirmExit / exitConfirmWindow / exitAsked removed; exit_navigation_mode runs on one call; stop result next 「说一句：已结束导航。」; CONFIRM_REQUIRED defined, never returned; F-05a §6 test exitAtOnce",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings",
+        "D: 结束导航 ends at once NOT_VERIFIED (device)"
+      ]
+    },
+    {
+      "id": "T-040f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "(reduced by T-040h) unqualified sound during her reply never counts as the driver speaking: no answerOwed, check and stop its uplink (F-04a); rows 13-14 (revised). routeListTurn part withdrawn",
+      "depends_on": [
+        "T-040e"
+      ],
+      "notes": "Device run ed40023: guidance started unasked at 17:30:00 and 17:42:57, each ~2 s after bargeIn(qualified: false) while she read the route list; no driver speech in between.",
+      "evidence": [
+        "0beedf3: utterance counts only if it began while she was silent (reply/guidance + 500 ms echo tail) or became a qualified 别说了; else no closedTurns, no answerOwed, no driverUtterance; App mutes such an utterance to Gemini (activity marks + audio, decided once per utterance) while gate events and transcriber still get it; routeListTurn set on destination_selected with routeListPending until flags show the list; F-15a row 13 (4 tests)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings; minor: mute applied async (first ms of a reply may still go up), test for 别说了 final before speechStopped suggested",
+        "Row 14 NOT_VERIFIED (device)"
+      ]
+    },
+    {
+      "id": "T-040g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-15a §9 one trip at a time: route engine + NavigationController owned by the app (built once), sessions attach; at most one drive; stale engine geometry dropped; trip continues across session end (OQ-NAVM-5 default); rows 15-16",
+      "depends_on": [
+        "T-040d"
+      ],
+      "notes": "Device run ed40023: AgentRuntime.start() builds a new engine per session and stop() never stops it; session 1's simulated drive ran on from 17:30 to ~17:42 with no session; session 3's drive at 17:42:57 ran alongside it, so the marker jumped between two cars.",
+      "evidence": [
+        "24c8cc7: AmapRouteEngine + NavigationController built once (AgentRuntime.appTrip), sessions attach via TripListeners and first see the current snapshot; screen follows the trip in order with no session; stop() keeps the trip (OQ-NAVM-5 default); simulated drive draws only while current (stale drive never reaches the map); F-15a row 15 unit (NovaServices OneDriveTests)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings; minor: trip keeps the first session's SwitchableLocationProvider (reads 位置来源 per request)",
+        "iOS build green 2026-10-29: Codemagic NovaDrive iOS Build on 7565bcf (includes 24c8cc7). Rows 15 (D), 16 NOT_VERIFIED (device)"
+      ]
+    },
+    {
+      "id": "T-040h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-15a §2.5 route choice dropped: routes ready -> guidance starts on the recommended route; navigate_to returns navigation_started + alternatives; choose_navigation_option while navigating replaces the route (no second trip); withdraw navigationNotRequested / routeListTurn; catalog tool text; contracts/navigation.md iOS note; rows 10, 12 (revised)",
+      "depends_on": [
+        "T-040e"
+      ],
+      "notes": "Owner 2026-10-29: \"save this drop on spec\". AWAITING_ROUTE_SELECTION came from the Android port; guards around it failed on 9f48c45 (最快的 refused) and ed40023 (unasked starts). Common practice starts on the best route once the place is known.",
+      "evidence": [
+        "73954a2 + review fixes: routes ready -> guidance starts on the recommended route (navigation_started + alternatives + one offer + offer_preference); choose_navigation_option while navigating replaces the route from the same calculation (route_changed / route_unchanged), a failed change keeps the current route; navigationNotRequested / routeListTurn / routeChoiceOpen withdrawn; iOS tool text for navigate_to and choose_navigation_option; F-15a rows 10, 12 unit",
+        "Gates PASS 2026-10-30 on Linux Swift 6.0.3 (NovaCore 391 + 1 known issue, NovaServices 36, spec-trace 46 ids)",
+        "Independent read-only review at high effort 2026-10-30 (1635c14, 73954a2): PASS, no blocking findings",
+        "Not done (minor, noted): tap target for alternative routes while navigating (App UI), recalculation from the current position on change in gps mode; D rows 10, 12 NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-004i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 10,
+      "action": "F-04 §14 items 1-7: one send decision carried on the gate event (speechStarted(sentToModel:)); a not-sent utterance drops audio, activity marks, driver turn, answerOwed and reply clock together; cut the utterance at unmute; mute read at the frame under the gate lock; never muted before her first audio (find the 7565bcf 22:38:34 cause); your-turn indicator; per-utterance log line. Replaces the T-040f mute (GateBox.toModel, AgentState.utteranceCounts/modelUplinkMuted); rows 1-9",
+      "depends_on": [
+        "T-040f"
+      ],
+      "notes": "Owner 2026-10-30 \"good just write this to spec\" after community review (Pipecat user-input muting, LiveKit uninterruptible, Gemini Live send flag). Device run 7565bcf: 8/52 turns never sent but awaited (emptyResponseReask), 第二个 lost (lateToolResultDropped).",
+      "evidence": [
+        "1635c14 + review fixes: SpeechUplinkGate decides once per utterance from playback state under the gate lock (reply / guidance / 500 ms echo tail in frames) and carries it on speechStarted(sentToModel:); App sends audio, activity marks and stream end by it (GateBox.follow copies it); AgentState ignores a not-sent utterance (no driver turn, no answerOwed, no reply clock, no driverUtterance; 别说了 still stops her, nothing sent); cut at unmute with pre-roll; UtteranceRecord log line per utterance (numbers only); turnUnanswered before re-ask; chip 她在说话 / 请说; T-040f mute removed. Review fix: reply mute held until replyIdle (no unmute between clauses)",
+        "Gates PASS 2026-10-30 on Linux Swift 6.0.3 (NovaCore 391 + 1 known issue, NovaServices 36, spec-trace 46 ids)",
+        "Independent read-only review at high effort 2026-10-30 (1635c14, 73954a2): PASS, no blocking findings",
+        "7565bcf 22:38:34 cause: not reproducible from code; the T-040f design decided twice (AgentState audibility incl. any flush/guidance event vs GateBox latch fed by a later effect), which is removed; now only real playback events mute (unit row 4). Open minor: chip shows 请说 during the 500 ms echo tail; a sent utterance's late final transcript after an unsent onset is dropped (narrow)",
+        "Codemagic NovaDrive iOS Build green on 25a5cd9 (2026-10-30); device rows 4, 6-9 NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-004j",
+      "owner": "AUTONOMOUS",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 20,
+      "action": "F-04 §14 late end of speech: from the T-004i per-utterance log of a device run, fix what keeps the gate open (AGC / noise-floor threshold, then max utterance length, then a trained VAD); no short command open > 3 s",
+      "depends_on": [
+        "T-004i"
+      ],
+      "notes": "Device run 7565bcf: 9/52 utterances open 7-13 s for short commands.",
+      "blocked_by": "needs the T-004i per-utterance log lines from a device run of 25a5cd9 or later"
+    },
+    {
+      "id": "T-016f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-05a §12: bundled sherpa-onnx streaming Mandarin recognizer (NovaAsrSherpa) replaces AppleSpeechTranscriber; model pick <=80 MB, pinned fetch + SHA-256 at build, not in git; gate utterances drive the stream; remove Speech permission; diagnostics + asr log lines; import gate + architecture §3.2 row; rows 1-10",
+      "depends_on": [
+        "T-016c"
+      ],
+      "notes": "Owner 2026-10-30 \"Yes, write spec\". Device 25a5cd9: phone dictation languages Cantonese/English UK/Japanese only, so SFSpeechRecognizer zh-CN unavailable; owner will not add a Pinyin/Zhuyin keyboard.",
+      "evidence": [
+        "0c2a9b9: pinned ASR model (zipformer-small-ctc-zh-int8-2025-04-01) + KWS model fetch with SHA-256, fails closed (test_checksum_failure.sh)",
+        "16a3c13: Packages/NovaAsrSherpa (sherpa-onnx 1.12.21 ios xcframeworks, pinned SHA-256), SherpaTranscriber; App uses it, Apple Speech and its permission removed",
+        "Codemagic NovaDrive iOS Build green on 16a3c13 (2026-10-30); Linux gates green",
+        "Independent read-only review at high effort 2026-10-30 (3c3789b..16a3c13): PASS. Deviation recorded: models from pinned Hugging Face revisions (github.com denied), KWS from a mirror, not checked byte-identical to the k2-fsa release",
+        "Review fix: load-failure lines carry the failure kind (no paths)",
+        "Device rows 5-10 NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-022a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 16,
+      "action": "F-08 §14: stop phrase while she talks via sherpa-onnx KeywordSpotter (NovaAsrSherpa) on a fixed 7-phrase StopPhrases set, fed only during her playback + 500 ms tail; hit -> .stopPhrase (flush, epoch), nothing to Gemini; transcript ListeningIntent check as backup; hint under 她在说话; stopPhrase/stopPhraseMiss log; rows 1-8",
+      "depends_on": [
+        "T-016f"
+      ],
+      "notes": "Owner 2026-10-30 \"Yes, spec it\" after community review (Google bare 'stop' while speaking, car command words). Device 25a5cd9: 别说了 never stopped her (bargeIn qualified false x3; unsent, no local recognizer).",
+      "evidence": [
+        "3c3789b: StopPhrases, stop-phrase window, StopPhraseFeeder, .stopPhraseSpotted, log lines, hint; rows 1-3 unit; gates green. Sherpa KeywordSpotter adapter waits on T-016f",
+        "3c3789b + 00e2522 (review D1-D4): NovaCore stop-phrase logic, rows 1-3 unit",
+        "16a3c13: SherpaStopPhraseSpotter fed during the stop-phrase window; 音频测试 line",
+        "Codemagic NovaDrive iOS Build green on 16a3c13 (2026-10-30); Linux gates green",
+        "Independent read-only review at high effort 2026-10-30: PASS. Review fix: a late transcript final of the stopped utterance is ignored after it closed (lateFinalIgnored test)",
+        "Deviation for owner sign-off: KWS model files 12 MB vs spec item 2 <= 10 MB",
+        "Device rows 4-8 NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-034a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 12,
+      "action": "F-21 §14: rewrite Persona.instruction as persona -> car scope (strict, tool results only, rules 2-7 kept) -> other scope (own knowledge, 3-5 spoken sentences, continue on request, live facts: say cannot check) -> guardrails; <=1500 chars; no F-09 change; rows 1-8",
+      "depends_on": [],
+      "notes": "Owner 2026-10-30 \"Yes, spec it\" after community review (VW IDA, Mercedes MBUX, Gemini Live / OpenAI Realtime prompt guides). Device 25a5cd9: 介绍一下珠海 got a short no-info answer; no reply longer than ~6 s.",
+      "evidence": [
+        "8cb80de: PersonaInstruction.base in NovaCore, row 1 string tests; Linux gates green (NovaCore 403)",
+        "Codemagic NovaDrive iOS Build green on 16a3c13 (2026-10-30)",
+        "Independent read-only review at high effort 2026-10-30 (8cb80de): PASS, no blocking findings",
+        "Device rows 2-8 NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-016g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 5,
+      "action": "F-05 §14: ResumeOnce one-shot helper; URLSessionWebSocketConnection.ping() resumes once and logs duplicateCallback; audit all checked continuations outside Tests, switch Apple/vendor-callback sites (CameraSession x3, SystemSpeechGuidanceVoice) to ResumeOnce; keep timeouts (no crash->hang); rows 1-8",
+      "depends_on": [],
+      "notes": "Owner 2026-10-30 \"write this is spec\". Device 16a3c13 17:37: airplane mode mid-conversation crashed the app (EXC_BREAKPOINT, CheckedContinuation resumed twice in ping() sendPing handler; NovaDrive-2026-10-30-173715.ips).",
+      "evidence": [
+        "ResumeOnce (NovaKit); ping() first answer wins, duplicateCallback site=ping once per socket; rows 1-3 unit (ResumeOnceTests, PingOnceTests); Linux gates green",
+        "Audit (item 3): (a) switched: WebSocketTransport ping, SystemSpeechGuidanceVoice.render (site=guidanceVoice), AgentRuntime SystemPhoneDialer.dial (site=phoneDial), CameraSession.captureStill (one-shot pending entry + ResumeOnce). (b) kept: CameraSession.start (own code resumes once per branch on its queue), CameraSession.select (SwitchOutcome one-shot), GeminiLiveProvider.ping (PingRace), ManualClock.sleep, CameraQuestionHandler acquire/withDeadline (FirstWins), NavigationController.wait (actor, waiting slot cleared before resume)",
+        "Waiting: Codemagic build, independent review; device rows 6-8 NOT_VERIFIED",
+        "Independent read-only review at high effort 2026-10-30 (d1e5480, db11c96): PASS, no blocking findings; review fixes: network events delivered in order through one consumer, configError cleared on reconnecting",
+        "Codemagic NovaDrive iOS Build green on ac53787 (2026-10-31)",
+        "Device rows 6-8 NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-016h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 6,
+      "action": "F-24 §14: NetworkPathWatcher (NWPathMonitor, NovaPlatform, 500 ms debounce); VoiceSession networkLost/networkRestored inputs: RECONNECTING waitingForNetwork without counting attempts, immediate attempt with handle on restore, fresh 5-attempt budget, terminal errors unchanged, start-while-offline waits, 600 s offline cap ends session; chip 等待网络… / 网络已断开，点按重新开始; logs; rows 1-10",
+      "depends_on": [
+        "T-016g"
+      ],
+      "notes": "Owner 2026-10-30 \"just write spec to use this approach\" after community comparison. Device 16a3c13 17:39: after airplane mode the app stayed on 连接失败 after the network returned (5 attempts spent offline, no path monitor).",
+      "evidence": [
+        "NetworkPathDebouncer (NovaKit, 500 ms), NetworkPathWatcher (NovaPlatform, NWPathMonitor; Network import owned by NovaPlatform); VoiceSession networkLost/networkRestored: waitingForNetwork without attempts, immediate attempt with handle on restore, fresh budget, terminal unchanged, start offline waits, offlineCap 600 s ends session (offlineEnded); chip 等待网络… / 网络已断开，点按重新开始 (tap restarts); logs networkLost, networkRestored, reconnectAttempt reason=backoff|offlineRestore, resumed handle=yes|no, offlineCapReached; rows 1-7 unit; Linux gates green",
+        "Waiting: Codemagic build, independent review; device rows 8-10 NOT_VERIFIED",
+        "Independent read-only review at high effort 2026-10-30 (d1e5480, db11c96): PASS, no blocking findings; review fixes: network events delivered in order through one consumer, configError cleared on reconnecting",
+        "Codemagic NovaDrive iOS Build green on ac53787 (2026-10-31)",
+        "Device rows 8-10 NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-034b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 4,
+      "action": "F-21 §15: add 摄像头画面 to the strict scope and rule 8 (camera questions -> describe_camera_view, question = utterance, rear lens for 后面/倒车, answer only from the result, failure -> say cannot see); other scope excludes camera questions; base <= 1500 chars; toolCall diagnostic; catalog-coverage guard test (every ToolCatalog tool mapped to a base phrase or notByVoice); rows 1-8",
+      "depends_on": [],
+      "notes": "Owner 2026-10-31 \"write this on the spec\". Device ac53787 13:36-13:40: camera questions never opened the camera (claimHeld x5, correctionSent, turnUnanswered x2); T-034a scope sent them to the no-tool scope.",
+      "evidence": [
+        "488d112: base instruction strict scope gains 摄像头画面 (and the other catalog topics: 车内场景, 打开地图或设置, 静音, 结束对话), rule 8 describe_camera_view, other scope 「不用工具（要看画面的问题除外）」; base 1093 chars; ToolPromptCoverage guard test over ToolCatalog.declarations (rows 1, 7, 8 unit); toolCall/toolResult log lines for describe_camera_view; Linux gates green",
+        "Waiting: Codemagic build, independent review; S/D rows 2-6 NOT_VERIFIED",
+        "Independent read-only review at high effort 2026-10-31 (488d112): PASS, no blocking findings",
+        "Codemagic NovaDrive iOS Build green on e00fc27 (2026-10-31)",
+        "S/D rows 2-6 NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-022b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §15: activityHandling START_OF_ACTIVITY_INTERRUPTS (manual detection kept); on a stop phrase send activityStart+activityEnd with no audio so Gemini cancels the reply; replyDrained on stop (unmute); no re-ask for the stop utterance, re-ask text names the newest transcript; abandonNextTurn cleared by a new utterance; stopSync logs; rows 1-9",
+      "depends_on": [
+        "T-022a"
+      ],
+      "notes": "Owner 2026-10-31 \"write this on spec\". Device ac53787 15:23-15:28: after 别说了 new questions got the same answer (turnUnanswered+emptyResponseReask x5, sentToModel=false muteReason=reply after stops); stop was local only and the session uses NO_INTERRUPTION.",
+      "evidence": [
+        "ActivityDetectionConfig.novaDrive (manual + START_OF_ACTIVITY_INTERRUPTS); ProviderCommand.interruptReply -> GeminiLiveProvider.sendEmptyActivity (activityStart+activityEnd under the state lock, skipped mid-utterance); stop phrase: flush, then interruptReply, arbiter.replyDrained, pipeline .stopped (re-ask/give-up/correction cancelled, reaskSuppressed), stop utterance starts no clock; re-ask text names the newest transcript; abandonNextTurn cleared by a new sent utterance (abandonCleared); stopSync sent / interrupted ms / stopSyncNoInterrupt (1 s); unit rows 1-5; Linux gates green",
+        "Re-ask vs 1 s interrupt wait: the stop cancels the pending re-ask and the next utterance's re-ask fires >= 6 s later, so no re-ask is sent inside the 1 s window by construction",
+        "Waiting: Codemagic build, independent review; recorded row 6 (GeminiRecorder) and device rows 7-9 NOT_VERIFIED",
+        "Independent read-only review at high effort 2026-10-31 (019bc83): PASS, no blocking findings; review fixes: a stop ends the echo-tail mute (SpeechUplinkGate.endEchoTail), releases a waiting fallback guidance sentence, abandons a turn Gemini opens for the empty activity when the stopped turn had already closed, only the stopped turn's interrupted closes the stop sync. Open for device row 9: a relay reading voiced by Gemini is also interrupted on Gemini by a stop (it was already flushed locally under §14)",
+        "Codemagic NovaDrive iOS Build green on e00fc27 (2026-10-31)",
+        "S row 6, D rows 7-9 NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-071h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 4,
+      "action": "F-20a §14: CredentialKey.zhipuKey + 设置 field 智谱 key（视觉，推荐） + readiness; GLMVisionClient (open.bigmodel.cn v4 chat/completions, glm-4.6v-flash, thinking disabled, base64 image, box markers stripped); VisionChain GLM -> Gemini -> Qianfan (keys present only; 4.5 s first, >= 1.5 s left for next, 8 s total); VisionAnswer.busy + VISION_BUSY and honest advice texts; Gemini pinned gemini-3.5-flash-lite; visionAttempt/visionResult logs; rows 1-15",
+      "depends_on": [
+        "T-071c"
+      ],
+      "notes": "Owner 2026-10-31 prefers GLM-4.6V-Flash (free, Zhipu) and \"just write this into spec\". Device e00fc27 17:43-17:44: describe_camera_view called but Gemini gemini-flash-latest returned 503 twice -> VISION_FAILED -> 刚才没看清楚. Owner enters the Zhipu key in 设置; never in repo or chat.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS (Linux, 2026-10-31)",
+        "independent read-only review high effort: PASS, non-blocking notes 1, 2, 6 fixed",
+        "device rows 12-15 NOT_VERIFIED; Codemagic NovaDrive iOS Build green on 67118b2 (2026-10-31)"
+      ]
+    },
+    {
+      "id": "T-022c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §16: stop utterance not cut at unmute, held unsent to the closing silence (endReason=stopPhrase); utterances starting within 3 s after it are buffered and released only on a local ASR partial with words (or sent whole at close if the final has words), else dropped; stop-phrase transcript dropped; 8 s cap; no reply/re-ask without a sent utterance; postStopReleased/postStopDropped logs; rows 1-12",
+      "depends_on": [
+        "T-022b"
+      ],
+      "notes": "Owner 2026-10-31 \"write spec here\" after community review (LiveKit min_words / false interruption, Pipecat min words + STTMuteFilter). Device e00fc27 18:30: stopSync interrupted 193 ms, but the tail of 别说了 (utterance 3, cutAtUnmute split, no ASR words, peakDb 37) was sent and she resumed at 18:30:39.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS (Linux, 2026-10-31)",
+        "independent read-only review high effort: PASS, non-blocking notes 1, 2, 6 fixed",
+        "device rows 8-12 NOT_VERIFIED; Codemagic NovaDrive iOS Build green on 67118b2 (2026-10-31)"
+      ]
     }
   ]
 }

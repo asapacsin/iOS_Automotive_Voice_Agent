@@ -68,9 +68,9 @@ struct SavedPlacesTests {
         let navSearch = CountingSearch(places: [place("家", 1)])
         let nav = await navigation(engine, search: navSearch, saved: saved)
         let going = await nav.execute(tool("navigate_to", ["destination": "回家"]))
-        #expect(going.ok && going.data["status"] == "destination_selected" && going.data["destination"] == "华发新城")
+        #expect(going.ok && going.data["status"] == "navigation_started" && going.data["destination"] == "华发新城")
         #expect(navSearch.queries.withLock { $0 }.isEmpty)
-        #expect(engine.calls.withLock { $0 } == ["calculate 华发新城"])
+        #expect(engine.calls.withLock { $0 }.first == "calculate 华发新城")
     }
 
     @Test("unset home → HOME_NOT_SET, unset work → WORK_NOT_SET, and no search")

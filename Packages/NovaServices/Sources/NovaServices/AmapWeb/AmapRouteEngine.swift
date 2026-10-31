@@ -4,6 +4,7 @@ import FoundationNetworking
 #endif
 import NovaKit
 import NovaPorts
+import NovaNav
 import Synchronization
 
 /// One planned route with its geometry, for the map. GCJ-02.
@@ -28,9 +29,10 @@ public struct RouteGeometry: Sendable, Hashable {
     public init() {}
 }
 
-/// `NaviEngine` on Amap Web driving directions (`/v3/direction/driving`, strategy 10: up to 3 routes)
-/// with simulated movement along the chosen route (NaviMode.emulator only). Used instead of the Amap
-/// Navi SDK; the movement is a simulation and is labelled so on screen (demo-recording.md REC-006).
+/// `NaviEngine` on Amap Web driving directions (`/v3/direction/driving`, strategy 10: up to 3 routes), used
+/// instead of the Amap Navi SDK. `.emulator`: simulated movement along the chosen route, labelled so on screen
+/// (demo-recording.md REC-006). `.gps` (F-15a 真实导航): the phone's fixes matched to the route by
+/// `RouteProgress`, with off-route recalculation; `RouteGeometry.car` stays nil.
 public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     public let events: AsyncStream<NaviEngineEnvelope>
     private let continuation: AsyncStream<NaviEngineEnvelope>.Continuation
@@ -40,6 +42,10 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     private let onGeometry: @Sendable (RouteGeometry) -> Void
     /// Simulated speed and how many simulated seconds pass per real second.
     private let speedKmh: Double
+    /// F-15a `.gps`: the phone's fixes for the trip, the clock of the signal timers, and the progress rules.
+    private let location: (any LocationUpdates)?
+    private let clock: any NovaClock
+    private let progressTuning: RouteProgressTuning
     private let state = Mutex(State())
 
     private struct State {
@@ -52,16 +58,26 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         var request = 0
         /// Newest generation of any calculation, start or stop; a stop of an older one is ignored.
         var latest = Generation.initial
+        /// The destination of the last calculation, for an off-route recalculation.
+        var destination: GeoCoordinate?
+        /// A route-change calculation (`recalculateFromHere`), not yet driven; its ids start above every earlier one.
+        var candidates: [PlannedRoute] = []
+        var nextCandidateID = 100
     }
 
     public init(key: @escaping @Sendable () -> String?, origin: @escaping @Sendable () async -> GeoCoordinate?,
                 transport: any HTTPTransport = URLSessionTransport(), speedKmh: Double = 60,
+                location: (any LocationUpdates)? = nil, clock: any NovaClock = SystemClock(),
+                progressTuning: RouteProgressTuning = RouteProgressTuning(),
                 onGeometry: @escaping @Sendable (RouteGeometry) -> Void = { _ in }) {
         (events, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(64))
         self.key = key
         self.origin = origin
         self.transport = transport
         self.speedKmh = speedKmh
+        self.location = location
+        self.clock = clock
+        self.progressTuning = progressTuning
         self.onGeometry = onGeometry
     }
 
@@ -70,6 +86,8 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         let token = state.withLock { s -> Int in
             s.latest = max(s.latest, generation)
             s.request += 1
+            s.candidates = []
+            s.destination = request.destination
             return s.request
         }
         let event: NaviEngineEvent
@@ -104,15 +122,45 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         onGeometry(geometry)
     }
 
+    public func recalculateFromHere(generation: Generation) async -> [RouteSummary]? {
+        guard let from = await origin(), let routes = await recalculate(from: from) else { return nil }
+        return state.withLock { s -> [RouteSummary]? in
+            guard s.latest == generation, s.drive != nil else { return nil }
+            s.candidates = routes.map { planned in
+                s.nextCandidateID += 1
+                let r = planned.summary
+                let summary = RouteSummary(id: RouteID(s.nextCandidateID), lengthMeters: r.lengthMeters,
+                                           durationSeconds: r.durationSeconds, tollYuan: r.tollYuan,
+                                           trafficLights: r.trafficLights, label: r.label, polyline: r.polyline)
+                return PlannedRoute(summary: summary, points: planned.points, steps: planned.steps)
+            }
+            return s.candidates.map(\.summary)
+        }
+    }
+
     public func start(_ mode: NaviMode, generation: Generation) async {
-        let route = state.withLock { s in s.routes.first { $0.summary.id == s.geometry.selected } }
-        // Only simulated movement exists here; GPS guidance needs the Navi SDK.
-        guard mode == .emulator, let route, route.points.count >= 2 else { return }
+        let route = state.withLock { s in
+            (s.candidates + s.routes).first { $0.summary.id == s.geometry.selected }
+        }
+        guard let route, route.points.count >= 2 else { return }
+        let location = location
+        if mode == .gps, location == nil { return }
         state.withLock { s in
+            // A route-change candidate makes its calculation the trip's once it is driven.
+            if s.candidates.contains(route) { s.routes = s.candidates }
+            s.candidates = []
             s.latest = max(s.latest, generation)
             s.geometry.routes = [route]
             s.drive?.cancel()
-            s.drive = Task { [weak self] in await self?.drive(route, generation: generation) }
+            switch mode {
+            case .emulator:
+                s.drive = Task { [weak self] in await self?.drive(route, generation: generation) }
+            case .gps:
+                s.geometry.car = nil
+                s.drive = Task { [weak self] in
+                    if let location { await self?.guide(route, generation: generation, location: location) }
+                }
+            }
         }
         onGeometry(state.withLock { $0.geometry })
         continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviStarted))
@@ -130,6 +178,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         let geometry = state.withLock { s -> RouteGeometry in
             s.request += 1
             s.routes = []
+            s.candidates = []
             s.geometry = RouteGeometry()
             return s.geometry
         }
@@ -174,11 +223,14 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
                                 nextRoadName: route.steps[min(stepIndex + 1, route.steps.count - 1)].road,
                                 remainingMeters: Int(remaining), remainingSeconds: Int(remaining * secondsPerMeter),
                                 currentSpeedKmh: Int(speedKmh))
-            continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviInfo(info)))
-            onGeometry(state.withLock { s -> RouteGeometry in
+            // F-15a §9 (T-040g): a stopped or replaced drive never reaches the map, even mid-tick.
+            guard let geometry = state.withLock({ s -> RouteGeometry? in
+                guard !Task.isCancelled, s.latest == generation, s.drive != nil else { return nil }
                 s.geometry.car = car
                 return s.geometry
-            })
+            }) else { return }
+            continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviInfo(info)))
+            onGeometry(geometry)
             if remaining <= 0 {
                 continuation.yield(NaviEngineEnvelope(generation: generation, event: .arrived))
                 return
@@ -186,6 +238,123 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
             try? await Task.sleep(for: .seconds(1))
             travelled += metersPerTick
         }
+    }
+
+    // MARK: 真实导航 (F-15a §2.2)
+
+    private enum GuideInput: Sendable {
+        case fix(LocationFix)
+        case tick(NovaInstant)
+        case rerouted([PlannedRoute]?)
+    }
+
+    private func guide(_ initial: PlannedRoute, generation: Generation, location: any LocationUpdates) async {
+        let (inputs, feed) = AsyncStream.makeStream(of: GuideInput.self)  // unbounded: a reroute result is never dropped
+        let clock = clock
+        let fixes = Task {
+            for await fix in location.updates() { feed.yield(.fix(fix)) }
+        }
+        let ticks = Task {
+            while !Task.isCancelled {
+                try? await clock.sleep(until: clock.now + .seconds(1))
+                feed.yield(.tick(clock.now))
+            }
+        }
+        defer {
+            fixes.cancel()
+            ticks.cancel()
+            feed.finish()
+        }
+        var route = initial
+        var progress = makeProgress(route)
+        var spokenStep = -1
+        var lastReroute: NovaInstant?
+        var lastFixTime: NovaInstant?
+        var rerouting: Task<Void, Never>?
+        defer { rerouting?.cancel() }
+        for await input in inputs {
+            // A fix of an older trip is dropped: a stop or a newer start owns the engine now.
+            guard !Task.isCancelled, state.withLock({ $0.latest == generation }) else { return }
+            switch input {
+            case .fix(let raw):
+                let fix = LocationFix(coordinate: CoordinateConverter.gcj02(raw.coordinate),
+                                      horizontalAccuracyMeters: raw.horizontalAccuracyMeters, timestamp: raw.timestamp,
+                                      speedMetersPerSecond: raw.speedMetersPerSecond, courseDegrees: raw.courseDegrees)
+                lastFixTime = fix.timestamp
+                guard let snap = progress.update(fix) else { continue }
+                let stepIndex = snap.stepIndex
+                // As the simulation: entering a step announces the next manoeuvre.
+                if stepIndex != spokenStep, stepIndex + 1 < route.steps.count || spokenStep == -1, !route.steps.isEmpty {
+                    spokenStep = stepIndex
+                    say(route.steps[min(stepIndex + 1, route.steps.count - 1)].instruction, generation: generation)
+                }
+                let next = route.steps.isEmpty ? nil : route.steps[min(stepIndex + 1, route.steps.count - 1)].road
+                let info = NaviInfo(iconType: 0, stepDistanceMeters: Int(snap.distanceToNextStepMeters),
+                                    nextRoadName: next, remainingMeters: Int(snap.remainingMeters),
+                                    remainingSeconds: snap.remainingSeconds,
+                                    currentSpeedKmh: fix.speedMetersPerSecond.map { Int(($0 * 3.6).rounded()) })
+                continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviInfo(info)))
+                if snap.arrived {
+                    continuation.yield(NaviEngineEnvelope(generation: generation, event: .arrived))
+                    return
+                }
+                let limiterOpen = lastReroute.map { fix.timestamp - $0 >= progressTuning.rerouteMinInterval } ?? true
+                if snap.offRouteConfirmed, rerouting == nil, limiterOpen {
+                    lastReroute = fix.timestamp
+                    say("已偏离路线，正在重新规划。", generation: generation)
+                    continuation.yield(NaviEngineEnvelope(generation: generation, event: .rerouting))
+                    let from = fix.coordinate
+                    rerouting = Task { [weak self] in
+                        let routes = await self?.recalculate(from: from)
+                        feed.yield(.rerouted(routes))
+                    }
+                }
+            case .tick(let now):
+                if case .lost(announce: true) = progress.tick(at: now) {
+                    say("定位信号弱，导航暂停更新。", generation: generation)
+                }
+            case .rerouted(let routes):
+                rerouting = nil
+                guard let fresh = routes?.first, fresh.points.count >= 2 else {
+                    // Keep the old route; the next try comes 15 s after this failure (§8).
+                    if let lastFixTime { lastReroute = lastFixTime }
+                    say("重新规划失败，继续按原路线。", generation: generation)
+                    continuation.yield(NaviEngineEnvelope(generation: generation, event: .rerouted(nil)))
+                    continue
+                }
+                route = fresh
+                progress = makeProgress(fresh)
+                spokenStep = -1
+                let geometry = state.withLock { s -> RouteGeometry in
+                    s.routes = [fresh]
+                    s.geometry.routes = [fresh]
+                    s.geometry.selected = fresh.summary.id
+                    return s.geometry
+                }
+                onGeometry(geometry)
+                continuation.yield(NaviEngineEnvelope(generation: generation, event: .rerouted(fresh.summary)))
+            }
+        }
+    }
+
+    private func makeProgress(_ route: PlannedRoute) -> RouteProgress {
+        RouteProgress(points: route.points, stepStarts: route.steps.map(\.startIndex),
+                      durationSeconds: route.summary.durationSeconds, start: clock.now, tuning: progressTuning)
+    }
+
+    private func say(_ text: String, generation: Generation) {
+        let id = state.withLock { s -> GuidanceID in
+            s.nextGuidance = s.nextGuidance.next()
+            return s.nextGuidance
+        }
+        continuation.yield(NaviEngineEnvelope(generation: generation, event: .guidanceText(text, id)))
+    }
+
+    /// One recalculation to the same destination; nil when it fails (no key, network, no route).
+    private func recalculate(from: GeoCoordinate) async -> [PlannedRoute]? {
+        guard let key = key(), !key.isEmpty, let destination = state.withLock({ $0.destination }) else { return nil }
+        guard let routes = try? await fetch(from: from, to: destination, key: key), !routes.isEmpty else { return nil }
+        return routes
     }
 
     static func interpolate(_ points: [GeoCoordinate], _ cumulative: [Double], index: Int, at d: Double) -> GeoCoordinate {

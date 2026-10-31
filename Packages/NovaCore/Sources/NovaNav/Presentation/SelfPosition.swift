@@ -29,10 +29,12 @@ public struct SelfPosition: Sendable, Hashable {
         /// `RouteGeometry.car` while a simulated route runs (GCJ-02).
         public var simulatedCar: GeoCoordinate?
         public var simulatedHeadingDegrees: Double?
+        /// F-15a: the trip's mode. In `.gps` (真实导航) there is no simulated car.
+        public var mode: NaviMode
 
         public init(fix: LocationFix?, source: LocationSource, permission: LocationAuthorization, now: NovaInstant,
                     phase: NavigationPhase = .idle, simulatedCar: GeoCoordinate? = nil,
-                    simulatedHeadingDegrees: Double? = nil) {
+                    simulatedHeadingDegrees: Double? = nil, mode: NaviMode = .emulator) {
             self.fix = fix
             self.source = source
             self.permission = permission
@@ -40,6 +42,7 @@ public struct SelfPosition: Sendable, Hashable {
             self.phase = phase
             self.simulatedCar = simulatedCar
             self.simulatedHeadingDegrees = simulatedHeadingDegrees
+            self.mode = mode
         }
     }
 
@@ -62,8 +65,11 @@ public struct SelfPosition: Sendable, Hashable {
     public static func make(_ input: Input, tuning: MapPositionTuning = MapPositionTuning(),
                             fixRules: AmapWebTuning = AmapWebTuning()) -> SelfPosition {
         let caption = input.source == .demo ? demoCaption : nil
-        // R1 (OQ-MAP-2): during simulated navigation the simulated car is 我的位置; one marker only.
-        if input.phase == .navigating, let car = input.simulatedCar {
+        // R1 (OQ-MAP-2, F-15a §2.3): during 模拟导航 the simulated car is 我的位置 for the whole trip; one marker
+        // only. Between engine updates (no car yet) nothing is drawn rather than the real fix (F-15a §2.4).
+        // In 真实导航 (`.gps`) there is no simulated car and the rules below draw the real fix.
+        if input.phase == .navigating, input.mode == .emulator {
+            guard let car = input.simulatedCar else { return SelfPosition(hidden: .noFix) }
             return SelfPosition(Marker(coordinate: CoordinateConverter.gcj02(car), style: .simulated,
                                        headingDegrees: input.simulatedHeadingDegrees, accuracyRadiusMeters: nil,
                                        caption: caption))

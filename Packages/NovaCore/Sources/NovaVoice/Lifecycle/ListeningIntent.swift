@@ -26,7 +26,9 @@ public enum ListeningIntent: String, Sendable, Hashable, CaseIterable {
         "关闭小诺", "小诺关闭", "关掉小诺", "别听了", "不要听了", "停止监听", "停止聆听",
         "休息吧", "小诺休息吧", "你休息吧", "去休息吧", "小诺休息",
     ]
-    static let shutUpPhrases: Set<String> = [
+    /// F-08 §14 item 5: the stop set plus the transcript check's own extra phrases.
+    static let shutUpPhrases: Set<String> = Set(StopPhrases.all.map(\.text)).union(extraShutUpPhrases)
+    static let extraShutUpPhrases: Set<String> = [
         "shutup", "bequiet", "keepquiet", "keepsilent", "staysilent", "stoptalking", "silence", "quiet",
         "闭嘴", "小诺闭嘴", "安静", "安静点", "安静一点", "保持安静", "别说话", "不要说话", "别出声", "不要出声",
         "别吵", "别吵了", "少说话", "别说了", "不要说了", "别讲了", "不要讲了",

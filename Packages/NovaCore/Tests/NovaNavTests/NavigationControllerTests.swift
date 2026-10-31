@@ -93,7 +93,7 @@ struct NavigationControllerTests {
         return nav
     }
 
-    @Test("W8: 导航去珠海站 → 第一个 → 开始导航 → 结束导航, one start only")
+    @Test("W8 / F-15a row 10 (T-040h): 导航去珠海站 → 第一个 starts on the recommended route; 换最快的 → 结束导航")
     func happyPath() async {
         let engine = ScriptedNaviEngine(routes: routes)
         let nav = await controller(engine)
@@ -102,21 +102,30 @@ struct NavigationControllerTests {
         #expect(listed.ok && listed.data["status"] == "candidates_listed" && listed.data["count"] == .int(3))
         #expect(await nav.current.phase == .awaitingDestinationSelection)
 
-        let picked = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
-        #expect(picked.ok && picked.data["status"] == "destination_selected" && picked.data["route_count"] == .int(3))
-        #expect(await nav.current.phase == .awaitingRouteSelection)
-        #expect(await nav.current.destination?.name == "珠海站")
-
-        let started = await nav.execute(tool("choose_navigation_option", ["preference": "recommended"]))
+        // The place is the request: guidance starts at once on the recommended (first) route, no route list.
+        let started = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
         #expect(started.ok && started.data["status"] == "navigation_started")
         #expect(await nav.current.phase == .navigating)
+        #expect(await nav.current.destination?.name == "珠海站")
+        #expect(await nav.current.selectedRoute == RouteID(1))
+        guard case .array(let others)? = started.data["alternatives"] else { Issue.record("no alternatives"); return }
+        #expect(others.count == 2)
+        // Route 3 is faster: one short offer, never all routes read.
+        #expect(started.data["next"]?.stringValue?.contains("还有一条更快的，要换吗？") == true)
 
+        // F-15a row 12: 换最快的 replaces the route of the same trip.
         let again = await nav.execute(tool("choose_navigation_option", ["preference": "recommended"]))
-        #expect(!again.ok && again.code == .noOptionsOnScreen)
-        #expect(engine.calls.withLock { $0.filter { $0.hasPrefix("start") }.count } == 1)
+        #expect(again.ok && again.data["status"] == "route_unchanged")
+        let faster = await nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
+        #expect(faster.ok && faster.data["status"] == "route_changed")
+        #expect(faster.data["next"]?.stringValue?.contains("已换成最快的路线") == true)
+        let changed = await nav.current
+        #expect(changed.phase == .navigating && changed.selectedRoute == RouteID(3))
+        #expect(engine.calls.withLock { $0.filter { $0.hasPrefix("calculate") }.count } == 1)
 
         let stopped = await nav.execute(tool("exit_navigation_mode"))
         #expect(stopped.data["status"] == "navigation_stopped")
+        #expect(stopped.data["next"] == "说一句：已结束导航。")  // F-05a §6 (T-016e): implicit confirmation
         let snapshot = await nav.current
         #expect(snapshot.phase == .idle && snapshot.routes.isEmpty && snapshot.destination == nil)
     }
@@ -127,7 +136,7 @@ struct NavigationControllerTests {
             let engine = ScriptedNaviEngine(routes: routes)
             let nav = await controller(engine, search: FixedSearch(places: [place("珠海站", 3_000)]))
             let one = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
-            #expect(one.data["status"] == "destination_selected", "a single result goes straight to routes")
+            #expect(one.data["status"] == "navigation_started", "a single result starts on the recommended route")
             _ = await nav.execute(tool("choose_navigation_option", ["preference": .string(preference)]))
             #expect(await nav.current.selectedRoute == RouteID(expected), "\(preference)")
         }
@@ -138,7 +147,6 @@ struct NavigationControllerTests {
         let engine = ScriptedNaviEngine(routes: routes)
         let nav = await controller(engine)
         _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
-        _ = await nav.execute(tool("choose_navigation_option", ["index": .int(2)]))
         let cancelled = await nav.execute(tool("exit_navigation_mode"))
         #expect(cancelled.data["status"] == "navigation_selection_cancelled")
         #expect(await nav.current.routes.isEmpty)
@@ -183,9 +191,12 @@ struct NavigationControllerTests {
         let stuckEngine = ScriptedNaviEngine(routes: routes, failStart: true)
         let stuck = await controller(stuckEngine, clock: clock)
         _ = await stuck.execute(tool("navigate_to", ["destination": "珠海站"]))
-        _ = await stuck.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        // T-040h: picking the place starts guidance on the recommended route.
         async let start = stuck.execute(tool("choose_navigation_option", ["index": .int(1)]))
-        while clock.pendingSleepers == 0 { await Task.yield() }
+        // Wait until the start itself waits (the routes wait comes and goes before it).
+        while !stuckEngine.calls.withLock({ $0.contains { $0.hasPrefix("start") } }) || clock.pendingSleepers == 0 {
+            await Task.yield()
+        }
         // A second pick in the same turn while the first start waits: refused, no second start.
         let second = await stuck.execute(tool("choose_navigation_option", ["preference": "recommended"]))
         #expect(!second.ok && second.code == .optionsNotReady)
@@ -256,7 +267,9 @@ final class SlowFirstEngine: NaviEngine {
     }
 
     func selectRoute(_ id: RouteID, generation: Generation) async {}
-    func start(_ mode: NaviMode, generation: Generation) async {}
+    func start(_ mode: NaviMode, generation: Generation) async {
+        continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviStarted))
+    }
     func stop(generation: Generation) async {}
 }
 
@@ -274,9 +287,166 @@ struct NavigationRaceTests {
         while !engine.isHolding { await Task.yield() }
         _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
         let new = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
-        #expect(new.ok && new.data["status"] == "destination_selected")
+        #expect(new.ok && new.data["status"] == "navigation_started")
         engine.release()
         #expect(await old.code == .optionsStale)
-        #expect(await nav.current.phase == .awaitingRouteSelection)
+        #expect(await nav.current.phase == .navigating)
+    }
+}
+
+/// Starts once; every later start never reports started (a route change that fails).
+final class FirstStartOnlyEngine: NaviEngine {
+    let events: AsyncStream<NaviEngineEnvelope>
+    private let continuation: AsyncStream<NaviEngineEnvelope>.Continuation
+    let routes: [RouteSummary]
+    let starts = Mutex(0)
+
+    init(routes: [RouteSummary]) {
+        (events, continuation) = AsyncStream.makeStream()
+        self.routes = routes
+    }
+
+    func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
+        continuation.yield(NaviEngineEnvelope(generation: generation, event: .routesReady(routes)))
+    }
+    func selectRoute(_ id: RouteID, generation: Generation) async {}
+    func start(_ mode: NaviMode, generation: Generation) async {
+        let n = starts.withLock { n -> Int in n += 1; return n }
+        if n == 1 { continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviStarted)) }
+    }
+    func stop(generation: Generation) async {}
+}
+
+@Suite("T-040h F-15a route change during the trip")
+struct RouteChangeTests {
+    @Test("F-15a row 12: a route change that fails keeps the trip on its current route")
+    func failedChangeKeepsTrip() async {
+        let clock = ManualClock()
+        let engine = FirstStartOnlyEngine(routes: [route(1, meters: 12_000, seconds: 1_500),
+                                                   route(2, meters: 13_000, seconds: 1_200)])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: NoLocation(), clock: clock)
+        await nav.start()
+        let started = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        #expect(started.data["offer_preference"] == "fastest")
+        async let change = nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
+        while engine.starts.withLock({ $0 }) < 2 || clock.pendingSleepers == 0 { await Task.yield() }
+        clock.advance(by: .seconds(30))
+        let result = await change
+        #expect(!result.ok && result.code == .startFailed)
+        let snapshot = await nav.current
+        #expect(snapshot.phase == .navigating && snapshot.selectedRoute == RouteID(1))
+    }
+
+    @Test("F-15a §2.5 真实导航: a route change recalculates from the current position and picks from the new routes")
+    func gpsChangeRecalculates() async {
+        let engine = RecalcEngine(batches: [[route(1, meters: 12_000, seconds: 1_500), route(2, meters: 13_000, seconds: 1_200)],
+                                            [route(11, meters: 9_000, seconds: 900), route(12, meters: 8_000, seconds: 700)]])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: FixedLocation(), clock: ManualClock(), mode: { .gps })
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        let changed = await nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
+        #expect(changed.ok && changed.data["status"] == "route_changed" && changed.data["duration_min"] == .int(11))
+        #expect(engine.calls.withLock { $0 } == ["calc", "select 1", "start gps", "recalc", "select 12", "start gps"])
+        let snapshot = await nav.current
+        #expect(snapshot.phase == .navigating && snapshot.selectedRoute == RouteID(12))
+    }
+
+    @Test("F-15a §2.5 真实导航: a failed recalculation keeps the trip on its current route")
+    func gpsRecalcFailureKeepsTrip() async {
+        let engine = RecalcEngine(batches: [[route(1, meters: 12_000, seconds: 1_500), route(2, meters: 13_000, seconds: 1_200)], []])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: FixedLocation(), clock: ManualClock(), mode: { .gps })
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        let changed = await nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
+        #expect(!changed.ok && changed.code == .routeCalculationFailed)
+        // The trip was never stopped or restarted: it keeps driving route 1.
+        #expect(engine.calls.withLock { $0 } == ["calc", "select 1", "start gps", "recalc"])
+        let snapshot = await nav.current
+        #expect(snapshot.phase == .navigating && snapshot.selectedRoute == RouteID(1))
+    }
+}
+
+extension RouteChangeTests {
+    @Test("F-15a §2.5 真实导航: a pick the new routes cannot meet changes nothing; one first route still recalculates")
+    func gpsBadPickAndSingleRoute() async {
+        let engine = RecalcEngine(batches: [[route(1, meters: 12_000, seconds: 1_500)],
+                                            [route(11, meters: 9_000, seconds: 900), route(12, meters: 8_000, seconds: 700)]])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: FixedLocation(), clock: ManualClock(), mode: { .gps })
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        let bad = await nav.execute(tool("choose_navigation_option", ["index": 3]))
+        #expect(!bad.ok)
+        #expect(engine.calls.withLock { $0 } == ["calc", "select 1", "start gps", "recalc"])
+        #expect(await nav.current.selectedRoute == RouteID(1))
+        engine.batches.withLock { $0 = [[route(21, meters: 9_000, seconds: 900), route(22, meters: 8_000, seconds: 700)]] }
+        let changed = await nav.execute(tool("choose_navigation_option", ["preference": "shortest"]))
+        #expect(changed.ok && changed.data["status"] == "route_changed")
+        #expect(await nav.current.selectedRoute == RouteID(22))
+    }
+}
+
+extension RouteChangeTests {
+    @Test("F-15a §2.5 (I-6): the trip's other routes are tap targets; a tap index changes the route like 换第N条")
+    func tapTargets() async {
+        let engine = RecalcEngine(batches: [[route(1, meters: 12_000, seconds: 1_500, toll: 5),
+                                             route(2, meters: 13_000, seconds: 1_200), route(3, meters: 11_000, seconds: 1_800, toll: 5)]])
+        let nav = NavigationController(search: FixedSearch(places: [place("珠海站", 3_000)]), engine: engine,
+                                       location: NoLocation(), clock: ManualClock())
+        await nav.start()
+        _ = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
+        var snapshot = await nav.current
+        #expect(snapshot.alternatives.map(\.row) == [1, 2])
+        #expect(snapshot.alternatives.map(\.text) == ["第2条 · 约20分钟 · 更快 · 不收费", "第3条 · 约30分钟 · 更短"])
+        // UIIntent.choose(row: 1) is choose_navigation_option index 2.
+        let tapped = await nav.execute(tool("choose_navigation_option", ["index": 2]))
+        #expect(tapped.ok && tapped.data["status"] == "route_changed")
+        snapshot = await nav.current
+        #expect(snapshot.selectedRoute == RouteID(2) && snapshot.alternatives.map(\.row) == [0, 2])
+        #expect(snapshot.routeTapTargets == snapshot.alternatives)
+        // A list over the guidance: a tap there picks a list row, so no route buttons are shown.
+        var listed = snapshot
+        listed.alongRouteList = true
+        #expect(listed.routeTapTargets.isEmpty)
+        // 真实导航: no stale minutes or notes on the buttons.
+        var gps = snapshot
+        gps.mode = .gps
+        #expect(gps.routeTapTargets.map(\.text) == ["第1条", "第3条"])
+        _ = await nav.execute(tool("exit_navigation_mode"))
+        #expect(await nav.current.alternatives.isEmpty)
+    }
+}
+
+/// Each calculation returns the next batch of routes (an empty batch fails); every start succeeds.
+final class RecalcEngine: NaviEngine {
+    let events: AsyncStream<NaviEngineEnvelope>
+    private let continuation: AsyncStream<NaviEngineEnvelope>.Continuation
+    let batches: Mutex<[[RouteSummary]]>
+    let calls = Mutex<[String]>([])
+
+    init(batches: [[RouteSummary]]) {
+        (events, continuation) = AsyncStream.makeStream()
+        self.batches = Mutex(batches)
+    }
+
+    func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
+        calls.withLock { $0.append("calc") }
+        let routes = batches.withLock { $0.isEmpty ? [] : $0.removeFirst() }
+        continuation.yield(NaviEngineEnvelope(generation: generation,
+                                              event: routes.isEmpty ? .routeCalculationFailed(code: 2) : .routesReady(routes)))
+    }
+    func selectRoute(_ id: RouteID, generation: Generation) async { calls.withLock { $0.append("select \(id.rawValue)") } }
+    func start(_ mode: NaviMode, generation: Generation) async {
+        calls.withLock { $0.append("start \(mode == .gps ? "gps" : "emulator")") }
+        continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviStarted))
+    }
+    func stop(generation: Generation) async { calls.withLock { $0.append("stop") } }
+    func recalculateFromHere(generation: Generation) async -> [RouteSummary]? {
+        calls.withLock { $0.append("recalc") }
+        let routes = batches.withLock { $0.isEmpty ? [] : $0.removeFirst() }
+        return routes.isEmpty ? nil : routes
     }
 }

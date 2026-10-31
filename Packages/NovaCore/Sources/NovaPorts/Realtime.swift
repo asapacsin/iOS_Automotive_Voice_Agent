@@ -63,6 +63,15 @@ public struct ActivityDetectionConfig: Sendable, Hashable {
     /// Owner rule 2026-10-28: only a stop phrase stops her, and that is decided locally.
     public var interruptsReply = false
     public init() {}
+
+    /// NovaDrive's session: manual detection, and an activityStart cancels her reply (F-08 §15 item 1). The reply
+    /// mute (F-04 §14) sends no activityStart while she talks, so only the stop phrase's empty activity does.
+    public static var novaDrive: ActivityDetectionConfig {
+        var config = ActivityDetectionConfig()
+        config.manual = true
+        config.interruptsReply = true
+        return config
+    }
 }
 
 /// Provider-neutral session setup; NovaRealtime encodes it as Gemini `setup`.

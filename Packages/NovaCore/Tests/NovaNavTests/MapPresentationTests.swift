@@ -51,6 +51,8 @@ struct MapPresentationTests {
         let byTap = await tapped.execute(ChoiceTap.call(row: 1, id: CallID("tap_1")!))
         #expect(byVoice == byTap && byTap.data["destination"] == "珠海北站")
         // Stale list: the tap gets OPTIONS_STALE exactly like the voice.
+        _ = await tapped.execute(tool("exit_navigation_mode"))
+        _ = await tapped.execute(tool("navigate_to", ["destination": "珠海站"]))
         clock.advance(by: .seconds(121))
         #expect(await tapped.execute(ChoiceTap.call(row: 0, id: CallID("tap_2")!)).code == .optionsStale)
     }

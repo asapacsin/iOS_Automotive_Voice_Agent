@@ -11,6 +11,7 @@ let package = Package(
         .target(name: "NovaServices", dependencies: [
             .product(name: "NovaKit", package: "NovaCore"),
             .product(name: "NovaPorts", package: "NovaCore"),
+            .product(name: "NovaNav", package: "NovaCore"),
         ]),
         .testTarget(name: "NovaServicesTests", dependencies: [
             "NovaServices",

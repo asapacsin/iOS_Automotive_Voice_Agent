@@ -56,6 +56,10 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case mediaLibraryUnsupported = "MEDIA_LIBRARY_UNSUPPORTED"
     case duplicateInTurn = "DUPLICATE_IN_TURN"
     case speechOutputNotRequested = "SPEECH_OUTPUT_NOT_REQUESTED"
+    /// Withdrawn by F-05a §6 (T-016e): defined, never returned; 结束导航 ends at once.
+    case confirmRequired = "CONFIRM_REQUIRED"
+    /// PROPOSED (F-15a §2.5): a route pick in the same driver turn as the route list (the driver did not choose).
+    case navigationNotRequested = "NAVIGATION_NOT_REQUESTED"
     case noMatch = "NO_MATCH"
     case ambiguous = "AMBIGUOUS"
     case outOfRange = "OUT_OF_RANGE"
@@ -95,6 +99,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case notConfigured = "NOT_CONFIGURED"
     case authFailed = "AUTH_FAILED"
     case visionFailed = "VISION_FAILED"
+    /// F-20a §14 item 4: every vision service was busy, slow or unreachable.
+    case visionBusy = "VISION_BUSY"
     /// A newer camera question replaced this one; its answer is dropped, never spoken.
     case superseded = "SUPERSEDED"
 

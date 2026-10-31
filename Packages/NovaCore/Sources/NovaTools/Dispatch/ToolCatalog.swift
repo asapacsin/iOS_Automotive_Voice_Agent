@@ -28,8 +28,20 @@ public enum ToolCatalog {
     public static let scenarios = ["mosquito", "mosquito_done", "stuffy", "drowsy"]
     public static let speakingStyles = ["default", "sweet", "tsundere", "gentle", "lively"]
 
-    /// All tools in Android domain order.
-    public static let specs: [ToolSpec] = generatedSpecs
+    /// All tools in Android domain order; iOS descriptions where the iOS flow differs (`iosDescriptions`).
+    public static let specs: [ToolSpec] = generatedSpecs.map { spec in
+        guard let text = iosDescriptions[spec.name] else { return spec }
+        return ToolSpec(domain: spec.domain, repeatSensitive: spec.repeatSensitive,
+                        declaration: ToolDeclaration(name: spec.name, description: text,
+                                                     parametersJSONSchema: spec.declaration.parametersJSONSchema))
+    }
+
+    /// F-15a §2.5 (T-040h): iOS has no route list; guidance starts on the recommended route once the place is
+    /// known, and the route is changed during the trip. Names and schemas stay the Android ones.
+    static let iosDescriptions: [String: String] = [
+        "navigate_to": "导航到地点：「导航去X」「带我去X」。只有一个地点时直接开始导航（推荐路线）；有多个时屏幕会列出候选，不要念列表，按返回的 next 只说一句，选择用 choose_navigation_option。按结果答：navigation_started 按 next 说已开始导航和大约几分钟，alternatives 只按 next 提一句，不要念所有路线；ok=false 按 next 说原因，不要说已开始。换目的地（「不是这个」「换成X」）时用新目的地再调用。没有路线时找附近的地点（「附近有加油站吗」「最近的充电站」）也用它：destination=附近的加油站。",
+        "choose_navigation_option": "选屏幕上的候选地点（等同点选），或导航中换路线，三个参数只填一个。地点列表时：「第一个」「第二个」→index；「最近的那个」→nearest；「选万达广场那个」→name；选好地点后直接开始导航。导航中：「换最快的」→preference=fastest；「最短的」→shortest；「不走高速」「不要收费」→no_toll；「红绿灯少的」→fewest_lights；「推荐的」→recommended；「换第二条」→index；她问「要换吗？」后司机说「好」「换」→preference=上次结果的 offer_preference。按结果答：navigation_started 说已开始导航；route_changed 按 next 说已换成哪条路线和大约几分钟；route_unchanged 说现在走的就是这条；ok=false 按 error：OUT_OF_RANGE=没有这一项，NO_OPTIONS_ON_SCREEN=没有可选列表或没有别的路线，OPTIONS_NOT_READY=还在计算，AMBIGUOUS=多个匹配请说第几个，OPTIONS_STALE=列表过期请重新说，CONFIRM_CANDIDATE=问是不是 candidate_position 那项。",
+    ]
     public static let declarations: [ToolDeclaration] = specs.map(\.declaration)
     private static let byName: [String: ToolSpec] = Dictionary(uniqueKeysWithValues: specs.map { ($0.name, $0) })
 
@@ -167,6 +179,8 @@ public enum ToolFailureAdvice {
         .notAvailableOnIOSYet: "这个功能在这台 iPhone 上还没有做好，所以没有执行。请用一句话如实告诉用户暂时还不能用，不要说已经做了。",
         .cameraPermissionDenied: "摄像头没有权限，请在设置里允许。请如实说明，不要描述画面。",
         .cameraUnavailable: "摄像头现在用不了。请如实说明，不要描述画面。",
+        .navigationNotRequested: "司机还没有选路线，所以没有开始导航。不要说已经开始或已经选好；请只问一句：有几条路线（按屏幕上的条数说），要走哪一条？",
+        .confirmRequired: "导航还在继续，没有结束。不要说已经结束。",
         .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }

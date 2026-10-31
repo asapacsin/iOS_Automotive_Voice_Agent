@@ -1,4 +1,5 @@
 import NovaAgent
+import NovaNav
 import NovaPlatform
 import NovaPorts
 import NovaServices
@@ -12,6 +13,7 @@ struct SettingsView: View {
         (.azureSpeechKey, "Azure Speech key"),
         (.amapSDKKey, "高德 iOS SDK key"),
         (.amapWebKey, "高德 Web 服务 key"),
+        (.zhipuKey, "智谱 key（视觉，推荐）"),
         (.qianfanKey, "千帆 key（可选，视觉备用）"),
         (.iflytekAppID, "讯飞 APPID（唤醒词）"),
         (.iflytekAPIKey, "讯飞 APIKey"),
@@ -28,6 +30,7 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.azureVoice) private var azureVoice = DriveSettings.defaultVoice
     @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
     @AppStorage(DriveSettings.noiseSuppression) private var noiseSuppression = true
+    @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
     @StateObject private var locationPermission = LocationPermission()
 
     var body: some View {
@@ -79,6 +82,23 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .onChange(of: useDeviceLocation) { if useDeviceLocation { locationPermission.request() } }
+                // F-15a §2.1: read when guidance starts; 演示起点 locks it to 模拟导航.
+                Section("导航方式") {
+                    let locked = NavigationModeSetting.locked(source: useDeviceLocation ? .device : .demo)
+                    Picker("导航方式", selection: locked ? .constant(NavigationModeSetting.simulated.rawValue)
+                                                      : $navigationMode) {
+                        Text("真实导航").tag(NavigationModeSetting.real.rawValue)
+                        Text("模拟导航").tag(NavigationModeSetting.simulated.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(locked)
+                    .accessibilityIdentifier("navigation-mode")
+                    Text(locked ? "演示起点只能模拟导航。"
+                         : navigationMode == NavigationModeSetting.simulated.rawValue
+                         ? "模拟导航（演示 / 录屏）：一辆模拟车沿路线行驶，屏幕显示「模拟导航」。下次导航生效。"
+                         : "真实导航：按手机定位走路线，偏离路线会重新规划。没有定位时不能开始。下次导航生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("危险操作") {
                     Button("清除所有密钥", role: .destructive) { confirmWipe = true }
                 }

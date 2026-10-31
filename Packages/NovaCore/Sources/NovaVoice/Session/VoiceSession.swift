@@ -20,7 +20,7 @@ extension SessionUIState {
 
 /// Timers the session owns. A token from an older epoch is ignored.
 public struct SessionTimer: Sendable, Hashable {
-    public enum Kind: Sendable, Hashable { case setupDeadline, reconnectDelay }
+    public enum Kind: Sendable, Hashable { case setupDeadline, reconnectDelay, offlineCap }
     public let kind: Kind
     public let epoch: Epoch
 }
@@ -38,6 +38,9 @@ public enum SessionInput: Sendable, Hashable {
     /// Arbiter verdict on speech during playback (F-08).
     case bargeIn(qualified: Bool)
     case timerFired(SessionTimer)
+    /// F-24 §14 item 1: `NetworkPathWatcher` (debounced). Not errors: they never count against the budget.
+    case networkLost
+    case networkRestored
 }
 
 public enum SessionEffect: Sendable, Hashable {
@@ -50,6 +53,8 @@ public enum SessionEffect: Sendable, Hashable {
     /// Terminal error: show the settings message for `code` (F-05 §10 row 3).
     case showConfigError(RealtimeErrorCode)
     case diagnostic(DiagnosticEvent)
+    /// F-24 §14 item 4: the offline cap ended the session; the shell releases the microphone and audio session.
+    case offlineEnded
 }
 
 /// `VoiceSessionController` + `VoiceSessionStateMachine` (F-05 core, F-24). Pure: no socket, no timers.
@@ -59,6 +64,12 @@ public struct VoiceSession: Sendable {
     public private(set) var resumptionHandle: String?
     public private(set) var connection = Generation.initial
     public private(set) var policy: ReconnectPolicy
+    /// F-24 §14 item 2: RECONNECTING with no network: no attempts are made or counted until it returns.
+    public private(set) var waitingForNetwork = false
+    /// The watcher's last word; online until it says otherwise.
+    public private(set) var online = true
+    /// Set while a reconnect is under way, so its setupComplete logs `resumed`.
+    private var reconnecting = false
     private let tuning: RealtimeTuning
     private var timerEpoch = Epoch.initial
     /// Pending timers by kind, so a stale token can be told apart.
@@ -74,10 +85,14 @@ public struct VoiceSession: Sendable {
         case .start:
             guard state == .disconnected || state == .error else { return [] }
             policy.reset()
+            // Item 2: started with no network, she waits for it under the same cap.
+            if !online { return waitForNetwork(at: now) }
             return transition(to: .connecting) + openSocket(at: now)
         case .stop:
             guard state != .disconnected else { return [] }
             resumptionHandle = nil
+            waitingForNetwork = false
+            reconnecting = false
             connection = connection.next()  // late events of the closed socket are now stale
             return cancelAll() + [.close] + transition(to: .disconnected)
         case .realtime(let event, let source):
@@ -98,8 +113,41 @@ public struct VoiceSession: Sendable {
                 return [.diagnostic(.setupTimeout)] + fail(.timeout, at: now)
             case .reconnectDelay:
                 return openSocket(at: now)
+            case .offlineCap:
+                guard waitingForNetwork else { return [] }
+                waitingForNetwork = false
+                reconnecting = false
+                resumptionHandle = nil
+                return cancelAll() + [.diagnostic(.offlineCapReached), .offlineEnded] + transition(to: .disconnected)
             }
+        case .networkLost:
+            guard online else { return [] }
+            online = false
+            let lost: [SessionEffect] = [.diagnostic(.networkLost)]
+            switch state {
+            case .disconnected, .error: return lost
+            default:
+                guard !waitingForNetwork else { return lost }
+                // The socket is gone with the path; its late errors are stale and count nothing.
+                connection = connection.next()
+                return lost + cancel(.setupDeadline) + cancel(.reconnectDelay) + [.close] + waitForNetwork(at: now)
+            }
+        case .networkRestored:
+            guard !online else { return [] }
+            online = true
+            let restored: [SessionEffect] = [.diagnostic(.networkRestored)]
+            guard waitingForNetwork else { return restored }
+            // Item 2: one attempt at once, with the handle; the budget starts fresh from here.
+            waitingForNetwork = false
+            policy.reset()
+            return restored + cancel(.offlineCap) + [.diagnostic(.offlineRestoreAttempt)] + openSocket(at: now)
         }
+    }
+
+    private mutating func waitForNetwork(at now: NovaInstant) -> [SessionEffect] {
+        waitingForNetwork = true
+        reconnecting = true
+        return transition(to: .reconnecting) + schedule(.offlineCap, at: now + tuning.offlineWaitCap)
     }
 
     private mutating func realtime(_ event: RealtimeEvent, at now: NovaInstant) -> [SessionEffect] {
@@ -107,7 +155,9 @@ public struct VoiceSession: Sendable {
         case .setupComplete:
             guard state == .connecting || state == .reconnecting else { return [] }
             policy.reset()
-            return cancel(.setupDeadline) + transition(to: .listening)
+            let resumed: [SessionEffect] = reconnecting ? [.diagnostic(.resumed(handle: resumptionHandle != nil))] : []
+            reconnecting = false
+            return cancel(.setupDeadline) + resumed + transition(to: .listening)
         case .resumptionHandle(let handle):
             resumptionHandle = handle
             return []
@@ -134,13 +184,17 @@ public struct VoiceSession: Sendable {
         if code == .resumeUnavailable { resumptionHandle = nil }
         connection = connection.next()
         let base = cancel(.setupDeadline) + [.close]
+        // Item 2: with no network a retryable failure waits for it instead of spending an attempt.
+        if !online, code.isRetryable { return base + cancel(.reconnectDelay) + waitForNetwork(at: now) }
         switch policy.next(after: code) {
         case .retry(let attempt, let delay):
+            reconnecting = true
             return base + transition(to: .reconnecting)
                 + [.diagnostic(.reconnectAttempt(attempt: attempt, delay: delay))]
                 + schedule(.reconnectDelay, at: now + delay)
         case .giveUp:
             resumptionHandle = nil
+            reconnecting = false
             return base + cancelAll() + transition(to: .error) + (code.isRetryable ? [] : [.showConfigError(code)])
         }
     }
@@ -167,6 +221,6 @@ public struct VoiceSession: Sendable {
     }
 
     private mutating func cancelAll() -> [SessionEffect] {
-        cancel(.setupDeadline) + cancel(.reconnectDelay)
+        cancel(.setupDeadline) + cancel(.reconnectDelay) + cancel(.offlineCap)
     }
 }

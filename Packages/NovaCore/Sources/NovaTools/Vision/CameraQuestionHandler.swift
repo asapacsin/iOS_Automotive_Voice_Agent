@@ -89,8 +89,11 @@ public actor CameraQuestionHandler: ToolExecutor {
             return .failure(.notConfigured, advice: "看图功能还没有配置。请如实说明，不要描述画面。")
         case .authFailed:
             return .failure(.authFailed, advice: "看图服务的密钥无效。请如实说明，不要描述画面。")
-        case .failed, nil:
-            return .failure(.visionFailed, advice: "刚才没看清楚，再问我一次吧。请如实说明，不要猜。")
+        case .busy, nil:
+            // F-20a §14 item 4: the deadline passing means the services were slow, not a blurry photo.
+            return .failure(.visionBusy, advice: Self.busyAdvice)
+        case .failed:
+            return .failure(.visionFailed, advice: Self.failedAdvice)
         }
     }
 
@@ -141,6 +144,9 @@ public actor CameraQuestionHandler: ToolExecutor {
         generation += 1
     }
 
+    static let busyAdvice = "识图服务现在忙或者连不上，等一下再问我。请如实说明，不要描述画面。"
+    static let failedAdvice = "这次看图没有成功，再问我一次吧。请如实说明，不要描述画面。"
+
     private static let dropped = ToolResult.failure(.superseded, advice: "这个问题已被新的问题取代，不要回答它。")
 
     /// The vision answer, or nil when the deadline passes first. Returns at the deadline even if the
@@ -162,7 +168,7 @@ public actor CameraQuestionHandler: ToolExecutor {
 }
 
 /// Resumes one continuation with whichever result arrives first.
-private final class FirstWins<T: Sendable>: Sendable {
+final class FirstWins<T: Sendable>: Sendable {
     private struct State {
         var continuation: CheckedContinuation<T, Never>?
         var done = false

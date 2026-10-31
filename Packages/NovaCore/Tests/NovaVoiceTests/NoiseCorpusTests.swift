@@ -67,7 +67,7 @@ struct NoiseCorpusTests {
         for (i, frame) in try frames(clip).enumerated() {
             if classify, i < classifyUntil, i % resultEvery == 0 { gate.classified(result(clip, at: i)) }
             let out = gate.process(frame)
-            if run.startedAt == nil, out.contains(.speechStarted) { run.startedAt = i }
+            if run.startedAt == nil, out.contains(.speechStarted(sentToModel: true)) { run.startedAt = i }
             if run.interruptAt == nil, gate.hasRecentSpeech { run.interruptAt = i }
             run.outputs += out
         }
@@ -181,7 +181,11 @@ struct NoiseCorpusTests {
         let offRun = try Self.run(clip, &off)
         var plain = SpeechUplinkGate()
         let plainRun = try Self.run(clip, &plain, classify: false)
-        #expect(offRun.outputs == plainRun.outputs)
+        // The utterance log records the classifier's numbers, which the plain gate never has.
+        func audible(_ o: [UplinkGateOutput]) -> [UplinkGateOutput] {
+            o.filter { if case .utterance = $0 { false } else { true } }
+        }
+        #expect(audible(offRun.outputs) == audible(plainRun.outputs))
         #expect(offRun.startedAt == plainRun.startedAt)
     }
 }

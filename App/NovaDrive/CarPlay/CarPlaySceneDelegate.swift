@@ -64,7 +64,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     static func chipText(_ chip: AssistantChip) -> String {
         switch chip {
         case .idle: "未连接"
-        case .listening: "聆听中"
+        case .listening: "请说"
         case .processing: "处理中"
         case .speaking: "说话中"
         case .error: "出错"

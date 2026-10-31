@@ -68,6 +68,8 @@ struct CameraQuestionHandlerTests {
              .authFailed),
             (CameraQuestionHandler(camera: FakeCamera(), vision: FixedVision(answer: .failed), clock: clock),
              .visionFailed),
+            (CameraQuestionHandler(camera: FakeCamera(), vision: FixedVision(answer: .busy), clock: clock),
+             .visionBusy),
         ]
         for (handler, code) in cases {
             let r = await handler.ask("前面是什么")
@@ -85,7 +87,7 @@ struct CameraQuestionHandlerTests {
         #expect(camera.captures.withLock { $0 } == 0)
     }
 
-    @Test("8 s deadline: a slow backend gives VISION_FAILED, never a guess")
+    @Test("8 s deadline: a slow backend gives VISION_BUSY (F-20a §14 item 4), never a guess")
     func deadline() async {
         let clock = ManualClock()
         let vision = GatedVision()
@@ -94,7 +96,7 @@ struct CameraQuestionHandlerTests {
         await until { vision.waiting("前面是什么") && clock.pendingSleepers == 1 }
         clock.advance(by: .seconds(8))
         let result = await r
-        #expect(result.code == .visionFailed)
+        #expect(result.code == .visionBusy)
         vision.release("前面是什么", .answer("late"))
     }
 

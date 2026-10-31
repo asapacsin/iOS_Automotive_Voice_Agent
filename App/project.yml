@@ -14,11 +14,20 @@ packages:
     path: ../Packages/NovaRealtime
   NovaPlatform:
     path: ../Packages/NovaPlatform
+  NovaAsrSherpa:
+    path: ../Packages/NovaAsrSherpa
 targets:
   NovaDrive:
     type: application
     platform: iOS
-    sources: [NovaDrive]
+    sources:
+      - path: NovaDrive
+        excludes: [SherpaModels, SherpaModels/**]
+      # F-05a §12 / F-08 §14: fetched by scripts/fetch_sherpa_models.sh (not in git); bundled as SherpaModels/.
+      - path: NovaDrive/SherpaModels
+        type: folder
+        buildPhase: resources
+        optional: true
     info:
       path: NovaDrive/Info.plist
       properties:
@@ -47,6 +56,8 @@ targets:
         product: NovaRealtime
       - package: NovaPlatform
         product: NovaPlatform
+      - package: NovaAsrSherpa
+        product: NovaAsrSherpa
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive

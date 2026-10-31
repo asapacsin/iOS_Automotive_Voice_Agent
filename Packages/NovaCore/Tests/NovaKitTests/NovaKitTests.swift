@@ -175,8 +175,11 @@ struct DiagnosticsTests {
         .setupTimeout, .toolRefused(code: .ambiguousReferent), .toolFailed(code: .vehicleExecutionFailed),
         .lateToolResultDropped(turn: .initial), .navLateResultDropped(stale: .initial, current: .initial.next()),
         .staleAudioDropped(stale: .initial, current: .initial.next()), .bargeIn(qualified: true),
-        .claimHeld(events: 3), .correctionSent, .emptyResponseReask, .timerFired(stale: false),
-        .sessionError(.audioCaptureFailed),
+        .claimHeld(events: 3), .correctionSent, .emptyResponseReask, .turnUnanswered(turn: 1),
+        .stopPhrase(source: .kws, phrase: 0, msFromSpeechStart: 600, score: 80, selfStop: false), .stopPhraseMiss(utterance: 2), .timerFired(stale: false),
+        .sessionError(.audioCaptureFailed), .networkLost, .networkRestored, .offlineRestoreAttempt,
+        .resumed(handle: true), .offlineCapReached, .stopSyncSent, .stopSyncInterrupted(ms: 300), .stopSyncNoInterrupt,
+        .reaskSuppressed, .abandonCleared, .postStopTurnDropped,
     ]
 
     /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").
@@ -220,5 +223,16 @@ struct DiagnosticsTests {
     func toolErrorCodesAreClosed() {
         #expect(ToolErrorCode(rawValue: "geocode failed: 1 Main St") == nil)
         #expect(ToolErrorCode.allCases.allSatisfy { !$0.rawValue.contains(" ") })
+    }
+}
+
+@Suite("T-022a F-08 §14 item 7 log lines")
+struct StopPhraseLogLineTests {
+    @Test("stopPhrase and stopPhraseMiss lines carry numbers and the source only")
+    func lines() {
+        #expect(DiagnosticEvent.stopPhrase(source: .kws, phrase: 2, msFromSpeechStart: 640, score: 81, selfStop: false).logLine
+                == "stopPhrase source=kws phrase=2 msFromSpeechStart=640 score=81 selfStop=false")
+        #expect(DiagnosticEvent.stopPhraseMiss(utterance: 7).logLine == "stopPhraseMiss utterance=7")
+        #expect(DiagnosticEvent.correctionSent.logLine == "diagnostic correctionSent")
     }
 }

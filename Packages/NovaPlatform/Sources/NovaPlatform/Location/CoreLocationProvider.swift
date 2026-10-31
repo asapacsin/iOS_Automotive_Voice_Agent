@@ -105,7 +105,7 @@ public final class CoreLocationProvider: NSObject, LocationProvider, LocationUpd
         state.receive(fix)
     }
 
-    /// F-16a §7: granted → updates (re)start unless paused; denied → the last fix is dropped.
+    /// F-16a §7: granted → updates (re)start once something needed location and not paused; denied → the last fix is dropped.
     func authorizationChanged(_ status: CLAuthorizationStatus) {
         if let action = state.authorizationChanged(Self.map(status)) { apply(action) }
     }

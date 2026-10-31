@@ -23,6 +23,10 @@ stateDiagram-v2
   AWAITING_ROUTE_SELECTION --> IDLE: 算了 (cancel)
 ```
 
+**iOS (F-15a §2.5, revised 2026-10-29):** `AWAITING_ROUTE_SELECTION` is not used. `CALCULATING_ROUTE --> NAVIGATING:
+routes ready` (guidance starts on the recommended route); while `NAVIGATING`, `choose_navigation_option`
+(preference/index) replaces the route without leaving `NAVIGATING`. The Android diagram above is kept for reference.
+
 ## Rules
 
 - **Generation counter**: every new request or cancel increments it; any result or SDK callback with

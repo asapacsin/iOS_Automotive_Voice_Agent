@@ -170,7 +170,8 @@ struct AgentWalkthroughTests {
         d.send(.speechStopped)
         let reask = d.fire(.reask)
         #expect(d.now == NovaInstant(milliseconds: 6_000))
-        #expect(reask.contains(.provider(.text([TextTurn(role: .user, text: "请回应我刚才说的话。")], turnComplete: true))))
+        // F-08 §15 item 3: the re-ask names the newest words.
+        #expect(reask.contains(.provider(.text([TextTurn(role: .user, text: "请回答我最新的这句话：「把空调打开」")], turnComplete: true))))
         let giveUp = d.fire(.giveUp)
         #expect(d.now == NovaInstant(milliseconds: 10_000))
         #expect(spoken(giveUp).isEmpty)
@@ -262,6 +263,12 @@ struct AgentWalkthroughTests {
         let timer = d.effects.compactMap { if case .schedule(.session(let t), _) = $0, t.kind == .reconnectDelay { t } else { nil } }
         d.send(.timer(.session(timer.last!)))
         d.realtime(.setupComplete)
+        d.send(.speechStopped)
+        // F-15a §2.5 (T-040f): the utterance that began during her reply was no driver turn; the driver
+        // speaks again on the new socket.
+        d.send(.playback(.replyFinished(Epoch.initial)))
+        d.now = d.now + .seconds(1)
+        d.send(.speechStarted(recentSpeech: true))
         d.send(.speechStopped)
         d.realtime(.userTranscript("你好", isFinal: true))
         let before = d.effects.count
@@ -364,5 +371,333 @@ struct AgentCoreShellTests {
         let response = try #require(log.firstIndex(of: "toolResponse:[true]"))
         let speak = try #require(log.firstIndex { $0.hasPrefix("speak:") })
         #expect(response < speak)
+    }
+}
+
+@Suite("T-016a F-05a AgentState with the transcript selector")
+struct DriverWordsTests {
+    func speaking() -> Drive {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.send(.driverWords(.final("讲个故事")))
+        d.realtime(.responseStarted(TurnID(1)))
+        d.realtime(.replyAudio(TurnID(1), PCMBuffer(sampleRate: 24_000, samples: [1, 2, 3])))
+        d.realtime(.replyText(TurnID(1), "从前有一座山，"))
+        d.send(.playback(.replyStarted(Epoch.initial)))
+        return d
+    }
+
+    @Test("F-05a row 3: 别说了 in a local partial stops her; no Gemini transcript is involved")
+    func stopFromLocalPartial() {
+        var d = speaking()
+        d.send(.speechStarted(recentSpeech: true))
+        #expect(d.send(.driverWords(.partial("别说"))).isEmpty)
+        let barge = d.send(.driverWords(.partial("别说了")))
+        #expect(Array(barge.prefix(2)) == [.flushPlayback(Epoch(1)), .cancelRevoicing(Epoch(1))])
+    }
+
+    @Test("F-05a: once the selector feeds the words, Gemini's own transcript is ignored")
+    func geminiIgnored() {
+        var d = speaking()
+        d.send(.speechStarted(recentSpeech: true))
+        let out = d.realtime(.userTranscript("别说了", isFinal: true))
+        #expect(!out.contains { if case .flushPlayback = $0 { true } else { false } })
+    }
+
+    @Test("F-05a row 4 (revised): the same tool call runs whatever the transcript was (unclear, Portuguese, none)")
+    func transcriptNeverGuards() {
+        for words in [DriverWords.unclear, .final("Não fale mais"), .final("今天天气不错"), nil] {
+            var d = Drive()
+            d.connect()
+            d.send(.speechStarted(recentSpeech: true))
+            d.send(.speechStopped)
+            if let words { d.send(.driverWords(words)) }
+            d.realtime(.responseStarted(TurnID(1)))
+            let call = ToolCall(id: CallID("c1")!, name: "set_speech_output", arguments: ["mode": "silent"])
+            #expect(d.realtime(.toolCalls(TurnID(1), [call])).contains { if case .startTool = $0 { true } else { false } },
+                    "\(String(describing: words))")
+        }
+    }
+
+    @Test("F-05a S4: an unclear utterance is not a stop phrase and starts no pipeline")
+    func unclearNoStop() {
+        var d = speaking()
+        d.send(.speechStarted(recentSpeech: true))
+        #expect(d.send(.driverWords(.unclear)).isEmpty)
+    }
+}
+
+@Suite("T-040h F-15a AgentState: no route choice, route changes run on the first try")
+struct NavigationRequestedTests {
+    func navigating() -> Drive {
+        var d = Drive()
+        d.connect()
+        d.send(.navigation(NavigationFlags(navigating: true, guidanceRunning: true)))
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        return d
+    }
+
+    func started(_ out: [AgentEffect]) -> Bool { out.contains { if case .startTool = $0 { true } else { false } } }
+
+    @Test("F-15a row 12 (revised): while navigating, 换最快的 runs at once even when the subtitle shows （没听清）")
+    func changeOnFirstTry() {
+        var d = navigating()
+        d.send(.driverWords(.unclear))
+        d.realtime(.responseStarted(TurnID(1)))
+        let fastest = ToolCall(id: CallID("c1")!, name: "choose_navigation_option", arguments: ["preference": "fastest"])
+        #expect(started(d.realtime(.toolCalls(TurnID(1), [fastest]))))
+    }
+
+    @Test("F-15a: a tap on an alternative route is the request (I-6)")
+    func tap() {
+        var d = navigating()
+        #expect(started(d.send(.ui(.choose(row: 1)))))
+    }
+}
+
+@Suite("T-004i F-04 §14 AgentState follows the gate's one send decision")
+struct SendDecisionTests {
+    func playing() -> Drive {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(1)))
+        d.realtime(.replyText(TurnID(1), "有两个地点，请说第几个。"))
+        d.send(.playback(.replyStarted(Epoch.initial)))
+        return d
+    }
+
+    @Test("F-04 §14 row 1/5: a not-sent utterance opens no turn, owes no answer, starts no reply clock, stops nothing")
+    func notSent() {
+        var d = playing()
+        let start = d.send(.speechStarted(recentSpeech: false, sentToModel: false))
+        #expect(!start.contains { if case .flushPlayback = $0 { true } else { false } })
+        #expect(d.send(.speechStopped).isEmpty)
+        #expect(d.send(.driverWords(.final("嗯"))).isEmpty)
+    }
+
+    @Test("F-04 §14 row 3/5: a sent utterance is a driver turn and starts the reply clock")
+    func sent() {
+        var d = playing()
+        d.send(.playback(.replyFinished(Epoch.initial)))
+        d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        let stopped = d.send(.speechStopped)
+        #expect(stopped.contains { if case .schedule(.pipeline, _) = $0 { true } else { false } })
+    }
+
+    @Test("F-04 §14 row 6: 别说了 while she talks stops her at once; nothing goes to Gemini")
+    func stopPhraseNotSent() {
+        var d = playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        let out = d.send(.driverWords(.final("别说了")))
+        #expect(out.contains { if case .flushPlayback = $0 { true } else { false } })
+        // F-08 §15: only the empty activity goes to Gemini (it ends the reply there too); no words, no audio.
+        #expect(out.filter { if case .provider = $0 { true } else { false } } == [.provider(.interruptReply)])
+        #expect(!d.send(.speechStopped).contains { if case .provider = $0 { true } else { false } })
+    }
+}
+
+@Suite("T-022a F-08 §14 stop phrase while she talks")
+struct StopPhraseSpotterCoreTests {
+    func stops(_ out: [AgentEffect]) -> Bool { out.contains { if case .flushPlayback = $0 { true } else { false } } }
+    func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {
+        out.compactMap { if case .diagnostic(let e) = $0 { e } else { nil } }
+    }
+
+    @Test("F-08 §14 row 3: a spotter hit stops her (flush, qualified barge-in), sends nothing, opens no turn")
+    func hit() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        let out = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        #expect(stops(out))
+        #expect(diagnostics(out).contains(.bargeIn(qualified: true)))
+        #expect(diagnostics(out).contains { if case .stopPhrase(.kws, 0, _, 80, false) = $0 { true } else { false } })
+        // F-08 §15: only the empty activity goes to Gemini (it ends the reply there too); no words, no audio.
+        #expect(out.filter { if case .provider = $0 { true } else { false } } == [.provider(.interruptReply)])
+        #expect(!d.send(.speechStopped).contains { if case .provider = $0 { true } else { false } })
+    }
+
+    @Test("F-08 §14 row 3 / item 5: the transcript check after a spotter hit, or a second hit, changes nothing")
+    func secondIgnored() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        #expect(stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))))
+        // Her next reply starts at once; a second hit and the transcript of the same utterance are ignored.
+        d.send(.playback(.replyStarted(Epoch.initial.next())))
+        #expect(!stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 3, score: 70)))))
+        #expect(!stops(d.send(.driverWords(.final("别说了")))))
+    }
+
+    @Test("F-08 §14 item 5: the transcript final of the stopped utterance, arriving after it closed, stops nothing")
+    func lateFinalIgnored() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        #expect(stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))))
+        d.send(.speechStopped)
+        d.send(.playback(.replyStarted(Epoch.initial.next())))
+        d.now = d.now + .seconds(3)
+        #expect(!stops(d.send(.driverWords(.final("别说了")))))
+    }
+
+    @Test("F-08 §14 (review D1): 「停」 with her silent is a command for the model, not a given-up turn")
+    func stopWordWhileSilent() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        let words = d.send(.driverWords(.final("停")))
+        #expect(!stops(words))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(1)))
+        let call = d.realtime(.toolCalls(TurnID(1), [ToolCall(id: CallID("m1")!, name: "control_music",
+                                                             arguments: ["action": "stop"])]))
+        #expect(call.contains { if case .startTool = $0 { true } else { false } })
+    }
+
+    @Test("F-08 §14 (review D2): after a self-stop, a later hit in a new reply still stops her")
+    func laterHitStops() {
+        var d = SendDecisionTests().playing()
+        d.now = NovaInstant(milliseconds: 5_000)
+        #expect(stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))))
+        d.send(.playback(.replyStarted(Epoch.initial.next())))
+        d.now = NovaInstant(milliseconds: 15_000)
+        #expect(stops(d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))))
+    }
+
+    @Test("F-08 §14 item 7: a hit with no driver speech is a self-stop; a reply with an unsent utterance and no hit is a miss")
+    func logLines() {
+        var d = SendDecisionTests().playing()
+        d.now = NovaInstant(milliseconds: 5_000)
+        let selfStop = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 6, score: 55)))
+        #expect(diagnostics(selfStop).contains { if case .stopPhrase(.kws, 6, -1, 55, true) = $0 { true } else { false } })
+        var m = SendDecisionTests().playing()
+        m.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        m.send(.speechStopped)
+        let idle = m.send(.playback(.replyIdle(Epoch.initial)))
+        #expect(diagnostics(idle).contains { if case .stopPhraseMiss = $0 { true } else { false } })
+    }
+}
+
+@Suite("T-022c F-08 §16 after a stop nothing is spoken without a sent utterance")
+struct PostStopCoreTests {
+    func spokeText(_ out: [AgentEffect]) -> Bool { out.contains { if case .speak = $0 { true } else { false } } }
+    func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {
+        out.compactMap { if case .diagnostic(let e) = $0 { e } else { nil } }
+    }
+
+    @Test("F-08 §16 row 7: stop mid-turn, Gemini then opens a turn with no sent utterance: not spoken, no re-ask")
+    func noResume() {
+        var d = SendDecisionTests().playing()
+        d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        d.realtime(.interrupted(TurnID(1), reason: .bargeIn))
+        d.now = d.now + .seconds(2)
+        let opened = d.realtime(.responseStarted(TurnID(2)))
+        #expect(diagnostics(opened).contains(.postStopTurnDropped))
+        #expect(!spokeText(d.realtime(.replyText(TurnID(2), "珠海还有长隆海洋王国……"))))
+        d.realtime(.responseDone(TurnID(2), outcome: .completed))
+        d.now = d.now + .seconds(20)
+        for timer in [PipelineTimer.Kind.reask] {
+            #expect(!d.fire(timer).contains { if case .provider(.text) = $0 { true } else { false } })
+        }
+        // A real question afterwards is answered.
+        d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        d.send(.driverWords(.final("现在几点")))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(3)))
+        #expect(spokeText(d.realtime(.replyText(TurnID(3), "现在是下午三点。"))))
+    }
+}
+
+@Suite("T-022b F-08 §15 a stop phrase also ends the reply for Gemini")
+struct StopSyncTests {
+    func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {
+        out.compactMap { if case .diagnostic(let e) = $0 { e } else { nil } }
+    }
+    func spokeText(_ out: [AgentEffect]) -> Bool { out.contains { if case .speak = $0 { true } else { false } } }
+
+    @Test("F-08 §15 row 2: local flush first, then the empty activity; stopSync sent; no interrupt in 1 s is logged")
+    func flushThenInterrupt() throws {
+        var d = SendDecisionTests().playing()
+        let out = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        let flush = try #require(out.firstIndex { if case .flushPlayback = $0 { true } else { false } })
+        let sync = try #require(out.firstIndex(of: .provider(.interruptReply)))
+        #expect(flush < sync)
+        #expect(diagnostics(out).contains(.stopSyncSent))
+        d.now = d.now + .seconds(1)
+        #expect(diagnostics(d.send(.timer(.stopSync(.zero)))) == [.stopSyncNoInterrupt])
+    }
+
+    @Test("F-08 §15 row 3: interrupted closes the old turn; the mute is off; the new question is answered")
+    func newQuestionAnswered() {
+        var d = SendDecisionTests().playing()
+        d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        d.now = d.now + .milliseconds(300)
+        let closed = d.realtime(.interrupted(TurnID(1), reason: .bargeIn))
+        #expect(diagnostics(closed).contains(.stopSyncInterrupted(ms: 300)))
+        #expect(!d.state.arbiter.replyPlaying)
+        d.now = d.now + .seconds(2)
+        d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        d.send(.driverWords(.final("现在几点")))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(2)))
+        #expect(spokeText(d.realtime(.replyText(TurnID(2), "现在是下午三点。"))))
+    }
+
+    @Test("F-08 §15 row 4: no answer to the next question: the re-ask names it, never the generic text")
+    func reaskNamesNewest() {
+        var d = SendDecisionTests().playing()
+        d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        d.realtime(.interrupted(TurnID(1), reason: .bargeIn))
+        d.now = d.now + .seconds(2)
+        d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        d.send(.driverWords(.final("讲个笑话")))
+        d.send(.speechStopped)
+        let reask = d.fire(.reask)
+        #expect(reask.contains(.provider(.text([TextTurn(role: .user, text: "请回答我最新的这句话：「讲个笑话」")], turnComplete: true))))
+        #expect(!reask.contains(.provider(.text([TextTurn(role: .user, text: DriverTurnPipeline.reaskText)], turnComplete: true))))
+    }
+
+    @Test("F-08 §15 item 3: the stop's own sent utterance starts no clock")
+    func stopUtteranceNoClock() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        let stopped = d.send(.speechStopped)
+        #expect(diagnostics(stopped).contains(.reaskSuppressed))
+        #expect(!stopped.contains { if case .schedule(.pipeline(let t), _) = $0 { t.kind == .reask } else { false } })
+    }
+
+    @Test("F-08 §15 row 5: transcript stop, new utterance, Gemini's turn: spoken, abandonCleared")
+    func abandonScoped() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        d.send(.driverWords(.final("别说了")))
+        d.send(.speechStopped)
+        d.realtime(.interrupted(TurnID(1), reason: .bargeIn))
+        d.now = d.now + .seconds(2)
+        let started = d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        #expect(diagnostics(started).contains(.abandonCleared))
+        d.send(.driverWords(.final("讲个笑话")))
+        d.send(.speechStopped)
+        d.realtime(.responseStarted(TurnID(2)))
+        #expect(spokeText(d.realtime(.replyText(TurnID(2), "有一只企鹅走进了冰淇淋店。"))))
+    }
+
+    @Test("F-08 §15 item 4: server turn already done, local audio still playing: a turn Gemini opens for the empty activity is not spoken")
+    func emptyActivityTurnDropped() {
+        var d = SendDecisionTests().playing()
+        d.realtime(.responseDone(TurnID(1), outcome: .completed))
+        d.send(.playback(.replyStarted(d.state.arbiter.epoch)))
+        #expect(d.state.arbiter.replyPlaying, "epoch \(d.state.arbiter.epoch)")
+        let out = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 80)))
+        #expect(out.contains(.provider(.interruptReply)))
+        d.realtime(.responseStarted(TurnID(2)))
+        #expect(!spokeText(d.realtime(.replyText(TurnID(2), "好的，我不说了。"))))
+        // An unrelated turn's interrupted does not close the sync; the 1 s check still logs it.
+        d.now = d.now + .seconds(1)
+        #expect(diagnostics(d.send(.timer(.stopSync(.zero)))) == [.stopSyncNoInterrupt])
     }
 }

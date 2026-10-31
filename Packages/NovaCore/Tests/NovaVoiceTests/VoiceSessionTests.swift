@@ -210,3 +210,110 @@ struct ReconnectPolicyTests {
                 [.idle, .processing, .listening, .listening, .processing, .speaking, .processing, .error])
     }
 }
+
+@Suite("T-016h F-24 §14 wait for the network")
+struct NetworkWaitTests {
+    func attempts(_ h: SessionHarness) -> Int { h.connects.count }
+
+    @Test("F-24 §14 row 1: offline 60 s: waiting, zero attempts, one immediate attempt with the handle on restore")
+    func offlineThenRestore() {
+        var h = SessionHarness()
+        h.connected()
+        h.server(.resumptionHandle("h1"))
+        let before = attempts(h)
+        h.send(.networkLost)
+        #expect(h.session.state == .reconnecting && h.session.waitingForNetwork)
+        h.server(.failed(RealtimeError(.connection)))  // the dead socket's late error
+        h.advance(by: .seconds(60))
+        #expect(attempts(h) == before)
+        #expect(h.session.policy.attempts == 0)
+        h.send(.networkRestored)
+        #expect(attempts(h) == before + 1)
+        #expect(h.connects.last?.1 == "h1")
+        #expect(!h.session.waitingForNetwork)
+        h.server(.setupComplete)
+        #expect(h.session.state == .listening)
+        #expect(h.log.contains(.diagnostic(.resumed(handle: true))))
+        #expect(h.timers.isEmpty)
+    }
+
+    @Test("F-24 §14 row 2: online failures keep 5 attempts with backoff, then ERROR")
+    func onlineUnchanged() {
+        var h = SessionHarness()
+        h.connected()
+        h.server(.closed)
+        for _ in 0..<5 {
+            guard let (_, at) = h.timers[.reconnectDelay] else { break }
+            h.advance(by: at - h.now)
+            h.server(.failed(RealtimeError(.connection)))
+        }
+        #expect(h.session.state == .error)
+        #expect(h.connects.count == 6)
+    }
+
+    @Test("F-24 §14 row 3: lost after 3 failed online attempts, then restored: up to 5 more attempts")
+    func freshBudget() {
+        var h = SessionHarness()
+        h.connected()
+        h.server(.closed)
+        for _ in 0..<2 {
+            let (_, at) = h.timers[.reconnectDelay]!
+            h.advance(by: at - h.now)
+            h.server(.failed(RealtimeError(.connection)))
+        }
+        #expect(h.session.policy.attempts == 3)
+        h.send(.networkLost)
+        #expect(h.timers[.reconnectDelay] == nil)
+        h.send(.networkRestored)
+        let afterRestore = h.connects.count
+        h.server(.failed(RealtimeError(.connection)))
+        for _ in 0..<5 {
+            guard let (_, at) = h.timers[.reconnectDelay] else { break }
+            h.advance(by: at - h.now)
+            h.server(.failed(RealtimeError(.connection)))
+        }
+        #expect(h.connects.count == afterRestore + 5)
+        #expect(h.session.state == .error)
+    }
+
+    @Test("F-24 §14 row 4: an auth error stays ERROR when the network returns")
+    func terminalStays() {
+        var h = SessionHarness()
+        h.connected()
+        h.server(.failed(RealtimeError(.auth)))
+        #expect(h.session.state == .error)
+        let n = h.connects.count
+        h.send(.networkLost)
+        h.send(.networkRestored)
+        #expect(h.session.state == .error && h.connects.count == n)
+    }
+
+    @Test("F-24 §14 row 5: offline past the cap ends the session quietly")
+    func cap() {
+        var h = SessionHarness()
+        h.connected()
+        h.send(.networkLost)
+        h.advance(by: .seconds(599))
+        #expect(h.session.state == .reconnecting)
+        h.advance(by: .seconds(1))
+        #expect(h.session.state == .disconnected)
+        #expect(h.log.contains(.offlineEnded) && h.log.contains(.diagnostic(.offlineCapReached)))
+        #expect(h.session.resumptionHandle == nil && h.timers.isEmpty)
+        h.send(.networkRestored)
+        h.send(.start)
+        #expect(h.session.state == .connecting)
+    }
+
+    @Test("F-24 §14 row 6: start while offline connects on restore without a tap")
+    func startOffline() {
+        var h = SessionHarness()
+        h.send(.networkLost)
+        h.send(.start)
+        #expect(h.session.state == .reconnecting && h.session.waitingForNetwork && h.connects.isEmpty)
+        h.advance(by: .seconds(30))
+        h.send(.networkRestored)
+        #expect(h.connects.count == 1)
+        h.server(.setupComplete)
+        #expect(h.session.state == .listening)
+    }
+}

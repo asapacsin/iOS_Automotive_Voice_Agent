@@ -23,6 +23,12 @@ final class DriveModel: ObservableObject {
     @Published var driverLine = ""
     @Published var toolLine = ""
     @Published var running = false
+    /// F-04 §14 item 4: her reply or guidance is playing, so the microphone is ignored (「她在说话」).
+    @Published var sheTalks = false
+    /// F-08 §14 item 6: her reply (not guidance) plays, so 别说了 stops her: the hint under 「她在说话」.
+    @Published var stopHint = false
+    /// F-24 §14 item 4: the offline cap ended the session: 「网络已断开，点按重新开始」 until the next start.
+    @Published var networkEnded = false
     @Published var notice: String?
     // F-20a floating camera window
     @Published var cameraOpen = false
@@ -57,22 +63,19 @@ enum DriveSettings {
     static func usesDeviceLocation(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: useDeviceLocation) as? Bool ?? true
     }
-}
 
-/// 小诺's standing instruction for the Gemini Live session (≤ 4000 characters).
-enum Persona {
-    static let instruction = """
-    你是小诺，车载语音助手，用户正在开车。用简短、自然的普通话口语回答，一般一两句话，不用列表、不用表情。
-    规则：
-    1. 调空调、温度、风量、车窗、座椅、导航、天气和路况，一定要调用工具，并且只按工具返回的结果回答。没有调用工具或者工具失败时，绝不能说已经做好了。
-    2. 车辆控制是模拟车辆，结果以工具返回为准。
-    3. 工具返回 next 或 instruction 时照着做，只说一句。屏幕上已经显示的列表不要念出来。
-    4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具，系统会判断要不要反问。工具返回 AMBIGUOUS_REFERENT 时，只用一句话反问是哪一项，例如「是座椅还是温度？」，不要再调用工具。用户回答后再调用对应工具。
-    5. 有点热、太热了：调低一度温度。有点冷：调高一度。座位有点高：座椅降低一级。
-    6. 导航：「导航去X」用 navigate_to；用户说第几个、第几条、开始导航用 choose_navigation_option；结束或取消导航用 exit_navigation_mode。导航是模拟行驶。
-    7. 问「我现在在哪」「这是哪里」：调用 query_live_info（kind=current_location），只按返回的 address 回答；没有返回 LOCATION_PERMISSION_DENIED 就不要说没有定位权限。
-    8. 不知道的事情如实说不知道，不要编造。
-    """
+    /// F-15a 导航方式: 真实导航 (default) or 模拟导航; 演示起点 always simulates.
+    static let navigationMode = "navigation_mode"
+
+    static func navigationModeSetting(_ defaults: UserDefaults = .standard) -> NavigationModeSetting {
+        defaults.string(forKey: navigationMode).flatMap(NavigationModeSetting.init(rawValue:)) ?? .default
+    }
+
+    /// The trip's mode, read when a route is requested and when guidance starts.
+    static func naviMode(_ defaults: UserDefaults = .standard) -> NaviMode {
+        NavigationModeSetting.mode(navigationModeSetting(defaults),
+                                   source: usesDeviceLocation(defaults) ? .device : .demo)
+    }
 }
 
 /// Keychain Gemini key as the realtime credential (OQ-IOS-15: ephemeral tokens later).
@@ -118,6 +121,8 @@ struct RuntimeSink: AgentEffectSink {
     let gate: GateBox
     /// Reports `guidanceEnded` to the core for a sentence that never reached the guidance lane.
     let guidanceEnded: @Sendable (GuidanceID) async -> Void
+    /// F-24 §14 item 4: the offline cap ended the session; the runtime releases the microphone and audio session.
+    let offlineEnded: @Sendable () async -> Void
 
     func provider(_ command: ProviderCommand) async {
         switch command {
@@ -125,10 +130,17 @@ struct RuntimeSink: AgentEffectSink {
         case .close: await realtime.close()
         case .toolResponses(let responses): await realtime.sendToolResponses(responses)
         case .text(let turns, let complete): await realtime.sendText(turns, turnComplete: complete)
+        case .interruptReply:
+            realtime.sendEmptyActivity()
+            gate.stopped()
         }
     }
 
-    func flushPlayback(to epoch: Epoch) { audio.flush(to: epoch) }
+    func flushPlayback(to epoch: Epoch) {
+        audio.flush(to: epoch)
+        // F-04 §14: her reply stopped sounding (barge-in or void); the gate's echo tail starts now.
+        gate.setPlaying(reply: false)
+    }
     func cancelRevoicing(_ epoch: Epoch) async { await revoicer.cancel(newEpoch: epoch) }
     func newReply() async { await revoicer.newReply() }
     func speak(_ clause: String) async {
@@ -139,10 +151,11 @@ struct RuntimeSink: AgentEffectSink {
 
     func publish(_ view: AgentViewState) async {
         await MainActor.run { model.view = view }
+        if view.offlineEnded { await offlineEnded() }
     }
 
     func diagnostic(_ event: DiagnosticEvent) {
-        RuntimeLog.agent.notice("diagnostic \(String(describing: event), privacy: .public)")
+        RuntimeLog.agent.notice("\(event.logLine, privacy: .public)")
     }
 
     /// F-14 fallback voice: rendered off the core, played on the guidance lane. A sentence that cannot
@@ -197,11 +210,18 @@ struct SystemPhoneDialer: PhoneDialer {
     func dial(_ number: String) async -> Bool {
         let digits = number.filter { $0.isNumber || $0 == "+" }
         guard !digits.isEmpty, let url = URL(string: "tel://\(digits)") else { return false }
-        return await withCheckedContinuation { done in
+        // F-05 §14 item 3: an Apple completion handler; a repeat is dropped and logged.
+        let opened = try? await withCheckedThrowingContinuation { (done: CheckedContinuation<Bool, any Error>) in
+            let once = ResumeOnce(done)
             Task { @MainActor in
-                UIApplication.shared.open(url, options: [:]) { opened in done.resume(returning: opened) }
+                UIApplication.shared.open(url, options: [:]) { opened in
+                    if !once.resume(returning: opened) {
+                        RuntimeLog.agent.notice("\(CallbackSite.phoneDial.logLine, privacy: .public)")
+                    }
+                }
             }
         }
+        return opened ?? false
     }
 }
 
@@ -218,8 +238,12 @@ struct ObservedCameraExecutor: ToolExecutor {
     let runtime: AgentRuntime
 
     func execute(_ call: ToolCall) async -> ToolResult {
-        await runtime.askCamera(call.arguments["question"]?.stringValue ?? "",
-                                camera: call.arguments["camera"]?.stringValue.flatMap(CameraLens.init(rawValue:)))
+        // F-21 §15 item 5: whether the model asked for the camera, and how it went (no image, no answer text).
+        let lens = call.arguments["camera"]?.stringValue.flatMap(CameraLens.init(rawValue:))
+        RuntimeLog.agent.notice("toolCall name=describe_camera_view camera=\(lens?.rawValue ?? "default", privacy: .public)")
+        let result = await runtime.askCamera(call.arguments["question"]?.stringValue ?? "", camera: lens)
+        RuntimeLog.agent.notice("toolResult name=describe_camera_view ok=\(result.ok, privacy: .public) code=\(result.code?.rawValue ?? "none", privacy: .public)")
+        return result
     }
 }
 
@@ -227,6 +251,10 @@ struct ObservedCameraExecutor: ToolExecutor {
 @MainActor
 final class AgentRuntime {
     let model = DriveModel()
+
+    /// F-05a §12 item 7: the bundled speech models start loading when the app starts, off the main actor.
+    init() { LocalSpeechModels.shared.load() }
+
     /// T-061: 你好小诺 while idle starts a session (off in the simulator drive test).
     private lazy var wake = WakeListener { [weak self] in await self?.start() }
     private var core: AgentCore?
@@ -236,15 +264,22 @@ final class AgentRuntime {
     private var classifier: SoundAnalysisSpeechClassifier?
     /// F-04a: re-reads the 抗噪 switch when UserDefaults change during a session.
     private var defaultsObserver: NSObjectProtocol?
+    private var network: NetworkPathWatcher?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
     let camera = CameraSession()
     private lazy var cameraQuestions: CameraQuestionHandler = {
-        let geminiKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .geminiAPIKey) }
-        let qianfanKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qianfanKey) }
-        let vision = PreferredVision(gemini: GeminiVisionClient(key: geminiKey),
-                                     qianfan: QianfanVisionClient(key: qianfanKey, model: DriveSettings.qianfanVisionModel),
-                                     hasGeminiKey: { geminiKey()?.isEmpty == false })
+        func key(_ k: CredentialKey) -> @Sendable () -> String? { { try? KeychainCredentialStore().value(for: k) } }
+        func has(_ k: CredentialKey) -> @Sendable () -> Bool {
+            { ((try? KeychainCredentialStore().value(for: k)) ?? nil)?.isEmpty == false }
+        }
+        // F-20a §14 item 3: the one place the backend order is set (GLM → Gemini → Qianfan).
+        let vision = VisionChain([
+            VisionBackend(.glm, hasKey: has(.zhipuKey), port: GLMVisionClient(key: key(.zhipuKey))),
+            VisionBackend(.gemini, hasKey: has(.geminiAPIKey), port: GeminiVisionClient(key: key(.geminiAPIKey))),
+            VisionBackend(.qianfan, hasKey: has(.qianfanKey),
+                          port: QianfanVisionClient(key: key(.qianfanKey), model: DriveSettings.qianfanVisionModel)),
+        ], clock: SystemClock(), log: { line in RuntimeLog.agent.notice("\(line, privacy: .public)") })
         // F-20b: the 前方/后方 label follows a voice-driven switch before the still is taken.
         // Each change takes a number in the handler's order; a main-actor hop that arrives after a newer
         // one is ignored, so the label never ends on a stale lens.
@@ -327,8 +362,11 @@ final class AgentRuntime {
         return result
     }
 
-    /// The flow of the running session (background policy reads its phase).
+    /// The navigation flow (background policy reads its phase). F-15a §9 (T-040g): built once and owned by the
+    /// app, not by a voice session, so there is only ever one engine and one drive; sessions attach to it.
     private var navigation: NavigationController?
+    /// The app-owned trip: its engine, location source, saved places and the session currently listening.
+    private var trip: AppTrip?
 
     /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the
     /// dispatcher and executor of the voice choice and she announces its read-back.
@@ -352,9 +390,8 @@ final class AgentRuntime {
         let clock = SystemClock()
         let navigation = NavigationController(search: ScriptedPlaceSearch(), engine: ScriptedRouteEngine(),
                                               location: DemoLocation(clock: clock), clock: clock,
-                                              saved: SavedPlaces(settings: DefaultsSettingsStore())) { snapshot in
-            flags.continuation.yield(snapshot)
-        }
+                                              saved: SavedPlaces(settings: DefaultsSettingsStore()),
+                                              onChange: { snapshot in flags.continuation.yield(snapshot) })
         await navigation.start()
         self.navigation = navigation
         tasks.append(Task {
@@ -389,6 +426,9 @@ final class AgentRuntime {
     /// answered 「还没定位到」 for ~40 s indoors (phone log 2026-10-28). Paused in the background.
     private let navigationClock = SystemClock()
     private lazy var deviceLocation = CoreLocationProvider(clock: navigationClock)
+    /// F-16b: 我的位置 on the map, from the same providers and clock as the session (T-044c).
+    lazy var mapPosition = MapPositionModel(device: deviceLocation, demo: DemoLocation(clock: navigationClock),
+                                            clock: navigationClock)
 
     /// Starts location at launch when permission was already given, so the first question has a fix.
     /// A first-time permission is still asked at first need (F-23).
@@ -448,6 +488,7 @@ final class AgentRuntime {
     func start() async {
         guard !model.running else { return }
         model.notice = nil
+        model.networkEnded = false
         // F-23 (T-063): the microphone is asked at the first talk; a denial is explained.
         let mic: PermissionStatus = switch MicrophonePermission.current {
         case true?: .granted
@@ -497,7 +538,10 @@ final class AgentRuntime {
 
         let model = model
         let audio = LiveAudio()
-        let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials())
+        let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
+                                          connector: URLSessionWebSocketConnector(onDuplicate: { site in
+            RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
+        }))
         let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
         let navigationClock = self.navigationClock
         let device = deviceLocation
@@ -511,23 +555,15 @@ final class AgentRuntime {
             if scene == .background { await device.pause() }
             Task { await device.start() }
         }
-        let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
-        let web = AmapWebClient(key: amapKey)
-        let engine = AmapRouteEngine(key: amapKey, origin: {
-            // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise.
-            guard let fix = await location.latestFix(), LocationQuality.of(fix, at: navigationClock.now) != nil else {
-                return DriveSettings.demoOrigin
-            }
-            return CoordinateConverter.gcj02(fix.coordinate)
-        },
-                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
+        let trip = await appTrip(location: location)
+        let web = trip.web
+        let savedPlaces = trip.savedPlaces
+        let navigation = trip.navigation
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
-        let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
-        let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
-                                              saved: savedPlaces) { snapshot in
-            flags.continuation.yield(snapshot)
-        }
-        await navigation.start()
+        // This session listens to the trip from now on; it first sees the trip as it is (a drive that went
+        // on after the last session, F-15a §9 OQ-NAVM-5).
+        trip.listeners.attach(flags.continuation)
+        flags.continuation.yield(await navigation.current)
         self.navigation = navigation
         let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: vehicle), vehicle: vehicle, model: model)
         // F-18: weather cached 10 min, adcodes 30 min (T-033).
@@ -581,19 +617,51 @@ final class AgentRuntime {
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
         // F-21: the saved tone is read once here, at session start.
-        let instruction = PersonaInstruction.build(base: Persona.instruction, style: SpeakingStyle.saved(in: settings))
+        let instruction = PersonaInstruction.build(base: PersonaInstruction.base, style: SpeakingStyle.saved(in: settings))
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
-        config.activityDetection.manual = true
+        // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
+        config.activityDetection = .novaDrive
         let manual = config.activityDetection.manual
         let ended = CoreRelay()
         let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
-                               guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) })
+                               guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
+                               offlineEnded: { [weak self] in await self?.endedOffline() })
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
         ended.core = core
         self.core = core
+        // F-24 §14 item 1: the network path, only while this session exists.
+        // One consumer, so a quick lost/restored pair reaches the core in order.
+        let paths = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .unbounded)
+        tasks.append(Task { for await available in paths.stream { await core.send(.network(available: available)) } })
+        let network = NetworkPathWatcher { available in paths.continuation.yield(available) }
+        network.start()
+        self.network = network
+        // F-05a §12: the driver's words from the bundled sherpa-onnx recognizer (loaded once per app run);
+        // Gemini's guess only as a checked fallback (§5 S3) until it is loaded or if it fails.
+        let speechModels = LocalSpeechModels.shared
+        speechModels.load()
+        // The gate's marks and the driver's words reach the core through one stream, in the order they happened
+        // (F-08 §16: an utterance the words release is started before the words arrive).
+        let gateEvents = AsyncStream.makeStream(of: UplinkEvent.self, bufferingPolicy: .unbounded)
+        let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core,
+                                          clock: SystemClock()) { [gate] words, utterance in
+            let line: String? = switch words {
+            case .partial(let text), .final(let text): text
+            case .unclear: "（没听清）"
+            }
+            if let line { Task { @MainActor in model.driverLine = line } }
+            gate.words(words, utterance: utterance)
+            gateEvents.continuation.yield(.words(words))
+        }
+        tasks.append(Task { await transcript.listen() })
+        // Utterance marks and frames in capture order, so the recognizer gets exactly what goes up.
+        let transcriptInputs = AsyncStream.makeStream(of: DriverTranscript.Input.self, bufferingPolicy: .bufferingNewest(1024))
+        tasks.append(Task {
+            for await input in transcriptInputs.stream { await transcript.handle(input) }
+        })
         self.audio = audio
         speakLine = { line in
             if let pcm = try? await synthesizer.synthesize(line, style: .default, deadline: .seconds(6)) {
@@ -607,8 +675,9 @@ final class AgentRuntime {
         tasks.append(Task {
             for await event in provider.events {
                 switch event.event {
-                case .userTranscript(let text, _):
-                    await MainActor.run { model.driverLine = text }
+                case .userTranscript(let text, let isFinal):
+                    // F-05a: the subtitle comes from `DriverTranscript`; Gemini's text is its fallback only.
+                    await transcript.gemini(text, isFinal: isFinal)
                 case .failed(let error):
                     RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
                     await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
@@ -622,9 +691,29 @@ final class AgentRuntime {
         })
         tasks.append(Task {
             for await event in audio.events {
+                // F-04 §14: the gate hears whether she is talking first, then the core and the screen.
+                switch event {
+                case .replyStarted: gate.setPlaying(reply: true)
+                // replyFinished also fires between clauses; she stops talking only when nothing of the reply
+                // is left (replyIdle below), so the microphone is not unmuted in a pause mid-reply.
+                case .guidanceStarted: gate.setPlaying(guidance: true)
+                case .guidanceEnded: gate.setPlaying(guidance: false)
+                case .replyFinished, .mediaPlaying, .replyIdle: break
+                }
+                let talking = gate.sheTalks, hint = gate.stopPhraseWindow
+                await MainActor.run {
+                    model.sheTalks = talking
+                    model.stopHint = hint
+                }
                 await core.send(.playback(event))
                 // F-14: a fallback waits until nothing of her reply is left, at the revoicer or on the lane.
                 if case .replyFinished(let epoch) = event, await revoicer.pendingClauses == 0 {
+                    gate.setPlaying(reply: false)
+                    let talking = gate.sheTalks, hint = gate.stopPhraseWindow
+                    await MainActor.run {
+                        model.sheTalks = talking
+                        model.stopHint = hint
+                    }
                     await core.send(.playback(.replyIdle(epoch)))
                 }
             }
@@ -636,13 +725,6 @@ final class AgentRuntime {
             var overspeedID = GuidanceID(1 << 40)
             var overspeed = OverspeedMonitor(clock: SystemClock())
             for await snapshot in flags.stream {
-                let changed = await MainActor.run { () -> Bool in
-                    let changed = model.nav.phase != snapshot.phase
-                    model.nav = snapshot
-                    return changed
-                }
-                // Every phase change re-applies the policy (a failed route swap returns to idle too).
-                if changed { Task { await self.reevaluate() } }
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen)))
@@ -660,12 +742,22 @@ final class AgentRuntime {
             }
         })
         // Uplink: the local gate decides what is sent and tells the core when the driver speaks.
-        let gateEvents = AsyncStream.makeStream(of: UplinkGateOutput.self, bufferingPolicy: .bufferingNewest(512))
         tasks.append(Task {
-            for await output in gateEvents.stream {
+            for await event in gateEvents.stream {
+                let output: UplinkGateOutput
+                switch event {
+                case .words(let words):
+                    await core.send(.driverWords(words))
+                    continue
+                case .gate(let o): output = o
+                }
                 switch output {
-                case .speechStarted:
-                    await core.send(.speechStarted(recentSpeech: gate.recentSpeech))
+                case .speechStarted(let sent):
+                    // F-04 §14 item 1: the core follows the gate's decision, never re-checks it.
+                    await core.send(.speechStarted(recentSpeech: gate.recentSpeech, sentToModel: sent))
+                case .utterance(let record):
+                    // F-04 §14 item 7: numbers and enums only (I-8).
+                    RuntimeLog.agent.notice("\(record.logLine, privacy: .public)")
                 case .speechStopped:
                     await core.send(.speechStopped)
                 case .streamEnd:
@@ -678,11 +770,31 @@ final class AgentRuntime {
         })
         let route: @Sendable (UplinkGateOutput) -> Void = { output in
             // Activity marks go out here, on the capture queue, so activityStart precedes the pre-roll frames.
-            if manual, case .speechStarted = output { provider.sendActivityStart() }
-            if manual, case .speechStopped = output { provider.sendActivityEnd() }
-            if case .audio(let frame) = output { provider.sendAudio(frame) } else { gateEvents.continuation.yield(output) }
+            // F-04 §14 item 1: the gate decided at the utterance's start; its audio, activity marks and stream end
+            // follow that one decision.
+            let toModel = gate.follow(output)
+            if manual, toModel, case .speechStarted = output { provider.sendActivityStart() }
+            if manual, toModel, case .speechStopped = output { provider.sendActivityEnd() }
+            if case .audio(let frame) = output {
+                if toModel { provider.sendAudio(frame) }
+            } else if case .streamEnd = output, !toModel {
+                // Nothing of this utterance went up, so there is no stream to end.
+            } else {
+                gateEvents.continuation.yield(.gate(output))
+            }
         }
         gate.onOutput(route)
+        // F-08 §16: the recognizer hears every utterance as the gate cut it, held or not.
+        gate.onRaw({ output in
+            switch output {
+            case .speechStarted: transcriptInputs.continuation.yield(.begin)
+            case .speechStopped: transcriptInputs.continuation.yield(.end)
+            case .audio(let frame): transcriptInputs.continuation.yield(.frame(frame))
+            case .streamEnd, .utterance: break
+            }
+        }, wordsAvailable: {
+            if case .ready = speechModels.availability { true } else { false }
+        })
         // One capture only (ADR-006): the wake listener lets go of the mic before the session takes it.
         await wake.update(sessionRunning: true)
         // F-04a: the sound classifier confirms that an onset is a human voice; if it cannot start, the gate
@@ -704,14 +816,25 @@ final class AgentRuntime {
         tasks.append(Task { [model] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
-                let line = gate.diagnostics
-                await MainActor.run { model.noiseLine = line }
+                let line = gate.diagnostics + "\n" + speechModels.diagnostics
+                // The echo tail ends on a capture frame, not a playback event, so 请说 is refreshed here too.
+                let talking = gate.sheTalks, hint = gate.stopPhraseWindow
+                await MainActor.run {
+                    model.noiseLine = line
+                    if model.sheTalks != talking { model.sheTalks = talking }
+                    if model.stopHint != hint { model.stopHint = hint }
+                }
             }
         })
+        // F-08 §14 items 3–4: the stop-phrase spotter hears only her reply and its echo tail; a hit stops her.
+        let stopPhrases = StopPhraseFeed(models: speechModels) { hit in
+            Task { await core.send(.stopPhraseSpotted(hit)) }
+        }
         do {
             try audio.start { frame in
                 classifier.feed(frame)
-                gate.process(frame).forEach(route)
+                gate.process(frame)
+                stopPhrases.frame(frame, inWindow: gate.stopPhraseWindow)
             }
         } catch {
             model.notice = "麦克风启动失败"
@@ -723,12 +846,64 @@ final class AgentRuntime {
         model.running = true
     }
 
+    /// F-15a §9 (T-040g): the one trip of the app, built at the first session. The engine's location source is
+    /// the first session's switchable provider (it reads 位置来源 per request, so it stays right).
+    private func appTrip(location: SwitchableLocationProvider) async -> AppTrip {
+        if let trip { return trip }
+        let model = model
+        let navigationClock = self.navigationClock
+        let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
+        let web = AmapWebClient(key: amapKey)
+        let engine = AmapRouteEngine(key: amapKey, origin: {
+            // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise, but never in 真实导航
+            // (F-15a OQ-NAVM-2: no route rather than a fake start).
+            guard let fix = await location.latestFix(), LocationQuality.of(fix, at: navigationClock.now) != nil else {
+                return DriveSettings.naviMode() == .gps ? nil : DriveSettings.demoOrigin
+            }
+            return CoordinateConverter.gcj02(fix.coordinate)
+        },
+                                     location: location, clock: navigationClock,
+                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
+        let listeners = TripListeners()
+        let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
+        // The screen follows the trip with or without a session, in snapshot order.
+        let screen = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
+        Task { @MainActor [weak self] in
+            for await snapshot in screen.stream {
+                let changed = model.nav.phase != snapshot.phase
+                model.nav = snapshot
+                // Every phase change re-applies the policy (a failed route swap returns to idle too).
+                if changed { await self?.reevaluate() }
+            }
+        }
+        let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
+                                              saved: savedPlaces, mode: { DriveSettings.naviMode() }) { snapshot in
+            screen.continuation.yield(snapshot)
+            // The running session, if any, gets the flags.
+            listeners.yield(snapshot)
+        }
+        await navigation.start()
+        let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners)
+        self.trip = trip
+        return trip
+    }
+
+    /// F-24 §14 item 4: the session ended quietly after the offline cap; the chip says why until the next start.
+    private func endedOffline() {
+        guard model.running else { return }
+        stop()
+        model.networkEnded = true
+    }
+
     func stop() {
         session += 1
+        network?.stop()
+        network = nil
+        // F-15a §9: the trip is the app's; it keeps going (HUD, marker, progress) with no session listening.
+        trip?.listeners.detach()
         // F-20a §5: session stop closes the camera.
         if model.cameraOpen { closeCamera() }
         speakLine = nil
-        navigation = nil
         lifecycle = nil
         guard let core else { return }
         let audio = audio
@@ -765,13 +940,88 @@ enum RuntimeLog {
     static let agent = Logger(subsystem: "com.asapacsin.novadrive", category: "agent")
 }
 
+/// What the uplink tells the core, in order: the gate's marks and the driver's words.
+enum UplinkEvent: Sendable {
+    case gate(UplinkGateOutput)
+    case words(DriverWords)
+}
+
 /// The uplink gate behind a lock; it runs on the capture thread.
 final class GateBox: @unchecked Sendable {
     private let lock = NSLock()
+    /// Held while outputs are computed and forwarded, so a release from the recognizer's thread and live capture
+    /// frames go up in order (`route` takes only `lock`).
+    private let order = NSLock()
     private var gate = SpeechUplinkGate()
+    /// F-08 §16: after a stop, what goes up waits for the phone's words.
+    private var hold = PostStopHold()
+    /// The recognizer hears every gate output, before the hold (so it can hear the words that release it).
+    private var raw: (@Sendable (UplinkGateOutput) -> Void)?
+    /// F-08 §16 item 2: whether the bundled recognizer can give words; without it nothing is held.
+    private var wordsAvailable: @Sendable () -> Bool = { false }
 
-    func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] { lock.withLock { gate.process(frame) } }
+    /// One captured frame: the recognizer gets the gate's outputs, the hold's go to `forward`.
+    func process(_ frame: PCMFrame16k) {
+        order.lock()
+        defer { order.unlock() }
+        let (gated, outputs, rawFeed, forward, logs) = lock.withLock {
+            let r = gate.process(frame)
+            return (r, hold.frame(r), self.raw, self.forward, hold.takeLogs())
+        }
+        gated.forEach { rawFeed?($0) }
+        outputs.forEach { forward?($0) }
+        logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
+    }
+
+    func onRaw(_ raw: @escaping @Sendable (UplinkGateOutput) -> Void, wordsAvailable: @escaping @Sendable () -> Bool) {
+        lock.withLock {
+            self.raw = raw
+            self.wordsAvailable = wordsAvailable
+        }
+    }
+
+    /// F-08 §16: the recognizer's words for utterance `id` (numbered like the gate's starts) may release a held one.
+    func words(_ words: DriverWords, utterance id: Int) {
+        order.lock()
+        defer { order.unlock() }
+        let (outputs, forward, logs) = lock.withLock {
+            let o: [UplinkGateOutput] = switch words {
+            case .partial(let text): hold.partial(text, utterance: id)
+            case .final(let text): hold.final(text, utterance: id)
+            case .unclear: hold.final("", utterance: id)
+            }
+            return (o, self.forward, hold.takeLogs())
+        }
+        outputs.forEach { forward?($0) }
+        logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
+    }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
+    /// 「她在说话」 on screen: the driver is not sent to the model (her reply, guidance or the echo tail).
+    var sheTalks: Bool { lock.withLock { gate.muteReason != .none } }
+    /// F-08 §14 item 3: the keyword spotter's window (her reply and its echo tail).
+    var stopPhraseWindow: Bool { lock.withLock { gate.stopPhraseWindow } }
+
+    /// F-04 §14 item 3: her playback state, written when it starts and stops, read by the gate at each frame.
+    /// F-08 §15 item 2 / §16 items 1–2: a stop ended her reply. The echo-tail mute ends, an open muted utterance is
+    /// held unsent to its pause, and the post-stop window starts.
+    func stopped() {
+        lock.withLock {
+            gate.endEchoTail()
+            let holding = gate.holdStopUtterance()
+            hold.stopped(holdingStopUtterance: holding, wordsAvailable: wordsAvailable())
+        }
+    }
+    func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
+        lock.withLock { gate.setPlaying(reply: reply, guidance: guidance) }
+    }
+    /// The gate's decision for the open utterance, as carried by its `speechStarted`; never decided here.
+    private var following = true
+    func follow(_ output: UplinkGateOutput) -> Bool {
+        lock.withLock {
+            if case .speechStarted(let sent) = output { following = sent }
+            return following
+        }
+    }
 
     /// F-04a: classifier results arrive on the classifier's queue; the lock orders them with frames.
     func classified(_ result: SpeechClassification) { lock.withLock { gate.classified(result) } }
@@ -816,7 +1066,13 @@ final class GateBox: @unchecked Sendable {
     /// F-08: closed while guidance sounds. Closing an open segment yields speechStopped, the closing
     /// silence and streamEnd, which go out exactly like frame outputs.
     func setForcedClosed(_ closed: Bool) {
-        let (outputs, forward) = lock.withLock { (gate.setForcedClosed(closed), self.forward) }
+        order.lock()
+        defer { order.unlock() }
+        let (raw, outputs, rawFeed, forward) = lock.withLock {
+            let r = gate.setForcedClosed(closed)
+            return (r, hold.pass(r), self.raw, self.forward)
+        }
+        raw.forEach { rawFeed?($0) }
         outputs.forEach { forward?($0) }
     }
 }
@@ -874,4 +1130,35 @@ enum AzureRegionProbe {
             return nil
         }
     }
+}
+
+/// F-15a §9 (T-040g): the app's one navigation flow and what it was built with.
+struct AppTrip {
+    let navigation: NavigationController
+    let web: AmapWebClient
+    let savedPlaces: SavedPlaces
+    let listeners: TripListeners
+}
+
+/// The trip's snapshots go to the voice session that is running, if any; none while no session is.
+final class TripListeners: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: AsyncStream<NavigationFlowState>.Continuation?
+
+    func attach(_ continuation: AsyncStream<NavigationFlowState>.Continuation) {
+        let old = lock.withLock { () -> AsyncStream<NavigationFlowState>.Continuation? in
+            defer { current = continuation }
+            return current
+        }
+        old?.finish()
+    }
+
+    func detach() {
+        lock.withLock { () -> AsyncStream<NavigationFlowState>.Continuation? in
+            defer { current = nil }
+            return current
+        }?.finish()
+    }
+
+    func yield(_ snapshot: NavigationFlowState) { _ = lock.withLock { current }?.yield(snapshot) }
 }

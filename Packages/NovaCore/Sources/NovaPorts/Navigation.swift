@@ -105,6 +105,10 @@ public enum NaviEngineEvent: Sendable, Hashable {
     case guidanceText(String, GuidanceID)
     case arrived
     case naviStopped
+    /// F-15a 真实导航: off route, a new route is being calculated from the current fix.
+    case rerouting
+    /// The recalculation finished: the new route, or nil when it failed and the old route stays.
+    case rerouted(RouteSummary?)
 }
 
 /// Every engine event carries the generation of the request it answers; stale ones are dropped.
@@ -125,6 +129,14 @@ public protocol NaviEngine: Sendable {
     func selectRoute(_ id: RouteID, generation: Generation) async
     func start(_ mode: NaviMode, generation: Generation) async
     func stop(generation: Generation) async
+    /// F-15a §2.5 (T-040h) 真实导航 route change: routes from the current position to the trip's destination, with
+    /// ids unused by earlier calculations, for `selectRoute` + `start`. The trip keeps driving its route meanwhile.
+    /// nil when it fails or the engine cannot recalculate.
+    func recalculateFromHere(generation: Generation) async -> [RouteSummary]?
+}
+
+public extension NaviEngine {
+    func recalculateFromHere(generation: Generation) async -> [RouteSummary]? { nil }
 }
 
 public struct LocationFix: Sendable, Hashable {

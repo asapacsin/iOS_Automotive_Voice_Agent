@@ -233,9 +233,9 @@ struct DriverTurnPipelineTests {
         var h = PipelineHarness()
         h.send(.driverUtterance("今天天气怎么样"))
         h.advance(by: .milliseconds(5999))
-        #expect(!h.out.contains(.reask(DriverTurnPipeline.reaskText)))
+        #expect(!h.out.contains { if case .reask = $0 { true } else { false } })
         h.advance(by: .milliseconds(1))
-        #expect(h.out.contains(.reask("请回应我刚才说的话。")))
+        #expect(h.out.contains(.reask("请回答我最新的这句话：「今天天气怎么样」")))
         h.advance(by: .milliseconds(3999))
         #expect(!h.out.contains(.gaveUp))
         h.advance(by: .milliseconds(1))
@@ -753,4 +753,15 @@ struct DriverTurnPipelineReview8Tests {
         #expect(m.corrections.isEmpty)
     }
 }
+}
+
+@Suite("T-040e F-15a row 4 (revised): a route-chosen claim is a navigation claim")
+struct RouteChosenClaimTests {
+    @Test("F-15a: 已选好路线 / 已经为你选 count as navigation claims, a negated one does not")
+    func chosen() {
+        for said in ["好的，已选好路线。", "已经为你选了最快的路线", "已为您选择最快的路线"] {
+            #expect(ClaimLexicon.claims(in: said).contains(.navigationStarted), "\(said)")
+        }
+        #expect(!ClaimLexicon.claims(in: "还没有选好路线").contains(.navigationStarted))
+    }
 }

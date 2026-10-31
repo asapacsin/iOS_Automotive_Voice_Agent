@@ -235,6 +235,19 @@ public final class GeminiLiveProvider: RealtimeProvider {
         }
     }
 
+    /// F-08 §15 item 1: `activityStart` and `activityEnd` back to back under the state lock, so no audio frame goes
+    /// between them; with `START_OF_ACTIVITY_INTERRUPTS` Gemini cancels the reply it is generating. Skipped while
+    /// a driver utterance is open (its own activityStart already interrupted).
+    public func sendEmptyActivity() {
+        guard let start = try? GeminiCodec.encode(GeminiCodec.activityStart),
+              let end = try? GeminiCodec.encode(GeminiCodec.activityEnd) else { return }
+        state.withLock { s in
+            guard !s.activityOpen, let socket = s.socket else { return }
+            socket.enqueue(String(decoding: start, as: UTF8.self))
+            socket.enqueue(String(decoding: end, as: UTF8.self))
+        }
+    }
+
     public func sendToolResponses(_ responses: [ToolResponse]) async { send(GeminiCodec.toolResponses(responses)) }
 
     public func sendText(_ turns: [TextTurn], turnComplete: Bool) async {

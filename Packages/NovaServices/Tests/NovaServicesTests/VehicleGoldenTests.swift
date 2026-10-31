@@ -224,17 +224,12 @@ struct AnnouncementTests {
         #expect(ActionAnnouncement.seat("set_height", .driver, 3, false) == "座椅调到了3档")
     }
 
-    @Test("F-11 打开天窗 is refused with UNSUPPORTED_BODY_PART and no window moves")
-    func sunroof() async {
-        let car = Car()
-        let executor = VehicleToolExecutor(port: car.port)
+    @Test("F-11 (superseded by F-05a §6, T-016d): the dispatcher judges a window call by its arguments, never the words")
+    func sunroofNotWordGuarded() {
         var dispatcher = ToolDispatcher()
         let open = ToolCall(id: CallID("c1")!, name: "control_window", arguments: ["action": "open", "window": "all"])
-        let context = GuardContext(requestText: "帮我把天窗打开。", currentEpoch: 1, capabilityEpoch: 1)
-        switch dispatcher.decide(open, context: context) {
-        case .refuse(let r): #expect(r.code == .unsupportedBodyPart)
-        case .execute(let c): _ = await executor.execute(c); Issue.record("window tool ran")
-        }
-        #expect(await car.port.cabinState() == .default)
+        #expect(dispatcher.decide(open, context: GuardContext(navigating: false, guidanceRunning: false, listOpen: false,
+                                                             savedPlaces: [], fromTap: false))
+                == .execute(open))
     }
 }
