@@ -79,6 +79,14 @@ struct CurrentTimeTests {
         #expect(kinds.contains(.string("current_time")))
     }
 
+    @Test("Half-hour zones format their offset: +05:30, -02:30")
+    func halfHourZones() throws {
+        let kolkata = CurrentTime.result(now: instant, zone: try #require(TimeZone(identifier: "Asia/Kolkata")))
+        #expect(field(kolkata, "utcOffset") == "+05:30" && field(kolkata, "time") == "17:38")
+        let stJohns = CurrentTime.result(now: instant, zone: try #require(TimeZone(identifier: "America/St_Johns")))
+        #expect(field(stJohns, "utcOffset") == "-02:30" && field(stJohns, "time") == "09:38")
+    }
+
     @Test("Periods: boundaries per item 2")
     func periods() {
         #expect([0, 4, 5, 7, 8, 9, 11, 12, 13, 17, 18, 23].map(CurrentTime.period)

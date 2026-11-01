@@ -1550,13 +1550,19 @@
     {
       "id": "T-046b",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §14: query_live_info kind=current_time (catalog enum + description + golden), pure result from injected clock and TimeZone.current (HH:mm 24h, period, Gregorian Chinese date, weekday, timeZone, utcOffset, next), persona rule line within 1500 chars, read-only/no wait cue, logs; rows 1-10",
       "depends_on": [
         "T-046a"
       ],
-      "notes": "Owner 2026-10-31 \"Yes, spec it\". Device 67118b2 ~20:08 CST: 现在几点 answered 12:08 (UTC); no time source in the app."
+      "notes": "Owner 2026-10-31 \"Yes, spec it\". Device 67118b2 ~20:08 CST: 现在几点 answered 12:08 (UTC); no time source in the app.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS (Linux, 2026-11-01)",
+        "independent read-only review high effort: PASS; notes 1-2 fixed",
+        "period: 8 o'clock hour is 早上 per row 2 (item 2 clarified; owner to confirm)",
+        "device rows 8-10 NOT_VERIFIED; Codemagic build pending"
+      ]
     }
   ]
 }

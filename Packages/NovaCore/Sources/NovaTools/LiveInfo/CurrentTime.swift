@@ -28,8 +28,8 @@ public enum CurrentTime {
         ])
     }
 
-    /// 凌晨 0–5, 早上 5–8, 上午 8–11, 中午 11–13, 下午 13–18, 晚上 18–24. The 8 o'clock hour is 早上, as acceptance row 2
-    /// reads it (08:08 早上).
+    /// 凌晨 0–5, 早上 5–9, 上午 9–11, 中午 11–13, 下午 13–18, 晚上 18–24 (end hour excluded). The 8 o'clock hour is 早上,
+    /// as acceptance row 2 reads it (08:08 早上).
     static func period(_ hour: Int) -> String {
         switch hour {
         case 0..<5: "凌晨"
