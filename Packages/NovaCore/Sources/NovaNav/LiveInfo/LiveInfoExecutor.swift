@@ -1,3 +1,4 @@
+import Foundation
 import NovaKit
 import NovaPorts
 import NovaTools
@@ -9,9 +10,15 @@ public struct LiveInfoExecutor: ToolExecutor {
     private let weather: (any WeatherService)?
     private let geocoder: (any ReverseGeocoder)?
     private let location: any LocationProvider
+    /// F-18 §14: the phone clock and time zone, read at each call.
+    private let now: @Sendable () -> Date
+    private let zone: @Sendable () -> TimeZone
 
     public init(navigation: NavigationController, weather: (any WeatherService)?, geocoder: (any ReverseGeocoder)?,
-                location: any LocationProvider) {
+                location: any LocationProvider, now: @escaping @Sendable () -> Date = { Date() },
+                zone: @escaping @Sendable () -> TimeZone = { TimeZone.current }) {
+        self.now = now
+        self.zone = zone
         self.navigation = navigation
         self.weather = weather
         self.geocoder = geocoder
@@ -26,6 +33,8 @@ public struct LiveInfoExecutor: ToolExecutor {
             return await weatherReport(call.arguments)
         case "current_location":
             return await currentLocation()
+        case "current_time":
+            return CurrentTime.result(now: now(), zone: zone(), arguments: call.arguments)
         case "along_route":
             return await navigation.alongRoute(category: call.arguments["category"]?.stringValue)
         case "place_details":

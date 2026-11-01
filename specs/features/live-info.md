@@ -84,7 +84,7 @@ says. She never guesses the time.
    the call, never cached:
    `{time: "20:08", period: "晚上", date: "2026年10月31日", weekday: "星期六", timeZone: "Asia/Shanghai",
    utcOffset: "+08:00", next: "只按 time 和 date 回答，一句话，比如「现在是晚上八点零八分」。"}`
-   - `time` is 24-hour `HH:mm` in the phone's time zone; `period` is one of 凌晨 (0–5), 早上 (5–8), 上午 (8–11),
+   - `time` is 24-hour `HH:mm` in the phone's time zone; `period` is one of 凌晨 (0–5), 早上 (5–8, the 8 o'clock hour included, as row 2), 上午 (9–11),
      中午 (11–13), 下午 (13–18), 晚上 (18–24); `date` and `weekday` use the Gregorian calendar, Chinese format,
      whatever the phone's language or calendar setting.
    - It works offline and needs no key, location or permission; it never fails except for an unknown argument

@@ -247,6 +247,19 @@ struct ObservedCameraExecutor: ToolExecutor {
     }
 }
 
+/// F-18 §14 item 5: which live-info kind the model asked for and the result code; never the values (I-8).
+struct ObservedLiveInfoExecutor: ToolExecutor {
+    let inner: LiveInfoExecutor
+
+    func execute(_ call: ToolCall) async -> ToolResult {
+        let kind = call.arguments["kind"]?.stringValue.flatMap { ToolCatalog.liveInfoKinds.contains($0) ? $0 : nil } ?? "other"
+        RuntimeLog.agent.notice("toolCall name=query_live_info kind=\(kind, privacy: .public)")
+        let result = await inner.execute(call)
+        RuntimeLog.agent.notice("toolResult name=query_live_info ok=\(result.ok, privacy: .public) code=\(result.code?.rawValue ?? "none", privacy: .public)")
+        return result
+    }
+}
+
 /// The composition root (ios-architecture §4): one live session with every adapter wired.
 @MainActor
 final class AgentRuntime {
@@ -579,7 +592,7 @@ final class AgentRuntime {
         executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: vehicle, music: music),
                                                                       vehicle: vehicle, model: model)
         for name in NavigationController.tools { executors[name] = navigation }
-        executors["query_live_info"] = liveInfo
+        executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
         executors["place_call"] = PhoneCallHandler(contacts: ContactsStore(), dialer: SystemPhoneDialer(), clock: SystemClock())
