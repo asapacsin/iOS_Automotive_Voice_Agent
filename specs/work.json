@@ -1561,7 +1561,7 @@
         "scripts/gates/run_all.sh PASS (Linux, 2026-11-01)",
         "independent read-only review high effort: PASS; notes 1-2 fixed",
         "period: 8 o'clock hour is 早上 per row 2 (item 2 clarified; owner to confirm)",
-        "device rows 8-10 NOT_VERIFIED; Codemagic build pending"
+        "device rows 8-10 NOT_VERIFIED; Codemagic build green on 0ed6299"
       ]
     },
     {
@@ -1576,7 +1576,7 @@
       "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. EchoSpike used .default and enabled voice processing before attaching the player.",
       "evidence": [
         "EchoSpike in LiveAudio's setup (voiceChat, player before voice processing, AGC/ducking/restart), volume + AGC matrix, peakDb; T-001 numbers flagged; review PASS",
-        "device row 12 NOT_VERIFIED; Codemagic build pending"
+        "device row 12 NOT_VERIFIED; Codemagic build green on 0ed6299"
       ]
     },
     {
@@ -1592,7 +1592,7 @@
       "evidence": [
         "BargeInCheck/BargeInShadow log-only, driver bar, her words as pinyin, bargeInShadow/wouldStopAt/levelCheck numbers only, echoTail 800 ms, muteEndedMidReply per model turn; unit rows 1-6; gates green; review PASS after fixes (0ab2d7c)",
         "row 3 嗯嗯: item 3 order gives noWords (filler) before echoWords; echo stage tested directly",
-        "device rows 9-11 NOT_VERIFIED; Codemagic build pending"
+        "device rows 9-11 NOT_VERIFIED; Codemagic build green on 0ed6299"
       ]
     },
     {
