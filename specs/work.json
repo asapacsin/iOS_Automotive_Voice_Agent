@@ -1563,6 +1563,39 @@
         "period: 8 o'clock hour is 早上 per row 2 (item 2 clarified; owner to confirm)",
         "device rows 8-10 NOT_VERIFIED; Codemagic build pending"
       ]
+    },
+    {
+      "id": "T-001a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-08 §17 items 1-2: EchoSpike matches LiveAudio (voiceChat, player attached before voice processing), volume and AGC matrix, peak in peakDb units; earlier T-001 numbers marked as not the app's setup; row 12",
+      "depends_on": [
+        "T-001"
+      ],
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. EchoSpike used .default and enabled voice processing before attaching the player."
+    },
+    {
+      "id": "T-022d",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-08 §17 items 3-8: pure BargeInCheck, driver level bar, recent words as pinyin, bargeInShadow and levelCheck logs with no words, echo tail 800 ms, muteEndedMidReply log; no other behaviour change; unit rows 1-6; device rows 9-11",
+      "depends_on": [
+        "T-022c"
+      ],
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. Device 0be787e 10:00:43 and 10:01:04: quiet sounds (peakDb 69, 64) with ASR partials were sent and answered."
+    },
+    {
+      "id": "T-022e",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 4,
+      "action": "F-08 §17 items 9-12, only after the owner approves T-022d's device numbers: setting off by default, 10 dB dip, buffered audio, stop on confirmed new words; unit rows 7-8; device rows 13-15",
+      "depends_on": [
+        "T-022d"
+      ],
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. Do not start until the owner approves rows 9-11 in specs/STATUS.md."
     }
   ]
 }
