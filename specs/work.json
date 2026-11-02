@@ -1598,7 +1598,7 @@
     {
       "id": "T-022e",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 3,
       "action": "F-08 §17 items 9-12 and 14-16: setting off by default, 10 dB dip, buffered audio, stop on confirmed new words, new echoWords rule with word order; unit rows 7-8, 18 and row 3 still passing; device rows 13-17",
       "depends_on": [
@@ -1606,7 +1606,9 @@
       ],
       "notes": "Owner 2026-11-02 said yes to building now behind the setting, without waiting for T-022d's device numbers. On by default still needs owner approval of rows 9-11, 14, 16, 17.",
       "evidence": [
-        "implementation 8347888; gates green (475 tests); independent high-effort review in progress"
+        "BargeInLive behind 可以打断她（实验） (default off): 10 dB dip on early stages, kept audio released on wouldStop after core .bargeInStop flush (also between clauses), gate adopts the rest; cut at unmute held until judged (echo never sent); stop phrase / setting off / cap cancel and restore volume; word-order echoWords (runs of 3, 70%); unit rows 3, 7, 8, 18; gates green (481 tests); independent review PASS on third round (80fc1fc) + P1 fix",
+        "known, not fixed: spotter-stop vs wouldStop race (N3); guidance checked only at start (L2); core utterance counter +1 per live stop (L4); closed candidate dropped by next onset within its 2 s final wait (L5); two driverUtterance inputs on a carry release (P2); new candidate during carrying uses today's path (P3)",
+        "device rows 13-17 NOT_VERIFIED; Codemagic build pending; on by default needs owner approval of rows 9-11, 14, 16, 17"
       ]
     }
   ]

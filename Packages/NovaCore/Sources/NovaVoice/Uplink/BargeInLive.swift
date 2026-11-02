@@ -38,6 +38,8 @@ public struct BargeInLive: Sendable {
     private var cutAtUnmute = false
     /// Set by the raw cut start; the hold's matching `speechStarted(true)` begins the carried part.
     private var carryArmed = false
+    /// The cut's pre-roll frames, counted on the raw outputs (a post-stop hold may release more frames at once).
+    private var carrySkip = 0
 
     public var enabled = false
     private var state = State.idle
@@ -88,13 +90,15 @@ public struct BargeInLive: Sendable {
         var step = Step()
         // 1. Raw outputs: each `started` at its own `speechStarted` (the pre-roll after it is kept).
         var starts = events.filter { if case .started = $0 { true } else { false } }[...]
-        for output in raw {
+        for (i, output) in raw.enumerated() {
             if case .speechStarted = output, let start = starts.popFirst() {
                 if case .started(_, false) = start, cutAtUnmute,
                    case .keeping(let id, let since, let audio, true, true) = state {
                     // Her reply ended first and the early stages passed: hold the cut's utterance for the decision.
                     cutAtUnmute = false
                     carryArmed = true
+                    let after = raw[(i + 1)...].prefix { if case .audio = $0 { true } else { false } }.count
+                    carrySkip = max(0, after - 1)
                     state = .carrying(id: id, since: since, kept: audio, held: [], skip: 0)
                 } else {
                     handle([start], guidancePlaying: guidancePlaying, into: &step)
@@ -108,9 +112,8 @@ public struct BargeInLive: Sendable {
         for (i, output) in held.enumerated() {
             if carryArmed, case .speechStarted(true) = output, case .carrying(let id, let since, let kept, _, _) = state {
                 carryArmed = false
-                let rest = held[(i + 1)...]
-                let audioAfter = rest.prefix { if case .audio = $0 { true } else { false } }.count
-                state = .carrying(id: id, since: since, kept: kept, held: [output], skip: max(0, audioAfter - 1))
+                _ = i
+                state = .carrying(id: id, since: since, kept: kept, held: [output], skip: carrySkip)
                 continue
             }
             if case .carrying(let id, let since, let kept, var buffer, let skip) = state, buffer.first != nil {

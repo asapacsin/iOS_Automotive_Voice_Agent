@@ -412,5 +412,24 @@ struct BargeInLiveTests {
         let release = live.pass([], events: [.wouldStop(id: 2)], guidancePlaying: false)
         #expect(release.outputs == [.speechStarted(sentToModel: true), .audio(a)] && release.adopt)
     }
+
+    @Test("Review P1: a post-stop hold releasing the cut later with more frames: only the raw pre-roll is skipped")
+    func carrySkipFromRaw() {
+        var live = BargeInLive()
+        live.enabled = true
+        let a = frame(1), b = frame(2), n = frame(3), later = frame(4)
+        _ = live.frame([.speechStarted(sentToModel: false), .audio(a), .audio(b)],
+                       events: [.started(id: 1, candidate: true), .early(id: 1)], guidancePlaying: false)
+        let cut = UtteranceRecord(id: 1, startMs: 0, endMs: 0, endReason: .cutAtUnmute, sentToModel: false,
+                                  muteReason: .reply, peakDb: 85, noiseFloorDb: 40, classifierMax: 0.9)
+        // Raw: the cut with pre-roll b and the current frame n; the hold keeps the new start back.
+        _ = live.frame(raw: [.utterance(cut), .speechStarted(sentToModel: true), .audio(b), .audio(n)],
+                       held: [.utterance(cut)], events: [.started(id: 2, candidate: false)], guidancePlaying: false)
+        // Later the hold releases start, pre-roll, n and a later frame at once.
+        _ = live.frame(raw: [.audio(later)], held: [.speechStarted(sentToModel: true), .audio(b), .audio(n), .audio(later)],
+                       events: [], guidancePlaying: false)
+        let step = live.pass([], events: [.wouldStop(id: 1)], guidancePlaying: false)
+        #expect(step.outputs == [.speechStarted(sentToModel: true), .audio(a), .audio(b), .audio(n), .audio(later)])
+    }
 }
 
