@@ -1610,6 +1610,39 @@
         "known, not fixed: spotter-stop vs wouldStop race (N3); guidance checked only at start (L2); core utterance counter +1 per live stop (L4); closed candidate dropped by next onset within its 2 s final wait (L5); two driverUtterance inputs on a carry release (P2); new candidate during carrying uses today's path (P3)",
         "device rows 13-17 NOT_VERIFIED; Codemagic build pending; on by default needs owner approval of rows 9-11, 14, 16, 17"
       ]
+    },
+    {
+      "id": "T-031a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-12 §14 items 1-6: comfort test set of 55+ cases with held-out cases, outcome scorer, in-app runner over sendText, baseline on the fixed table; rows 1, 2, 7",
+      "depends_on": [
+        "T-031"
+      ],
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Keys stay in the app's settings; logs hold numbers and case ids only."
+    },
+    {
+      "id": "T-031b",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-12 §14 items 7-13: setting off by default, catalog variant without run_scenario, get_vehicle_state, goal prompt, VehicleActionPolicy on both paths, claims need an ok result of the named tool; rows 3-9",
+      "depends_on": [
+        "T-031a"
+      ],
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Off path stays byte-equal to the Android catalog. windowSpeedKmh and windowMaxAtSpeed are proposed values."
+    },
+    {
+      "id": "T-031c",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 4,
+      "action": "F-12 §14 items 14-15, only after the owner approves the numbers: model-chosen actions become the only path, table and run_scenario removed, F-09, F-12 and J5 updated",
+      "depends_on": [
+        "T-031b"
+      ],
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Do not start until the owner approves in specs/STATUS.md."
     }
   ]
 }
