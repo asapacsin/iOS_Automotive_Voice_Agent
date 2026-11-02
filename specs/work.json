@@ -1567,24 +1567,33 @@
     {
       "id": "T-001a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-08 §17 items 1-2: EchoSpike matches LiveAudio (voiceChat, player attached before voice processing), volume and AGC matrix, peak in peakDb units; earlier T-001 numbers marked as not the app's setup; row 12",
       "depends_on": [
         "T-001"
       ],
-      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. EchoSpike used .default and enabled voice processing before attaching the player."
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. EchoSpike used .default and enabled voice processing before attaching the player.",
+      "evidence": [
+        "EchoSpike in LiveAudio's setup (voiceChat, player before voice processing, AGC/ducking/restart), volume + AGC matrix, peakDb; T-001 numbers flagged; review PASS",
+        "device row 12 NOT_VERIFIED; Codemagic build pending"
+      ]
     },
     {
       "id": "T-022d",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-08 §17 items 3-8: pure BargeInCheck, driver level bar, recent words as pinyin, bargeInShadow and levelCheck logs with no words, echo tail 800 ms, muteEndedMidReply log; no other behaviour change; unit rows 1-6; device rows 9-11",
       "depends_on": [
         "T-022c"
       ],
-      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. Device 0be787e 10:00:43 and 10:01:04: quiet sounds (peakDb 69, 64) with ASR partials were sent and answered."
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. Device 0be787e 10:00:43 and 10:01:04: quiet sounds (peakDb 69, 64) with ASR partials were sent and answered.",
+      "evidence": [
+        "BargeInCheck/BargeInShadow log-only, driver bar, her words as pinyin, bargeInShadow/wouldStopAt/levelCheck numbers only, echoTail 800 ms, muteEndedMidReply per model turn; unit rows 1-6; gates green; review PASS after fixes (0ab2d7c)",
+        "row 3 嗯嗯: item 3 order gives noWords (filler) before echoWords; echo stage tested directly",
+        "device rows 9-11 NOT_VERIFIED; Codemagic build pending"
+      ]
     },
     {
       "id": "T-022e",
