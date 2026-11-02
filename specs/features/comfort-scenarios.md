@@ -118,3 +118,5 @@ Nobody publishes results for vague comfort requests such as 有蚊子, so this i
 | T-031a | Items 1–6: test set, scorer, runner, baseline on the table; rows 1, 2, 7 | unit, build, D |
 | T-031b | Items 7–13: setting, catalog, state tool, prompt, `VehicleActionPolicy`, specific claims; rows 3–6, 7–9 | unit, build, D |
 | T-031c | Items 14–15, **only after the owner approves the numbers**: make it the only path and remove the table | unit, build, D |
+
+**Trace.** No current test name contains F-12, so these tasks are not yet in specs/trace-ids.txt. T-031a names its tests with F-12 and adds `T-031a: F-12`; T-031b adds `T-031b: F-12 F-09` in the same way.
