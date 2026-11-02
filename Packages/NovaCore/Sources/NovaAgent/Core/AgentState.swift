@@ -35,6 +35,10 @@ public enum AgentEvent: Sendable, Hashable {
     case ui(UIIntent)
     /// F-08 §14 item 4 (T-022a): the on-phone keyword spotter heard a stop phrase while she talked.
     case stopPhraseSpotted(StopPhraseHit)
+    /// F-08 §17 item 11 (T-022e): the live check confirmed new words while she talked (setting on). Her reply is
+    /// flushed; the released utterance that follows (`speechStarted(sentToModel: true)`, whose activityStart cancels
+    /// her turn at Gemini) is the new question. Unlike a stop phrase, nothing is abandoned.
+    case bargeInStop
     /// F-24 §14 item 1: `NetworkPathWatcher` says the path went away (false) or came back (true).
     case network(available: Bool)
 }
@@ -384,6 +388,17 @@ public struct AgentState: Sendable {
         case .stopPhraseSpotted(let hit):
             // Nothing is sent to Gemini and no driver turn opens: the utterance stays unsent (F-04 §14 item 1).
             return stopPhrase(.kws, phrase: hit.phrase, score: hit.score, at: now) ?? []
+        case .bargeInStop:
+            let stop = bargeIn(.stopPhrase, at: now)
+            guard !stop.isEmpty else { return [] }
+            missCandidate = nil
+            arbiter.replyDrained()
+            var spoken: [AgentEffect] = []
+            if let waiting = waitingFallback {
+                waitingFallback = nil
+                spoken.append(.speakGuidance(waiting.text, waiting.id))
+            }
+            return stop + spoken + [.diagnostic(.bargeInStopped)] + arbiterChanged(at: now)
         case .ui(.choose(let row)):
             uiCount += 1
             let call = ToolCall(id: CallID("ui_\(uiCount)")!, name: "choose_navigation_option",

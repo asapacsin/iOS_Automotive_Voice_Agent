@@ -30,6 +30,7 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.azureVoice) private var azureVoice = DriveSettings.defaultVoice
     @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
     @AppStorage(DriveSettings.noiseSuppression) private var noiseSuppression = true
+    @AppStorage(DriveSettings.interruptible) private var interruptible = false
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
     @StateObject private var locationPermission = LocationPermission()
 
@@ -64,6 +65,9 @@ struct SettingsView: View {
                 Section("声音") {
                     Toggle("抗噪", isOn: $noiseSuppression)
                     Text("开：只有人声才会打开麦克风或打断小诺，喇叭、音乐、路噪不会。切换后立即生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Toggle("可以打断她（实验）", isOn: $interruptible)
+                    Text("开：她说话时你说出新的内容，她会先变小声，确认是你在说新问题后停下来回答你。关：只有「别说了」能让她停。导航播报不会被打断。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("位置来源") {

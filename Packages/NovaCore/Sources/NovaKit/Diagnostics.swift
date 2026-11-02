@@ -47,6 +47,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case abandonCleared
     /// F-08 §16 item 3: Gemini opened a turn after a stop with no utterance sent since; it is not spoken.
     case postStopTurnDropped
+    /// F-08 §17 item 11 (T-022e): confirmed new words ended her reply (setting on).
+    case bargeInStopped
 }
 
 public enum StopPhraseSource: String, Sendable, Hashable {
@@ -88,6 +90,7 @@ extension DiagnosticEvent {
         case reaskSuppressed
         case abandonCleared
         case postStopTurnDropped
+        case bargeInStopped
     }
 
     public var kind: Kind {
@@ -123,6 +126,7 @@ extension DiagnosticEvent {
         case .reaskSuppressed: .reaskSuppressed
         case .abandonCleared: .abandonCleared
         case .postStopTurnDropped: .postStopTurnDropped
+        case .bargeInStopped: .bargeInStopped
         }
     }
 }
@@ -146,6 +150,7 @@ extension DiagnosticEvent {
         case .reaskSuppressed: "reaskSuppressed reason=stop"
         case .abandonCleared: "abandonCleared reason=newUtterance"
         case .postStopTurnDropped: "postStopTurnDropped reason=noSentUtterance"
+        case .bargeInStopped: "bargeInStopped"
         default: "diagnostic \(self)"
         }
     }

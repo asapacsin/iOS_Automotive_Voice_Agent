@@ -56,6 +56,13 @@ enum DriveSettings {
     /// F-04a 抗噪: only a human voice opens the mic or interrupts her (default on).
     static let noiseSuppression = "noise_suppression"
 
+    /// F-08 §17 item 10 (T-022e) 「可以打断她（实验）」: talking over her can stop her (default off).
+    static let interruptible = "interruptible_experimental"
+
+    static func isInterruptible(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: interruptible) as? Bool ?? false
+    }
+
     static func usesNoiseSuppression(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: noiseSuppression) as? Bool ?? true
     }
@@ -772,6 +779,9 @@ final class AgentRuntime {
                 case .words(let words):
                     await core.send(.driverWords(words))
                     continue
+                case .bargeInStop:
+                    await core.send(.bargeInStop)
+                    continue
                 case .gate(let o): output = o
                 }
                 switch output {
@@ -807,6 +817,14 @@ final class AgentRuntime {
             }
         }
         gate.onOutput(route)
+        // F-08 §17 item 11 (T-022e): the dip is the reply node's volume; the stop reaches the core before the
+        // released utterance's speechStarted (same ordered stream).
+        gate.onBargeInAction { action in
+            switch action {
+            case .dip(let on): audio.setReplyDipped(on, byDb: BargeInLive.dipDb)
+            case .stop: gateEvents.continuation.yield(.bargeInStop)
+            }
+        }
         // F-08 §16: the recognizer hears every utterance as the gate cut it, held or not.
         gate.onRaw({ output in
             switch output {
@@ -823,11 +841,13 @@ final class AgentRuntime {
         // F-04a: the sound classifier confirms that an onset is a human voice; if it cannot start, the gate
         // keeps F-04 rules (it only confirms once a result has arrived).
         gate.setSuppression(DriveSettings.usesNoiseSuppression())
+        gate.setInterruptible(DriveSettings.isInterruptible())
         // §6: the 抗噪 switch also applies when changed mid-session.
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                   object: nil, queue: nil) { _ in
             gate.setSuppression(DriveSettings.usesNoiseSuppression())
+            gate.setInterruptible(DriveSettings.isInterruptible())
         }
         let classifier = SoundAnalysisSpeechClassifier()
         do {
@@ -968,6 +988,8 @@ enum RuntimeLog {
 enum UplinkEvent: Sendable {
     case gate(UplinkGateOutput)
     case words(DriverWords)
+    /// F-08 §17 item 11 (T-022e): confirmed new words; comes before the released utterance's marks.
+    case bargeInStop
 }
 
 /// The uplink gate behind a lock; it runs on the capture thread.
@@ -981,6 +1003,22 @@ final class GateBox: @unchecked Sendable {
     private var hold = PostStopHold()
     /// F-08 §17 (T-022d): log-only check of what would interrupt her; never changes an output.
     private var shadow = BargeInShadow()
+    /// F-08 §17 items 10–11 (T-022e): the live interruption behind 「可以打断她（实验）」.
+    private var live = BargeInLive()
+    /// What the shell does for a live interruption (dip, stop), called outside the lock and before the outputs.
+    private var onBargeIn: (@Sendable (BargeInAction) -> Void)?
+
+    func setInterruptible(_ on: Bool) { lock.withLock { live.enabled = on } }
+    func onBargeInAction(_ handler: @escaping @Sendable (BargeInAction) -> Void) { lock.withLock { onBargeIn = handler } }
+
+    /// One live step, under the lock: the gate sends the rest of an adopted utterance.
+    private func liveStep(_ outputs: [UplinkGateOutput], frame: Bool) -> BargeInLive.Step {
+        let events = shadow.takeEvents()
+        let step = frame ? live.frame(outputs, events: events, guidancePlaying: gate.guidancePlaying)
+            : live.pass(outputs, events: events, guidancePlaying: gate.guidancePlaying)
+        if step.adopt { gate.adoptOpenUtterance() }
+        return step
+    }
     /// The recognizer hears every gate output, before the hold (so it can hear the words that release it).
     private var raw: (@Sendable (UplinkGateOutput) -> Void)?
     /// F-08 §16 item 2: whether the bundled recognizer can give words; without it nothing is held.
@@ -990,15 +1028,20 @@ final class GateBox: @unchecked Sendable {
     func process(_ frame: PCMFrame16k) {
         order.lock()
         defer { order.unlock() }
-        let (gated, outputs, rawFeed, forward, logs) = lock.withLock {
+        let (gated, outputs, rawFeed, forward, logs, step, act) = lock.withLock {
             let r = gate.process(frame)
             // A stale classifier result is no result (item 3: no classifier result fails closed).
             shadow.frame(r, frame: frame, speechProbability: gate.classifierFresh ? gate.lastSpeechProbability : nil,
                          muteReason: gate.muteReason)
-            return (r, hold.frame(r), self.raw, self.forward, hold.takeLogs() + shadow.takeLogs())
+            let held = hold.frame(r)
+            let step = liveStep(r, frame: true)
+            return (r, held, self.raw, self.forward, hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step,
+                    self.onBargeIn)
         }
         gated.forEach { rawFeed?($0) }
         outputs.forEach { forward?($0) }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
         logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
     }
 
@@ -1018,7 +1061,7 @@ final class GateBox: @unchecked Sendable {
         }
         order.lock()
         defer { order.unlock() }
-        let (outputs, forward, logs) = lock.withLock {
+        let (outputs, forward, logs, step, act) = lock.withLock {
             switch words {
             case .partial(let text): shadow.partial(text, syllables: syllables, utterance: id)
             case .final(let text): shadow.final(text, syllables: syllables, utterance: id)
@@ -1029,9 +1072,12 @@ final class GateBox: @unchecked Sendable {
             case .final(let text): hold.final(text, utterance: id)
             case .unclear: hold.final("", utterance: id)
             }
-            return (o, self.forward, hold.takeLogs() + shadow.takeLogs())
+            let step = liveStep([], frame: false)
+            return (o, self.forward, hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step, self.onBargeIn)
         }
         outputs.forEach { forward?($0) }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
         logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
     }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
@@ -1119,13 +1165,16 @@ final class GateBox: @unchecked Sendable {
     func setForcedClosed(_ closed: Bool) {
         order.lock()
         defer { order.unlock() }
-        let (raw, outputs, rawFeed, forward) = lock.withLock {
+        let (raw, outputs, rawFeed, forward, step, act) = lock.withLock {
             let r = gate.setForcedClosed(closed)
             shadow.observe(r, muteReason: gate.muteReason)
-            return (r, hold.pass(r), self.raw, self.forward)
+            let held = hold.pass(r)
+            return (r, held, self.raw, self.forward, liveStep(r, frame: false), self.onBargeIn)
         }
         raw.forEach { rawFeed?($0) }
         outputs.forEach { forward?($0) }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
     }
 }
 

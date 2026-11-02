@@ -3,7 +3,7 @@ import Testing
 @testable import NovaPorts
 @testable import NovaVoice
 
-private let her = Set(BargeInCheck.syllables("珠海有很多好玩的地方"))
+private let her = BargeInCheck.syllables("珠海有很多好玩的地方")
 
 /// A candidate that passes every stage; each test breaks one.
 private func good(_ words: String = "不是明天") -> BargeInCheck.Candidate {
@@ -59,8 +59,7 @@ struct BargeInCheckTests {
         #expect(BargeInCheck.judge(good("不是明天")).reason == .wouldStop)
         // 嗯嗯 is one syllable: the echo stage rejects it. Run through all stages it already fails at noWords
         // (嗯 is a filler), which comes first in item 3's order.
-        let (new, total) = BargeInCheck.newSyllables("嗯嗯", her: her)
-        #expect(!BargeInCheck.isNew(new: new, total: total))
+        #expect(BargeInCheck.echoMeasure(BargeInCheck.syllables("嗯嗯"), her: her).isEcho)
         #expect(BargeInCheck.judge(good("嗯嗯")).reason == .noWords)
     }
 
@@ -84,7 +83,7 @@ struct BargeInCheckTests {
         shadow.final("不是明天", utterance: 1)
         let logs = shadow.takeLogs()
         #expect(logs == ["bargeInShadow 1 outcome=wouldStop reason=wouldStop peakDb=85 barDb=72 durationMs=1010 "
-                         + "firstWordMs=500 newSyllables=4 totalSyllables=4"])
+                         + "firstWordMs=500 newSyllables=4 runSyllables=0 totalSyllables=4"])
         for line in logs { #expect(!line.contains("明天") && !line.contains("珠海")) }
     }
 
@@ -179,5 +178,148 @@ struct BargeInCheckTests {
         shadow.final("好玩的地方", utterance: 2)
         shadow.frame([.utterance(r)], peakDb: 40, speechProbability: nil, muteReason: .reply)
         #expect(shadow.takeLogs().last?.contains("outcome=wouldStop") == true)
+    }
+
+    @Test("Row 18 / item 16: word-order echo rule on her text 「珠海有很多好玩的地方」")
+    func wordOrder() {
+        let text = "珠海有很多好玩的地方"
+        for echo in [text, "朱海有很多好完的地方", "好玩", "对对", "嗯嗯", "珠海有"] {
+            #expect(BargeInCheck.echoMeasure(echo, her: text).isEcho, "\(echo)")
+        }
+        for pass in ["珠海有多大", "珠海有什么好吃的", "珠海离澳门多远", "不是明天"] {
+            #expect(!BargeInCheck.echoMeasure(pass, her: text).isEcho, "\(pass)")
+        }
+        let m = BargeInCheck.echoMeasure("珠海有多大", her: text)
+        #expect(m.inRuns == 3 && m.total == 5)
+        #expect(BargeInCheck.echoMeasure("珠海有什么好吃的", her: text).inRuns == 3)
+    }
+
+    @Test("Row 18: a question growing 珠海有 → 珠海有多大 is echo first, wouldStop once the last syllable arrives")
+    func growingQuestion() {
+        var shadow = BargeInShadow()
+        shadow.herWords("珠海有很多好玩的地方")
+        for _ in 0..<400 { shadow.frame([], peakDb: 50, speechProbability: 0.1, muteReason: .reply) }
+        shadow.frame([.speechStarted(sentToModel: false)], peakDb: 85, speechProbability: 0.9, muteReason: .reply)
+        _ = shadow.takeEvents()
+        for _ in 0..<40 { shadow.frame([.audio(.silence)], peakDb: 85, speechProbability: 0.9, muteReason: .reply) }
+        for text in ["珠海", "珠海有", "珠海有多"] {
+            shadow.partial(text, utterance: 1)
+            shadow.frame([.audio(.silence)], peakDb: 85, speechProbability: 0.9, muteReason: .reply)
+        }
+        let before = shadow.takeEvents()
+        #expect(!before.contains(.wouldStop(id: 1)))
+        shadow.partial("珠海有多大", utterance: 1)
+        let after = shadow.takeEvents()
+        #expect(after.contains(.wouldStop(id: 1)))
+    }
+}
+
+// MARK: - T-022e live flow
+
+private func frame(_ v: Int16 = 1000) -> PCMFrame16k {
+    PCMFrame16k(samples: [Int16](repeating: v, count: PCMFrame16k.samplesPerFrame))!
+}
+
+@Suite("T-022e F-08 §17 live interruption")
+struct BargeInLiveTests {
+    @Test("Row 7: setting on, full pass: dip, then restore, stop, speechStarted, buffer from onset, live; bargeInStop")
+    func fullPass() {
+        var live = BargeInLive()
+        live.enabled = true
+        let a = frame(1), b = frame(2), c = frame(3)
+        // The gate's onset with its pre-roll; the candidate starts.
+        var step = live.frame([.speechStarted(sentToModel: false), .audio(a), .audio(b)],
+                              events: [.started(id: 1, candidate: true)], guidancePlaying: false)
+        #expect(step.actions.isEmpty && step.outputs.isEmpty)
+        step = live.frame([.audio(c)], events: [.early(id: 1)], guidancePlaying: false)
+        #expect(step.actions == [.dip(true)] && step.outputs.isEmpty)
+        step = live.pass([], events: [.wouldStop(id: 1)], guidancePlaying: false)
+        #expect(step.actions == [.dip(false), .stop])
+        #expect(step.outputs == [.speechStarted(sentToModel: true), .audio(a), .audio(b), .audio(c)])
+        #expect(step.adopt)
+        let stopLogs = live.takeLogs()
+        #expect(stopLogs.first?.hasPrefix("bargeInStop 1 heldMs=") == true)
+        // Live audio afterwards is the gate's own (adopted), not kept here.
+        step = live.frame([.audio(a)], events: [], guidancePlaying: false)
+        #expect(step.outputs.isEmpty && !live.keeping)
+    }
+
+    @Test("Row 7: the gate sends the rest of an adopted utterance and is not cut when her reply stops")
+    func adopt() {
+        var gate = SpeechUplinkGate(tuning: { var t = UplinkGateTuning(); t.speechConfirm = nil; return t }())
+        for _ in 0..<160 { _ = gate.process(frame(0)) }
+        gate.setPlaying(reply: true)
+        var out: [UplinkGateOutput] = []
+        for _ in 0..<30 { out += gate.process(frame(6000)) }
+        #expect(out.contains(.speechStarted(sentToModel: false)))
+        let adopted = gate.adoptOpenUtterance()
+        #expect(adopted)
+        gate.setPlaying(reply: false)
+        out = []
+        for _ in 0..<20 { out += gate.process(frame(6000)) }
+        #expect(!out.contains { if case .speechStarted = $0 { true } else { false } })
+        for _ in 0..<130 { out += gate.process(frame(0)) }
+        let record = out.compactMap { if case .utterance(let r) = $0 { r } else { nil } }.first
+        #expect(record?.sentToModel == true && record?.endReason == .silence)
+    }
+
+    @Test("Row 7: decided at the final after the close: start, buffer, then stopped and stream end")
+    func afterClose() {
+        var live = BargeInLive()
+        live.enabled = true
+        let a = frame(1)
+        _ = live.frame([.speechStarted(sentToModel: false), .audio(a)], events: [.started(id: 1, candidate: true)],
+                       guidancePlaying: false)
+        let r = UtteranceRecord(id: 1, startMs: 0, endMs: 0, endReason: .silence, sentToModel: false, muteReason: .reply,
+                                peakDb: 85, noiseFloorDb: 40, classifierMax: 0.9)
+        _ = live.frame([.speechStopped(.normal), .utterance(r), .audio(.silence)], events: [], guidancePlaying: false)
+        let step = live.pass([], events: [.wouldStop(id: 1)], guidancePlaying: false)
+        #expect(step.outputs == [.speechStarted(sentToModel: true), .audio(a), .speechStopped(.normal), .streamEnd])
+        #expect(!step.adopt)
+    }
+
+    @Test("Row 8: dip then no words: volume restored, nothing sent; setting off and guidance: no candidate")
+    func cancelled() {
+        var live = BargeInLive()
+        live.enabled = true
+        _ = live.frame([.speechStarted(sentToModel: false), .audio(frame())], events: [.started(id: 1, candidate: true)],
+                       guidancePlaying: false)
+        _ = live.frame([], events: [.early(id: 1)], guidancePlaying: false)
+        let step = live.pass([], events: [.rejected(id: 1, reason: .noWords)], guidancePlaying: false)
+        #expect(step.actions == [.dip(false)] && step.outputs.isEmpty && !step.adopt)
+        let cancelLogs = live.takeLogs()
+        #expect(cancelLogs == ["bargeInDipCancelled 1 reason=noWords"])
+
+        var off = BargeInLive()
+        _ = off.frame([.speechStarted(sentToModel: false)], events: [.started(id: 1, candidate: true)], guidancePlaying: false)
+        #expect(!off.keeping)
+        let offStep = off.pass([], events: [.early(id: 1), .wouldStop(id: 1)], guidancePlaying: false)
+        #expect(offStep == BargeInLive.Step())
+
+        var guidance = BargeInLive()
+        guidance.enabled = true
+        _ = guidance.frame([.speechStarted(sentToModel: false)], events: [.started(id: 1, candidate: true)],
+                           guidancePlaying: true)
+        #expect(!guidance.keeping)
+    }
+
+    @Test("Row 8: a new utterance or the 8 s cap drops what was kept")
+    func supersededAndCap() {
+        var live = BargeInLive()
+        live.enabled = true
+        _ = live.frame([.speechStarted(sentToModel: false)], events: [.started(id: 1, candidate: true)], guidancePlaying: false)
+        _ = live.frame([], events: [.early(id: 1)], guidancePlaying: false)
+        var step = live.frame([.speechStarted(sentToModel: true)], events: [.started(id: 2, candidate: false)],
+                              guidancePlaying: false)
+        #expect(step.actions == [.dip(false)] && !live.keeping)
+        // A late wouldStop for the dropped one does nothing.
+        let late = live.pass([], events: [.wouldStop(id: 1)], guidancePlaying: false)
+        #expect(late == BargeInLive.Step())
+
+        _ = live.frame([.speechStarted(sentToModel: false)], events: [.started(id: 3, candidate: true)], guidancePlaying: false)
+        for _ in 0..<800 { step = live.frame([.audio(frame())], events: [], guidancePlaying: false) }
+        #expect(live.keeping)
+        step = live.frame([.audio(frame())], events: [], guidancePlaying: false)
+        #expect(!live.keeping)
     }
 }

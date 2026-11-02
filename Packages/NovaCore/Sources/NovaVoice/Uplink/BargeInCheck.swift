@@ -10,7 +10,12 @@ public struct BargeInCheckTuning: Sendable, Hashable {
     public var minSpeech = NovaDuration.milliseconds(300)
     /// After `minSpeech` passed, words must show up within this (or in the final).
     public var wordDeadline = NovaDuration.seconds(1)
+    /// Item 16: fewer distinct syllables than this is echo.
     public var minNewSyllables = 2
+    /// Item 16: a run is this many consecutive syllables found in the same order in her words.
+    public var minEchoRun = 3
+    /// Item 16: syllables inside runs at least this share of all syllables is echo.
+    public var echoCoverage = 0.7
     /// The driver bar: median peak of recent sent utterances with words, minus this, clamped.
     public var levelMargin = 10
     public var barRange = 70...80
@@ -40,14 +45,14 @@ public enum BargeInCheck {
         /// Local ASR partials: time since the candidate started, and the text.
         public var partials: [(at: NovaDuration, text: String)]
         public var final: String?
-        /// Her recent words as toneless syllables.
-        public var herSyllables: Set<String>
+        /// Her recent words as toneless syllables, in arrival order (item 16).
+        public var herSyllables: [String]
         /// Syllables of the newest words (final, else latest partial with words), when already computed.
         public var wordSyllables: [String]?
 
         public init(sinceEngineStart: NovaDuration, classifierMax: Double?, peakDb: Int, barDb: Int,
                     duration: NovaDuration, partials: [(at: NovaDuration, text: String)] = [], final: String? = nil,
-                    herSyllables: Set<String> = [], wordSyllables: [String]? = nil) {
+                    herSyllables: [String] = [], wordSyllables: [String]? = nil) {
             self.sinceEngineStart = sinceEngineStart
             self.classifierMax = classifierMax
             self.peakDb = peakDb
@@ -65,12 +70,14 @@ public enum BargeInCheck {
         /// From the candidate's start to its first partial with words; nil when none.
         public var firstWordMs: Int64?
         public var newSyllables: Int
+        /// Item 16: syllables of the words inside runs of her words.
+        public var runSyllables: Int
         public var totalSyllables: Int
     }
 
     public static func judge(_ c: Candidate, tuning t: BargeInCheckTuning = BargeInCheckTuning()) -> Verdict {
         let wordPartial = c.partials.first { PostStopHold.hasWords($0.text, partial: true) }
-        var v = Verdict(reason: .wouldStop, firstWordMs: wordPartial?.at.milliseconds, newSyllables: 0, totalSyllables: 0)
+        var v = Verdict(reason: .wouldStop, firstWordMs: wordPartial?.at.milliseconds, newSyllables: 0, runSyllables: 0, totalSyllables: 0)
         func fail(_ r: BargeInReason) -> Verdict { v.reason = r; return v }
         if c.sinceEngineStart < t.settleWindow { return fail(.settling) }
         guard let p = c.classifierMax, p >= t.minSpeechProbability else { return fail(.notSpeech) }
@@ -86,23 +93,53 @@ public enum BargeInCheck {
         // The words so far: the final, else the newest partial with words (partials grow), never the first one.
         let latest = c.partials.last { PostStopHold.hasWords($0.text, partial: true) }?.text
         let words = finalWords ? c.final! : (latest ?? text)
-        let mine = Set(c.wordSyllables ?? syllables(words))
-        let (new, total) = (mine.subtracting(c.herSyllables).count, mine.count)
-        v.newSyllables = new
-        v.totalSyllables = total
-        if !isNew(new: new, total: total, tuning: t) { return fail(.echoWords) }
+        let echo = echoMeasure(c.wordSyllables ?? syllables(words), her: c.herSyllables, tuning: t)
+        v.newSyllables = echo.new
+        v.runSyllables = echo.inRuns
+        v.totalSyllables = echo.total
+        if echo.isEcho { return fail(.echoWords) }
         return v
     }
 
-    /// Item 3 `echoWords`: at least `minNewSyllables` distinct syllables not in her words, and at least half.
-    public static func isNew(new: Int, total: Int, tuning t: BargeInCheckTuning = BargeInCheckTuning()) -> Bool {
-        new >= t.minNewSyllables && new * 2 >= total
+    public struct EchoMeasure: Sendable, Hashable {
+        /// Distinct syllables, and those not in her words.
+        public var distinct: Int
+        public var new: Int
+        /// Syllables (with repeats) inside runs, and all syllables.
+        public var inRuns: Int
+        public var total: Int
+        public var isEcho: Bool
     }
 
-    /// Distinct syllables of `text` not in `her`, and all distinct syllables.
-    public static func newSyllables(_ text: String, her: Set<String>) -> (new: Int, total: Int) {
-        let mine = Set(syllables(text))
-        return (mine.subtracting(her).count, mine.count)
+    /// Item 16 `echoWords`: echo when fewer than `minNewSyllables` distinct syllables, none absent from her words,
+    /// or syllables inside runs (≥ `minEchoRun` consecutive, in her order) are at least `echoCoverage` of all.
+    public static func echoMeasure(_ mine: [String], her: [String],
+                                   tuning t: BargeInCheckTuning = BargeInCheckTuning()) -> EchoMeasure {
+        let herSet = Set(her)
+        let distinct = Set(mine)
+        let new = distinct.subtracting(herSet).count
+        var covered = [Bool](repeating: false, count: mine.count)
+        if !her.isEmpty, mine.count >= t.minEchoRun {
+            for i in mine.indices {
+                // The longest run of `mine` starting at i found consecutively anywhere in `her`.
+                var longest = 0
+                for j in her.indices where her[j] == mine[i] {
+                    var n = 0
+                    while i + n < mine.count, j + n < her.count, mine[i + n] == her[j + n] { n += 1 }
+                    longest = max(longest, n)
+                }
+                if longest >= t.minEchoRun { for k in i..<(i + longest) { covered[k] = true } }
+            }
+        }
+        let inRuns = covered.filter { $0 }.count
+        let total = mine.count
+        let echo = distinct.count < t.minNewSyllables || new == 0
+            || (total > 0 && Double(inRuns) >= t.echoCoverage * Double(total))
+        return EchoMeasure(distinct: distinct.count, new: new, inRuns: inRuns, total: total, isEcho: echo)
+    }
+
+    public static func echoMeasure(_ text: String, her: String) -> EchoMeasure {
+        echoMeasure(syllables(text), her: syllables(her))
     }
 
     /// Item 5: toneless pinyin syllables (Latin words kept lowercased), so a misheard form with a similar sound matches.
@@ -138,6 +175,22 @@ public struct BargeInShadow: Sendable {
         var final: String?
         var wordSyllables: [String]?
         var announced = false
+        var early = false
+    }
+
+    /// What the live flow (T-022e, `BargeInLive`) follows; the shadow log is the same either way.
+    public enum Event: Sendable, Hashable {
+        case started(id: Int, candidate: Bool)
+        /// Stages up to `tooShort` pass (item 11: lower her volume).
+        case early(id: Int)
+        case wouldStop(id: Int)
+        case rejected(id: Int, reason: BargeInReason)
+    }
+    private var events: [Event] = []
+
+    public mutating func takeEvents() -> [Event] {
+        defer { events.removeAll(keepingCapacity: true) }
+        return events
     }
 
     private let tuning: BargeInCheckTuning
@@ -173,6 +226,7 @@ public struct BargeInShadow: Sendable {
     /// talks, since text can arrive well before its audio plays.
     public mutating func herWords(syllables: [String]) {
         her.append((now, syllables))
+        herChanged()
         herTurnEnded = nil
     }
 
@@ -181,7 +235,9 @@ public struct BargeInShadow: Sendable {
     /// Her reply finished playing; her words are forgotten `echoWindow` later.
     public mutating func herTurnEnd() { herTurnEnded = now }
 
-    private var herSyllables: Set<String> { Set(her.flatMap(\.syllables)) }
+    /// Her words in order, flattened once per change (the check runs on every frame of a candidate).
+    private var herSyllables: [String] = []
+    private mutating func herChanged() { herSyllables = her.flatMap(\.syllables) }
 
     /// One frame: the gate's outputs for it (raw, before the hold), the frame's level, the classifier's latest
     /// probability, and the gate's mute reason after it.
@@ -200,6 +256,11 @@ public struct BargeInShadow: Sendable {
             o.peakDb = max(o.peakDb, peakDb)
             if let p = speechProbability { o.classifierMax = max(o.classifierMax ?? 0, p) }
             open = o
+            if o.candidate, !o.early, o.sinceEngine >= tuning.settleWindow,
+               (o.classifierMax ?? 0) >= tuning.minSpeechProbability, o.peakDb >= barDb, now - o.start >= tuning.minSpeech {
+                open?.early = true
+                events.append(.early(id: o.id))
+            }
             if o.candidate, !o.announced, o.partials.contains(where: { PostStopHold.hasWords($0.text, partial: true) }) {
                 announceIfDecided()
             }
@@ -219,6 +280,7 @@ public struct BargeInShadow: Sendable {
                 utterance += 1
                 // Item 3: only while her reply plays; guidance and the echo tail never count.
                 open = Open(id: utterance, start: now, sinceEngine: now - engineStart, candidate: muteReason == .reply)
+                events.append(.started(id: utterance, candidate: muteReason == .reply))
             case .utterance(let record):
                 guard var o = open else { break }
                 o.closedAt = now
@@ -276,6 +338,7 @@ public struct BargeInShadow: Sendable {
               BargeInCheck.judge(candidate(o, duration: now - o.start), tuning: tuning).reason == .wouldStop else { return }
         o.announced = true
         open = o
+        events.append(.wouldStop(id: o.id))
         logs.append("wouldStopAt \(o.id) ms=\((now - o.start).milliseconds)")
     }
 
@@ -295,18 +358,25 @@ public struct BargeInShadow: Sendable {
         let duration = (o.closedAt ?? now) - o.start
         let v = BargeInCheck.judge(candidate(o, duration: duration), tuning: tuning)
         let outcome = v.reason == .wouldStop ? "wouldStop" : "rejected"
+        if v.reason == .wouldStop {
+            if !o.announced { events.append(.wouldStop(id: o.id)) }
+        } else if !o.announced {
+            events.append(.rejected(id: o.id, reason: v.reason))
+        }
         logs.append("bargeInShadow \(o.id) outcome=\(outcome) reason=\(v.reason.rawValue) peakDb=\(o.peakDb) barDb=\(barDb) "
                     + "durationMs=\(duration.milliseconds) firstWordMs=\(v.firstWordMs.map(String.init) ?? "-") "
-                    + "newSyllables=\(v.newSyllables) totalSyllables=\(v.totalSyllables)")
+                    + "newSyllables=\(v.newSyllables) runSyllables=\(v.runSyllables) totalSyllables=\(v.totalSyllables)")
     }
 
     private mutating func forget() {
         // A safety bound only: words are normally cleared `echoWindow` after her playback ends.
+        let before = her.count
         her.removeAll { now - $0.at > .seconds(120) }
         if let ended = herTurnEnded, now - ended >= tuning.echoWindow {
             her.removeAll()
             herTurnEnded = nil
         }
+        if her.count != before { herChanged() }
         unconfirmed = unconfirmed.filter { utterance - $0.key < 20 }
     }
 }

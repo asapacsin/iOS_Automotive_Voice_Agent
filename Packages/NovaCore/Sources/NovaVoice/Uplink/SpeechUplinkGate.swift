@@ -188,6 +188,17 @@ public struct SpeechUplinkGate: Sendable {
         return true
     }
 
+    /// F-08 §17 item 11 (T-022e): a live interruption was confirmed. The open muted utterance is sent from here
+    /// on (its earlier audio was released by `BargeInLive`) and is not cut when her reply stops. True when one was
+    /// open.
+    @discardableResult
+    public mutating func adoptOpenUtterance() -> Bool {
+        guard phase == .open, !sending else { return false }
+        sending = true
+        holdUntilPause = false
+        return true
+    }
+
     public mutating func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] {
         let rms = Self.rms(frame)
         let warmingUp = elapsed < tuning.warmUp

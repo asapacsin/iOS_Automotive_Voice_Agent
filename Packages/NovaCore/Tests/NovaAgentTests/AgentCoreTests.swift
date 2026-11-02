@@ -701,3 +701,27 @@ struct StopSyncTests {
         #expect(diagnostics(d.send(.timer(.stopSync(.zero)))) == [.stopSyncNoInterrupt])
     }
 }
+
+@Suite("T-022e F-08 §17 core: confirmed new words stop her")
+struct BargeInStopCoreTests {
+    func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {
+        out.compactMap { if case .diagnostic(let e) = $0 { e } else { nil } }
+    }
+
+    @Test("Row 7: bargeInStop flushes her reply without an empty activity; the released utterance is a driver turn")
+    func stop() {
+        var d = SendDecisionTests().playing()
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        let out = d.send(.bargeInStop)
+        #expect(out.contains { if case .flushPlayback = $0 { true } else { false } })
+        #expect(diagnostics(out).contains(.bargeInStopped))
+        // Its own activityStart cancels her turn at Gemini; no empty activity, nothing abandoned.
+        #expect(!out.contains { if case .provider = $0 { true } else { false } })
+        let started = d.send(.speechStarted(recentSpeech: true, sentToModel: true))
+        #expect(!diagnostics(started).contains(.abandonCleared))
+        #expect(!started.contains { if case .flushPlayback = $0 { true } else { false } })
+        // With her silent, a second stop does nothing.
+        #expect(d.send(.bargeInStop).isEmpty)
+    }
+}
+

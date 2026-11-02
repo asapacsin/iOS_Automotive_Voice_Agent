@@ -121,6 +121,11 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
 
     // MARK: PlaybackPort
 
+    /// F-08 §17 item 11 (T-022e): her reply lowered by `db` while a possible interruption is checked; it keeps playing.
+    public func setReplyDipped(_ dipped: Bool, byDb db: Double) {
+        reply.volume = dipped ? Float(pow(10, -db / 20)) : 1
+    }
+
     public func flush(to newEpoch: Epoch) {
         let finished: Epoch? = lock.withLock {
             let had = outstanding > 0 ? epoch : nil
