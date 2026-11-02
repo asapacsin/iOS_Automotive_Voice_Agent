@@ -283,7 +283,7 @@ public struct SpeechUplinkGate: Sendable {
     }
 
     /// dB relative to full scale, offset so that full scale is 96 (as 音频测试 shows it).
-    static func decibels(_ rms: Double) -> Int { Int((20 * log10(max(rms, 1) / 32_768) + 96).rounded()) }
+    public static func decibels(_ rms: Double) -> Int { Int((20 * log10(max(rms, 1) / 32_768) + 96).rounded()) }
 
     // MARK: F-04a speech confirmation
 
@@ -414,7 +414,7 @@ public struct SpeechUplinkGate: Sendable {
         if preRoll.count > keep { preRoll.removeFirst(preRoll.count - keep) }
     }
 
-    static func rms(_ frame: PCMFrame16k) -> Double {
+    public static func rms(_ frame: PCMFrame16k) -> Double {
         let sum = frame.samples.reduce(0.0) { $0 + Double($1) * Double($1) }
         return (sum / Double(frame.samples.count)).squareRoot()
     }

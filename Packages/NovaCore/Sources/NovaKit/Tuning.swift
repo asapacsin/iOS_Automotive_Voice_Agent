@@ -20,7 +20,8 @@ public struct UplinkGateTuning: Sendable, Hashable {
     /// Digital silence sent before `audioStreamEnd`.
     public var closingSilence = NovaDuration.milliseconds(1500)
     /// F-04 §14: her voice can still come back through the microphone this long after her playback ends.
-    public var echoTail = NovaDuration.milliseconds(500)
+    /// F-08 §17 item 7: 800 ms (one iOS field report: 300 ms leaked, 800 ms did not).
+    public var echoTail = NovaDuration.milliseconds(800)
     /// F-04a: speech confirmation by the sound classifier; nil = 抗噪 off (F-04 rules only).
     public var speechConfirm: SpeechConfirmTuning? = SpeechConfirmTuning()
     public init() {}

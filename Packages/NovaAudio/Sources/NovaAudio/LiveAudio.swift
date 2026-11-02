@@ -28,6 +28,10 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private var guidanceOutstanding = 0
     private var configObserver: NSObjectProtocol?
     private var running = false
+    private var restarted: (@Sendable () -> Void)?
+
+    /// F-08 §17 item 3: told each time the engine is restarted after a configuration change.
+    public func onEngineRestart(_ handler: @escaping @Sendable () -> Void) { lock.withLock { restarted = handler } }
 
     public init() {
         (events, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
@@ -74,6 +78,7 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             self.reply.play()
             self.guidance.play()
             if self.mediaPlaying { self.media.play() }
+            self.lock.withLock { self.restarted }?()
         }
         lock.withLock { running = true }
     }
