@@ -42,10 +42,12 @@ public enum BargeInCheck {
         public var final: String?
         /// Her recent words as toneless syllables.
         public var herSyllables: Set<String>
+        /// Syllables of the newest words (final, else latest partial with words), when already computed.
+        public var wordSyllables: [String]?
 
         public init(sinceEngineStart: NovaDuration, classifierMax: Double?, peakDb: Int, barDb: Int,
                     duration: NovaDuration, partials: [(at: NovaDuration, text: String)] = [], final: String? = nil,
-                    herSyllables: Set<String> = []) {
+                    herSyllables: Set<String> = [], wordSyllables: [String]? = nil) {
             self.sinceEngineStart = sinceEngineStart
             self.classifierMax = classifierMax
             self.peakDb = peakDb
@@ -54,6 +56,7 @@ public enum BargeInCheck {
             self.partials = partials
             self.final = final
             self.herSyllables = herSyllables
+            self.wordSyllables = wordSyllables
         }
     }
 
@@ -80,8 +83,11 @@ public enum BargeInCheck {
         let inTime = wordPartial.map { $0.at <= t.minSpeech + t.wordDeadline } ?? false
         let finalWords = c.final.map { PostStopHold.hasWords($0, partial: false) } ?? false
         if !inTime && !finalWords { return fail(.noWords) }
-        let words = finalWords ? c.final! : (wordPartial?.text ?? text)
-        let (new, total) = newSyllables(words, her: c.herSyllables)
+        // The words so far: the final, else the newest partial with words (partials grow), never the first one.
+        let latest = c.partials.last { PostStopHold.hasWords($0.text, partial: true) }?.text
+        let words = finalWords ? c.final! : (latest ?? text)
+        let mine = Set(c.wordSyllables ?? syllables(words))
+        let (new, total) = (mine.subtracting(c.herSyllables).count, mine.count)
         v.newSyllables = new
         v.totalSyllables = total
         if !isNew(new: new, total: total, tuning: t) { return fail(.echoWords) }
@@ -130,6 +136,7 @@ public struct BargeInShadow: Sendable {
         var partials: [(at: NovaDuration, text: String)] = []
         var closedAt: NovaDuration?
         var final: String?
+        var wordSyllables: [String]?
         var announced = false
     }
 
@@ -162,13 +169,16 @@ public struct BargeInShadow: Sendable {
     /// The audio engine started or restarted (item 3 `settling`).
     public mutating func engineStarted() { engineStart = now }
 
-    /// Her output transcription arrived.
-    public mutating func herWords(_ text: String) {
-        her.append((now, BargeInCheck.syllables(text)))
+    /// Her output transcription arrived, as syllables (computed by the caller outside any lock). Kept while she
+    /// talks, since text can arrive well before its audio plays.
+    public mutating func herWords(syllables: [String]) {
+        her.append((now, syllables))
         herTurnEnded = nil
     }
 
-    /// Her turn ended; her words are forgotten `echoWindow` later.
+    public mutating func herWords(_ text: String) { herWords(syllables: BargeInCheck.syllables(text)) }
+
+    /// Her reply finished playing; her words are forgotten `echoWindow` later.
     public mutating func herTurnEnd() { herTurnEnded = now }
 
     private var herSyllables: Set<String> { Set(her.flatMap(\.syllables)) }
@@ -190,6 +200,9 @@ public struct BargeInShadow: Sendable {
             o.peakDb = max(o.peakDb, peakDb)
             if let p = speechProbability { o.classifierMax = max(o.classifierMax ?? 0, p) }
             open = o
+            if o.candidate, !o.announced, o.partials.contains(where: { PostStopHold.hasWords($0.text, partial: true) }) {
+                announceIfDecided()
+            }
         }
         // A candidate whose final never comes is judged a final-wait after its close.
         while let first = waiting.first, let closed = first.closedAt, now - closed >= Self.finalWait {
@@ -209,6 +222,7 @@ public struct BargeInShadow: Sendable {
             case .utterance(let record):
                 guard var o = open else { break }
                 o.closedAt = now
+                o.peakDb = record.peakDb  // the logged peak matches the utterance line
                 open = nil
                 if o.candidate {
                     if o.final != nil { conclude(o) } else { waiting.append(o) }
@@ -225,32 +239,44 @@ public struct BargeInShadow: Sendable {
         }
     }
 
-    public mutating func partial(_ text: String, utterance id: Int) {
+    /// `syllables`: of `text`, computed by the caller outside any lock (nil: computed here).
+    public mutating func partial(_ text: String, syllables: [String]? = nil, utterance id: Int) {
+        let words = PostStopHold.hasWords(text, partial: true)
         if var o = open, o.id == id {
             o.partials.append((now - o.start, text))
-            if o.candidate, !o.announced, now - o.start >= tuning.minSpeech,
-               PostStopHold.hasWords(text, partial: true),
-               BargeInCheck.judge(candidate(o, duration: now - o.start), tuning: tuning).reason == .wouldStop {
-                o.announced = true
-                logs.append("wouldStopAt \(id) ms=\((now - o.start).milliseconds)")
-            }
+            if words { o.wordSyllables = syllables }
             open = o
+            if o.candidate, !o.announced, words { announceIfDecided() }
         } else if let i = waiting.firstIndex(where: { $0.id == id }) {
             waiting[i].partials.append((now - waiting[i].start, text))
+            if words, waiting[i].final == nil { waiting[i].wordSyllables = syllables }
         }
-        if PostStopHold.hasWords(text, partial: true) { confirmLevel(id) }
+        if words { confirmLevel(id) }
     }
 
-    public mutating func final(_ text: String, utterance id: Int) {
-        if PostStopHold.hasWords(text, partial: false) { confirmLevel(id) }
+    public mutating func final(_ text: String, syllables: [String]? = nil, utterance id: Int) {
+        let words = PostStopHold.hasWords(text, partial: false)
+        if words { confirmLevel(id) }
         if var o = open, o.id == id {
             o.final = text
+            if words { o.wordSyllables = syllables }
             open = o
+            if o.candidate, !o.announced { announceIfDecided() }
         } else if let i = waiting.firstIndex(where: { $0.id == id }) {
             var o = waiting.remove(at: i)
             o.final = text
+            if words { o.wordSyllables = syllables }
             conclude(o)
         }
+    }
+
+    /// Item 6: `wouldStopAt` once, when the open candidate first reaches `wouldStop` (on words or as time passes).
+    private mutating func announceIfDecided() {
+        guard var o = open, o.candidate, !o.announced, o.closedAt == nil, now - o.start >= tuning.minSpeech,
+              BargeInCheck.judge(candidate(o, duration: now - o.start), tuning: tuning).reason == .wouldStop else { return }
+        o.announced = true
+        open = o
+        logs.append("wouldStopAt \(o.id) ms=\((now - o.start).milliseconds)")
     }
 
     private mutating func confirmLevel(_ id: Int) {
@@ -262,7 +288,7 @@ public struct BargeInShadow: Sendable {
     private func candidate(_ o: Open, duration: NovaDuration) -> BargeInCheck.Candidate {
         BargeInCheck.Candidate(sinceEngineStart: o.sinceEngine, classifierMax: o.classifierMax, peakDb: o.peakDb,
                                barDb: barDb, duration: duration, partials: o.partials, final: o.final,
-                               herSyllables: herSyllables)
+                               herSyllables: herSyllables, wordSyllables: o.wordSyllables)
     }
 
     private mutating func conclude(_ o: Open) {
@@ -275,7 +301,8 @@ public struct BargeInShadow: Sendable {
     }
 
     private mutating func forget() {
-        her.removeAll { now - $0.at > tuning.echoWindow }
+        // A safety bound only: words are normally cleared `echoWindow` after her playback ends.
+        her.removeAll { now - $0.at > .seconds(120) }
         if let ended = herTurnEnded, now - ended >= tuning.echoWindow {
             her.removeAll()
             herTurnEnded = nil
@@ -291,6 +318,10 @@ public struct MuteEndWatch: Sendable {
 
     /// The reply mute ended for `epoch`.
     public mutating func muteEnded(_ epoch: Epoch) { endedFor = epoch }
+
+    /// A new model turn began: reply audio from now on is a new reply, not the rest of the last one (the epoch
+    /// changes only on a flush, so it does not mark turns).
+    public mutating func newTurn() { endedFor = nil }
 
     /// Reply audio of `epoch` started; the log line when the mute had already ended for it.
     public mutating func replyStarted(_ epoch: Epoch) -> String? {

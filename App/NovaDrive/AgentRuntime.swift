@@ -693,8 +693,8 @@ final class AgentRuntime {
                     await transcript.gemini(text, isFinal: isFinal)
                 case .replyText(_, let text):
                     gate.herWords(text)  // F-08 §17 item 5, in memory only
-                case .responseDone, .interrupted:
-                    gate.herTurnEnded()
+                case .responseStarted:
+                    gate.newModelTurn()
                 case .failed(let error):
                     RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
                     await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
@@ -707,10 +707,9 @@ final class AgentRuntime {
             }
         })
         tasks.append(Task {
-            var muteEnd = MuteEndWatch()
             for await event in audio.events {
                 // F-08 §17 item 8: reply audio of a turn whose mute already ended.
-                if case .replyStarted(let epoch) = event, let line = muteEnd.replyStarted(epoch) {
+                if case .replyStarted(let epoch) = event, let line = gate.replyAudioStarted(epoch) {
                     RuntimeLog.agent.notice("\(line, privacy: .public)")
                 }
                 // F-04 §14: the gate hears whether she is talking first, then the core and the screen.
@@ -731,7 +730,8 @@ final class AgentRuntime {
                 // F-14: a fallback waits until nothing of her reply is left, at the revoicer or on the lane.
                 if case .replyFinished(let epoch) = event, await revoicer.pendingClauses == 0 {
                     gate.setPlaying(reply: false)
-                    muteEnd.muteEnded(epoch)
+                    gate.muteEnded(epoch)
+                    gate.herTurnEnded()  // F-08 §17 item 5: her words are forgotten echoWindow after playback ends
                     let talking = gate.sheTalks, hint = gate.stopPhraseWindow
                     await MainActor.run {
                         model.sheTalks = talking
@@ -992,7 +992,9 @@ final class GateBox: @unchecked Sendable {
         defer { order.unlock() }
         let (gated, outputs, rawFeed, forward, logs) = lock.withLock {
             let r = gate.process(frame)
-            shadow.frame(r, frame: frame, speechProbability: gate.lastSpeechProbability, muteReason: gate.muteReason)
+            // A stale classifier result is no result (item 3: no classifier result fails closed).
+            shadow.frame(r, frame: frame, speechProbability: gate.classifierFresh ? gate.lastSpeechProbability : nil,
+                         muteReason: gate.muteReason)
             return (r, hold.frame(r), self.raw, self.forward, hold.takeLogs() + shadow.takeLogs())
         }
         gated.forEach { rawFeed?($0) }
@@ -1009,13 +1011,18 @@ final class GateBox: @unchecked Sendable {
 
     /// F-08 §16: the recognizer's words for utterance `id` (numbered like the gate's starts) may release a held one.
     func words(_ words: DriverWords, utterance id: Int) {
+        // F-08 §17: pinyin conversion is slow; never under the lock every capture frame needs.
+        let syllables: [String]? = switch words {
+        case .partial(let text), .final(let text): BargeInCheck.syllables(text)
+        case .unclear: nil
+        }
         order.lock()
         defer { order.unlock() }
         let (outputs, forward, logs) = lock.withLock {
             switch words {
-            case .partial(let text): shadow.partial(text, utterance: id)
-            case .final(let text): shadow.final(text, utterance: id)
-            case .unclear: shadow.final("", utterance: id)
+            case .partial(let text): shadow.partial(text, syllables: syllables, utterance: id)
+            case .final(let text): shadow.final(text, syllables: syllables, utterance: id)
+            case .unclear: shadow.final("", syllables: [], utterance: id)
             }
             let o: [UplinkGateOutput] = switch words {
             case .partial(let text): hold.partial(text, utterance: id)
@@ -1048,8 +1055,16 @@ final class GateBox: @unchecked Sendable {
     }
     /// F-08 §17 items 3 and 5: the engine (re)started; her words and the end of her turn. Kept as syllables only.
     func engineStarted() { lock.withLock { shadow.engineStarted() } }
-    func herWords(_ text: String) { lock.withLock { shadow.herWords(text) } }
+    func herWords(_ text: String) {
+        let syllables = BargeInCheck.syllables(text)  // outside the lock
+        lock.withLock { shadow.herWords(syllables: syllables) }
+    }
     func herTurnEnded() { lock.withLock { shadow.herTurnEnd() } }
+    /// F-08 §17 item 8: reply audio of a turn whose mute already ended.
+    private var muteEnd = MuteEndWatch()
+    func muteEnded(_ epoch: Epoch) { lock.withLock { muteEnd.muteEnded(epoch) } }
+    func replyAudioStarted(_ epoch: Epoch) -> String? { lock.withLock { muteEnd.replyStarted(epoch) } }
+    func newModelTurn() { lock.withLock { muteEnd.newTurn() } }
     /// The gate's decision for the open utterance, as carried by its `speechStarted`; never decided here.
     private var following = true
     func follow(_ output: UplinkGateOutput) -> Bool {

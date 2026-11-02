@@ -130,5 +130,54 @@ struct BargeInCheckTests {
         #expect(watch.replyStarted(e) == "muteEndedMidReply epoch=3")
         watch.muteEnded(e)
         #expect(watch.replyStarted(e.next()) == nil)
+        // Back-to-back replies keep the epoch; a new model turn between them is not mid-reply.
+        watch.muteEnded(e)
+        watch.newTurn()
+        #expect(watch.replyStarted(e) == nil)
+    }
+
+    @Test("Row 3/4: growing partials 我 → 我问 → 我问的是明天 reach wouldStop mid-utterance; firstWordMs from the first")
+    func growingPartials() {
+        var shadow = BargeInShadow()
+        shadow.herWords("珠海有很多好玩的地方")
+        for _ in 0..<400 { shadow.frame([], peakDb: 50, speechProbability: 0.1, muteReason: .reply) }
+        shadow.frame([.speechStarted(sentToModel: false)], peakDb: 85, speechProbability: 0.9, muteReason: .reply)
+        for (n, text) in [(39, "我"), (20, "我问"), (20, "我问的是明天")] {
+            for _ in 0..<n { shadow.frame([.audio(.silence)], peakDb: 85, speechProbability: 0.9, muteReason: .reply) }
+            shadow.partial(text, utterance: 1)
+        }
+        #expect(shadow.takeLogs() == ["wouldStopAt 1 ms=590"])
+        let record = UtteranceRecord(id: 1, startMs: 0, endMs: 0, endReason: .cutAtUnmute, sentToModel: false,
+                                     muteReason: .reply, peakDb: 85, noiseFloorDb: 40, classifierMax: 0.9)
+        shadow.frame([.utterance(record)], peakDb: 40, speechProbability: nil, muteReason: .none)
+        // No final comes: judged 2 s after the close on the newest partial.
+        for _ in 0..<200 { shadow.frame([], peakDb: 40, speechProbability: nil, muteReason: .none) }
+        let line = shadow.takeLogs().first { $0.hasPrefix("bargeInShadow") }
+        #expect(line?.contains("outcome=wouldStop") == true)
+        #expect(line?.contains("firstWordMs=390") == true)
+    }
+
+    @Test("Item 5: her words stay while she talks and are forgotten 10 s after her playback ends")
+    func herMemory() {
+        var shadow = BargeInShadow()
+        shadow.herWords("珠海有很多好玩的地方")
+        // 15 s of her talking: still remembered (echo stage rejects her own words).
+        for _ in 0..<1500 { shadow.frame([], peakDb: 50, speechProbability: 0.1, muteReason: .reply) }
+        shadow.frame([.speechStarted(sentToModel: false)], peakDb: 85, speechProbability: 0.9, muteReason: .reply)
+        for _ in 0..<50 { shadow.frame([], peakDb: 85, speechProbability: 0.9, muteReason: .reply) }
+        shadow.partial("好玩的地方", utterance: 1)
+        shadow.final("好玩的地方", utterance: 1)
+        let r = UtteranceRecord(id: 1, startMs: 0, endMs: 0, endReason: .silence, sentToModel: false, muteReason: .reply,
+                                peakDb: 85, noiseFloorDb: 40, classifierMax: 0.9)
+        shadow.frame([.utterance(r)], peakDb: 40, speechProbability: nil, muteReason: .reply)
+        #expect(shadow.takeLogs().last?.contains("reason=echoWords") == true)
+        // Her playback ends; 10 s later the same words are new.
+        shadow.herTurnEnd()
+        for _ in 0..<1000 { shadow.frame([], peakDb: 50, speechProbability: 0.1, muteReason: .none) }
+        shadow.frame([.speechStarted(sentToModel: false)], peakDb: 85, speechProbability: 0.9, muteReason: .reply)
+        for _ in 0..<50 { shadow.frame([], peakDb: 85, speechProbability: 0.9, muteReason: .reply) }
+        shadow.final("好玩的地方", utterance: 2)
+        shadow.frame([.utterance(r)], peakDb: 40, speechProbability: nil, muteReason: .reply)
+        #expect(shadow.takeLogs().last?.contains("outcome=wouldStop") == true)
     }
 }
