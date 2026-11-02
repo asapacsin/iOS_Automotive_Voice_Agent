@@ -115,6 +115,7 @@ struct ComfortEvalTests {
         #expect(on != PersonaInstruction.base)
         #expect(!on.contains("车内场景（有蚊子、闷、困）"))
         #expect(!on.contains("有点热、太热了：调低一度温度"))
+        #expect(on.contains(PersonaInstruction.modelComfortRule))
         #expect(on.contains("get_vehicle_state"))
         #expect(on.contains("我朋友车里有蚊子"))
         #expect(on.contains("服务区"))

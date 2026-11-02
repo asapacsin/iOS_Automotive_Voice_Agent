@@ -1,3 +1,4 @@
+import Foundation
 import NovaKit
 /// What a reply claims to have done (`A/voice/ActionClaimGuard.kt`).
 public enum ClaimKind: String, Sendable, Hashable {
@@ -66,15 +67,20 @@ public enum ClaimLexicon {
     }
 
     /// PROPOSED word lists; words from comfort-eval failures are added here.
+    /// PROPOSED word lists; words from comfort-eval failures are added here. Compound words only: a bare 风 or 度
+    /// would match 通风, 风格, 高度 or 速度 and disprove honest replies.
     static let topicWords: [Topic: [String]] = [
         .windows: ["车窗", "窗户", "窗"],
-        .climate: ["空调", "温度", "冷气", "制冷", "暖气", "度"],
-        .fan: ["风量", "风速", "吹风", "风"],
+        .climate: ["空调", "温度", "冷气", "暖气", "制冷", "制热"],
+        .fan: ["风量", "风速", "风扇", "风力", "吹风"],
         .music: ["音乐", "歌", "曲子"],
     ]
 
     static func topics(of clause: String) -> Set<Topic> {
-        Set(Topic.allCases.filter { topic in topicWords[topic]!.contains(where: clause.contains) })
+        var found = Set(Topic.allCases.filter { topic in topicWords[topic]!.contains(where: clause.contains) })
+        // 「调到了22度」: a number of degrees is a temperature.
+        if clause.range(of: "[0-9０-９一二三四五六七八九十两]+度", options: .regularExpression) != nil { found.insert(.climate) }
+        return found
     }
 
     /// The topics named by the claiming clauses of `text` (negated clauses claim nothing).

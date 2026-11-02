@@ -41,6 +41,11 @@ struct ClaimTopicTests {
     func topics() {
         #expect(ClaimLexicon.claimedTopics(in: "车窗打开了，空调没能打开") == [.windows])
         #expect(ClaimLexicon.claimedTopics(in: "搞定了") == [])
+        // Review: compound words only, so honest replies are not disproven.
+        #expect(ClaimLexicon.unbackedTopics(in: "已为您打开车窗通风", proofs: [("control_window", [:])]).isEmpty)
+        #expect(ClaimLexicon.claimedTopics(in: "座椅已调到合适的高度") == [])
+        #expect(ClaimLexicon.claimedTopics(in: "已为你换成温柔风格") == [])
+        #expect(ClaimLexicon.claimedTopics(in: "调到了22度") == [.climate])
         #expect(ClaimLexicon.claimedTopics(in: "风量调到了3档") == [.fan])
         #expect(ClaimLexicon.unbackedTopics(in: "风量调到了3档", proofs: [("control_climate", [:])]).isEmpty)
         #expect(ClaimLexicon.unbackedTopics(in: "车窗都开了一半，空调打开了",
