@@ -1649,9 +1649,21 @@
       "priority": 4,
       "action": "F-12 §14 items 14-15, only after the owner approves the numbers: model-chosen actions become the only path, table and run_scenario removed, F-09, F-12 and J5 updated",
       "depends_on": [
-        "T-031b"
+        "T-031b",
+        "T-031d"
       ],
       "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Do not start until the owner approves in specs/STATUS.md."
+    },
+    {
+      "id": "T-031d",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-12 §15 items 1-11: runner separates failure causes, answer timer from sendText, stage times, blocks listed, 10 fresh held-out cases, tune model mode on tuning cases only, score table and model again; rows 1-7",
+      "depends_on": [
+        "T-031b"
+      ],
+      "notes": "Owner 2026-11-02 \"Yes, write it\" after scores on ace916f: model 27/27 no wrongful action but behind on unprompted wordings and worst time. Stop after this round; T-031c stays an owner decision."
     }
   ]
 }

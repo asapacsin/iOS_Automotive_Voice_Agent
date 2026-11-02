@@ -120,3 +120,64 @@ Nobody publishes results for vague comfort requests such as 有蚊子, so this i
 | T-031c | Items 14–15, **only after the owner approves the numbers**: make it the only path and remove the table | unit, build, D |
 
 **Trace.** No current test name contains F-12, so these tasks are not yet in specs/trace-ids.txt. T-031a names its tests with F-12 and adds `T-031a: F-12`; T-031b adds `T-031b: F-12 F-09` in the same way.
+
+## 15. Comfort tuning round after the first scores (iOS, APPROVED 2026-11-02)
+
+**Why.** First device scores on ace916f, 56 cases, 3 runs each. Owner 2026-11-02 said yes to one tuning round.
+
+| Measure | Table | Model |
+|---|---|---|
+| Overall | 148/168 | 149/168 |
+| Held out | 38/45 | 37/45 |
+| Unprompted wordings | 38/42 | 35/42 |
+| No wrongful action | 21/27 | 27/27 |
+| Unbacked claims | 0 | 0 |
+| Median / worst first audio | 1946 / 5446 ms | 2358 / 14744 ms |
+| Tool calls per run | 1.00 | 1.45 |
+| `timedOut` failures | 12 | 9 |
+
+The model is safer but does not pass §14 item 14. The numbers do not explain the timeouts:
+- `ComfortEvalRunner.timeout` (20 s) starts before `connect`, so it includes opening a new session for every run.
+- `.failed` and `.closed` are also scored `timedOut`, so connection and quota problems look like slow answers.
+- `worstMs` covers every case, not only comfort turns.
+- Blocked actions (3 and 6) are only counted, so we cannot see which rule blocked them.
+
+Differences of 1–3 passes may be chance.
+
+**Rule in plain words.** First make the test tell the truth, then tune the prompt on tuning cases only, then score both versions again. The table stays the default.
+
+### Part A: make the test report the cause
+1. **Separate failures.** Replace `timedOut` with: `sessionFailed` (`.failed`, `.closed`, or no `setupComplete`), `noAnswer` (nothing after `sendText`), `stuckAfterTool` (no answer after tool responses), `slowAnswer` (an answer started but `responseDone` did not arrive). `sessionFailed` is retried once. If it fails again it counts as `infrastructure`: it is shown on its own and left out of the score, and a run with more than 5% `infrastructure` is reported as not valid.
+2. **Timer.** The answer timeout starts at `sendText`, not at `connect`. Connecting has its own limit of 10 s. Find out why `hNoAir` (感觉透不过气) failed 3 of 3 with the table, including whether Gemini returned a block or finish reason, and log that reason as an enum, without words.
+3. **Time per stage.** For each run, without words: send to first event, send to first tool call, tool response to first audio, send to first audio. The report and `comfortEval` show median, 90th percentile and worst for comfort cases and for all cases separately.
+4. **Blocked actions.** The report lists case id, tool and rule for each block. Log them as `vehicleBlocked`, as in a drive. If a wrongly blocked action caused a failure, record it, and do not change a rule without saying so in the PR.
+5. **Fresh held-out cases.** The first held-out failures have now been read, so add 10 new held-out cases, at least 6 of them unprompted comfort wordings, written before any tuning. The earlier held-out cases stay as they are and are still never used for tuning.
+
+### Part B: tune (tuning cases only)
+6. **Allowed changes.** The model-mode rule 5 and comfort-related tool descriptions; the choice below in item 8. Not allowed: changes to the table path, to the checks of §14 item 11 to gain score, to case expectations, or any sentence copied from a held-out case. A case expectation found to be wrong is reported to the owner and left unchanged.
+7. **Asking and refusing.** On tuning cases `fallingAsleep` and `drowsyMusicOn`, the model refused or asked instead of helping. Read the replies, find the cause, and change the rule so a driver saying they are sleepy gets a small action and a rest-stop suggestion. Keep the 27/27 result on mentions of other cars and knowledge questions.
+8. **Speed.** Use the stage times to find where the time goes. If `get_vehicle_state` is a main cause, the prompt calls it only when state changes the choice, and acting tools keep returning their state. Do not add a second model or a classifier (§14 Why).
+
+### Part C: score again
+9. **Both versions, same build, same day, same network.** Table first, then model. Results go in specs/STATUS.md with the build id.
+10. **Changes to §14 item 14, owner 2026-11-02.** Held-out and unprompted scores must be at least equal to the table's, replacing "clearly better": the table already passes 38/42, so a clear gain cannot be measured on these cases. The 3 s limit stays, measured on comfort cases only. The table missed it too (5446 ms across all cases), so if both versions miss it the owner decides from the percentiles.
+11. **Stop after this round.** The owner sees the scores and decides on T-031c, another round, or keeping the table. No further tuning without a new request.
+12. **Out of scope.** Removing the table (T-031c), interruption, and her answering her own voice.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Runner: session fails once then works; fails twice; nothing after send; nothing after tool response; answer without `responseDone` | Retried and scored; `infrastructure`, not scored; `noAnswer`; `stuckAfterTool`; `slowAnswer` | unit |
+| 2 | Slow connect within its limit, then a normal answer | Not a timeout; the answer timer starts at `sendText` | unit |
+| 3 | Report with comfort and other runs, more than 5% `infrastructure`, and a block | Separate stage percentiles; marked not valid; block listed with case, tool and rule | unit |
+| 4 | The set | 66 cases; earlier held-out cases unchanged; no prompt or description contains a held-out sentence | unit |
+| 5 | Setting off | Catalog, prompt and scenario results equal today's | unit |
+| 6 | Device: whole set on the table, then the model, same build | Both reports valid; numbers and failure causes in specs/STATUS.md | D |
+| 7 | Device, setting on: checklist 13-03…13-05, and the driver says 我快睡着了 | Small action and rest-stop suggestion; what she says matches the car | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031d | Items 1–11; rows 1–7 | unit, build, D |
