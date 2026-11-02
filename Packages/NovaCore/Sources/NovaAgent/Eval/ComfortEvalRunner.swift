@@ -166,6 +166,8 @@ public actor ComfortEvalRunner {
         pending?.waiter = nil
     }
 
+    private func current(_ id: Generation) -> Bool { pending?.connection == id && pending?.finished == false }
+
     private func ms(since start: NovaInstant?) -> Int? {
         start.map { Int((clock.now - $0).milliseconds) }
     }
@@ -200,6 +202,8 @@ public actor ComfortEvalRunner {
             var responses: [ToolResponse] = []
             for call in calls {
                 let result = await execute(call)
+                // The actor may have moved on to the next run during the await.
+                guard current(p.connection) else { return }
                 pending?.calls.append(ComfortCallRecord(name: call.name, ok: result.ok, code: result.code, data: result.data))
                 responses.append(ToolResponse(id: call.id, name: call.name, result: result))
             }
@@ -217,10 +221,14 @@ public actor ComfortEvalRunner {
             pending?.turnOpen = true
         case .responseDone:
             pending?.turnOpen = false
-            if pending?.answered == true || pending?.calls.isEmpty == true { finish() }
+            if pending?.answered == true { finish() } else if pending?.calls.isEmpty == true {
+                // A turn with no words, audio or call is no answer, not a noTool decision.
+                pending?.problem = .noAnswer
+                finish()
+            }
         case .failed, .closed:
-            // Before an answer started this is the session; after, the answer was cut off.
-            pending?.problem = p.started ? (p.awaitingAfterTool ? .stuckAfterTool : .slowAnswer) : .sessionFailed
+            // Item 1: a failed or closed session is the connection, whenever it happens; retried once.
+            pending?.problem = .sessionFailed
             finish()
         default:
             break
@@ -244,9 +252,4 @@ extension RealtimeEvent {
         default: false
         }
     }
-}
-
-private func zip<A, B>(_ a: A?, _ b: B?) -> (A, B)? {
-    guard let a, let b else { return nil }
-    return (a, b)
 }

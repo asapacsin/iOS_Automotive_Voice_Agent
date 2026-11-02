@@ -7,7 +7,7 @@ import Testing
 
 /// One connection's behaviour for the T-031d runner tests.
 enum SessionScript: Sendable {
-    case fail, answer, silent, toolThenSilent, noDone, rejected
+    case fail, answer, silent, toolThenSilent, noDone, rejected, dropMidAnswer, emptyTurn
     case slowConnect(ms: Int64, answerAfterMs: Int64)
 }
 
@@ -65,6 +65,13 @@ final class QueuedProvider: RealtimeProvider, @unchecked Sendable {
             emit(.responseStarted(TurnID(1)), on: c)
             emit(.replyAudio(TurnID(1), PCMBuffer(sampleRate: 24_000, samples: [1])), on: c)
         case .rejected: emit(.turnEnded(.responseRejected), on: c)
+        case .dropMidAnswer:
+            emit(.responseStarted(TurnID(1)), on: c)
+            emit(.replyAudio(TurnID(1), PCMBuffer(sampleRate: 24_000, samples: [1])), on: c)
+            emit(.failed(RealtimeError(.quota)), on: c)
+        case .emptyTurn:
+            emit(.responseStarted(TurnID(1)), on: c)
+            emit(.responseDone(TurnID(1), outcome: .completed), on: c)
         case .silent, .fail: break
         }
     }
@@ -114,6 +121,10 @@ struct ComfortTuningTests {
         let hang = await runner(QueuedProvider([.slowConnect(ms: 400, answerAfterMs: 0), .slowConnect(ms: 400, answerAfterMs: 0)]),
                                 connect: 100).run(c, attempt: 1)
         #expect(hang.problem == .infrastructure)
+        // A session that drops mid-answer is the connection: retried, then infrastructure.
+        #expect(await runner(QueuedProvider([.dropMidAnswer, .dropMidAnswer])).run(c, attempt: 1).problem == .infrastructure)
+        // An empty turn is no answer, not a noTool pass.
+        #expect(await runner(QueuedProvider([.emptyTurn])).run(c, attempt: 1).problem == .noAnswer)
     }
 
     @Test("Row 2: a slow connect inside its limit is not a timeout; the answer timer starts at sendText")
