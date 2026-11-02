@@ -160,7 +160,7 @@ Differences of 1–3 passes may be chance.
 
 ### Part C: score again
 9. **Both versions, same build, same day, same network.** Table first, then model. Results go in specs/STATUS.md with the build id.
-10. **Proposed change to §14 item 14, not yet approved by the owner.** Until the owner approves, item 14 stands. Proposal: held-out and unprompted scores must be at least equal to the table's, replacing "clearly better": the table already passes 38/42, so a clear gain cannot be measured on these cases. The 3 s limit stays, measured on comfort cases only. The table missed it too (5446 ms across all cases), so if both versions miss it the owner decides from the percentiles.
+10. **Change to §14 item 14, owner approved 2026-11-02.** Held-out and unprompted scores must be at least equal to the table's, replacing "clearly better": the table already passes 38/42, so a clear gain cannot be measured on these cases. The 3 s limit stays, measured on comfort cases only. The table missed it too (5446 ms across all cases), so if both versions miss it the owner decides from the percentiles.
 11. **Stop after this round.** The owner sees the scores and decides on T-031c, another round, or keeping the table. No further tuning without a new request.
 12. **Out of scope.** Removing the table (T-031c), interruption, and her answering her own voice.
 
