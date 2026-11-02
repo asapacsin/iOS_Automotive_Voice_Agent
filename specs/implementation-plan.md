@@ -91,6 +91,9 @@ NOT_VERIFIED until a device run is attached.
 |---|---|---|---|---|---|---|
 | T-030 | Driver context + context resolver | F-10 | T-018 | `Core/NovaTools/Context/` | F-10 §10 (3 rows), including the misheard 「第一点」 | unit |
 | T-031 | Comfort scenarios | F-12 | T-018 | `Core/NovaTools/Scenarios/` | F-12 §10 golden files; partial → no full claim | unit |
+| T-031a | Comfort test set of 55+ cases, outcome scorer, in-app runner, baseline score on the fixed table | F-12 | T-031 | `Packages/NovaCore/`, `App/NovaDrive/` | F-12 §14 rows 1, 2, 7 | unit, build, D |
+| T-031b | Model-chosen comfort actions behind a setting: catalog variant, `get_vehicle_state`, goal prompt, `VehicleActionPolicy`, claims per tool | F-12, F-09, F-21, F-06 | T-031a | `Packages/NovaCore/`, `App/NovaDrive/` | F-12 §14 rows 3–9 | unit, build, D |
+| T-031c | Make model-chosen actions the only path and remove the table. Starts only after owner approval of the numbers | F-12, F-09 | T-031b | `Packages/NovaCore/`, `App/NovaDrive/`, `specs/` | F-12 §14 items 14–15 | unit, build, D |
 | T-032 | Bundled music on the media lane; `control_music` | F-13 | T-021 | `Core/NovaTools/Media/`, `Packages/NovaAudio/Sources/MediaLane/` | F-13 §10 row 1 offline; no self barge-in during music (D) | unit, D |
 | T-033 | Amap Web client (weather, regeo) + live-info weather | F-18 | T-017 | `Packages/NovaServices/Sources/AmapWeb/`, `Core/NovaTools/LiveInfo/` | 4 s timeout → honest failure; TTLs 10/30 min | unit, contract |
 | T-034 | Persona and speaking style | F-21 | T-017 | `Core/NovaTools/Persona/` | F-21 §10 (3 rows) | unit |
