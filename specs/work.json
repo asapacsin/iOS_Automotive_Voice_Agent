@@ -1657,7 +1657,7 @@
     {
       "id": "T-031d",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-12 §15 items 1-11: runner separates failure causes, answer timer from sendText, stage times, blocks listed, 10 fresh held-out cases, tune model mode on tuning cases only, score table and model again; rows 1-7",
       "depends_on": [
