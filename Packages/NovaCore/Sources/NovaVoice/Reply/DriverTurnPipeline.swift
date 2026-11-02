@@ -227,7 +227,7 @@ public struct DriverTurnPipeline: Sendable {
     private enum Verdict { case clean, proven, pending, disproven(CorrectionReason) }
 
     /// Tools that only read: their ok result proves no action.
-    static let readOnlyTools: Set<String> = ["query_live_info", "describe_camera_view"]
+    static let readOnlyTools: Set<String> = ["query_live_info", "describe_camera_view", "get_vehicle_state"]
 
     /// Tools whose ok result changes nothing in the car: a tone change, muting or ending the
     /// conversation, or a call not yet dialled (`place_call` proves a call only with status `dialing`, F-19 §8).
@@ -322,8 +322,14 @@ public struct DriverTurnPipeline: Sendable {
         case .action:
             if !failed.isEmpty { return .disproven(.claimAfterFailure) }
             // An ok navigation or music result proves nothing by itself (「已为您开启导航」 before NAVIGATING).
-            if acting.contains(where: { $0.result.ok && (!Self.evidenceTools.contains($0.name) || evidenced($0)) }) {
-                return .proven
+            let proofs = acting.filter { $0.result.ok && (!Self.evidenceTools.contains($0.name) || evidenced($0)) }
+            if !proofs.isEmpty {
+                // F-12 §14 item 12: a claim naming windows, climate, fan or music needs that tool's own ok result;
+                // an ok fan call does not prove 「车窗开了」.
+                if ClaimLexicon.unbackedTopics(in: t.text, proofs: proofs.map { ($0.name, $0.result.data) }).isEmpty {
+                    return .proven
+                }
+                return final ? .disproven(.unverifiedClaim) : .pending
             }
             if !final { return .pending }
             return .disproven(t.hadToolCall ? .unverifiedClaim

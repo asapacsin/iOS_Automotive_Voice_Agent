@@ -16,6 +16,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case vehiclePermissionDenied = "VEHICLE_PERMISSION_DENIED"
     case vehicleExecutionFailed = "VEHICLE_EXECUTION_FAILED"
     case missingAction = "MISSING_ACTION"
+    /// F-12 §14 item 11 (T-031b): `VehicleActionPolicy` refused the action before the port.
+    case vehicleBlocked = "VEHICLE_BLOCKED"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

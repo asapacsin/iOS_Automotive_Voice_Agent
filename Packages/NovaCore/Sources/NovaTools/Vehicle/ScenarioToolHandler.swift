@@ -113,6 +113,7 @@ public final class ScenarioToolHandler: ToolExecutor {
         case .unavailable(let r): (.vehicleUnavailable, r)
         case .permissionDenied(let r): (.vehiclePermissionDenied, r)
         case .failure(let r): (.vehicleExecutionFailed, r)
+        case .blocked(let rule): (.vehicleBlocked, rule)
         }
     }
 

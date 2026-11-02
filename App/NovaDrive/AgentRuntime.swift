@@ -59,6 +59,13 @@ enum DriveSettings {
     /// F-08 §17 item 10 (T-022e) 「可以打断她（实验）」: talking over her can stop her (default off).
     static let interruptible = "interruptible_experimental"
 
+    /// F-12 §14 item 7 (T-031b) 「由模型决定舒适动作（实验）」: default off; read at session start.
+    static let modelComfort = "model_comfort_experimental"
+
+    static func comfortMode(_ defaults: UserDefaults = .standard) -> ToolCatalog.ComfortMode {
+        defaults.object(forKey: modelComfort) as? Bool ?? false ? .model : .table
+    }
+
     static func isInterruptible(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: interruptible) as? Bool ?? false
     }
@@ -195,6 +202,11 @@ struct ObservedVehicleExecutor: ToolExecutor {
 
     func execute(_ call: ToolCall) async -> ToolResult {
         let result = await inner.execute(call)
+        // F-12 §14 item 11: which tool the policy blocked and by which rule (a closed set), never values.
+        if result.code == .vehicleBlocked {
+            let rule = result.data["blocked"]?.stringValue ?? "unknown"
+            RuntimeLog.agent.notice("vehicleBlocked \(call.name, privacy: .public) \(rule, privacy: .public)")
+        }
         let climate = await vehicle.climateState()
         let cabin = await vehicle.cabinState()
         await MainActor.run {
@@ -585,7 +597,17 @@ final class AgentRuntime {
         trip.listeners.attach(flags.continuation)
         flags.continuation.yield(await navigation.current)
         self.navigation = navigation
-        let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: vehicle), vehicle: vehicle, model: model)
+        // F-12 §14 item 11: every vehicle action passes the policy; speed is the phone's when fresh, else unknown.
+        let speedKmh: @Sendable () async -> Double? = { [location, navigationClock] in
+            guard let fix = await location.latestFix(), let mps = fix.speedMetersPerSecond,
+                  navigationClock.now - fix.timestamp < .seconds(10) else { return nil }
+            return mps * 3.6
+        }
+        let port = PolicedVehiclePort(vehicle, speedKmh: speedKmh)
+        // F-12 §14 item 7: the comfort path is fixed for the whole session (the catalog goes in `setup`).
+        let comfortMode = DriveSettings.comfortMode()
+        RuntimeLog.agent.notice("comfortMode \(comfortMode.rawValue, privacy: .public)")
+        let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: port), vehicle: vehicle, model: model)
         // F-18: weather cached 10 min, adcodes 30 min (T-033).
         let cache = LiveInfoCache(weather: web, geocoder: web, clock: SystemClock())
         let liveInfo = LiveInfoExecutor(navigation: navigation, weather: cache, geocoder: cache, location: location)
@@ -596,8 +618,15 @@ final class AgentRuntime {
         let music = LaneMusicPlayer(audio: audio)
         let musicTools = MusicToolHandler(music: music, clock: SystemClock())
         for name in MusicToolHandler.tools { executors[name] = musicTools }
-        executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: vehicle, music: music),
-                                                                      vehicle: vehicle, model: model)
+        switch comfortMode {
+        case .table:
+            executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: port, music: music),
+                                                                          vehicle: vehicle, model: model)
+        case .model:
+            executors[VehicleStateTool.tool] = VehicleStateTool(port: port, music: music,
+                                                                navigating: { await navigation.current.navigating },
+                                                                speedKmh: speedKmh)
+        }
         for name in NavigationController.tools { executors[name] = navigation }
         executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
@@ -637,9 +666,11 @@ final class AgentRuntime {
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
         // F-21: the saved tone is read once here, at session start.
-        let instruction = PersonaInstruction.build(base: PersonaInstruction.base, style: SpeakingStyle.saved(in: settings))
+        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(for: comfortMode),
+                                                   style: SpeakingStyle.saved(in: settings))
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
-        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
+        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: comfortMode),
+                                   thinkingLevel: nil)
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
         // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
         config.activityDetection = .novaDrive

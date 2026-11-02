@@ -31,6 +31,7 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
     @AppStorage(DriveSettings.noiseSuppression) private var noiseSuppression = true
     @AppStorage(DriveSettings.interruptible) private var interruptible = false
+    @AppStorage(DriveSettings.modelComfort) private var modelComfort = false
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
     @StateObject private var locationPermission = LocationPermission()
 
@@ -69,6 +70,13 @@ struct SettingsView: View {
                     Toggle("可以打断她（实验）", isOn: $interruptible)
                     Text("开：她说话时你说出新的内容，她会先变小声，确认是你在说新问题后停下来回答你。关：只有「别说了」能让她停。导航播报不会被打断。")
                         .font(.footnote).foregroundStyle(.secondary)
+                }
+                // F-12 §14 items 4 and 7 (T-031a, T-031b).
+                Section("舒适场景") {
+                    Toggle("由模型决定舒适动作（实验）", isOn: $modelComfort)
+                    Text("开：说「有蚊子」「有点闷」这类感受时，由模型看车内状态自己决定开窗、空调或音乐，并用自己的话说做了什么。关：按固定的场景表做。下次开始对话时生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    NavigationLink("舒适场景测试") { ComfortEvalView() }
                 }
                 Section("位置来源") {
                     Picker("位置来源", selection: $useDeviceLocation) {

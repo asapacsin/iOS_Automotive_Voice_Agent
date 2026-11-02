@@ -1614,7 +1614,7 @@
     {
       "id": "T-031a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 3,
       "action": "F-12 §14 items 1-6: comfort test set of 55+ cases with held-out cases, outcome scorer, in-app runner over sendText, baseline on the fixed table; rows 1, 2, 7",
       "depends_on": [
@@ -1625,7 +1625,7 @@
     {
       "id": "T-031b",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 3,
       "action": "F-12 §14 items 7-13: setting off by default, catalog variant without run_scenario, get_vehicle_state, goal prompt, VehicleActionPolicy on both paths, claims need an ok result of the named tool; rows 3-9",
       "depends_on": [

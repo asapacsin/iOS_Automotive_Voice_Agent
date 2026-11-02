@@ -67,6 +67,8 @@ public enum VehicleActionResult<State: Sendable & Hashable>: Sendable, Hashable 
     case unavailable(String)
     case permissionDenied(String)
     case failure(String)
+    /// F-12 §14 item 11: refused by the action policy before the port; the value is the policy's rule code.
+    case blocked(String)
 }
 
 /// Vehicle backend; only the simulator exists (`BACKEND_LABEL=simulated`). Relative calls use the

@@ -56,6 +56,18 @@ public enum PersonaInstruction {
     【注意】开车优先：导航正在播报或要转弯时说短一点。用户说「别说了」就马上停。不要让用户看屏幕上的长文字。只说普通话。
     """
 
+    /// F-12 §14 item 10 (T-031b): the base with model-chosen comfort. The scenario words and rule 5's feeling table
+    /// become a goal; everything else is `base` unchanged. Within `maxBaseCharacters`.
+    public static let modelComfortBase: String = base
+        .replacingOccurrences(of: "座椅、车内场景（有蚊子、闷、困）、导航", with: "座椅、导航")
+        .replacingOccurrences(of: "5. 有点热、太热了：调低一度温度。有点冷：调高一度。座位有点高：座椅降低一级。",
+                              with: modelComfortRule)
+
+    static let modelComfortRule = "5. 司机说车里的感受或情况（热、冷、闷、有蚊子、有异味、困）：要判断时先调用 get_vehicle_state，再用车窗、空调、音乐工具帮他；有合理的小动作就直接做，不要反问。只是提到别处的事（「我朋友车里有蚊子」）或问知识时不做任何操作。困了还要建议找服务区休息。只说一两句，只说真正做成的，没做成的要说。座位有点高：座椅降低一级。"
+
+    /// The base for a session's comfort mode.
+    public static func base(for mode: ToolCatalog.ComfortMode) -> String { mode == .table ? base : modelComfortBase }
+
     /// Only the style block is truncated; the base (with its tool rules) is never cut.
     public static func build(base: String, style: SpeakingStyle) -> String {
         let separator = "\n"

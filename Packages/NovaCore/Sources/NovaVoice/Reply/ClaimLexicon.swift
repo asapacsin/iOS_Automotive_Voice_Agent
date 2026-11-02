@@ -1,3 +1,4 @@
+import NovaKit
 /// What a reply claims to have done (`A/voice/ActionClaimGuard.kt`).
 public enum ClaimKind: String, Sendable, Hashable {
     /// A vehicle, phone or other action reported as done (「空调已打开」).
@@ -55,6 +56,56 @@ public enum ClaimLexicon {
     /// The strongest claim in `text`, or nil.
     public static func claim(in text: String) -> ClaimKind? {
         claims(in: text).reduce(nil) { ClaimKind.strongest($0, $1) }
+    }
+
+    // MARK: Claims per tool (F-12 §14 item 12, T-031b)
+
+    /// What an action claim names. Each needs an ok result of the tool that controls it.
+    public enum Topic: String, Sendable, Hashable, CaseIterable {
+        case windows, climate, fan, music
+    }
+
+    /// PROPOSED word lists; words from comfort-eval failures are added here.
+    static let topicWords: [Topic: [String]] = [
+        .windows: ["车窗", "窗户", "窗"],
+        .climate: ["空调", "温度", "冷气", "制冷", "暖气", "度"],
+        .fan: ["风量", "风速", "吹风", "风"],
+        .music: ["音乐", "歌", "曲子"],
+    ]
+
+    static func topics(of clause: String) -> Set<Topic> {
+        Set(Topic.allCases.filter { topic in topicWords[topic]!.contains(where: clause.contains) })
+    }
+
+    /// The topics named by the claiming clauses of `text` (negated clauses claim nothing).
+    public static func claimedTopics(in text: String) -> Set<Topic> {
+        let clauses = text.split(whereSeparator: { "。！？!?；;\n，,、：:".contains($0) })
+        var found: Set<Topic> = []
+        for clause in clauses.map(String.init) where !negations.contains(where: clause.contains) {
+            if music.contains(where: clause.contains) || action.contains(where: clause.contains) {
+                found.formUnion(topics(of: clause))
+            }
+        }
+        return found
+    }
+
+    /// Whether an ok result of tool `name` (with its `data`) proves a claim about `topic`.
+    public static func proves(_ name: String, _ data: [String: JSONValue], _ topic: Topic) -> Bool {
+        switch name {
+        case "control_window": return topic == .windows
+        case "control_climate": return topic == .climate || topic == .fan
+        case "control_music", "play_music": return topic == .music
+        case "run_scenario":
+            // The table proves what its finished steps name (`done` labels: 打开空调, 车窗开到50%, …).
+            guard case .array(let done)? = data["done"] else { return false }
+            return done.contains { $0.stringValue.map { topics(of: $0).contains(topic) } ?? false }
+        default: return false
+        }
+    }
+
+    /// Topics claimed in `text` that no ok result in `proofs` backs (empty: every named claim is backed).
+    public static func unbackedTopics(in text: String, proofs: [(name: String, data: [String: JSONValue])]) -> Set<Topic> {
+        claimedTopics(in: text).filter { topic in !proofs.contains { proves($0.name, $0.data, topic) } }
     }
 
     public static func asksForAction(_ utterance: String) -> Bool {

@@ -43,9 +43,43 @@ public enum ToolCatalog {
         "choose_navigation_option": "选屏幕上的候选地点（等同点选），或导航中换路线，三个参数只填一个。地点列表时：「第一个」「第二个」→index；「最近的那个」→nearest；「选万达广场那个」→name；选好地点后直接开始导航。导航中：「换最快的」→preference=fastest；「最短的」→shortest；「不走高速」「不要收费」→no_toll；「红绿灯少的」→fewest_lights；「推荐的」→recommended；「换第二条」→index；她问「要换吗？」后司机说「好」「换」→preference=上次结果的 offer_preference。按结果答：navigation_started 说已开始导航；route_changed 按 next 说已换成哪条路线和大约几分钟；route_unchanged 说现在走的就是这条；ok=false 按 error：OUT_OF_RANGE=没有这一项，NO_OPTIONS_ON_SCREEN=没有可选列表或没有别的路线，OPTIONS_NOT_READY=还在计算，AMBIGUOUS=多个匹配请说第几个，OPTIONS_STALE=列表过期请重新说，CONFIRM_CANDIDATE=问是不是 candidate_position 那项。",
     ]
     public static let declarations: [ToolDeclaration] = specs.map(\.declaration)
-    private static let byName: [String: ToolSpec] = Dictionary(uniqueKeysWithValues: specs.map { ($0.name, $0) })
+    private static let byName: [String: ToolSpec] = Dictionary(uniqueKeysWithValues: (specs + [vehicleStateSpec]).map { ($0.name, $0) })
 
+    /// A declared tool of either catalog. `get_vehicle_state` is only declared with model-chosen comfort, so the
+    /// model never calls it otherwise; accepting it here keeps one validator for both catalogs.
     public static func spec(_ name: String) -> ToolSpec? { byName[name] }
+
+    // MARK: Model-chosen comfort (F-12 §14 items 7-9, T-031b)
+
+    /// Which comfort path a session uses; read once at session start (the catalog is set in `setup`).
+    public enum ComfortMode: String, Sendable, Hashable {
+        /// Today's Android-equal catalog: `run_scenario` and its fixed table (F-09).
+        case table
+        /// 「由模型决定舒适动作（实验）」: no `run_scenario`; `get_vehicle_state`; no feeling-to-action rules.
+        case model
+    }
+
+    /// F-12 §14 item 9: read-only vehicle state for the model's own judgement.
+    public static let vehicleStateSpec = ToolSpec(domain: "comfort", repeatSensitive: false, declaration: ToolDeclaration(
+        name: "get_vehicle_state",
+        description: "读取车内状态（模拟）：车窗开度、空调开关、温度、风量、是否在放音乐、是否在导航、车速（未知时为 null）。司机描述车内的感受或情况、要判断该做什么时先调用。只读，不会改变任何东西。",
+        parametersJSONSchema: ["type": "object", "properties": .object([:]), "additionalProperties": false]))
+
+    /// F-12 §14 item 8: the feeling-to-action sentences removed from `control_climate`; direct requests stay.
+    static let modelClimateDescription = "控制空调（模拟）。「打开/关闭空调」power_on/power_off；「调到22度」set_temperature,value=22；「温度调高/低一点」「再暖/凉一点」adjust_temperature,value=±1；「风量调到3档」set_fan,value=3；「风量调大/小」adjust_fan,value=±1；「现在多少度」get_state。相对调节用 adjust_*，不要自己推算温度。只按返回的 temperature_c/fan_level/power_on 确认；ok=false 如实说没成功。"
+
+    public static let modelComfortSpecs: [ToolSpec] = specs.compactMap { spec in
+        if spec.name == "run_scenario" { return nil }
+        guard spec.name == "control_climate" else { return spec }
+        return ToolSpec(domain: spec.domain, repeatSensitive: spec.repeatSensitive,
+                        declaration: ToolDeclaration(name: spec.name, description: modelClimateDescription,
+                                                     parametersJSONSchema: spec.declaration.parametersJSONSchema))
+    } + [vehicleStateSpec]
+
+    /// The declarations a session sends: `.table` is exactly `declarations`.
+    public static func declarations(for mode: ComfortMode) -> [ToolDeclaration] {
+        mode == .table ? declarations : modelComfortSpecs.map(\.declaration)
+    }
 
     /// Rule-violation code, `UNKNOWN_TOOL`, `ARGUMENTS_TOO_LARGE`, or nil when the call may proceed.
     public static func validate(_ call: ToolCall) -> ToolErrorCode? {
@@ -92,7 +126,7 @@ public enum ToolCatalog {
             } else {
                 guard let n = str("name"), !trimmed(n).isEmpty, n.utf16.count <= 40 else { return .invalidName }
             }
-        case "exit_navigation_mode", "end_conversation":
+        case "exit_navigation_mode", "end_conversation", "get_vehicle_state":
             if !keys.isEmpty { return .invalidFields }
         case "open_app":
             if keys != ["app"] { return .invalidFields }
@@ -181,6 +215,7 @@ public enum ToolFailureAdvice {
         .cameraUnavailable: "摄像头现在用不了。请如实说明，不要描述画面。",
         .navigationNotRequested: "司机还没有选路线，所以没有开始导航。不要说已经开始或已经选好；请只问一句：有几条路线（按屏幕上的条数说），要走哪一条？",
         .confirmRequired: "导航还在继续，没有结束。不要说已经结束。",
+        .vehicleBlocked: "这个操作被安全规则拦下了，没有执行。请用一句话如实告诉用户没有做和原因（看 detail），不要说已经做了。",
         .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }
