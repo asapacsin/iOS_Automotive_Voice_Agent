@@ -1008,10 +1008,16 @@ final class GateBox: @unchecked Sendable {
     /// What the shell does for a live interruption (dip, stop), called outside the lock and before the outputs.
     private var onBargeIn: (@Sendable (BargeInAction) -> Void)?
 
-    func setInterruptible(_ on: Bool) { lock.withLock { live.enabled = on } }
+    func setInterruptible(_ on: Bool) {
+        order.lock()
+        defer { order.unlock() }
+        let (step, act) = lock.withLock { (live.setEnabled(on), onBargeIn) }
+        step.actions.forEach { act?($0) }
+    }
     func onBargeInAction(_ handler: @escaping @Sendable (BargeInAction) -> Void) { lock.withLock { onBargeIn = handler } }
 
-    /// One live step, under the lock: the gate sends the rest of an adopted utterance.
+    /// One live step, under the lock: the gate sends the rest of an adopted utterance. Its outputs replace
+    /// `outputs` (the hold's), with any release after them.
     private func liveStep(_ outputs: [UplinkGateOutput], frame: Bool) -> BargeInLive.Step {
         let events = shadow.takeEvents()
         let step = frame ? live.frame(outputs, events: events, guidancePlaying: gate.guidancePlaying)
@@ -1033,10 +1039,9 @@ final class GateBox: @unchecked Sendable {
             // A stale classifier result is no result (item 3: no classifier result fails closed).
             shadow.frame(r, frame: frame, speechProbability: gate.classifierFresh ? gate.lastSpeechProbability : nil,
                          muteReason: gate.muteReason)
-            let held = hold.frame(r)
-            let step = liveStep(r, frame: true)
-            return (r, held, self.raw, self.forward, hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step,
-                    self.onBargeIn)
+            let step = liveStep(hold.frame(r), frame: true)
+            return (r, [UplinkGateOutput](), self.raw, self.forward,
+                    hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step, self.onBargeIn)
         }
         gated.forEach { rawFeed?($0) }
         outputs.forEach { forward?($0) }
@@ -1072,8 +1077,9 @@ final class GateBox: @unchecked Sendable {
             case .final(let text): hold.final(text, utterance: id)
             case .unclear: hold.final("", utterance: id)
             }
-            let step = liveStep([], frame: false)
-            return (o, self.forward, hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step, self.onBargeIn)
+            let step = liveStep(o, frame: false)
+            return ([UplinkGateOutput](), self.forward, hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step,
+                    self.onBargeIn)
         }
         outputs.forEach { forward?($0) }
         step.actions.forEach { act?($0) }
@@ -1090,11 +1096,16 @@ final class GateBox: @unchecked Sendable {
     /// F-08 §15 item 2 / §16 items 1–2: a stop ended her reply. The echo-tail mute ends, an open muted utterance is
     /// held unsent to its pause, and the post-stop window starts.
     func stopped() {
-        lock.withLock {
+        order.lock()
+        defer { order.unlock() }
+        let (step, act) = lock.withLock {
             gate.endEchoTail()
             let holding = gate.holdStopUtterance()
             hold.stopped(holdingStopUtterance: holding, wordsAvailable: wordsAvailable())
+            // F-08 §17 item 12: a candidate that is the stop utterance is never released as a question.
+            return (live.stopPhrase(), onBargeIn)
         }
+        step.actions.forEach { act?($0) }
     }
     func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
         lock.withLock { gate.setPlaying(reply: reply, guidance: guidance) }
@@ -1168,8 +1179,7 @@ final class GateBox: @unchecked Sendable {
         let (raw, outputs, rawFeed, forward, step, act) = lock.withLock {
             let r = gate.setForcedClosed(closed)
             shadow.observe(r, muteReason: gate.muteReason)
-            let held = hold.pass(r)
-            return (r, held, self.raw, self.forward, liveStep(r, frame: false), self.onBargeIn)
+            return (r, [UplinkGateOutput](), self.raw, self.forward, liveStep(hold.pass(r), frame: false), self.onBargeIn)
         }
         raw.forEach { rawFeed?($0) }
         outputs.forEach { forward?($0) }

@@ -720,8 +720,17 @@ struct BargeInStopCoreTests {
         let started = d.send(.speechStarted(recentSpeech: true, sentToModel: true))
         #expect(!diagnostics(started).contains(.abandonCleared))
         #expect(!started.contains { if case .flushPlayback = $0 { true } else { false } })
-        // With her silent, a second stop does nothing.
-        #expect(d.send(.bargeInStop).isEmpty)
+    }
+
+    @Test("Review B1: between clauses (arbiter thinks she stopped, the shell still plays) bargeInStop still flushes")
+    func gapBetweenClauses() {
+        var d = SendDecisionTests().playing()
+        d.send(.playback(.replyFinished(Epoch.initial)))
+        d.send(.speechStarted(recentSpeech: true, sentToModel: false))
+        let out = d.send(.bargeInStop)
+        #expect(out.contains { if case .flushPlayback = $0 { true } else { false } })
+        #expect(out.contains { if case .cancelRevoicing = $0 { true } else { false } })
+        #expect(diagnostics(out).contains(.bargeInStopped))
     }
 }
 

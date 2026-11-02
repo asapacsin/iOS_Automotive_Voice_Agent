@@ -389,8 +389,21 @@ public struct AgentState: Sendable {
             // Nothing is sent to Gemini and no driver turn opens: the utterance stays unsent (F-04 §14 item 1).
             return stopPhrase(.kws, phrase: hit.phrase, score: hit.score, at: now) ?? []
         case .bargeInStop:
-            let stop = bargeIn(.stopPhrase, at: now)
-            guard !stop.isEmpty else { return [] }
+            var stop = bargeIn(.stopPhrase, at: now)
+            if stop.isEmpty {
+                // Between clauses the arbiter already counts her as silent, while the shell still plays the rest of
+                // the reply: flush it the way a void does, so nothing of it plays over the new question.
+                if let turn = openTurn { silenced.insert(turn) }
+                segmenter.reset()
+                heldClauses = []
+                stop = arbiter.void().compactMap { effect in
+                    switch effect {
+                    case .flushPlayback(let epoch): .flushPlayback(epoch)
+                    case .cancelRevoicing(let epoch): .cancelRevoicing(epoch)
+                    case .bargeIn: nil
+                    }
+                } + session(.bargeIn(qualified: true), at: now)
+            }
             missCandidate = nil
             arbiter.replyDrained()
             var spoken: [AgentEffect] = []

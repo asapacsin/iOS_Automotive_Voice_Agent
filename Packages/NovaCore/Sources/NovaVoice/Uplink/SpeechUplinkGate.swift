@@ -193,9 +193,9 @@ public struct SpeechUplinkGate: Sendable {
     /// open.
     @discardableResult
     public mutating func adoptOpenUtterance() -> Bool {
-        guard phase == .open, !sending else { return false }
+        // Never the stop utterance held to its pause (§16 item 1).
+        guard phase == .open, !sending, !holdUntilPause else { return false }
         sending = true
-        holdUntilPause = false
         return true
     }
 

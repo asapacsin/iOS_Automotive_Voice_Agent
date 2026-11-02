@@ -25,6 +25,9 @@ public struct BargeInLive: Sendable {
         case keeping(id: Int, since: NovaDuration, audio: [PCMFrame16k], dipped: Bool, closed: Bool)
     }
 
+    /// Her reply ended before a decision (the gate cut the candidate at the unmute, `cutAtUnmute`).
+    private var cutAtUnmute = false
+
     public var enabled = false
     private var state = State.idle
     private var now = NovaDuration.zero
@@ -43,7 +46,7 @@ public struct BargeInLive: Sendable {
         return false
     }
 
-    /// The result of one step: what the shell does (in order) and the outputs to forward after it.
+    /// The result of one step: what the shell does (in order), then the outputs to forward in place of the ones given.
     public struct Step: Sendable, Hashable {
         public var actions: [BargeInAction] = []
         public var outputs: [UplinkGateOutput] = []
@@ -65,18 +68,59 @@ public struct BargeInLive: Sendable {
         var step = Step()
         // Each `started` is handled at its own `speechStarted`, so the pre-roll after it is kept.
         var starts = events.filter { if case .started = $0 { true } else { false } }[...]
-        for output in outputs {
+        var out: [UplinkGateOutput] = []
+        var skipPreRoll = false
+        for (i, output) in outputs.enumerated() {
             if case .speechStarted = output, let start = starts.popFirst() {
+                // Item 11: her reply ended first and the check still passes (its stages up to tooShort did, and it
+                // was not rejected): the kept audio goes ahead of the cut's sent utterance. The cut's pre-roll is
+                // the end of what was kept, so it is not sent twice.
+                if case .started(_, false) = start, cutAtUnmute,
+                   case .keeping(let id, _, let audio, true, true) = state {
+                    state = .idle
+                    cutAtUnmute = false
+                    step.actions.append(.dip(false))
+                    out.append(output)
+                    out += audio.map(UplinkGateOutput.audio)
+                    skipPreRoll = true
+                    logs.append("bargeInCarried \(id) frames=\(audio.count)")
+                    continue
+                }
                 handle([start], guidancePlaying: guidancePlaying, into: &step)
+                out.append(output)
                 continue
             }
+            if skipPreRoll, case .audio = output {
+                // Only the current frame (the last audio of the cut's outputs) is new.
+                let later = outputs[(i + 1)...].contains { if case .audio = $0 { true } else { false } }
+                if later { continue }
+            } else if skipPreRoll {
+                skipPreRoll = false
+            }
             keep(output)
+            out.append(output)
         }
         handle(Array(starts) + events.filter { if case .started = $0 { false } else { true } },
                guidancePlaying: guidancePlaying, into: &step)
         if case .keeping(let id, let since, _, _, _) = state, now - since > Self.bufferCap {
             cancel(id, reason: "cap", into: &step)
         }
+        step.outputs = out + step.outputs
+        return step
+    }
+
+    /// Item 10: the setting changed; turned off, a candidate being checked is dropped at once.
+    public mutating func setEnabled(_ on: Bool) -> Step {
+        enabled = on
+        var step = Step()
+        if !on, case .keeping(let id, _, _, _, _) = state { cancel(id, reason: "settingOff", into: &step) }
+        return step
+    }
+
+    /// Item 12: a stop phrase stopped her; the candidate is §14–§16's, never released here.
+    public mutating func stopPhrase() -> Step {
+        var step = Step()
+        if case .keeping(let id, _, _, _, _) = state { cancel(id, reason: "stopPhrase", into: &step) }
         return step
     }
 
@@ -84,7 +128,10 @@ public struct BargeInLive: Sendable {
         guard case .keeping(let id, let since, var audio, let dipped, let closed) = state else { return }
         switch output {
         case .audio(let frame) where !closed: audio.append(frame)
-        case .utterance: state = .keeping(id: id, since: since, audio: audio, dipped: dipped, closed: true); return
+        case .utterance(let record):
+            cutAtUnmute = record.endReason == .cutAtUnmute
+            state = .keeping(id: id, since: since, audio: audio, dipped: dipped, closed: true)
+            return
         default: return
         }
         state = .keeping(id: id, since: since, audio: audio, dipped: dipped, closed: closed)
@@ -95,6 +142,7 @@ public struct BargeInLive: Sendable {
             switch event {
             case .started(let id, let candidate):
                 if case .keeping(let old, _, _, _, _) = state { cancel(old, reason: "superseded", into: &step) }
+                cutAtUnmute = false
                 // Item 10: guidance is never interruptible; off is exactly today's behaviour.
                 if candidate, enabled, !guidancePlaying {
                     state = .keeping(id: id, since: now, audio: [], dipped: false, closed: false)
@@ -106,7 +154,7 @@ public struct BargeInLive: Sendable {
             case .wouldStop(let id):
                 guard case .keeping(id, let since, let audio, let dipped, let closed) = state else { continue }
                 state = .idle
-                if dipped { step.actions.append(.dip(false)) }
+                _ = dipped  // the flush restores her volume (`LiveAudio.flush`), so it never blips back first
                 step.actions.append(.stop)
                 step.outputs.append(.speechStarted(sentToModel: true))
                 step.outputs += audio.map(UplinkGateOutput.audio)

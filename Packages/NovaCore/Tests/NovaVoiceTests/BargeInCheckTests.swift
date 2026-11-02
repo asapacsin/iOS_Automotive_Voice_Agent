@@ -230,18 +230,20 @@ struct BargeInLiveTests {
         // The gate's onset with its pre-roll; the candidate starts.
         var step = live.frame([.speechStarted(sentToModel: false), .audio(a), .audio(b)],
                               events: [.started(id: 1, candidate: true)], guidancePlaying: false)
-        #expect(step.actions.isEmpty && step.outputs.isEmpty)
+        // The gate's own outputs pass unchanged (the uplink drops a not-sent utterance's audio).
+        #expect(step.actions.isEmpty && step.outputs == [.speechStarted(sentToModel: false), .audio(a), .audio(b)])
         step = live.frame([.audio(c)], events: [.early(id: 1)], guidancePlaying: false)
-        #expect(step.actions == [.dip(true)] && step.outputs.isEmpty)
+        #expect(step.actions == [.dip(true)] && step.outputs == [.audio(c)])
         step = live.pass([], events: [.wouldStop(id: 1)], guidancePlaying: false)
-        #expect(step.actions == [.dip(false), .stop])
+        // The flush restores her volume, so there is no full-volume blip before it.
+        #expect(step.actions == [.stop])
         #expect(step.outputs == [.speechStarted(sentToModel: true), .audio(a), .audio(b), .audio(c)])
         #expect(step.adopt)
         let stopLogs = live.takeLogs()
         #expect(stopLogs.first?.hasPrefix("bargeInStop 1 heldMs=") == true)
         // Live audio afterwards is the gate's own (adopted), not kept here.
         step = live.frame([.audio(a)], events: [], guidancePlaying: false)
-        #expect(step.outputs.isEmpty && !live.keeping)
+        #expect(step.outputs == [.audio(a)] && !live.keeping)
     }
 
     @Test("Row 7: the gate sends the rest of an adopted utterance and is not cut when her reply stops")
@@ -275,6 +277,7 @@ struct BargeInLiveTests {
         _ = live.frame([.speechStopped(.normal), .utterance(r), .audio(.silence)], events: [], guidancePlaying: false)
         let step = live.pass([], events: [.wouldStop(id: 1)], guidancePlaying: false)
         #expect(step.outputs == [.speechStarted(sentToModel: true), .audio(a), .speechStopped(.normal), .streamEnd])
+        #expect(step.actions == [.stop])
         #expect(!step.adopt)
     }
 
@@ -287,14 +290,15 @@ struct BargeInLiveTests {
         _ = live.frame([], events: [.early(id: 1)], guidancePlaying: false)
         let step = live.pass([], events: [.rejected(id: 1, reason: .noWords)], guidancePlaying: false)
         #expect(step.actions == [.dip(false)] && step.outputs.isEmpty && !step.adopt)
+        #expect(live.pass([.audio(frame())], events: [], guidancePlaying: false).outputs == [.audio(frame())])
         let cancelLogs = live.takeLogs()
         #expect(cancelLogs == ["bargeInDipCancelled 1 reason=noWords"])
 
         var off = BargeInLive()
         _ = off.frame([.speechStarted(sentToModel: false)], events: [.started(id: 1, candidate: true)], guidancePlaying: false)
         #expect(!off.keeping)
-        let offStep = off.pass([], events: [.early(id: 1), .wouldStop(id: 1)], guidancePlaying: false)
-        #expect(offStep == BargeInLive.Step())
+        let offStep = off.pass([.audio(frame())], events: [.early(id: 1), .wouldStop(id: 1)], guidancePlaying: false)
+        #expect(offStep.actions.isEmpty && !offStep.adopt && offStep.outputs == [.audio(frame())])
 
         var guidance = BargeInLive()
         guidance.enabled = true
@@ -322,4 +326,62 @@ struct BargeInLiveTests {
         step = live.frame([.audio(frame())], events: [], guidancePlaying: false)
         #expect(!live.keeping)
     }
+
+    @Test("Item 11: her reply ends first; the check's early stages passed, so the kept audio leads the cut's utterance")
+    func carriedAtUnmute() {
+        var live = BargeInLive()
+        live.enabled = true
+        let a = frame(1), b = frame(2), c = frame(3), now = frame(4)
+        _ = live.frame([.speechStarted(sentToModel: false), .audio(a)], events: [.started(id: 1, candidate: true)],
+                       guidancePlaying: false)
+        _ = live.frame([.audio(b)], events: [.early(id: 1)], guidancePlaying: false)
+        _ = live.frame([.audio(c)], events: [], guidancePlaying: false)
+        // The gate's cut: the muted part ends, a sent utterance starts with its pre-roll (b, c) and this frame.
+        let cut = UtteranceRecord(id: 1, startMs: 0, endMs: 0, endReason: .cutAtUnmute, sentToModel: false,
+                                  muteReason: .reply, peakDb: 85, noiseFloorDb: 40, classifierMax: 0.9)
+        let step = live.frame([.speechStopped(.normal), .utterance(cut), .speechStarted(sentToModel: true), .audio(b),
+                               .audio(c), .audio(now)], events: [.started(id: 2, candidate: false)], guidancePlaying: false)
+        #expect(step.outputs == [.speechStopped(.normal), .utterance(cut), .speechStarted(sentToModel: true), .audio(a),
+                                 .audio(b), .audio(c), .audio(now)])
+        #expect(step.actions == [.dip(false)])
+        let logs = live.takeLogs()
+        #expect(logs == ["bargeInCarried 1 frames=3"])
+    }
+
+    @Test("Item 11: reply ends first without the early stages passing: nothing carried, the cut's own pre-roll only")
+    func notCarried() {
+        var live = BargeInLive()
+        live.enabled = true
+        _ = live.frame([.speechStarted(sentToModel: false), .audio(frame(1))], events: [.started(id: 1, candidate: true)],
+                       guidancePlaying: false)
+        let cut = UtteranceRecord(id: 1, startMs: 0, endMs: 0, endReason: .cutAtUnmute, sentToModel: false,
+                                  muteReason: .reply, peakDb: 60, noiseFloorDb: 40, classifierMax: 0.2)
+        let outputs: [UplinkGateOutput] = [.utterance(cut), .speechStarted(sentToModel: true), .audio(frame(1)), .audio(frame(2))]
+        let step = live.frame(outputs, events: [.started(id: 2, candidate: false)], guidancePlaying: false)
+        #expect(step.outputs == outputs && step.actions.isEmpty)
+    }
+
+    @Test("Items 10, 12: setting turned off, or a stop phrase, drops the candidate and restores her volume")
+    func offAndStopPhrase() {
+        for useStop in [false, true] {
+            var live = BargeInLive()
+            live.enabled = true
+            _ = live.frame([.speechStarted(sentToModel: false)], events: [.started(id: 1, candidate: true)],
+                           guidancePlaying: false)
+            _ = live.frame([], events: [.early(id: 1)], guidancePlaying: false)
+            let step = useStop ? live.stopPhrase() : live.setEnabled(false)
+            #expect(step.actions == [.dip(false)] && !live.keeping)
+            let late = live.pass([], events: [.wouldStop(id: 1)], guidancePlaying: false)
+            #expect(late.actions.isEmpty && late.outputs.isEmpty)
+        }
+        // The gate never adopts the stop utterance held to its pause.
+        var gate = SpeechUplinkGate(tuning: { var t = UplinkGateTuning(); t.speechConfirm = nil; return t }())
+        for _ in 0..<160 { _ = gate.process(frame(0)) }
+        gate.setPlaying(reply: true)
+        for _ in 0..<30 { _ = gate.process(frame(6000)) }
+        gate.holdStopUtterance()
+        let adopted = gate.adoptOpenUtterance()
+        #expect(!adopted)
+    }
 }
+

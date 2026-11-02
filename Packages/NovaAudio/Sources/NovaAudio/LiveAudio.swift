@@ -127,6 +127,7 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     }
 
     public func flush(to newEpoch: Epoch) {
+        reply.volume = 1  // F-08 §17 item 11: a dip never outlives the reply it lowered
         let finished: Epoch? = lock.withLock {
             let had = outstanding > 0 ? epoch : nil
             epoch = max(newEpoch, epoch)
