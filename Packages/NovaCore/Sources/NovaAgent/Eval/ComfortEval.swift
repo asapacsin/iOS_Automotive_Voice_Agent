@@ -119,6 +119,52 @@ public struct ComfortCallRecord: Sendable, Hashable {
     }
 }
 
+/// F-12 §15 item 1: why a run has no scorable answer. Never words.
+public enum ComfortRunProblem: String, Sendable, Hashable {
+    /// `.failed`, `.closed`, or no `setupComplete` within the connect limit. Retried once.
+    case sessionFailed
+    /// Nothing after `sendText` (or the turn ended empty).
+    case noAnswer
+    /// No answer after the tool responses.
+    case stuckAfterTool
+    /// An answer started but `responseDone` did not arrive.
+    case slowAnswer
+    /// `sessionFailed` twice: shown on its own and left out of the score.
+    case infrastructure
+}
+
+/// F-12 §15 item 3: time per stage of one run, in ms; nil when the stage did not happen. Never words.
+public struct ComfortStages: Sendable, Hashable {
+    public enum Stage: String, Sendable, Hashable, CaseIterable {
+        case firstEvent, firstTool, toolToAudio, firstAudio
+    }
+
+    /// Send to the first event of the answer.
+    public var firstEventMs: Int?
+    /// Send to the first tool call.
+    public var firstToolMs: Int?
+    /// First tool response sent to the first audio after it.
+    public var toolToAudioMs: Int?
+    /// Send to the first audio.
+    public var firstAudioMs: Int?
+
+    public init(firstEventMs: Int? = nil, firstToolMs: Int? = nil, toolToAudioMs: Int? = nil, firstAudioMs: Int? = nil) {
+        self.firstEventMs = firstEventMs
+        self.firstToolMs = firstToolMs
+        self.toolToAudioMs = toolToAudioMs
+        self.firstAudioMs = firstAudioMs
+    }
+
+    public subscript(stage: Stage) -> Int? {
+        switch stage {
+        case .firstEvent: firstEventMs
+        case .firstTool: firstToolMs
+        case .toolToAudio: toolToAudioMs
+        case .firstAudio: firstAudioMs
+        }
+    }
+}
+
 /// One run of one case.
 public struct ComfortRun: Sendable, Hashable {
     public let caseID: String
@@ -127,24 +173,42 @@ public struct ComfortRun: Sendable, Hashable {
     public let calls: [ComfortCallRecord]
     /// The reply text: shown on screen for reading, never logged (I-8).
     public let reply: String
+    public let stages: ComfortStages
+    /// nil: the model answered and the turn finished.
+    public let problem: ComfortRunProblem?
+    /// The server's reason when it gave one (item 2).
+    public let turnEnd: TurnEndReason?
+
     /// From sending the sentence to the first reply audio.
-    public let firstAudioMs: Int?
-    public let timedOut: Bool
+    public var firstAudioMs: Int? { stages.firstAudioMs }
 
     public init(caseID: String, attempt: Int, end: ComfortVehicleState, calls: [ComfortCallRecord], reply: String,
-                firstAudioMs: Int?, timedOut: Bool) {
+                stages: ComfortStages, problem: ComfortRunProblem?, turnEnd: TurnEndReason? = nil) {
         self.caseID = caseID
         self.attempt = attempt
         self.end = end
         self.calls = calls
         self.reply = reply
-        self.firstAudioMs = firstAudioMs
-        self.timedOut = timedOut
+        self.stages = stages
+        self.problem = problem
+        self.turnEnd = turnEnd
+    }
+
+    public init(caseID: String, attempt: Int, end: ComfortVehicleState, calls: [ComfortCallRecord], reply: String,
+                firstAudioMs: Int?, problem: ComfortRunProblem? = nil) {
+        self.init(caseID: caseID, attempt: attempt, end: end, calls: calls, reply: reply,
+                  stages: ComfortStages(firstEventMs: firstAudioMs, firstAudioMs: firstAudioMs), problem: problem)
+    }
+
+    /// Blocked actions of this run: (tool, rule).
+    public var blocks: [(tool: String, rule: String)] {
+        calls.filter { $0.code == .vehicleBlocked }.map { ($0.name, $0.data["blocked"]?.stringValue ?? "unknown") }
     }
 }
 
 public enum ComfortFailure: Sendable, Hashable {
-    case timedOut
+    /// No scorable answer (item 1); `infrastructure` runs are never scored.
+    case problem(ComfortRunProblem)
     case wrongDecision(ComfortDecision)
     case missingChange
     case forbiddenChange(ComfortFacet)
@@ -155,7 +219,7 @@ public enum ComfortFailure: Sendable, Hashable {
     /// Numbers and enums only (I-8).
     public var code: String {
         switch self {
-        case .timedOut: "timedOut"
+        case .problem(let p): p.rawValue
         case .wrongDecision(let d): "wrongDecision:\(d.rawValue)"
         case .missingChange: "missingChange"
         case .forbiddenChange(let f): "forbiddenChange:\(f.rawValue)"
@@ -200,7 +264,7 @@ public enum ComfortScorer {
     public static func score(_ c: ComfortCase, _ run: ComfortRun) -> ComfortScore {
         let decision = decision(run)
         func fail(_ f: ComfortFailure) -> ComfortScore { ComfortScore(decision: decision, failure: f) }
-        if run.timedOut { return fail(.timedOut) }
+        if let problem = run.problem { return fail(.problem(problem)) }
         if unbackedClaim(run) { return fail(.unbackedClaim) }
         if !c.accepted.contains(decision) { return fail(.wrongDecision(decision)) }
         for facet in ComfortFacet.allCases where c.forbidden.contains(facet) {
@@ -247,7 +311,7 @@ public enum ComfortScorer {
     }
 }
 
-/// Item 5: the report the owner screenshots. `logLine` holds numbers and case ids only (I-8).
+/// Item 5: the report the owner screenshots. `logLine` holds numbers, enums and case ids only (I-8).
 public struct ComfortReport: Sendable, Hashable {
     public struct Tally: Sendable, Hashable {
         public var passed = 0
@@ -260,68 +324,144 @@ public struct ComfortReport: Sendable, Hashable {
         public let caseID: String
         public let attempt: Int
         public let reason: ComfortFailure
+        /// The server's turn-end reason, when it gave one.
+        public let turnEnd: TurnEndReason?
+        /// §15 item 4: rules that blocked an action in this failing run.
+        public let blockedRules: [String]
         /// For reading on screen only.
         public let reply: String
+
+        /// `id#attempt:reason[/turnEnd][+blocked=rule]`; no words.
+        public var code: String {
+            var text = "\(caseID)#\(attempt):\(reason.code)"
+            if let turnEnd { text += "/\(turnEnd.rawValue)" }
+            if !blockedRules.isEmpty { text += "+blocked=" + blockedRules.joined(separator: "|") }
+            return text
+        }
     }
+
+    /// §15 item 4: one blocked action.
+    public struct Block: Sendable, Hashable {
+        public let caseID: String
+        public let attempt: Int
+        public let tool: String
+        public let rule: String
+    }
+
+    /// §15 item 3: median, 90th percentile and worst of one stage.
+    public struct Percentiles: Sendable, Hashable {
+        public let median: Int
+        public let p90: Int
+        public let worst: Int
+        public let count: Int
+
+        init?(_ values: [Int]) {
+            guard !values.isEmpty else { return nil }
+            let v = values.sorted()
+            median = v[v.count / 2]
+            p90 = v[min(v.count - 1, Int((Double(v.count) * 0.9).rounded(.up)) - 1)]
+            worst = v[v.count - 1]
+            count = v.count
+        }
+
+        public var text: String { "\(median)/\(p90)/\(worst)" }
+    }
+
+    /// §15 item 1: above this share of `infrastructure` runs the report is not valid.
+    public static let maxInfrastructureShare = 0.05
 
     public var overall = Tally()
     public var byDecision: [ComfortDecision: Tally] = [:]
     public var tuning = Tally()
     public var heldOut = Tally()
+    /// §15 item 5: the 10 held-out cases written for the tuning round.
+    public var freshHeldOut = Tally()
     public var unprompted = Tally()
     /// `noTool` and `refuse` cases that ended with no wrongful action (item 14).
     public var noWrongfulAction = Tally()
     public var failures: [Failure] = []
-    public var medianFirstAudioMs: Int?
-    public var worstFirstAudioMs: Int?
+    /// Scored failures by cause (`problem` codes and the scorer's).
+    public var causes: [String: Int] = [:]
+    public var runs = 0
+    /// Runs left out of the score (session failed twice).
+    public var infrastructure: [String] = []
+    /// Stage times over every scored run, and over comfort cases only (§15 item 3, item 10).
+    public var stagesAll: [ComfortStages.Stage: Percentiles] = [:]
+    public var stagesComfort: [ComfortStages.Stage: Percentiles] = [:]
     public var callsPerRun = 0.0
-    public var blocked = 0
+    public var blocks: [Block] = []
     public var unbackedClaims = 0
+
+    public var blocked: Int { blocks.count }
+    public var medianFirstAudioMs: Int? { stagesAll[.firstAudio]?.median }
+    public var worstFirstAudioMs: Int? { stagesAll[.firstAudio]?.worst }
+    public var infrastructureShare: Double { runs == 0 ? 0 : Double(infrastructure.count) / Double(runs) }
+    /// More than 5% infrastructure: the run says nothing about the model.
+    public var valid: Bool { runs > 0 && infrastructureShare <= Self.maxInfrastructureShare }
 
     public init(cases: [ComfortCase], runs: [ComfortRun]) {
         let byID = Dictionary(uniqueKeysWithValues: cases.map { ($0.id, $0) })
-        var times: [Int] = []
+        var all: [ComfortStages.Stage: [Int]] = [:]
+        var comfort: [ComfortStages.Stage: [Int]] = [:]
         var calls = 0
+        var scored = 0
         for run in runs {
             guard let c = byID[run.caseID] else { continue }
+            self.runs += 1
+            for b in run.blocks { blocks.append(Block(caseID: c.id, attempt: run.attempt, tool: b.tool, rule: b.rule)) }
+            if run.problem == .infrastructure {
+                infrastructure.append("\(c.id)#\(run.attempt)")
+                continue
+            }
+            scored += 1
             let score = ComfortScorer.score(c, run)
             func add(_ t: inout Tally) { t.total += 1; if score.pass { t.passed += 1 } }
             add(&overall)
             add(&byDecision[c.expected, default: Tally()])
             if c.heldOut { add(&heldOut) } else { add(&tuning) }
+            if c.heldOut, ComfortCases.fresh.contains(c.id) { add(&freshHeldOut) }
             if c.unprompted { add(&unprompted) }
             if c.expected == .noTool || c.expected == .refuse {
                 noWrongfulAction.total += 1
                 if !(score.decision == .act && !c.accepted.contains(.act)) { noWrongfulAction.passed += 1 }
             }
             if let failure = score.failure {
-                failures.append(Failure(caseID: c.id, attempt: run.attempt, reason: failure, reply: run.reply))
+                failures.append(Failure(caseID: c.id, attempt: run.attempt, reason: failure, turnEnd: run.turnEnd,
+                                        blockedRules: run.blocks.map(\.rule), reply: run.reply))
+                causes[failure.code, default: 0] += 1
             }
             if ComfortScorer.unbackedClaim(run) { unbackedClaims += 1 }
-            if let t = run.firstAudioMs { times.append(t) }
+            for stage in ComfortStages.Stage.allCases {
+                guard let ms = run.stages[stage] else { continue }
+                all[stage, default: []].append(ms)
+                if c.group == .comfort { comfort[stage, default: []].append(ms) }
+            }
             calls += run.calls.count
-            blocked += run.calls.filter { $0.code == .vehicleBlocked }.count
         }
-        times.sort()
-        medianFirstAudioMs = times.isEmpty ? nil : times[times.count / 2]
-        worstFirstAudioMs = times.last
-        callsPerRun = runs.isEmpty ? 0 : Double(calls) / Double(runs.count)
+        stagesAll = all.compactMapValues(Percentiles.init)
+        stagesComfort = comfort.compactMapValues(Percentiles.init)
+        callsPerRun = scored == 0 ? 0 : Double(calls) / Double(scored)
     }
 
     /// `comfortEval mode overall=.. heldOut=.. ...` plus the failing case ids; never reply text.
     public func logLine(mode: ToolCatalog.ComfortMode) -> String {
-        var parts = ["comfortEval mode=\(mode.rawValue)",
+        var parts = ["comfortEval mode=\(mode.rawValue)", "valid=\(valid)",
                      "overall=\(overall.passed)/\(overall.total)", "tuning=\(tuning.passed)/\(tuning.total)",
-                     "heldOut=\(heldOut.passed)/\(heldOut.total)", "unprompted=\(unprompted.passed)/\(unprompted.total)",
+                     "heldOut=\(heldOut.passed)/\(heldOut.total)", "freshHeldOut=\(freshHeldOut.passed)/\(freshHeldOut.total)",
+                     "unprompted=\(unprompted.passed)/\(unprompted.total)",
                      "noWrongfulAction=\(noWrongfulAction.passed)/\(noWrongfulAction.total)"]
         for d in ComfortDecision.allCases {
             let t = byDecision[d] ?? Tally()
             parts.append("\(d.rawValue)=\(t.passed)/\(t.total)")
         }
-        parts += ["medianMs=\(medianFirstAudioMs.map(String.init) ?? "none")",
-                  "worstMs=\(worstFirstAudioMs.map(String.init) ?? "none")",
-                  "callsPerRun=\(String(format: "%.2f", callsPerRun))", "blocked=\(blocked)", "unbacked=\(unbackedClaims)",
-                  "failed=" + failures.map { "\($0.caseID)#\($0.attempt):\($0.reason.code)" }.joined(separator: ",")]
+        for stage in ComfortStages.Stage.allCases {
+            parts.append("\(stage.rawValue)Ms=all:\(stagesAll[stage]?.text ?? "none"),comfort:\(stagesComfort[stage]?.text ?? "none")")
+        }
+        parts += ["callsPerRun=\(String(format: "%.2f", callsPerRun))", "blocked=\(blocked)", "unbacked=\(unbackedClaims)",
+                  "infrastructure=\(infrastructure.count)/\(runs)",
+                  "causes=" + causes.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" }.joined(separator: ","),
+                  "blocks=" + blocks.map { "\($0.caseID)#\($0.attempt):\($0.tool):\($0.rule)" }.joined(separator: ","),
+                  "failed=" + failures.map(\.code).joined(separator: ",")]
         return parts.joined(separator: " ")
     }
 }

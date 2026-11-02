@@ -6,8 +6,8 @@ import Testing
 @testable import NovaTools
 
 private func run(_ c: ComfortCase, end: ComfortVehicleState, calls: [ComfortCallRecord] = [], reply: String,
-                 audio: Int? = 900, timedOut: Bool = false) -> ComfortRun {
-    ComfortRun(caseID: c.id, attempt: 1, end: end, calls: calls, reply: reply, firstAudioMs: audio, timedOut: timedOut)
+                 audio: Int? = 900, problem: ComfortRunProblem? = nil) -> ComfortRun {
+    ComfortRun(caseID: c.id, attempt: 1, end: end, calls: calls, reply: reply, firstAudioMs: audio, problem: problem)
 }
 
 private func ok(_ name: String, _ data: [String: JSONValue] = [:]) -> ComfortCallRecord {
@@ -40,7 +40,7 @@ struct ComfortEvalTests {
         #expect(ComfortScorer.score(c, run(c, end: c.start, reply: "车窗打开了")).failure == .unbackedClaim)
         #expect(ComfortScorer.score(c, run(c, end: fanOn, calls: [ok("control_climate")], reply: "车窗打开了")).failure
                 == .unbackedClaim)
-        #expect(ComfortScorer.score(c, run(c, end: c.start, reply: "", timedOut: true)).failure == .timedOut)
+        #expect(ComfortScorer.score(c, run(c, end: c.start, reply: "", problem: .noAnswer)).failure == .problem(.noAnswer))
         // An act that changes nothing required fails.
         let seatOnly = run(c, end: c.start, calls: [ok("control_window", ["action": "get_state"]), ok("control_climate")],
                            reply: "好的")
@@ -231,7 +231,7 @@ struct ComfortEvalRunnerTests {
         let runs = await runner.runAll(cases, attempts: 2)
         #expect(runs.count == 6)
         #expect(provider.closes == 6)
-        #expect(runs.allSatisfy { !$0.timedOut && $0.firstAudioMs != nil })
+        #expect(runs.allSatisfy { $0.problem == nil && $0.firstAudioMs != nil })
         let mosquito = runs[0]
         #expect(mosquito.calls.map(\.ok) == [true])
         #expect(ComfortScorer.score(cases[0], mosquito).pass)

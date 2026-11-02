@@ -62,7 +62,7 @@ public enum ToolCatalog {
     /// F-12 §14 item 9: read-only vehicle state for the model's own judgement.
     public static let vehicleStateSpec = ToolSpec(domain: "comfort", repeatSensitive: false, declaration: ToolDeclaration(
         name: "get_vehicle_state",
-        description: "读取车内状态（模拟）：车窗开度、空调开关、温度、风量、是否在放音乐、是否在导航、车速（未知时为 null）。司机描述车内的感受或情况、要判断该做什么时先调用。只读，不会改变任何东西。",
+        description: "读取车内状态（模拟）：车窗开度、空调开关、温度、风量、是否在放音乐、是否在导航、车速（未知时为 null）。只在当前状态会改变你的选择时调用（例如不知道车窗是否已开）；动作工具会返回最新状态，不必先查。只读，不会改变任何东西。",
         parametersJSONSchema: ["type": "object", "properties": .object([:]), "additionalProperties": false]))
 
     /// F-12 §14 item 8: the feeling-to-action sentences removed from `control_climate`; direct requests stay.

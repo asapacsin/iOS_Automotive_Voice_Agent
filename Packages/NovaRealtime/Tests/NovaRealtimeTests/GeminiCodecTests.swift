@@ -68,6 +68,7 @@ func shape(_ events: [RealtimeEvent]) -> [String] {
         case .goAway: name = "goAway"
         case .failed(let e): name = "failed(\(e.code.rawValue))"
         case .closed: name = "closed"
+        case .turnEnded(let r): name = "turnEnded(\(r.rawValue))"
         }
         out.append(name)
     }
@@ -145,10 +146,29 @@ struct GeminiOrderingTests {
     func textOnly() {
         var a = GeminiTurnAssembler()
         let events = a.consume(frame(#"{"serverContent":{"outputTranscription":{"text":"嗯"},"turnComplete":true}}"#))
-        #expect(events.isEmpty)
+        #expect(events == [.turnEnded(.empty)])
         let next = a.consume(frame(#"{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm","data":"AAAA"}}]}}}"#))
         #expect(next.first == .responseStarted(TurnID(1)))
         #expect(!next.contains(.replyText(TurnID(1), "嗯")))
+    }
+}
+
+@Suite("T-031d F-12 §15 item 2 turn end reason")
+struct TurnEndReasonTests {
+    func frame(_ json: String) -> [GeminiServerPart] { GeminiCodec.decode(Data(json.utf8))! }
+
+    @Test("A rejected turn with nothing open is reported as its reason; an open turn gets the reason before responseDone")
+    func reasons() {
+        var a = GeminiTurnAssembler()
+        #expect(a.consume(frame(#"{"serverContent":{"turnComplete":true,"turnCompleteReason":"RESPONSE_REJECTED"}}"#))
+                == [.turnEnded(.responseRejected)])
+        _ = a.consume(frame(#"{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm","data":"AAAA"}}]}}}"#))
+        let done = a.consume(frame(#"{"serverContent":{"turnComplete":true,"turnCompleteReason":"MALFORMED_FUNCTION_CALL"}}"#))
+        #expect(done == [.turnEnded(.malformedFunctionCall), .responseDone(TurnID(1), outcome: .completed)])
+        _ = a.consume(frame(#"{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm","data":"AAAA"}}]}}}"#))
+        #expect(a.consume(frame(#"{"serverContent":{"turnComplete":true,"turnCompleteReason":"TURN_COMPLETE_REASON_UNSPECIFIED"}}"#))
+                == [.responseDone(TurnID(2), outcome: .completed)])
+        #expect(GeminiCodec.turnEndReason("SOMETHING_NEW") == .other)
     }
 }
 

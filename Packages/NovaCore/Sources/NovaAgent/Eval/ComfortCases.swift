@@ -1,7 +1,8 @@
 import NovaKit
 import NovaPorts
 
-/// F-12 §14 item 1-2 (T-031a): the comfort test set. 40 tuning cases and 15 held out. Held-out cases are scored but
+/// F-12 §14 item 1-2 (T-031a): the comfort test set. 40 tuning cases and 16 held out, plus 10 fresh held-out cases
+/// (§15 item 5, T-031d) written before the tuning round. Held-out cases are scored but
 /// never used to change a prompt or a tool description; changing one needs a new held-out case in its place.
 public enum ComfortCases {
     // Starting states.
@@ -156,5 +157,29 @@ public enum ComfortCases {
         // Row 9: the window move fails; she must say so.
         ComfortCase("hCloseBroken", "关窗", group: .blocked, expected: .refuse, forbidden: everything, start: windowsBroken,
                     heldOut: true),
+
+        // §15 item 5 (T-031d): fresh held-out cases, written before the tuning round; 7 unprompted comfort wordings.
+        ComfortCase("h2Steamer", "热得像蒸笼一样", group: .comfort, expected: .act, requireAny: cooler, forbidden: [.music, .seat],
+                    heldOut: true, unprompted: true),
+        ComfortCase("h2NumbHands", "手都冻僵了", group: .comfort, expected: .act, requireAny: warmer, forbidden: [.music, .seat],
+                    start: acOn, heldOut: true, unprompted: true),
+        ComfortCase("h2Fly", "有只苍蝇在车里乱飞", group: .comfort, expected: .act, requireAny: freshAir,
+                    forbidden: [.temperature, .music, .seat], heldOut: true, unprompted: true),
+        ComfortCase("h2Petrol", "好像有股汽油味", group: .comfort, expected: .act, requireAny: freshAir,
+                    forbidden: [.temperature, .music, .seat], heldOut: true, unprompted: true),
+        ComfortCase("h2EyesClosing", "眼睛快睁不开了", group: .comfort, expected: .act, requireAny: awake, forbidden: [.seat],
+                    mention: rest, heldOut: true, unprompted: true),
+        ComfortCase("h2Yawning", "开得我直打哈欠", group: .comfort, expected: .act, requireAny: awake, forbidden: [.seat],
+                    mention: rest, heldOut: true, unprompted: true),
+        ComfortCase("h2Damp", "车里潮乎乎的", group: .comfort, expected: .act, requireAny: freshAir, forbidden: [.music, .seat],
+                    heldOut: true, unprompted: true),
+        ComfortCase("h2PassengerClose", "把副驾车窗关上", group: .direct, expected: .act, requireAny: [[.down(.windows)]],
+                    forbidden: [.acPower, .temperature, .fan, .music, .seat], start: windowsHalf, heldOut: true),
+        ComfortCase("h2RaiseWhat", "帮我调高一点", group: .ask, expected: .ask, forbidden: everything, start: busy, heldOut: true),
+        ComfortCase("h2LastNight", "我昨晚热得睡不着", group: .noAction, expected: .noTool, forbidden: everything, heldOut: true),
     ]
+
+    /// §15 item 5: the fresh held-out ids, reported on their own.
+    public static let fresh: Set<String> = ["h2Steamer", "h2NumbHands", "h2Fly", "h2Petrol", "h2EyesClosing", "h2Yawning",
+                                            "h2Damp", "h2PassengerClose", "h2RaiseWhat", "h2LastNight"]
 }

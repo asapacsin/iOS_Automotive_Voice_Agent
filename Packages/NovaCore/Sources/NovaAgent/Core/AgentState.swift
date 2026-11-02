@@ -850,7 +850,7 @@ public struct AgentState: Sendable {
                 effects += speak([rest], at: now)
             }
             return effects
-        case .setupComplete, .resumptionHandle, .goAway, .failed, .closed:
+        case .setupComplete, .resumptionHandle, .goAway, .failed, .closed, .turnEnded:
             return []
         }
     }
@@ -984,7 +984,8 @@ extension RealtimeEvent {
         case .responseStarted(let t), .replyText(let t, _), .replyAudio(let t, _), .toolCalls(let t, _),
              .audioDone(let t), .interrupted(let t, _), .responseDone(let t, _):
             t
-        case .setupComplete, .userTranscript, .toolCallCancellation, .resumptionHandle, .goAway, .failed, .closed:
+        case .setupComplete, .userTranscript, .toolCallCancellation, .resumptionHandle, .goAway, .failed, .closed,
+             .turnEnded:
             nil
         }
     }

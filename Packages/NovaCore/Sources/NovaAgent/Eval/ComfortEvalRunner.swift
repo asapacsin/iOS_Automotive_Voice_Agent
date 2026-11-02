@@ -17,18 +17,21 @@ public struct ComfortEvalHarness: Sendable {
     }
 }
 
-/// F-12 §14 item 4 (T-031a): sends each case as typed text through a real session with the real tools and checks.
-/// Each run is a new session (new context) on a vehicle reset to the case's start. Text only: no microphone, and
-/// her audio is timed but not played.
+/// F-12 §14 item 4 (T-031a), §15 items 1-3 (T-031d): sends each case as typed text through a real session with the
+/// real tools and checks. Each run is a new session (new context) on a vehicle reset to the case's start. Text only:
+/// no microphone, and her audio is timed but not played. Connecting has its own limit; the answer limit starts at
+/// `sendText`. A session that fails is retried once; failing again is `infrastructure` and is not scored.
 public actor ComfortEvalRunner {
     public static let attempts = 3
     public static let timeout = NovaDuration.seconds(20)
+    public static let connectTimeout = NovaDuration.seconds(10)
 
     let provider: any RealtimeProvider
     let config: SessionConfig
     let harness: ComfortEvalHarness
     let clock: any NovaClock
     let timeout: NovaDuration
+    let connectTimeout: NovaDuration
     private let declared: Set<String>
 
     private struct Pending {
@@ -38,10 +41,18 @@ public actor ComfortEvalRunner {
         var sentAt: NovaInstant?
         var calls: [ComfortCallRecord] = []
         var reply = ""
-        var firstAudio: NovaInstant?
+        var stages = ComfortStages()
+        var firstToolResponseAt: NovaInstant?
+        /// Something of the answer arrived (text, audio or a tool call) since the sentence.
+        var started = false
+        /// Tool responses were sent and nothing has answered them yet.
+        var awaitingAfterTool = false
         /// Text or audio after the last tool responses: the model has answered.
         var answered = false
-        var timedOut = false
+        /// Between `responseStarted` and `responseDone`.
+        var turnOpen = false
+        var turnEnd: TurnEndReason?
+        var problem: ComfortRunProblem?
         var finished = false
         var waiter: CheckedContinuation<Void, Never>?
     }
@@ -52,12 +63,14 @@ public actor ComfortEvalRunner {
     private var cancelled = false
 
     public init(provider: any RealtimeProvider, config: SessionConfig, harness: ComfortEvalHarness,
-                clock: any NovaClock, timeout: NovaDuration = ComfortEvalRunner.timeout) {
+                clock: any NovaClock, timeout: NovaDuration = ComfortEvalRunner.timeout,
+                connectTimeout: NovaDuration = ComfortEvalRunner.connectTimeout) {
         self.provider = provider
         self.config = config
         self.harness = harness
         self.clock = clock
         self.timeout = timeout
+        self.connectTimeout = connectTimeout
         declared = Set(config.tools.map(\.name))
     }
 
@@ -81,7 +94,17 @@ public actor ComfortEvalRunner {
         return runs
     }
 
+    /// One scored run: a failed session is retried once, then reported as `infrastructure`.
     public func run(_ c: ComfortCase, attempt: Int) async -> ComfortRun {
+        let first = await once(c, attempt: attempt)
+        guard first.problem == .sessionFailed else { return first }
+        let second = await once(c, attempt: attempt)
+        guard second.problem == .sessionFailed else { return second }
+        return ComfortRun(caseID: second.caseID, attempt: attempt, end: second.end, calls: second.calls, reply: second.reply,
+                          stages: second.stages, problem: .infrastructure, turnEnd: second.turnEnd)
+    }
+
+    private func once(_ c: ComfortCase, attempt: Int) async -> ComfortRun {
         if consumer == nil {
             let events = provider.events
             consumer = Task { [weak self] in
@@ -92,29 +115,47 @@ public actor ComfortEvalRunner {
         connection = connection.next()
         let mine = connection
         pending = Pending(connection: mine, history: c.history, sentence: c.sentence)
+        let connectTimer = timer(after: connectTimeout, mine, sent: false)
         await provider.connect(config, resume: nil, connection: mine)
-        let clock = clock, timeout = timeout
-        let timer = Task { [weak self] in
-            try? await clock.sleep(until: clock.now + timeout)
-            guard !Task.isCancelled else { return }
-            await self?.expire(mine)
-        }
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             if pending?.connection == mine, pending?.finished == false { pending?.waiter = done } else { done.resume() }
         }
-        timer.cancel()
+        connectTimer.cancel()
+        answerTimer?.cancel()
+        answerTimer = nil
         await provider.close()
         let finished = pending
         pending = nil
         let end = await harness.snapshot()
-        let first = zip(finished?.sentAt, finished?.firstAudio).map { Int(($1 - $0).milliseconds) }
         return ComfortRun(caseID: c.id, attempt: attempt, end: end, calls: finished?.calls ?? [], reply: finished?.reply ?? "",
-                          firstAudioMs: first, timedOut: finished?.timedOut ?? true)
+                          stages: finished?.stages ?? ComfortStages(), problem: finished == nil ? .sessionFailed : finished?.problem,
+                          turnEnd: finished?.turnEnd)
     }
 
-    private func expire(_ id: Generation) {
-        guard pending?.connection == id else { return }
-        pending?.timedOut = true
+    private var answerTimer: Task<Void, Never>?
+
+    private func timer(after limit: NovaDuration, _ id: Generation, sent: Bool) -> Task<Void, Never> {
+        let clock = clock
+        return Task { [weak self] in
+            try? await clock.sleep(until: clock.now + limit)
+            guard !Task.isCancelled else { return }
+            await self?.expire(id, sent: sent)
+        }
+    }
+
+    private func expire(_ id: Generation, sent: Bool) {
+        guard let p = pending, p.connection == id, !p.finished else { return }
+        if !sent {
+            // The connect limit only counts while no sentence has been sent.
+            guard p.sentAt == nil else { return }
+            pending?.problem = .sessionFailed
+        } else if p.awaitingAfterTool {
+            pending?.problem = .stuckAfterTool
+        } else if p.started {
+            pending?.problem = .slowAnswer
+        } else {
+            pending?.problem = .noAnswer
+        }
         finish()
     }
 
@@ -125,20 +166,37 @@ public actor ComfortEvalRunner {
         pending?.waiter = nil
     }
 
+    private func ms(since start: NovaInstant?) -> Int? {
+        start.map { Int((clock.now - $0).milliseconds) }
+    }
+
     private func handle(_ event: ProviderEvent) async {
         guard let p = pending, event.connection == p.connection, !p.finished else { return }
+        if p.sentAt != nil, p.stages.firstEventMs == nil, event.event.isAnswer {
+            pending?.stages.firstEventMs = ms(since: p.sentAt)
+        }
         switch event.event {
         case .setupComplete:
             guard p.sentAt == nil else { return }
             pending?.sentAt = clock.now
+            answerTimer = timer(after: timeout, p.connection, sent: true)
             await provider.sendText(p.history + [TextTurn(role: .user, text: p.sentence)], turnComplete: true)
         case .replyText(_, let text):
             pending?.reply += text
+            pending?.started = true
             pending?.answered = true
+            pending?.awaitingAfterTool = false
         case .replyAudio:
-            if pending?.firstAudio == nil { pending?.firstAudio = clock.now }
+            if p.stages.firstAudioMs == nil { pending?.stages.firstAudioMs = ms(since: p.sentAt) }
+            if p.firstToolResponseAt != nil, p.stages.toolToAudioMs == nil {
+                pending?.stages.toolToAudioMs = ms(since: p.firstToolResponseAt)
+            }
+            pending?.started = true
             pending?.answered = true
+            pending?.awaitingAfterTool = false
         case .toolCalls(_, let calls):
+            if p.stages.firstToolMs == nil { pending?.stages.firstToolMs = ms(since: p.sentAt) }
+            pending?.started = true
             var responses: [ToolResponse] = []
             for call in calls {
                 let result = await execute(call)
@@ -146,11 +204,23 @@ public actor ComfortEvalRunner {
                 responses.append(ToolResponse(id: call.id, name: call.name, result: result))
             }
             pending?.answered = false
+            pending?.awaitingAfterTool = true
+            if pending?.firstToolResponseAt == nil { pending?.firstToolResponseAt = clock.now }
             await provider.sendToolResponses(responses)
+        case .turnEnded(let reason):
+            pending?.turnEnd = reason
+            // A turn that closed with nothing open: no responseDone follows, so the run ends here.
+            guard !p.turnOpen else { return }
+            if !p.answered { pending?.problem = p.awaitingAfterTool ? .stuckAfterTool : .noAnswer }
+            finish()
+        case .responseStarted:
+            pending?.turnOpen = true
         case .responseDone:
+            pending?.turnOpen = false
             if pending?.answered == true || pending?.calls.isEmpty == true { finish() }
         case .failed, .closed:
-            pending?.timedOut = true
+            // Before an answer started this is the session; after, the answer was cut off.
+            pending?.problem = p.started ? (p.awaitingAfterTool ? .stuckAfterTool : .slowAnswer) : .sessionFailed
             finish()
         default:
             break
@@ -163,6 +233,16 @@ public actor ComfortEvalRunner {
         if let code = ToolCatalog.validate(call) { return ToolDispatcher.failure(code) }
         let result = await (harness.tools[call.name] ?? NotYetExecutor()).execute(call)
         return ToolDispatcher().finish(call, result)
+    }
+}
+
+extension RealtimeEvent {
+    /// Part of the model's answer (for the first-event stage).
+    var isAnswer: Bool {
+        switch self {
+        case .responseStarted, .replyText, .replyAudio, .toolCalls, .turnEnded, .responseDone: true
+        default: false
+        }
     }
 }
 

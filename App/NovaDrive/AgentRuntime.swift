@@ -736,7 +736,7 @@ final class AgentRuntime {
                 case .failed(let error):
                     RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
                     await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
-                case .closed, .setupComplete, .goAway:
+                case .closed, .setupComplete, .goAway, .turnEnded:
                     RuntimeLog.agent.notice("provider \(String(describing: event.event), privacy: .public)")
                 default:
                     break

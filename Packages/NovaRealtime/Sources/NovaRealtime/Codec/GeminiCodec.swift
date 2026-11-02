@@ -120,7 +120,12 @@ public enum GeminiCodec {
             if let text = content["outputTranscription"]?["text"]?.stringValue { parts.append(.outputTranscript(text)) }
             if content["generationComplete"]?.boolValue == true { parts.append(.generationComplete) }
             if content["interrupted"]?.boolValue == true { parts.append(.interrupted) }
-            if content["turnComplete"]?.boolValue == true { parts.append(.turnComplete) }
+            if content["turnComplete"]?.boolValue == true {
+                if let reason = content["turnCompleteReason"]?.stringValue, let r = turnEndReason(reason) {
+                    parts.append(.turnCompleteReason(r))
+                }
+                parts.append(.turnComplete)
+            }
         }
         if case .array(let calls)? = msg["toolCall"]?["functionCalls"] {
             parts.append(.toolCalls(calls.compactMap { call in
@@ -137,6 +142,17 @@ public enum GeminiCodec {
             parts.append(.goAway(timeLeft: goAway["timeLeft"]?.stringValue.flatMap(duration)))
         }
         return parts
+    }
+
+    /// `turnCompleteReason`; the unspecified value is no reason.
+    static func turnEndReason(_ raw: String) -> TurnEndReason? {
+        switch raw {
+        case "TURN_COMPLETE_REASON_UNSPECIFIED", "": nil
+        case "MALFORMED_FUNCTION_CALL": .malformedFunctionCall
+        case "RESPONSE_REJECTED": .responseRejected
+        case "NEED_MORE_INPUT": .needMoreInput
+        default: .other
+        }
     }
 
     /// Protobuf JSON duration: "12s", "0.5s".
@@ -164,6 +180,8 @@ public enum GeminiServerPart: Sendable, Hashable {
     case generationComplete
     case interrupted
     case turnComplete
+    /// Comes just before its `turnComplete`.
+    case turnCompleteReason(TurnEndReason)
     case toolCalls([ToolCall])
     case toolCallCancellation([CallID])
     case goAway(timeLeft: NovaDuration?)
