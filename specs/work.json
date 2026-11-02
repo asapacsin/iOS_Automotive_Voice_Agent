@@ -1597,14 +1597,14 @@
     },
     {
       "id": "T-022e",
-      "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
-      "priority": 4,
-      "action": "F-08 §17 items 9-12, only after the owner approves T-022d's device numbers: setting off by default, 10 dB dip, buffered audio, stop on confirmed new words; unit rows 7-8; device rows 13-15",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-08 §17 items 9-12 and 14-16: setting off by default, 10 dB dip, buffered audio, stop on confirmed new words, new echoWords rule with word order; unit rows 7-8, 18 and row 3 still passing; device rows 13-17",
       "depends_on": [
         "T-022d"
       ],
-      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. Do not start until the owner approves rows 9-11 in specs/STATUS.md."
+      "notes": "Owner 2026-11-02 said yes to building now behind the setting, without waiting for T-022d's device numbers. On by default still needs owner approval of rows 9-11, 14, 16, 17."
     }
   ]
 }
