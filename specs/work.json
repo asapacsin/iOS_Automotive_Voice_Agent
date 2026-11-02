@@ -1584,7 +1584,7 @@
       "owner": "AUTONOMOUS",
       "status": "PASS",
       "priority": 3,
-      "action": "F-08 §17 items 3-8: pure BargeInCheck, driver level bar, recent words as pinyin, bargeInShadow and levelCheck logs with no words, echo tail 800 ms, muteEndedMidReply log; no other behaviour change; unit rows 1-6; device rows 9-11",
+      "action": "F-08 §17 items 3-8: pure BargeInCheck, driver level bar, recent words as pinyin, bargeInShadow and levelCheck logs with no words, echo tail 800 ms, muteEndedMidReply log; no other behaviour change; unit rows 1-6; device rows 9-11, 16",
       "depends_on": [
         "T-022c"
       ],
@@ -1600,11 +1600,11 @@
       "owner": "HUMAN_DECISION",
       "status": "HUMAN_REQUIRED",
       "priority": 4,
-      "action": "F-08 §17 items 9-12, only after the owner approves T-022d's device numbers: setting off by default, 10 dB dip, buffered audio, stop on confirmed new words; unit rows 7-8; device rows 13-15",
+      "action": "F-08 §17 items 9-12, only after the owner approves T-022d's device numbers: setting off by default, 10 dB dip, buffered audio, stop on confirmed new words; unit rows 7-8; device rows 13-15, 17; item 16 first if row 16 is under its bar",
       "depends_on": [
         "T-022d"
       ],
-      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. Do not start until the owner approves rows 9-11 in specs/STATUS.md."
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. Do not start until the owner approves rows 9-11 and 16 in specs/STATUS.md."
     }
   ]
 }

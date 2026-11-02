@@ -286,7 +286,7 @@ Community review 2026-11-02: the common baseline is the platform canceller, spee
 8. **When the mute ends.** `AgentRuntime` ends the reply mute on `.replyFinished` with `revoicer.pendingClauses == 0`, while its comment says the mute must end only when nothing of the reply is left. Log `muteEndedMidReply` when reply audio of the same turn starts after the mute ended. If a device run shows any, end the mute on `.replyIdle` instead and record it in the PR.
 
 ### Part C: live interruption (T-022e, starts only after owner approval)
-9. **Gate to starting.** The owner approves after device rows 9–11, with the numbers in specs/STATUS.md. Pass bars: row 9 no `wouldStop` in 50 long replies; row 10 at least 18/20 `wouldStop`, median decision within 1 s of the words starting. Row 11 is reported as counts, and the owner decides whether they are acceptable. If they are not, tuning or a background-voice filter is a new spec.
+9. **Gate to starting.** The owner approves after device rows 9–11 and 16, with the numbers in specs/STATUS.md. Pass bars: row 9 no `wouldStop` in 50 long replies; row 10 at least 18/20 `wouldStop`, median decision within 1 s of the words starting; row 16 at least 18/20 `wouldStop`. Row 11 is reported as counts, and the owner decides whether they are acceptable. If they are not, tuning or a background-voice filter is a new spec.
 10. **Setting.** 设置 → 「可以打断她（实验）」, default off. Off is exactly today's behaviour and the §9 rule. On replaces that rule while she talks. Guidance is never interruptible (§14 row 7).
 11. **Flow when on.** During a reply candidate the audio is buffered with its pre-roll and nothing is sent, as `PostStopHold` does.
     - Stages up to `tooShort` pass: lower the reply player node by `dipDb` (10 dB); the reply keeps playing and Gemini is not told.
@@ -295,6 +295,11 @@ Community review 2026-11-02: the common baseline is the platform canceller, spee
     - Buffer cap 8 s. If the reply ends first, normal unmute rules apply, and the buffered audio is sent only if the check still passes.
 12. **Unchanged.** Stop phrases and their speed, `abandonNextTurn`, tool calls already running, §16 post-stop handling, and all behaviour with the setting off.
 13. **Out of scope.** Applying the driver bar to utterances while she is silent (item 4 only logs it; a new spec uses that data), a background-voice filter, recognising the driver's voice, WebRTC AEC3, car audio over Bluetooth.
+
+### Part D: questions on the same topic (owner 2026-11-02)
+14. **Known gap.** The `echoWords` stage compares sets of syllables and ignores their order, so a real question that reuses her words looks like echo. With her text 「珠海有很多好玩的地方」: 「珠海有多大」 has 1 new syllable of 5 and is rejected; 「珠海有什么好吃的」 has 3 of 8 and is rejected; 「珠海离澳门多远」 has 4 of 7 and passes. Under item 11 a rejected question is dropped while she keeps talking, so this would fail the owner's need: ask another question while she talks and get an answer. Rows 3 and 10 do not cover it.
+15. **Measure first (T-022d build, no code change).** Row 16 uses the existing `bargeInShadow` line. The driver notes the time of each question, because the log holds no words. `newSyllables` and `totalSyllables` show how close each one was.
+16. **If row 16 is under the bar,** T-022e does not start until the `echoWords` stage is changed in this section and rows 3, 9 and 16 pass again. The owner chooses from the numbers. Candidates, both unproven: compare order as well, since echo repeats her syllables in her order and a question reuses only pieces; or accept the words when the peak is clearly above the level her echo reached in row 9.
 
 **Acceptance (iOS).**
 
@@ -315,11 +320,13 @@ Community review 2026-11-02: the common baseline is the platform canceller, spee
 | 13 | Device, setting on: 「介绍一下珠海」, then 「不是，我问的是明天」 mid-reply, 10 times | She stops and answers the new question; beginning of the sentence not lost | D |
 | 14 | Device, setting on: rows 9 and 11 again | False stops counted; a brief dip is not a stop | D |
 | 15 | Device: stop-phrase rows of §14–§16 | Still pass, setting on and off | D |
+| 16 | Device, log-only: 「介绍一下珠海」, then a question reusing her words mid-reply (「珠海有多大」「珠海有什么好吃的」「珠海离澳门多远」, and others on what she just said), 20 times | Count of `wouldStop`, with `newSyllables` and `totalSyllables` of the rejected ones, recorded (pass bar: at least 18/20) | D (log) |
+| 17 | Device, setting on: the questions of row 16, 10 times | She stops and answers the new question; beginning of the sentence not lost | D |
 
 **Tasks.**
 
 | Task | Scope | Verify |
 |---|---|---|
 | T-001a | Items 1–2: `EchoSpike` matches the app's audio setup, volume and AGC matrix, results recorded; row 12 | build, D |
-| T-022d | Items 3–8: `BargeInCheck`, driver bar, recent words, log-only lines, 800 ms echo tail, mute-end log; unit rows 1–6; device rows 9–11 | unit, build, D |
-| T-022e | Items 9–12, **only after owner approval of rows 9–11**: setting, dip, buffered audio and stop flow; unit rows 7–8; device rows 13–15 | unit, build, D |
+| T-022d | Items 3–8: `BargeInCheck`, driver bar, recent words, log-only lines, 800 ms echo tail, mute-end log; unit rows 1–6; device rows 9–11, 16 | unit, build, D |
+| T-022e | Items 9–12, **only after owner approval of rows 9–11 and 16** (item 16 first if row 16 is under its bar): setting, dip, buffered audio and stop flow; unit rows 7–8; device rows 13–15, 17 | unit, build, D |
