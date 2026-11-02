@@ -15,7 +15,13 @@ public enum BargeInAction: Sendable, Hashable {
 /// only the audio, which the uplink drops for a not-sent utterance anyway, is kept. `wouldStop` releases it as a
 /// sent utterance: `speechStarted(sentToModel: true)`, the kept audio in order, then live audio (the shell makes the
 /// gate send the rest of it). Any other outcome drops it and restores her volume. Off: nothing is kept or emitted.
-/// Pure; time moves 10 ms per frame. Logs are numbers and enums (I-8).
+///
+/// Her reply ending before a decision (the gate's `cutAtUnmute`): the cut's sent utterance is held, like
+/// `PostStopHold` does, until the candidate is judged. `wouldStop` sends the kept audio ahead of it (the cut's
+/// pre-roll is the end of what was kept, so it is not sent twice); anything else sends the cut's utterance as today.
+///
+/// Events pair with the gate's raw outputs (`raw`); what goes out replaces the hold's outputs (`held`). Pure; time
+/// moves 10 ms per frame. Logs are numbers and enums (I-8).
 public struct BargeInLive: Sendable {
     public static let dipDb = 10.0
     public static let bufferCap = NovaDuration.seconds(8)
@@ -23,10 +29,15 @@ public struct BargeInLive: Sendable {
     private enum State: Sendable {
         case idle
         case keeping(id: Int, since: NovaDuration, audio: [PCMFrame16k], dipped: Bool, closed: Bool)
+        /// The cut at unmute came before a decision: candidate `id`'s kept audio, and the held outputs of the cut's
+        /// sent utterance (`skip`: its pre-roll frames right after its start).
+        case carrying(id: Int, since: NovaDuration, kept: [PCMFrame16k], held: [UplinkGateOutput], skip: Int)
     }
 
-    /// Her reply ended before a decision (the gate cut the candidate at the unmute, `cutAtUnmute`).
+    /// The candidate's close was the cut at unmute.
     private var cutAtUnmute = false
+    /// Set by the raw cut start; the hold's matching `speechStarted(true)` begins the carried part.
+    private var carryArmed = false
 
     public var enabled = false
     private var state = State.idle
@@ -40,13 +51,13 @@ public struct BargeInLive: Sendable {
         return logs
     }
 
-    /// True while a candidate's audio is kept (tests, diagnostics).
+    /// True while a candidate's audio is kept or a cut utterance is held for it (tests, diagnostics).
     public var keeping: Bool {
-        if case .keeping = state { return true }
-        return false
+        if case .idle = state { return false }
+        return true
     }
 
-    /// The result of one step: what the shell does (in order), then the outputs to forward in place of the ones given.
+    /// The result of one step: what the shell does (in order), then the outputs to forward in place of `held`.
     public struct Step: Sendable, Hashable {
         public var actions: [BargeInAction] = []
         public var outputs: [UplinkGateOutput] = []
@@ -55,55 +66,81 @@ public struct BargeInLive: Sendable {
         public init() {}
     }
 
-    /// One frame: the gate's raw outputs for it and the shadow's events after it.
-    public mutating func frame(_ outputs: [UplinkGateOutput], events: [BargeInShadow.Event],
+    /// One frame: the gate's raw outputs, the hold's outputs for them, and the shadow's events after it.
+    public mutating func frame(raw: [UplinkGateOutput], held: [UplinkGateOutput], events: [BargeInShadow.Event],
                                guidancePlaying: Bool) -> Step {
         now = now + .milliseconds(10)
-        return pass(outputs, events: events, guidancePlaying: guidancePlaying)
+        return pass(raw: raw, held: held, events: events, guidancePlaying: guidancePlaying)
     }
 
-    /// Outputs that come from no frame (the force-close), or none with the recognizer's words.
-    public mutating func pass(_ outputs: [UplinkGateOutput], events: [BargeInShadow.Event],
+    /// The same for one list (no hold in between; tests).
+    public mutating func frame(_ outputs: [UplinkGateOutput], events: [BargeInShadow.Event], guidancePlaying: Bool) -> Step {
+        frame(raw: outputs, held: outputs, events: events, guidancePlaying: guidancePlaying)
+    }
+
+    public mutating func pass(_ outputs: [UplinkGateOutput], events: [BargeInShadow.Event], guidancePlaying: Bool) -> Step {
+        pass(raw: outputs, held: outputs, events: events, guidancePlaying: guidancePlaying)
+    }
+
+    /// Outputs that come from no frame (the force-close, the recognizer's words).
+    public mutating func pass(raw: [UplinkGateOutput], held: [UplinkGateOutput], events: [BargeInShadow.Event],
                               guidancePlaying: Bool) -> Step {
         var step = Step()
-        // Each `started` is handled at its own `speechStarted`, so the pre-roll after it is kept.
+        // 1. Raw outputs: each `started` at its own `speechStarted` (the pre-roll after it is kept).
         var starts = events.filter { if case .started = $0 { true } else { false } }[...]
-        var out: [UplinkGateOutput] = []
-        var skipPreRoll = false
-        for (i, output) in outputs.enumerated() {
+        for output in raw {
             if case .speechStarted = output, let start = starts.popFirst() {
-                // Item 11: her reply ended first and the check still passes (its stages up to tooShort did, and it
-                // was not rejected): the kept audio goes ahead of the cut's sent utterance. The cut's pre-roll is
-                // the end of what was kept, so it is not sent twice.
                 if case .started(_, false) = start, cutAtUnmute,
-                   case .keeping(let id, _, let audio, true, true) = state {
-                    state = .idle
+                   case .keeping(let id, let since, let audio, true, true) = state {
+                    // Her reply ended first and the early stages passed: hold the cut's utterance for the decision.
                     cutAtUnmute = false
-                    step.actions.append(.dip(false))
-                    out.append(output)
-                    out += audio.map(UplinkGateOutput.audio)
-                    skipPreRoll = true
-                    logs.append("bargeInCarried \(id) frames=\(audio.count)")
-                    continue
+                    carryArmed = true
+                    state = .carrying(id: id, since: since, kept: audio, held: [], skip: 0)
+                } else {
+                    handle([start], guidancePlaying: guidancePlaying, into: &step)
                 }
-                handle([start], guidancePlaying: guidancePlaying, into: &step)
-                out.append(output)
                 continue
             }
-            if skipPreRoll, case .audio = output {
-                // Only the current frame (the last audio of the cut's outputs) is new.
-                let later = outputs[(i + 1)...].contains { if case .audio = $0 { true } else { false } }
-                if later { continue }
-            } else if skipPreRoll {
-                skipPreRoll = false
-            }
             keep(output)
+        }
+        // 2. The hold's outputs, in place: passed, or held while carrying.
+        var out: [UplinkGateOutput] = []
+        for (i, output) in held.enumerated() {
+            if carryArmed, case .speechStarted(true) = output, case .carrying(let id, let since, let kept, _, _) = state {
+                carryArmed = false
+                let rest = held[(i + 1)...]
+                let audioAfter = rest.prefix { if case .audio = $0 { true } else { false } }.count
+                state = .carrying(id: id, since: since, kept: kept, held: [output], skip: max(0, audioAfter - 1))
+                continue
+            }
+            if case .carrying(let id, let since, let kept, var buffer, let skip) = state, buffer.first != nil {
+                if case .speechStarted = output {
+                    // A newer utterance: the cut's goes out as today, then this one.
+                    out += buffer
+                    state = .idle
+                    if kept.count > 0 { step.actions.append(.dip(false)) }
+                    logs.append("bargeInDipCancelled \(id) reason=superseded")
+                    out.append(output)
+                    continue
+                }
+                buffer.append(output)
+                state = .carrying(id: id, since: since, kept: kept, held: buffer, skip: skip)
+                continue
+            }
             out.append(output)
         }
+        // 3. Decisions.
         handle(Array(starts) + events.filter { if case .started = $0 { false } else { true } },
-               guidancePlaying: guidancePlaying, into: &step)
-        if case .keeping(let id, let since, _, _, _) = state, now - since > Self.bufferCap {
+               guidancePlaying: guidancePlaying, into: &step, out: &out)
+        switch state {
+        case .keeping(let id, let since, _, _, _) where now - since > Self.bufferCap:
             cancel(id, reason: "cap", into: &step)
+        case .carrying(let id, let since, _, let buffer, _) where now - since > Self.bufferCap:
+            out += buffer
+            state = .idle
+            step.actions.append(.dip(false))
+            logs.append("bargeInDipCancelled \(id) reason=cap")
+        default: break
         }
         step.outputs = out + step.outputs
         return step
@@ -113,15 +150,29 @@ public struct BargeInLive: Sendable {
     public mutating func setEnabled(_ on: Bool) -> Step {
         enabled = on
         var step = Step()
-        if !on, case .keeping(let id, _, _, _, _) = state { cancel(id, reason: "settingOff", into: &step) }
+        if !on { release(reason: "settingOff", into: &step) }
         return step
     }
 
     /// Item 12: a stop phrase stopped her; the candidate is §14–§16's, never released here.
     public mutating func stopPhrase() -> Step {
         var step = Step()
-        if case .keeping(let id, _, _, _, _) = state { cancel(id, reason: "stopPhrase", into: &step) }
+        release(reason: "stopPhrase", into: &step)
         return step
+    }
+
+    /// Drop a kept candidate; a held cut utterance goes out as today.
+    private mutating func release(reason: String, into step: inout Step) {
+        switch state {
+        case .keeping(let id, _, _, _, _): cancel(id, reason: reason, into: &step)
+        case .carrying(let id, _, _, let buffer, _):
+            state = .idle
+            carryArmed = false
+            step.outputs += buffer
+            step.actions.append(.dip(false))
+            logs.append("bargeInDipCancelled \(id) reason=\(reason)")
+        case .idle: break
+        }
     }
 
     private mutating func keep(_ output: UplinkGateOutput) {
@@ -138,13 +189,20 @@ public struct BargeInLive: Sendable {
     }
 
     private mutating func handle(_ events: [BargeInShadow.Event], guidancePlaying: Bool, into step: inout Step) {
+        var out: [UplinkGateOutput] = []
+        handle(events, guidancePlaying: guidancePlaying, into: &step, out: &out)
+        step.outputs += out
+    }
+
+    private mutating func handle(_ events: [BargeInShadow.Event], guidancePlaying: Bool, into step: inout Step,
+                                 out: inout [UplinkGateOutput]) {
         for event in events {
             switch event {
             case .started(let id, let candidate):
                 if case .keeping(let old, _, _, _, _) = state { cancel(old, reason: "superseded", into: &step) }
                 cutAtUnmute = false
                 // Item 10: guidance is never interruptible; off is exactly today's behaviour.
-                if candidate, enabled, !guidancePlaying {
+                if candidate, enabled, !guidancePlaying, case .idle = state {
                     state = .keeping(id: id, since: now, audio: [], dipped: false, closed: false)
                 }
             case .early(let id):
@@ -152,9 +210,20 @@ public struct BargeInLive: Sendable {
                 state = .keeping(id: id, since: since, audio: audio, dipped: true, closed: closed)
                 step.actions.append(.dip(true))
             case .wouldStop(let id):
-                guard case .keeping(id, let since, let audio, let dipped, let closed) = state else { continue }
+                if case .carrying(id, let since, let kept, let buffer, let skip) = state {
+                    // Her reply already ended: nothing to stop; the kept audio leads the cut's utterance.
+                    state = .idle
+                    carryArmed = false
+                    step.actions.append(.dip(false))
+                    if let start = buffer.first {
+                        out += [start] + kept.map(UplinkGateOutput.audio) + buffer.dropFirst(1 + skip)
+                    }
+                    logs.append("bargeInCarried \(id) frames=\(kept.count) heldMs=\((now - since).milliseconds)")
+                    continue
+                }
+                guard case .keeping(id, let since, let audio, _, let closed) = state else { continue }
                 state = .idle
-                _ = dipped  // the flush restores her volume (`LiveAudio.flush`), so it never blips back first
+                // The flush restores her volume (`LiveAudio.flush`), so it never blips back first.
                 step.actions.append(.stop)
                 step.outputs.append(.speechStarted(sentToModel: true))
                 step.outputs += audio.map(UplinkGateOutput.audio)
@@ -166,8 +235,17 @@ public struct BargeInLive: Sendable {
                 }
                 logs.append("bargeInStop \(id) heldMs=\((now - since).milliseconds)")
             case .rejected(let id, let reason):
-                guard case .keeping(id, _, _, _, _) = state else { continue }
-                cancel(id, reason: reason.rawValue, into: &step)
+                switch state {
+                case .keeping(id, _, _, _, _): cancel(id, reason: reason.rawValue, into: &step)
+                case .carrying(id, _, _, let buffer, _):
+                    // The cut's utterance goes out as today, without the kept part.
+                    state = .idle
+                    carryArmed = false
+                    out += buffer
+                    step.actions.append(.dip(false))
+                    logs.append("bargeInDipCancelled \(id) reason=\(reason.rawValue)")
+                default: break
+                }
             }
         }
     }
