@@ -1614,24 +1614,33 @@
     {
       "id": "T-031a",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 3,
       "action": "F-12 §14 items 1-6: comfort test set of 55+ cases with held-out cases, outcome scorer, in-app runner over sendText, baseline on the fixed table; rows 1, 2, 7",
       "depends_on": [
         "T-031"
       ],
-      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Keys stay in the app's settings; logs hold numbers and case ids only."
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Keys stay in the app's settings; logs hold numbers and case ids only.",
+      "evidence": [
+        "gates green (run_all.sh PASS, NovaCore 494 tests, 1 known noise-corpus issue)",
+        "rows 1, 2 unit; runner unit with a scripted provider; review PASS (second round)",
+        "row 7 device NOT_VERIFIED: baseline (table) and model-mode scores pending owner run; Codemagic build pending"
+      ]
     },
     {
       "id": "T-031b",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 3,
       "action": "F-12 §14 items 7-13: setting off by default, catalog variant without run_scenario, get_vehicle_state, goal prompt, VehicleActionPolicy on both paths, claims need an ok result of the named tool; rows 3-9",
       "depends_on": [
         "T-031a"
       ],
-      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Off path stays byte-equal to the Android catalog. windowSpeedKmh and windowMaxAtSpeed are proposed values."
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Off path stays byte-equal to the Android catalog. windowSpeedKmh and windowMaxAtSpeed are proposed values.",
+      "evidence": [
+        "gates green; rows 3-6 unit; review PASS after fix f3f8c09 (claim topics compound words only)",
+        "rows 7-9 device NOT_VERIFIED; Codemagic build pending; windowSpeedKmh 100 and windowMaxAtSpeed 30 stay PROPOSED"
+      ]
     },
     {
       "id": "T-031c",
