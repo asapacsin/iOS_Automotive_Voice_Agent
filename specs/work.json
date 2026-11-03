@@ -1693,22 +1693,22 @@
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
       "priority": 3,
-      "action": "F-12 §18 items 1-6: model-mode control_window and control_climate descriptions state the tool's purpose; 5 tries of 有点闷 before and after; score table and model; rows 1-5",
+      "action": "F-12 §18 items 1-5: model-mode control_window and control_climate descriptions state the tool's purpose; no test case added or changed; score table and model; rows 1-3",
       "depends_on": [
         "T-031f"
       ],
-      "notes": "Owner 2026-11-03 \"this make sense then write the spec\" after a community review. Keep-or-revert rule in item 6 is PROPOSED. Item 1 baseline runs on e7e41da before this build is installed."
+      "notes": "Owner 2026-11-03 \"this make sense then write the spec\" after a community review. Keep-or-revert rule in item 5 is PROPOSED."
     },
     {
       "id": "T-031h",
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
       "priority": 3,
-      "action": "F-12 §19 items 1-5: remove lower temperature from model-mode sleepy rule and from the sleepy cases' required changes; same build as T-031g; rows 1-4",
+      "action": "F-12 §19 items 1-3: remove lower temperature from the model-mode sleepy rule; test cases unchanged; same build as T-031g; row 1",
       "depends_on": [
         "T-031g"
       ],
-      "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\". Owner decision is the exception to F-12 §16 item 4 for these cases."
+      "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\" and \"the current test case is ok don't add extra stuff\"."
     }
   ]
 }

@@ -322,53 +322,45 @@ Community review 2026-11-03:
 - [CAR-bench](https://arxiv.org/html/2601.22027): tools say what they do; rules about when they may be used are kept apart.
 - [Study of 856 tools](https://arxiv.org/abs/2602.14878): 56% did not clearly state their purpose; augmenting descriptions raised task success by a median of 5.85 points and made 16.67% of cases worse. [Study of 10,831 servers](https://arxiv.org/abs/2602.18914): functionality wording changed selection by +11.6%. Neither is about cars.
 
-**Rule in plain words.** Tools state general facts about what they do. They name no driver sentence or feeling, and they do not choose for her. Then measure, because this can also make her act wrongly.
+**Rule in plain words.** Tools state general facts about what they do. They name no driver sentence or feeling, and they do not choose for her. No test case is added or changed for this; the existing test measures it.
 
-1. **Baseline first.** Before this build is installed, on e7e41da with model mode and the record on, windows closed, a new conversation each time: 有点闷, 5 times. Record the tools called, from the record files, in specs/STATUS.md.
-2. **Window description, model mode only.** `control_window` in `modelComfortSpecs` begins: 「控制车窗（模拟）。开窗能换入车外空气、散掉车内异味；关窗能隔绝噪音和车外空气。」 The rest of today's description follows unchanged.
-3. **Climate description, model mode only.** `modelClimateDescription` begins: 「控制空调（模拟）。空调主要调节温度，风量让车内空气流动。」 The rest of today's description follows unchanged.
-4. **Not changed.** The table's descriptions, rule 5, the other tools, the checks of §14 item 11, and the test cases and their expected answers. No line about 闷 or insects goes into a tool. A driver's preference, such as always opening a window for 闷, is a separate question and is not part of this task.
-5. **After.** The same 5 tries as item 1 on the new build. Then the §16 item 13 order on that build: the trial, someone reads it, the table, then the model. The §16 item 4 verdicts come first, as §16 requires.
-6. **Keep or revert.** PROPOSED until the owner has seen the numbers. Keep the change only if the model run meets the §16 item 14 bars. Windows opened in the 5 tries are shown beside the baseline; five tries can only show a large difference, so they do not decide on their own. If the bars for no wrongful action or the overall interval fail, the owner decides whether to revert. A full before-and-after score of the model on different builds is not compared (§16 item 7).
-7. **Out of scope.** Removing the table (T-031c), trimming rule 5, and a driver-preference step.
+1. **Window description, model mode only.** `control_window` in `modelComfortSpecs` begins: 「控制车窗（模拟）。开窗能换入车外空气、散掉车内异味；关窗能隔绝噪音和车外空气。」 The rest of today's description follows unchanged.
+2. **Climate description, model mode only.** `modelClimateDescription` begins: 「控制空调（模拟）。空调主要调节温度，风量让车内空气流动。」 The rest of today's description follows unchanged.
+3. **Not changed.** The table's descriptions, rule 5, the other tools, the checks of §14 item 11, and the test cases and their expected answers. No line about 闷 or insects goes into a tool. A driver's preference, such as always opening a window for 闷, is a separate question and is not part of this task.
+4. **After.** The §16 item 13 order on the new build: the trial, someone reads it, the table, then the model. The §16 item 4 verdicts come first, as §16 requires.
+5. **Keep or revert.** PROPOSED until the owner has seen the numbers. Keep the change only if the model run meets the §16 item 14 bars. If the bars for no wrongful action or the overall interval fail, the owner decides whether to revert.
+6. **Out of scope.** Removing the table (T-031c), trimming rule 5, and a driver-preference step.
 
 **Acceptance (iOS).**
 
 | # | Given / when | Then | Test |
 |---|---|---|---|
-| 1 | Model-mode declarations | `control_window` and `control_climate` begin with the sentences of items 2 and 3, and the rest of each equals today's text | unit |
+| 1 | Model-mode declarations | `control_window` and `control_climate` begin with the sentences of items 1 and 2, and the rest of each equals today's text | unit |
 | 2 | Table-mode declarations, and every other model-mode tool | Equal to today's | unit |
-| 3 | The two new descriptions and every held-out case | No held-out sentence appears; neither contains 闷, 蚊 or 虫 | unit |
-| 4 | Device: 有点闷, 5 times, before and after, record on | Tools called and windows opened are in specs/STATUS.md for both | D |
-| 5 | Device: the item 5 runs | Both reports valid; numbers and the item 14 bars in specs/STATUS.md | D |
+| 3 | Device: the item 4 runs | Both reports valid; numbers and the §16 item 14 bars in specs/STATUS.md | D |
 
 **Tasks.**
 
 | Task | Scope | Verify |
 |---|---|---|
-| T-031g | Items 1–6; rows 1–5 | unit, build, D |
+| T-031g | Items 1–5; rows 1–3 | unit, build, D |
 
 ## 19. Sleepy driver: no lower temperature (iOS, APPROVED 2026-11-03)
 
-**Why.** On e7e41da, model mode, the record for 好困 and 我快睡着了 shows temperature −1 and advice to rest, because rule 5 names 调低一度温度 as an action. [Reyner and Horne](https://www.ncbi.nlm.nih.gov/pubmed/9485532), 16 drivers in a simulator: cold air had only brief, non-significant effects. Owner 2026-11-03: "probably open window and add wind is make sense, but the lower temperature is non sense, remove that, add this to spec".
+**Why.** On e7e41da, model mode, the record for 好困 and 我快睡着了 shows temperature −1 and advice to rest, because rule 5 names 调低一度温度 as an action. [Reyner and Horne](https://www.ncbi.nlm.nih.gov/pubmed/9485532), 16 drivers in a simulator: cold air had only brief, non-significant effects. Owner 2026-11-03: "probably open window and add wind is make sense, but the lower temperature is non sense, remove that, add this to spec", and "the current test case is ok don't add extra stuff".
 
-1. **Rule 5.** In `modelComfortRule`, 「马上做一个提神的小动作（调低一度温度、开一点车窗或调大风量）」 becomes 「马上做一个提神的小动作（开一点车窗或调大风量）」. The rest of the rule is unchanged, including the advice to rest. This is the one change to rule 5 that §18 item 4 does not cover.
-2. **Test cases.** Remove `.down(.temperature)` from `ComfortCases.awake` and from the `requireAny` of `drowsyMusicOn`. So lowering the temperature alone no longer passes a sleepy case. This owner decision is the exception to §16 item 4 and to the "earlier held-out cases unchanged" check of §16 row 4, for these cases and this field only; their sentences and held-out marks stay. Update the known good outcomes of §16 item 3 to match.
-3. **Not forbidden.** Temperature is not added to the cases' `forbidden` set, because the table's `drowsy` scenario lowers it too and would fail for that alone. No code blocks it, since 有点热 still lowers the temperature. The rule steers her; the device row shows the result.
-4. **Not changed.** The table, including its `drowsy` steps, the checks of §14 item 11, and the wording of her advice to rest.
-5. **Same build as §18.** T-031g and T-031h go in one build and are scored together in §18 item 5, so that scoring cannot separate their effects. §18 item 1 still runs before that build is installed.
+1. **Rule 5.** In `modelComfortRule`, 「马上做一个提神的小动作（调低一度温度、开一点车窗或调大风量）」 becomes 「马上做一个提神的小动作（开一点车窗或调大风量）」. The rest of the rule is unchanged, including the advice to rest. This is the one change to rule 5 that §18 item 3 does not cover.
+2. **Not changed.** The test cases and their expected answers, so lowering the temperature alone still passes a sleepy case. The table, including its `drowsy` steps, the checks of §14 item 11, and the wording of her advice to rest. No code blocks a lower temperature, since 有点热 still lowers it; the rule steers her.
+3. **Same build as §18.** T-031g and T-031h go in one build and are scored together in §18 item 4.
 
 **Acceptance (iOS).**
 
 | # | Given / when | Then | Test |
 |---|---|---|---|
-| 1 | The model-mode instruction | Contains the new sentence of item 1; does not contain 调低一度温度 in its sleepy sentence; the table's instruction equals today's | unit |
-| 2 | A sleepy case: temperature down only; window up; fan up | Fails with the missing-change cause; passes; passes | unit |
-| 3 | The `drowsy` scenario's steps in table mode | Equal to today's, and the table's outcome still passes each sleepy case | unit |
-| 4 | Device, model mode, record on: 好困 and 我快睡着了, 3 times each, new conversation each time | The record shows a window or fan action and advice to rest; any temperature change is counted in specs/STATUS.md | D |
+| 1 | The model-mode instruction | Contains the new sentence of item 1 and not the old one; the table's instruction equals today's | unit |
 
 **Tasks.**
 
 | Task | Scope | Verify |
 |---|---|---|
-| T-031h | Items 1–5; rows 1–4 | unit, build, D |
+| T-031h | Items 1–3; row 1 | unit, build |
