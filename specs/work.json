@@ -1698,6 +1698,17 @@
         "T-031f"
       ],
       "notes": "Owner 2026-11-03 \"this make sense then write the spec\" after a community review. Keep-or-revert rule in item 6 is PROPOSED. Item 1 baseline runs on e7e41da before this build is installed."
+    },
+    {
+      "id": "T-031h",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-12 §19 items 1-5: remove lower temperature from model-mode sleepy rule and from the sleepy cases' required changes; same build as T-031g; rows 1-4",
+      "depends_on": [
+        "T-031g"
+      ],
+      "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\". Owner decision is the exception to F-12 §16 item 4 for these cases."
     }
   ]
 }

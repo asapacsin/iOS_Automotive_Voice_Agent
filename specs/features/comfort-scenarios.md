@@ -347,3 +347,28 @@ Community review 2026-11-03:
 | Task | Scope | Verify |
 |---|---|---|
 | T-031g | Items 1–6; rows 1–5 | unit, build, D |
+
+## 19. Sleepy driver: no lower temperature (iOS, APPROVED 2026-11-03)
+
+**Why.** On e7e41da, model mode, the record for 好困 and 我快睡着了 shows temperature −1 and advice to rest, because rule 5 names 调低一度温度 as an action. [Reyner and Horne](https://www.ncbi.nlm.nih.gov/pubmed/9485532), 16 drivers in a simulator: cold air had only brief, non-significant effects. Owner 2026-11-03: "probably open window and add wind is make sense, but the lower temperature is non sense, remove that, add this to spec".
+
+1. **Rule 5.** In `modelComfortRule`, 「马上做一个提神的小动作（调低一度温度、开一点车窗或调大风量）」 becomes 「马上做一个提神的小动作（开一点车窗或调大风量）」. The rest of the rule is unchanged, including the advice to rest. This is the one change to rule 5 that §18 item 4 does not cover.
+2. **Test cases.** Remove `.down(.temperature)` from `ComfortCases.awake` and from the `requireAny` of `drowsyMusicOn`. So lowering the temperature alone no longer passes a sleepy case. This owner decision is the exception to §16 item 4 and to the "earlier held-out cases unchanged" check of §16 row 4, for these cases and this field only; their sentences and held-out marks stay. Update the known good outcomes of §16 item 3 to match.
+3. **Not forbidden.** Temperature is not added to the cases' `forbidden` set, because the table's `drowsy` scenario lowers it too and would fail for that alone. No code blocks it, since 有点热 still lowers the temperature. The rule steers her; the device row shows the result.
+4. **Not changed.** The table, including its `drowsy` steps, the checks of §14 item 11, and the wording of her advice to rest.
+5. **Same build as §18.** T-031g and T-031h go in one build and are scored together in §18 item 5, so that scoring cannot separate their effects. §18 item 1 still runs before that build is installed.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | The model-mode instruction | Contains the new sentence of item 1; does not contain 调低一度温度 in its sleepy sentence; the table's instruction equals today's | unit |
+| 2 | A sleepy case: temperature down only; window up; fan up | Fails with the missing-change cause; passes; passes | unit |
+| 3 | The `drowsy` scenario's steps in table mode | Equal to today's, and the table's outcome still passes each sleepy case | unit |
+| 4 | Device, model mode, record on: 好困 and 我快睡着了, 3 times each, new conversation each time | The record shows a window or fan action and advice to rest; any temperature change is counted in specs/STATUS.md | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031h | Items 1–5; rows 1–4 | unit, build, D |
