@@ -14,6 +14,7 @@ struct SettingsView: View {
         (.amapSDKKey, "高德 iOS SDK key"),
         (.amapWebKey, "高德 Web 服务 key"),
         (.zhipuKey, "智谱 key（视觉，推荐）"),
+        (.qwenAPIKey, "阿里云百炼 key（联网搜索）"),
         (.qianfanKey, "千帆 key（可选，视觉备用）"),
         (.iflytekAppID, "讯飞 APPID（唤醒词）"),
         (.iflytekAPIKey, "讯飞 APIKey"),
@@ -81,10 +82,12 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                     NavigationLink("舒适场景测试") { ComfortEvalView() }
                 }
-                // F-18 §15 item 1 (T-046c).
+                // F-18 §15 item 1, §17 item 2 (T-046e).
                 Section("联网") {
                     Toggle("联网搜索（实验）", isOn: $webSearch)
-                    Text("开：天气、新闻、营业时间这类信息由她用 Google 搜索查，答案可能不准。车辆操作不变，仍只通过车辆工具。关：和现在一样。下次开始对话时生效。")
+                    Text("需要阿里云百炼 key。问题会发到阿里云新加坡。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Text("开：天气、新闻、营业时间这类信息由她联网查，答案可能不准。车辆操作不变，仍只通过车辆工具。关：和现在一样。下次开始对话时生效。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 // F-12 §17 (T-031f).

@@ -1,7 +1,7 @@
 import Foundation
 
-/// F-18 §16 item 4 (T-046d): a provider-neutral web search (I-13). One request per call; the caller decides
-/// whether the reply really searched (§16 item 5).
+/// F-18 §16 item 4, §17 item 6 (T-046e): a provider-neutral web search (I-13). One request per call; the caller
+/// decides whether the reply really searched (§17 item 5).
 public protocol WebSearchService: Sendable {
     func search(_ query: String) async throws -> WebSearchReply
 }
@@ -18,25 +18,21 @@ public struct WebSearchSource: Sendable, Hashable {
 public struct WebSearchReply: Sendable, Hashable {
     /// The answer text (may be empty when the model wrote nothing).
     public let answer: String
-    /// The searches the search model ran (`webSearchQueries`).
-    public let queries: [String]
-    /// One per grounding chunk.
+    /// The search results the provider returned.
     public let sources: [WebSearchSource]
-    /// Search Suggestions HTML (`searchEntryPoint.renderedContent`), shown only to the driver.
-    public let suggestionHTML: String?
 
-    public init(answer: String, queries: [String], sources: [WebSearchSource], suggestionHTML: String?) {
+    public init(answer: String, sources: [WebSearchSource]) {
         self.answer = answer
-        self.queries = queries
         self.sources = sources
-        self.suggestionHTML = suggestionHTML
     }
 }
 
-/// Why a request failed. Carries codes only, never text (I-8).
+/// Why a request failed. Carries codes only, never text (I-8). `code` is the provider's error code, uncleaned.
 public enum WebSearchError: Error, Sendable, Hashable {
     case timeout
     case network
-    case http(Int)
+    case http(Int, code: String? = nil)
+    /// An error `code` inside a 200 stream.
+    case api(String)
     case notConfigured
 }

@@ -30,8 +30,6 @@ final class DriveModel: ObservableObject {
     /// F-24 §14 item 4: the offline cap ended the session: 「网络已断开，点按重新开始」 until the next start.
     @Published var networkEnded = false
     @Published var notice: String?
-    /// F-18 §16 item 8: Search Suggestions HTML of her latest searched answer; cleared on the next driver turn.
-    @Published var searchSuggestion: String?
     // F-20a floating camera window
     @Published var cameraOpen = false
     @Published var cameraAsking = false
@@ -716,19 +714,20 @@ final class AgentRuntime {
             comfortMode: comfortMode.rawValue, interruptible: DriveSettings.isInterruptible(),
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
-        // F-18 §16 items 3-8: `web_search` through the search model, only with the setting on.
+        // F-18 §16 items 3, 6-7 and §17 items 1-8: `web_search` through the search model, only with the setting on.
         if webSearch {
-            let model = model
+            let qwenKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
             executors[WebSearchExecutor.tool] = WebSearchExecutor(
-                service: GeminiWebSearchClient(credentials: KeychainRealtimeCredentials()), clock: SystemClock()
+                service: QwenWebSearchClient(key: qwenKey), clock: SystemClock()
             ) { outcome in
                 switch outcome {
-                case .used(let ms, let attempts, let queries, let html):
-                    // I-8: numbers only in the log; the queries go to the local record only.
+                case .used(let ms, let attempts, let query):
+                    // I-8: numbers only in the log; her query goes to the local record only.
                     RuntimeLog.agent.notice("webSearchUsed ms=\(ms, privacy: .public) attempts=\(attempts, privacy: .public)")
-                    record?.submit(.search(queries.joined(separator: " | ")))
-                    Task { @MainActor in model.searchSuggestion = html }
-                case .failed(let reason, let ms):
+                    record?.submit(.search(query))
+                case .failed(let reason, let ms, let code):
+                    // I-7, I-8: the cleaned provider code only; never its message, the query, the answer or the key.
+                    if let code { RuntimeLog.agent.notice("webSearchError code=\(code, privacy: .public)") }
                     RuntimeLog.agent.notice("webSearchFailed reason=\(reason, privacy: .public) ms=\(ms, privacy: .public)")
                 }
             }

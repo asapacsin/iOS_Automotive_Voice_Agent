@@ -2,17 +2,17 @@ import Foundation
 import NovaKit
 import NovaPorts
 
-/// What one `web_search` call did, for the log, the record and the suggestion chip (F-18 §16 items 8, 12).
-/// `queries` and `suggestionHTML` never go to `RuntimeLog` (I-8).
+/// What one `web_search` call did, for the log and the record (F-18 §17 items 7, 8). `query` is the query she sent
+/// and goes to the local record only, never to `RuntimeLog` (I-8). `code` is the cleaned provider error code.
 public enum WebSearchOutcome: Sendable, Hashable {
-    case used(ms: Int, attempts: Int, queries: [String], suggestionHTML: String?)
-    case failed(reason: String, ms: Int)
+    case used(ms: Int, attempts: Int, query: String)
+    case failed(reason: String, ms: Int, code: String? = nil)
 }
 
-/// F-18 §16 items 3, 5-7 (T-046d): `web_search` through the search model. A result is ok only when the reply has
-/// text, search queries and grounding sources; otherwise one retry, then `LIVE_INFO_UNAVAILABLE`. Errors and 429 do
-/// not retry. The whole call, retry included, is limited to `limit`. Cancellation (barge-in, `toolCallCancellation`)
-/// cancels the request; the runner then sends nothing.
+/// F-18 §16 items 3, 6-7 and §17 items 5, 7 (T-046e): `web_search` through the search model. A result is ok only
+/// when the reply has text and at least one source; otherwise one retry, then `LIVE_INFO_UNAVAILABLE`. Only HTTP 5xx
+/// and `no_sources` retry. The whole call, retry included, is limited to `limit`. Cancellation (barge-in,
+/// `toolCallCancellation`) cancels the request; the runner then sends nothing.
 public struct WebSearchExecutor: ToolExecutor {
     public static let tool = "web_search"
     public static let maxAnswer = 600
@@ -35,7 +35,7 @@ public struct WebSearchExecutor: ToolExecutor {
 
     private enum Attempted: Sendable {
         case ok(WebSearchReply, attempts: Int)
-        case failed(String)
+        case failed(String, code: String?)
     }
 
     public func execute(_ call: ToolCall) async -> ToolResult {
@@ -48,7 +48,7 @@ public struct WebSearchExecutor: ToolExecutor {
             group.addTask { await Self.attempt(query, service) }
             group.addTask {
                 do { try await clock.sleep(until: deadline) } catch { return nil }
-                return .failed("timeout")
+                return .failed("timeout", code: nil)
             }
             let first = await group.next() ?? nil
             group.cancelAll()
@@ -58,14 +58,14 @@ public struct WebSearchExecutor: ToolExecutor {
         if Task.isCancelled { return .failure(.liveInfoUnavailable, advice: Self.advice) }
         switch attempted {
         case .ok(let reply, let attempts)?:
-            onOutcome(.used(ms: ms, attempts: attempts, queries: reply.queries, suggestionHTML: reply.suggestionHTML))
+            onOutcome(.used(ms: ms, attempts: attempts, query: query))
             var hosts: [String] = []
             for s in reply.sources where !s.host.isEmpty && !hosts.contains(s.host) { hosts.append(s.host) }
             return .success(["answer": .string(String(reply.answer.prefix(Self.maxAnswer))),
                              "sources": .array(hosts.prefix(Self.maxSources).map { .string($0) }),
                              "next": .string(Self.next)])
-        case .failed(let reason)?:
-            onOutcome(.failed(reason: reason, ms: ms))
+        case .failed(let reason, let code)?:
+            onOutcome(.failed(reason: reason, ms: ms, code: code))
             return .failure(.liveInfoUnavailable, advice: Self.advice)
         case nil:
             onOutcome(.failed(reason: "timeout", ms: ms))
@@ -73,32 +73,55 @@ public struct WebSearchExecutor: ToolExecutor {
         }
     }
 
-    /// A reply searched only with text, queries and sources (§16 item 5, enforced here, I-3).
+    /// A reply searched only with text and at least one source (§17 item 5, enforced here, I-3, I-11). A search
+    /// count alone is not evidence.
     static func grounded(_ r: WebSearchReply) -> Bool {
-        !r.answer.allSatisfy(\.isWhitespace) && !r.queries.isEmpty && !r.sources.isEmpty
+        !r.answer.allSatisfy(\.isWhitespace) && !r.sources.isEmpty
     }
 
     private static func attempt(_ query: String, _ service: any WebSearchService) async -> Attempted {
+        var last: Attempted = .failed("no_sources", code: nil)
         for attempt in 1...2 {
             do {
                 let reply = try await service.search(query)
                 if grounded(reply) { return .ok(reply, attempts: attempt) }
+                last = .failed("no_sources", code: nil)
             } catch let error as WebSearchError {
-                return .failed(reason(error))
+                last = .failed(reason(error), code: code(error))
+                // Only HTTP 5xx retries; 4xx, API codes, no key, timeout and network send one request.
+                guard case .http(let status, _) = error, (500...599).contains(status) else { return last }
             } catch {
-                return .failed(Task.isCancelled ? "timeout" : "network")
+                return .failed(Task.isCancelled ? "timeout" : "network", code: nil)
             }
-            if Task.isCancelled { return .failed("timeout") }
+            if Task.isCancelled { return .failed("timeout", code: nil) }
         }
-        return .failed("no_sources")
+        return last
     }
 
     static func reason(_ error: WebSearchError) -> String {
         switch error {
         case .timeout: "timeout"
-        case .network, .notConfigured: "network"
-        case .http(let code): "http_\(code)"
+        case .network: "network"
+        case .notConfigured: "no_key"
+        case .http(let status, _): "http_\(status)"
+        case .api(let code): "api_\(clean(code) ?? "unknown")"
         }
+    }
+
+    static func code(_ error: WebSearchError) -> String? {
+        switch error {
+        case .http(_, let code?), .api(let code): clean(code)
+        default: nil
+        }
+    }
+
+    /// §17 item 7: only `[A-Za-z0-9._-]`, at most 64 characters; nil when nothing is left.
+    public static func clean(_ code: String) -> String? {
+        let kept = code.unicodeScalars.filter {
+            ("A"..."Z").contains($0) || ("a"..."z").contains($0) || ("0"..."9").contains($0) || ".-_".unicodeScalars.contains($0)
+        }
+        let out = String(String.UnicodeScalarView(kept.prefix(64)))
+        return out.isEmpty ? nil : out
     }
 }
 

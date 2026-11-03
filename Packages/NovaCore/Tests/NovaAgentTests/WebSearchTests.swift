@@ -27,13 +27,12 @@ final class ScriptedSearch: WebSearchService, @unchecked Sendable {
     }
 }
 
-let grounded = WebSearchReply(answer: "上海后天小雨，16到21度。", queries: ["上海 后天 天气"],
+let grounded = WebSearchReply(answer: "上海后天小雨，16到21度。",
                               sources: [WebSearchSource(title: "weather.com.cn", host: "weather.com.cn"),
                                         WebSearchSource(title: "weather.com.cn", host: "weather.com.cn"),
                                         WebSearchSource(title: "a.com", host: "a.com"),
                                         WebSearchSource(title: "b.com", host: "b.com"),
-                                        WebSearchSource(title: "c.com", host: "c.com")],
-                              suggestionHTML: "<div>chip</div>")
+                                        WebSearchSource(title: "c.com", host: "c.com")])
 
 func searchCall(_ q: String = "上海后天天气怎么样", id: String = "call_s") -> ToolCall {
     ToolCall(id: CallID(id)!, name: "web_search", arguments: ["query": .string(q)])
@@ -99,10 +98,9 @@ struct WebSearchTests {
         }
     }
 
-    @Test("Row 5: text, queries and chunks: ok with answer, hosts and next; answer capped; one request")
+    @Test("§17 row 3: text and sources: ok with answer, hosts and next; answer capped; one request")
     func ok() async {
-        let long = WebSearchReply(answer: String(repeating: "雨", count: 700), queries: ["q"],
-                                  sources: grounded.sources, suggestionHTML: nil)
+        let long = WebSearchReply(answer: String(repeating: "雨", count: 700), sources: grounded.sources)
         for (reply, cap) in [(grounded, grounded.answer), (long, String(repeating: "雨", count: 600))] {
             let service = ScriptedSearch([.reply(reply)])
             let outcomes = Mutex<[WebSearchOutcome]>([])
@@ -114,17 +112,16 @@ struct WebSearchTests {
             #expect(result.data["next"] == .string(WebSearchExecutor.next))
             #expect(Set(result.data.keys) == ["answer", "sources", "next"])
             #expect(service.calls.withLock { $0 } == 1)
-            guard case .used(_, let attempts, let queries, _)? = outcomes.withLock({ $0.first }) else { Issue.record("no outcome"); continue }
-            #expect(attempts == 1 && queries == reply.queries)
+            guard case .used(_, let attempts, let query)? = outcomes.withLock({ $0.first }) else { Issue.record("no outcome"); continue }
+            #expect(attempts == 1 && query == "上海后天天气怎么样")
         }
     }
 
-    @Test("Row 6: no metadata, empty chunks or empty text twice: two requests, then LIVE_INFO_UNAVAILABLE without their text")
+    @Test("§17 row 4: no sources or no text twice: two requests, then LIVE_INFO_UNAVAILABLE without their text")
     func ungrounded() async {
-        let noMeta = WebSearchReply(answer: "凭记忆：晴", queries: [], sources: [], suggestionHTML: nil)
-        let noChunks = WebSearchReply(answer: "凭记忆：晴", queries: ["q"], sources: [], suggestionHTML: nil)
-        let noText = WebSearchReply(answer: " ", queries: ["q"], sources: grounded.sources, suggestionHTML: nil)
-        for bad in [noMeta, noChunks, noText] {
+        let noMeta = WebSearchReply(answer: "凭记忆：晴", sources: [])
+        let noText = WebSearchReply(answer: " ", sources: grounded.sources)
+        for bad in [noMeta, noText] {
             let service = ScriptedSearch([.reply(bad), .reply(bad)])
             let outcomes = Mutex<[WebSearchOutcome]>([])
             let result = await WebSearchExecutor(service: service, clock: SystemClock()) { o in outcomes.withLock { $0.append(o) } }
@@ -132,7 +129,7 @@ struct WebSearchTests {
             #expect(!result.ok && result.code == .liveInfoUnavailable)
             #expect(service.calls.withLock { $0 } == 2)
             #expect(!"\(result)".contains("凭记忆"))
-            guard case .failed(let reason, _)? = outcomes.withLock({ $0.first }) else { Issue.record("no outcome"); continue }
+            guard case .failed(let reason, _, _)? = outcomes.withLock({ $0.first }) else { Issue.record("no outcome"); continue }
             #expect(reason == "no_sources")
         }
         // A retry that searches is ok, with attempts=2.
@@ -141,23 +138,38 @@ struct WebSearchTests {
         let result = await WebSearchExecutor(service: service, clock: SystemClock()) { o in outcomes.withLock { $0.append(o) } }
             .execute(searchCall())
         #expect(result.ok)
-        guard case .used(_, let attempts, _, _)? = outcomes.withLock({ $0.first }) else { Issue.record("no outcome"); return }
+        guard case .used(_, let attempts, _)? = outcomes.withLock({ $0.first }) else { Issue.record("no outcome"); return }
         #expect(attempts == 2)
     }
 
-    @Test("Row 7: timeout, no network, 429, 503: LIVE_INFO_UNAVAILABLE; 429 sends one request; 10 s limit in all")
+    @Test("§17 row 5: timeout, network, no key, 400/401/403/404/429, API code: one request; 503 two; 10 s limit")
     func failures() async throws {
-        for (error, reason) in [(WebSearchError.network, "network"), (.http(429), "http_429"), (.http(503), "http_503"),
-                                (.timeout, "timeout")] {
+        let one: [(WebSearchError, String, String?)] = [
+            (.network, "network", nil), (.timeout, "timeout", nil), (.notConfigured, "no_key", nil),
+            (.http(400), "http_400", nil), (.http(401), "http_401", nil), (.http(404), "http_404", nil),
+            (.http(403, code: "AllocationQuota.FreeTierOnly"), "http_403", "AllocationQuota.FreeTierOnly"),
+            (.http(429, code: "Throttling"), "http_429", "Throttling"), (.api("InternalError"), "api_InternalError", "InternalError"),
+        ]
+        for (error, reason, code) in one {
             let service = ScriptedSearch([.fail(error), .reply(grounded)])
             let outcomes = Mutex<[WebSearchOutcome]>([])
             let result = await WebSearchExecutor(service: service, clock: SystemClock()) { o in outcomes.withLock { $0.append(o) } }
                 .execute(searchCall())
             #expect(!result.ok && result.code == .liveInfoUnavailable)
             #expect(service.calls.withLock { $0 } == 1, "\(reason)")
-            #expect(outcomes.withLock { $0 }.first == .failed(reason: reason, ms: 0) || {
-                if case .failed(let r, _)? = outcomes.withLock({ $0.first }) { return r == reason } else { return false } }())
+            guard case .failed(let r, _, let c)? = outcomes.withLock({ $0.first }) else { Issue.record("no outcome"); continue }
+            #expect(r == reason && c == code, "\(reason)")
         }
+        // 5xx retries once: 503 twice fails after two requests; 503 then a searched reply is ok.
+        let twice = ScriptedSearch([.fail(.http(503)), .fail(.http(503)), .reply(grounded)])
+        let outcomes5 = Mutex<[WebSearchOutcome]>([])
+        let failed = await WebSearchExecutor(service: twice, clock: SystemClock()) { o in outcomes5.withLock { $0.append(o) } }
+            .execute(searchCall())
+        #expect(!failed.ok && failed.code == .liveInfoUnavailable && twice.calls.withLock { $0 } == 2)
+        if case .failed(let r, _, _)? = outcomes5.withLock({ $0.first }) { #expect(r == "http_503") } else { Issue.record("no outcome") }
+        let recovers = ScriptedSearch([.fail(.http(503)), .reply(grounded)])
+        #expect(await WebSearchExecutor(service: recovers, clock: SystemClock()).execute(searchCall()).ok)
+        #expect(recovers.calls.withLock { $0 } == 2)
         // A hanging request: the whole call ends at the limit (10 s by default) as a timeout.
         let clock = ManualClock()
         let service = ScriptedSearch([.hang])
@@ -210,6 +222,19 @@ struct WebSearchTests {
         // The log line carries numbers and a reason code only (built in AgentRuntime from these fields).
         let failed = WebSearchOutcome.failed(reason: WebSearchExecutor.reason(.http(429)), ms: 12)
         #expect(failed == .failed(reason: "http_429", ms: 12))
+        // §17 row 6: only the cleaned code is kept; message, query, answer and key never reach the outcome.
+        #expect(WebSearchExecutor.clean("AllocationQuota.FreeTierOnly") == "AllocationQuota.FreeTierOnly")
+        #expect(WebSearchExecutor.clean("Bad code: 上海/<x>\n") == "Badcodex")
+        #expect(WebSearchExecutor.clean(String(repeating: "a", count: 100))?.count == 64)
+        #expect(WebSearchExecutor.clean("上海") == nil)
+        #expect(WebSearchExecutor.reason(.api("上海")) == "api_unknown")
+        let service = ScriptedSearch([.fail(.http(403, code: "Quota 上海天气"))])
+        let outcomes = Mutex<[WebSearchOutcome]>([])
+        _ = await WebSearchExecutor(service: service, clock: SystemClock()) { o in outcomes.withLock { $0.append(o) } }
+            .execute(searchCall())
+        #expect(outcomes.withLock { $0 }.count == 1)
+        #expect(!"\(outcomes.withLock { $0 })".contains("上海"))
+        if case .failed(_, _, let c)? = outcomes.withLock({ $0.first }) { #expect(c == "Quota") }
         // Validator.
         #expect(ToolCatalog.validate(searchCall("  ")) == .blankQuestion)
         #expect(ToolCatalog.validate(searchCall(String(repeating: "天", count: 201))) == .questionTooLong)
