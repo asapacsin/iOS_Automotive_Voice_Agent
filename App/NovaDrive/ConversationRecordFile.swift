@@ -46,6 +46,7 @@ struct ConversationRecordFile: RecordWriter {
                 record.drain(to: file)
                 try? await Task.sleep(for: .milliseconds(500))
             }
+            record.close()
             record.drain(to: file)
         }
     }

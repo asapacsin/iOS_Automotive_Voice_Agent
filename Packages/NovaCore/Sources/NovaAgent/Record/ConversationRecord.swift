@@ -52,37 +52,47 @@ public struct RecordHeader: Sendable, Hashable {
 }
 
 /// Turns events into lines (§17 item 4): `<ms> <kind> <content>`. Reply pieces are merged into one `reply` line per
-/// turn, written when the turn ends, with the time of its first piece; `reply-out` follows it.
+/// turn, written when the turn ends, with the time of its first piece. The core judges a turn after the provider ends
+/// it (a whole-held reply is released, or a claim voided, at `responseDone` or later), so `reply-out` is written only
+/// at the next correction, turn, driver words or session event; marks that arrive after `responseDone` still count.
+/// A clause spoken only after the turn ended means it was held whole. A void takes the reason of the correction
+/// that follows it, else `none`.
 public struct ConversationRecorder: Sendable {
     private struct Turn: Sendable {
+        let id: TurnID
         var firstMs: Int64
         var text = ""
         var spoke = false
+        var spokeAfterEnd = false
         var held = false
         var flushed = false
         var bargedIn = false
+        var ended = false
     }
 
-    private var turns: [TurnID: Turn] = [:]
+    /// Open turns, and the last ended one waiting for its `reply-out`.
+    private var open: [TurnID: Turn] = [:]
     private var current: TurnID?
+    private var awaiting: Turn?
 
     public init() {}
 
     public mutating func add(_ event: RecordEvent, atMs ms: Int64) -> [String] {
         func line(_ kind: String, _ content: String) -> String { "\(ms) \(kind) \(content)" }
         switch event {
-        case .heardLocal(let words): return [line("heard-local", words ?? "（没听清）")]
+        case .heardLocal(let words): return settle(ms, reason: nil) + [line("heard-local", words ?? "（没听清）")]
         case .heardGemini(let text): return [line("heard-gemini", text)]
         case .utterance(let id, let sent, let mute): return [line("utterance", "id=\(id) sent=\(sent) mute=\(mute)")]
         case .turnStarted(let t):
-            current = t
-            if turns[t] == nil { turns[t] = Turn(firstMs: ms) }
-            return []
+            let out = settle(ms, reason: nil)
+            begin(t, ms)
+            return out
         case .replyText(let t, let text):
-            if turns[t] == nil { turns[t] = Turn(firstMs: ms) }
-            turns[t]?.text += text
-            return []
-        case .spoke: mark { $0.spoke = true }; return []
+            var out: [String] = []
+            if open[t] == nil { out = settle(ms, reason: nil); begin(t, ms) }
+            open[t]?.text += text
+            return out
+        case .spoke: mark { $0.spoke = true; if $0.ended { $0.spokeAfterEnd = true } }; return []
         case .held: mark { $0.held = true }; return []
         case .flushed: mark { $0.flushed = true }; return []
         case .bargeIn(let stopped):
@@ -91,40 +101,68 @@ public struct ConversationRecorder: Sendable {
         case .toolCall(let name, let args): return [line("tool-call", "\(name) \(Self.json(args))")]
         case .toolResult(let name, let ok, let code, let data):
             return [line("tool-result", "\(name) ok=\(ok) code=\(code ?? "none") \(Self.json(data))")]
-        case .correction(let reason): return [line("correction", reason)]
+        case .correction(let reason): return settle(ms, reason: reason) + [line("correction", reason)]
         case .playbackStarted: return [line("playback", "started")]
         case .playbackFinished: return [line("playback", "finished")]
         case .generationComplete(let t): return [line("turn-end", "generationComplete turn=\(t)")]
         case .turnComplete(let t, let outcome):
-            return close(t, ms) + [line("turn-end", "turnComplete turn=\(t) outcome=\(outcome)")]
+            return end(t, ms) + [line("turn-end", "turnComplete turn=\(t) outcome=\(outcome)")]
         case .turnEnded(let reason): return [line("turn-end", "reason=\(reason.rawValue)")]
-        case .session(let what): return [line("session", what)]
+        case .session(let what):
+            // A session event ends every open turn: her words are never lost from the file.
+            var out: [String] = []
+            for id in open.keys.sorted(by: { open[$0]!.firstMs < open[$1]!.firstMs }) { out += end(id, ms) }
+            return out + settle(ms, reason: nil) + [line("session", what)]
         }
     }
 
-    private mutating func mark(_ change: (inout Turn) -> Void) {
-        guard let current, var t = turns[current] else { return }
-        change(&t)
-        turns[current] = t
+    /// Call when the file is closed, so the last turn gets its `reply-out`.
+    public mutating func finish(atMs ms: Int64) -> [String] {
+        var out: [String] = []
+        for id in open.keys.sorted(by: { open[$0]!.firstMs < open[$1]!.firstMs }) { out += end(id, ms) }
+        return out + settle(ms, reason: nil)
     }
 
-    private mutating func close(_ id: TurnID, _ ms: Int64) -> [String] {
-        guard let t = turns.removeValue(forKey: id) else { return [] }
+    private mutating func begin(_ t: TurnID, _ ms: Int64) {
+        current = t
+        if open[t] == nil { open[t] = Turn(id: t, firstMs: ms) }
+    }
+
+    /// Marks go to the open turn, else to the ended one still waiting for its outcome.
+    private mutating func mark(_ change: (inout Turn) -> Void) {
+        if let current, var t = open[current] {
+            change(&t)
+            open[current] = t
+        } else if var t = awaiting {
+            change(&t)
+            awaiting = t
+        }
+    }
+
+    private mutating func end(_ id: TurnID, _ ms: Int64) -> [String] {
+        guard var t = open.removeValue(forKey: id) else { return [] }
         if current == id { current = nil }
-        var out: [String] = []
-        if !t.text.isEmpty { out.append("\(t.firstMs) reply turn=\(id) \(t.text.replacingOccurrences(of: "\n", with: " "))") }
+        let out = settle(ms, reason: nil)
+        t.ended = true
+        awaiting = t
+        let reply = t.text.isEmpty ? [] : ["\(t.firstMs) reply turn=\(id) \(t.text.replacingOccurrences(of: "\n", with: " "))"]
+        return out + reply
+    }
+
+    private mutating func settle(_ ms: Int64, reason: String?) -> [String] {
+        guard let t = awaiting else { return [] }
+        awaiting = nil
         let outcome: String
-        if t.flushed, !t.bargedIn {
-            outcome = "voided reason=\(t.held ? "claim_unproven" : "flushed")"
-        } else if t.bargedIn {
+        if t.bargedIn {
             outcome = "stopped reason=barge_in"
+        } else if t.flushed || (reason != nil && !t.spoke) {
+            outcome = "voided reason=\(reason ?? "none")"
         } else if t.spoke {
-            outcome = t.held ? "held-released" : "released"
+            outcome = t.held || t.spokeAfterEnd ? "held-released" : "released"
         } else {
             outcome = "not-spoken"
         }
-        out.append("\(ms) reply-out turn=\(id) \(outcome)")
-        return out
+        return ["\(ms) reply-out turn=\(t.id) \(outcome)"]
     }
 
     static func json(_ value: JSONValue) -> String {
@@ -206,6 +244,18 @@ public final class ConversationRecord: Sendable {
             guard !s.stopped else { return }
             let lines = s.recorder.add(event, atMs: ms)
             for line in lines {
+                if s.queue.count >= capacity { s.dropped += 1 } else { s.queue.append(line) }
+            }
+        }
+    }
+
+    /// Ends the record: the last turn's `reply-out` is queued for the final drain.
+    public func close() {
+        let elapsed = now() - start
+        let ms = elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
+        state.withLock { s in
+            guard !s.stopped else { return }
+            for line in s.recorder.finish(atMs: ms) {
                 if s.queue.count >= capacity { s.dropped += 1 } else { s.queue.append(line) }
             }
         }
