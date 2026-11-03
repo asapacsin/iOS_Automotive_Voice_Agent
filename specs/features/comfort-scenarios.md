@@ -265,3 +265,48 @@ What the code and the c4fa669 replies show:
 | Task | Scope | Verify |
 |---|---|---|
 | T-031e | Items 1–14; rows 1–9 | unit, build, D |
+
+## 17. Conversation record for testing (iOS, APPROVED 2026-11-03)
+
+**Why.** On 2026-11-03 the owner reported, in model mode, 13:45:11–13:49:16, that she gave the same reply to every sentence. The log showed 9 sentences sent and 9 replies, but no words and no tool calls, because I-8 keeps transcripts out of logs. So the cause could not be found. Owner: "you should build that for testing" and "you jsut wrie a spec and push to cloud".
+
+**Rule in plain words.** A setting, off by default, writes each conversation to a file on the phone. It records what happened and changes nothing she does.
+
+1. **Setting.** 设置 gets 「保存对话记录（测试用）」, default off, read at session start. Off: no file is created and nothing else changes.
+2. **File.** One UTF-8 text file per session at `Documents/conversations/<yyyyMMdd-HHmmss>.txt`, so it can be read through file sharing or pulled from the PC. Keep the newest 50 and delete older ones. 设置 gets 「删除全部对话记录」, which asks for confirmation.
+3. **First lines.** App version, comfort mode, 可以打断她 on or off, speaking style. Never a key or the system instruction.
+4. **One line per event.** Milliseconds since the session started, a kind, then the content:
+   - `heard-local`: the final words from the bundled recognizer, or `（没听清）`.
+   - `heard-gemini`: Gemini's final input transcription.
+   - `utterance`: id, sent to the model or not, and the mute reason.
+   - `reply`: her text as Gemini sent it, merged into one line per turn.
+   - `reply-out`: for each turn, whether it was released, held and released, or voided, with the reason.
+   - `tool-call`: name and arguments.
+   - `tool-result`: name, ok, code and data.
+   - `correction`: the `CorrectionReason` sent.
+   - `playback`: her audio started and finished.
+   - `barge-in`: stopped or rejected.
+   - `turn-end`: `generationComplete`, `turnComplete` and the reason.
+   - `session`: connected, reconnected, failed with a code, closed.
+5. **Privacy (I-8).** Nothing from the record goes to the system log, a network or an analytics call. `RuntimeLog` lines stay as they are. Tool arguments and results are written as they are, so a file can contain addresses; this is why the setting is off by default and the file stays on the phone. A log or transcript from a run with the setting off is unchanged.
+6. **Never in the way.** Writing happens off the audio and event paths through a bounded queue. If the queue is full, lines are dropped and the count is written as `dropped=<n>`. A failed write stops the record for that session and never affects the session.
+7. **Logic in NovaCore.** Line formatting, merging of reply pieces, and which files to delete are pure logic in `Packages/NovaCore`, with unit tests. Only the file writing and the setting live in `App/`.
+8. **Out of scope.** Fixing the repeated reply, which is diagnosed from the first record, and any change to the prompt, the tools or the checks. The comfort test's runner is not recorded.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Reply pieces, a tool call and result, a correction, and a voided turn, in order | One merged `reply` line per turn; the other lines in order with their times and contents | unit |
+| 2 | 51 existing session files | The oldest is chosen for deletion; files of other names are left alone | unit |
+| 3 | A full queue, then a failed write | `dropped=<n>` is written; the record stops and no error reaches the session | unit |
+| 4 | Setting off | No record object is created and no file is written; event order to the core is the same as with it on | unit |
+| 5 | A session's first lines and events containing a stored key's name | The key's value and the system instruction never appear; no record line is passed to `RuntimeLog` | unit |
+| 6 | Device, setting on: start a conversation, say 有点热, 讲个笑话, 现在几点, end it, then pull the file from the PC | The file shows what she heard, what she said and each tool call, in order, with times that match the system log | D |
+| 7 | Device, setting off, same sentences | No new file, and she behaves as before | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031f | Items 1–7; rows 1–7 | unit, build, D |

@@ -1676,6 +1676,17 @@
         "T-031d"
       ],
       "notes": "Owner 2026-11-03 \"what ever you just take those approach and write that on spec\". Bars in item 14 are PROPOSED. Item 4 verdicts come from the owner and mentor before the full run. T-031c stays an owner decision."
+    },
+    {
+      "id": "T-031f",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-12 §17 items 1-7: off-by-default setting saves each conversation to a local file with what she heard, said and did; no change to behaviour; rows 1-7",
+      "depends_on": [
+        "T-031e"
+      ],
+      "notes": "Owner 2026-11-03 \"you should build that for testing\" and \"you jsut wrie a spec and push to cloud\". Needed to diagnose the repeated reply reported that day."
     }
   ]
 }
