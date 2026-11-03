@@ -1732,7 +1732,7 @@
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
       "priority": 3,
-      "action": "F-18 §16 items 1-5: with search on, query_live_info has no weather, day or where; instruction sends weather to search; record header shows the setting; rows 1-9",
+      "action": "F-18 §16 items 1-6: with search on, query_live_info has no weather or place_details, no day, where or target, no no-data sentence; instruction sends information to search; record header shows the setting; rows 1-11",
       "depends_on": [
         "T-046c"
       ],
