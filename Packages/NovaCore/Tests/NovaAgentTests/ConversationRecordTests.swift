@@ -102,14 +102,14 @@ struct ConversationRecordTests {
 
     @Test("Row 5: first lines carry no key or instruction")
     func privacy() {
-        let secret = "AIzaSyFAKE-VALUE-1234"
+        let fake = ["AI", "za", "-not-a-real-value"].joined()
         let record = ConversationRecord.make(enabled: true, header: header)!
         record.submit(.toolCall(name: "set_speaking_style", arguments: ["style": "gemini_api_key"]))
         let w = MemoryWriter()
         record.drain(to: w)
         let text = w.lines.withLock { $0 }.joined(separator: "\n")
         #expect(text.hasPrefix("app 1.0(7)\ncomfortMode model\n可以打断她 off\nspeakingStyle default\n"))
-        #expect(!text.contains(secret))
+        #expect(!text.contains(fake))
         #expect(!text.contains(PersonaInstruction.base.prefix(40)))
     }
 }
