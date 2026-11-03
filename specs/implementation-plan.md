@@ -135,6 +135,7 @@ NOT_VERIFIED until a device run is attached.
 | T-046a | `query_live_info` `current_location` (regeo address), codes, catalog + persona line | F-16a | T-046, T-042a | `Core/NovaNav/LiveInfo/`, `Packages/NovaServices/`, `Core/NovaTools/Dispatch/` | F-16a §10 rows 2–3, 7 | unit, contract, D |
 | T-046b | `query_live_info` `current_time` from the phone clock and time zone, catalog + persona line | F-18 | T-046a | `Core/NovaNav/LiveInfo/`, `Core/NovaTools/Dispatch/`, `Core/NovaAgent/Persona/` | F-18 §14 rows 1–10 | unit, build, D |
 | T-046c | Google Search in the live session behind a setting; instruction, re-ask time, record line | F-18 | T-046b | `Packages/NovaRealtime/`, `Packages/NovaCore/`, `App/NovaDrive/` | F-18 §15 rows 1–11 | unit, build, D |
+| T-046d | With search on, weather leaves `query_live_info` and goes through search; record shows the setting | F-18 | T-046c | `Packages/NovaCore/`, `App/NovaDrive/` | F-18 §16 rows 1–9 | unit, build, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 

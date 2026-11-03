@@ -1726,6 +1726,17 @@
         "T-046b"
       ],
       "notes": "Owner 2026-11-03: the LLM should find the data itself; fixed tools are only for car functions. Mentor complaint: 后天 weather."
+    },
+    {
+      "id": "T-046d",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-18 §16 items 1-5: with search on, query_live_info has no weather, day or where; instruction sends weather to search; record header shows the setting; rows 1-9",
+      "depends_on": [
+        "T-046c"
+      ],
+      "notes": "Device record 2026-11-03 17:50: 后天 weather went to the today/tomorrow tool. Corrects §15 item 4."
     }
   ]
 }
