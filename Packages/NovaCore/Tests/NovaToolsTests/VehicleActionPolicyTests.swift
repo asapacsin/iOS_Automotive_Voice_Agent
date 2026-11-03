@@ -72,8 +72,8 @@ struct VehicleActionPolicyTests {
         #expect(!climate.description.contains("有点热"))
         #expect(climate.description.contains("打开/关闭空调"))
         #expect(climate.parametersJSONSchema == ToolCatalog.spec("control_climate")!.declaration.parametersJSONSchema)
-        // Every other tool is unchanged.
-        for d in on where d.name != "control_climate" && d.name != "get_vehicle_state" {
+        // Every other tool is unchanged (control_window gains its purpose, F-12 §18).
+        for d in on where !["control_climate", "control_window", "get_vehicle_state"].contains(d.name) {
             #expect(ToolCatalog.declarations.contains(d))
         }
         #expect(ToolCatalog.validate(call("get_vehicle_state")) == nil)

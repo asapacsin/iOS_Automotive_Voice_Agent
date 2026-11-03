@@ -65,14 +65,27 @@ public enum ToolCatalog {
         description: "读取车内状态（模拟）：车窗开度、空调开关、温度、风量、是否在放音乐、是否在导航、车速（未知时为 null）。只在当前状态会改变你的选择时调用（例如不知道车窗是否已开）；动作工具会返回最新状态，不必先查。只读，不会改变任何东西。",
         parametersJSONSchema: ["type": "object", "properties": .object([:]), "additionalProperties": false]))
 
-    /// F-12 §14 item 8: the feeling-to-action sentences removed from `control_climate`; direct requests stay.
-    static let modelClimateDescription = "控制空调（模拟）。「打开/关闭空调」power_on/power_off；「调到22度」set_temperature,value=22；「温度调高/低一点」「再暖/凉一点」adjust_temperature,value=±1；「风量调到3档」set_fan,value=3；「风量调大/小」adjust_fan,value=±1；「现在多少度」get_state。相对调节用 adjust_*，不要自己推算温度。只按返回的 temperature_c/fan_level/power_on 确认；ok=false 如实说没成功。"
+    /// F-12 §14 item 8, §18 item 2: the feeling-to-action sentences removed from `control_climate`; direct requests stay.
+    static let modelClimateDescription = "控制空调（模拟）。空调主要调节温度，风量让车内空气流动。「打开/关闭空调」power_on/power_off；「调到22度」set_temperature,value=22；「温度调高/低一点」「再暖/凉一点」adjust_temperature,value=±1；「风量调到3档」set_fan,value=3；「风量调大/小」adjust_fan,value=±1；「现在多少度」get_state。相对调节用 adjust_*，不要自己推算温度。只按返回的 temperature_c/fan_level/power_on 确认；ok=false 如实说没成功。"
+
+    /// F-12 §18 item 1: the window tool says what opening and closing are for, then today's text.
+    static let windowPurpose = "开窗能换入车外空气、散掉车内异味；关窗能隔绝噪音和车外空气。"
+    static func modelWindowDescription(_ today: String) -> String {
+        let head = "控制车窗（模拟）。"
+        precondition(today.hasPrefix(head), "control_window description changed")
+        return head + windowPurpose + String(today.dropFirst(head.count))
+    }
 
     public static let modelComfortSpecs: [ToolSpec] = specs.compactMap { spec in
         if spec.name == "run_scenario" { return nil }
-        guard spec.name == "control_climate" else { return spec }
+        let description: String
+        switch spec.name {
+        case "control_climate": description = modelClimateDescription
+        case "control_window": description = modelWindowDescription(spec.declaration.description)
+        default: return spec
+        }
         return ToolSpec(domain: spec.domain, repeatSensitive: spec.repeatSensitive,
-                        declaration: ToolDeclaration(name: spec.name, description: modelClimateDescription,
+                        declaration: ToolDeclaration(name: spec.name, description: description,
                                                      parametersJSONSchema: spec.declaration.parametersJSONSchema))
     } + [vehicleStateSpec]
 

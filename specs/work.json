@@ -1691,7 +1691,7 @@
     {
       "id": "T-031g",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-12 §18 items 1-5: model-mode control_window and control_climate descriptions state the tool's purpose; no test case added or changed; score table and model; rows 1-3",
       "depends_on": [
@@ -1702,7 +1702,7 @@
     {
       "id": "T-031h",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-12 §19 items 1-3: remove lower temperature from the model-mode sleepy rule; test cases unchanged; same build as T-031g; row 1",
       "depends_on": [
