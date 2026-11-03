@@ -1719,7 +1719,7 @@
     {
       "id": "T-046c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §15 items 1-12: Google Search in the live session behind 联网搜索（实验）, instruction, re-ask time, record and log lines; car tools and guards unchanged; rows 1-11",
       "depends_on": [
