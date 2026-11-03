@@ -32,6 +32,8 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.noiseSuppression) private var noiseSuppression = true
     @AppStorage(DriveSettings.interruptible) private var interruptible = false
     @AppStorage(DriveSettings.modelComfort) private var modelComfort = false
+    @AppStorage(DriveSettings.conversationRecord) private var conversationRecord = false
+    @State private var confirmDeleteRecords = false
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
     @StateObject private var locationPermission = LocationPermission()
 
@@ -77,6 +79,16 @@ struct SettingsView: View {
                     Text("开：说「有蚊子」「有点闷」这类感受时，由模型看车内状态自己决定开窗、空调或音乐，并用自己的话说做了什么。关：按固定的场景表做。下次开始对话时生效。")
                         .font(.footnote).foregroundStyle(.secondary)
                     NavigationLink("舒适场景测试") { ComfortEvalView() }
+                }
+                // F-12 §17 (T-031f).
+                Section("测试") {
+                    Toggle("保存对话记录（测试用）", isOn: $conversationRecord)
+                    Text("开：每次对话把听到的话、她说的话和做的操作存成手机上的一个文件（文件 App 或电脑上可取），只保留最新 50 个。可能含有地址，只在测试时打开。下次开始对话时生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button("删除全部对话记录", role: .destructive) { confirmDeleteRecords = true }
+                        .confirmationDialog("删除全部对话记录？", isPresented: $confirmDeleteRecords, titleVisibility: .visible) {
+                            Button("删除", role: .destructive) { ConversationRecordFile.deleteAll() }
+                        }
                 }
                 Section("位置来源") {
                     Picker("位置来源", selection: $useDeviceLocation) {

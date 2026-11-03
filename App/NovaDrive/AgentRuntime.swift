@@ -66,6 +66,13 @@ enum DriveSettings {
         defaults.object(forKey: modelComfort) as? Bool ?? false ? .model : .table
     }
 
+    /// F-12 §17 item 1 (T-031f) 「保存对话记录（测试用）」: default off; read at session start.
+    static let conversationRecord = "conversation_record_test"
+
+    static func recordsConversation(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: conversationRecord) as? Bool ?? false
+    }
+
     static func isInterruptible(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: interruptible) as? Bool ?? false
     }
@@ -126,6 +133,8 @@ struct DemoLocation: LocationProvider, LocationUpdates {
 /// Applies AgentCore effects to the real provider, revoicer, playback and screen.
 struct RuntimeSink: AgentEffectSink {
     let realtime: GeminiLiveProvider
+    /// F-12 §17: the test record, nil when the setting is off.
+    let record: ConversationRecord?
     let config: SessionConfig
     let revoicer: Revoicer
     let audio: LiveAudio
@@ -142,8 +151,18 @@ struct RuntimeSink: AgentEffectSink {
         switch command {
         case .connect(let connection, let resume): await realtime.connect(config, resume: resume, connection: connection)
         case .close: await realtime.close()
-        case .toolResponses(let responses): await realtime.sendToolResponses(responses)
-        case .text(let turns, let complete): await realtime.sendText(turns, turnComplete: complete)
+        case .toolResponses(let responses):
+            for r in responses {
+                record?.submit(.toolResult(name: r.name, ok: r.result.ok, code: r.result.code?.rawValue,
+                                           data: .object(r.result.data)))
+            }
+            await realtime.sendToolResponses(responses)
+        case .text(let turns, let complete):
+            if let record, let text = turns.last?.text,
+               let reason = CorrectionReason.allCases.first(where: { $0.instruction == text }) {
+                record.submit(.correction(reason.rawValue))
+            }
+            await realtime.sendText(turns, turnComplete: complete)
         case .interruptReply:
             realtime.sendEmptyActivity()
             gate.stopped()
@@ -151,6 +170,7 @@ struct RuntimeSink: AgentEffectSink {
     }
 
     func flushPlayback(to epoch: Epoch) {
+        record?.submit(.flushed)
         audio.flush(to: epoch)
         // F-04 §14: her reply stopped sounding (barge-in or void); the gate's echo tail starts now.
         gate.setPlaying(reply: false)
@@ -160,6 +180,7 @@ struct RuntimeSink: AgentEffectSink {
     func speak(_ clause: String) async {
         // set_speech_output silent: keep listening and acting, voice nothing.
         guard speechOutput.mode == .spoken else { return }
+        record?.submit(.spoke)
         await revoicer.speak(clause)
     }
 
@@ -170,6 +191,12 @@ struct RuntimeSink: AgentEffectSink {
 
     func diagnostic(_ event: DiagnosticEvent) {
         RuntimeLog.agent.notice("\(event.logLine, privacy: .public)")
+        switch event {
+        case .claimHeld: record?.submit(.held)
+        case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
+        case .resumed: record?.submit(.session("reconnected"))
+        default: break
+        }
     }
 
     /// F-14 fallback voice: rendered off the core, played on the guidance lane. A sentence that cannot
@@ -668,6 +695,14 @@ final class AgentRuntime {
         // F-21: the saved tone is read once here, at session start.
         let instruction = PersonaInstruction.build(base: PersonaInstruction.base(for: comfortMode),
                                                    style: SpeakingStyle.saved(in: settings))
+        // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
+        let info = Bundle.main.infoDictionary
+        let recordFile = DriveSettings.recordsConversation() ? ConversationRecordFile.create() : nil
+        let record = recordFile == nil ? nil : ConversationRecord.make(enabled: true, header: RecordHeader(
+            appVersion: "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))",
+            comfortMode: comfortMode.rawValue, interruptible: DriveSettings.isInterruptible(),
+            speakingStyle: SpeakingStyle.saved(in: settings).rawValue))
+        if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: comfortMode),
                                    thinkingLevel: nil)
@@ -676,7 +711,7 @@ final class AgentRuntime {
         config.activityDetection = .novaDrive
         let manual = config.activityDetection.manual
         let ended = CoreRelay()
-        let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model,
+        let sink = RuntimeSink(realtime: provider, record: record, config: config, revoicer: revoicer, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() })
@@ -704,6 +739,11 @@ final class AgentRuntime {
             case .unclear: "（没听清）"
             }
             if let line { Task { @MainActor in model.driverLine = line } }
+            switch words {
+            case .final(let text): record?.submit(.heardLocal(text))
+            case .unclear: record?.submit(.heardLocal(nil))
+            case .partial: break
+            }
             gate.words(words, utterance: utterance)
             gateEvents.continuation.yield(.words(words))
         }
@@ -725,6 +765,7 @@ final class AgentRuntime {
         // Provider events, in order, to the core; the driver's words also to the screen.
         tasks.append(Task {
             for await event in provider.events {
+                if let record { Self.recordProvider(event.event, record) }
                 switch event.event {
                 case .userTranscript(let text, let isFinal):
                     // F-05a: the subtitle comes from `DriverTranscript`; Gemini's text is its fallback only.
@@ -751,6 +792,7 @@ final class AgentRuntime {
                     RuntimeLog.agent.notice("\(line, privacy: .public)")
                 }
                 // F-04 §14: the gate hears whether she is talking first, then the core and the screen.
+                if case .replyStarted = event { record?.submit(.playbackStarted) }
                 switch event {
                 case .replyStarted: gate.setPlaying(reply: true)
                 // replyFinished also fires between clauses; she stops talking only when nothing of the reply
@@ -775,6 +817,7 @@ final class AgentRuntime {
                         model.sheTalks = talking
                         model.stopHint = hint
                     }
+                    record?.submit(.playbackFinished)
                     await core.send(.playback(.replyIdle(epoch)))
                 }
             }
@@ -819,9 +862,10 @@ final class AgentRuntime {
                 case .speechStarted(let sent):
                     // F-04 §14 item 1: the core follows the gate's decision, never re-checks it.
                     await core.send(.speechStarted(recentSpeech: gate.recentSpeech, sentToModel: sent))
-                case .utterance(let record):
+                case .utterance(let utterance):
                     // F-04 §14 item 7: numbers and enums only (I-8).
-                    RuntimeLog.agent.notice("\(record.logLine, privacy: .public)")
+                    RuntimeLog.agent.notice("\(utterance.logLine, privacy: .public)")
+                    record?.submit(.utterance(id: utterance.id, sent: utterance.sentToModel, mute: utterance.muteReason.rawValue))
                 case .speechStopped:
                     await core.send(.speechStopped)
                 case .streamEnd:
@@ -961,6 +1005,26 @@ final class AgentRuntime {
         let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners)
         self.trip = trip
         return trip
+    }
+
+    /// F-12 §17 item 4: provider events as record lines (never to `RuntimeLog`).
+    nonisolated static func recordProvider(_ event: RealtimeEvent, _ record: ConversationRecord) {
+        switch event {
+        case .userTranscript(let text, let isFinal): if isFinal { record.submit(.heardGemini(text)) }
+        case .responseStarted(let t): record.submit(.turnStarted(t))
+        case .replyText(let t, let text): record.submit(.replyText(t, text))
+        case .toolCalls(_, let calls):
+            for c in calls { record.submit(.toolCall(name: c.name, arguments: c.arguments)) }
+        case .audioDone(let t): record.submit(.generationComplete(t))
+        case .responseDone(let t, let outcome): record.submit(.turnComplete(t, outcome: outcome.rawValue))
+        case .turnEnded(let reason): record.submit(.turnEnded(reason))
+        case .setupComplete: record.submit(.session("connected"))
+        case .failed(let error): record.submit(.session("failed code=\(error.code.rawValue)"))
+        case .closed: record.submit(.session("closed"))
+        case .goAway: record.submit(.session("goAway"))
+        case .interrupted(let t, let reason): record.submit(.session("interrupted turn=\(t) reason=\(reason.rawValue)"))
+        case .replyAudio, .toolCallCancellation, .resumptionHandle: break
+        }
     }
 
     /// F-24 §14 item 4: the session ended quietly after the offline cap; the chip says why until the next start.
