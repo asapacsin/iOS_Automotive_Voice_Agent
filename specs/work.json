@@ -1730,7 +1730,7 @@
     {
       "id": "T-046d",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §16 items 1-15: two models; web_search through gemini-2.5-flash-lite with sources required, no googleSearch in the live setup, weather and place_details leave query_live_info with the setting on, Search Suggestions shown, record and log lines; rows 1-15",
       "depends_on": [
