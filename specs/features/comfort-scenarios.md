@@ -181,3 +181,87 @@ Differences of 1–3 passes may be chance.
 | Task | Scope | Verify |
 |---|---|---|
 | T-031d | Items 1–11; rows 1–7 | unit, build, D |
+
+## 16. Trustworthy comfort test, then targeted fixes (iOS, APPROVED 2026-11-03)
+
+**Why.** Scores on c4fa669, 66 cases, 3 runs each, 198 runs, both reports valid:
+
+| Measure | Table | Model |
+|---|---|---|
+| Overall | 182/198 | 180/198 |
+| Held out | 67/75 | 69/75 |
+| New held out | 24/30 | 24/30 |
+| Unprompted wordings | 63/63 | 62/63 |
+| No wrongful action | 24/30 | 28/30 |
+| Unbacked claims | 0 | 1 |
+| Comfort first audio, median / 90% / worst | 1640 / 2858 / 4203 ms | 1966 / 2809 / 4714 ms |
+| `slowAnswer` | 4 | 8 |
+
+Owner 2026-11-03: "what ever you just take those approach and write that on spec", after a review of community practice.
+
+Community review 2026-11-03:
+- [Google's Live API reference](https://aistudio.google.com/api-reference/live): content is generated as quickly as possible, the last output transcription comes before `generationComplete`, and with realtime playback there is a delay between `generationComplete` and `turnComplete`.
+- [Anthropic on agent evals](https://anthropic.com/engineering/demystifying-evals-for-ai-agents): read transcripts to validate graders, give tasks a known passing answer, two experts should reach the same verdict, test both when a behaviour should and should not occur.
+- [Miller, Adding Error Bars to Evals](https://arxiv.org/html/2411.00640): compare models on per-question differences with a confidence interval; more questions help more than more repeats.
+- [CAR-bench](https://arxiv.org/html/2601.22027) and [EVA](https://huggingface.co/blog/ServiceNow-AI/eva): final state scoring, and consistency over 3 runs reported beside single-run success. CAR-bench: top models pass consistently under 50% on disambiguation, largely from acting too early. So perfect judgment is not the goal.
+- [Vehicle authorization benchmark](https://arxiv.org/html/2609.19630): paired exact McNemar tests; decisions are read from a structured field, not inferred from explanatory text.
+- [Full-Duplex-Bench v3](https://arxiv.org/abs/2604.04847): real human audio; self-correction is a consistent failure across systems, including Gemini Live.
+
+What the code and the c4fa669 replies show:
+- The runner waits for `responseDone`, which comes from `turnComplete`, and ignores `generationComplete` (`.audioDone`). 7 of the 8 model `slowAnswer` runs are complete 3–5 sentence knowledge answers. Not proven on device: all 8 fall in a recorder gap, 10:25:23–10:32:59.
+- `ComfortScorer.decision` treats ？, ?, 吗 or 呢 anywhere in a reply as asking, and refusal words anywhere as refusing. A joke containing 「你是不是瞎呀？」 scored `wrongDecision:ask`.
+- `mosquito#1` and `flewIn#2` scored `missingChange`, which needs an ok acting call. So she acted, the state did not change, and she said 「车窗都关好了」. She did not ignore the sentence.
+- The base instruction asks for 大约三到五句 on knowledge questions, so those lengths are as specified, not a fault.
+- Audio and transcription arrive independently, so a claim cannot be checked before it is heard without delaying every reply. Live, `DriverTurnPipeline` corrects afterwards with `sendCorrection`. The runner does not, so `unbackedClaim` does not show what a driver finally gets.
+
+**Rule in plain words.** First make the test trustworthy and check the test itself on real replies. Then make only the small fixes below. Then score both versions. The table stays the default.
+
+### Part A: the test
+1. **End of reply.** A run ends at `.audioDone` when an answer has arrived and no tool response is awaited, or at `.responseDone`, whichever is first. The 20 s limit stays. Add stage `answerDone`, send to end of reply, to the report. No change to the live session.
+2. **Reading a decision from text.** Split the reply on 。！？!? and newlines. `ask`: the last sentence is a question (ends with ？ or ?, or with 吗 or 呢). `refuse`: a refusal word in the first or last sentence. Decisions from tool calls stay as they are.
+3. **Test the test.**
+   - Unit fixtures use real c4fa669 replies: the joke above; 「请问您想调整哪里呢？是温度、座椅还是车窗？」 is `ask`; 「听起来昨晚肯定很难受，今天车里温度还可以吗？」 is `ask`; a knowledge answer of several sentences is `noTool`.
+   - Every case has a known good outcome that the scorer passes, built in a unit test, and a known bad one where the case forbids or requires something.
+   - 舒适场景测试 gets 「试跑」: 12 cases covering every decision, once each, about 2 minutes, showing every reply. A full run is only started after someone has read a trial's replies.
+4. **Expected answers.** The owner and their mentor each give a verdict without seeing the other's on: `h2RaiseWhat` 帮我调高一点 (ask, or is raising the temperature fine?), `h2LastNight` 我昨晚热得睡不着, `mosquito` and `flewIn` (is closing already-closed windows acceptable?), `mosquitoGone`. Where they agree, the owner's answer is recorded in specs/STATUS.md and the case follows it. Where they differ the case is shown as 有争议 and left out of the score. Nothing else changes a case's expectation.
+5. **More cases.** Grow the set from 66 to 100. The 34 new cases are written before any fix in Part B: at least 20 held out, at least 12 where she should not act or should ask, and at least 10 unprompted comfort wordings. Existing held-out cases have now been read, so all Part B work uses only tuning cases, and the score that decides is the 20 new held-out ones plus the overall.
+6. **Consistency.** Report per case 「3 次都过」 (pass^3) beside the run scores, overall and per decision.
+7. **Comparison.** Keep the latest report per mode in a local file, never logged, so both survive a restart. When both come from the same build, 对比 shows: the difference per case; the mean of those differences with a 95% interval from their standard error (Miller); every case where the versions differ; and 「看不出差别」 when the interval includes zero. Totals alone are not compared.
+8. **Length.** Report how many `act` runs say more than two sentences, as `tooLong`. It is reported, not a failure. Knowledge answers are not counted.
+9. **A clean run.** The screen stays on during a run. If the app leaves the foreground, that run is marked `interrupted`, repeated and not scored, and the report shows the count. Log the summary, each failure and each block as separate lines with numbers and ids only (I-8), because one long line was cut off in the log.
+
+### Part B: small fixes, model mode only, tuning cases only
+10. **False claims.** Do not delay audio to check it first. The runner does what a drive does: on an unbacked claim it sends the same `CorrectionReason` text in the same session, waits up to 20 s more, and scores the final state and final reply. Report `firstReplyClaims` and `uncorrectedClaims`. Rule 5 adds: 要做动作就先调用工具，不要说「我这就做」却不调用。
+11. **Insects.** Default: rule 5 adds a goal, 车里有虫子：开点窗或调大风量让它出去，窗已经关着时不要只说关好了. If item 4 accepts closing windows, leave this out. No table backup: she did act here, so a backup for doing nothing would not fire.
+12. **Not changed.** The table path, the checks of §14 item 11 to gain score, knowledge answer length, and any sentence from a held-out case in a prompt or description.
+
+### Part C: score and decide
+13. **Order.** Trial first; someone reads it. Then the table, then the model, same build, same day, same network. Results go in specs/STATUS.md with the build id. About 30 minutes per version.
+14. **Decision bars, replacing §14 item 14 and §15 item 10.** Numbers are PROPOSED until the owner has seen them.
+    - `uncorrectedClaims` is 0. `firstReplyClaims` is shown for the owner.
+    - No wrongful action in at least 95% of `noTool` and `refuse` runs.
+    - Model minus table, overall: the lower end of the 95% interval is no worse than −5 points. A smaller gap is not treated as a difference in either direction.
+    - Comfort first audio: median at most 1 s slower than the table, 90th percentile under 3 s, and the worst shown for the owner.
+    - Device row 8 passes.
+15. **Stop after this.** The owner sees the numbers and decides on T-031c, another round, or keeping the table.
+16. **Out of scope.** Interruption and her answering her own voice (F-08), and removing the table (T-031c).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Runner: text, then `.audioDone` with no `.responseDone`; `.audioDone` before a tool call's response; nothing ends by 20 s | Run ends with no problem; keeps waiting; `slowAnswer` | unit |
+| 2 | Scorer with the real replies of item 3 | Decisions as listed there | unit |
+| 3 | Every case | A known good outcome passes; a known bad one fails where one exists | unit |
+| 4 | The set and a case marked 有争议 | 100 cases, counts as in item 5, earlier held-out cases unchanged, no prompt contains a held-out sentence; the case is shown and not scored | unit |
+| 5 | Report and comparison with known per-case results | pass^3, mean difference and interval as calculated by hand; 「看不出差别」 when it includes zero; different builds are not compared | unit |
+| 6 | An unbacked claim, then the correction: tool call ok; no tool call but an honest reply; the claim again | Not uncorrected, `firstReplyClaims` 1; same; `uncorrectedClaims` 1 | unit |
+| 7 | App leaves the foreground in a run; setting off | Run repeated and not scored; catalog, prompt and scenario results equal today's | unit |
+| 8 | Device, setting on, spoken: checklist 13-03…13-06, 有蚊子 with windows closed, 「打开车窗，不对，关上」 | The car matches what she says; one or two sentences; the self-correction ends with windows closed | D |
+| 9 | Device: trial, then both whole sets | Both valid with no `interrupted` scored; `slowAnswer` near 0, otherwise the cause is recorded; numbers in specs/STATUS.md | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031e | Items 1–14; rows 1–9 | unit, build, D |

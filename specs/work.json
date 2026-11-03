@@ -1650,7 +1650,8 @@
       "action": "F-12 §14 items 14-15, only after the owner approves the numbers: model-chosen actions become the only path, table and run_scenario removed, F-09, F-12 and J5 updated",
       "depends_on": [
         "T-031b",
-        "T-031d"
+        "T-031d",
+        "T-031e"
       ],
       "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Do not start until the owner approves in specs/STATUS.md."
     },
@@ -1664,6 +1665,17 @@
         "T-031b"
       ],
       "notes": "Owner 2026-11-02 \"Yes, write it\" after scores on ace916f: model 27/27 no wrongful action but behind on unprompted wordings and worst time. Stop after this round; T-031c stays an owner decision."
+    },
+    {
+      "id": "T-031e",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-12 §16 items 1-14: end of reply at generationComplete, decision from last sentence, scorer checked on real replies and known outcomes, trial run, 100 cases, pass^3, paired comparison with interval, clean runs, correction in the runner, two small rule changes on tuning cases, score table and model; rows 1-9",
+      "depends_on": [
+        "T-031d"
+      ],
+      "notes": "Owner 2026-11-03 \"what ever you just take those approach and write that on spec\". Bars in item 14 are PROPOSED. Item 4 verdicts come from the owner and mentor before the full run. T-031c stays an owner decision."
     }
   ]
 }
