@@ -13,10 +13,13 @@ public struct LiveInfoExecutor: ToolExecutor {
     /// F-18 §14: the phone clock and time zone, read at each call.
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
+    /// F-18 §16 item 9: with 「联网搜索（实验）」 on, weather and place details go through `web_search`.
+    private let webSearch: Bool
 
-    public init(navigation: NavigationController, weather: (any WeatherService)?, geocoder: (any ReverseGeocoder)?,
+    public init(webSearch: Bool = false, navigation: NavigationController, weather: (any WeatherService)?, geocoder: (any ReverseGeocoder)?,
                 location: any LocationProvider, now: @escaping @Sendable () -> Date = { Date() },
                 zone: @escaping @Sendable () -> TimeZone = { TimeZone.current }) {
+        self.webSearch = webSearch
         self.now = now
         self.zone = zone
         self.navigation = navigation
@@ -26,6 +29,9 @@ public struct LiveInfoExecutor: ToolExecutor {
     }
 
     public func execute(_ call: ToolCall) async -> ToolResult {
+        if webSearch, let kind = call.arguments["kind"]?.stringValue, ToolCatalog.searchedLiveInfoKinds.contains(kind) {
+            return .failure(.liveInfoUnavailable, advice: "这项信息请用 web_search 查。现在没有查到，请如实说明，不要编造。")
+        }
         switch call.arguments["kind"]?.stringValue {
         case "route_traffic":
             return await navigation.routeStatus()

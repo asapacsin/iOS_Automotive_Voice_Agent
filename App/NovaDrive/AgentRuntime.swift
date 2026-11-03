@@ -30,6 +30,8 @@ final class DriveModel: ObservableObject {
     /// F-24 §14 item 4: the offline cap ended the session: 「网络已断开，点按重新开始」 until the next start.
     @Published var networkEnded = false
     @Published var notice: String?
+    /// F-18 §16 item 8: Search Suggestions HTML of her latest searched answer; cleared on the next driver turn.
+    @Published var searchSuggestion: String?
     // F-20a floating camera window
     @Published var cameraOpen = false
     @Published var cameraAsking = false
@@ -644,7 +646,10 @@ final class AgentRuntime {
         let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: port), vehicle: vehicle, model: model)
         // F-18: weather cached 10 min, adcodes 30 min (T-033).
         let cache = LiveInfoCache(weather: web, geocoder: web, clock: SystemClock())
-        let liveInfo = LiveInfoExecutor(navigation: navigation, weather: cache, geocoder: cache, location: location)
+        // F-18 §15 item 1, §16: 「联网搜索（实验）」 is read once here, at session start.
+        let webSearch = DriveSettings.searchesWeb()
+        RuntimeLog.agent.notice("webSearch \(webSearch ? "on" : "off", privacy: .public)")
+        let liveInfo = LiveInfoExecutor(webSearch: webSearch, navigation: navigation, weather: cache, geocoder: cache, location: location)
         var executors: [String: any ToolExecutor] = [:]
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
         // F-12: scenarios go through the same simulated vehicle; the car card refreshes after each run.
@@ -700,7 +705,6 @@ final class AgentRuntime {
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
         // F-21: the saved tone is read once here, at session start.
-        let webSearch = DriveSettings.searchesWeb()
         let instruction = PersonaInstruction.build(base: PersonaInstruction.base(PersonaInstruction.base(for: comfortMode),
                                                                                  webSearch: webSearch),
                                                    style: SpeakingStyle.saved(in: settings))
@@ -710,12 +714,28 @@ final class AgentRuntime {
         let record = recordFile == nil ? nil : ConversationRecord.make(enabled: true, header: RecordHeader(
             appVersion: "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))",
             comfortMode: comfortMode.rawValue, interruptible: DriveSettings.isInterruptible(),
-            speakingStyle: SpeakingStyle.saved(in: settings).rawValue))
+            speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
+        // F-18 §16 items 3-8: `web_search` through the search model, only with the setting on.
+        if webSearch {
+            let model = model
+            executors[WebSearchExecutor.tool] = WebSearchExecutor(
+                service: GeminiWebSearchClient(credentials: KeychainRealtimeCredentials()), clock: SystemClock()
+            ) { outcome in
+                switch outcome {
+                case .used(let ms, let attempts, let queries, let html):
+                    // I-8: numbers only in the log; the queries go to the local record only.
+                    RuntimeLog.agent.notice("webSearchUsed ms=\(ms, privacy: .public) attempts=\(attempts, privacy: .public)")
+                    record?.submit(.search(queries.joined(separator: " | ")))
+                    Task { @MainActor in model.searchSuggestion = html }
+                case .failed(let reason, let ms):
+                    RuntimeLog.agent.notice("webSearchFailed reason=\(reason, privacy: .public) ms=\(ms, privacy: .public)")
+                }
+            }
+        }
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
-        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: comfortMode),
+        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: comfortMode, webSearch: webSearch),
                                    thinkingLevel: nil)
-        config.webSearch = webSearch
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
         // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
         config.activityDetection = .novaDrive
@@ -1029,7 +1049,6 @@ final class AgentRuntime {
         case .audioDone(let t): record.submit(.generationComplete(t))
         case .responseDone(let t, let outcome): record.submit(.turnComplete(t, outcome: outcome.rawValue))
         case .turnEnded(let reason): record.submit(.turnEnded(reason))
-        case .webSearchUsed(let query): record.submit(.search(query))
         case .setupComplete: record.submit(.session("connected"))
         case .failed(let error): record.submit(.session("failed code=\(error.code.rawValue)"))
         case .closed: record.submit(.session("closed"))

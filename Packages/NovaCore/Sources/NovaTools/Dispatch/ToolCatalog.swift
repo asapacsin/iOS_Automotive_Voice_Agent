@@ -43,7 +43,7 @@ public enum ToolCatalog {
         "choose_navigation_option": "选屏幕上的候选地点（等同点选），或导航中换路线，三个参数只填一个。地点列表时：「第一个」「第二个」→index；「最近的那个」→nearest；「选万达广场那个」→name；选好地点后直接开始导航。导航中：「换最快的」→preference=fastest；「最短的」→shortest；「不走高速」「不要收费」→no_toll；「红绿灯少的」→fewest_lights；「推荐的」→recommended；「换第二条」→index；她问「要换吗？」后司机说「好」「换」→preference=上次结果的 offer_preference。按结果答：navigation_started 说已开始导航；route_changed 按 next 说已换成哪条路线和大约几分钟；route_unchanged 说现在走的就是这条；ok=false 按 error：OUT_OF_RANGE=没有这一项，NO_OPTIONS_ON_SCREEN=没有可选列表或没有别的路线，OPTIONS_NOT_READY=还在计算，AMBIGUOUS=多个匹配请说第几个，OPTIONS_STALE=列表过期请重新说，CONFIRM_CANDIDATE=问是不是 candidate_position 那项。",
     ]
     public static let declarations: [ToolDeclaration] = specs.map(\.declaration)
-    private static let byName: [String: ToolSpec] = Dictionary(uniqueKeysWithValues: (specs + [vehicleStateSpec]).map { ($0.name, $0) })
+    private static let byName: [String: ToolSpec] = Dictionary(uniqueKeysWithValues: (specs + [vehicleStateSpec, webSearchSpec]).map { ($0.name, $0) })
 
     /// A declared tool of either catalog. `get_vehicle_state` is only declared with model-chosen comfort, so the
     /// model never calls it otherwise; accepting it here keeps one validator for both catalogs.
@@ -92,6 +92,55 @@ public enum ToolCatalog {
     /// The declarations a session sends: `.table` is exactly `declarations`.
     public static func declarations(for mode: ComfortMode) -> [ToolDeclaration] {
         mode == .table ? declarations : modelComfortSpecs.map(\.declaration)
+    }
+
+    // MARK: Web search (F-18 §16, T-046d)
+
+    /// F-18 §16 item 3: one general information tool; only declared with 「联网搜索（实验）」 on.
+    public static let webSearchSpec = ToolSpec(domain: "live_info", repeatSensitive: true, declaration: ToolDeclaration(
+        name: "web_search",
+        description: "查网上的信息：任何一天的天气、新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。",
+        parametersJSONSchema: [
+            "type": "object",
+            "properties": ["query": ["type": "string", "minLength": .int(1), "maxLength": .int(200)]],
+            "required": ["query"],
+            "additionalProperties": false,
+        ]))
+
+    /// F-18 §16 item 9: the kinds search answers instead leave `query_live_info` with the setting on.
+    public static let searchedLiveInfoKinds: Set<String> = ["weather", "place_details"]
+
+    /// F-18 §16 item 9: `query_live_info` without weather and place details, their arguments, their text, and the
+    /// no-data-source sentence. Everything else is today's text.
+    static func searchOnLiveInfo(_ spec: ToolSpec) -> ToolSpec {
+        let d = spec.declaration
+        let cuts: [(String, String)] = [
+            ("，绝不编造天气、路况或地点。", "，绝不编造路况或地点。"),
+            ("weather：「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；问明天加 day=tomorrow。", ""),
+            ("place_details：「目的地几点关门」→target=destination；「第二个几点开门」→target=2。", ""),
+            ("新闻、股票、油价、汇率无数据源，不要调用，如实说无法回答。", ""),
+        ]
+        var text = d.description
+        for (old, new) in cuts {
+            precondition(text.contains(old), "query_live_info description changed")
+            text = text.replacingOccurrences(of: old, with: new)
+        }
+        guard case .object(var schema) = d.parametersJSONSchema, case .object(var props)? = schema["properties"],
+              case .object(var kind)? = props["kind"] else { preconditionFailure("query_live_info schema changed") }
+        kind["enum"] = .array(liveInfoKinds.filter { !searchedLiveInfoKinds.contains($0) }.map { .string($0) })
+        props["kind"] = .object(kind)
+        for key in ["where", "day", "target"] { props[key] = nil }
+        schema["properties"] = .object(props)
+        return ToolSpec(domain: spec.domain, repeatSensitive: spec.repeatSensitive,
+                        declaration: ToolDeclaration(name: d.name, description: text, parametersJSONSchema: .object(schema)))
+    }
+
+    /// The declarations a session sends. `webSearch` false is exactly `declarations(for:)`.
+    public static func declarations(for mode: ComfortMode, webSearch: Bool) -> [ToolDeclaration] {
+        let base = declarations(for: mode)
+        guard webSearch else { return base }
+        let liveInfo = searchOnLiveInfo(spec("query_live_info")!).declaration
+        return base.map { $0.name == "query_live_info" ? liveInfo : $0 } + [webSearchSpec.declaration]
     }
 
     /// Rule-violation code, `UNKNOWN_TOOL`, `ARGUMENTS_TOO_LARGE`, or nil when the call may proceed.
@@ -202,6 +251,11 @@ public enum ToolCatalog {
             if keys.contains(where: { !isString($0) }) { return .invalidFieldType }
             if !liveInfoKinds.contains(str("kind")!) { return .invalidKind }
             if keys.contains(where: { str($0)!.utf16.count > 20 }) { return .invalidArgument }
+        case "web_search":
+            if keys != ["query"] { return .invalidFields }
+            guard let q = str("query") else { return .invalidFieldType }
+            if trimmed(q).isEmpty { return .blankQuestion }
+            if q.utf16.count > 200 { return .questionTooLong }
         case "set_speech_output":
             if keys != ["mode"] { return .invalidFields }
             guard let mode = str("mode") else { return .invalidFieldType }

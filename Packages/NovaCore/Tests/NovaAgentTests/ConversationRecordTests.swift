@@ -89,12 +89,13 @@ struct ConversationRecordTests {
 
     @Test("Row 3: a full queue writes dropped=<n>; a failed write stops the record without an error")
     func queue() {
-        let record = ConversationRecord.make(enabled: true, header: header, capacity: 6)!
+        // Five header lines (F-18 §16 item 12 added webSearch) leave room for one more line.
+        let record = ConversationRecord.make(enabled: true, header: header, capacity: 7)!
         let w = MemoryWriter()
         for i in 0..<5 { record.submit(.heardGemini("第\(i)句")) }
         record.drain(to: w)
         let written = w.lines.withLock { $0 }
-        #expect(written.count == 4 + 2 + 1)
+        #expect(written.count == 5 + 2 + 1)
         #expect(written.last == "dropped=3")
         w.fail.withLock { $0 = true }
         record.submit(.session("closed"))

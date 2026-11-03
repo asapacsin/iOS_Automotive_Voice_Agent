@@ -26,7 +26,7 @@ public enum WaitCues {
     public static func toolPhrase(_ tool: String) -> String {
         switch tool {
         case "navigate_to", "choose_navigation_option": toolRoute
-        case "query_live_info": toolQuery
+        case "query_live_info", "web_search": toolQuery
         case "play_music", "control_music": toolMusic
         case "describe_camera_view": toolCamera
         default: toolDefault

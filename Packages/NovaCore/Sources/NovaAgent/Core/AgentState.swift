@@ -202,6 +202,9 @@ public struct AgentState: Sendable {
     /// How long a fallback waits for trailing reply audio before cutting it (PROPOSED).
     static let fallbackWaitMax = NovaDuration.milliseconds(4000)
     private var runningTools = 0
+    /// F-18 §16 item 7 (T-046d): running `web_search` calls and their turn; a barge-in or the turn's interruption
+    /// cancels them, and a cancelled one sends no result.
+    private var searchCalls: [CallID: TurnID] = [:]
     /// Calls that came from a tap: their result goes to the model as a note to announce, not as a
     /// tool response (the model never issued them).
     private var uiCalls: Set<CallID> = []
@@ -298,6 +301,7 @@ public struct AgentState: Sendable {
                 return []
             }
         case .toolFinished(let turn, let call, let result):
+            if call.name == "web_search", searchCalls.removeValue(forKey: call.id) == nil { return [] }
             runningTools = max(runningTools - 1, 0)
             if uiCalls.remove(call.id) != nil {
                 context.record(call, ok: result.ok, at: now)
@@ -630,7 +634,15 @@ public struct AgentState: Sendable {
                 effects += session(.bargeIn(qualified: qualified), at: now)
             }
         }
-        return effects
+        return effects.isEmpty ? effects : effects + cancelSearches { _ in true }
+    }
+
+    /// F-18 §16 item 7: cancels the running searches that `match` their turn; their results are never sent.
+    private mutating func cancelSearches(_ match: (TurnID) -> Bool) -> [AgentEffect] {
+        let ids = searchCalls.filter { match($0.value) }.keys.sorted { $0.rawValue < $1.rawValue }
+        for id in ids { searchCalls[id] = nil }
+        runningTools = max(runningTools - ids.count, 0)
+        return ids.map { .cancelTool($0) }
     }
 
     /// Nothing of hers is left to sound. With her turn closed, a waiting fallback may speak.
@@ -809,6 +821,7 @@ public struct AgentState: Sendable {
                 switch dispatcher.decide(call, context: guardContext) {
                 case .execute(let running):
                     runningTools += 1
+                    if running.name == "web_search" { searchCalls[running.id] = turn }
                     effects.append(.startTool(turn, running))
                 case .refuse(let result):
                     let response = ToolResponse(id: call.id, name: call.name, result: result)
@@ -820,6 +833,7 @@ public struct AgentState: Sendable {
             }
             return effects
         case .toolCallCancellation(let ids):
+            for id in ids where searchCalls.removeValue(forKey: id) != nil { runningTools = max(runningTools - 1, 0) }
             return ids.map { .cancelTool($0) }
         case .audioDone(let turn):
             if relayTurns[turn] != nil { return [] }
@@ -839,11 +853,11 @@ public struct AgentState: Sendable {
                                                                   cut: !completed), at: now)
         case .interrupted(let turn, _):
             // F-08 §15 item 1: the stopped reply closed for Gemini too.
-            var synced: [AgentEffect] = []
+            var synced: [AgentEffect] = cancelSearches { $0 == turn }
             if let sent = stopSyncAt, stopSyncTurn == nil || stopSyncTurn == turn {
                 stopSyncAt = nil
                 stopSyncTurn = nil
-                synced = [.diagnostic(.stopSyncInterrupted(ms: Int((now - sent).milliseconds))), .cancelTimer(.stopSync(sent))]
+                synced += [.diagnostic(.stopSyncInterrupted(ms: Int((now - sent).milliseconds))), .cancelTimer(.stopSync(sent))]
             }
             // Server-side interruption: whatever of this reply is still queued must not play.
             let stops = openTurn == turn && !silenced.contains(turn) ? stopReply(turn) : []
@@ -859,8 +873,6 @@ public struct AgentState: Sendable {
             return effects
         case .setupComplete, .resumptionHandle, .goAway, .failed, .closed, .turnEnded:
             return []
-        case .webSearchUsed:
-            return [.diagnostic(.webSearchUsed)]
         }
     }
 
@@ -994,7 +1006,7 @@ extension RealtimeEvent {
              .audioDone(let t), .interrupted(let t, _), .responseDone(let t, _):
             t
         case .setupComplete, .userTranscript, .toolCallCancellation, .resumptionHandle, .goAway, .failed, .closed,
-             .turnEnded, .webSearchUsed:
+             .turnEnded:
             nil
         }
     }

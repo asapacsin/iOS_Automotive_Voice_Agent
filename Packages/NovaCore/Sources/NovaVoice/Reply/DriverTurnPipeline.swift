@@ -227,7 +227,7 @@ public struct DriverTurnPipeline: Sendable {
     private enum Verdict { case clean, proven, pending, disproven(CorrectionReason) }
 
     /// Tools that only read: their ok result proves no action.
-    static let readOnlyTools: Set<String> = ["query_live_info", "describe_camera_view", "get_vehicle_state"]
+    static let readOnlyTools: Set<String> = ["query_live_info", "web_search", "describe_camera_view", "get_vehicle_state"]
 
     /// Tools whose ok result changes nothing in the car: a tone change, muting or ending the
     /// conversation, or a call not yet dialled (`place_call` proves a call only with status `dialing`, F-19 §8).

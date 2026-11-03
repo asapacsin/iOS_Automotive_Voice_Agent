@@ -37,16 +37,13 @@ public enum GeminiCodec {
             // Lets the session outlive the server's context limit; resumption then extends it.
             "contextWindowCompression": ["slidingWindow": [:]],
         ]
-        var tools: [JSONValue] = []
+        // F-18 §16 item 2: the live setup never sends `googleSearch`; search goes through the `web_search` tool.
         if !config.tools.isEmpty {
-            tools.append(["functionDeclarations": .array(config.tools.map { tool in
+            setup["tools"] = [["functionDeclarations": .array(config.tools.map { tool in
                 ["name": .string(tool.name), "description": .string(tool.description),
                  "parametersJsonSchema": tool.parametersJSONSchema]
-            })])
+            })]]
         }
-        // F-18 §15 item 2: Google Search beside the function declarations, only with the setting on.
-        if config.webSearch { tools.append(["googleSearch": [:]]) }
-        if !tools.isEmpty { setup["tools"] = .array(tools) }
         if config.inputTranscription { setup["inputAudioTranscription"] = [:] }
         if config.outputTranscription { setup["outputAudioTranscription"] = [:] }
         return ["setup": .object(setup)]
@@ -111,17 +108,7 @@ public enum GeminiCodec {
                                      resumable: update["resumable"]?.boolValue ?? false))
         }
         if let content = msg["serverContent"] {
-            // F-18 §15 items 6-7: search parts are never spoken, shown or answered; a search is reported once.
-            var searched = false
-            if case .array(let modelParts)? = content["modelTurn"]?["parts"] {
-                searched = modelParts.contains { $0["executableCode"] != nil }
-            }
-            var queries: [String] = []
-            if case .array(let q)? = content["groundingMetadata"]?["webSearchQueries"] {
-                queries = q.compactMap(\.stringValue)
-                searched = searched || !q.isEmpty
-            }
-            if searched { parts.append(.webSearch(query: queries.isEmpty ? nil : queries.joined(separator: " | "))) }
+            // F-18 §16 item 2: `executableCode` and `codeExecutionResult` parts are ignored (never spoken or answered).
             if let text = content["inputTranscription"]?["text"]?.stringValue { parts.append(.inputTranscript(text)) }
             if case .array(let modelParts)? = content["modelTurn"]?["parts"] {
                 for part in modelParts {
@@ -197,8 +184,6 @@ public enum GeminiServerPart: Sendable, Hashable {
     case turnComplete
     /// Comes just before its `turnComplete`.
     case turnCompleteReason(TurnEndReason)
-    /// F-18 §15 item 7: this message held `executableCode` or grounding `webSearchQueries`.
-    case webSearch(query: String?)
     case toolCalls([ToolCall])
     case toolCallCancellation([CallID])
     case goAway(timeLeft: NovaDuration?)

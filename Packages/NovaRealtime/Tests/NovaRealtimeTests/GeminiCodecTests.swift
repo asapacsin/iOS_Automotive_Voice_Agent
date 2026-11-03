@@ -69,7 +69,6 @@ func shape(_ events: [RealtimeEvent]) -> [String] {
         case .failed(let e): name = "failed(\(e.code.rawValue))"
         case .closed: name = "closed"
         case .turnEnded(let r): name = "turnEnded(\(r.rawValue))"
-        case .webSearchUsed: name = "webSearchUsed"
         }
         out.append(name)
     }
@@ -267,45 +266,3 @@ struct GeminiClientMessageTests {
     }
 }
 
-@Suite("T-046c F-18 §15 web search in the session")
-struct WebSearchCodecTests {
-    func frame(_ json: String) -> [GeminiServerPart] { GeminiCodec.decode(Data(json.utf8))! }
-    let tools = [ToolDeclaration(name: "control_window", description: "d",
-                                 parametersJSONSchema: ["type": "object", "properties": .object([:])])]
-
-    @Test("Rows 1-3: off (and the comfort test's default) sends today's tools; on adds googleSearch beside every declaration")
-    func setup() {
-        var config = SessionConfig(systemInstruction: "x", tools: tools)
-        #expect(config.webSearch == false)
-        let off = GeminiCodec.setup(config, resume: nil)
-        #expect(off["setup"]?["tools"] == [["functionDeclarations": [["name": "control_window", "description": "d",
-            "parametersJsonSchema": ["type": "object", "properties": .object([:])]]]]])
-        config.webSearch = true
-        let on = GeminiCodec.setup(config, resume: nil)
-        guard case .array(let list)? = on["setup"]?["tools"] else { Issue.record("no tools"); return }
-        #expect(list.count == 2)
-        guard case .array(let offList)? = off["setup"]?["tools"] else { Issue.record("no tools"); return }
-        #expect(list[0] == offList[0])
-        #expect(list[1] == ["googleSearch": [:]])
-        var rest = on; var restOff = off
-        if case .object(var s)? = on["setup"] { s["tools"] = nil; rest = ["setup": .object(s)] }
-        if case .object(var s)? = off["setup"] { s["tools"] = nil; restOff = ["setup": .object(s)] }
-        #expect(rest == restOff)
-    }
-
-    @Test("Row 4: executableCode and codeExecutionResult are not spoken, shown or answered; search reported once; audio plays")
-    func searchParts() {
-        var a = GeminiTurnAssembler()
-        let events = a.consume(frame(#"{"serverContent":{"modelTurn":{"parts":[{"executableCode":{"language":"PYTHON","code":"print(google_search.search(queries=[\"x\"]))"}},{"codeExecutionResult":{"outcome":"OUTCOME_OK","output":"r"}}]}}}"#))
-            + a.consume(frame(#"{"serverContent":{"groundingMetadata":{"webSearchQueries":["后天上海天气"]}}}"#))
-            + a.consume(frame(#"{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm","data":"AAAA"}}]}}}"#))
-        let searches = events.filter { if case .webSearchUsed = $0 { true } else { false } }
-        #expect(searches == [.webSearchUsed(query: nil), .webSearchUsed(query: "后天上海天气")])
-        #expect(!events.contains { if case .toolCalls = $0 { true } else { false } })
-        #expect(!events.contains { if case .replyText = $0 { true } else { false } })
-        #expect(events.contains { if case .replyAudio = $0 { true } else { false } })
-        // One message with both parts and grounding: one report.
-        #expect(frame(#"{"serverContent":{"modelTurn":{"parts":[{"executableCode":{"code":"a"}},{"codeExecutionResult":{"output":"b"}}]},"groundingMetadata":{"webSearchQueries":["q"]}}}"#)
-                == [.webSearch(query: "q")])
-    }
-}

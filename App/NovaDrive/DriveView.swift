@@ -478,6 +478,10 @@ private struct DriveContent: View {
                         Text(model.view.subtitle).padding(8)
                             .background(.blue.opacity(0.2), in: RoundedRectangle(cornerRadius: 12))
                     }
+                    // F-18 §16 item 8: Search Suggestions under her latest searched reply.
+                    if let html = model.searchSuggestion {
+                        SearchSuggestionView(html: html).frame(height: 56)
+                    }
                 }
                 .opacity(phase == .fading ? 0.4 : 1)
                 if let notice = model.notice {
@@ -488,7 +492,8 @@ private struct DriveContent: View {
             .animation(.easeOut(duration: 0.5), value: phase)
         }
         .onChange(of: model.driverLine) { _, line in
-            // A new driver line starts a new exchange.
+            // A new driver line starts a new exchange; the last search's suggestions go with the old one.
+            model.searchSuggestion = nil
             bubble.update(line, at: Self.now())
         }
         .onChange(of: model.view.subtitle) { _, text in

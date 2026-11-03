@@ -28,7 +28,7 @@ public enum RecordEvent: Sendable, Hashable {
     case generationComplete(TurnID)
     case turnComplete(TurnID, outcome: String)
     case turnEnded(TurnEndReason)
-    /// F-18 §15 item 7: `search <query text if present>`.
+    /// F-18 §16 item 12: `search <queries the search model ran>`.
     case search(String?)
     case session(String)
 }
@@ -39,8 +39,11 @@ public struct RecordHeader: Sendable, Hashable {
     public let comfortMode: String
     public let interruptible: Bool
     public let speakingStyle: String
+    /// F-18 §16 item 12: which information path ran.
+    public let webSearch: Bool
 
-    public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String) {
+    public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false) {
+        self.webSearch = webSearch
         self.appVersion = appVersion
         self.comfortMode = comfortMode
         self.interruptible = interruptible
@@ -49,7 +52,7 @@ public struct RecordHeader: Sendable, Hashable {
 
     public var lines: [String] {
         ["app \(appVersion)", "comfortMode \(comfortMode)", "可以打断她 \(interruptible ? "on" : "off")",
-         "speakingStyle \(speakingStyle)"]
+         "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
     }
 }
 
