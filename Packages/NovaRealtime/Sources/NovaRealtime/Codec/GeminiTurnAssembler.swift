@@ -77,6 +77,8 @@ public struct GeminiTurnAssembler: Sendable {
             return (reason.map { [.turnEnded($0)] } ?? []) + [.responseDone(turn, outcome: .completed)]
         case .goAway(let timeLeft):
             return [.goAway(timeLeft: timeLeft)]
+        case .webSearch(let query):
+            return [.webSearchUsed(query: query)]
         }
     }
 

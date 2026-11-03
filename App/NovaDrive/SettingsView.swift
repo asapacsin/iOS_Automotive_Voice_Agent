@@ -32,6 +32,7 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.noiseSuppression) private var noiseSuppression = true
     @AppStorage(DriveSettings.interruptible) private var interruptible = false
     @AppStorage(DriveSettings.modelComfort) private var modelComfort = false
+    @AppStorage(DriveSettings.webSearch) private var webSearch = false
     @AppStorage(DriveSettings.conversationRecord) private var conversationRecord = false
     @State private var confirmDeleteRecords = false
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
@@ -79,6 +80,12 @@ struct SettingsView: View {
                     Text("开：说「有蚊子」「有点闷」这类感受时，由模型看车内状态自己决定开窗、空调或音乐，并用自己的话说做了什么。关：按固定的场景表做。下次开始对话时生效。")
                         .font(.footnote).foregroundStyle(.secondary)
                     NavigationLink("舒适场景测试") { ComfortEvalView() }
+                }
+                // F-18 §15 item 1 (T-046c).
+                Section("联网") {
+                    Toggle("联网搜索（实验）", isOn: $webSearch)
+                    Text("开：天气、新闻、营业时间这类信息由她用 Google 搜索查，答案可能不准。车辆操作不变，仍只通过车辆工具。关：和现在一样。下次开始对话时生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 // F-12 §17 (T-031f).
                 Section("测试") {

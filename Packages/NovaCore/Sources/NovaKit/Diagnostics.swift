@@ -49,6 +49,10 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case postStopTurnDropped
     /// F-08 §17 item 11 (T-022e): confirmed new words ended her reply (setting on).
     case bargeInStopped
+    /// F-18 §15 item 7 (T-046c): the provider searched the web. No words (I-8).
+    case webSearchUsed
+    /// F-18 §15 item 8: `google_search` came as an ordinary function call; it is refused, not executed.
+    case webSearchAsFunction
 }
 
 public enum StopPhraseSource: String, Sendable, Hashable {
@@ -91,6 +95,8 @@ extension DiagnosticEvent {
         case abandonCleared
         case postStopTurnDropped
         case bargeInStopped
+        case webSearchUsed
+        case webSearchAsFunction
     }
 
     public var kind: Kind {
@@ -127,6 +133,8 @@ extension DiagnosticEvent {
         case .abandonCleared: .abandonCleared
         case .postStopTurnDropped: .postStopTurnDropped
         case .bargeInStopped: .bargeInStopped
+        case .webSearchUsed: .webSearchUsed
+        case .webSearchAsFunction: .webSearchAsFunction
         }
     }
 }

@@ -69,6 +69,13 @@ enum DriveSettings {
     /// F-12 §17 item 1 (T-031f) 「保存对话记录（测试用）」: default off; read at session start.
     static let conversationRecord = "conversation_record_test"
 
+    /// F-18 §15 item 1 (T-046c) 「联网搜索（实验）」: default off; read at session start.
+    static let webSearch = "web_search_experimental"
+
+    static func searchesWeb(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: webSearch) as? Bool ?? false
+    }
+
     static func recordsConversation(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: conversationRecord) as? Bool ?? false
     }
@@ -693,7 +700,9 @@ final class AgentRuntime {
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
         // F-21: the saved tone is read once here, at session start.
-        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(for: comfortMode),
+        let webSearch = DriveSettings.searchesWeb()
+        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(PersonaInstruction.base(for: comfortMode),
+                                                                                 webSearch: webSearch),
                                                    style: SpeakingStyle.saved(in: settings))
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
@@ -706,6 +715,7 @@ final class AgentRuntime {
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: comfortMode),
                                    thinkingLevel: nil)
+        config.webSearch = webSearch
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
         // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
         config.activityDetection = .novaDrive
@@ -715,7 +725,8 @@ final class AgentRuntime {
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() })
-        let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
+        let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
+                             state: AgentState(truthfulness: .session(webSearch: webSearch)))
         ended.core = core
         self.core = core
         // F-24 §14 item 1: the network path, only while this session exists.
@@ -1018,6 +1029,7 @@ final class AgentRuntime {
         case .audioDone(let t): record.submit(.generationComplete(t))
         case .responseDone(let t, let outcome): record.submit(.turnComplete(t, outcome: outcome.rawValue))
         case .turnEnded(let reason): record.submit(.turnEnded(reason))
+        case .webSearchUsed(let query): record.submit(.search(query))
         case .setupComplete: record.submit(.session("connected"))
         case .failed(let error): record.submit(.session("failed code=\(error.code.rawValue)"))
         case .closed: record.submit(.session("closed"))

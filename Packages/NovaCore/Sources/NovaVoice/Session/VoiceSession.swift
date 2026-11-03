@@ -174,7 +174,7 @@ public struct VoiceSession: Sendable {
             return fail(error.code, at: now)
         case .closed:
             return fail(.connectionClosed, at: now)
-        case .userTranscript, .toolCalls, .toolCallCancellation, .audioDone, .turnEnded:
+        case .userTranscript, .toolCalls, .toolCallCancellation, .audioDone, .turnEnded, .webSearchUsed:
             return []
         }
     }

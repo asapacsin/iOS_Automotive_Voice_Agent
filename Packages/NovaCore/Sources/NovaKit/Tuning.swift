@@ -105,6 +105,17 @@ public struct TruthfulnessTuning: Sendable, Hashable {
     public var phantomMaxLatin = 40
     public var phantomMinTranscript = 2
     public init() {}
+
+    /// F-18 §15 item 5 (T-046c): with web search on, the re-ask waits 12 s so it does not fire during a search;
+    /// the give-up time after the re-ask stays the same. Off: today's values.
+    public static func session(webSearch: Bool) -> TruthfulnessTuning {
+        var t = TruthfulnessTuning()
+        guard webSearch else { return t }
+        let after = t.emptyResponseGiveUp - t.emptyResponseReask
+        t.emptyResponseReask = .seconds(12)
+        t.emptyResponseGiveUp = t.emptyResponseReask + after
+        return t
+    }
 }
 
 /// contracts/voice-agent.md §7, `A/voice/WaitCues.kt`.

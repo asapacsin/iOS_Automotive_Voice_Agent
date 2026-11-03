@@ -84,7 +84,8 @@ public actor AgentCore {
     private var queue: [AgentEvent] = []
     private var draining = false
 
-    public init(clock: any NovaClock, sink: any AgentEffectSink, tools: ToolRunner) {
+    public init(clock: any NovaClock, sink: any AgentEffectSink, tools: ToolRunner, state: AgentState = AgentState()) {
+        self.state = state
         self.clock = clock
         self.sink = sink
         self.tools = tools

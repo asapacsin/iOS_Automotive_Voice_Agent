@@ -218,6 +218,11 @@ public struct AgentState: Sendable {
 
     public init() {}
 
+    /// F-18 §15 item 5: the session's no-answer times (web search on waits longer before the re-ask).
+    public init(truthfulness: TruthfulnessTuning) {
+        pipeline = DriverTurnPipeline(tuning: truthfulness)
+    }
+
     public mutating func handle(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
         switch event {
         case .start:
@@ -793,6 +798,8 @@ public struct AgentState: Sendable {
             }))]
         case .toolCalls(let turn, let calls):
             var effects = pipeline(.toolCalls(turn, calls), at: now)
+            // F-18 §15 item 8: refused below as UNKNOWN_TOOL like any undeclared name; only noted here.
+            if calls.contains(where: { $0.name == "google_search" }) { effects.append(.diagnostic(.webSearchAsFunction)) }
             for call in calls {
                 // F-05a §6: the guards read state and turn counts only, never the transcript.
                 let guardContext = GuardContext(turn: speechOnsets, closedTurns: closedTurns, now: now,
@@ -852,6 +859,8 @@ public struct AgentState: Sendable {
             return effects
         case .setupComplete, .resumptionHandle, .goAway, .failed, .closed, .turnEnded:
             return []
+        case .webSearchUsed:
+            return [.diagnostic(.webSearchUsed)]
         }
     }
 
@@ -985,7 +994,7 @@ extension RealtimeEvent {
              .audioDone(let t), .interrupted(let t, _), .responseDone(let t, _):
             t
         case .setupComplete, .userTranscript, .toolCallCancellation, .resumptionHandle, .goAway, .failed, .closed,
-             .turnEnded:
+             .turnEnded, .webSearchUsed:
             nil
         }
     }

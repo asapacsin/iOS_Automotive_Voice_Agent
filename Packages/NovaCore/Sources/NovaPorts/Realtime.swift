@@ -87,6 +87,8 @@ public struct SessionConfig: Sendable, Hashable {
     public var activityDetection: ActivityDetectionConfig
     public var inputTranscription: Bool
     public var outputTranscription: Bool
+    /// F-18 §15 item 2 (T-046c): the provider may search the web for information. Off: setup equals today's.
+    public var webSearch: Bool = false
 
     public init(model: String = "gemini-3.8-live", systemInstruction: String, tools: [ToolDeclaration],
                 voiceName: String = "Leda", languageCode: String = "zh-CN", thinkingLevel: String? = "LOW",
@@ -190,6 +192,8 @@ public enum RealtimeEvent: Sendable, Hashable {
     /// The server's `turnComplete` with a reason, or one that closed no open turn. Diagnostic only; the turn's
     /// `responseDone` (when one was open) still follows.
     case turnEnded(TurnEndReason)
+    /// F-18 §15 item 7: the provider searched the web (query text when the provider sent it). Never logged with words.
+    case webSearchUsed(query: String?)
     case resumptionHandle(String?)
     case goAway(timeLeft: NovaDuration?)
     case failed(RealtimeError)

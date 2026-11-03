@@ -28,6 +28,8 @@ public enum RecordEvent: Sendable, Hashable {
     case generationComplete(TurnID)
     case turnComplete(TurnID, outcome: String)
     case turnEnded(TurnEndReason)
+    /// F-18 §15 item 7: `search <query text if present>`.
+    case search(String?)
     case session(String)
 }
 
@@ -108,6 +110,7 @@ public struct ConversationRecorder: Sendable {
         case .turnComplete(let t, let outcome):
             return end(t, ms) + [line("turn-end", "turnComplete turn=\(t) outcome=\(outcome)")]
         case .turnEnded(let reason): return [line("turn-end", "reason=\(reason.rawValue)")]
+        case .search(let query): return [line("search", query ?? "")]
         case .session(let what):
             // A session event ends every open turn: her words are never lost from the file.
             var out: [String] = []
