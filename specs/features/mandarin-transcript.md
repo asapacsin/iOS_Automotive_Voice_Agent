@@ -178,8 +178,8 @@ model acts on and is known to come back in the wrong language while the model un
 | ID | Task | Verification |
 |---|---|---|
 | T-016a | `LocalTranscriber` port, `TranscriptSelector`, `TranscriptLanguage`, `GuardContext.wordsReliable` + `.wordsUnclear`; rows 1–4 | unit (Linux gates) |
-| T-016b | `AppleSpeechTranscriber` (NovaAudio), import gate entry, Info.plist key, permission with first mic use | build |
-| T-016c | Wire into `AgentRuntime` (frames to transcriber, selector in front of `AgentState`), 音频测试 diagnostics line; rows 5–9 | S, D |
+| T-016b | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | — |
+| T-016c | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | — |
 | T-016e | §6 ending navigation: remove `confirmExit` / `exitConfirmWindow` from `ToolDispatcher`; `exit_navigation_mode` ends guidance on the call and the result's `next` says 「已结束导航」; tests: one call ends guidance whatever the transcript, no `CONFIRM_REQUIRED` ever; D: 结束导航 ends at once | unit (Linux gates), D |
 | T-016d | §6 revised: remove the transcript from every tool guard (table), withdraw `wordsReliable` / `.wordsUnclear`, `CONFIRM_REQUIRED` for exit while guiding (withdrawn by T-016e), along-route list instead of P61; row 4 (revised); F-09 guard rows that read words marked superseded | unit (Linux gates) |
 

@@ -1161,8 +1161,11 @@
     },
     {
       "id": "T-016b",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "NOT_RUN",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "evidence": [
+        "Owner 2026-11-03: unneeded specs removed. T-016f replaced Apple Speech with the bundled recognizer; the T-016a review notes are in AgentState and AgentRuntime"
+      ],
       "priority": 35,
       "action": "F-05a AppleSpeechTranscriber (NovaAudio, Speech framework), import gate entry, NSSpeechRecognitionUsageDescription, permission with first mic use; iOS build",
       "depends_on": [
@@ -1171,8 +1174,11 @@
     },
     {
       "id": "T-016c",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "NOT_RUN",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "evidence": [
+        "Owner 2026-11-03: unneeded specs removed. T-016f replaced Apple Speech with the bundled recognizer; the T-016a review notes are in AgentState and AgentRuntime"
+      ],
       "priority": 40,
       "action": "F-05a wire transcriber + selector into AgentRuntime, audio-test diagnostics line; S, D rows 5-9",
       "depends_on": [
@@ -1709,6 +1715,17 @@
         "T-031g"
       ],
       "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\" and \"the current test case is ok don't add extra stuff\"."
+    },
+    {
+      "id": "T-046c",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-18 §15 items 1-12: Google Search in the live session behind 联网搜索（实验）, instruction, re-ask time, record and log lines; car tools and guards unchanged; rows 1-11",
+      "depends_on": [
+        "T-046b"
+      ],
+      "notes": "Owner 2026-11-03: the LLM should find the data itself; fixed tools are only for car functions. Mentor complaint: 后天 weather."
     }
   ]
 }

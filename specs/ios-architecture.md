@@ -121,7 +121,7 @@ NovaDriveIOS/
 │   ├── Screens/                      # MainScreen (map + HUD), AssistantOverlay, StatusChip, ChoiceOverlay
 │   ├── Settings/                     # developer settings cards (F-22)
 │   ├── Lifecycle/                    # PermissionCoordinator, ScenePhaseBridge
-│   ├── CarPlay/                      # M7 only: template scene reading the same snapshots
+│   ├── CarPlay/                      # unused: CarPlay skipped (OQ-IOS-8), code not connected
 │   ├── Debug/                        # #if DEBUG: launch arguments + novadrive-debug:// URL scheme
 │   └── Resources/                    # zh-Hans/en usage strings, bundled track, ivw/<APPID>.jet
 └── UITests/                          # XCUITest on the simulator + device scripts for W1–W8
@@ -637,12 +637,6 @@ scheme. Commands cover simulated wake, injected transcript, forced socket drop
 (`NetworkFaults.dropConnectionNow`), emulator navigation and fixture selection. Every command enters
 AgentCore as an ordinary event and never bypasses the dispatcher.
 
-### 11.5 CarPlay seam (M7)
-
-A `CPTemplateApplicationScene` in the App target reads the same snapshots and sends the same
-`UIIntent`s. It holds no logic. Only one category is possible (OQ-IOS-8). Navigation would reuse the
-Amap CarPlay drive-view adaptation inside NovaNavAmap.
-
 ## 12. Error boundaries (iOS)
 
 | Boundary | Behaviour |
@@ -711,8 +705,7 @@ Gates, added to those in ai-agent-workflow.md:
 | M3 | NovaNav, NovaNavAmap, NovaPlatform location; F-15, F-16, F-17, choice overlay |
 | M4 | Guidance lane, relay, fallback voice, arbiter R1/R6/R6a, overspeed voice |
 | M5 | NovaWakeIflytek, mic router, `BackgroundPolicy` on device |
-| M6 | NovaPlatform contacts, dialer, camera, MusicKit (if OQ-IOS-7 approves) |
-| M7 | CarPlay scene (one category, OQ-IOS-8) |
+| M6 | NovaPlatform contacts, dialer, camera |
 
 ## 16. Refinements to the existing spec
 
