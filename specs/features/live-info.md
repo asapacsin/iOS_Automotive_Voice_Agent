@@ -170,7 +170,7 @@ Community review 2026-11-03:
 |---|---|---|
 | T-046c | Items 1–12; rows 1–11 | unit, build, D |
 
-## 16. Two models: she searches through `web_search` (iOS, APPROVED 2026-11-03)
+## 16. Two models: she searches through `web_search` (iOS, APPROVED 2026-11-03; search model replaced by §17)
 
 **Why.** Device 2026-11-03, c161c9d: with 「联网搜索（实验）」 on, every connection closed about 1.5 s after opening with `UNAVAILABLE`; with it off she connects. So §15's `googleSearch` in the live setup does not work on this free key. The likely cause is no free search quota on Gemini 3 models, not confirmed on this key. Separately, record 17:50: 「后天的天气怎么样」 went to `query_live_info` with `day=tomorrow`, and she said 「我只能查询今天和明天的天气」. §15 item 4 kept that limit, against the owner's rule. Owner 2026-11-03: use two models, with Gemini 2.5 Flash-Lite for search. Fixed tools stay for the car and for what search cannot know.
 
@@ -229,3 +229,57 @@ This section replaces §15 items 2, 3, 4, 6, 7, 8 and 10. §15 items 1, 5, 9 and
 | Task | Scope | Verify |
 |---|---|---|
 | T-046d | Items 1–15; rows 1–15 | unit, build, D |
+
+## 17. The search model becomes Qwen (iOS, APPROVED 2026-11-03)
+
+**Why.** Device 2026-11-03, e87affb: with 「联网搜索（实验）」 on she connected and called `web_search`, and the search failed with `webSearchFailed reason=http_404 ms=1430`. The likely cause is that `gemini-2.5-flash-lite` is closed to new users; Google's error text was not logged, so this is not confirmed on this key. Every other Gemini text model has no free search. Owner 2026-11-03: test Qwen with the free quota on the owner's Alibaba Cloud Model Studio account.
+
+Sources 2026-11-03:
+- [Web search](https://www.alibabacloud.com/help/en/model-studio/web-search): `qwen3.7-flash` is on the Singapore list; multimodal models must use the multimodal API, and search on them must stream; search costs $10 per 1,000 calls in Singapore; `usage.plugins.search.count` does not prove retrieval finished.
+- [Pricing](https://www.alibabacloud.com/help/en/model-studio/model-pricing): `qwen3.7-flash` has 1M free tokens for 90 days. The docs do not say the free quota covers the search fee.
+- [DashScope API](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-dashscope): the legacy Singapore domain `dashscope-intl.aliyuncs.com` remains functional; `X-DashScope-SSE: enable` streams; `incremental_output` is a parameter.
+
+**Not verified.** No request has been run against this model. The docs do not show the raw stream or say where `search_results` appears in multimodal streaming, so the parser in item 4 accepts the shapes they leave open. Row 9 is the first real test. Alibaba's terms have not been reviewed.
+
+This section replaces §16 items 4, 5 and 8, and the parts of items 7 and 12 stated below. §16 items 1, 2, 3, 6, 9, 10, 11, 13, 14 and 15 stay. Rows below replace §16 rows 4, 5, 6, 7, 10, 11 and 15. §16 rows 1, 2, 3, 8, 9, 12, 13 and 14 stay, with the `search` line as in item 8.
+
+**Rule in plain words.** She still talks through `gemini-3.8-live` and still calls `web_search`. Our app now asks `qwen3.7-flash` instead of Gemini, using a separate key. Nothing else about how she finds information changes.
+
+1. **Key.** Add `CredentialKey.qwenAPIKey = "qwen_api_key"` and a `SettingsView` row 「阿里云百炼 key（联网搜索）」. It is write-only and kept in the Keychain like the others, and `CredentialWipe` removes it. A missing key never blocks a session or changes the Gemini key's readiness.
+2. **Telling the driver.** The setting's caption says: 「需要阿里云百炼 key。问题会发到阿里云新加坡。」 The setting's default stays off.
+3. **The client.** `QwenWebSearchClient` in `NovaRealtime` replaces `GeminiWebSearchClient`, and the Gemini client and its tests are removed:
+   - `POST https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`, headers `Authorization: Bearer <key>`, `Content-Type: application/json` and `X-DashScope-SSE: enable`. The key appears only in that header.
+   - Body: `model` from one constant, `qwen3.7-flash`; `input.messages` with a `system` and a `user` message, each `content` being `[{"text": ...}]`; `parameters`: `result_format: "message"`, `incremental_output: true`, `enable_thinking: false`, `enable_search: true`, `search_options: {"search_strategy": "agent", "enable_source": true}`.
+   - System text, with the date and time zone from the phone clock at each call: 「今天是{日期}，{星期}，时区{时区}。必须联网搜索，不要凭记忆回答。用一两句中文回答，给出具体的数字、地点和日期。查不到就说查不到。」
+   - The whole stream may be read before parsing; she only gets the finished answer.
+4. **Parsing.** Read each `data:` line as JSON and ignore lines that are not JSON. Answer: join `output.choices[0].message.content` from every chunk, whether it is a string or a list of `{"text": ...}`, and ignore `reasoning_content`. Sources: the last non-empty `output.search_info.search_results`, in any chunk; title from `title`, host from the `url`.
+5. **A search counts only with sources.** The executor returns `ok=true` only when the reply has text and at least one source. A reply missing either did not search: retry once, then fail. `usage.plugins.search.count` is not evidence. This is enforced in code (I-3, I-11).
+6. **The port.** `WebSearchReply` loses `queries` and `suggestionHTML`. `WebSearchError.http` stays and gains `.api(String)` for an error `code` in a 200 stream, and `.notConfigured` gets its own reason.
+7. **Failure and logs.** §16 item 7 stays, with these reasons in `webSearchFailed reason=<...> ms=<n>`: `timeout`, `network`, `no_key`, `no_sources`, `http_NNN` and `api_<code>`. For a non-200 reply or an error chunk, log Alibaba's `code` as `webSearchError code=<code>` when there is one, such as `AllocationQuota.FreeTierOnly`. Keep only `[A-Za-z0-9._-]`, at most 64 characters. Never log `message`, the query, the answer or the key (I-7, I-8). Only HTTP 5xx and `no_sources` retry; 400, 401, 403, 404 and 429 send one request.
+8. **Record.** `search <query>` now writes the `query` she sent, since this API does not report its own searches. The header line stays.
+9. **No Search Suggestions.** Remove `SearchSuggestionView`, `searchSuggestion` and the `DriveView` lines, and §16's Google display rule goes with them, because no Google search results are shown any more.
+10. **Not changed.** The `web_search` tool and its description, `query_live_info`, the instruction, the 10 s limit, barge-in and cancellation, the live setup, the voice model and everything with the setting off.
+11. **Decision.** No pass bars. Search calls cost about 1 cent each in Singapore on top of tokens. The owner reads rows 9–12 and decides whether to keep this model.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Settings and wipe | The new key row exists; the key is stored and wiped; a missing key does not block a session; the caption is shown with the setting | unit, build |
+| 2 | Client request | URL, headers and body as item 3; the system text has the injected date; the key is only in the header; no Google tool | unit |
+| 3 | Stream with text and sources, in both content shapes, with `reasoning_content` and a non-JSON line | `ok=true` with `answer`, `sources` as hosts, `next`; text joined in order; reasoning left out; one request | unit |
+| 4 | No sources, or no text, twice | Two requests, then `LIVE_INFO_UNAVAILABLE`; a search count alone does not count; no reply text in the result | unit |
+| 5 | Timeout, no network, no key, HTTP 403, 429 and 503, an error `code` in a 200 stream | `LIVE_INFO_UNAVAILABLE`; the reasons in item 7; 403 and 429 send one request and 503 sends two; the session stays open | unit |
+| 6 | Log of an error with `code` and `message` | The cleaned code is logged; no message, query, answer or key | unit |
+| 7 | Record of a searched answer | `search` has her query; the header has `webSearch on` | unit |
+| 8 | Code search | No `GeminiWebSearchClient`, `SearchSuggestionView`, `gemini-2.5-flash-lite` or `suggestionHTML` remains | build |
+| 9 | Device, key entered, setting on: 「上海明天天气怎么样」, then 「后天的天气怎么样」; compare with a real forecast | She connects; `webSearchUsed` in the log and `search` in the record; 后天 weather for 上海 matches; on failure the log gives the reason and code | D |
+| 10 | Device, setting on: 「今天有什么新闻」, 「今天油价多少」, 「美元汇率多少」, 「迪士尼几点关门」, each 3 times | Answers from search; note right or wrong, delay, `timeout` and `no_sources` counts | D |
+| 11 | Device, setting on, no key saved: ask for 后天 weather | She connects and says it could not be found; the log has `reason=no_key` | D |
+| 12 | Device: after rows 9–10, open the Model Studio bill | Note the cost per search and whether the free quota paid for any of it | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046e | Items 1–11; rows 1–12 | unit, build, D |

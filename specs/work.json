@@ -1737,6 +1737,17 @@
         "T-046c"
       ],
       "notes": "Device 2026-11-03, c161c9d: googleSearch in the live setup closes UNAVAILABLE on the free key; 后天 weather hit the today/tomorrow tool. Owner chose two models with 2.5 Flash-Lite. Replaces §15 items 2, 3, 4, 6, 7, 8, 10."
+    },
+    {
+      "id": "T-046e",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-18 §17 items 1-11: web_search through qwen3.7-flash on the Singapore multimodal API with its own key and sources required; Gemini search client and Search Suggestions removed; error codes logged; rows 1-12",
+      "depends_on": [
+        "T-046d"
+      ],
+      "notes": "Device 2026-11-03, e87affb: web_search failed with http_404, likely gemini-2.5-flash-lite closed to new users. Owner chose to test Qwen on the free quota. Wire format not yet run against the model. Replaces §16 items 4, 5, 8."
     }
   ]
 }
