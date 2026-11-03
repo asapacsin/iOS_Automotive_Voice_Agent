@@ -60,6 +60,7 @@ public actor ComfortEvalRunner {
         /// After the correction, events of the first turn (its late `responseDone`) are ignored until a new turn opens.
         var awaitingNewTurn = false
         var callsBeforeCorrection = 0
+        var correctionStalled = false
         var finished = false
         var waiter: CheckedContinuation<Void, Never>?
     }
@@ -70,6 +71,7 @@ public actor ComfortEvalRunner {
     private var cancelled = false
     /// §16 item 9: set by the app when it leaves the foreground; the run in progress is repeated.
     private var interruptedNow = false
+    private var active = true
     /// Interrupted runs, kept for the report's count.
     private var interruptedRuns: [ComfortRun] = []
     public static let maxRepeats = 3
@@ -90,7 +92,16 @@ public actor ComfortEvalRunner {
     public func cancel() { cancelled = true }
 
     /// §16 item 9: the app left the foreground; the run in progress is marked `interrupted` and repeated.
-    public func markInterrupted() { interruptedNow = true }
+    public func markInterrupted() { setActive(false) }
+
+    /// §16 item 9: every run that overlaps a time the app is not active is `interrupted`.
+    public func setActive(_ on: Bool) {
+        active = on
+        if !on { interruptedNow = true }
+    }
+
+    /// Stopped with 停止: the report is partial and must not be saved as a full one.
+    public var wasCancelled: Bool { cancelled }
 
     /// Every case `attempts` times, in order. `progress(done, total)` after each run.
     public func runAll(_ cases: [ComfortCase], attempts: Int = ComfortEvalRunner.attempts,
@@ -140,8 +151,8 @@ public actor ComfortEvalRunner {
                 for await event in events { await self?.handle(event) }
             }
         }
+        interruptedNow = !active
         await harness.reset(c.start)
-        interruptedNow = false
         connection = connection.next()
         let mine = connection
         pending = Pending(connection: mine, history: c.history, sentence: c.sentence)
@@ -161,7 +172,8 @@ public actor ComfortEvalRunner {
             : finished == nil ? .sessionFailed : finished?.problem
         return ComfortRun(caseID: c.id, attempt: attempt, end: end, calls: finished?.calls ?? [], reply: finished?.reply ?? "",
                           stages: finished?.stages ?? ComfortStages(), problem: problem,
-                          turnEnd: finished?.turnEnd, firstReplyClaim: finished?.correctionSent ?? false)
+                          turnEnd: finished?.turnEnd, firstReplyClaim: finished?.correctionSent ?? false,
+                          correctionStalled: finished?.correctionStalled ?? false)
     }
 
     private var answerTimer: Task<Void, Never>?
@@ -182,8 +194,9 @@ public actor ComfortEvalRunner {
             guard p.sentAt == nil else { return }
             pending?.problem = .sessionFailed
         } else if p.correctionSent {
-            // No corrected answer in time: the first reply (and its claim) is the final one.
+            // No corrected answer in time: the first reply (and its claim) is the final one; counted as stalled.
             if p.reply.isEmpty { pending?.reply = p.firstReply }
+            pending?.correctionStalled = true
         } else if p.awaitingAfterTool {
             pending?.problem = .stuckAfterTool
         } else if p.started {
@@ -209,6 +222,8 @@ public actor ComfortEvalRunner {
             // The corrected turn said nothing: keep the first reply.
             pending?.reply = p.firstReply
         }
+        // §16 item 1: the stage ends with the first reply; a correction turn is not counted in it.
+        if p.stages.answerDoneMs == nil { pending?.stages.answerDoneMs = ms(since: p.sentAt) }
         let run = ComfortRun(caseID: "", attempt: 0, end: .default, calls: p.calls, reply: p.reply, firstAudioMs: nil)
         if !p.correctionSent, ComfortScorer.unbackedClaim(run) {
             let failed = p.calls.contains { $0.acts && !$0.ok }
@@ -224,7 +239,6 @@ public actor ComfortEvalRunner {
             await provider.sendText([TextTurn(role: .user, text: reason.instruction)], turnComplete: true)
             return
         }
-        if p.stages.answerDoneMs == nil { pending?.stages.answerDoneMs = ms(since: p.sentAt) }
         finish()
     }
 

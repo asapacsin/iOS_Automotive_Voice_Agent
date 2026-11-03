@@ -47,7 +47,12 @@ final class ComfortEvalModel: ObservableObject {
     /// §16 item 9: the app left the foreground; the run in progress is repeated and not scored.
     func backgrounded() {
         guard let runner else { return }
-        Task { await runner.markInterrupted() }
+        Task { await runner.setActive(false) }
+    }
+
+    func foregrounded() {
+        guard let runner else { return }
+        Task { await runner.setActive(true) }
     }
 
     func cancel() {
@@ -101,7 +106,9 @@ final class ComfortEvalModel: ObservableObject {
             let runs = await runner.runAll(cases, attempts: attempts) { done, _ in
                 await MainActor.run { self?.done = done }
             }
-            let result = ComfortReport(cases: ComfortCases.all, runs: runs)
+            let result = ComfortReport(cases: ComfortCases.all, runs: runs, attempts: attempts)
+            let complete = !(await runner.wasCancelled)
+                && runs.filter { $0.problem != .interrupted }.count == cases.count * attempts
             // I-8: numbers, enums and case ids only; one line each so nothing is cut off.
             for line in result.logLines(mode: mode) { RuntimeLog.agent.notice("\(line, privacy: .public)") }
             // §15 item 4: each block as in a drive (tool and rule only).
@@ -109,7 +116,7 @@ final class ComfortEvalModel: ObservableObject {
                 RuntimeLog.agent.notice("vehicleBlocked \(b.tool, privacy: .public) \(b.rule, privacy: .public) case=\(b.caseID, privacy: .public)")
             }
             UIApplication.shared.isIdleTimerDisabled = false
-            if !trial, result.valid {
+            if !trial, complete, result.valid {
                 let summary = ComfortSummary(report: result, mode: mode, build: ComfortSummaryStore.build,
                                              date: Date().formatted(.iso8601.year().month().day()))
                 ComfortSummaryStore.save(summary)
@@ -129,7 +136,10 @@ final class ComfortEvalModel: ObservableObject {
 enum ComfortSummaryStore {
     static var build: String {
         let info = Bundle.main.infoDictionary
-        return "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))"
+        // Dev builds keep the version numbers, so the binary's build time tells code changes apart.
+        let built = (Bundle.main.executablePath.flatMap { try? FileManager.default.attributesOfItem(atPath: $0)[.modificationDate] }
+                     as? Date).map { Int($0.timeIntervalSince1970) } ?? 0
+        return "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))-\(built)"
     }
 
     private static func url(_ mode: ToolCatalog.ComfortMode) -> URL? {
@@ -193,7 +203,7 @@ struct ComfortEvalView: View {
         }
         .navigationTitle("舒适场景测试")
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { eval.backgrounded() }
+            if phase == .active { eval.foregrounded() } else { eval.backgrounded() }
         }
     }
 
@@ -220,6 +230,8 @@ struct ComfortEvalView: View {
             LabeledContent("第一次回复的无依据说法", value: "\(r.firstReplyClaims)")
             LabeledContent("纠正后仍无依据", value: "\(r.uncorrectedClaims)")
             LabeledContent("动作回复超过两句", value: "\(r.tooLong)")
+            LabeledContent("纠正回合超时", value: "\(r.correctionStalled)")
+            LabeledContent("次数不足的句子（不算 3 次都过）", value: "\(r.shortCases.count)")
         }
         if eval.reportIsTrial {
             Section("试跑回复（\(eval.trialRuns.count)）") {

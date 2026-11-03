@@ -236,7 +236,7 @@ struct ComfortTrustTests {
         func run(_ ok: Bool, _ a: Int) -> ComfortRun {
             ComfortRun(caseID: "joke", attempt: a, end: joke.start, calls: [], reply: ok ? "好呀。" : "车窗打开了。", firstAudioMs: 900)
         }
-        let r = ComfortReport(cases: ComfortCases.all, runs: [run(true, 1), run(false, 2), run(true, 3), goodRun(comfortCase("acPrinciple"))])
+        let r = ComfortReport(cases: ComfortCases.all, runs: [run(true, 1), run(false, 2), run(true, 3)] + Array(repeating: goodRun(comfortCase("acPrinciple")), count: 3))
         #expect(r.allRunsPass.total == 2 && r.allRunsPass.passed == 1)
         #expect(r.allRunsPassByDecision[.noTool]?.passed == 1)
         // A long act reply is counted, not failed.
@@ -264,7 +264,7 @@ struct ComfortTrustTests {
     func interrupted() async {
         let box = Mutex<ComfortEvalRunner?>(nil)
         let provider = StepProvider([], onSend: { n in
-            if n == 1, let r = box.withLock({ $0 }) { await r.markInterrupted() }
+            if n == 1, let r = box.withLock({ $0 }) { await r.setActive(false); await r.setActive(true) }
         })
         let runner = makeRunner(provider)
         box.withLock { $0 = runner }
@@ -272,6 +272,23 @@ struct ComfortTrustTests {
         #expect(runs.map(\.problem) == [.interrupted, nil])
         let r = ComfortReport(cases: ComfortCases.all, runs: runs)
         #expect(r.interrupted == 1 && r.overall.total == 1)
+        // Still in the background: every repeat is interrupted, up to maxRepeats, and nothing is scored.
+        let away = makeRunner(StepProvider([]))
+        await away.setActive(false)
+        let none = await away.runAll([comfortCase("joke")], attempts: 1)
+        #expect(none.count == ComfortEvalRunner.maxRepeats + 1 && none.allSatisfy { $0.problem == .interrupted })
+    }
+
+    @Test("A case short of runs is never pass^3; a stalled correction is counted and scores the final state")
+    func shortAndStalled() async {
+        let joke = comfortCase("joke")
+        let r = ComfortReport(cases: ComfortCases.all, runs: [goodRun(joke)], attempts: 3)
+        #expect(r.allRunsPass.total == 0 && r.shortCases == ["joke"])
+        let c = comfortCase("mosquito")
+        let stalled = await makeRunner(StepProvider([Step(text: "车窗打开了。"), Step(text: "", audioDoneOnly: true)]), timeout: 300)
+            .run(c, attempt: 1)
+        #expect(stalled.firstReplyClaim)
+        #expect(ComfortReport(cases: ComfortCases.all, runs: [stalled]).firstReplyClaims == 1)
     }
 }
 

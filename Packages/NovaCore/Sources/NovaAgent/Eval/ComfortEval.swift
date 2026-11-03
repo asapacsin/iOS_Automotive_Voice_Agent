@@ -187,13 +187,17 @@ public struct ComfortRun: Sendable, Hashable {
     public let turnEnd: TurnEndReason?
     /// §16 item 10: the first reply made an unbacked claim, so the runner sent a correction; `reply` is the final one.
     public let firstReplyClaim: Bool
+    /// The correction turn did not finish within its limit; the final state is scored as it is.
+    public let correctionStalled: Bool
 
     /// From sending the sentence to the first reply audio.
     public var firstAudioMs: Int? { stages.firstAudioMs }
 
     public init(caseID: String, attempt: Int, end: ComfortVehicleState, calls: [ComfortCallRecord], reply: String,
-                stages: ComfortStages, problem: ComfortRunProblem?, turnEnd: TurnEndReason? = nil, firstReplyClaim: Bool = false) {
+                stages: ComfortStages, problem: ComfortRunProblem?, turnEnd: TurnEndReason? = nil, firstReplyClaim: Bool = false,
+                correctionStalled: Bool = false) {
         self.firstReplyClaim = firstReplyClaim
+        self.correctionStalled = correctionStalled
         self.caseID = caseID
         self.attempt = attempt
         self.end = end
@@ -444,6 +448,10 @@ public struct ComfortReport: Sendable, Hashable {
     public var uncorrectedClaims = 0
     /// §16 item 8: `act` runs of more than two sentences. Reported, not a failure; knowledge answers not counted.
     public var tooLong = 0
+    /// Correction turns that stalled (shown, not a failure).
+    public var correctionStalled = 0
+    /// Cases with fewer scored runs than `attempts` (infrastructure or still interrupted): never pass^3.
+    public var shortCases: [String] = []
 
     public var blocked: Int { blocks.count }
     /// The final reply's unbacked claims (kept for the earlier screens).
@@ -454,7 +462,8 @@ public struct ComfortReport: Sendable, Hashable {
     /// More than 5% infrastructure: the run says nothing about the model.
     public var valid: Bool { runs > 0 && infrastructureShare <= Self.maxInfrastructureShare }
 
-    public init(cases: [ComfortCase], runs: [ComfortRun], disputed: Set<String> = ComfortCases.disputed) {
+    public init(cases: [ComfortCase], runs: [ComfortRun], disputed: Set<String> = ComfortCases.disputed,
+                attempts: Int? = nil) {
         let byID = Dictionary(uniqueKeysWithValues: cases.map { ($0.id, $0) })
         var all: [ComfortStages.Stage: [Int]] = [:]
         var comfort: [ComfortStages.Stage: [Int]] = [:]
@@ -491,6 +500,7 @@ public struct ComfortReport: Sendable, Hashable {
                 causes[failure.code, default: 0] += 1
             }
             if run.firstReplyClaim { firstReplyClaims += 1 }
+            if run.correctionStalled { correctionStalled += 1 }
             if ComfortScorer.unbackedClaim(run) { uncorrectedClaims += 1 }
             if c.group != .noAction, ComfortScorer.tooLong(run) { tooLong += 1 }
             for stage in ComfortStages.Stage.allCases {
@@ -500,8 +510,10 @@ public struct ComfortReport: Sendable, Hashable {
             }
             calls += run.calls.count
         }
-        for (id, passes) in perCase {
+        let expected = attempts ?? perCase.values.map(\.count).max() ?? 0
+        for (id, passes) in perCase.sorted(by: { $0.key < $1.key }) {
             guard let c = byID[id] else { continue }
+            if passes.count < expected { shortCases.append(id); continue }
             let ok = passes.allSatisfy { $0 }
             allRunsPass.total += 1
             allRunsPassByDecision[c.expected, default: Tally()].total += 1
@@ -539,7 +551,8 @@ public struct ComfortReport: Sendable, Hashable {
             parts.append("\(stage.rawValue)Ms=all:\(stagesAll[stage]?.text ?? "none"),comfort:\(stagesComfort[stage]?.text ?? "none")")
         }
         parts += ["callsPerRun=\(String(format: "%.2f", callsPerRun))", "blocked=\(blocked)",
-                  "firstReplyClaims=\(firstReplyClaims)", "uncorrectedClaims=\(uncorrectedClaims)", "tooLong=\(tooLong)",
+                  "firstReplyClaims=\(firstReplyClaims)", "uncorrectedClaims=\(uncorrectedClaims)", "tooLong=\(tooLong)", "correctionStalled=\(correctionStalled)",
+                  "shortCases=\(shortCases.count)",
                   "infrastructure=\(infrastructure.count)/\(runs)", "interrupted=\(interrupted)", "disputed=\(disputed.count)",
                   "causes=" + causes.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" }.joined(separator: ",")]
         return parts.joined(separator: " ")
