@@ -1741,7 +1741,7 @@
     {
       "id": "T-046e",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §17 items 1-11: web_search through qwen3.7-flash on the Singapore multimodal API with its own key and sources required; Gemini search client and Search Suggestions removed; error codes logged; rows 1-12",
       "depends_on": [
