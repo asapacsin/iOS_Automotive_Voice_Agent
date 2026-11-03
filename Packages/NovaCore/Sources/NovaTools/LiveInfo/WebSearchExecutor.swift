@@ -101,3 +101,9 @@ public struct WebSearchExecutor: ToolExecutor {
         }
     }
 }
+
+/// A tool this session does not declare (e.g. `web_search` with the setting off): `UNKNOWN_TOOL`, nothing runs.
+public struct UndeclaredToolExecutor: ToolExecutor {
+    public init() {}
+    public func execute(_ call: ToolCall) async -> ToolResult { ToolDispatcher.failure(.unknownTool) }
+}

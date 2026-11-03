@@ -95,8 +95,10 @@ public struct GeminiWebSearchClient: WebSearchService {
             for chunk in chunks {
                 guard let web = chunk["web"] else { continue }
                 let title = web["title"]?.stringValue ?? ""
-                let host = web["domain"]?.stringValue ?? (title.contains(".") ? title : "")
-                sources.append(WebSearchSource(title: title, host: host.isEmpty ? (web["uri"]?.stringValue.flatMap { URL(string: $0)?.host } ?? "") : host))
+                // Hosts only: the chunk's domain, or the URI's host unless it is Google's redirect.
+                let uriHost = web["uri"]?.stringValue.flatMap { URL(string: $0)?.host }
+                let host = web["domain"]?.stringValue ?? (uriHost?.hasSuffix("vertexaisearch.cloud.google.com") == false ? uriHost! : "")
+                sources.append(WebSearchSource(title: title, host: host))
             }
         }
         let html = meta?["searchEntryPoint"]?["renderedContent"]?.stringValue

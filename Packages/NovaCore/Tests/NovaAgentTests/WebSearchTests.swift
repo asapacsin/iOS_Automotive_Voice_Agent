@@ -218,3 +218,66 @@ struct WebSearchTests {
         #expect(ToolCatalog.validate(ToolCall(id: CallID("g")!, name: "google_search", arguments: [:])) == .unknownTool)
     }
 }
+
+@Suite("T-046d F-18 §16 item 7 search cancellation")
+struct WebSearchCancelTests {
+    /// Connected, a driver question sent, turn 1 open with a running web_search.
+    func searching() -> (Drive, ToolCall) {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.realtime(.userTranscript("今天油价多少", isFinal: true))
+        d.realtime(.responseStarted(TurnID(1)))
+        let call = searchCall()
+        d.realtime(.toolCalls(TurnID(1), [call]))
+        return (d, call)
+    }
+
+    @Test("An ignored onset or echo while she speaks does not cancel the search; its result is sent")
+    func ignoredOnset() {
+        var (d, call) = searching()
+        d.realtime(.replyText(TurnID(1), "我查一下。"))
+        d.send(.playback(.replyStarted(d.state.arbiter.epoch)))
+        for sent in [false, true] {
+            let out = d.send(.speechStarted(recentSpeech: false, sentToModel: sent))
+            #expect(!out.contains(.cancelTool(call.id)))
+        }
+        let done = d.send(.toolFinished(TurnID(1), call, .success(["answer": "7.5元"])))
+        #expect(done.contains { if case .provider(.toolResponses(let r)) = $0 { r.first?.id == call.id } else { false } })
+    }
+
+    @Test("toolCallCancellation and the turn's interruption cancel it; no result is sent")
+    func serverCancels() {
+        var (d, call) = searching()
+        #expect(d.realtime(.toolCallCancellation([call.id])).contains(.cancelTool(call.id)))
+        #expect(d.send(.toolFinished(TurnID(1), call, .success(["answer": "x"]))).isEmpty)
+        var (e, call2) = searching()
+        #expect(e.realtime(.interrupted(TurnID(1), reason: .serverVAD)).contains(.cancelTool(call2.id)))
+        #expect(e.send(.toolFinished(TurnID(1), call2, .success(["answer": "x"]))).isEmpty)
+    }
+
+    @Test("「别说了」 while she waits silently for a search cancels it")
+    func stopWhileSilent() {
+        var (d, call) = searching()
+        let out = d.send(.stopPhraseSpotted(StopPhraseHit(phrase: 0, score: 90)))
+        #expect(out.contains(.cancelTool(call.id)))
+        #expect(d.send(.toolFinished(TurnID(1), call, .success(["answer": "x"]))).isEmpty)
+    }
+
+    @Test("google_search as a function call logs webSearchAsFunction and is refused UNKNOWN_TOOL")
+    func asFunction() {
+        var (d, _) = searching()
+        let g = ToolCall(id: CallID("call_g")!, name: "google_search", arguments: ["queries": ["x"]])
+        let out = d.realtime(.toolCalls(TurnID(1), [g]))
+        #expect(out.contains(.diagnostic(.webSearchAsFunction)))
+        #expect(!out.contains { if case .startTool(_, let c) = $0 { c.id == g.id } else { false } })
+        let codes = out.flatMap { e -> [ToolErrorCode?] in if case .provider(.toolResponses(let r)) = e { r.map(\.result.code) } else { [] } }
+        #expect(codes == [.unknownTool])
+    }
+
+    @Test("Setting off: an undeclared web_search call is UNKNOWN_TOOL")
+    func undeclared() async {
+        #expect(await UndeclaredToolExecutor().execute(searchCall()).code == .unknownTool)
+    }
+}

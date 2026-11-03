@@ -732,6 +732,9 @@ final class AgentRuntime {
                     RuntimeLog.agent.notice("webSearchFailed reason=\(reason, privacy: .public) ms=\(ms, privacy: .public)")
                 }
             }
+        } else {
+            // Setting off: an undeclared web_search call is UNKNOWN_TOOL, as before T-046c.
+            executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
         }
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: comfortMode, webSearch: webSearch),

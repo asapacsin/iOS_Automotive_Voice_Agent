@@ -420,7 +420,8 @@ public struct AgentState: Sendable {
                 waitingFallback = nil
                 spoken.append(.speakGuidance(waiting.text, waiting.id))
             }
-            return stop + spoken + [.diagnostic(.bargeInStopped)] + arbiterChanged(at: now)
+            // F-18 §16 item 7: a qualified barge-in cancels running searches (an ignored onset never does).
+            return stop + cancelSearches { _ in true } + spoken + [.diagnostic(.bargeInStopped)] + arbiterChanged(at: now)
         case .ui(.choose(let row)):
             uiCount += 1
             let call = ToolCall(id: CallID("ui_\(uiCount)")!, name: "choose_navigation_option",
@@ -634,7 +635,7 @@ public struct AgentState: Sendable {
                 effects += session(.bargeIn(qualified: qualified), at: now)
             }
         }
-        return effects.isEmpty ? effects : effects + cancelSearches { _ in true }
+        return effects
     }
 
     /// F-18 §16 item 7: cancels the running searches that `match` their turn; their results are never sent.
@@ -665,8 +666,11 @@ public struct AgentState: Sendable {
         // Item 5: the other source, in the same utterance, is ignored (whichever fired first stopped her). The
         // transcript's final lands after the utterance closed, so for it a closed utterance still counts.
         if stopUtterance == utterances, stopSource != source, utteranceOpen || source == .transcript { return nil }
-        let stop = bargeIn(.stopPhrase, at: now)
-        guard !stop.isEmpty else { return nil }
+        var stop = bargeIn(.stopPhrase, at: now)
+        // F-18 §16 item 7: a stop phrase also cancels a running search, even while she waits silently for it.
+        let cancelled = cancelSearches { _ in true }
+        guard !stop.isEmpty else { return cancelled.isEmpty ? nil : cancelled }
+        stop += cancelled
         lastStopAt = now
         stopUtterance = utterances
         stopSource = source
