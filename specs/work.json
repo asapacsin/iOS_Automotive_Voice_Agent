@@ -1680,7 +1680,7 @@
     {
       "id": "T-031f",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-12 §17 items 1-7: off-by-default setting saves each conversation to a local file with what she heard, said and did; no change to behaviour; rows 1-7",
       "depends_on": [

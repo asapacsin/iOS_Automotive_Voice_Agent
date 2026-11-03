@@ -155,12 +155,12 @@ public struct ConversationRecorder: Sendable {
         let outcome: String
         if t.bargedIn {
             outcome = "stopped reason=barge_in"
-        } else if t.flushed || (reason != nil && !t.spoke) {
+        } else if t.flushed {
             outcome = "voided reason=\(reason ?? "none")"
         } else if t.spoke {
             outcome = t.held || t.spokeAfterEnd ? "held-released" : "released"
         } else {
-            outcome = "not-spoken"
+            outcome = "not-spoken" + (reason.map { " then=\($0)" } ?? "")
         }
         return ["\(ms) reply-out turn=\(t.id) \(outcome)"]
     }
