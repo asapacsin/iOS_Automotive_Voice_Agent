@@ -1732,11 +1732,11 @@
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
       "priority": 3,
-      "action": "F-18 §16 items 1-6: with search on, query_live_info has no weather or place_details, no day, where or target, no no-data sentence; instruction sends information to search; record header shows the setting; rows 1-11",
+      "action": "F-18 §16 items 1-15: two models; web_search through gemini-2.5-flash-lite with sources required, no googleSearch in the live setup, weather and place_details leave query_live_info with the setting on, Search Suggestions shown, record and log lines; rows 1-15",
       "depends_on": [
         "T-046c"
       ],
-      "notes": "Device record 2026-11-03 17:50: 后天 weather went to the today/tomorrow tool. Corrects §15 item 4."
+      "notes": "Device 2026-11-03, c161c9d: googleSearch in the live setup closes UNAVAILABLE on the free key; 后天 weather hit the today/tomorrow tool. Owner chose two models with 2.5 Flash-Lite. Replaces §15 items 2, 3, 4, 6, 7, 8, 10."
     }
   ]
 }
