@@ -155,9 +155,9 @@ struct ComfortTuningTests {
         #expect(r.infrastructure == ["joke#1"])
         #expect(!r.valid)
         #expect(r.blocks == [ComfortReport.Block(caseID: "openAllFast", attempt: 1, tool: "control_window", rule: "window_at_speed")])
-        let line = r.logLine(mode: .model)
+        let line = r.logLines(mode: .model).joined(separator: "\n")
         #expect(line.contains("valid=false"))
-        #expect(line.contains("blocks=openAllFast#1:control_window:window_at_speed"))
+        #expect(line.contains("comfortEvalBlock mode=model openAllFast#1 control_window window_at_speed"))
         #expect(line.contains("firstAudioMs=all:"))
         #expect(!line.contains("好"))
         // 1 of 21 infrastructure (under 5%) is valid.
@@ -165,14 +165,14 @@ struct ComfortTuningTests {
         #expect(ComfortReport(cases: ComfortCases.all, runs: many).valid)
     }
 
-    @Test("Row 4: 66 cases; earlier held-out cases unchanged; no prompt or description holds a held-out sentence")
+    @Test("Row 4 (§15): 100 cases now; earlier held-out cases unchanged; no prompt or description holds a held-out sentence")
     func theSet() {
         let all = ComfortCases.all
-        #expect(all.count == 66)
+        #expect(all.count == 100)
         let fresh = all.filter { ComfortCases.fresh.contains($0.id) }
         #expect(fresh.count == 10 && fresh.allSatisfy(\.heldOut))
         #expect(fresh.filter { $0.unprompted && $0.group == .comfort }.count >= 6)
-        let earlier = all.filter { $0.heldOut && !ComfortCases.fresh.contains($0.id) }.map { "\($0.id)=\($0.sentence)" }
+        let earlier = all.filter { $0.heldOut && !ComfortCases.fresh.contains($0.id) && !ComfortCases.newest.contains($0.id) }.map { "\($0.id)=\($0.sentence)" }
         #expect(earlier == ["hMoldy=车里一股霉味", "hEyelids=眼皮在打架", "hNoAir=感觉透不过气", "hFreezing=冻死了",
                             "hDizzy=脑袋昏昏沉沉的", "hStale=空气不太新鲜", "hMosquitoBite=被蚊子咬了一口", "hRearHalf=后排车窗开一半",
                             "hTemp20=温度调到20度", "hWarmerAtMax=再热一点", "hOpenWhat=帮我开一下",

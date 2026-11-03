@@ -65,7 +65,8 @@ public enum PersonaInstruction {
 
     /// F-12 §15 items 7-8 (T-031d): tuned on tuning cases only. A sleepy driver gets a small action plus a rest-stop
     /// suggestion, never only a question or a refusal; `get_vehicle_state` only when the state changes the choice.
-    static let modelComfortRule = "5. 司机说车里的感受或情况（热、冷、闷、有蚊子、有异味、困）：有合理的小动作就直接做，不要反问。只有当前状态会改变你的选择时才先调用 get_vehicle_state；动作工具会返回最新状态。司机犯困、疲劳：这是要你帮忙，不要拒绝，也不要只提问，马上做一个提神的小动作（调低一度温度、开一点车窗或调大风量），再建议找服务区休息。只是提到别处的事（「我朋友车里有蚊子」）或问知识时不做任何操作。只说一两句，只说真正做成的，没做成的要说。座位有点高：座椅降低一级。"
+    /// §16 items 10-11 (T-031e): call the tool before saying it is done; insects get air, not 「关好了」.
+    static let modelComfortRule = "5. 司机说车里的感受或情况（热、冷、闷、有蚊子、有异味、困）：有合理的小动作就直接做，不要反问。要做动作就先调用工具，不要说「我这就做」却不调用。车里有虫子：开点窗或调大风量让它出去，窗已经关着时不要只说关好了。只有当前状态会改变你的选择时才先调用 get_vehicle_state；动作工具会返回最新状态。司机犯困、疲劳：这是要你帮忙，不要拒绝，也不要只提问，马上做一个提神的小动作（调低一度温度、开一点车窗或调大风量），再建议找服务区休息。只是提到别处的事（「我朋友车里有蚊子」）或问知识时不做任何操作。只说一两句，只说真正做成的，没做成的要说。座位有点高：座椅降低一级。"
 
     /// The base for a session's comfort mode.
     public static func base(for mode: ToolCatalog.ComfortMode) -> String { mode == .table ? base : modelComfortBase }

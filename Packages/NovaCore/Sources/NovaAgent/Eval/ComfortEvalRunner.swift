@@ -1,6 +1,7 @@
 import NovaKit
 import NovaPorts
 import NovaTools
+import NovaVoice
 
 /// What the runner needs from the app: a simulated vehicle it can reset and read, and the session's tools
 /// (already behind `PolicedVehiclePort`, so the item 11 checks run as in a drive).
@@ -53,6 +54,12 @@ public actor ComfortEvalRunner {
         var turnOpen = false
         var turnEnd: TurnEndReason?
         var problem: ComfortRunProblem?
+        /// §16 item 10: a correction was sent after an unbacked first reply; the run waits for the corrected turn.
+        var correctionSent = false
+        var firstReply = ""
+        /// After the correction, events of the first turn (its late `responseDone`) are ignored until a new turn opens.
+        var awaitingNewTurn = false
+        var callsBeforeCorrection = 0
         var finished = false
         var waiter: CheckedContinuation<Void, Never>?
     }
@@ -61,6 +68,11 @@ public actor ComfortEvalRunner {
     private var pending: Pending?
     private var consumer: Task<Void, Never>?
     private var cancelled = false
+    /// §16 item 9: set by the app when it leaves the foreground; the run in progress is repeated.
+    private var interruptedNow = false
+    /// Interrupted runs, kept for the report's count.
+    private var interruptedRuns: [ComfortRun] = []
+    public static let maxRepeats = 3
 
     public init(provider: any RealtimeProvider, config: SessionConfig, harness: ComfortEvalHarness,
                 clock: any NovaClock, timeout: NovaDuration = ComfortEvalRunner.timeout,
@@ -77,6 +89,9 @@ public actor ComfortEvalRunner {
     /// Stops after the run in progress.
     public func cancel() { cancelled = true }
 
+    /// §16 item 9: the app left the foreground; the run in progress is marked `interrupted` and repeated.
+    public func markInterrupted() { interruptedNow = true }
+
     /// Every case `attempts` times, in order. `progress(done, total)` after each run.
     public func runAll(_ cases: [ComfortCase], attempts: Int = ComfortEvalRunner.attempts,
                        progress: @escaping @Sendable (Int, Int) async -> Void = { _, _ in }) async -> [ComfortRun] {
@@ -85,8 +100,11 @@ public actor ComfortEvalRunner {
         for c in cases {
             for attempt in 1...attempts {
                 if cancelled { break }
-                runs.append(await run(c, attempt: attempt))
-                await progress(runs.count, total)
+                let r = await run(c, attempt: attempt)
+                runs += interruptedRuns
+                interruptedRuns = []
+                runs.append(r)
+                await progress(runs.filter { $0.problem != .interrupted }.count, total)
             }
         }
         consumer?.cancel()
@@ -96,6 +114,17 @@ public actor ComfortEvalRunner {
 
     /// One scored run: a failed session is retried once, then reported as `infrastructure`.
     public func run(_ c: ComfortCase, attempt: Int) async -> ComfortRun {
+        var result = await connected(c, attempt: attempt)
+        var repeats = 0
+        while result.problem == .interrupted, repeats < Self.maxRepeats, !cancelled {
+            interruptedRuns.append(result)
+            repeats += 1
+            result = await connected(c, attempt: attempt)
+        }
+        return result
+    }
+
+    private func connected(_ c: ComfortCase, attempt: Int) async -> ComfortRun {
         let first = await once(c, attempt: attempt)
         guard first.problem == .sessionFailed else { return first }
         let second = await once(c, attempt: attempt)
@@ -112,6 +141,7 @@ public actor ComfortEvalRunner {
             }
         }
         await harness.reset(c.start)
+        interruptedNow = false
         connection = connection.next()
         let mine = connection
         pending = Pending(connection: mine, history: c.history, sentence: c.sentence)
@@ -127,9 +157,11 @@ public actor ComfortEvalRunner {
         let finished = pending
         pending = nil
         let end = await harness.snapshot()
+        let problem: ComfortRunProblem? = interruptedNow ? .interrupted
+            : finished == nil ? .sessionFailed : finished?.problem
         return ComfortRun(caseID: c.id, attempt: attempt, end: end, calls: finished?.calls ?? [], reply: finished?.reply ?? "",
-                          stages: finished?.stages ?? ComfortStages(), problem: finished == nil ? .sessionFailed : finished?.problem,
-                          turnEnd: finished?.turnEnd)
+                          stages: finished?.stages ?? ComfortStages(), problem: problem,
+                          turnEnd: finished?.turnEnd, firstReplyClaim: finished?.correctionSent ?? false)
     }
 
     private var answerTimer: Task<Void, Never>?
@@ -149,6 +181,9 @@ public actor ComfortEvalRunner {
             // The connect limit only counts while no sentence has been sent.
             guard p.sentAt == nil else { return }
             pending?.problem = .sessionFailed
+        } else if p.correctionSent {
+            // No corrected answer in time: the first reply (and its claim) is the final one.
+            if p.reply.isEmpty { pending?.reply = p.firstReply }
         } else if p.awaitingAfterTool {
             pending?.problem = .stuckAfterTool
         } else if p.started {
@@ -164,6 +199,33 @@ public actor ComfortEvalRunner {
         pending?.finished = true
         pending?.waiter?.resume()
         pending?.waiter = nil
+    }
+
+    /// The reply has ended. §16 item 10: an unbacked claim gets the drive's correction, once, in the same session,
+    /// with 20 s more; otherwise the run is done.
+    private func answerComplete() async {
+        guard let p = pending, !p.finished else { return }
+        if p.correctionSent, !p.awaitingNewTurn, p.reply.isEmpty, p.calls.count == p.callsBeforeCorrection {
+            // The corrected turn said nothing: keep the first reply.
+            pending?.reply = p.firstReply
+        }
+        let run = ComfortRun(caseID: "", attempt: 0, end: .default, calls: p.calls, reply: p.reply, firstAudioMs: nil)
+        if !p.correctionSent, ComfortScorer.unbackedClaim(run) {
+            let failed = p.calls.contains { $0.acts && !$0.ok }
+            let reason: CorrectionReason = failed ? .claimAfterFailure : .unverifiedClaim
+            pending?.correctionSent = true
+            pending?.firstReply = p.reply
+            pending?.reply = ""
+            pending?.answered = false
+            pending?.awaitingNewTurn = true
+            pending?.callsBeforeCorrection = p.calls.count
+            answerTimer?.cancel()
+            answerTimer = timer(after: timeout, p.connection, sent: true)
+            await provider.sendText([TextTurn(role: .user, text: reason.instruction)], turnComplete: true)
+            return
+        }
+        if p.stages.answerDoneMs == nil { pending?.stages.answerDoneMs = ms(since: p.sentAt) }
+        finish()
     }
 
     private func current(_ id: Generation) -> Bool { pending?.connection == id && pending?.finished == false }
@@ -188,7 +250,12 @@ public actor ComfortEvalRunner {
             pending?.started = true
             pending?.answered = true
             pending?.awaitingAfterTool = false
+        case .audioDone:
+            // §16 item 1: generationComplete ends the reply when an answer arrived and no tool response is awaited.
+            guard !p.awaitingNewTurn else { return }
+            if p.answered, !p.awaitingAfterTool { await answerComplete() }
         case .replyAudio:
+            pending?.awaitingNewTurn = false
             if p.stages.firstAudioMs == nil { pending?.stages.firstAudioMs = ms(since: p.sentAt) }
             if p.firstToolResponseAt != nil, p.stages.toolToAudioMs == nil {
                 pending?.stages.toolToAudioMs = ms(since: p.firstToolResponseAt)
@@ -197,6 +264,7 @@ public actor ComfortEvalRunner {
             pending?.answered = true
             pending?.awaitingAfterTool = false
         case .toolCalls(_, let calls):
+            pending?.awaitingNewTurn = false
             if p.stages.firstToolMs == nil { pending?.stages.firstToolMs = ms(since: p.sentAt) }
             pending?.started = true
             var responses: [ToolResponse] = []
@@ -215,13 +283,24 @@ public actor ComfortEvalRunner {
             pending?.turnEnd = reason
             // A turn that closed with nothing open: no responseDone follows, so the run ends here.
             guard !p.turnOpen else { return }
+            if p.correctionSent {
+                pending?.awaitingNewTurn = false
+                await answerComplete()
+                return
+            }
             if !p.answered { pending?.problem = p.awaitingAfterTool ? .stuckAfterTool : .noAnswer }
             finish()
         case .responseStarted:
             pending?.turnOpen = true
+            pending?.awaitingNewTurn = false
         case .responseDone:
             pending?.turnOpen = false
-            if pending?.answered == true { finish() } else if pending?.calls.isEmpty == true {
+            if p.awaitingNewTurn { return }
+            if p.correctionSent {
+                if p.answered || p.calls.count == p.callsBeforeCorrection { await answerComplete() }
+                return
+            }
+            if pending?.answered == true { await answerComplete() } else if pending?.calls.isEmpty == true {
                 // A turn with no words, audio or call is no answer, not a noTool decision.
                 pending?.problem = .noAnswer
                 finish()

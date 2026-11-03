@@ -102,9 +102,9 @@ struct ComfortEvalTests {
         #expect(r.medianFirstAudioMs == 1100 && r.worstFirstAudioMs == 1500)
         #expect(r.unbackedClaims == 1)
         #expect(r.failures.map(\.caseID) == ["hColleagueSmoke"])
-        let line = r.logLine(mode: .table)
+        let line = r.logLines(mode: .table).joined(separator: "\n")
         #expect(line.contains("overall=2/3"))
-        #expect(line.contains("hColleagueSmoke#1:unbackedClaim"))
+        #expect(line.contains("comfortEvalFailure mode=table hColleagueSmoke#1:unbackedClaim"))
         for run in runs { #expect(!line.contains(run.reply)) }
     }
 

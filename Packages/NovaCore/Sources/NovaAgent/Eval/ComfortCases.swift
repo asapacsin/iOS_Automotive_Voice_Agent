@@ -33,6 +33,11 @@ public enum ComfortCases {
     static let awake: [[ComfortChange]] = [[.down(.temperature), .up(.windows), .up(.fan), .up(.music), .up(.acPower)]]
     static let everything = Set(ComfortFacet.allCases)
     static let rest = ["休息", "服务区"]
+    static let fanMin = ComfortVehicleState(climate: ClimateState(powerOn: true, targetTemperatureCelsius: 24,
+                                                                   fanLevel: ClimateLimits.minFanLevel))
+    static let windowsOpen = ComfortVehicleState(cabin: CabinState(
+        windows: Dictionary(uniqueKeysWithValues: WindowID.allCases.map { ($0, CabinLimits.windowMax) }),
+        seatHeights: CabinState.default.seatHeights))
 
     public static let all: [ComfortCase] = [
         // Comfort, wordings the table and the prompts name.
@@ -177,7 +182,84 @@ public enum ComfortCases {
                     forbidden: [.acPower, .temperature, .fan, .music, .seat], start: windowsHalf, heldOut: true),
         ComfortCase("h2RaiseWhat", "帮我调高一点", group: .ask, expected: .ask, forbidden: everything, start: busy, heldOut: true),
         ComfortCase("h2LastNight", "我昨晚热得睡不着", group: .noAction, expected: .noTool, forbidden: everything, heldOut: true),
+
+        // §16 item 5 (T-031e): 34 cases written before any Part B fix. Tuning (14).
+        ComfortCase("t3Gnat", "有小飞虫", group: .comfort, expected: .act, requireAny: freshAir,
+                    forbidden: [.temperature, .music, .seat], unprompted: true),
+        ComfortCase("t3Chilly", "冷飕飕的", group: .comfort, expected: .act, requireAny: warmer, forbidden: [.music, .seat],
+                    start: acOn, unprompted: true),
+        ComfortCase("t3Exhausted", "困得不行", group: .comfort, expected: .act, requireAny: awake, forbidden: [.seat],
+                    mention: rest, unprompted: true),
+        ComfortCase("t3Sunbaked", "太阳晒得慌", group: .comfort, expected: .act, requireAny: cooler, forbidden: [.music, .seat],
+                    unprompted: true),
+        ComfortCase("t3AcOff", "空调关了吧", group: .direct, expected: .act, requireAny: [[.down(.acPower)]],
+                    forbidden: [.windows, .music, .seat], start: acOn),
+        ComfortCase("t3Temp25", "温度调到25度", group: .direct, expected: .act, requireAny: [[.up(.temperature)]],
+                    forbidden: [.windows, .music, .seat]),
+        ComfortCase("t3RearClose", "关上后排车窗", group: .direct, expected: .act, requireAny: [[.down(.windows)]],
+                    forbidden: [.acPower, .temperature, .fan, .music, .seat], start: windowsHalf),
+        ComfortCase("t3MusicOff", "音乐关掉", group: .direct, expected: .act, requireAny: [[.down(.music)]],
+                    forbidden: [.windows, .acPower, .temperature, .fan, .seat], start: busy),
+        ComfortCase("t3FanAtMin", "风再小一点", group: .state, expected: .act, accepted: [.noTool],
+                    forbidden: [.windows, .temperature, .music, .seat], start: fanMin),
+        ComfortCase("t3OpenOpen", "车窗全打开", group: .state, expected: .act, accepted: [.noTool],
+                    forbidden: [.acPower, .temperature, .fan, .music, .seat], start: windowsOpen),
+        ComfortCase("t3Weather", "明天会下雨吗", group: .noAction, expected: .noTool, forbidden: everything),
+        ComfortCase("t3Story", "讲个小故事", group: .noAction, expected: .noTool, forbidden: everything),
+        ComfortCase("t3NeighbourHot", "旁边那辆车看着好热", group: .noAction, expected: .noTool, forbidden: everything),
+        ComfortCase("t3SetWhat", "帮我设置一下", group: .ask, expected: .ask, forbidden: everything, start: busy),
+
+        // §16 item 5: held out (20); with overall, the score that decides.
+        ComfortCase("h3Sauna", "车里跟桑拿房似的", group: .comfort, expected: .act, requireAny: cooler, forbidden: [.music, .seat],
+                    heldOut: true, unprompted: true),
+        ComfortCase("h3Goosebumps", "冷得起鸡皮疙瘩", group: .comfort, expected: .act, requireAny: warmer, forbidden: [.music, .seat],
+                    start: acOn, heldOut: true, unprompted: true),
+        ComfortCase("h3Moth", "有只飞蛾一直在扑腾", group: .comfort, expected: .act, requireAny: freshAir,
+                    forbidden: [.temperature, .music, .seat], heldOut: true, unprompted: true),
+        ComfortCase("h3Musty", "一股潮味儿", group: .comfort, expected: .act, requireAny: freshAir, forbidden: [.music, .seat],
+                    heldOut: true, unprompted: true),
+        ComfortCase("h3Nodding", "我开着开着就点头了", group: .comfort, expected: .act, requireAny: awake, forbidden: [.seat],
+                    mention: rest, heldOut: true, unprompted: true),
+        ComfortCase("h3Foggy", "脑子一团浆糊，好累", group: .comfort, expected: .act, requireAny: awake, forbidden: [.seat],
+                    mention: rest, heldOut: true, unprompted: true),
+        ComfortCase("h3Burnt", "闻到一股焦糊味", group: .comfort, expected: .act, requireAny: freshAir,
+                    forbidden: [.temperature, .music, .seat], heldOut: true, unprompted: true),
+        ComfortCase("h3Airless", "憋得难受", group: .comfort, expected: .act, requireAny: freshAir, forbidden: [.music, .seat],
+                    heldOut: true, unprompted: true),
+        ComfortCase("h3Sticky", "浑身黏糊糊的", group: .comfort, expected: .act, requireAny: cooler, forbidden: [.music, .seat],
+                    heldOut: true, unprompted: true),
+        ComfortCase("h3ColdFeet", "脚冰凉冰凉的", group: .comfort, expected: .act, requireAny: warmer, forbidden: [.music, .seat],
+                    start: acOn, heldOut: true, unprompted: true),
+        ComfortCase("h3FrontHalf", "前排车窗开一半", group: .direct, expected: .act, requireAny: [[.up(.windows)]],
+                    forbidden: [.acPower, .temperature, .fan, .music, .seat], heldOut: true),
+        ComfortCase("h3FanTwo", "风量调到2档", group: .direct, expected: .act, requireAny: [[.down(.fan)]],
+                    forbidden: [.windows, .temperature, .music, .seat], start: fanMax, heldOut: true),
+        ComfortCase("h3PastCold", "上周车里冷死了", group: .noAction, expected: .noTool, forbidden: everything, heldOut: true),
+        ComfortCase("h3SisterBugs", "我姐车里老有虫子", group: .noAction, expected: .noTool, forbidden: everything, heldOut: true),
+        ComfortCase("h3WhyFog", "为什么冬天车窗会起雾", group: .noAction, expected: .noTool, forbidden: everything, heldOut: true),
+        ComfortCase("h3HowMosquito", "蚊子是怎么找到人的", group: .noAction, expected: .noTool, forbidden: everything,
+                    heldOut: true),
+        ComfortCase("h3Poem", "念一首关于夏天的诗", group: .noAction, expected: .noTool, forbidden: everything, heldOut: true),
+        ComfortCase("h3Movie", "电影里那个人热得满头大汗", group: .noAction, expected: .noTool, forbidden: everything,
+                    heldOut: true),
+        ComfortCase("h3FixWhat", "帮我弄一下", group: .ask, expected: .ask, forbidden: everything, start: busy, heldOut: true),
+        ComfortCase("h3ChangeWhat", "换一下", group: .ask, expected: .ask, forbidden: everything, start: busy, heldOut: true),
     ]
+
+    /// §16 item 5: the 20 held-out cases written for T-031e.
+    public static let newest: Set<String> = Set(all.filter { $0.id.hasPrefix("h3") }.map(\.id))
+
+    /// §16 item 4: cases where the owner's and the mentor's verdicts differ: shown as 有争议, not scored.
+    /// Empty until both verdicts are recorded in specs/STATUS.md.
+    public static let disputed: Set<String> = []
+
+    /// §16 item 4: the cases waiting for the owner's and the mentor's verdicts.
+    public static let awaitingVerdict: [String] = ["h2RaiseWhat", "h2LastNight", "mosquito", "flewIn", "mosquitoGone"]
+
+    /// §16 item 3: 「试跑」, 12 cases covering every decision, run once each.
+    public static let trialIDs = ["mosquito", "drowsy", "hot", "acOn", "colderAtMin", "closeWhat", "adjustWhat", "joke",
+                                  "friendMosquito", "acPrinciple", "openAllFast", "hCloseBroken"]
+    public static var trial: [ComfortCase] { trialIDs.compactMap { id in all.first { $0.id == id } } }
 
     /// §15 item 5: the fresh held-out ids, reported on their own.
     public static let fresh: Set<String> = ["h2Steamer", "h2NumbHands", "h2Fly", "h2Petrol", "h2EyesClosing", "h2Yawning",
