@@ -310,3 +310,40 @@ What the code and the c4fa669 replies show:
 | Task | Scope | Verify |
 |---|---|---|
 | T-031f | Items 1–7; rows 1–7 | unit, build, D |
+
+## 18. Say what the window and climate tools are for (iOS, APPROVED 2026-11-03)
+
+**Why.** On e7e41da, model mode, the record for 有点闷 shows `adjust_fan` +1 and `power_on`, and no window. The owner expected a window. Both tool descriptions list command phrases and neither says what the tool is for. One run does not prove that this is the cause; it may be chance or the model's habit. Owner 2026-11-03: "this make sense then write the spec".
+
+Community review 2026-11-03:
+- [Anthropic on writing tools](https://www.anthropic.com/engineering/writing-tools-for-agents): make implied context explicit, and measure every description change.
+- [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling): state the purpose; when and when not to use goes in the system prompt; examples may hurt reasoning models.
+- [Google function calling](https://aistudio.google.com/docs/function-calling): a clear explanation of the function's purpose.
+- [CAR-bench](https://arxiv.org/html/2601.22027): tools say what they do; rules about when they may be used are kept apart.
+- [Study of 856 tools](https://arxiv.org/abs/2602.14878): 56% did not clearly state their purpose; augmenting descriptions raised task success by a median of 5.85 points and made 16.67% of cases worse. [Study of 10,831 servers](https://arxiv.org/abs/2602.18914): functionality wording changed selection by +11.6%. Neither is about cars.
+
+**Rule in plain words.** Tools state general facts about what they do. They name no driver sentence or feeling, and they do not choose for her. Then measure, because this can also make her act wrongly.
+
+1. **Baseline first.** Before this build is installed, on e7e41da with model mode and the record on, windows closed, a new conversation each time: 有点闷, 5 times. Record the tools called, from the record files, in specs/STATUS.md.
+2. **Window description, model mode only.** `control_window` in `modelComfortSpecs` begins: 「控制车窗（模拟）。开窗能换入车外空气、散掉车内异味；关窗能隔绝噪音和车外空气。」 The rest of today's description follows unchanged.
+3. **Climate description, model mode only.** `modelClimateDescription` begins: 「控制空调（模拟）。空调主要调节温度，风量让车内空气流动。」 The rest of today's description follows unchanged.
+4. **Not changed.** The table's descriptions, rule 5, the other tools, the checks of §14 item 11, and the test cases and their expected answers. No line about 闷 or insects goes into a tool. A driver's preference, such as always opening a window for 闷, is a separate question and is not part of this task.
+5. **After.** The same 5 tries as item 1 on the new build. Then the §16 item 13 order on that build: the trial, someone reads it, the table, then the model. The §16 item 4 verdicts come first, as §16 requires.
+6. **Keep or revert.** PROPOSED until the owner has seen the numbers. Keep the change only if the model run meets the §16 item 14 bars. Windows opened in the 5 tries are shown beside the baseline; five tries can only show a large difference, so they do not decide on their own. If the bars for no wrongful action or the overall interval fail, the owner decides whether to revert. A full before-and-after score of the model on different builds is not compared (§16 item 7).
+7. **Out of scope.** Removing the table (T-031c), trimming rule 5, and a driver-preference step.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Model-mode declarations | `control_window` and `control_climate` begin with the sentences of items 2 and 3, and the rest of each equals today's text | unit |
+| 2 | Table-mode declarations, and every other model-mode tool | Equal to today's | unit |
+| 3 | The two new descriptions and every held-out case | No held-out sentence appears; neither contains 闷, 蚊 or 虫 | unit |
+| 4 | Device: 有点闷, 5 times, before and after, record on | Tools called and windows opened are in specs/STATUS.md for both | D |
+| 5 | Device: the item 5 runs | Both reports valid; numbers and the item 14 bars in specs/STATUS.md | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031g | Items 1–6; rows 1–5 | unit, build, D |

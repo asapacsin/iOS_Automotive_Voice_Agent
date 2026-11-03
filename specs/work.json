@@ -1687,6 +1687,17 @@
         "T-031e"
       ],
       "notes": "Owner 2026-11-03 \"you should build that for testing\" and \"you jsut wrie a spec and push to cloud\". Needed to diagnose the repeated reply reported that day."
+    },
+    {
+      "id": "T-031g",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-12 §18 items 1-6: model-mode control_window and control_climate descriptions state the tool's purpose; 5 tries of 有点闷 before and after; score table and model; rows 1-5",
+      "depends_on": [
+        "T-031f"
+      ],
+      "notes": "Owner 2026-11-03 \"this make sense then write the spec\" after a community review. Keep-or-revert rule in item 6 is PROPOSED. Item 1 baseline runs on e7e41da before this build is installed."
     }
   ]
 }
