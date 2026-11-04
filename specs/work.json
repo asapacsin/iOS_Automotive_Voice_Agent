@@ -1752,7 +1752,7 @@
     {
       "id": "T-046f",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §18 items 1-9: local record shows each Qwen request body, raw reply, parser counts and outcome, plus whether a key is saved; cancelled path reported; key never recorded; search behaviour unchanged; rows 1-10",
       "depends_on": [
@@ -1763,7 +1763,7 @@
     {
       "id": "T-046g",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §19 items 1-9: SearchDate reads relative and written dates from the query, writes the date into the query, refuses a future-day answer that names only other dates with reason=wrong_date, target_date and next ask her to say the day, record and log lines; rows 1-9",
       "depends_on": [
@@ -1774,7 +1774,7 @@
     {
       "id": "T-046h",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §20 items 1-5: search_options gets forced_search true; sources still required; no silent resend without it; rows 1-5",
       "depends_on": [
@@ -1785,7 +1785,7 @@
     {
       "id": "T-046i",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §21 items 1-10: current destination from the snapshot, silent clientContent note with turnComplete false when idle and a constant to turn it off, 目的地 and 终点 in a query become the name, hours questions get current_destination in the result, new sentence in her instruction, record and log lines; rows 1-12",
       "depends_on": [
