@@ -262,7 +262,8 @@ public struct AgentState: Sendable {
             let had = destination != nil
             destination = name
             if let name { pendingNote = .some(name) } else if had { pendingNote = .some(nil) }
-        case .realtime(.responseDone, _):
+        case .realtime(.responseDone(_, .completed), _):
+            // Only a completed turn counts (an interrupted one is no new exchange).
             turnSinceNote = true
             if let destination { pendingNote = .some(destination) }
         case .realtime(.setupComplete, _):
@@ -286,7 +287,8 @@ public struct AgentState: Sendable {
         guard let pending = pendingNote, noteIdle else { return [] }
         pendingNote = nil
         // No second note when nothing happened since the last one; the end note goes once.
-        if pending == nil, lastNote == .some(nil) { return [] }
+        // The end note goes once, and only after a destination note was sent.
+        if pending == nil, (lastNote ?? nil) == nil { return [] }
         if let name = pending, lastNote == .some(name), !turnSinceNote, !noteOnConnect { return [] }
         lastNote = .some(pending)
         turnSinceNote = false

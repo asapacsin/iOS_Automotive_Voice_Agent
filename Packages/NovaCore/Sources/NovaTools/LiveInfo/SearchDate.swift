@@ -186,8 +186,18 @@ public enum SearchPlace {
     public static func substitute(_ query: String, destination: String?) -> (query: String, added: Bool) {
         guard let destination, !query.contains(destination),
               destinationWords.contains(where: { query.contains($0) }) else { return (query, false) }
-        var out = query
-        for word in destinationWords { out = out.replacingOccurrences(of: word, with: destination) }
+        // One pass, so a name that itself contains 终点 is not replaced again.
+        var out = ""
+        var i = query.startIndex
+        while i < query.endIndex {
+            if let word = destinationWords.first(where: { query[i...].hasPrefix($0) }) {
+                out += destination
+                i = query.index(i, offsetBy: word.count)
+            } else {
+                out.append(query[i])
+                i = query.index(after: i)
+            }
+        }
         return (out, true)
     }
 

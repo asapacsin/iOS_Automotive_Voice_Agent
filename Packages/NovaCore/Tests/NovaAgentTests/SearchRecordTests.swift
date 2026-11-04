@@ -266,6 +266,7 @@ struct SearchPlaceTests {
         let none = ScriptedSearch([.reply(reply("x"))])
         _ = await searcher(none).execute(searchCall("目的地几点关门"))
         #expect(none.queries.withLock { $0 } == ["目的地几点关门"])
+        #expect(SearchPlace.substitute("目的地几点关门", destination: "终点站咖啡").query == "终点站咖啡几点关门")
     }
 
     @Test("Row 6: hints only with a destination, a query without its name, and an hours word")
@@ -381,6 +382,16 @@ struct DestinationNoteTests {
         d.realtime(.setupComplete)
         d.send(.destination(nil))
         #expect(notes(d.effects).isEmpty)
+        // An end note with no destination note before it is not sent.
+        var early = drive()
+        early.connect()
+        early.send(.speechStarted(recentSpeech: true))
+        early.send(.destination(dest))
+        early.send(.destination(nil))
+        early.send(.speechStopped)
+        early.realtime(.responseStarted(TurnID(1)))
+        early.realtime(.responseDone(TurnID(1), outcome: .completed))
+        #expect(notes(early.effects).isEmpty)
         var plain = Drive()
         plain.connect()
         plain.send(.destination(dest))

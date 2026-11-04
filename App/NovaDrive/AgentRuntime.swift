@@ -736,7 +736,7 @@ final class AgentRuntime {
         if webSearch {
             let qwenKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
             // F-18 §18 item 7: with the record off, no exchange is built.
-            let onExchange: (@Sendable (WebSearchExchange) -> Void)? = record.map { record in { record.submit(.searchExchange($0)) } }
+            let onExchange: (@Sendable (WebSearchExchange) -> Void)? = record.map { record in { @Sendable exchange in record.submit(.searchExchange(exchange)) } }
             let destinationName = currentDestination
             executors[WebSearchExecutor.tool] = WebSearchExecutor(
                 service: QwenWebSearchClient(key: qwenKey, onExchange: onExchange), clock: SystemClock(),
