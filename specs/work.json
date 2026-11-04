@@ -1748,6 +1748,17 @@
         "T-046d"
       ],
       "notes": "Device 2026-11-03, e87affb: web_search failed with http_404, likely gemini-2.5-flash-lite closed to new users. Owner chose to test Qwen on the free quota. Wire format not yet run against the model. Replaces §16 items 4, 5, 8."
+    },
+    {
+      "id": "T-046f",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-18 §18 items 1-9: local record shows each Qwen request body, raw reply, parser counts and outcome, plus whether a key is saved; cancelled path reported; key never recorded; search behaviour unchanged; rows 1-10",
+      "depends_on": [
+        "T-046e"
+      ],
+      "notes": "Device 2026-11-04, e01f464: PC call to qwen3.7-flash found 18 sources; on the phone one query failed no_sources after 3572 ms and 上海明天天气 failed in 2 ms with no system log. Owner asked to record Qwen input and response."
     }
   ]
 }

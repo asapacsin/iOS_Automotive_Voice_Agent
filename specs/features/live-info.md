@@ -283,3 +283,40 @@ This section replaces §16 items 4, 5 and 8, and the parts of items 7 and 12 sta
 | Task | Scope | Verify |
 |---|---|---|
 | T-046e | Items 1–11; rows 1–12 | unit, build, D |
+
+## 18. The record shows what went to Qwen and what came back (iOS, APPROVED 2026-11-04)
+
+**Why.** Device 2026-11-04, e01f464. The same request from a PC to `qwen3.7-flash` returned an answer and 18 sources in 7.7 s (「上海明天天气怎么样」). On the phone, 「珠海市香洲区横琴镇明天天气」 reached Alibaba twice with HTTP 200 and failed `no_sources` after 3,572 ms. 「上海明天天气」 failed 2 ms after the call, too fast for a network request, and the system log was not running, so its reason is unknown. The record shows neither the request nor the reply, so these cannot be told apart. Owner 2026-11-04: record the voice model's input to Qwen and Qwen's response.
+
+This section adds to §17 and changes nothing about searching: same request, same parsing, same retries, same result to her.
+
+1. **Every request goes in the record.** After each request ends, write `search-request attempt=<n> body=<the exact JSON body sent>`. The body includes the model, system text, query and parameters. The key and the headers never go in the record; a unit test checks this.
+2. **Every reply goes in the record.** Write `search-response attempt=<n> status=<code> ms=<n> bytes=<n> body=<the raw response body>`. If the body is over 32,000 characters, keep the first 8,000 and the last 24,000 with `…` between them. A request that gets no reply writes `search-response attempt=<n> error=<timeout|network|cancelled> ms=<n> urlError=<code or none>` instead.
+3. **Every outcome goes in the record.** The existing log lines stay. Also write `search-result ok ms=<n> attempts=<n> answer=<answer sent to her> sources=<hosts>` or `search-result failed reason=<reason> ms=<n> code=<code or none>`.
+4. **No path is silent.** `WebSearchExecutor` today returns without an outcome when the task is already cancelled. It now reports `reason=cancelled`, and `webSearchFailed` logs it too. `no_key` writes its `search-result` line with no request lines. If the query is blank, or the call is refused before the executor runs, the existing refusal stays.
+5. **Parser counts.** On `search-response`, add `chunks=<n> answerChars=<n> sources=<n> searchCount=<usage.plugins.search.count or none>` from the same parser the executor uses. This shows whether a reply really had no sources or the parser missed them.
+6. **Whether a key is saved.** The record header adds `searchKey saved` or `searchKey missing`, and the same line goes to `RuntimeLog` as `webSearch on key=<saved|missing>` with the setting on. The value of the key never does.
+7. **How it is built.** `WebSearchService` stays provider-neutral (I-13). Add a neutral `WebSearchExchange` in `NovaPorts` (attempt, request body, status, ms, bytes, response body, error, URL error code) and an `onExchange` closure on `QwenWebSearchClient`, called once per request. `AgentRuntime` submits it to the record. With the record off, the closure does not build these strings or keep them.
+8. **Privacy.** These lines go only in the local record of F-12 §17, which stays off by default (I-7, I-8). They hold the query, the answer and web page titles and addresses. Nothing here goes to `RuntimeLog` except item 6 and the `cancelled` reason. The record file is the owner's to read and delete.
+9. **Not changed.** The model, endpoint, parameters, 10 s limit, retry rule, `web_search` tool, instruction, and everything with the setting off.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | One search that succeeds, record on | One `search-request` with the exact body sent, one `search-response` with the raw body and parser counts, one `search-result ok` | unit |
+| 2 | `no_sources` twice | Two request and two response lines with `attempt=1` and `attempt=2`, then `search-result failed reason=no_sources` | unit |
+| 3 | No key | No request lines; `search-result failed reason=no_key`; the header has `searchKey missing` | unit |
+| 4 | Task cancelled before or during the request | `reason=cancelled` in the record and the log; no result goes to her, as today | unit |
+| 5 | Timeout, no network, HTTP 403 with a `code` | `search-response` shows the error or the body; `search-result failed` has the reason and code | unit |
+| 6 | Body of 100,000 characters | First 8,000 and last 24,000 are kept; the parser counts use the whole body | unit |
+| 7 | Any search | No key or `Authorization` in the record; no query, answer, body or `message` in `RuntimeLog` | unit |
+| 8 | Record off | The closure builds nothing and no file is written; search behaves the same | unit |
+| 9 | Search result to her with the record on and off | The same result | unit |
+| 10 | Device, record on, setting on: 「上海明天天气怎么样」, then 「珠海明天天气怎么样」 | The record shows the request, reply and outcome for each search; the owner compares them with the PC call | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046f | Items 1–9; rows 1–10 | unit, build, D |
