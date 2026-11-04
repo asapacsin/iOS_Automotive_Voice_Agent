@@ -1781,6 +1781,17 @@
         "T-046g"
       ],
       "notes": "PC test 2026-11-04: the same oil price query searched 1 time in 3 with the §17 settings. Owner: the app only calls Qwen to search, so force it. Not yet tested on qwen3.7-flash multimodal streaming."
+    },
+    {
+      "id": "T-046i",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-18 §21 items 1-10: current destination from the snapshot, silent clientContent note with turnComplete false when idle and a constant to turn it off, 目的地 and 终点 in a query become the name, hours questions get current_destination in the result, new sentence in her instruction, record and log lines; rows 1-12",
+      "depends_on": [
+        "T-046h"
+      ],
+      "notes": "Device 2026-11-04, e01f464: while navigating to 横琴文化艺术中心 she searched ODD几点关门 and said she could not find ODD. Owner approved the two-part fix after a community review. turnComplete false has never been sent by this app, so row 8 comes first."
     }
   ]
 }

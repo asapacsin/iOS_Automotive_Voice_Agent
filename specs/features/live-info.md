@@ -399,3 +399,57 @@ This section changes §17 item 3, and overrides the 「parameters」 part of §1
 | Task | Scope | Verify |
 |---|---|---|
 | T-046h | Items 1–5; rows 1–5 | unit, build, D |
+
+## 21. During navigation she knows the destination, and asks when a place name makes no sense (iOS, APPROVED 2026-11-04)
+
+**Why.** Device 2026-11-04, e01f464, record `20261104-104512`. Navigation to 横琴文化艺术中心 had started. The local recognizer heard 「五弟弟几点关门」, Gemini heard 「ODD 几点关门?」, she searched `ODD几点关门`, and she said 「抱歉，暂时查询不到ODD的关门时间。」 The driver probably said 目的地几点关门; this is inferred, because the audio is not saved. The destination name had come back in a tool result about 20 s earlier, so having it once in the conversation was not enough. The search failing in 3 s is a separate problem (§20).
+
+Sources 2026-11-04. Keep key details in session state and inject them again each turn: [Webfuse](https://www.webfuse.com/blog/top-5-voice-ai-agent-failures-and-how-to-fix-them); in-car systems also track what was last talked about: [older in-car research](https://preview.aclanthology.org/moar-dois/N07-4012.pdf). Ask when speech is unclear instead of guessing: [OpenAI realtime guide](https://developers.openai.com/cookbook/examples/realtime_prompting_guide). Ask when the meaning is odd, even if recognition seems confident: [practitioner write-up](https://shekhargulati.com/2026/01), [patent](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/7904297); confidence scores alone are not reliable: [arXiv](https://arxiv.org/html/2605.25404). `clientContent` during a session is supported on Gemini 3.8 Live: [Live API capabilities](https://aistudio.google.com/docs/live-api/capabilities). With `turnComplete` false the server waits before generating, and a `clientContent` message can interrupt a reply: [Live API reference](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/model-reference/multimodal-live). None of these test Gemini Live in a Chinese in-car assistant, so rows 8–11 are the real test.
+
+This section adds to §17–§20 and depends on T-046h. It changes the §17 `webSearchSentence`, which §19 and §20 left alone. Everything here applies only with the search setting on.
+
+**Rule in plain words.** Code keeps the destination in front of her and in the search result. Code does not decide that a word was misheard; she does, and she asks instead of guessing.
+
+1. **The current destination.** `NavigationSnapshot.destination?.name` when the phase is `navigating` or `arrived`; otherwise none. A list opened over running guidance keeps the destination. Before use, the name loses line breaks and the characters `「」[]{}`, and is cut to 60 characters. A place name is data, not an instruction.
+2. **The silent note.** One constant, `destinationNotes`, on by default. The app sends `clientContent` with role `user` and `turnComplete: false`, never `realtimeInput`:
+   - With a destination: 「[系统] 现在的导航目的地是「X」。司机没说清地点时，指的可能是这里。这句不用回答。」
+   - When the destination ends: 「[系统] 导航已结束，现在没有目的地。这句不用回答。」, once.
+   - **When:** the destination changes; a turn completes while there is a destination; the session connects or reconnects while there is a destination. No second note if no turn happened since the last one.
+   - **Only when idle:** connected, no reply open, no answer owed, no tool running, driver not speaking. Otherwise it waits, and only the latest note is kept. A note must never interrupt a reply.
+3. **The word 目的地 in the query.** With a current destination, a query that contains 目的地 or 终点 and not the destination name has that word replaced with the name: `目的地几点关门` becomes `横琴文化艺术中心几点关门`. This runs before `SearchDate` (§19). With no destination the query is unchanged. Retries send the same query. The 200-character limit applies to what she sent. No other word is replaced, because code cannot tell that 「ODD」 was misheard.
+4. **The search result names the destination.** Only when all three hold after item 3: there is a current destination; the query does not contain its name; the query has one of 几点, 关门, 开门, 营业, 开放, 闭馆, 打烊.
+   - **Success:** add `current_destination`, and append to `next` (including the §19 `next`): 「现在的导航目的地是X。如果这次查的地名像是听错了，不要说这个结果，只问一句：是问X吗？」
+   - **Failure:** the code stays `LIVE_INFO_UNAVAILABLE`; append to the advice: 「现在的导航目的地是X。如果司机问的可能是这里，只问一句：是问X吗？不要念听错的名字。」
+   - Questions without those words, such as 美元汇率, are unchanged.
+5. **Her instruction.** In `webSearchSentence`, replace 「问目的地或屏幕上某个地点的营业时间：用它的名字查。」 with 「问目的地或屏幕上某地的营业时间：用它的名字查。地名听不清或不像真实地点：不要查，问一句「是问X吗？」（X 是目的地）；没导航就问是哪里。」 Both comfort modes stay within `maxBaseCharacters`.
+6. **What code cannot enforce (I-11).** Asking instead of searching, and searching by name after the driver says 是, are her behaviour. Rows 10–11 check them on the device. She may still search a misheard name, and item 4 is what limits the damage then.
+7. **Seeing what happened.** Record lines: `context-note destination=<name|none>` for each note, and `search-place query=<what she sent> sent=<after item 3> added=<yes|no> hint=<yes|no>` once per call. `RuntimeLog` gets only `destinationNote` and `webSearchPlace added=<yes|no> hint=<yes|no>`, with no words (I-8).
+8. **The note is the risky part.** The app has never sent `turnComplete: false`. The docs do not say how a waiting text turn behaves with audio and manual activity detection, so the next spoken line might get no reply. Row 8 tests this first. If it fails, turn `destinationNotes` off; items 3–5 do not depend on it.
+9. **Not changed or not fixed.**
+   - Speech recognition. She can still mishear, and these rules only limit the result.
+   - A misheard line that triggers a car action. In the same record, 「第 4 题仔细点关门」 closed all the windows. That needs its own decision, because F-12 has her act on comfort requests without asking.
+   - The voice model, Qwen and its settings, the 10 s limit, sources being required, and the §19 date rules.
+10. **Decision.** No pass bars. The owner reads the §18 record from rows 8–12 and decides what stays.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Phases idle, list before a route, navigating, a list over guidance, arrived, after exit; a name with brackets, a line break and 80 characters | Destination only for navigating, the list over guidance and arrived; the name is cleaned and cut to 60 | unit |
+| 2 | Destination set while her reply is open and a tool is running; then both finish; driver speaking at the time of another note | `clientContent`, role `user`, `turnComplete: false`, sent only once idle; the latest note only; never `realtimeInput` | unit |
+| 3 | A completed turn; a second idle moment with no turn; reconnect; exit navigation | A note; no duplicate; a note; the end note once, then none | unit |
+| 4 | `destinationNotes` off | No notes; rows 5–6 give the same results | unit |
+| 5 | With destination 横琴文化艺术中心, phone date 2026-11-04: `目的地几点关门`; `终点几点关门`; `横琴文化艺术中心目的地几点关门`; `目的地明天几点关门`; no destination: `目的地几点关门` | Name replaces the word; same; unchanged; `横琴文化艺术中心明天（2026年11月5日）几点关门`; unchanged | unit |
+| 6 | With destination: `ODD几点关门` succeeds; `ODD几点关门` fails; `美元汇率多少`; `横琴文化艺术中心几点关门`. No destination: `ODD几点关门` | `current_destination` and the longer `next`; `LIVE_INFO_UNAVAILABLE` with the longer advice; no hint; no hint; no hint | unit |
+| 7 | Both comfort modes; setting off | The new sentence is in, within `maxBaseCharacters`; with the setting off, the base and declarations are unchanged; record and log lines as item 7, with no words in the log | unit |
+| 8 | Device, record on, navigating: 「现在几点」, 「今天油价多少」, 「打开空调」, each 3 times; a guidance line; talk over her once | Every line gets its reply, with no hang and no unasked speech after a `context-note`; guidance and interruption work as before | D |
+| 9 | Device, navigating: 「目的地几点关门」 3 times | `search-place added=yes`; the search uses the destination name; she does not ask first | D |
+| 10 | Device, navigating: 「ODD几点关门」, 「五弟弟几点关门」, 3 times each; answer 「是」, and once 「不是」 | She asks 「是问X吗？」; 是 → search by name; 不是 → she asks where. Count the times she searched the wrong name | D |
+| 11 | Device: navigating, 「迪士尼几点关门」; not navigating, 「ODD几点关门」 | She searches 迪士尼 without asking about the destination; she asks which place | D |
+| 12 | Device: after ending navigation, 「目的地几点关门」 | The old name is not used | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046i | Items 1–10; rows 1–12 | unit, build, D |
