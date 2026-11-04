@@ -369,3 +369,33 @@ This section adds to §17 and §18. It depends on T-046f. It does not change her
 | Task | Scope | Verify |
 |---|---|---|
 | T-046g | Items 1–9; rows 1–9 | unit, build, D |
+
+## 20. Every call to Qwen must search (iOS, APPROVED 2026-11-04)
+
+**Why.** PC test 2026-11-04 with the app's §17 settings: `今日国内油价是多少 2026年11月4日` searched only 1 time in 3. The other 2 replies had no `search_results` and no search usage, and answered from memory, in 3.0 s and 4.6 s. On the phone, 「今天油价多少」 failed in 2.6 s, and 「上海后天天气怎么样」 needed a retry. The app only calls Qwen after she has decided to search, so Qwen deciding again has no purpose. Owner 2026-11-04: force the search, in the spec.
+
+Sources 2026-11-04: [Alibaba web search](https://help.aliyun.com/zh/model-studio/web-search) and [Qwen platform docs](https://platform.qianwenai.com/docs/developer-guides/tool-calling/web-search) say the model decides by default and `forced_search` forces it. [Cherry Studio #23209](https://github.com/CherryHQ/cherry-studio/issues/23209) reports that it searches on every turn. [One developer's test](https://lilting.ch/en/articles/qwen37-qwen38-enable-search-test) reports that it made a Qwen 3.8 model search. None of these test `qwen3.7-flash` on the multimodal API with streaming, so row 4 is the first real test on the phone.
+
+This section changes §17 item 3, and overrides the 「parameters」 part of §18 item 9 and §19 item 8.
+
+1. **The setting.** `search_options` becomes `{"search_strategy": "agent", "enable_source": true, "forced_search": true}`. Nothing else in the request changes. Each search option is one constant, so changing one is a one-line change.
+2. **The sources rule stays.** §17 item 5 still applies: text and at least one source, or retry once, then fail. A forced setting is not evidence that a search ran (I-3, I-11).
+3. **If Alibaba refuses the setting.** An error is handled as §17 item 7 says, with its code in the log and the record. The app does not silently resend without `forced_search`, because that would bring back the answers from memory.
+4. **Cost.** Every call now pays for a search, about 1 cent in Singapore plus tokens. A retry pays again. Rows 4–5 measure this.
+5. **Decision.** No pass bars. If searches still go missing or do not finish within the 10 s limit, the owner decides from the record whether to change the strategy or the provider.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Client request | `search_options` has `forced_search: true`, `search_strategy: "agent"` and `enable_source: true`; retries are the same | unit |
+| 2 | Reply with no sources, twice, with `forced_search` on | Two requests, then `reason=no_sources`; no answer text in the result | unit |
+| 3 | HTTP 400 with a `code` | One request, the code is logged, no resend without `forced_search`; `LIVE_INFO_UNAVAILABLE` | unit |
+| 4 | Device, record on: 「今天油价多少」, 「今天有什么新闻」, 「美元汇率多少」, 「上海后天天气怎么样」, each 3 times | Every `search-response` has `sources` above 0 and `searchCount` above 0; note any `no_sources`, `timeout` and the delay | D |
+| 5 | Device: after row 4, open the Model Studio bill | Note the cost per search | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046h | Items 1–5; rows 1–5 | unit, build, D |

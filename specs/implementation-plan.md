@@ -139,6 +139,7 @@ NOT_VERIFIED until a device run is attached.
 | T-046e | The search model becomes `qwen3.7-flash` with its own key; Gemini search client and Search Suggestions removed | F-18 | T-046d | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §17 rows 1–12 | unit, build, D |
 | T-046f | The record shows each Qwen request, raw reply and outcome; no failure path is silent; search behaviour unchanged | F-18 | T-046e | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §18 rows 1–10 | unit, build, D |
 | T-046g | The app works out the date of a search, writes it into the query, and refuses a future-day answer that names only other dates | F-18 | T-046f | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §19 rows 1–9 | unit, build, D |
+| T-046h | Every call to Qwen must search: `forced_search` on, sources rule unchanged | F-18 | T-046g | `Packages/NovaRealtime/` | F-18 §20 rows 1–5 | unit, build, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 
