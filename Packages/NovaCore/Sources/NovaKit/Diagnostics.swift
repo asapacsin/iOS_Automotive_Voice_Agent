@@ -51,6 +51,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case bargeInStopped
     /// F-18 §15 item 8: `google_search` came as an ordinary function call; it is refused, not executed.
     case webSearchAsFunction
+    /// F-18 §21 item 7 (T-046i): a destination note went to the model. No name (I-8).
+    case destinationNote
 }
 
 public enum StopPhraseSource: String, Sendable, Hashable {
@@ -94,6 +96,7 @@ extension DiagnosticEvent {
         case postStopTurnDropped
         case bargeInStopped
         case webSearchAsFunction
+        case destinationNote
     }
 
     public var kind: Kind {
@@ -131,6 +134,7 @@ extension DiagnosticEvent {
         case .postStopTurnDropped: .postStopTurnDropped
         case .bargeInStopped: .bargeInStopped
         case .webSearchAsFunction: .webSearchAsFunction
+        case .destinationNote: .destinationNote
         }
     }
 }
@@ -151,6 +155,7 @@ extension DiagnosticEvent {
         case .stopSyncSent: "stopSync sent"
         case .stopSyncInterrupted(let ms): "stopSync interrupted ms=\(ms)"
         case .stopSyncNoInterrupt: "stopSyncNoInterrupt"
+        case .destinationNote: "destinationNote"
         case .reaskSuppressed: "reaskSuppressed reason=stop"
         case .abandonCleared: "abandonCleared reason=newUtterance"
         case .postStopTurnDropped: "postStopTurnDropped reason=noSentUtterance"

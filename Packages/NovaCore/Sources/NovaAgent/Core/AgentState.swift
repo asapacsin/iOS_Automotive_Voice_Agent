@@ -41,6 +41,8 @@ public enum AgentEvent: Sendable, Hashable {
     case bargeInStop
     /// F-24 §14 item 1: `NetworkPathWatcher` says the path went away (false) or came back (true).
     case network(available: Bool)
+    /// F-18 §21 item 1 (T-046i): the current destination's cleaned name, or nil when there is none.
+    case destination(String?)
 }
 
 /// Screen actions (ios-architecture §11.1). Each becomes the tool call the voice path would make.
@@ -219,15 +221,85 @@ public struct AgentState: Sendable {
     private var stopSyncTurn: TurnID?
     private var pipelineTimers: [PipelineTimer.Kind: PipelineTimer] = [:]
 
+    /// F-18 §21 item 2 (T-046i): silent destination notes (on with the search setting; off sends none).
+    private var destinationNotes = false
+    private var destination: String?
+    /// The note waiting for an idle moment: `.some(name)` or `.some(nil)` for the end note. Only the latest is kept.
+    private var pendingNote: String??
+    /// What the last sent note said (`.some(nil)` = the end note), and whether a turn completed since.
+    private var lastNote: String??
+    private var turnSinceNote = false
+    /// A (re)connect: the note goes again even with no turn since.
+    private var noteOnConnect = false
+
     public init() {}
 
     /// F-18 §15 item 5: the session's no-answer times (web search on waits longer before the re-ask).
-    public init(truthfulness: TruthfulnessTuning) {
+    /// F-18 §21 item 2: `destinationNotes` sends the destination notes.
+    public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false) {
         pipeline = DriverTurnPipeline(tuning: truthfulness)
+        self.destinationNotes = destinationNotes
+    }
+
+    /// F-18 §21 item 2: the note texts.
+    public static func destinationNote(_ name: String?) -> String {
+        guard let name else { return "[系统] 导航已结束，现在没有目的地。这句不用回答。" }
+        return "[系统] 现在的导航目的地是「\(name)」。司机没说清地点时，指的可能是这里。这句不用回答。"
     }
 
     public mutating func handle(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
+        let effects = dispatch(event, at: now)
+        guard destinationNotes else { return effects }
+        noteTriggers(event)
+        return effects + flushNote()
+    }
+
+    /// §21 item 2 "When": a destination change, a completed turn, or a (re)connect with a destination.
+    private mutating func noteTriggers(_ event: AgentEvent) {
         switch event {
+        case .destination(let name):
+            guard name != destination else { return }
+            let had = destination != nil
+            destination = name
+            if let name { pendingNote = .some(name) } else if had { pendingNote = .some(nil) }
+        case .realtime(.responseDone, _):
+            turnSinceNote = true
+            if let destination { pendingNote = .some(destination) }
+        case .realtime(.setupComplete, _):
+            if let destination {
+                pendingNote = .some(destination)
+                noteOnConnect = true
+            }
+        default:
+            break
+        }
+    }
+
+    /// §21 item 2 "Only when idle": connected, no reply open, no answer owed, no tool running, driver not
+    /// speaking, no guidance prompt waiting. A note never interrupts a reply.
+    private var noteIdle: Bool {
+        session.state == .listening && openTurn == nil && !answerOwed && runningTools == 0 && !driverSpeaking
+            && !utteranceOpen && relayAwaiting == nil && unclassified == nil
+    }
+
+    private mutating func flushNote() -> [AgentEffect] {
+        guard let pending = pendingNote, noteIdle else { return [] }
+        pendingNote = nil
+        // No second note when nothing happened since the last one; the end note goes once.
+        if pending == nil, lastNote == .some(nil) { return [] }
+        if let name = pending, lastNote == .some(name), !turnSinceNote, !noteOnConnect { return [] }
+        lastNote = .some(pending)
+        turnSinceNote = false
+        noteOnConnect = false
+        // `turnComplete: false`, never `realtimeInput` (§21 item 2, item 8 is the risk).
+        return [.provider(.text([TextTurn(role: .user, text: Self.destinationNote(pending))], turnComplete: false)),
+                .diagnostic(.destinationNote)]
+    }
+
+    private mutating func dispatch(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
+        switch event {
+        case .destination:
+            return []
         case .start:
             return session(.start, at: now)
         case .stop:

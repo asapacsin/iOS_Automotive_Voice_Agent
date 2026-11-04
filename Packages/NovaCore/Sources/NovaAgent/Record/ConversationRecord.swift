@@ -1,6 +1,7 @@
 import Foundation
 import NovaKit
 import NovaPorts
+import NovaTools
 import NovaVoice
 import Synchronization
 
@@ -31,6 +32,12 @@ public enum RecordEvent: Sendable, Hashable {
     /// F-18 §16 item 12: `search <queries the search model ran>`.
     case search(String?)
     case session(String)
+    /// F-18 §18 items 1-2, 5 (T-046f): one request to the search model and its reply.
+    case searchExchange(WebSearchExchange)
+    /// F-18 §18 item 3, §19 item 6, §21 item 7: what a `web_search` call did (`used`, `failed`, `date`, `place`).
+    case searchOutcome(WebSearchOutcome)
+    /// F-18 §21 item 7: a destination note; nil = the end note.
+    case contextNote(destination: String?)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -41,9 +48,13 @@ public struct RecordHeader: Sendable, Hashable {
     public let speakingStyle: String
     /// F-18 §16 item 12: which information path ran.
     public let webSearch: Bool
+    /// F-18 §18 item 6: whether a search key is saved; nil writes no line. Never the key's value.
+    public let searchKey: Bool?
 
-    public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false) {
+    public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false,
+                searchKey: Bool? = nil) {
         self.webSearch = webSearch
+        self.searchKey = searchKey
         self.appVersion = appVersion
         self.comfortMode = comfortMode
         self.interruptible = interruptible
@@ -53,6 +64,7 @@ public struct RecordHeader: Sendable, Hashable {
     public var lines: [String] {
         ["app \(appVersion)", "comfortMode \(comfortMode)", "可以打断她 \(interruptible ? "on" : "off")",
          "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
+            + (searchKey.map { ["searchKey \($0 ? "saved" : "missing")"] } ?? [])
     }
 }
 
@@ -114,6 +126,9 @@ public struct ConversationRecorder: Sendable {
             return end(t, ms) + [line("turn-end", "turnComplete turn=\(t) outcome=\(outcome)")]
         case .turnEnded(let reason): return [line("turn-end", "reason=\(reason.rawValue)")]
         case .search(let query): return [line("search", query ?? "")]
+        case .searchExchange(let x): return Self.searchLines(x).map { line($0.kind, $0.content) }
+        case .searchOutcome(let o): return Self.searchLine(o).map { [line($0.kind, $0.content)] } ?? []
+        case .contextNote(let name): return [line("context-note", "destination=\(name ?? "none")")]
         case .session(let what):
             // A session event ends every open turn: her words are never lost from the file.
             var out: [String] = []
@@ -169,6 +184,38 @@ public struct ConversationRecorder: Sendable {
             outcome = "not-spoken" + (reason.map { " then=\($0)" } ?? "")
         }
         return ["\(ms) reply-out turn=\(t.id) \(outcome)"]
+    }
+
+    /// §18 item 2: a body over 32,000 characters keeps its first 8,000 and last 24,000.
+    public static let bodyLimit = 32_000
+    static func cut(_ body: String) -> String {
+        guard body.count > bodyLimit else { return body }
+        return String(body.prefix(8_000)) + "…" + String(body.suffix(24_000))
+    }
+
+    static func searchLines(_ x: WebSearchExchange) -> [(kind: String, content: String)] {
+        var out = [("search-request", "attempt=\(x.attempt) body=\(x.requestBody)")]
+        if let error = x.error {
+            out.append(("search-response", "attempt=\(x.attempt) error=\(error) ms=\(x.ms) urlError=\(x.urlError.map(String.init) ?? "none")"))
+        } else {
+            out.append(("search-response", "attempt=\(x.attempt) status=\(x.status.map(String.init) ?? "none") ms=\(x.ms) bytes=\(x.bytes) "
+                        + "chunks=\(x.chunks) answerChars=\(x.answerChars) sources=\(x.sources) "
+                        + "searchCount=\(x.searchCount.map(String.init) ?? "none") body=\(cut(x.responseBody ?? ""))"))
+        }
+        return out
+    }
+
+    static func searchLine(_ o: WebSearchOutcome) -> (kind: String, content: String)? {
+        switch o {
+        case .used(let ms, let attempts, _, let answer, let sources):
+            return ("search-result", "ok ms=\(ms) attempts=\(attempts) answer=\(answer) sources=\(sources.joined(separator: ","))")
+        case .failed(let reason, let ms, let code):
+            return ("search-result", "failed reason=\(reason) ms=\(ms) code=\(code ?? "none")")
+        case .date(let query, let target, let added, let check):
+            return ("search-date", "query=\(query) target=\(target ?? "none") added=\(added ? "yes" : "no") check=\(check.rawValue)")
+        case .place(let query, let sent, let added, let hint):
+            return ("search-place", "query=\(query) sent=\(sent) added=\(added ? "yes" : "no") hint=\(hint ? "yes" : "no")")
+        }
     }
 
     static func json(_ value: JSONValue) -> String {

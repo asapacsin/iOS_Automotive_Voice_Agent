@@ -53,6 +53,15 @@ public struct NavigationFlowState: Sendable, Hashable {
     }
 }
 
+extension NavigationFlowState {
+    /// F-18 §21 item 1 (T-046i): the destination's cleaned name while navigating (a list over guidance keeps it)
+    /// or arrived; nil otherwise.
+    public var currentDestination: String? {
+        guard phase == .navigating || phase == .arrived else { return nil }
+        return SearchPlace.clean(destination?.name)
+    }
+}
+
 public struct NavigationTuning: Sendable, Hashable {
     /// Candidate lists older than this are refused (`OPTIONS_STALE`).
     public var choiceLifetime = NovaDuration.seconds(120)

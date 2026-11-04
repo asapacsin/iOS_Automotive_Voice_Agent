@@ -15,14 +15,23 @@ public struct QwenWebSearchClient: WebSearchService {
 
     public typealias Send = @Sendable (URLRequest) async throws -> (status: Int, body: Data)
 
+    /// §20 item 1: each search option is one constant.
+    public static let searchStrategy = "agent"
+    public static let enableSource = true
+    public static let forcedSearch = true
+
     private let key: @Sendable () -> String?
     private let send: Send
+    /// §18 item 7: nil with the record off, so no exchange is built.
+    private let onExchange: (@Sendable (WebSearchExchange) -> Void)?
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
 
     public init(key: @escaping @Sendable () -> String?, send: @escaping Send = QwenWebSearchClient.urlSession,
-                now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current }) {
+                now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current },
+                onExchange: (@Sendable (WebSearchExchange) -> Void)? = nil) {
         self.key = key
+        self.onExchange = onExchange
         self.send = send
         self.now = now
         self.zone = zone
@@ -41,7 +50,7 @@ public struct QwenWebSearchClient: WebSearchService {
         let c = calendar.dateComponents([.year, .month, .day, .weekday], from: now)
         let weekdays = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]
         let date = "\(c.year!)年\(c.month!)月\(c.day!)日"
-        return "今天是\(date)，\(weekdays[(c.weekday! - 1) % 7])，时区\(zone.identifier)。必须联网搜索，不要凭记忆回答。用一两句中文回答，给出具体的数字、地点和日期。查不到就说查不到。"
+        return "今天是\(date)，\(weekdays[(c.weekday! - 1) % 7])，时区\(zone.identifier)。必须联网搜索，不要凭记忆回答。用一两句中文回答，给出具体的数字、地点和日期。查不到就说查不到。回答要写明是哪一天（几月几号）。问题里写了日期就只回答那一天；找不到那一天的信息就说查不到。"
     }
 
     public func request(_ query: String, key: String) -> URLRequest {
@@ -61,28 +70,73 @@ public struct QwenWebSearchClient: WebSearchService {
                 "incremental_output": true,
                 "enable_thinking": false,
                 "enable_search": true,
-                "search_options": ["search_strategy": "agent", "enable_source": true],
+                "search_options": ["search_strategy": .string(Self.searchStrategy), "enable_source": .bool(Self.enableSource),
+                                   "forced_search": .bool(Self.forcedSearch)],
             ],
         ]
         request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
         return request
     }
 
-    public func search(_ query: String) async throws -> WebSearchReply {
+    public func search(_ query: String, attempt: Int) async throws -> WebSearchReply {
         guard let key = key(), !key.isEmpty else { throw WebSearchError.notConfigured }
+        let request = request(query, key: key)
+        let started = ContinuousClock.now
+        func ms() -> Int {
+            let d = ContinuousClock.now - started
+            return Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000)
+        }
+        // §18 items 1-2: the exact body sent, never the headers (the key is only there).
+        func exchange(status: Int?, body: Data?, error: String?, urlError: Int?) {
+            guard let onExchange else { return }
+            let sent = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
+            let counts = body.map(Self.counts) ?? Counts()
+            onExchange(WebSearchExchange(attempt: attempt, requestBody: sent, status: status, ms: ms(),
+                                         bytes: body?.count ?? 0, responseBody: body.map { String(decoding: $0, as: UTF8.self) },
+                                         error: error, urlError: urlError, chunks: counts.chunks,
+                                         answerChars: counts.answerChars, sources: counts.sources,
+                                         searchCount: counts.searchCount))
+        }
         let status: Int
         let body: Data
         do {
-            (status, body) = try await send(request(query, key: key))
-        } catch let error as URLError where error.code == .timedOut {
-            throw WebSearchError.timeout
+            (status, body) = try await send(request)
         } catch {
-            throw Task.isCancelled ? WebSearchError.timeout : WebSearchError.network
+            let urlError = (error as? URLError)?.code.rawValue
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError {
+                exchange(status: nil, body: nil, error: "cancelled", urlError: urlError)
+                throw WebSearchError.timeout
+            }
+            if (error as? URLError)?.code == .timedOut {
+                exchange(status: nil, body: nil, error: "timeout", urlError: urlError)
+                throw WebSearchError.timeout
+            }
+            exchange(status: nil, body: nil, error: "network", urlError: urlError)
+            throw WebSearchError.network
         }
+        exchange(status: status, body: body, error: nil, urlError: nil)
         guard status == 200 else { throw WebSearchError.http(status, code: Self.errorCode(body)) }
         let parsed = Self.parse(body)
         if let code = parsed.code { throw WebSearchError.api(code) }
         return parsed.reply
+    }
+
+    struct Counts {
+        var chunks = 0
+        var answerChars = 0
+        var sources = 0
+        var searchCount: Int?
+    }
+
+    /// §18 item 5: from the same parser the executor's reply comes from, over the whole body.
+    static func counts(_ data: Data) -> Counts {
+        let objects = objects(data)
+        let reply = parse(data).reply
+        var count: Int?
+        for o in objects {
+            if case .int(let n)? = o["usage"]?["plugins"]?["search"]?["count"] { count = Int(n) }
+        }
+        return Counts(chunks: objects.count, answerChars: reply.answer.count, sources: reply.sources.count, searchCount: count)
     }
 
     /// The JSON objects in a body: each `data:` line of a stream, or the whole body when it is one JSON object.

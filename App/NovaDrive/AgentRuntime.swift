@@ -71,6 +71,8 @@ enum DriveSettings {
 
     /// F-18 §15 item 1 (T-046c) 「联网搜索（实验）」: default off; read at session start.
     static let webSearch = "web_search_experimental"
+    /// F-18 §21 items 2, 8 (T-046i): one constant; turn it off if the note makes her stop answering (row 8).
+    static let destinationNotes = true
 
     static func searchesWeb(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: webSearch) as? Bool ?? false
@@ -168,6 +170,16 @@ struct RuntimeSink: AgentEffectSink {
             if let record, let text = turns.last?.text,
                let reason = CorrectionReason.allCases.first(where: { $0.instruction == text }) {
                 record.submit(.correction(reason.rawValue))
+            }
+            // F-18 §21 item 7: a destination note (the only text sent with turnComplete false).
+            if let record, !complete, let text = turns.last?.text {
+                if text == AgentState.destinationNote(nil) {
+                    record.submit(.contextNote(destination: nil))
+                } else if let name = text.firstRange(of: "「").flatMap({ open in
+                    text[open.upperBound...].firstRange(of: "」").map { String(text[open.upperBound..<$0.lowerBound]) }
+                }), text == AgentState.destinationNote(name) {
+                    record.submit(.contextNote(destination: name))
+                }
             }
             await realtime.sendText(turns, turnComplete: complete)
         case .interruptReply:
@@ -626,6 +638,8 @@ final class AgentRuntime {
         let savedPlaces = trip.savedPlaces
         let navigation = trip.navigation
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
+        // F-18 §21 item 1: written by the navigation stream below, read by web_search.
+        let currentDestination = DestinationHolder()
         // This session listens to the trip from now on; it first sees the trip as it is (a drive that went
         // on after the last session, F-15a §9 OQ-NAVM-5).
         trip.listeners.attach(flags.continuation)
@@ -709,28 +723,40 @@ final class AgentRuntime {
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
         let recordFile = DriveSettings.recordsConversation() ? ConversationRecordFile.create() : nil
+        // F-18 §18 item 6: whether a search key is saved, never its value.
+        let searchKeySaved = ((try? KeychainCredentialStore().value(for: .qwenAPIKey)) ?? nil)?.isEmpty == false
+        if webSearch { RuntimeLog.agent.notice("webSearch on key=\(searchKeySaved ? "saved" : "missing", privacy: .public)") }
         let record = recordFile == nil ? nil : ConversationRecord.make(enabled: true, header: RecordHeader(
             appVersion: "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))",
             comfortMode: comfortMode.rawValue, interruptible: DriveSettings.isInterruptible(),
-            speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch))
+            speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
+            searchKey: webSearch ? searchKeySaved : nil))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         // F-18 §16 items 3, 6-7 and §17 items 1-8: `web_search` through the search model, only with the setting on.
         if webSearch {
             let qwenKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
+            // F-18 §18 item 7: with the record off, no exchange is built.
+            let onExchange: (@Sendable (WebSearchExchange) -> Void)? = record.map { record in { record.submit(.searchExchange($0)) } }
+            let destinationName = currentDestination
             executors[WebSearchExecutor.tool] = WebSearchExecutor(
-                service: QwenWebSearchClient(key: qwenKey), clock: SystemClock()
-            ) { outcome in
+                service: QwenWebSearchClient(key: qwenKey, onExchange: onExchange), clock: SystemClock(),
+                onOutcome: { outcome in
+                // F-18 §18 items 3, 8: the whole outcome goes to the local record; the log gets no words (I-8).
+                record?.submit(.searchOutcome(outcome))
                 switch outcome {
-                case .used(let ms, let attempts, let query):
-                    // I-8: numbers only in the log; her query goes to the local record only.
+                case .used(let ms, let attempts, let query, _, _):
                     RuntimeLog.agent.notice("webSearchUsed ms=\(ms, privacy: .public) attempts=\(attempts, privacy: .public)")
                     record?.submit(.search(query))
                 case .failed(let reason, let ms, let code):
                     // I-7, I-8: the cleaned provider code only; never its message, the query, the answer or the key.
                     if let code { RuntimeLog.agent.notice("webSearchError code=\(code, privacy: .public)") }
                     RuntimeLog.agent.notice("webSearchFailed reason=\(reason, privacy: .public) ms=\(ms, privacy: .public)")
+                case .date(_, _, let added, let check):
+                    RuntimeLog.agent.notice("webSearchDate added=\(added ? "yes" : "no", privacy: .public) check=\(check.rawValue, privacy: .public)")
+                case .place(_, _, let added, let hint):
+                    RuntimeLog.agent.notice("webSearchPlace added=\(added ? "yes" : "no", privacy: .public) hint=\(hint ? "yes" : "no", privacy: .public)")
                 }
-            }
+            }, destination: { destinationName.name })
         } else {
             // Setting off: an undeclared web_search call is UNKNOWN_TOOL, as before T-046c.
             executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
@@ -748,7 +774,8 @@ final class AgentRuntime {
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() })
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
-                             state: AgentState(truthfulness: .session(webSearch: webSearch)))
+                             state: AgentState(truthfulness: .session(webSearch: webSearch),
+                                               destinationNotes: webSearch && DriveSettings.destinationNotes))
         ended.core = core
         self.core = core
         // F-24 §14 item 1: the network path, only while this session exists.
@@ -862,6 +889,12 @@ final class AgentRuntime {
             var overspeedID = GuidanceID(1 << 40)
             var overspeed = OverspeedMonitor(clock: SystemClock())
             for await snapshot in flags.stream {
+                // F-18 §21 item 1: the destination for the search and the silent note.
+                let name = snapshot.currentDestination
+                if name != currentDestination.name {
+                    currentDestination.set(name)
+                    await core.send(.destination(name))
+                }
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen)))
