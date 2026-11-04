@@ -1759,6 +1759,17 @@
         "T-046e"
       ],
       "notes": "Device 2026-11-04, e01f464: PC call to qwen3.7-flash found 18 sources; on the phone one query failed no_sources after 3572 ms and 上海明天天气 failed in 2 ms with no system log. Owner asked to record Qwen input and response."
+    },
+    {
+      "id": "T-046g",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-18 §19 items 1-9: SearchDate reads relative and written dates from the query, writes the date into the query, refuses a future-day answer that names only other dates with reason=wrong_date, target_date and next ask her to say the day, record and log lines; rows 1-9",
+      "depends_on": [
+        "T-046f"
+      ],
+      "notes": "Device 2026-11-04, e01f464: 上海后天天气 answered with 11月5日, the 明天 forecast, and she dropped the date. Owner approved a code date fix."
     }
   ]
 }
