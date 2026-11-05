@@ -1865,13 +1865,20 @@
     {
       "id": "T-013g",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-04b §13: save calibration scores after every line and resume them; warn before 重新录入; rows 27-36",
       "depends_on": [
         "T-013f"
       ],
-      "notes": "Owner 2026-11-05: keeps being asked to set the lock up again. Phone check: voiceprint survived the install, calibration never finished. Rows 33-36 are device rows."
+      "notes": "Owner 2026-11-05: keeps being asked to set the lock up again. Phone check: voiceprint survived the install, calibration never finished. Rows 33-36 are device rows.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 27-32: SpeakerCalibrationDraftTests (7 tests)",
+        "Independent high-effort review PASS",
+        "App/NovaDrive/SpeakerLock.swift builds on iOS CI only",
+        "Rows 33-36 device NOT_VERIFIED"
+      ]
     },
     {
       "id": "T-042c",

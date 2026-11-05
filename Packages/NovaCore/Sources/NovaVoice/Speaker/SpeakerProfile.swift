@@ -216,18 +216,25 @@ public enum SpeakerEnrollment {
 
     /// §4 item 5: a re-enrollment replaces the file only after the new one passes; the old one is kept otherwise.
     /// The new profile has no threshold: it must be calibrated again.
+    /// §13 item 9: a failed enrollment keeps the old profile, threshold and draft; a successful one removes the draft.
     @discardableResult
     public static func enroll(_ takes: [EnrollmentTake], modelName: String, dimension: Int, at date: Date,
-                              store: any SpeakerProfileStore) -> Result<SpeakerProfile, EnrollmentProblem> {
+                              store: any SpeakerProfileStore, draftStore: (any SpeakerCalibrationDraftStore)? = nil)
+        -> Result<SpeakerProfile, EnrollmentProblem> {
         let result = check(takes, modelName: modelName, dimension: dimension, at: date)
         if case .success(let profile) = result {
             do { try store.save(profile) } catch { return .failure(.noEmbedding) }
+            try? draftStore?.delete()
         }
         return result
     }
 
-    /// §4 item 5, §3 item 5: delete (also from the wipe-all); the caller turns the switch off.
-    public static func delete(store: any SpeakerProfileStore) throws { try store.delete() }
+    /// §4 item 5, §3 item 5: delete (also from the wipe-all); the caller turns the switch off. §13 item 10: the
+    /// draft goes too.
+    public static func delete(store: any SpeakerProfileStore, draftStore: (any SpeakerCalibrationDraftStore)? = nil) throws {
+        try? draftStore?.delete()
+        try store.delete()
+    }
 }
 
 /// §5 items 2–4: 校准 from scores only (no audio kept). Pure.
