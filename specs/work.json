@@ -1861,6 +1861,39 @@
         "T-013e"
       ],
       "notes": "Owner request 2026-11-05. Code PASS 2026-11-05 (gates 616+35+41, py 30; review FAIL then PASS, fixes f3449a4). App and extension not built (no Xcode here). Rows 23-26 NOT_VERIFIED (device). Deferred: v2 pack folder reuse; retry after checksum mismatch."
+    },
+    {
+      "id": "T-042c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-16 §14 items 1-11: near-first 高德 search, pinyin+distance score, confirm tiers, far_only, CONFIRM_FIRST by driver-turn order, next candidate then DESTINATION_REJECTED, km+hours start sentence, record/log lines; unit rows 2-7",
+      "depends_on": [
+        "T-042"
+      ],
+      "notes": "Gates PASS on stack 1ff2f9f (NovaCore 632, Realtime 36, Services 42, py 42; spec-trace 91/0). Review FAIL (navigate_to while navigating bypassed §14; turn read before search; tool name in spoken text) fixed, re-review PASS. App not built. Rows 1 (PC) and 8 (device) NOT_VERIFIED."
+    },
+    {
+      "id": "T-046k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §23 items 1-4: weather today..大后天 and place_details stay in query_live_info with search on; forecast picked by cast date; unit rows 2-4",
+      "depends_on": [
+        "T-046j"
+      ],
+      "notes": "Gates PASS (same stack). Review PASS first round. Open: §16 item 11 persona/web_search text still sends weather/hours to web_search (spec gap, owner). Row 1 (PC) NOT_VERIFIED."
+    },
+    {
+      "id": "T-046l",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 3,
+      "action": "F-18 §23 items 5-8: driver words to Qwen (FreshPrompt user message), scripts/search_eval harness (not run); unit row 5",
+      "depends_on": [
+        "T-046j"
+      ],
+      "notes": "Stopped by owner mid-fix 2026-11-05. Pushed commit gates PASS; review FAIL x2. Remaining blocker: words cleared on responseDone can race the web_search executor, so current-turn words may be dropped (fails safe, nothing stale sent). Fix planned: snapshot words per CallID at toolCalls. Rows 5 (unit) pending re-review, 6 (PC) NOT_VERIFIED."
     }
   ]
 }
