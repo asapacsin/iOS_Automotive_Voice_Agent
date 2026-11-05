@@ -499,3 +499,120 @@ This section changes §17 item 3 and §20 item 1, and replaces the `searchCount`
 | Task | Scope | Verify |
 |---|---|---|
 | T-046j | Items 1–6; rows 1–4 | unit, build, D |
+
+## 23. Search set-up: official data first, Qwen chosen on a PC test, copied prompt (iOS, PROPOSED 2026-11-05)
+
+**Why.** Device 2026-11-05, 91c230a, record `conv-20261105-152806`. The driver asked for 后天 weather in 横琴. She called `web_search` with `横琴2026年11月7日天气`, her own rewrite with the relative word gone. Qwen (`qwen3.7-flash`, `turbo`, thinking off) answered 「查不到…仅包含11月5日、6日及后续几天」, although its sources included `nmc.cn`. Four causes, from the record and the code:
+- **Search when official data exists.** With 「联网搜索（实验）」 on, §16 item 9 removes weather and place details from `query_live_info`, so the question never reached 高德. 高德 also returns only today and tomorrow (`AmapWebClient.weather`).
+- **Snippets only.** `turbo` gives Qwen search snippets, not page content (§22).
+- **Small model, thinking off.**
+- **A self-written refusal rule** in Qwen's system text, 「…找不到那一天的信息就说查不到」 (§19 item 3).
+
+Owner rules that bind this section:
+- **Gemini search stays off** while the Gemini key has none (§15, §16). All online search goes to the owner's Qwen account.
+- **Qwen's prompt is copied, never invented** (AGENTS.md, owner 2026-11-05).
+- **The Qwen model and settings are chosen on measured results** (owner 2026-11-05).
+
+Sources 2026-11-05:
+- **Answer fixed-format questions from APIs; search for the rest.** This is the routing pattern in community RAG practice. The 高德 weather API returns a multi-day forecast list `casts`: [高德天气查询](https://lbs.amap.com/api/webservice/guide/api/weatherinfo).
+- **Search strategies.** [Alibaba web search](https://www.alibabacloud.com/help/en/model-studio/web-search) and [web extractor](https://www.alibabacloud.com/help/en/model-studio/web-extractor), both updated 2026-11-05.
+  - `agent` lets the model search in several rounds. §22 measured it searching 0 of 10 times on `qwen3.7-flash`.
+  - `agent_max` "covers both the web search and the web extractor tool", and needs `enable_thinking: true` and streaming.
+  - Page extraction "can be time-consuming".
+  - The `qwen3.8` models do not take `agent` on the multimodal API. The docs send agent-style search for them to the Responses API, which has a `web_search` tool and ignores `search_strategy`.
+  - The web extractor is free for a limited time. Search costs $10 per 1,000 calls in Singapore and $0.57 in Beijing, US, HK, Tokyo and Frankfurt.
+  - The docs give no search prompt. Their only system message is "You are a helpful assistant."
+- **Prompt.** [FreshPrompt](https://arxiv.org/abs/2310.03214), from the authors' [notebook](https://github.com/freshllms/freshqa/blob/main/freshprompt.ipynb).
+  - System text: "You are a helpful assistant. Answer as concisely as possible. Knowledge cutoff: {current_date}."
+  - A prior turn: user "What's today's date?", assistant "Today is {current_date} in Pacific Standard Time."
+  - The question as "question: {question}\nanswer: ".
+  - The paper finds that concise, direct answers reduce hallucination. It has no ablation of the date lines.
+- **Self-made refusal rules lower accuracy:** [arXiv 2509.01476](https://arxiv.org/abs/2509.01476).
+
+**Not verified.**
+- The number of days in `casts` for a district such as 横琴 is unknown. Row 1 checks it.
+- No run yet of `agent_max` or the Responses API with our key and region.
+- The latency of page reading against the 10 s search limit is unknown.
+
+This section changes §16 item 9, §17 item 3 (model and system text), §19 item 3 (removed), and §22 item 1 (strategy, once item 8 picks one). §18 and the rest of §19–§22 stay.
+
+**Rule in plain words.**
+- Weather up to 大后天 and place details come from 高德, even with search on.
+- Everything else goes to Qwen with the driver's own words, and the prompt is copied from FreshPrompt.
+- Which Qwen model and setting the app uses is decided from a PC comparison, not guessed.
+
+### Part 1: official data first
+
+1. **Weather and place details stay in `query_live_info` with search on.** Remove `weather` and `place_details` from the §16 item 9 refusal and from the search-on catalog trim. Her search-on tool text adds: 「天气（今天到大后天）和地点营业时间先用 query_live_info；它没有数据时再用 web_search。」 This sentence is the tool description, not the search prompt.
+2. **Forecast up to 大后天.**
+   - `day` becomes `["today", "tomorrow", "day_after", "day_after_next"]`.
+   - `AmapWebClient.weather` takes a day offset of 0–3 and picks the `casts` entry whose `date` equals the phone's date plus that offset, not by position.
+   - The result carries `date` as `yyyy-MM-dd`, so she can say the date.
+   - No matching cast: `LIVE_INFO_UNAVAILABLE` with the advice 「高德没有这一天的预报，请用 web_search 查。」
+3. **Place details fall back to search.** When 高德 returns no opening hours, the failure advice says to use `web_search` with the place name.
+4. **Not changed.** `current_time`, `current_location`, `route_traffic`, `along_route`, and everything with search off. Search off keeps today's behaviour, apart from the longer `day` list.
+
+### Part 2: what goes to Qwen
+
+5. **The driver's words go with her query.** The executor takes the last final `userTranscript` before the `web_search` call, cut to 200 characters. The §19 date rewrite and the §21 destination rewrite apply to her query as now. The user message uses FreshPrompt's labels: `query: {her query}\n\nquestion: {the driver's words}\nanswer: `. With no transcript, it is `question: {her query}\nanswer: `. The words go only to Qwen and to the §18 local record, never to `RuntimeLog` (I-8).
+
+### Part 3: choosing the model and setting on the PC
+
+6. **A PC comparison before any phone change.** `scripts/search_eval/` holds the following.
+   - **Questions.** `questions.json`, 20 driver questions, each with a reference answer, written on the day of the run:
+     - 后天 and 大后天 weather for 横琴, 上海 and 北京, with the reference from a 高德 PC call.
+     - Today's oil price, USD rate, news, and Disney closing time, with the reference from the official page.
+     - Two follow-ups that need the previous turn, such as 「那后天呢」.
+   - **Runner.** `run.py` sends each question 3 times to each setup below and writes `results.csv`: answer, sources, searched yes or no, time, Alibaba error code, tokens. The key comes from an environment variable and is never written to a file or printed.
+   - **Setups:**
+
+     | # | Model | API and settings | System text |
+     |---|---|---|---|
+     | S0 | `qwen3.7-flash` | multimodal, `turbo`, `forced_search`, thinking off | current (§17 + §19) |
+     | S1 | `qwen3.7-flash` | as S0 | item 7 |
+     | S2 | `qwen3.8-max` (the docs' `agent_max` example) | `agent_max`, `enable_thinking: true`, streaming, on the endpoint the docs show | item 7 |
+     | S3 | `qwen3.8-flash` | Responses API, tools `web_search` and `web_extractor`, `enable_thinking: true` | item 7 |
+
+   - **Refusals.** A setup Alibaba refuses is recorded with its code, not worked around.
+   - **Marking.** The owner marks each answer right or wrong against its reference.
+   - **The summary per setup:** right count, searched count, median and slowest time, and cost per question at the Singapore price.
+7. **The copied system text (S1–S3).** From FreshPrompt, with only the date and time zone filled in from the phone clock:
+   - system: `You are a helpful assistant. Answer as concisely as possible. Knowledge cutoff: {Month DD, YYYY}.`
+   - then user `What's today's date?` and assistant `Today is {Month DD, YYYY} in {time zone identifier}.`
+   - then the item 5 user message.
+   - **Nothing else.** No refusal rule, no language rule, no length rule. She already speaks Chinese and keeps answers short.
+   - **If answers come back in English.** If the run shows English answers to Chinese questions, the owner decides what to do. No wording is added without a published source.
+8. **Decision.** No pass bars. The owner reads the summary and picks one setup and the search time limit, from the slowest time of the setup picked. If no setup beats S0, nothing in Part 3 changes on the phone.
+
+### Part 4: applying the choice
+
+9. **The client.** The chosen model, API and settings replace §22 item 1.
+   - Each value stays one constant.
+   - For S3, a Responses API request path is added in `QwenWebSearchClient`. `WebSearchService` stays provider-neutral (I-13).
+   - The §17 item 5 sources rule stays: text and at least one source, or retry once, then fail. A page read counts as a source.
+10. **The system text.** Item 7 replaces the §17 and §19 text. The §19 item 4 `wrong_date` check stays, because it is code, not prompt.
+11. **The time limit.** The search limit becomes the value the owner picked in item 8, as one constant.
+12. **Not changed.** The voice model, Gemini search off, the `web_search` tool name, §18 recording, the §19 date rewrite and check, and the §21 destination rules.
+13. **Not in this section.** A request lost when the session drops is the session's problem, not search: record `conv-20261105-152806` shows 导航到利郡庞都 at 176249, then `DISCONNECT` at 195014, with no reply. It needs its own section.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | PC: 高德 weather for 横琴's adcode, `extensions=all` | Note how many `casts` days come back and their dates | PC |
+| 2 | Search on: weather today, tomorrow, 后天, 大后天; place details with hours; place details without hours | `query_live_info` answers the first five with `date`; the last fails with the search advice; no `web_search` refusal | unit |
+| 3 | `casts` in shuffled order; a day not in the list | Picked by `date`, not position; `LIVE_INFO_UNAVAILABLE` with the search advice | unit |
+| 4 | Search off | Same as today except the longer `day` list | unit |
+| 5 | `web_search` after a final transcript; with none; a 300-character transcript | User message as item 5; fallback form; cut to 200; the words are in the §18 record and not in `RuntimeLog` | unit |
+| 6 | PC: run item 6 | `results.csv` and the per-setup summary; no key in any file or output | PC |
+| 7 | After item 8: client request | Model, API, settings and system text as the picked setup; retries the same; sources rule unchanged | unit |
+| 8 | Device, record on, search on: 「横琴后天天气怎么样」, 「上海大后天天气怎么样」, 「今天油价多少」, 「美元汇率多少」, 「香港迪士尼几点关门」, each 3 times | Weather from 高德 with the right date; the rest from Qwen; note right or wrong, delay, `no_sources`, `timeout` | D |
+| 9 | Device: after row 8, open the Model Studio bill | Note the cost per question | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046k | Items 1–4; rows 1–4 | PC, unit, build |
+| T-046l | Items 5–8; rows 5–6 | unit, PC |
+| T-046m | Items 9–12, after the owner's item 8 choice; rows 7–9 | unit, build, D |

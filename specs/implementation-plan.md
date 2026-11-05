@@ -117,6 +117,7 @@ NOT_VERIFIED until a device run is attached.
 | T-040 | `NavigationController` phase machine + `NavigationActor` + `ScriptedNaviEngine` | F-15 | T-011, T-002 | `Core/NovaNav/Flow/`, `Core/NovaAgent/Navigation/` | contracts/navigation.md transitions; W8; no double start | unit |
 | T-041 | Choice resolver (index/preference/name), 120 s expiry, picker intercept, 5 s duplicate suppression | F-15 | T-040 | `Core/NovaNav/Choice/` | Ported choice tables; `OPTIONS_STALE` | unit |
 | T-042 | Destination queries, saved places, along-route corridor, WGS-84→GCJ-02; `CoreLocationProvider` | F-16 | T-033 | `Core/NovaNav/Search/`, `Packages/NovaPlatform/Sources/Location/` | F-16 §10 (4 rows) | unit, contract |
+| T-042c | No route to a nonsense place: near-first search, sound-alike score with distance, confirm by score, far places need a yes, km and hours in the start sentence | F-16 | T-042 | `Core/NovaNav/Search/`, `Core/NovaNav/Flow/`, `Packages/NovaServices/`, `App/NovaDrive/` | F-16 §14 rows 1–8 | unit, PC, D |
 | T-042a | `CoreLocationProvider` first-fix wait, authorization changes, denied state; `SwitchableLocationProvider` | F-16a | T-042 | `Packages/NovaPlatform/Sources/Location/`, `Core/NovaNav/Search/` | F-16a §10 rows 5–7 | unit, build |
 | T-042b | 设置 → 位置来源, permission state, 打开系统设置; 演示位置 header label | F-16a | T-042a | `App/NovaDrive/` | F-16a §10 rows 1, 4 | S, D |
 | T-043 | `AmapNaviEngine` adapter with generation tagging | F-15 | T-040, T-002 | `Packages/NovaNavAmap/Sources/Engine/` | Stale callback dropped (S) | build, S, imports |
@@ -146,6 +147,9 @@ NOT_VERIFIED until a device run is attached.
 | T-046h | Every call to Qwen must search: `forced_search` on, sources rule unchanged | F-18 | T-046g | `Packages/NovaRealtime/` | F-18 §20 rows 1–5 | unit, build, D |
 | T-046i | During navigation: a silent note and the search result give her the destination, 目的地 in a query becomes the name, and she asks when a place name makes no sense | F-18 | T-046h | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §21 rows 1–12 | unit, build, D |
 | T-046j | Qwen searches with `search_strategy: "turbo"` instead of `agent`; forced search and the sources rule stay | F-18 | T-046i | `Packages/NovaRealtime/` | F-18 §22 rows 1–4 | unit, build, D |
+| T-046k | Weather up to 大后天 and place details from 高德 even with search on; forecast picked by date | F-18 | T-046j | `Packages/NovaCore/`, `Packages/NovaServices/` | F-18 §23 rows 1–4 | PC, unit, build |
+| T-046l | Driver's words to Qwen; PC comparison of four Qwen setups with the FreshPrompt system text | F-18 | T-046j | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `scripts/search_eval/` | F-18 §23 rows 5–6 | unit, PC |
+| T-046m | Apply the owner's chosen Qwen setup, system text and time limit | F-18 | T-046l | `Packages/NovaRealtime/` | F-18 §23 rows 7–9 | unit, build, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 
