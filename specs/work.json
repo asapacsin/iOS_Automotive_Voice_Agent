@@ -1796,7 +1796,7 @@
     {
       "id": "T-046j",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §22 items 1-6: search_options uses search_strategy turbo with enable_source and forced_search; sources still required; no silent resend with another strategy; rows 1-4",
       "depends_on": [

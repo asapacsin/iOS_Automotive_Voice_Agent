@@ -44,7 +44,7 @@ struct WebSearchClientTests {
         #expect(body["model"] == "qwen3.7-flash")
         #expect(body["parameters"] == ["result_format": "message", "incremental_output": true, "enable_thinking": false,
                                        "enable_search": true,
-                                       "search_options": ["search_strategy": "agent", "enable_source": true,
+                                       "search_options": ["search_strategy": "turbo", "enable_source": true,
                                                           "forced_search": true]])
         guard case .array(let messages)? = body["input"]?["messages"] else { Issue.record("no messages"); return }
         #expect(messages.count == 2)
@@ -113,7 +113,7 @@ struct WebSearchClientTests {
         #expect(seen.withLock { $0 }.count == 1)
         #expect(x.attempt == 2 && x.status == 200 && x.error == nil && x.bytes == Self.stream.utf8.count)
         #expect(x.responseBody == Self.stream)
-        #expect(x.requestBody.contains("上海后天天气") && x.requestBody.contains(#""forced_search":true"#))
+        #expect(x.requestBody.contains("上海后天天气") && x.requestBody.contains(#""forced_search":true"#) && x.requestBody.contains(#""search_strategy":"turbo""#))
         #expect(!x.requestBody.contains(TestKey.value) && !"\(x)".contains(TestKey.value) && !"\(x)".contains("Bearer"))
         #expect(x.chunks == 3 && x.answerChars == "上海后天小雨，16到21度。".count && x.sources == 2 && x.searchCount == 1)
         let forbidden = Data(#"{"code":"AllocationQuota.FreeTierOnly","message":"m"}"#.utf8)
@@ -154,7 +154,7 @@ struct WebSearchClientTests {
 
     @Test("§19 item 3, §20 row 1: the date sentence and forced_search are in every request")
     func forced() {
-        #expect(QwenWebSearchClient.forcedSearch && QwenWebSearchClient.searchStrategy == "agent" && QwenWebSearchClient.enableSource)
+        #expect(QwenWebSearchClient.forcedSearch && QwenWebSearchClient.searchStrategy == "turbo" && QwenWebSearchClient.enableSource)
         let client = QwenWebSearchClient(key: { TestKey.value })
         let one = client.request("上海后天（2026年11月6日）天气", key: "k").httpBody
         let two = client.request("上海后天（2026年11月6日）天气", key: "k").httpBody
@@ -162,5 +162,23 @@ struct WebSearchClientTests {
         #expect(body.contains(#""forced_search":true"#) && body.contains("上海后天（2026年11月6日）天气"))
         #expect(body.contains("回答要写明是哪一天（几月几号）。问题里写了日期就只回答那一天；找不到那一天的信息就说查不到。"))
         #expect(one == two)
+    }
+
+    @Test("§22 rows 1-2: turbo on first attempt and retry; HTTP 400 with a code is one request, no other strategy")
+    func turbo() async {
+        let bodies = Mutex<[String]>([])
+        let client = QwenWebSearchClient(key: { TestKey.value }, send: { request in
+            bodies.withLock { $0.append(String(decoding: request.httpBody ?? Data(), as: UTF8.self)) }
+            return (400, Data(#"{"code":"InvalidParameter","message":"m"}"#.utf8))
+        })
+        for attempt in 1...2 {
+            await #expect(throws: WebSearchError.http(400, code: "InvalidParameter")) {
+                _ = try await client.search("横琴后天天气", attempt: attempt)
+            }
+        }
+        let sent = bodies.withLock { $0 }
+        #expect(sent.count == 2)
+        #expect(sent.allSatisfy { $0.contains(#""search_strategy":"turbo""#) && $0.contains(#""forced_search":true"#)
+            && $0.contains(#""enable_source":true"#) && !$0.contains("agent") })
     }
 }

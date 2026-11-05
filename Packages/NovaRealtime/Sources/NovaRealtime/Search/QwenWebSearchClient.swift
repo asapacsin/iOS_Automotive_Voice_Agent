@@ -15,8 +15,8 @@ public struct QwenWebSearchClient: WebSearchService {
 
     public typealias Send = @Sendable (URLRequest) async throws -> (status: Int, body: Data)
 
-    /// §20 item 1: each search option is one constant.
-    public static let searchStrategy = "agent"
+    /// §20 item 1, §22 item 1: each search option is one constant. `turbo` searches every time; `agent` let the model skip it.
+    public static let searchStrategy = "turbo"
     public static let enableSource = true
     public static let forcedSearch = true
 
