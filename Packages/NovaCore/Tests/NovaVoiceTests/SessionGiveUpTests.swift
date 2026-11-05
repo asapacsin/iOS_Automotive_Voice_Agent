@@ -190,4 +190,15 @@ struct SessionGiveUpTests {
             if let r = code.retryableCode { #expect(r.rawValue == code.rawValue) }
         }
     }
+
+    @Test("F-24 §15 item 4: a handle kept again after a resumed session gives up still expires 2 h after its first save")
+    func lifetimeFromFirstSave() {
+        var store = KeptResumption()
+        store.keep("h1", at: .zero)
+        #expect(store.take(at: NovaInstant.zero + .minutes(100)) == SessionResume(handle: "h1"))
+        store.keep("h1", at: NovaInstant.zero + .minutes(101))
+        #expect(store.take(at: NovaInstant.zero + .minutes(121)) == SessionResume(handle: nil))
+        store.keep("h2", at: NovaInstant.zero + .minutes(122))
+        #expect(store.take(at: NovaInstant.zero + .minutes(200)) == SessionResume(handle: "h2"))
+    }
 }

@@ -828,7 +828,7 @@ final class AgentRuntime {
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch,
-                               keepHandle: { [weak self] handle in await self?.keepResumption(handle) })
+                               keepHandle: { [weak self, session] handle in await self?.keepResumption(handle, session: session) })
         // F-24 §15 item 5 (T-016j): a handle kept by the last give-up is sent once, then forgotten.
         let resume = keptResumption.take(at: navigationClock.now)
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
@@ -1172,7 +1172,9 @@ final class AgentRuntime {
     /// F-24 §15 item 4 (T-016j): the handle the last give-up or offline cap kept. Memory only (I-7).
     private var keptResumption = KeptResumption()
 
-    private func keepResumption(_ handle: String?) {
+    /// Only for the session still running: a driver stop in between means nothing is kept (item 4).
+    private func keepResumption(_ handle: String?, session: Int) {
+        guard session == self.session, model.running else { return }
         keptResumption.keep(handle, at: navigationClock.now)
     }
 

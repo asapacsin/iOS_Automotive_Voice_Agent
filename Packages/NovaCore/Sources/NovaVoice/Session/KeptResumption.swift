@@ -13,19 +13,24 @@ public struct KeptResumption: Sendable {
     private var handle: String?
     private var savedAt: NovaInstant?
     private let lifetime: NovaDuration
+    /// The handle the last start took, with its first save time: if that session gives up again with the same
+    /// handle, the 2 hours still count from the first save (item 4).
+    private var taken: (handle: String, savedAt: NovaInstant)?
 
     public init(tuning: ReconnectTuning = ReconnectTuning()) { lifetime = tuning.keptHandleLifetime }
 
     /// The session ended by giving up or at the offline cap (with or without a handle).
     public mutating func keep(_ handle: String?, at now: NovaInstant) {
         self.handle = handle
-        savedAt = now
+        if let handle, let taken, taken.handle == handle { savedAt = taken.savedAt } else { savedAt = now }
+        taken = nil
     }
 
     /// The driver stopped the session: nothing is sent next time.
     public mutating func drop() {
         handle = nil
         savedAt = nil
+        taken = nil
     }
 
     /// The next start: nil when nothing ended by giving up; the handle once, then it is forgotten.
@@ -33,6 +38,7 @@ public struct KeptResumption: Sendable {
         guard let savedAt else { return nil }
         let fresh = now < savedAt + lifetime ? handle : nil
         drop()
+        if let fresh { taken = (fresh, savedAt) }
         return SessionResume(handle: fresh)
     }
 
