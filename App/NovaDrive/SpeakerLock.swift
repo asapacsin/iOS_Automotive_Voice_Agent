@@ -12,10 +12,8 @@ import SwiftUI
 final class SpeakerLockService: @unchecked Sendable {
     static let shared = SpeakerLockService()
 
-    /// `SherpaModels/speaker` in the bundle.
-    static var directory: URL? {
-        Bundle.main.url(forResource: "SherpaModels", withExtension: nil)?.appendingPathComponent("speaker", isDirectory: true)
-    }
+    /// §12 (T-013f): the bundled model (Debug) or the downloaded asset pack; nil while neither is usable.
+    static var directory: URL? { SpeakerModelLocator.shared.directory }
 
     private let lock = NSLock()
     /// §6 item 3: scoring runs on one background serial queue; the capture callback only copies frames.
@@ -26,12 +24,14 @@ final class SpeakerLockService: @unchecked Sendable {
 
     var modelPresent: Bool { SherpaSpeakerVerifier.modelPresent(in: Self.directory) }
 
-    /// Created on first use only (enrollment, calibration or the lock on).
+    /// Created on first use only (enrollment, calibration or the lock on). §12 item 5: never cached while the model
+    /// is missing, so a pack that finishes downloading later is used without a restart.
     private func model() -> SherpaSpeakerVerifier {
         lock.withLock {
             if let verifier { return verifier }
-            let v = SherpaSpeakerVerifier(directory: Self.directory)
-            verifier = v
+            let dir = Self.directory
+            let v = SherpaSpeakerVerifier(directory: dir)
+            if dir != nil { verifier = v }
             return v
         }
     }
@@ -41,7 +41,7 @@ final class SpeakerLockService: @unchecked Sendable {
     func modelInfo(profile: SpeakerProfile?) -> (name: String, dimension: Int)? {
         guard modelPresent else { return nil }
         let loaded = lock.withLock { verifier }
-        let name = loaded?.modelName ?? (try? SherpaSpeakerManifest.load(from: Self.directory!).name) ?? ""
+        let name = loaded?.modelName ?? Self.directory.flatMap { try? SherpaSpeakerManifest.load(from: $0).name } ?? ""
         let dim = loaded.map(\.dimension).flatMap { $0 > 0 ? $0 : nil } ?? profile?.dimension ?? 0
         return (name, dim)
     }
@@ -236,7 +236,9 @@ struct SpeakerLockSection: View {
             Button("重新录入") { showEnroll = true }
             Button("校准") { showCalibrate = true }
         case .modelUnavailable:
-            EmptyView()
+            if SpeakerModelLocator.shared.availability.canRetry {
+                Button("重试") { SpeakerModelLocator.shared.refresh() }
+            }
         }
         if status != .notEnrolled && status != .modelUnavailable {
             Button("删除声纹", role: .destructive) { confirmDelete = true }
@@ -248,6 +250,7 @@ struct SpeakerLockSection: View {
             .sheet(isPresented: $showEnroll, onDismiss: refresh) { SpeakerEnrollmentView() }
             .sheet(isPresented: $showCalibrate, onDismiss: refresh) { SpeakerCalibrationView() }
             .onAppear(perform: refresh)
+            .onReceive(NotificationCenter.default.publisher(for: SpeakerModelLocator.changed)) { _ in refresh() }
     }
 
     /// §3 item 4: the switch stays off until a calibrated profile exists; on opens the next step instead.
@@ -259,7 +262,7 @@ struct SpeakerLockSection: View {
         case .on: lockOn = true; note = nil
         case .openEnrollment: showEnroll = true
         case .openCalibration: showCalibrate = true
-        case .modelUnavailable: note = "声纹模型不可用"
+        case .modelUnavailable: note = Self.unavailableNote
         }
     }
 
@@ -267,7 +270,12 @@ struct SpeakerLockSection: View {
         SpeakerLockService.shared.dropInvalidLock()
         status = SpeakerLockService.shared.status()
         if status != .ready { lockOn = false }
-        if status == .modelUnavailable { note = "声纹模型不可用" }
+        note = status == .modelUnavailable ? Self.unavailableNote : nil
+    }
+
+    /// §12 item 4: why the model is not usable (download state), else the §3 text.
+    private static var unavailableNote: String {
+        SpeakerModelLocator.shared.availability.note ?? "声纹模型不可用"
     }
 }
 

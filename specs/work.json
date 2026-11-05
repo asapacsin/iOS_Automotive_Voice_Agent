@@ -1850,6 +1850,17 @@
         "T-060a"
       ],
       "notes": "Owner request 2026-11-05. No built-in threshold: the lock cannot turn on until calibrated on the phone. Accuracy and delay are unmeasured until rows 12-18 run. Code PASS 2026-11-05 (gates 611+35+41, review PASS after 2 FAIL rounds). Licence: primary ModelScope card Apache-2.0. Eval on AISHELL-1/HI-MIA clips (studio, not car). Rows 11-18 NOT_VERIFIED (device)."
+    },
+    {
+      "id": "T-013f",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 3,
+      "action": "F-04b §12: speaker model as an Apple-hosted Background Assets pack downloaded at install; Release builds drop the bundled copy; rows 19-26",
+      "depends_on": [
+        "T-013e"
+      ],
+      "notes": "Owner request 2026-11-05. Code and gates green; review pending. Rows 23-26 NOT_VERIFIED (device). App/extension not built (no Xcode here)."
     }
   ]
 }

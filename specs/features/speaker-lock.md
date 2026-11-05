@@ -97,7 +97,7 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 ## 10. Implementation notes
 
 - **Delay.** Holding until 1 s of speech adds about that much before audio starts going up, on top of the times in the 响应速度 sheet. Row 17 measures it.
-- **App size.** The app grows by about 28 MB. `scripts/fetch_sherpa_models.sh` and `scripts/sherpa/models.sha256` pin the model, as for ASR and KWS.
+- **App size.** Development builds carry the model in the bundle (about 28 MB). App Store and TestFlight builds do not; it is downloaded at install (§12). `scripts/fetch_sherpa_models.sh` and `scripts/sherpa/models.sha256` pin the model, as for ASR and KWS.
 - **Docs.** Update `specs/ios-architecture.md` (§3.2 and the ports table), `specs/features/README.md` and `specs/STATUS.md`.
 - **Trace gate.** Add `T-013e: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names F-04b; the gate fails before a test exists.
 - **Decision.** No pass bars are set here. The owner reads rows 12–18 and decides whether the lock stays, what threshold to use, and whether 「停」 needs its own rule.
@@ -107,3 +107,38 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 | Task | Scope | Verify |
 |---|---|---|
 | T-013e | §3–§10; rows 1–18 | unit, script, build, D |
+| T-013f | §12; rows 19–26 | unit, script, build, D |
+
+## 12. Model delivered at install, not in the app (owner request 2026-11-05)
+
+**Goal.** The App Store download does not carry the speaker model. iOS fetches it by itself when the app is installed or updated, so the lock works offline from then on, with no step for the driver.
+
+1. **Mechanism: Apple-hosted Background Assets** (iOS 26+). The model is an *asset pack* uploaded to App Store Connect with each build that changes it. Its download policy is **essential** for first installation and for updates, so iOS downloads it with the app. No server of ours and no key.
+2. **Pack contents.** The pack is `speaker/` exactly as `fetch_sherpa_models.sh` writes it: `speaker.json` and the `.onnx` file. Pack id `speaker-campplus-v1`; a new model gets a new id.
+3. **Where the app loads the model from**, first match wins:
+   1. `SherpaModels/speaker` in the bundle (Debug builds from Xcode, which keep the fetch-script model);
+   2. the downloaded pack, after its sha256 matches the pinned value (`SpeakerModelPin`); a mismatch is treated as not downloaded.
+   Release builds strip `SherpaModels/speaker` from the bundle (build setting `NOVA_BUNDLE_SPEAKER_MODEL = NO`). ASR and KWS models stay in the bundle.
+4. **States shown under 声纹锁定**, from a pure `SpeakerModelAvailability`:
+   - ready → the normal rows (§3);
+   - downloading → 「声纹模型下载中」, switch stays off;
+   - failed / not on the phone → 「声纹模型下载失败」 and a **重试** button that asks the system again;
+   - iOS older than 26 with no bundled model → 「声纹锁定需要 iOS 26 或更新版本」.
+   In every state except ready the lock cannot turn on (§3 item 4), and a lock that was on fails closed (§6 item 11).
+5. **No loading before use.** The model is still loaded only when needed (§6 item 12). A verifier is never cached while the model is missing, so a download that finishes later is used without restarting the app.
+6. **Packaging.** `scripts/speaker_pack/Manifest.json` (template) and `scripts/make_speaker_pack.sh`: copies the checked `speaker/` folder and runs `xcrun ba-package` on a Mac to make the `.aar`. It refuses to run if the sha256 does not match.
+7. **Xcode project.** A downloader extension target `NovaDriveAssets` (iOS 26, Apple's managed downloader, no own logic); App Group `group.com.asapacsin.novadrive` on the app and the extension; app Info.plist keys `BAAppGroupID`, `BAHasManagedAssetPacks`, `BAUsesAppleHosting`.
+8. **Owner steps (once per model, on a Mac):** set the Team for the App Group; run `make_speaker_pack.sh`; upload the `.aar` in App Store Connect → the app → Background Assets; install from TestFlight to check.
+9. **Not changed.** The model, its checksum, scoring, thresholds and everything in §3–§10. Minimum iOS stays 18 (OQ-IOS-12); only the lock needs 26 when the model is not bundled.
+10. **Unverified here.** The BackgroundAssets API names come from Apple's iOS 26 documentation and are compiled only by the Xcode build; this Linux container cannot build the app. Rows 23–26 are device rows.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 19 | Bundle model present | Used; no download asked | unit |
+| 20 | No bundle model; pack ready and checksum matches | Pack directory used | unit |
+| 21 | Pack ready but checksum differs; pack downloading; pack failed; iOS < 26 | Not used; the matching text; lock cannot turn on | unit |
+| 22 | `make_speaker_pack.sh` with a wrong or missing model | Refuses, nothing written | script |
+| 23 | Device: TestFlight install, first open | Model already present or 下载中 then ready; no bundled model in the `.ipa` | D |
+| 24 | Device: airplane mode after the download | Lock works | D |
+| 25 | Device: 重试 after a failed download | Downloads, then ready, no restart | D |
+| 26 | Device: `.ipa` size before and after | About 28 MB smaller | D |

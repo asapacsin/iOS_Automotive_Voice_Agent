@@ -35,7 +35,16 @@ targets:
         # F-23 / OQ-IOS-4: used only while a voice session or route guidance is active (review notes).
         # `location` is added with the CoreLocation provider; the demo route needs no background fix.
         UIBackgroundModes: [audio]
+        # F-04b §12 (T-013f): the speaker model is an Apple-hosted asset pack (iOS 26+), downloaded at install.
+        BAAppGroupID: group.com.asapacsin.novadrive
+        BAHasManagedAssetPacks: true
+        BAUsesAppleHosting: true
+    entitlements:
+      path: NovaDrive/NovaDrive.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.asapacsin.novadrive]
     dependencies:
+      - target: NovaDriveAssets
       - package: NovaCore
         product: NovaKit
       - package: NovaCore
@@ -77,7 +86,20 @@ targets:
         # builds, so `#if canImport(AIKIT)` is false on the simulator and when the SDK is absent.
         "FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]": $(inherited) $(SRCROOT)/Vendor/AIKit
         "LD_RUNPATH_SEARCH_PATHS": $(inherited) @executable_path/Frameworks
+      configs:
+        # F-04b §12 item 3: Debug keeps the fetch-script speaker model; Release (App Store / TestFlight) gets it
+        # from the install-time asset pack instead.
+        Debug:
+          NOVA_BUNDLE_SPEAKER_MODEL: YES
+        Release:
+          NOVA_BUNDLE_SPEAKER_MODEL: NO
     postBuildScripts:
+      - name: Strip bundled speaker model (Release)
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          [ "$NOVA_BUNDLE_SPEAKER_MODEL" = "NO" ] || exit 0
+          rm -rf "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/SherpaModels/speaker"
       - name: Embed AIKit (device, when vendored)
         basedOnDependencyAnalysis: false
         script: |
@@ -96,6 +118,24 @@ targets:
           done
           rm -rf "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AEEResource.bundle"
           cp -R "$src/AEEResource.bundle" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
+  NovaDriveAssets:
+    # F-04b §12 item 7 (T-013f): Apple's managed Background Assets downloader for the speaker model pack.
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources: [NovaDriveAssets]
+    entitlements:
+      path: NovaDriveAssets/NovaDriveAssets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.asapacsin.novadrive]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.asapacsin.novadrive.assets
+        SWIFT_VERSION: "6.0"
+        INFOPLIST_FILE: NovaDriveAssets/Info.plist
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
   NovaDriveUITests:
     # T-048: simulator drive (scripted search and engine); CI job `simulator`.
     type: bundle.ui-testing
