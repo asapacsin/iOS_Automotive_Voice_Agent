@@ -1,5 +1,6 @@
 import Foundation
 import Synchronization
+import NovaKit
 import NovaPorts
 
 /// F-18 §19 (T-046g): the app works out which day a search means from the phone's date, writes that date into the
@@ -220,24 +221,45 @@ public final class DestinationHolder: Sendable {
 /// F-18 §23 item 5: the driver's last final transcript of the current turn, shared between the provider stream
 /// (writer, `observe`) and `web_search` (reader). Cleared when the turn ends (`responseDone`, `interrupted`,
 /// `turnEnded`, `closed`) and when a new utterance starts, so an earlier turn's words never go to the search model.
+/// At `toolCalls` the words are kept per `CallID` (`words(for:)`), so a turn ending while the executor is still
+/// starting cannot drop that call's words. Taken once; dropped on cancellation and `closed`; at most 8 kept.
 /// Content for the search model only: nothing decides anything from it (F-05a §6); never in `RuntimeLog` (I-8).
 public final class DriverWordsHolder: Sendable {
-    private struct State { var text: String?; var final = false }
+    private struct State { var text: String?; var final = false; var byCall: [CallID: String] = [:]; var order: [CallID] = [] }
+    static let maxKept = 8
     private let value = Mutex(State())
     public init() {}
     public var text: String? { value.withLock { $0.text } }
-    public func set(_ text: String?) { value.withLock { $0 = State(text: text, final: text != nil) } }
+    public func set(_ text: String?) { value.withLock { $0.text = text; $0.final = text != nil } }
+
+    /// The words snapshot for this call, taken once; falls back to the current words for a call never observed.
+    public func words(for id: CallID) -> String? {
+        value.withLock { s in
+            if let w = s.byCall.removeValue(forKey: id) { s.order.removeAll { $0 == id }; return w }
+            return s.order.contains(id) ? nil : s.text
+        }
+    }
 
     public func observe(_ event: RealtimeEvent) {
-        switch event {
-        case .userTranscript(let text, let isFinal):
-            value.withLock { s in
-                if isFinal { s = State(text: text, final: true) } else if s.final { s = State() }
+        value.withLock { s in
+            switch event {
+            case .userTranscript(let text, let isFinal):
+                if isFinal { s.text = text; s.final = true } else if s.final { s.text = nil; s.final = false }
+            case .toolCalls(_, let calls):
+                for call in calls where !s.order.contains(call.id) {
+                    s.order.append(call.id)
+                    if let t = s.text { s.byCall[call.id] = t }
+                }
+                while s.order.count > Self.maxKept { s.byCall.removeValue(forKey: s.order.removeFirst()) }
+            case .toolCallCancellation(let ids):
+                for id in ids { s.byCall.removeValue(forKey: id) }
+            case .closed:
+                s = State()
+            case .responseDone, .interrupted, .turnEnded:
+                s.text = nil; s.final = false
+            default:
+                break
             }
-        case .responseDone, .interrupted, .turnEnded, .closed:
-            value.withLock { $0 = State() }
-        default:
-            break
         }
     }
 }

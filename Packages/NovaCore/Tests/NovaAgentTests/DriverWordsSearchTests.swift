@@ -12,7 +12,7 @@ struct DriverWordsSearchTests {
         let service = ScriptedSearch([.reply(reply("横琴11月6日小雨"))])
         let o = Outcomes()
         _ = await WebSearchExecutor(service: service, clock: SystemClock(), onOutcome: o.add, now: { nov4 }, zone: { shanghai },
-                                    destination: { destination }, driverWords: { words }).execute(searchCall(q))
+                                    destination: { destination }, driverWords: { _ in words }).execute(searchCall(q))
         return (service.queries.withLock { $0 }, o.list)
     }
 
@@ -65,5 +65,28 @@ struct DriverWordsSearchTests {
         #expect(outcomes.filter { if case .used = $0 { false } else { true } }
             == without.filter { if case .used = $0 { false } else { true } })
         for o in outcomes { #expect(!"\(o)".contains(words)) }
+    }
+
+    @Test("F-18 §23 row 5: words kept at toolCalls survive responseDone before the executor reads them")
+    func snapshotPerCall() async {
+        let holder = DriverWordsHolder()
+        let call = searchCall("横琴油价")
+        holder.observe(.userTranscript("横琴今天油价多少", isFinal: true))
+        holder.observe(.toolCalls(TurnID(1), [call]))
+        holder.observe(.responseDone(TurnID(1), outcome: .completed))
+        #expect(holder.text == nil)
+        #expect(holder.words(for: call.id) == "横琴今天油价多少")
+        #expect(holder.words(for: call.id) == nil, "taken once")
+        // A call seen with no final words gets none, even if words arrive later.
+        let other = searchCall("x", id: "c2")
+        holder.observe(.toolCalls(TurnID(2), [other]))
+        holder.observe(.userTranscript("新的话", isFinal: true))
+        #expect(holder.words(for: other.id) == nil)
+        // Cancelled and closed drop the snapshot.
+        let third = searchCall("y", id: "c3")
+        holder.observe(.toolCalls(TurnID(3), [third]))
+        holder.observe(.toolCallCancellation([third.id]))
+        holder.observe(.responseDone(TurnID(3), outcome: .completed))
+        #expect(holder.words(for: third.id) == nil)
     }
 }

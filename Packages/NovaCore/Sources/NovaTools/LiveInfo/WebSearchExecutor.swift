@@ -44,16 +44,16 @@ public struct WebSearchExecutor: ToolExecutor {
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
     private let destination: @Sendable () -> String?
-    private let driverWords: @Sendable () -> String?
+    private let driverWords: @Sendable (CallID) -> String?
     private let onOutcome: @Sendable (WebSearchOutcome) -> Void
 
     /// `destination` is the current destination's name (§21 item 1), cleaned here. `driverWords` is the last final
-    /// transcript before the call (§23 item 5).
+    /// transcript before the call (§23 item 5), looked up by the call id.
     public init(service: any WebSearchService, clock: any NovaClock, limit: NovaDuration = .seconds(10),
                 onOutcome: @escaping @Sendable (WebSearchOutcome) -> Void = { _ in },
                 now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current },
                 destination: @escaping @Sendable () -> String? = { nil },
-                driverWords: @escaping @Sendable () -> String? = { nil }) {
+                driverWords: @escaping @Sendable (CallID) -> String? = { _ in nil }) {
         self.service = service
         self.driverWords = driverWords
         self.clock = clock
@@ -83,7 +83,7 @@ public struct WebSearchExecutor: ToolExecutor {
         let resolved = SearchDate.resolve(substituted.query, now: now(), zone: zone())
         let hint = SearchPlace.hint(resolved.query, destination: place)
         // §23 item 5: the driver's words are only content in the message; every decision above used her query.
-        let message = Self.userMessage(query: resolved.query, words: driverWords())
+        let message = Self.userMessage(query: resolved.query, words: driverWords(call.id))
         onOutcome(.place(query: query, sent: substituted.query, added: substituted.added, hint: hint))
         let service = service
         let deadline = start + limit
