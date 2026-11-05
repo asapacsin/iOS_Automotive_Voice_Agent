@@ -56,8 +56,11 @@ SUFFIXES = {".swift", ".plist", ".xcconfig", ".json", ".jsonl", ".yml", ".yaml",
             ".strings", ".env", ".har", ".xcscheme", ".pbxproj", ".xcworkspacedata", ".sh", ".py",
             ".md", ".txt", ".toml", ".cfg", ".ini"}
 SKIP_DIRS = {".build", ".git", "DerivedData", "specs", "__pycache__"}
-# Gate self-tests plant fake secrets on purpose.
-SKIP_FILES = {pathlib.Path("scripts/gates/tests/test_gates.py")}
+# Gate self-tests and the copied redaction test plant fake secrets on purpose.
+SKIP_FILES = {
+    pathlib.Path("scripts/gates/tests/test_gates.py"),
+    pathlib.Path("tools/ai-native/tests/test_process_security.py"),
+}
 
 
 IDENTIFIER_VALUE = re.compile(r"[a-z]+(?:_[a-z]+)+|[A-Z]+(?:_[A-Z]+)+")

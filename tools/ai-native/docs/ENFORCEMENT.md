@@ -40,7 +40,7 @@ The current implementation provides **local procedural enforcement**, not a host
 
    `NOT_VERIFIED` is intentional if no reviewer was invoked. If tests fail, reviewer PASS is not sufficient.
 
-5. **After** the executor commits its branch and a fresh review/check, run the exact-tip merge eligibility gate before merging:
+5. **After** the executor commits its branch and a fresh review/check, run the exact-tip merge eligibility gate before merging. **An independent requirements manifest is mandatory for both task merges and project releases.** Passing Executor-declared gates alone is insufficient: the Python `governance.eligibility(...)` API also fails closed when the manifest is omitted. Keep this policy under a separately trusted owner, outside the Executor's edit permissions:
 
    ```sh
    python3 scripts/governance.py scope --repo ../project-example --contract my-contract.json

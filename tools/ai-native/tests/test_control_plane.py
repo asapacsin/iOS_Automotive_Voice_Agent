@@ -166,6 +166,18 @@ class ControlPlaneTests(unittest.TestCase):
     def test_integration_fails_closed_on_missing_precondition(self):
         self.assertEqual(cp.decide_integration({})["action"], "INVALID_STATE")
 
+    def test_release_decision_requires_observed_completion(self):
+        state = {k: True for k in (
+            "contract_approved","scope_clean","review_pass","review_current",
+            "contract_current","required_gates_pass","requirements_pass","source_clean")}
+        self.assertEqual(cp.decide_integration(state)["action"], "READY_TO_MERGE")
+        state["scope"] = "release"
+        self.assertEqual(cp.decide_integration(state)["action"], "INVALID_STATE")
+        state.update(frontier_complete=False, human_clear=True, external_clear=True)
+        self.assertEqual(cp.decide_integration(state)["action"], "NOT_ELIGIBLE")
+        state["frontier_complete"] = True
+        self.assertEqual(cp.decide_integration(state)["action"], "READY_TO_RELEASE")
+
 
 if __name__ == "__main__":
     unittest.main()
