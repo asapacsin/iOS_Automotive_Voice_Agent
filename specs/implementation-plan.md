@@ -58,6 +58,7 @@ NOT_VERIFIED until a device run is attached.
 | T-013d | Noise corpus fixtures + corpus tests | F-04a | T-013a | `Fixtures/audio/noise/`, tests | F-04a §10 rows 1–2 | unit |
 | T-013e | Optional Speaker Lock: on-device enrollment and calibration, `SpeakerHold` before upload, wake and stop phrase checks, default off | F-04b | T-013a, T-060a | `Packages/NovaCore/`, `Packages/NovaAsrSherpa/`, `App/NovaDrive/`, `scripts/` | F-04b §8 rows 1–18 | unit, script, build, D |
 | T-013f | Speaker model as an Apple-hosted Background Assets pack, downloaded at install; Release builds drop the bundled copy | F-04b §12 | T-013e | `Packages/NovaCore/`, `App/`, `scripts/` | F-04b §12 rows 19–26 | unit, script, build, D |
+| T-013g | Calibration progress saved after every line and resumed; warning before 重新录入 | F-04b §13 | T-013f | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §13 rows 27–36 | unit, build, D |
 | T-014 | `VoiceSession` state machine + `ReconnectPolicy` | F-05 core, F-24 | T-011 | `Core/NovaVoice/Session/` | contracts/voice-agent.md §1 and §8 transitions; auth error → no retry | unit |
 | T-015 | Gemini codec, turn assembler, error classifier | F-05 | T-011, T-003 | `Packages/NovaRealtime/Sources/Codec/` | Fixture replay gives the §4 event order; 1007/1008 classification | unit, contract |
 | T-016 | Gemini transport + provider; local fake WebSocket server | F-05, F-24 | T-015 | `Packages/NovaRealtime/` | F-05 §10 rows 2–3; F-24 §10 row 1 (W4) | unit, contract |

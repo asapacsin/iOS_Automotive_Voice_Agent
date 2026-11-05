@@ -38,7 +38,7 @@ With the lock on, only the enrolled speaker's voice reaches Gemini, wakes her or
 ## 5. Threshold: calibrated, never assumed
 
 1. There is no built-in threshold. It is `nil` until 校准 sets it, and the lock cannot turn on while it is `nil`.
-2. **校准** asks for 20 short everyday lines from the enrolled driver and 20 from another person, with the option of more people. Those lines are not the enrollment sentences. Scores are kept, audio is not.
+2. **校准** asks for 20 short everyday lines from the enrolled driver and 20 from another person, with the option of more people. Those lines are not the enrollment sentences. Scores are kept, audio is not. Progress is saved after every line (§13).
 3. It shows the false reject and false accept counts at each candidate threshold, and suggests the lowest threshold with no false accepts. The owner confirms it, and it is saved in the profile. It also says plainly that 0 of 20 false accepts is weak evidence: the true rate could still be about 14%.
 4. Scores go to a local file in the Documents folder and can be pulled over USB, so the result can be checked.
 5. `scripts/speaker_eval.py` computes false accept and false reject rates and score spread on a folder of labelled clips, using the same model through the sherpa-onnx Python package, so it runs on a PC or in the cloud. It does not need the phone, and no audio is added to the repo unless its licence allows it.
@@ -108,6 +108,7 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 |---|---|---|
 | T-013e | §3–§10; rows 1–18 | unit, script, build, D |
 | T-013f | §12; rows 19–26 | unit, script, build, D |
+| T-013g | §13; rows 27–36 | unit, build, D |
 
 ## 12. Model delivered at install, not in the app (owner request 2026-11-05)
 
@@ -142,3 +143,37 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 | 24 | Device: airplane mode after the download | Lock works | D |
 | 25 | Device: 重试 after a failed download | Downloads, then ready, no restart | D |
 | 26 | Device: `.ipa` size before and after | About 28 MB smaller | D |
+
+## 13. Keep calibration progress (owner request 2026-11-05)
+
+**Why.** The owner keeps being asked to set the lock up again. On the phone after the 2026-11-05 21:17 install, the app's data and the 18:12 `profile.json` were still there, so an install does not delete the voiceprint. The profile has no threshold and no calibration scores file exists, so calibration has never finished on this phone. In the code, the scores are `@State` in `SpeakerCalibrationView` until 「使用这个阈值」, so closing the screen or the app loses every line said. 重新录入 also clears the threshold with no warning. The loss on closing is from reading the code; rows 34–36 test it on the phone.
+
+**Sources.** Saving at each step change is the [usual default for multi-step forms](https://www.reform.app/blog/multi-step-form-state-persistence-guide); saving only on submit helps only at the end. Nothing specific to voice enrollment was found. The file handling copies `FileSpeakerProfileStore` (§4 item 4).
+
+1. **Save after every accepted line.** Each score goes straight into a draft file, `Application Support/SpeakerLock/calibration.json`, written atomically with the same protection as the profile and excluded from backup. It holds `driver` and `others` scores, plus the profile's `enrolledAt`, `modelName` and `dimension`. Numbers only, no audio and no embedding. A line rejected as 「没听到说话」 is not saved.
+2. **The draft belongs to one voiceprint.** It is used only when those three fields match the loaded profile. A draft that does not match, or cannot be read, is treated as empty and removed.
+3. **Coming back.** 校准 opens with the saved counts. The picker starts on 录入的人 if that person has under 20 lines, otherwise on 其他人. The line shown is `lines[count % lines.count]` for the selected person, so each person carries on with their next line. This also replaces the `index` reset when the picker changes.
+4. **Progress in 设置.** With a matching draft that has any lines, a row under 「声纹」 says 「校准进度：录入的人 N / 20，其他人 M / 20」, with the real counts. The status texts in §3 item 2 do not change.
+5. **Start over.** With any saved lines, 校准 shows 「重新校准」. After a confirmation, 「清除已说的句子并重新开始？」, it empties the draft. The saved threshold is not touched.
+6. **Finishing.** 「使用这个阈值」 saves the threshold, writes the §5 item 4 scores file, then removes the draft. If saving the profile fails, the draft stays. Until then, a threshold saved earlier stays in use (§5 item 3).
+7. **If a draft write fails.** The score stays on screen for this visit and the screen says 「进度保存失败，关闭后这句会丢失」. Nothing else changes.
+8. **Warning before 重新录入.** With a saved threshold or any draft lines, 重新录入 first asks 「重新录入后要重新校准（两人各 20 句）。继续吗？」 with 继续 and 取消. Neither answer changes anything by itself.
+9. **Re-recording.** §4 item 5 still applies: a failed enrollment keeps the old profile, threshold and draft. A successful one removes the draft, because its scores were measured against the old voiceprint.
+10. **Deleting.** 删除声纹 and the wipe-all (§3 item 5) also remove the draft.
+11. **Not changed.** The 20 + 20 lines, the second person, the suggested threshold, the switch rule (§3 item 4), enrollment checks and the live pipeline. Nothing leaves the phone (§4 item 7).
+12. **Where the code goes.** The draft type, its match rule and its file store go in `Packages/NovaCore/Sources/NovaVoice/Speaker/`, behind a small store protocol like `SpeakerProfileStore`, so rows 27–32 run as unit tests. The screen changes go in `App/NovaDrive/SpeakerLock.swift`.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 27 | Draft: save and reload; write twice | Same scores and fields; the last write wins | unit |
+| 28 | Draft with a different `enrolledAt`, `modelName` or `dimension`; unreadable file | Treated as empty and removed | unit |
+| 29 | Reload with 12 driver and 3 other lines | Counts 12 and 3; picker on 录入的人; the next line is `lines[12]`, and `lines[3]` after switching; with 20 driver lines the picker starts on 其他人 | unit |
+| 30 | Finish with a working store; profile save fails | Threshold saved and draft removed; draft kept | unit |
+| 31 | Enrollment fails; enrollment succeeds | Profile, threshold and draft all kept; new profile with no threshold, draft removed | unit |
+| 32 | 删除声纹; wipe-all; 重新校准 | Draft removed; removed; emptied with the threshold kept | unit |
+| 33 | Device: 校准 with a saved threshold or draft lines, press 重新录入, then 取消 | The warning appears; after 取消, voiceprint, threshold and draft are unchanged | D |
+| 34 | Device: say 5 lines, press 关闭, reopen 校准 | Count is still 5, next line is the sixth | D |
+| 35 | Device: say 5 lines, force-quit the app, install a new build over it, reopen 校准 | Count is still 5; 设置 shows the progress row | D |
+| 36 | Device: finish calibration, turn the lock on, install a new build over it, reopen 设置 | Status 已录入, switch still on, no calibration asked; `speaker-check` lines show the same threshold | D |
+
+**Trace gate.** Add `T-013g: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013g.

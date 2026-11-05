@@ -1863,6 +1863,17 @@
       "notes": "Owner request 2026-11-05. Code PASS 2026-11-05 (gates 616+35+41, py 30; review FAIL then PASS, fixes f3449a4). App and extension not built (no Xcode here). Rows 23-26 NOT_VERIFIED (device). Deferred: v2 pack folder reuse; retry after checksum mismatch."
     },
     {
+      "id": "T-013g",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-04b §13: save calibration scores after every line and resume them; warn before 重新录入; rows 27-36",
+      "depends_on": [
+        "T-013f"
+      ],
+      "notes": "Owner 2026-11-05: keeps being asked to set the lock up again. Phone check: voiceprint survived the install, calibration never finished. Rows 33-36 are device rows."
+    },
+    {
       "id": "T-042c",
       "owner": "AUTONOMOUS",
       "status": "PASS",
