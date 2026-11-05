@@ -24,6 +24,9 @@ final class WakeListener {
     private let onArmed: @MainActor (Bool) -> Void
     private let onWake: @MainActor (NovaInstant) async -> Void
     private let kind = WakeEngineKind.selected
+    /// F-04b §6 item 7 (T-013e): the last 2 s of frames, scored on a detection when 声纹锁定 is on.
+    private let recent = RecentBox()
+    private var wakeCheck = SpeakerPhraseCheck(kind: .wake)
     /// One engine for the app run, so the sherpa spotter is loaded once and kept between listens.
     private lazy var engine: any WakeEngine = makeEngine()
 
@@ -74,6 +77,11 @@ final class WakeListener {
                 switch event {
                 case .wake:
                     let at = clock.now
+                    // F-04b §6 item 7: not accepted = she stays asleep and the listener stays armed.
+                    guard await self.speakerAccepts() else {
+                        RuntimeLog.agent.notice("wake-rejected")
+                        continue
+                    }
                     // §14 item 12: no words, no audio (I-8).
                     RuntimeLog.agent.notice("\(DiagnosticEvent.wakeDetected.logLine, privacy: .public)")
                     await self.release()
@@ -92,7 +100,11 @@ final class WakeListener {
         }
         let audio = LiveAudio()
         do {
-            try audio.start { frame in detector.feed(frame) }
+            let recent = recent
+            try audio.start { frame in
+                detector.feed(frame)
+                recent.append(frame)
+            }
         } catch {
             RuntimeLog.agent.error("wake capture failed")
             await release()
@@ -101,6 +113,24 @@ final class WakeListener {
         self.audio = audio
         UIApplication.shared.isIdleTimerDisabled = screen.hold(current: UIApplication.shared.isIdleTimerDisabled)
         await detector.arm()
+    }
+
+    /// Lock off: true at once. Lock on: scores the phrase's recent audio (the record of a woken session does not
+    /// exist yet, so the line goes to the log only).
+    private func speakerAccepts() async -> Bool {
+        wakeCheck.setLock(threshold: SpeakerLockService.shared.liveThreshold())
+        guard case .verify(let request) = wakeCheck.hit(recent: recent.frames()) else {
+            return !wakeCheck.locked
+        }
+        let started = Date()
+        let outcome: SpeakerScoreOutcome = await withCheckedContinuation { done in
+            SpeakerLockService.shared.score(request) { done.resume(returning: $0) }
+        }
+        let waitMs = Int(Date().timeIntervalSince(started) * 1000)
+        guard let verdict = wakeCheck.result(outcome, check: request.utterance, generation: request.generation,
+                                             waitMs: waitMs) else { return false }
+        RuntimeLog.agent.notice("\(verdict.line.logLine, privacy: .public)")
+        return verdict.act
     }
 
     private func release() async {
@@ -112,5 +142,15 @@ final class WakeListener {
         detector = nil
         audio?.stop()
         audio = nil
+        recent.clear()
     }
+}
+
+/// The capture thread appends; the main actor reads on a detection.
+private final class RecentBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ring = RecentFrames()
+    func append(_ f: PCMFrame16k) { lock.withLock { ring.append(f) } }
+    func frames() -> [PCMFrame16k] { lock.withLock { ring.frames } }
+    func clear() { lock.withLock { ring.clear() } }
 }

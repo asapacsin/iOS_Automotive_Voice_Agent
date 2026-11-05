@@ -48,6 +48,8 @@ public enum RecordEvent: Sendable, Hashable {
     case sessionGaveUp(ms: Int, attempts: Int, code: RetryableErrorCode)
     /// F-24 §15 item 8: `session resume handle=yes|no result=resumed|rejected|none`, in the next session's record.
     case sessionResume(handle: Bool, result: SessionResumeResult)
+    /// F-04b §7 (T-013e): `speaker-check utterance= kind= score= threshold= result= speechMs= scoreMs= waitMs=`.
+    case speakerCheck(SpeakerCheckLine)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -147,6 +149,7 @@ public struct ConversationRecorder: Sendable {
             return [line("screen-hidden", "kind=\(kind.rawValue) text=\(ScreenLanguage.recordText(text))")]
         case .wakeToListening(let n): return [line("wake-to-listening", "ms=\(n)")]
         case .wakeUnused: return ["\(ms) wake-unused"]
+        case .speakerCheck(let check): return [line("speaker-check", check.fields)]
         case .sessionGaveUp(let since, let attempts, let code):
             return add(.session("gave-up ms=\(since) attempts=\(attempts) code=\(code.rawValue)"), atMs: ms)
         case .sessionResume(let handle, let result):

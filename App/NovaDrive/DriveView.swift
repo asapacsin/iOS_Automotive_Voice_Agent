@@ -326,7 +326,10 @@ private struct DriveContent: View {
         } else if model.view.waitingForNetwork && model.running {
             ("等待网络…", .orange)
         } else { nil }
-        let (text, color) = network ?? (model.sheTalks && model.running ? ("她在说话", Color.blue) : state)
+        // F-04b §6 item 11 (T-013e): 声纹锁定 failed closed.
+        let speaker: (String, Color)? = model.speakerUnavailable && model.running
+            ? (SpeakerLockPolicy.unavailableChip, .red) : nil
+        let (text, color) = network ?? speaker ?? (model.sheTalks && model.running ? ("她在说话", Color.blue) : state)
         return HStack(spacing: 5) {
             Circle().fill(color).frame(width: 9, height: 9)
             VStack(alignment: .leading, spacing: 0) {

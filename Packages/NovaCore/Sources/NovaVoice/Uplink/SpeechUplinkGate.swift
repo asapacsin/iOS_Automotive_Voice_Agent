@@ -14,6 +14,8 @@ public enum SegmentVerdict: String, Sendable, Hashable {
 /// F-04 §14: why an utterance was not sent to the model.
 public enum MuteReason: String, Sendable, Hashable {
     case reply, guidance, echoTail, none
+    /// F-04b §7 (T-013e): the speaker lock rejected the voice (or could not tell).
+    case speaker
 }
 
 /// F-04 §14 item 7: how an utterance ended.

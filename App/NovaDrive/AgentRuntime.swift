@@ -42,6 +42,8 @@ final class DriveModel: ObservableObject {
     @Published var noiseLine = ""
     /// F-01 §14 item 8 (T-060a): the wake listener is armed; the idle screen shows 「说“你好小诺”唤醒」.
     @Published var wakeArmed = false
+    /// F-04b §6 item 11 (T-013e): scoring broke while 声纹锁定 is on; speech is not sent.
+    @Published var speakerUnavailable = false
 }
 
 /// Non-secret settings of the drive screen (UserDefaults).
@@ -615,7 +617,8 @@ final class AgentRuntime {
     }
 
     func start(by origin: SessionOrigin = .tap) async {
-        guard !model.running else { return }
+        // F-04b §4 item 1: never while enrollment or 校准 holds the microphone (one capture only, ADR-006).
+        guard !model.running, !exclusiveCapture else { return }
         model.notice = nil
         model.networkEnded = false
         // F-23 (T-063): the microphone is asked at the first talk; a denial is explained.
@@ -851,8 +854,7 @@ final class AgentRuntime {
         // The gate's marks and the driver's words reach the core through one stream, in the order they happened
         // (F-08 §16: an utterance the words release is started before the words arrive).
         let gateEvents = AsyncStream.makeStream(of: UplinkEvent.self, bufferingPolicy: .unbounded)
-        let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core,
-                                          clock: SystemClock()) { [gate] words, utterance in
+        @Sendable func deliverWords(_ words: DriverWords) {
             // F-05a §13 item 2: display only; the words below and the guards are unchanged.
             let shown: (line: String?, hidden: Bool) = switch words {
             case .partial(let text): ScreenLanguage.driverDisplay(text, final: false)
@@ -869,9 +871,23 @@ final class AgentRuntime {
             case .unclear: record?.submit(.heardLocal(nil))
             case .partial: break
             }
-            gate.words(words, utterance: utterance)
             gateEvents.continuation.yield(.words(words))
         }
+        let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core,
+                                          clock: SystemClock()) { [gate] words, utterance in
+            // F-08 §16-§17: the post-stop hold and the interruption check hear the words at once.
+            gate.words(words, utterance: utterance)
+            // F-04b §6 item 4 (T-013e): with 声纹锁定 on, a held utterance's words wait for its verdict.
+            if gate.speakerAllows(words, utterance: utterance) { deliverWords(words) }
+        }
+        // F-04b (T-013e): scoring off the capture thread; released words; record and log lines (numbers only, I-8).
+        let speakerService = SpeakerLockService.shared
+        gate.onSpeaker(score: { [gate] request in
+            speakerService.score(request) { gate.speakerResult($0, for: request) }
+        }, words: { words, _ in deliverWords(words) }, check: { line in
+            RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+            record?.submit(.speakerCheck(line))
+        })
         tasks.append(Task { await transcript.listen() })
         // Utterance marks and frames in capture order, so the recognizer gets exactly what goes up.
         let transcriptInputs = AsyncStream.makeStream(of: DriverTranscript.Input.self, bufferingPolicy: .bufferingNewest(1024))
@@ -1049,12 +1065,16 @@ final class AgentRuntime {
         // keeps F-04 rules (it only confirms once a result has arrived).
         gate.setSuppression(DriveSettings.usesNoiseSuppression())
         gate.setInterruptible(DriveSettings.isInterruptible())
+        SpeakerLockService.shared.dropInvalidLock()
+        gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
         // §6: the 抗噪 switch also applies when changed mid-session.
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                   object: nil, queue: nil) { _ in
             gate.setSuppression(DriveSettings.usesNoiseSuppression())
             gate.setInterruptible(DriveSettings.isInterruptible())
+            // F-04b §6 item 10: 声纹锁定 applies mid-session with no restart. Only reads defaults (see setInterruptible).
+            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
         }
         let classifier = SoundAnalysisSpeechClassifier()
         do {
@@ -1069,16 +1089,20 @@ final class AgentRuntime {
                 let line = gate.diagnostics + "\n" + speechModels.diagnostics
                 // The echo tail ends on a capture frame, not a playback event, so 请说 is refreshed here too.
                 let talking = gate.sheTalks, hint = gate.stopPhraseWindow
+                // F-04b §6 item 11: fails closed; the chip says how to get her back.
+                let speakerDown = gate.speakerUnavailable
                 await MainActor.run {
                     model.noiseLine = line
                     if model.sheTalks != talking { model.sheTalks = talking }
                     if model.stopHint != hint { model.stopHint = hint }
+                    if model.speakerUnavailable != speakerDown { model.speakerUnavailable = speakerDown }
                 }
             }
         })
         // F-08 §14 items 3–4: the stop-phrase spotter hears only her reply and its echo tail; a hit stops her.
-        let stopPhrases = StopPhraseFeed(models: speechModels) { hit in
-            Task { await core.send(.stopPhraseSpotted(hit)) }
+        let stopPhrases = StopPhraseFeed(models: speechModels) { [gate] hit in
+            // F-04b §6 item 8 (T-013e): with 声纹锁定 on, only the enrolled voice's stop phrase stops her.
+            gate.stopPhrase { Task { await core.send(.stopPhraseSpotted(hit)) } }
         }
         audio.onEngineRestart { gate.engineStarted() }
         do {
@@ -1216,6 +1240,23 @@ final class AgentRuntime {
         model.view = AgentViewState()
     }
 
+    /// F-04b §4 item 1 (T-013e): enrollment and 校准 use the microphone only with no session running; the wake
+    /// listener lets go of it first (one capture only, ADR-006). False while a session runs.
+    func beginExclusiveCapture() async -> Bool {
+        guard !model.running, !exclusiveCapture else { return false }
+        exclusiveCapture = true
+        await wake.update(sessionRunning: true)
+        return true
+    }
+
+    func endExclusiveCapture() async {
+        guard exclusiveCapture else { return }
+        exclusiveCapture = false
+        if !model.running { await wake.update(sessionRunning: false) }
+    }
+
+    private var exclusiveCapture = false
+
     /// Applies the wake policy at launch and after settings change.
     func refreshWake() async {
         guard !UITestDrive.enabled else { return }
@@ -1251,6 +1292,110 @@ final class GateBox: @unchecked Sendable {
     private var live = BargeInLive()
     /// What the shell does for a live interruption (dip, stop), called outside the lock and before the outputs.
     private var onBargeIn: (@Sendable (BargeInAction) -> Void)?
+    /// F-04b §6 (T-013e): 声纹锁定. Before the post-stop hold; off = bypassed (no scoring, outputs unchanged).
+    private var speaker = SpeakerHold()
+    /// §6 item 9: an interruption acts only on an accepted utterance.
+    private var speakerActions = SpeakerActionHold()
+    /// §6 item 4: the words of a held utterance wait for its verdict.
+    private var speakerWordsHold = SpeakerWordsHold()
+    private var speakerScore: (@Sendable (SpeakerScoreRequest) -> Void)?
+    /// §6 item 8: the last 2 s of capture, for a spotted stop phrase.
+    private var recentFrames = RecentFrames()
+    private var stopCheck = SpeakerPhraseCheck(kind: .stop)
+    private var speakerWords: (@Sendable (DriverWords, Int) -> Void)?
+    private var speakerCheck: (@Sendable (SpeakerCheckLine) -> Void)?
+
+    /// `score` runs a request off the capture thread and calls `speakerResult`; `words` delivers released words;
+    /// `check` writes the record and log line.
+    func onSpeaker(score: @escaping @Sendable (SpeakerScoreRequest) -> Void,
+                   words: @escaping @Sendable (DriverWords, Int) -> Void,
+                   check: @escaping @Sendable (SpeakerCheckLine) -> Void) {
+        lock.withLock {
+            speakerScore = score
+            speakerWords = words
+            speakerCheck = check
+        }
+    }
+
+    /// §6 item 10: read on every settings change; off releases what is held, on applies from the next utterance.
+    func setSpeakerLock(_ threshold: Double?) {
+        order.lock()
+        defer { order.unlock() }
+        let (step, act, forward, released, words) = lock.withLock {
+            let sp = speaker.setLock(threshold: threshold)
+            stopCheck.setLock(threshold: threshold)
+            let (fed, released) = speakerAfter(sp)
+            return (liveStep(raw: [], hold.pass(fed), frame: false, speaker: sp), onBargeIn, self.forward, released,
+                    speakerWords)
+        }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
+        released.forEach { words?($0.words, $0.utterance) }
+    }
+
+    /// The background queue's score for `request`.
+    func speakerResult(_ outcome: SpeakerScoreOutcome, for request: SpeakerScoreRequest) {
+        order.lock()
+        defer { order.unlock() }
+        let (step, act, forward, released, words, logs) = lock.withLock {
+            let sp = speaker.result(outcome, utterance: request.utterance, generation: request.generation)
+            let (out, released) = speakerAfter(sp)
+            var fed = hold.pass(out)
+            // Words that arrived while it was held reach the post-stop hold now, after its start.
+            for r in released {
+                switch r.words {
+                case .partial(let t): fed += hold.partial(t, utterance: r.utterance)
+                case .final(let t): fed += hold.final(t, utterance: r.utterance)
+                case .unclear: fed += hold.final("", utterance: r.utterance)
+                }
+            }
+            return (liveStep(raw: [], fed, frame: false, speaker: sp), onBargeIn, self.forward, released, speakerWords,
+                    hold.takeLogs() + live.takeLogs())
+        }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
+        released.forEach { words?($0.words, $0.utterance) }
+        logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
+    }
+
+    /// §6 item 4: false = the words wait for (or were dropped by) the speaker verdict. Lock off: always true.
+    func speakerAllows(_ words: DriverWords, utterance id: Int) -> Bool {
+        lock.withLock { speakerWordsHold.words(words, utterance: id, heldUtterance: speaker.heldUtterance) }
+    }
+
+    /// §6 item 8: a spotted stop phrase stops her only on the enrolled voice when locked; `act` runs when it may.
+    func stopPhrase(_ act: @escaping @Sendable () -> Void) {
+        let decision = lock.withLock { stopCheck.hit(recent: recentFrames.frames) }
+        switch decision {
+        case .act: act()
+        case .ignore: break
+        case .verify(let request):
+            let started = Date()
+            SpeakerLockService.shared.score(request) { [self] outcome in
+                let waitMs = Int(Date().timeIntervalSince(started) * 1000)
+                let (verdict, check) = lock.withLock {
+                    (stopCheck.result(outcome, check: request.utterance, generation: request.generation, waitMs: waitMs),
+                     speakerCheck)
+                }
+                guard let verdict else { return }
+                check?(verdict.line)
+                if verdict.act { act() }
+            }
+        }
+    }
+
+    /// §6 item 11: scoring failed while locked.
+    var speakerUnavailable: Bool { lock.withLock { speaker.locked && speaker.unavailable } }
+
+    /// Under `lock`: dispatches the request and check lines, resolves held words. Returns the outputs for the
+    /// post-stop hold and the words to deliver.
+    private func speakerAfter(_ sp: SpeakerHold.Step) -> ([UplinkGateOutput], [SpeakerWordsHold.Released]) {
+        if let request = sp.request, let score = speakerScore { DispatchQueue.global().async { score(request) } }
+        let checks = speaker.takeChecks()
+        if !checks.isEmpty, let check = speakerCheck { DispatchQueue.global().async { checks.forEach(check) } }
+        let released = speakerWordsHold.decided(sp.decided, utterances: sp.decidedUtterances)
+        return (sp.outputs, released)
+    }
 
     /// Called on every UserDefaults change: takes `order`, so nothing on the capture or forward path may write
     /// UserDefaults (it would deadlock on this non-recursive lock).
@@ -1265,11 +1410,14 @@ final class GateBox: @unchecked Sendable {
 
     /// One live step, under the lock: the gate sends the rest of an adopted utterance. Its outputs replace
     /// `outputs` (the hold's), with any release after them.
-    private func liveStep(raw: [UplinkGateOutput], _ outputs: [UplinkGateOutput], frame: Bool) -> BargeInLive.Step {
+    private func liveStep(raw: [UplinkGateOutput], _ outputs: [UplinkGateOutput], frame: Bool,
+                          speaker sp: SpeakerHold.Step = SpeakerHold.Step()) -> BargeInLive.Step {
         let events = shadow.takeEvents()
         let g = gate.guidancePlaying
-        let step = frame ? live.frame(raw: raw, held: outputs, events: events, guidancePlaying: g)
-            : live.pass(raw: raw, held: outputs, events: events, guidancePlaying: g)
+        let live = frame ? self.live.frame(raw: raw, held: outputs, events: events, guidancePlaying: g)
+            : self.live.pass(raw: raw, held: outputs, events: events, guidancePlaying: g)
+        // F-04b §6 item 9: with the lock on, no dip or stop before the utterance is accepted.
+        let step = speakerActions.decided(sp.decided) + speakerActions.step(live, verdict: speaker.verdict)
         if step.adopt { gate.adoptOpenUtterance() }
         return step
     }
@@ -1282,19 +1430,24 @@ final class GateBox: @unchecked Sendable {
     func process(_ frame: PCMFrame16k) {
         order.lock()
         defer { order.unlock() }
-        let (gated, outputs, rawFeed, forward, logs, step, act) = lock.withLock {
+        let (gated, released, rawFeed, forward, logs, step, act) = lock.withLock {
             let r = gate.process(frame)
+            if speaker.locked { recentFrames.append(frame) }
             // A stale classifier result is no result (item 3: no classifier result fails closed).
             shadow.frame(r, frame: frame, speechProbability: gate.classifierFresh ? gate.lastSpeechProbability : nil,
                          muteReason: gate.muteReason)
-            let step = liveStep(raw: r, hold.frame(r), frame: true)
-            return (r, [UplinkGateOutput](), self.raw, self.forward,
+            speaker.scoreUnsent = live.enabled
+            let sp = speaker.frame(r)
+            let (fed, released) = speakerAfter(sp)
+            let step = liveStep(raw: r, hold.frame(fed), frame: true, speaker: sp)
+            return (r, released, self.raw, self.forward,
                     hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step, self.onBargeIn)
         }
         gated.forEach { rawFeed?($0) }
-        outputs.forEach { forward?($0) }
         step.actions.forEach { act?($0) }
         step.outputs.forEach { forward?($0) }
+        let words = lock.withLock { speakerWords }
+        released.forEach { words?($0.words, $0.utterance) }
         logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
     }
 
@@ -1428,7 +1581,10 @@ final class GateBox: @unchecked Sendable {
         let (raw, outputs, rawFeed, forward, step, act) = lock.withLock {
             let r = gate.setForcedClosed(closed)
             shadow.observe(r, muteReason: gate.muteReason)
-            return (r, [UplinkGateOutput](), self.raw, self.forward, liveStep(raw: r, hold.pass(r), frame: false), self.onBargeIn)
+            let sp = speaker.pass(r)
+            let (fed, _) = speakerAfter(sp)
+            return (r, [UplinkGateOutput](), self.raw, self.forward, liveStep(raw: r, hold.pass(fed), frame: false, speaker: sp),
+                    self.onBargeIn)
         }
         raw.forEach { rawFeed?($0) }
         outputs.forEach { forward?($0) }

@@ -84,6 +84,8 @@ struct SettingsView: View {
                     Toggle("可以打断她（实验）", isOn: $interruptible)
                     Text("开：她说话时你说出新的内容，她会先变小声，确认是你在说新问题后停下来回答你。关：只有「别说了」能让她停。导航播报不会被打断。")
                         .font(.footnote).foregroundStyle(.secondary)
+                    // F-04b §3 (T-013e).
+                    SpeakerLockSection()
                 }
                 // F-12 §14 items 4 and 7 (T-031a, T-031b).
                 Section("舒适场景") {
@@ -155,7 +157,7 @@ struct SettingsView: View {
                 Button("清除所有密钥", role: .destructive) { wipe() }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("所有已保存的 key 和 Gemini 同意状态都会被删除。")
+                Text("所有已保存的 key、Gemini 同意状态和声纹都会被删除。")
             }
         }
     }
@@ -202,6 +204,8 @@ struct SettingsView: View {
 
     private func wipe() {
         let failed = CredentialWipe.wipe(store, settings: settings)
+        // F-04b §3 item 5: the wipe-all also deletes the voice profile (and turns the lock off).
+        SpeakerLockService.shared.deleteProfile()
         geminiConsent = false
         drafts = [:]
         message = failed.isEmpty ? "已清除所有密钥" : "以下 key 清除失败：\(failed.map(\.rawValue).joined(separator: ", "))"
