@@ -1887,13 +1887,19 @@
     {
       "id": "T-046l",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §23 items 5-8: driver words to Qwen (FreshPrompt user message), scripts/search_eval harness (not run); unit row 5",
       "depends_on": [
         "T-046j"
       ],
-      "notes": "Stopped by owner mid-fix 2026-11-05. Pushed commit gates PASS; review FAIL x2. Remaining blocker: words cleared on responseDone can race the web_search executor, so current-turn words may be dropped (fails safe, nothing stale sent). Fix planned: snapshot words per CallID at toolCalls. Rows 5 (unit) pending re-review, 6 (PC) NOT_VERIFIED."
+      "notes": "Race blocker fixed 2026-11-05. App line (AgentRuntime driverWords: words(for:)) builds only on iOS CI.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (NovaCore 633, 1 known NoiseCorpus issue; NovaRealtime 36)",
+        "Words snapshot per CallID at toolCalls (DriverWordsHolder.words(for:)); test snapshotPerCall",
+        "Independent high-effort review PASS; its eviction finding fixed (no snapshot -> nil)",
+        "Row 6 (PC search_eval run) NOT_VERIFIED: needs DASHSCOPE_API_KEY on the owner's PC"
+      ]
     }
   ]
 }

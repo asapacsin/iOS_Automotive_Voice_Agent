@@ -232,11 +232,12 @@ public final class DriverWordsHolder: Sendable {
     public var text: String? { value.withLock { $0.text } }
     public func set(_ text: String?) { value.withLock { $0.text = text; $0.final = text != nil } }
 
-    /// The words snapshot for this call, taken once; falls back to the current words for a call never observed.
+    /// The words snapshot for this call, taken once. A call with no snapshot (none at its `toolCalls`, cancelled,
+    /// evicted, or never observed) gets nil, never words said after it.
     public func words(for id: CallID) -> String? {
         value.withLock { s in
-            if let w = s.byCall.removeValue(forKey: id) { s.order.removeAll { $0 == id }; return w }
-            return s.order.contains(id) ? nil : s.text
+            s.order.removeAll { $0 == id }
+            return s.byCall.removeValue(forKey: id)
         }
     }
 
