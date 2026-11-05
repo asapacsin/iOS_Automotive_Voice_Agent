@@ -8,6 +8,8 @@
 - Product invariants I-1..I-14 (specs/product-spec.md) are code-enforced, never prompt-only.
 - Owner rule (2026-10-27): no macOS GitHub Actions runners and no automatic CI triggers; workflows are
   `workflow_dispatch` only and are started only when the owner asks. `scripts/gates/check_runners.py` enforces it.
+- Owner rule (2026-11-05), search prompt only (`QwenWebSearchClient` system text or its replacement): never
+  invent wording or rules; copy a published vendor/community practice and cite it in the spec.
 - Gates: `scripts/gates/run_all.sh`. Done = gates green + reviewer PASS. Device-only acceptance rows
   stay NOT_VERIFIED until a device run. Record results in specs/STATUS.md.
 
