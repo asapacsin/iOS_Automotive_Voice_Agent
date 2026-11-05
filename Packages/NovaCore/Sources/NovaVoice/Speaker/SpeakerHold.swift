@@ -138,7 +138,7 @@ public struct SpeakerHold: Sendable {
         }
     }
 
-    /// The number of the sent utterance being held, if any: its words wait for the verdict too (no driver line,
+    /// The number of the utterance being held or scored, if any: its words wait for the verdict too (no driver line,
     /// no driver turn before acceptance).
     /// Not-sent ones too: their words could still stop her as a transcript stop phrase (§6 item 8).
     public var heldUtterance: Int? {
