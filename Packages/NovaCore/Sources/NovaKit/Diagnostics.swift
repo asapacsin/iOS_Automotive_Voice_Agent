@@ -53,6 +53,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case webSearchAsFunction
     /// F-18 §21 item 7 (T-046i): a destination note went to the model. No name (I-8).
     case destinationNote
+    /// F-01 §14 item 12 (T-060a): the wake listener heard 你好小诺. No words, no audio (I-8).
+    case wakeDetected
 }
 
 public enum StopPhraseSource: String, Sendable, Hashable {
@@ -97,6 +99,7 @@ extension DiagnosticEvent {
         case bargeInStopped
         case webSearchAsFunction
         case destinationNote
+        case wakeDetected
     }
 
     public var kind: Kind {
@@ -135,6 +138,7 @@ extension DiagnosticEvent {
         case .bargeInStopped: .bargeInStopped
         case .webSearchAsFunction: .webSearchAsFunction
         case .destinationNote: .destinationNote
+        case .wakeDetected: .wakeDetected
         }
     }
 }
@@ -160,6 +164,7 @@ extension DiagnosticEvent {
         case .abandonCleared: "abandonCleared reason=newUtterance"
         case .postStopTurnDropped: "postStopTurnDropped reason=noSentUtterance"
         case .bargeInStopped: "bargeInStopped"
+        case .wakeDetected: "wakeDetected"
         default: "diagnostic \(self)"
         }
     }

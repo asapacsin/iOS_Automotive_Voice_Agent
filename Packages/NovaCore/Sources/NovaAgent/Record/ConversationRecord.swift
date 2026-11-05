@@ -38,6 +38,10 @@ public enum RecordEvent: Sendable, Hashable {
     case searchOutcome(WebSearchOutcome)
     /// F-18 §21 item 7: a destination note; nil = the end note.
     case contextNote(destination: String?)
+    /// F-01 §14 item 12 (T-060a): a woken session first reached listening `ms` after the wake.
+    case wakeToListening(ms: Int)
+    /// F-01 §14 item 12: a woken session ended with no utterance sent (a false wake).
+    case wakeUnused
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -50,9 +54,12 @@ public struct RecordHeader: Sendable, Hashable {
     public let webSearch: Bool
     /// F-18 §18 item 6: whether a search key is saved; nil writes no line. Never the key's value.
     public let searchKey: Bool?
+    /// F-01 §14 item 12 (T-060a): `wake` or `tap`; nil writes no line.
+    public let startedBy: String?
 
     public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false,
-                searchKey: Bool? = nil) {
+                searchKey: Bool? = nil, startedBy: String? = nil) {
+        self.startedBy = startedBy
         self.webSearch = webSearch
         self.searchKey = searchKey
         self.appVersion = appVersion
@@ -65,6 +72,7 @@ public struct RecordHeader: Sendable, Hashable {
         ["app \(appVersion)", "comfortMode \(comfortMode)", "可以打断她 \(interruptible ? "on" : "off")",
          "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
             + (searchKey.map { ["searchKey \($0 ? "saved" : "missing")"] } ?? [])
+            + (startedBy.map { ["startedBy \($0)"] } ?? [])
     }
 }
 
@@ -129,6 +137,8 @@ public struct ConversationRecorder: Sendable {
         case .searchExchange(let x): return Self.searchLines(x).map { line($0.kind, $0.content) }
         case .searchOutcome(let o): return Self.searchLine(o).map { [line($0.kind, $0.content)] } ?? []
         case .contextNote(let name): return [line("context-note", "destination=\(name ?? "none")")]
+        case .wakeToListening(let n): return [line("wake-to-listening", "ms=\(n)")]
+        case .wakeUnused: return ["\(ms) wake-unused"]
         case .session(let what):
             // A session event ends every open turn: her words are never lost from the file.
             var out: [String] = []

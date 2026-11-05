@@ -40,6 +40,8 @@ final class DriveModel: ObservableObject {
     @Published var cameraSwitching = false
     /// F-04a diagnostics for 音频测试: speech probability, noise level, last rejection.
     @Published var noiseLine = ""
+    /// F-01 §14 item 8 (T-060a): the wake listener is armed; the idle screen shows 「说“你好小诺”唤醒」.
+    @Published var wakeArmed = false
 }
 
 /// Non-secret settings of the drive screen (UserDefaults).
@@ -106,6 +108,13 @@ enum DriveSettings {
         NavigationModeSetting.mode(navigationModeSetting(defaults),
                                    source: usesDeviceLocation(defaults) ? .device : .demo)
     }
+
+    /// F-01 §14 item 6 (T-060a) 「唤醒词」: on by default; read when the wake listener is applied.
+    static let wakeWord = "wake_word"
+
+    static func wakeWordOn(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: wakeWord) as? Bool ?? true
+    }
 }
 
 /// Keychain Gemini key as the realtime credential (OQ-IOS-15: ephemeral tokens later).
@@ -155,6 +164,8 @@ struct RuntimeSink: AgentEffectSink {
     let guidanceEnded: @Sendable (GuidanceID) async -> Void
     /// F-24 §14 item 4: the offline cap ended the session; the runtime releases the microphone and audio session.
     let offlineEnded: @Sendable () async -> Void
+    /// F-01 §14 items 9-12 (T-060a): the sound and `wake-to-listening` when a woken session first listens.
+    let wakeWatch: WakeSessionWatch
 
     func provider(_ command: ProviderCommand) async {
         switch command {
@@ -214,6 +225,13 @@ struct RuntimeSink: AgentEffectSink {
         case .claimHeld: record?.submit(.held)
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
+        case .sessionState(let state):
+            for effect in wakeWatch.sessionState(state) {
+                switch effect {
+                case .playCue: audio.playCue(WakeCue.pcm)
+                case .wakeToListening(let ms): record?.submit(.wakeToListening(ms: ms))
+                }
+            }
         default: break
         }
     }
@@ -334,7 +352,16 @@ final class AgentRuntime {
     init() { LocalSpeechModels.shared.load() }
 
     /// T-061: 你好小诺 while idle starts a session (off in the simulator drive test).
-    private lazy var wake = WakeListener { [weak self] in await self?.start() }
+    /// F-01 §14: the armed state drives the idle hint; a wake that could not start a session listens again.
+    private lazy var wake = WakeListener(clock: navigationClock, onArmed: { [weak self] armed in
+        if let model = self?.model, model.wakeArmed != armed { model.wakeArmed = armed }
+    }, onWake: { [weak self] at in
+        guard let self else { return }
+        await self.start(by: .wake(at: at))
+        if !self.model.running { await self.wake.update() }
+    })
+    /// F-01 §14 item 12: writes `wake-unused` for a woken session that sent nothing; set per session in `start`.
+    private var wakeEnd: (() -> Void)?
     private var core: AgentCore?
     /// Bumped per session so a delayed end_conversation stop never ends a newer session.
     private var session = 0
@@ -563,7 +590,7 @@ final class AgentRuntime {
         await speakLine?(line)
     }
 
-    func start() async {
+    func start(by origin: SessionOrigin = .tap) async {
         guard !model.running else { return }
         model.notice = nil
         model.networkEnded = false
@@ -730,8 +757,11 @@ final class AgentRuntime {
             appVersion: "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))",
             comfortMode: comfortMode.rawValue, interruptible: DriveSettings.isInterruptible(),
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
-            searchKey: webSearch ? searchKeySaved : nil))
+            searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
+        // F-01 §14 items 9-12 (T-060a): one watch per session; the line is written before the record closes.
+        let wakeWatch = WakeSessionWatch(origin: origin, clock: navigationClock)
+        wakeEnd = { if wakeWatch.end() { record?.submit(.wakeUnused) } }
         // F-18 §16 items 3, 6-7 and §17 items 1-8: `web_search` through the search model, only with the setting on.
         if webSearch {
             let qwenKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
@@ -772,7 +802,7 @@ final class AgentRuntime {
         let sink = RuntimeSink(realtime: provider, record: record, config: config, revoicer: revoicer, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
-                               offlineEnded: { [weak self] in await self?.endedOffline() })
+                               offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch)
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes))
@@ -926,6 +956,7 @@ final class AgentRuntime {
                 }
                 switch output {
                 case .speechStarted(let sent):
+                    wakeWatch.speechStarted(sentToModel: sent)
                     // F-04 §14 item 1: the core follows the gate's decision, never re-checks it.
                     await core.send(.speechStarted(recentSpeech: gate.recentSpeech, sentToModel: sent))
                 case .utterance(let utterance):
@@ -1102,6 +1133,8 @@ final class AgentRuntime {
 
     func stop() {
         session += 1
+        wakeEnd?()
+        wakeEnd = nil
         network?.stop()
         network = nil
         // F-15a §9: the trip is the app's; it keeps going (HUD, marker, progress) with no session listening.
