@@ -133,7 +133,7 @@ NovaDriveIOS/
 |---|---|
 | `AMapNaviKit`, `AMapFoundationKit`, `MAMapKit` | NovaNavAmap |
 | `iflyMSC` | NovaWakeIflytek |
-| `CSherpaOnnx` (sherpa-onnx C API; sherpa-onnx and onnxruntime xcframeworks as `binaryTarget`s) | NovaAsrSherpa |
+| `CSherpaOnnx` (sherpa-onnx C API; sherpa-onnx and onnxruntime xcframeworks as `binaryTarget`s; ASR, keyword spotting and, F-04b, speaker embeddings) | NovaAsrSherpa |
 | `AVFAudio` (engine, session, player nodes, `AVSpeechSynthesizer`) | NovaAudio |
 | `AVFoundation` capture (`AVCaptureSession`), `CoreLocation`, `Contacts`, `MusicKit` | NovaPlatform |
 | `Security` (Keychain) | NovaServices |
@@ -165,6 +165,7 @@ usually one target plus its tests.
 | `SpeechSynthesizer` | Clause → 24 kHz PCM (Azure) | `AzureSpeechClient` (NovaServices) | `FakeSynthesizer` (fixed latency) |
 | `FallbackGuidanceVoice` | Speak a guidance sentence when the relay falls back | `SystemSpeechGuidanceVoice` (NovaAudio, §9.5) | recording |
 | `WakeWordDetector` | Arm/disarm, take frames, emit wake | `IflytekWakeDetector` (NovaWakeIflytek) | scripted |
+| `SpeakerVerifier` | F-04b (T-013e): frames → speaker embedding, scored by cosine against the enrolled profile; used only with 声纹锁定 on | `SherpaSpeakerVerifier` (NovaAsrSherpa) | fixed embeddings |
 | `NaviEngine` | Route calculation, selection, start/stop, guidance and navigation info events | `AmapNaviEngine` (NovaNavAmap) | `ScriptedNaviEngine` |
 | `PlaceSearch`, `WeatherService`, `ReverseGeocoder`, `StaticMapService` | Amap Web REST | `AmapWebClient` (NovaServices) | fixture-backed |
 | `LocationProvider` | Latest fix (WGS-84, accuracy, timestamp) | `CoreLocationProvider` (NovaPlatform) | fixed fixes |

@@ -9,7 +9,7 @@ One file per feature. Load one file plus the contracts it lists under "Depends o
 | F-03 | [Microphone capture, AEC and gain](audio-capture-aec.md) | IMPLEMENTED; AEC delay/echo device rows NOT_RUN (ECHO-001, AEC-DELAY-DEVICE-001) |
 | F-04 | [Uplink gate (local VAD)](uplink-gate.md) | ACTIVE (JVM + EMU) |
 | F-04a | [Noise suppression: only a human voice opens the mic or interrupts](noise-suppression.md) | iOS only, APPROVED (2026-10-27); tasks T-013a–d |
-| F-04b | [Speaker Lock: only the enrolled voice can use her (声纹锁定)](speaker-lock.md) | iOS only, APPROVED (2026-11-05); task T-013e |
+| F-04b | [Speaker Lock: only the enrolled voice can use her (声纹锁定)](speaker-lock.md) | iOS only, APPROVED (2026-11-05); task T-013e (code PASS pending review; device rows open) |
 | F-05 | [Realtime session (Gemini Live)](realtime-session.md) | ACTIVE provider |
 | F-05a | [Mandarin input transcript on the phone (普通话识别，不再被当成葡萄牙语)](mandarin-transcript.md) | iOS only, APPROVED (2026-10-29); tasks T-016a–c |
 | F-06 | [Reply pipeline and truthfulness gates](reply-truthfulness.md) | ACTIVE (JVM + LIVE suites) |
