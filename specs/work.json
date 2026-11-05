@@ -1803,6 +1803,17 @@
         "T-046i"
       ],
       "notes": "Device 2026-11-05, 21f4478: Qwen searched in 1 of 10 calls. PC test 2026-11-05, same question 5 times each: agent 0 of 10, turbo 10 of 10, max 10 of 10, no strategy 5 of 5. One question only, so row 3 tests the others."
+    },
+    {
+      "id": "T-016i",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-05a §13 items 1-7: pure ScreenLanguage check before driver line, reply, guidance and camera text are shown; other scripts void her reply with NOT_MANDARIN; screen-hidden record line; rows 1-10",
+      "depends_on": [
+        "T-016f"
+      ],
+      "notes": "Owner 2026-11-05: the screen sometimes shows Korean or other languages. No Korean in the 8 records read, so the case itself is not traced; the code shows four unchecked paths. Row 10 is the device check."
     }
   ]
 }
