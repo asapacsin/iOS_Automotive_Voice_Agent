@@ -16,16 +16,10 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>NSExtension</key>
+	<key>EXAppExtensionAttributes</key>
 	<dict>
-		<key>NSExtensionPointIdentifier</key>
+		<key>EXExtensionPointIdentifier</key>
 		<string>com.apple.background-asset-downloader-extension</string>
 	</dict>
-	<key>BAAppGroupID</key>
-	<string>group.com.asapacsin.novadrive</string>
-	<key>BAHasManagedAssetPacks</key>
-	<true/>
-	<key>BAUsesAppleHosting</key>
-	<true/>
 </dict>
 </plist>

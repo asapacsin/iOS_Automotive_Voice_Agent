@@ -1,4 +1,5 @@
 import BackgroundAssets
+import StoreKit
 
 /// F-04b §12 item 7 (T-013f): Apple's managed downloader for the Apple-hosted speaker model pack. No own logic:
 /// the system downloads essential packs at install and update; this extension only lets it do so.

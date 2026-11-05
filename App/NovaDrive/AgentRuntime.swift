@@ -382,6 +382,7 @@ final class AgentRuntime {
     private var classifier: SoundAnalysisSpeechClassifier?
     /// F-04a: re-reads the 抗噪 switch when UserDefaults change during a session.
     private var defaultsObserver: NSObjectProtocol?
+    private var speakerModelObserver: NSObjectProtocol?
     private var network: NetworkPathWatcher?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
@@ -1076,6 +1077,12 @@ final class AgentRuntime {
             // F-04b §6 item 10: 声纹锁定 applies mid-session with no restart. Only reads defaults (see setInterruptible).
             gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
         }
+        // F-04b §12 item 5: a speaker model pack that finishes (or fails) mid-session applies with no restart.
+        if let speakerModelObserver { NotificationCenter.default.removeObserver(speakerModelObserver) }
+        speakerModelObserver = NotificationCenter.default.addObserver(forName: SpeakerModelLocator.changed,
+                                                                      object: nil, queue: nil) { _ in
+            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
+        }
         let classifier = SoundAnalysisSpeechClassifier()
         do {
             try classifier.start { result in gate.classified(result) }
@@ -1223,6 +1230,8 @@ final class AgentRuntime {
         classifier = nil
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         defaultsObserver = nil
+        if let speakerModelObserver { NotificationCenter.default.removeObserver(speakerModelObserver) }
+        speakerModelObserver = nil
         let wake = UITestDrive.enabled ? nil : wake
         Task { [model] in
             await core.send(.stop)

@@ -1,4 +1,4 @@
-#if canImport(BackgroundAssets)
+#if canImport(BackgroundAssets) && compiler(>=6.2)
 import BackgroundAssets
 #endif
 import CryptoKit
@@ -26,8 +26,13 @@ final class SpeakerModelLocator: @unchecked Sendable {
         return SherpaSpeakerVerifier.modelPresent(in: dir) ? dir : nil
     }
 
+    static var managedPacks: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "BAHasManagedAssetPacks") as? Bool == true
+    }
+
     private init() {
-        if #available(iOS 26, *) { packState = .downloading } else { packState = .unsupportedSystem }
+        // Only builds set up for managed packs (the Xcode project's BA keys + extension) may touch AssetPackManager.
+        if #available(iOS 26, *), Self.managedPacks { packState = .downloading } else { packState = .unsupportedSystem }
     }
 
     var availability: SpeakerModelAvailability {
@@ -47,8 +52,8 @@ final class SpeakerModelLocator: @unchecked Sendable {
     /// Called at launch and by 重试: asks the system for the pack (waits while it downloads), then checks it.
     func refresh() {
         guard Self.bundleDirectory == nil else { return }
-        #if canImport(BackgroundAssets)
-        if #available(iOS 26, *) {
+        #if canImport(BackgroundAssets) && compiler(>=6.2)
+        if #available(iOS 26, *), Self.managedPacks {
             let start = lock.withLock { () -> Bool in
                 if running { return false }
                 running = true
@@ -63,7 +68,7 @@ final class SpeakerModelLocator: @unchecked Sendable {
         #endif
     }
 
-    #if canImport(BackgroundAssets)
+    #if canImport(BackgroundAssets) && compiler(>=6.2)
     @available(iOS 26, *)
     private func fetchPack() async {
         var state = SpeakerPackState.failed
@@ -72,8 +77,7 @@ final class SpeakerModelLocator: @unchecked Sendable {
             let manager = AssetPackManager.shared
             let pack = try await manager.assetPack(withID: SpeakerModelPin.assetPackID)
             try await manager.ensureLocalAvailability(of: pack)
-            let manifest = try manager.url(for: "speaker/speaker.json")
-            let folder = manifest.deletingLastPathComponent()
+            let folder = try manager.url(for: "speaker")
             let hash = Self.sha256(of: folder.appendingPathComponent(SpeakerModelPin.modelFile))
             state = .downloaded(sha256: hash)
             dir = folder

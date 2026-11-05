@@ -269,7 +269,8 @@ struct SpeakerLockSection: View {
     private func refresh() {
         SpeakerLockService.shared.dropInvalidLock()
         status = SpeakerLockService.shared.status()
-        if status != .ready { lockOn = false }
+        // §12 item 4: a model that is still downloading or failed keeps the stored switch (fails closed live).
+        if status != .ready && status != .modelUnavailable { lockOn = false }
         note = status == .modelUnavailable ? Self.unavailableNote : nil
     }
 

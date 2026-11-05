@@ -8,7 +8,8 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 models="${1:-$root/App/NovaDrive/SherpaModels}"
 out="${2:-$root/build/speaker-campplus-v1.aar}"
-line="$(grep '  speaker/' "$root/scripts/sherpa/models.sha256")"
+line="$(grep '  speaker/' "$root/scripts/sherpa/models.sha256" || true)"
+[ -n "$line" ] || { echo "make_speaker_pack: no speaker/ line in scripts/sherpa/models.sha256" >&2; exit 1; }
 want="${line%%  *}"
 file="${line#*  }"
 src="$models/$file"

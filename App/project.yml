@@ -98,7 +98,8 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           set -e
-          [ "$NOVA_BUNDLE_SPEAKER_MODEL" = "NO" ] || exit 0
+          # Archives only (App Store / TestFlight): sideloaded `build` IPAs keep the model (no asset pack for them).
+          [ "$NOVA_BUNDLE_SPEAKER_MODEL" = "NO" ] && [ "$ACTION" = "install" ] || exit 0
           rm -rf "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/SherpaModels/speaker"
       - name: Embed AIKit (device, when vendored)
         basedOnDependencyAnalysis: false
@@ -120,7 +121,8 @@ targets:
           cp -R "$src/AEEResource.bundle" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
   NovaDriveAssets:
     # F-04b §12 item 7 (T-013f): Apple's managed Background Assets downloader for the speaker model pack.
-    type: app-extension
+    # ExtensionKit (EXAppExtensionAttributes), embedded in Extensions/; the BA* keys are on the app only.
+    type: extensionkit-extension
     platform: iOS
     deploymentTarget: "26.0"
     sources: [NovaDriveAssets]

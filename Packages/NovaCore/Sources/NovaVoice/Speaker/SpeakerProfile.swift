@@ -132,9 +132,13 @@ public enum SpeakerLockPolicy {
     }
 
     /// The threshold the live pipeline uses: the switch on and a calibrated, valid profile; else nil (lock off).
+    /// §12 item 4 (T-013f): a model that is not usable right now (downloading, failed) keeps a calibrated lock on,
+    /// so scoring fails closed (§6 item 11) instead of the lock quietly turning off.
     public static func threshold(switchOn: Bool, profile: SpeakerProfile?, model: (name: String, dimension: Int)?)
         -> Double? {
-        guard switchOn, case .on(let t) = requestOn(profile: profile, model: model) else { return nil }
+        guard switchOn else { return nil }
+        if model == nil { return profile?.threshold }
+        guard case .on(let t) = requestOn(profile: profile, model: model) else { return nil }
         return t
     }
 }

@@ -1,3 +1,4 @@
+import Foundation
 import NovaVoice
 import Testing
 
@@ -37,6 +38,18 @@ struct SpeakerModelSourceTests {
             #expect(a.note == note)
             #expect(a.canRetry == (expected == .failed))
         }
+    }
+
+    @Test("F-04b row 21: lock on with the model downloading or failed stays locked (fails closed); never turns on new")
+    func failsClosed() {
+        let calibrated = SpeakerProfile(embedding: [1, 0], modelName: "m", dimension: 2, threshold: 0.5,
+                                        enrolledAt: Date(timeIntervalSince1970: 0))
+        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: calibrated, model: nil) == 0.5)
+        #expect(SpeakerLockPolicy.threshold(switchOn: false, profile: calibrated, model: nil) == nil)
+        #expect(SpeakerLockPolicy.requestOn(profile: calibrated, model: nil) == .modelUnavailable)
+        var uncalibrated = calibrated
+        uncalibrated.threshold = nil
+        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: uncalibrated, model: nil) == nil)
     }
 
     @Test("F-04b row 21: pin matches scripts/sherpa/models.sha256")

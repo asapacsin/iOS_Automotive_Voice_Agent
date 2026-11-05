@@ -118,17 +118,17 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 3. **Where the app loads the model from**, first match wins:
    1. `SherpaModels/speaker` in the bundle (Debug builds from Xcode, which keep the fetch-script model);
    2. the downloaded pack, after its sha256 matches the pinned value (`SpeakerModelPin`); a mismatch is treated as not downloaded.
-   Release builds strip `SherpaModels/speaker` from the bundle (build setting `NOVA_BUNDLE_SPEAKER_MODEL = NO`). ASR and KWS models stay in the bundle.
+   Release **archives** (App Store / TestFlight) strip `SherpaModels/speaker` from the bundle (`NOVA_BUNDLE_SPEAKER_MODEL = NO` and `ACTION=install`). Every `build` keeps it, including the unsigned Codemagic IPA the owner sideloads: Apple-hosted packs reach only TestFlight and App Store installs. ASR and KWS models stay in the bundle. Builds without the BA Info.plist keys (the xtool build) never touch `AssetPackManager`.
 4. **States shown under 声纹锁定**, from a pure `SpeakerModelAvailability`:
    - ready → the normal rows (§3);
    - downloading → 「声纹模型下载中」, switch stays off;
    - failed / not on the phone → 「声纹模型下载失败」 and a **重试** button that asks the system again;
    - iOS older than 26 with no bundled model → 「声纹锁定需要 iOS 26 或更新版本」.
-   In every state except ready the lock cannot turn on (§3 item 4), and a lock that was on fails closed (§6 item 11).
+   In every state except ready the lock cannot turn on (§3 item 4). A lock that was on stays on and fails closed (§6 item 11): the stored switch is kept, speech is held and rejected, and the chip shows; it applies again when the pack becomes ready, mid-session included.
 5. **No loading before use.** The model is still loaded only when needed (§6 item 12). A verifier is never cached while the model is missing, so a download that finishes later is used without restarting the app.
 6. **Packaging.** `scripts/speaker_pack/Manifest.json` (template) and `scripts/make_speaker_pack.sh`: copies the checked `speaker/` folder and runs `xcrun ba-package` on a Mac to make the `.aar`. It refuses to run if the sha256 does not match.
-7. **Xcode project.** A downloader extension target `NovaDriveAssets` (iOS 26, Apple's managed downloader, no own logic); App Group `group.com.asapacsin.novadrive` on the app and the extension; app Info.plist keys `BAAppGroupID`, `BAHasManagedAssetPacks`, `BAUsesAppleHosting`.
-8. **Owner steps (once per model, on a Mac):** set the Team for the App Group; run `make_speaker_pack.sh`; upload the `.aar` in App Store Connect → the app → Background Assets; install from TestFlight to check.
+7. **Xcode project.** A downloader ExtensionKit target `NovaDriveAssets` (iOS 26, StoreKit `StoreDownloaderExtension`, no own logic, `EXExtensionPointIdentifier = com.apple.background-asset-downloader-extension`); App Group `group.com.asapacsin.novadrive` on the app and the extension; app-only Info.plist keys `BAAppGroupID`, `BAHasManagedAssetPacks`, `BAUsesAppleHosting`.
+8. **Owner steps (once per model, on a Mac):** set the Team for the App Group; run `make_speaker_pack.sh`; upload the `.aar` with Transporter (or `altool` / the App Store Connect API); external TestFlight needs the pack reviewed; install from TestFlight to check.
 9. **Not changed.** The model, its checksum, scoring, thresholds and everything in §3–§10. Minimum iOS stays 18 (OQ-IOS-12); only the lock needs 26 when the model is not bundled.
 10. **Unverified here.** The BackgroundAssets API names come from Apple's iOS 26 documentation and are compiled only by the Xcode build; this Linux container cannot build the app. Rows 23–26 are device rows.
 
