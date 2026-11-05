@@ -321,7 +321,8 @@ private struct DriveContent: View {
         }
         // F-24 §14 items 3–4: no network is not an error.
         let network: (String, Color)? = if model.networkEnded && !model.running {
-            ("网络已断开，点按重新开始", .red)
+            // F-24 §15 item 6 (T-016j): after giving up or the offline cap.
+            (SessionEndedChip.text(wakeArmed: model.wakeArmed), .red)
         } else if model.view.waitingForNetwork && model.running {
             ("等待网络…", .orange)
         } else { nil }

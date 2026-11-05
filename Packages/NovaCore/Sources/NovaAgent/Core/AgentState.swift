@@ -94,7 +94,7 @@ public struct AgentViewState: Sendable, Hashable {
     public var configError: RealtimeErrorCode?
     /// F-24 §14 item 3: no network; the chip reads 等待网络… instead of PROCESSING.
     public var waitingForNetwork = false
-    /// F-24 §14 item 4: the offline cap ended the session; the chip reads 网络已断开，点按重新开始 until a start.
+    /// F-24 §14 item 4: the offline cap ended the session; the chip reads `SessionEndedChip` (F-24 §15 item 6) until a start.
     public var offlineEnded = false
 
     public init() {}
@@ -124,6 +124,9 @@ public enum AgentEffect: Sendable, Hashable {
     case uplink(open: Bool)
     /// F-05a §13 item 5: text that failed the screen check (once per text). The sink logs only the kind.
     case screenHidden(ScreenTextKind, String)
+    /// F-24 §15 item 4 (T-016j): the session gave up or hit the offline cap; the shell keeps this handle in
+    /// memory for the next start. Never logged or persisted (I-7).
+    case keepResumption(String?)
 }
 
 /// The single serialisation point (Android's session mutex), as a pure value: `VoiceSession`,
@@ -238,8 +241,10 @@ public struct AgentState: Sendable {
 
     /// F-18 §15 item 5: the session's no-answer times (web search on waits longer before the re-ask).
     /// F-18 §21 item 2: `destinationNotes` sends the destination notes.
-    public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false) {
+    /// `resume`: F-24 §15 item 5, what the last give-up kept for this session's first connect.
+    public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil) {
         pipeline = DriverTurnPipeline(tuning: truthfulness)
+        if let resume { session = VoiceSession(resume: resume) }
         self.destinationNotes = destinationNotes
     }
 
@@ -686,6 +691,8 @@ public struct AgentState: Sendable {
                 effects.append(.publish(view))
             case .offlineEnded:
                 view.offlineEnded = true
+            case .keepHandle(let handle):
+                effects.append(.keepResumption(handle))
             case .connect(let connection, let resume):
                 effects += newSocket(at: now)
                 effects.append(.provider(.connect(connection: connection, resume: resume)))

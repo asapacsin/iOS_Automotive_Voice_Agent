@@ -57,6 +57,10 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case screenHidden(kind: ScreenTextKind)
     /// F-01 §14 item 12 (T-060a): the wake listener heard 你好小诺. No words, no audio (I-8).
     case wakeDetected
+    /// F-24 §15 item 8 (T-016j): the 60 s retry window ended and the session closed. Numbers and a code only.
+    case sessionGaveUp(ms: Int, attempts: Int, code: RetryableErrorCode)
+    /// F-24 §15 item 8: the first setup after a give-up; whether a kept handle was sent (never the handle, I-7).
+    case sessionResume(handle: Bool, result: SessionResumeResult)
 }
 
 /// F-05a §13 item 2: which conversation text the screen check hid.
@@ -108,6 +112,8 @@ extension DiagnosticEvent {
         case destinationNote
         case screenHidden
         case wakeDetected
+        case sessionGaveUp
+        case sessionResume
     }
 
     public var kind: Kind {
@@ -148,6 +154,8 @@ extension DiagnosticEvent {
         case .destinationNote: .destinationNote
         case .screenHidden: .screenHidden
         case .wakeDetected: .wakeDetected
+        case .sessionGaveUp: .sessionGaveUp
+        case .sessionResume: .sessionResume
         }
     }
 }
@@ -175,6 +183,8 @@ extension DiagnosticEvent {
         case .postStopTurnDropped: "postStopTurnDropped reason=noSentUtterance"
         case .bargeInStopped: "bargeInStopped"
         case .wakeDetected: "wakeDetected"
+        case .sessionGaveUp(let ms, let n, let code): "session gave-up ms=\(ms) attempts=\(n) code=\(code.rawValue)"
+        case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
         default: "diagnostic \(self)"
         }
     }

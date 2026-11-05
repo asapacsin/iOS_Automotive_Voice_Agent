@@ -21,10 +21,13 @@ public protocol AgentEffectSink: Sendable {
     func uplink(open: Bool)
     /// F-05a §13 item 5: the record line `screen-hidden`; the text stays local (I-8).
     func screenHidden(_ kind: ScreenTextKind, text: String)
+    /// F-24 §15 item 4: keep this handle in memory for the next start (never logged or persisted, I-7).
+    func keepResumption(_ handle: String?) async
 }
 
 extension AgentEffectSink {
     public func screenHidden(_ kind: ScreenTextKind, text: String) {}
+    public func keepResumption(_ handle: String?) async {}
 }
 
 /// Runs tool calls as child tasks (ios-architecture §5.1): cancellable, always ends in a `ToolResult`.
@@ -131,6 +134,7 @@ public actor AgentCore {
         case .screenHidden(let kind, let text):
             sink.diagnostic(.screenHidden(kind: kind))
             sink.screenHidden(kind, text: ScreenLanguage.recordText(text))
+        case .keepResumption(let handle): await sink.keepResumption(handle)
         }
     }
 }
