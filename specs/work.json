@@ -1838,6 +1838,18 @@
         "T-060a"
       ],
       "notes": "Owner 2026-11-05: once disconnected it does not connect back; let the wake word connect again. The 3 drops in the records recovered, so the owner's failure is not captured yet."
+    },
+    {
+      "id": "T-013e",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-04b §3-§10: Speaker Lock settings, enrollment, calibration, SpeakerHold before upload, wake and stop phrase checks, speaker_eval.py, record lines; rows 1-18",
+      "depends_on": [
+        "T-013a",
+        "T-060a"
+      ],
+      "notes": "Owner request 2026-11-05. No built-in threshold: the lock cannot turn on until calibrated on the phone. Accuracy and delay are unmeasured until rows 12-18 run."
     }
   ]
 }
