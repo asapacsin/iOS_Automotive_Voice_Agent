@@ -63,7 +63,10 @@ public struct ListeningLifecycleTuning: Sendable, Hashable {
 
 /// contracts/voice-agent.md §8, `I/ReconnectPolicy.kt`.
 public struct ReconnectTuning: Sendable, Hashable {
-    public var maxAttempts = 5
+    /// F-24 §15 item 1: with the network up, retry until this long after the first failure (no attempt limit).
+    public var retryWindow = NovaDuration.seconds(60)
+    /// F-24 §15 item 4: a resumption handle kept after giving up is dropped this long after it was saved.
+    public var keptHandleLifetime = NovaDuration.minutes(120)
     public var initialDelay = NovaDuration.milliseconds(200)
     public var maxDelay = NovaDuration.seconds(8)
     /// Delay doubles after each failed attempt, capped at `maxDelay`.

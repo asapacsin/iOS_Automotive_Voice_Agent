@@ -244,3 +244,8 @@ public enum RealtimeCredential: Sendable, Hashable, CustomStringConvertible, Cus
 public protocol RealtimeCredentialSource: Sendable {
     func credential() async throws -> RealtimeCredential
 }
+
+extension RealtimeErrorCode {
+    /// F-24 §15 item 8: the same code for the give-up diagnostic; nil for a terminal code.
+    public var retryableCode: RetryableErrorCode? { isRetryable ? RetryableErrorCode(rawValue: rawValue) : nil }
+}

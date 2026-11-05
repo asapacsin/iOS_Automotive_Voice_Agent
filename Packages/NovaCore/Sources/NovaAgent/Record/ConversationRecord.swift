@@ -44,6 +44,10 @@ public enum RecordEvent: Sendable, Hashable {
     case wakeToListening(ms: Int)
     /// F-01 §14 item 12: a woken session ended with no utterance sent (a false wake).
     case wakeUnused
+    /// F-24 §15 item 8 (T-016j): `session gave-up ms= attempts= code=`; numbers and a code, never the handle.
+    case sessionGaveUp(ms: Int, attempts: Int, code: RetryableErrorCode)
+    /// F-24 §15 item 8: `session resume handle=yes|no result=resumed|rejected|none`, in the next session's record.
+    case sessionResume(handle: Bool, result: SessionResumeResult)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -143,6 +147,10 @@ public struct ConversationRecorder: Sendable {
             return [line("screen-hidden", "kind=\(kind.rawValue) text=\(ScreenLanguage.recordText(text))")]
         case .wakeToListening(let n): return [line("wake-to-listening", "ms=\(n)")]
         case .wakeUnused: return ["\(ms) wake-unused"]
+        case .sessionGaveUp(let since, let attempts, let code):
+            return add(.session("gave-up ms=\(since) attempts=\(attempts) code=\(code.rawValue)"), atMs: ms)
+        case .sessionResume(let handle, let result):
+            return add(.session("resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"), atMs: ms)
         case .session(let what):
             // A session event ends every open turn: her words are never lost from the file.
             var out: [String] = []

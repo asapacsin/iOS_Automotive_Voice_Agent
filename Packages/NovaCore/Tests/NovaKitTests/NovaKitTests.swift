@@ -161,7 +161,7 @@ struct StateTests {
     func tuningDefaults() {
         let gate = UplinkGateTuning()
         #expect(gate.onset == .milliseconds(200) && gate.preRoll == .milliseconds(300) && gate.hangover == .milliseconds(1200))
-        #expect(ReconnectTuning().maxAttempts == 5)
+        #expect(ReconnectTuning().retryWindow == .seconds(60))
         #expect(AzureSpeechTuning().clauseDeadline(characters: 10) == .milliseconds(8000))
         #expect(ListeningLifecycleTuning().sleepToDeepIdle == .minutes(5))
     }
@@ -181,6 +181,7 @@ struct DiagnosticsTests {
         .resumed(handle: true), .offlineCapReached, .stopSyncSent, .stopSyncInterrupted(ms: 300), .stopSyncNoInterrupt,
         .reaskSuppressed, .abandonCleared, .postStopTurnDropped, .bargeInStopped, .webSearchAsFunction, .destinationNote, .screenHidden(kind: .reply),
         .wakeDetected,
+        .sessionGaveUp(ms: 52_600, attempts: 11, code: .connection), .sessionResume(handle: true, result: .resumed),
     ]
 
     /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").

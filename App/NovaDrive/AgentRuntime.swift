@@ -27,7 +27,7 @@ final class DriveModel: ObservableObject {
     @Published var sheTalks = false
     /// F-08 §14 item 6: her reply (not guidance) plays, so 别说了 stops her: the hint under 「她在说话」.
     @Published var stopHint = false
-    /// F-24 §14 item 4: the offline cap ended the session: 「网络已断开，点按重新开始」 until the next start.
+    /// F-24 §14 item 4: the offline cap ended the session: the §15 item 6 text (`SessionEndedChip`) until the next start.
     @Published var networkEnded = false
     @Published var notice: String?
     // F-20a floating camera window
@@ -166,6 +166,10 @@ struct RuntimeSink: AgentEffectSink {
     let offlineEnded: @Sendable () async -> Void
     /// F-01 §14 items 9-12 (T-060a): the sound and `wake-to-listening` when a woken session first listens.
     let wakeWatch: WakeSessionWatch
+    /// F-24 §15 item 4 (T-016j): the runtime keeps the handle in memory; never logged or written (I-7).
+    let keepHandle: @Sendable (String?) async -> Void
+
+    func keepResumption(_ handle: String?) async { await keepHandle(handle) }
 
     func provider(_ command: ProviderCommand) async {
         switch command {
@@ -225,6 +229,9 @@ struct RuntimeSink: AgentEffectSink {
         case .claimHeld: record?.submit(.held)
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
+        // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
+        case .sessionGaveUp(let ms, let attempts, let code): record?.submit(.sessionGaveUp(ms: ms, attempts: attempts, code: code))
+        case .sessionResume(let handle, let result): record?.submit(.sessionResume(handle: handle, result: result))
         case .sessionState(let state):
             for effect in wakeWatch.sessionState(state) {
                 switch effect {
@@ -820,10 +827,14 @@ final class AgentRuntime {
         let sink = RuntimeSink(realtime: provider, record: record, config: config, revoicer: revoicer, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
-                               offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch)
+                               offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch,
+                               keepHandle: { [weak self] handle in await self?.keepResumption(handle) })
+        // F-24 §15 item 5 (T-016j): a handle kept by the last give-up is sent once, then forgotten.
+        let resume = keptResumption.take(at: navigationClock.now)
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
-                                               destinationNotes: webSearch && DriveSettings.destinationNotes))
+                                               destinationNotes: webSearch && DriveSettings.destinationNotes,
+                                               resume: resume))
         ended.core = core
         self.core = core
         // F-24 §14 item 1: the network path, only while this session exists.
@@ -1151,11 +1162,23 @@ final class AgentRuntime {
     /// F-24 §14 item 4: the session ended quietly after the offline cap; the chip says why until the next start.
     private func endedOffline() {
         guard model.running else { return }
+        // F-24 §15 item 4: this stop is not the driver's; the kept handle survives it.
+        let kept = keptResumption
         stop()
+        keptResumption = kept
         model.networkEnded = true
     }
 
+    /// F-24 §15 item 4 (T-016j): the handle the last give-up or offline cap kept. Memory only (I-7).
+    private var keptResumption = KeptResumption()
+
+    private func keepResumption(_ handle: String?) {
+        keptResumption.keep(handle, at: navigationClock.now)
+    }
+
     func stop() {
+        // F-24 §15 item 4: the driver stopped a running session: a kept handle is not sent next time.
+        if model.running { keptResumption.drop() }
         session += 1
         wakeEnd?()
         wakeEnd = nil
