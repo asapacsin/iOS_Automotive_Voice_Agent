@@ -841,6 +841,10 @@ final class AgentRuntime {
                                                resume: resume))
         ended.core = core
         self.core = core
+        // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.
+        trip.session.attach(core: core, record: record)
+        // A new session's turn count starts again: no yes-needed list or no-state carries over.
+        await navigation.forgetConfirmations()
         // F-24 §14 item 1: the network path, only while this session exists.
         // One consumer, so a quick lost/restored pair reaches the core in order.
         let paths = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .unbounded)
@@ -1147,6 +1151,15 @@ final class AgentRuntime {
                                      location: location, clock: navigationClock,
                                      onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         let listeners = TripListeners()
+        let tripSession = TripSession()
+        // F-16 §14 (T-042c): near-first search; the turn count is the uplink gate's (F-04a), never a transcript.
+        let nearFirst = NearFirstSearch(
+            match: DestinationMatch(pinyin: FoundationPinyinConverter()), geocoder: web,
+            driverTurns: { await tripSession.driverTurns() },
+            onLine: { line in
+                tripSession.record()?.submit(.destSearch(line))
+                RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+            })
         let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
         // The screen follows the trip with or without a session, in snapshot order.
         let screen = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
@@ -1159,13 +1172,15 @@ final class AgentRuntime {
             }
         }
         let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
-                                              saved: savedPlaces, mode: { DriveSettings.naviMode() }) { snapshot in
+                                              saved: savedPlaces, mode: { DriveSettings.naviMode() },
+                                              nearFirst: nearFirst) { snapshot in
             screen.continuation.yield(snapshot)
             // The running session, if any, gets the flags.
             listeners.yield(snapshot)
         }
         await navigation.start()
-        let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners)
+        let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners,
+                           session: tripSession)
         self.trip = trip
         return trip
     }
@@ -1219,6 +1234,8 @@ final class AgentRuntime {
         network = nil
         // F-15a §9: the trip is the app's; it keeps going (HUD, marker, progress) with no session listening.
         trip?.listeners.detach()
+        trip?.session.detach()
+        if let navigation = trip?.navigation { Task { await navigation.forgetConfirmations() } }
         // F-20a §5: session stop closes the camera.
         if model.cameraOpen { closeCamera() }
         speakLine = nil
@@ -1679,6 +1696,35 @@ struct AppTrip {
     let web: AmapWebClient
     let savedPlaces: SavedPlaces
     let listeners: TripListeners
+    let session: TripSession
+}
+
+/// F-16 §14 (T-042c): the running session's core (its driver-turn count) and record, for the trip's search.
+final class TripSession: @unchecked Sendable {
+    private let lock = NSLock()
+    private var core: AgentCore?
+    private var current: ConversationRecord?
+
+    func attach(core: AgentCore, record: ConversationRecord?) {
+        lock.withLock {
+            self.core = core
+            current = record
+        }
+    }
+
+    func detach() {
+        lock.withLock {
+            core = nil
+            current = nil
+        }
+    }
+
+    func record() -> ConversationRecord? { lock.withLock { current } }
+
+    func driverTurns() async -> Int {
+        guard let core = lock.withLock({ core }) else { return 0 }
+        return await core.closedDriverTurns
+    }
 }
 
 /// The trip's snapshots go to the voice session that is running, if any; none while no session is.

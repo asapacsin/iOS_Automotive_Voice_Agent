@@ -205,9 +205,14 @@ public struct Place: Sendable, Hashable {
     /// From the place detail only (F-18 place_details); nil when Amap gives none.
     public let openingHours: String?
     public let phone: String?
+    /// F-16 §14 item 7: Amap's `cityname` and `adname`; nil when Amap gives none.
+    public let city: String?
+    public let district: String?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
-                openingHours: String? = nil, phone: String? = nil) {
+                openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil) {
+        self.city = city
+        self.district = district
         self.openingHours = openingHours
         self.phone = phone
         self.id = id
@@ -228,6 +233,19 @@ public protocol PlaceSearch: Sendable {
     func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place]
     func polygon(_ keywords: String, vertices: [GeoCoordinate]) async throws -> [Place]
     func detail(id: String) async throws -> Place?
+    /// F-16 §14 item 1: `/v3/place/text` limited to `city` (`citylimit=true`) when `cityLimit` is set.
+    func text(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place]
+    /// F-16 §14 item 1: `/v3/place/around` only, with no nationwide fallback when nothing is in the radius.
+    func aroundOnly(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place]
+}
+
+public extension PlaceSearch {
+    func text(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place] {
+        try await text(keywords, city: city)
+    }
+    func aroundOnly(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {
+        try await around(keywords, center: center, radiusMeters: radiusMeters, sort: sort)
+    }
 }
 
 public struct WeatherReport: Sendable, Hashable {
@@ -247,6 +265,26 @@ public protocol WeatherService: Sendable {
 public protocol ReverseGeocoder: Sendable {
     func adcode(at coordinate: GeoCoordinate) async throws -> String?
     func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress?
+    /// F-16 §14 item 1: the car's adcode and formatted address (its province and city) in one lookup.
+    func region(at coordinate: GeoCoordinate) async throws -> PlaceRegion
+}
+
+/// F-16 §14 item 1: where the car is, for the city-limited search and the other-city check.
+public struct PlaceRegion: Sendable, Hashable {
+    public let adcode: String?
+    /// Regeo `formatted_address` (starts with the province and city), or nil.
+    public let formatted: String?
+
+    public init(adcode: String?, formatted: String?) {
+        self.adcode = adcode
+        self.formatted = formatted
+    }
+}
+
+public extension ReverseGeocoder {
+    func region(at coordinate: GeoCoordinate) async throws -> PlaceRegion {
+        PlaceRegion(adcode: try await adcode(at: coordinate), formatted: try await address(at: coordinate)?.formatted)
+    }
 }
 
 public struct StaticMapRequest: Sendable, Hashable {

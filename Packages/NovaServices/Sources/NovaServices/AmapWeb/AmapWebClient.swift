@@ -30,6 +30,24 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
         return Self.places(try await get("/v3/place/text", query))
     }
 
+    /// F-16 §14 item 1: `citylimit=true` keeps the search inside `city` (the car's adcode).
+    public func text(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place] {
+        var query = ["keywords": keywords, "offset": "10", "page": "1", "extensions": "base"]
+        if let city {
+            query["city"] = city
+            if cityLimit { query["citylimit"] = "true" }
+        }
+        return Self.places(try await get("/v3/place/text", query))
+    }
+
+    /// F-16 §14 item 1: the radius only; nothing found stays nothing.
+    public func aroundOnly(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {
+        Self.places(try await get("/v3/place/around", [
+            "keywords": keywords, "location": Self.lngLat(center), "radius": String(radiusMeters),
+            "sortrule": sort.rawValue, "offset": "10", "page": "1", "extensions": "base",
+        ]))
+    }
+
     public func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {
         let found = Self.places(try await get("/v3/place/around", [
             "keywords": keywords, "location": Self.lngLat(center), "radius": String(radiusMeters),
@@ -62,6 +80,13 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
     public func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress? {
         let body = try await get("/v3/geocode/regeo", ["location": Self.lngLat(coordinate)])
         return Self.address(body)
+    }
+
+    /// F-16 §14 item 1: adcode and formatted address from one regeo.
+    public func region(at coordinate: GeoCoordinate) async throws -> PlaceRegion {
+        let body = try await get("/v3/geocode/regeo", ["location": Self.lngLat(coordinate)])
+        let component = (body["regeocode"] as? [String: Any])?["addressComponent"] as? [String: Any]
+        return PlaceRegion(adcode: component?["adcode"] as? String, formatted: Self.address(body)?.formatted)
     }
 
     static func address(_ body: [String: Any]) -> PlaceAddress? {
@@ -162,7 +187,7 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
                          coordinate: GeoCoordinate(latitude: parts[1], longitude: parts[0], datum: .gcj02),
                          distanceMeters: (poi["distance"] as? String).flatMap { Int($0) },
                          openingHours: text(business?["open_time"]) ?? text(business?["opentime2"]),
-                         phone: text(poi["tel"]))
+                         phone: text(poi["tel"]), city: text(poi["cityname"]), district: text(poi["adname"]))
         }
     }
 }

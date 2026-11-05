@@ -86,6 +86,8 @@ final class TimerService: Sendable {
 /// (a barge-in flush never lands between two clauses of the old reply).
 public actor AgentCore {
     public private(set) var state = AgentState()
+    /// F-16 §14 item 5 (T-042c): driver utterances the uplink gate closed (F-04a).
+    public var closedDriverTurns: Int { state.closedDriverTurns }
     private let clock: any NovaClock
     private let sink: any AgentEffectSink
     private let tools: ToolRunner

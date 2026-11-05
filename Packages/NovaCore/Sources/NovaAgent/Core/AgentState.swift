@@ -161,6 +161,8 @@ public struct AgentState: Sendable {
     private var transcriptEpoch = 0
     /// Utterances closed by the uplink gate (F-04a `activityEnd`): F-15a driver turns, counted from audio.
     private var closedTurns = 0
+    /// F-16 §14 item 5 (T-042c): the same count, for the navigation flow's CONFIRM_FIRST (never a transcript).
+    public var closedDriverTurns: Int { closedTurns }
     /// F-04 §14 (T-004i): the open utterance was sent to the model (the gate's decision, followed here).
     private var utteranceSent = true
     /// F-08 §14 items 4, 5, 7: every utterance the gate opened (sent or not), when the last one started and ended,
