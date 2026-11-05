@@ -366,7 +366,7 @@ final class AgentRuntime {
 
     /// T-061: 你好小诺 while idle starts a session (off in the simulator drive test).
     /// F-01 §14: the armed state drives the idle hint; a wake that could not start a session listens again.
-    private lazy var wake = WakeListener(clock: navigationClock, onArmed: { [weak self] armed in
+    private lazy var wake: WakeListener = WakeListener(clock: navigationClock, onArmed: { [weak self] armed in
         if let model = self?.model, model.wakeArmed != armed { model.wakeArmed = armed }
     }, onWake: { [weak self] at in
         guard let self else { return }
