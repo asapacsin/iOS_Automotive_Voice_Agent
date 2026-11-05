@@ -13,7 +13,8 @@ public struct LiveInfoExecutor: ToolExecutor {
     /// F-18 §14: the phone clock and time zone, read at each call.
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
-    /// F-18 §16 item 9: with 「联网搜索（实验）」 on, weather and place details go through `web_search`.
+    /// F-18 §23 item 3: with 「联网搜索（实验）」 on, place details without hours point her to `web_search`.
+    /// (§23 item 1: weather and place details stay here with search on.)
     private let webSearch: Bool
 
     public init(webSearch: Bool = false, navigation: NavigationController, weather: (any WeatherService)?, geocoder: (any ReverseGeocoder)?,
@@ -29,9 +30,6 @@ public struct LiveInfoExecutor: ToolExecutor {
     }
 
     public func execute(_ call: ToolCall) async -> ToolResult {
-        if webSearch, let kind = call.arguments["kind"]?.stringValue, ToolCatalog.searchedLiveInfoKinds.contains(kind) {
-            return .failure(.liveInfoUnavailable, advice: "这项信息请用 web_search 查。现在没有查到，请如实说明，不要编造。")
-        }
         switch call.arguments["kind"]?.stringValue {
         case "route_traffic":
             return await navigation.routeStatus()
@@ -44,7 +42,8 @@ public struct LiveInfoExecutor: ToolExecutor {
         case "along_route":
             return await navigation.alongRoute(category: call.arguments["category"]?.stringValue)
         case "place_details":
-            return await navigation.placeDetails(target: call.arguments["target"])
+            let result = await navigation.placeDetails(target: call.arguments["target"])
+            return webSearch ? Self.searchFallback(result) : result
         default:
             return .failure(.liveInfoUnavailable, advice: "这项信息在 iOS 上还没有数据源。请如实说暂时查不到，不要编造。")
         }
@@ -55,7 +54,7 @@ public struct LiveInfoExecutor: ToolExecutor {
             return .failure(.amapWebKeyMissing, advice: "天气查询还没有配置。请如实说明，不要编造。")
         }
         let target = args["where"]?.stringValue ?? "here"
-        let forecast = args["day"]?.stringValue == "tomorrow"
+        let day = Self.weatherDay(args["day"]?.stringValue, now: now(), zone: zone())
         do {
             let place: String
             switch target {
@@ -83,15 +82,34 @@ public struct LiveInfoExecutor: ToolExecutor {
             default:
                 place = target
             }
-            let report = try await weather.weather(adcode: place, forecast: forecast)
-            return .success(["weather": report.summary,
+            let report = try await weather.weather(adcode: place, day: day)
+            return .success(["weather": report.summary, "date": .string(day.date),
                              "next": "只按 weather 里的数据用一两句话回答，不要编造。"])
+        } catch is WeatherForecastMissing {
+            return .failure(.liveInfoUnavailable, advice: Self.noForecastAdvice)
         } catch {
             return Self.failure(error)
         }
     }
 
     static func failure(_ error: any Error) -> ToolResult { LiveInfoFailure.result(error, what: "天气") }
+
+    /// F-18 §23 item 2: no `casts` entry for the asked date.
+    static let noForecastAdvice = "高德没有这一天的预报，请用 web_search 查。"
+
+    /// F-18 §23 item 2: `day` → offset 0–3 and that day's `yyyy-MM-dd` on the phone clock. Anything else is today,
+    /// as before.
+    static func weatherDay(_ name: String?, now: Date, zone: TimeZone) -> WeatherDay {
+        let offset = name.flatMap { WeatherDay.names.firstIndex(of: $0) } ?? 0
+        let date = SearchDate.adding(offset, to: SearchDate.today(now, zone: zone), zone: zone)
+        return WeatherDay(offset: offset, date: date.iso)
+    }
+
+    /// F-18 §23 item 3: search on, Amap's detail without opening hours fails with the search advice.
+    static func searchFallback(_ result: ToolResult) -> ToolResult {
+        guard result.ok, result.data["opening_hours"] == nil, let name = result.data["name"]?.stringValue else { return result }
+        return .failure(.liveInfoUnavailable, advice: "高德没有\(name)的营业时间，请用 web_search 查，query 带上「\(name)」。")
+    }
 
     // MARK: current_location
 

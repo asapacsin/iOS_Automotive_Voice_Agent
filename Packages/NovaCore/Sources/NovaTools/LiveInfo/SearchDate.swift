@@ -56,7 +56,7 @@ public enum SearchDate {
         return Day(year: c.year!, month: c.month!, day: c.day!)
     }
 
-    static func adding(_ days: Int, to day: Day, zone: TimeZone) -> Day {
+    public static func adding(_ days: Int, to day: Day, zone: TimeZone) -> Day {
         let cal = calendar(zone)
         let base = cal.date(from: DateComponents(year: day.year, month: day.month, day: day.day, hour: 12))!
         let c = cal.dateComponents([.year, .month, .day], from: cal.date(byAdding: .day, value: days, to: base)!)

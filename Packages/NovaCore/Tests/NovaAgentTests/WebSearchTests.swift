@@ -60,7 +60,7 @@ struct WebSearchTests {
         #expect(TruthfulnessTuning.session(webSearch: false) == TruthfulnessTuning())
     }
 
-    @Test("Row 2: setting on: web_search declared, query_live_info trimmed, others unchanged, instruction item 11")
+    @Test("Row 2: setting on: web_search declared, query_live_info as §23 item 1, others unchanged, instruction item 11")
     func on() throws {
         for mode in [ToolCatalog.ComfortMode.table, .model] {
             let off = ToolCatalog.declarations(for: mode)
@@ -69,18 +69,10 @@ struct WebSearchTests {
             for d in on where d.name != "query_live_info" && d.name != "web_search" {
                 #expect(off.contains(d), "\(d.name) changed")
             }
+            // §23 item 1 replaces §16 item 9's trim: weather and place details stay (T-046k, SearchOnLiveInfoTests).
             let live = try #require(on.first { $0.name == "query_live_info" })
-            for word in ["weather", "place_details", "where=", "day=", "target=", "天气", "无数据源", "新闻、股票"] {
-                #expect(!live.description.contains(word), "\(word)")
-            }
-            for kept in ["route_traffic", "along_route", "current_location", "current_time", "→toilet"] {
-                #expect(live.description.contains(kept), "\(kept)")
-            }
-            let props = live.parametersJSONSchema["properties"]
-            #expect(props?["where"] == nil && props?["day"] == nil && props?["target"] == nil)
-            #expect(props?["category"] == ToolCatalog.declarations.first { $0.name == "query_live_info" }!
-                .parametersJSONSchema["properties"]?["category"])
-            #expect(props?["kind"]?["enum"] == ["route_traffic", "along_route", "current_location", "current_time"])
+            #expect(live.description.contains(ToolCatalog.officialFirst) && !live.description.contains("新闻、股票"))
+            #expect(live.parametersJSONSchema == off.first { $0.name == "query_live_info" }!.parametersJSONSchema)
             let search = try #require(on.first { $0.name == "web_search" })
             #expect(search.description == "查网上的信息：任何一天的天气、新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。")
             #expect(search.parametersJSONSchema["required"] == ["query"])

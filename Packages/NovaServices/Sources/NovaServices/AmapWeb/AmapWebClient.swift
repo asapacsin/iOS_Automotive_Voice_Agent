@@ -102,7 +102,9 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
     // MARK: WeatherService
 
     /// `adcode` may also be a city name; it is geocoded first.
-    public func weather(adcode: String, forecast: Bool) async throws -> WeatherReport {
+    /// F-18 §23 item 2: offset 0 is the live report; 1–3 is the `casts` entry whose `date` equals `day.date`
+    /// (the phone's date plus the offset), never picked by position. No such entry: `WeatherForecastMissing`.
+    public func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
         var code = adcode
         if !adcode.allSatisfy(\.isNumber) {
             let body = try await get("/v3/geocode/geo", ["address": adcode])
@@ -111,14 +113,17 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
             }
             code = found
         }
+        let forecast = day.offset > 0
         let body = try await get("/v3/weather/weatherInfo", ["city": code, "extensions": forecast ? "all" : "base"])
         if forecast {
-            guard let cast = ((body["forecasts"] as? [[String: Any]])?.first?["casts"] as? [[String: Any]])?.dropFirst().first,
-                  let city = (body["forecasts"] as? [[String: Any]])?.first?["city"] as? String else {
+            guard let entry = (body["forecasts"] as? [[String: Any]])?.first,
+                  let casts = entry["casts"] as? [[String: Any]],
+                  let city = entry["city"] as? String else {
                 throw AmapWebError.failed
             }
+            guard let cast = Self.cast(casts, date: day.date) else { throw WeatherForecastMissing(date: day.date) }
             return WeatherReport(adcode: code, summary: .object([
-                "city": .string(city), "day": "tomorrow",
+                "city": .string(city), "day": .string(day.name), "date": .string(day.date),
                 "weather_day": .string(cast["dayweather"] as? String ?? ""),
                 "temp_high": .string(cast["daytemp"] as? String ?? ""),
                 "temp_low": .string(cast["nighttemp"] as? String ?? ""),
@@ -126,12 +131,17 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
         }
         guard let live = (body["lives"] as? [[String: Any]])?.first else { throw AmapWebError.failed }
         return WeatherReport(adcode: code, summary: .object([
-            "city": .string(live["city"] as? String ?? ""), "day": "today",
+            "city": .string(live["city"] as? String ?? ""), "day": "today", "date": .string(day.date),
             "weather": .string(live["weather"] as? String ?? ""),
             "temperature_c": .string(live["temperature"] as? String ?? ""),
             "wind": .string("\(live["winddirection"] as? String ?? "")风\(live["windpower"] as? String ?? "")级"),
             "humidity": .string(live["humidity"] as? String ?? ""),
         ]))
+    }
+
+    /// The cast for `date` (`yyyy-MM-dd`), wherever it sits in the list.
+    static func cast(_ casts: [[String: Any]], date: String) -> [String: Any]? {
+        casts.first { ($0["date"] as? String) == date }
     }
 
     // MARK: Transport

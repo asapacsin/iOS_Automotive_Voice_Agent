@@ -258,8 +258,29 @@ public struct WeatherReport: Sendable, Hashable {
     }
 }
 
+/// F-18 §23 item 2: which day a weather call means. `offset` 0–3 from the phone's date; `date` is that day as
+/// `yyyy-MM-dd` on the phone clock, the value Amap's `casts[].date` must equal.
+public struct WeatherDay: Sendable, Hashable {
+    public static let names = ["today", "tomorrow", "day_after", "day_after_next"]
+    public let offset: Int
+    public let date: String
+
+    public init(offset: Int, date: String) {
+        self.offset = offset
+        self.date = date
+    }
+
+    public var name: String { Self.names[min(max(offset, 0), Self.names.count - 1)] }
+}
+
+/// F-18 §23 item 2: Amap's forecast has no entry with the asked date.
+public struct WeatherForecastMissing: Error, Sendable, Hashable {
+    public let date: String
+    public init(date: String) { self.date = date }
+}
+
 public protocol WeatherService: Sendable {
-    func weather(adcode: String, forecast: Bool) async throws -> WeatherReport
+    func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport
 }
 
 public protocol ReverseGeocoder: Sendable {

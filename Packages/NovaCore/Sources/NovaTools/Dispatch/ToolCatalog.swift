@@ -30,10 +30,22 @@ public enum ToolCatalog {
 
     /// All tools in Android domain order; iOS descriptions where the iOS flow differs (`iosDescriptions`).
     public static let specs: [ToolSpec] = generatedSpecs.map { spec in
-        guard let text = iosDescriptions[spec.name] else { return spec }
+        let schema = spec.name == "query_live_info" ? longerDays(spec.declaration.parametersJSONSchema)
+            : spec.declaration.parametersJSONSchema
         return ToolSpec(domain: spec.domain, repeatSensitive: spec.repeatSensitive,
-                        declaration: ToolDeclaration(name: spec.name, description: text,
-                                                     parametersJSONSchema: spec.declaration.parametersJSONSchema))
+                        declaration: ToolDeclaration(name: spec.name, description: iosDescriptions[spec.name] ?? spec.declaration.description,
+                                                     parametersJSONSchema: schema))
+    }
+
+    /// F-18 §23 item 2: `query_live_info.day` reaches 大后天, with search on and off.
+    public static let weatherDays = ["today", "tomorrow", "day_after", "day_after_next"]
+    static func longerDays(_ schema: JSONValue) -> JSONValue {
+        guard case .object(var root) = schema, case .object(var props)? = root["properties"],
+              case .object(var day)? = props["day"] else { preconditionFailure("query_live_info schema changed") }
+        day["enum"] = .array(weatherDays.map { .string($0) })
+        props["day"] = .object(day)
+        root["properties"] = .object(props)
+        return .object(root)
     }
 
     /// F-15a §2.5 (T-040h): iOS has no route list; guidance starts on the recommended route once the place is
@@ -107,32 +119,18 @@ public enum ToolCatalog {
             "additionalProperties": false,
         ]))
 
-    /// F-18 §16 item 9: the kinds search answers instead leave `query_live_info` with the setting on.
-    public static let searchedLiveInfoKinds: Set<String> = ["weather", "place_details"]
+    /// F-18 §23 item 1: the sentence her search-on `query_live_info` text adds (a tool description, not the search prompt).
+    public static let officialFirst = "天气（今天到大后天）和地点营业时间先用 query_live_info；它没有数据时再用 web_search。"
 
-    /// F-18 §16 item 9: `query_live_info` without weather and place details, their arguments, their text, and the
-    /// no-data-source sentence. Everything else is today's text.
+    /// F-18 §16 item 9 as changed by §23 item 1: with search on, `query_live_info` keeps every kind, argument and
+    /// line; only the no-data-source sentence goes, and `officialFirst` is added.
     static func searchOnLiveInfo(_ spec: ToolSpec) -> ToolSpec {
         let d = spec.declaration
-        let cuts: [(String, String)] = [
-            ("，绝不编造天气、路况或地点。", "，绝不编造路况或地点。"),
-            ("weather：「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；问明天加 day=tomorrow。", ""),
-            ("place_details：「目的地几点关门」→target=destination；「第二个几点开门」→target=2。", ""),
-            ("新闻、股票、油价、汇率无数据源，不要调用，如实说无法回答。", ""),
-        ]
-        var text = d.description
-        for (old, new) in cuts {
-            precondition(text.contains(old), "query_live_info description changed")
-            text = text.replacingOccurrences(of: old, with: new)
-        }
-        guard case .object(var schema) = d.parametersJSONSchema, case .object(var props)? = schema["properties"],
-              case .object(var kind)? = props["kind"] else { preconditionFailure("query_live_info schema changed") }
-        kind["enum"] = .array(liveInfoKinds.filter { !searchedLiveInfoKinds.contains($0) }.map { .string($0) })
-        props["kind"] = .object(kind)
-        for key in ["where", "day", "target"] { props[key] = nil }
-        schema["properties"] = .object(props)
+        let cut = "新闻、股票、油价、汇率无数据源，不要调用，如实说无法回答。"
+        precondition(d.description.contains(cut), "query_live_info description changed")
+        let text = d.description.replacingOccurrences(of: cut, with: officialFirst)
         return ToolSpec(domain: spec.domain, repeatSensitive: spec.repeatSensitive,
-                        declaration: ToolDeclaration(name: d.name, description: text, parametersJSONSchema: .object(schema)))
+                        declaration: ToolDeclaration(name: d.name, description: text, parametersJSONSchema: d.parametersJSONSchema))
     }
 
     /// The declarations a session sends. `webSearch` false is exactly `declarations(for:)`.
