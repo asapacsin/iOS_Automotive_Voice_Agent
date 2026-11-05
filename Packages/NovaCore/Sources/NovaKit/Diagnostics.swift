@@ -55,6 +55,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case destinationNote
     /// F-05a §13 item 5 (T-016i): conversation text failed the screen check and was not shown. No words (I-8).
     case screenHidden(kind: ScreenTextKind)
+    /// F-01 §14 item 12 (T-060a): the wake listener heard 你好小诺. No words, no audio (I-8).
+    case wakeDetected
 }
 
 /// F-05a §13 item 2: which conversation text the screen check hid.
@@ -105,6 +107,7 @@ extension DiagnosticEvent {
         case webSearchAsFunction
         case destinationNote
         case screenHidden
+        case wakeDetected
     }
 
     public var kind: Kind {
@@ -144,6 +147,7 @@ extension DiagnosticEvent {
         case .webSearchAsFunction: .webSearchAsFunction
         case .destinationNote: .destinationNote
         case .screenHidden: .screenHidden
+        case .wakeDetected: .wakeDetected
         }
     }
 }
@@ -170,6 +174,7 @@ extension DiagnosticEvent {
         case .abandonCleared: "abandonCleared reason=newUtterance"
         case .postStopTurnDropped: "postStopTurnDropped reason=noSentUtterance"
         case .bargeInStopped: "bargeInStopped"
+        case .wakeDetected: "wakeDetected"
         default: "diagnostic \(self)"
         }
     }

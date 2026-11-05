@@ -3,12 +3,13 @@ import NovaNav
 import NovaPlatform
 import NovaPorts
 import NovaServices
+import NovaVoice
 import SwiftUI
 
 /// Keys are write-only: entered here, kept in the Keychain, never shown again (H-keys).
 struct SettingsView: View {
     private let store = KeychainCredentialStore()
-    private let keys: [(CredentialKey, String)] = [
+    private static let allKeys: [(CredentialKey, String)] = [
         (.geminiAPIKey, "Gemini API key"),
         (.azureSpeechKey, "Azure Speech key"),
         (.amapSDKKey, "高德 iOS SDK key"),
@@ -20,6 +21,8 @@ struct SettingsView: View {
         (.iflytekAPIKey, "讯飞 APIKey"),
         (.iflytekAPISecret, "讯飞 APISecret"),
     ]
+    /// F-01 §14 item 5: with the sherpa wake engine selected the three 讯飞 fields do not show.
+    private let keys = SettingsView.allKeys.filter { !WakeEngineKind.selected.hiddenKeys.contains($0.0) }
     private let settings = DefaultsSettingsStore()
     @State private var drafts: [CredentialKey: String] = [:]
     @State private var saved: Set<CredentialKey> = []
@@ -35,6 +38,7 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.modelComfort) private var modelComfort = false
     @AppStorage(DriveSettings.webSearch) private var webSearch = false
     @AppStorage(DriveSettings.conversationRecord) private var conversationRecord = false
+    @AppStorage(DriveSettings.wakeWord) private var wakeWord = true
     @State private var confirmDeleteRecords = false
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
     @StateObject private var locationPermission = LocationPermission()
@@ -66,6 +70,12 @@ struct SettingsView: View {
                     TextField("声音", text: $azureVoice)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                }
+                // F-01 §14 item 6 (T-060a).
+                Section("唤醒词") {
+                    Toggle("唤醒词", isOn: $wakeWord)
+                    Text("开：应用在前台时用手机麦克风等「你好小诺」，声音只在手机上处理。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("声音") {
                     Toggle("抗噪", isOn: $noiseSuppression)

@@ -101,6 +101,25 @@ struct SherpaLogicTests {
         #expect(Tuning.tuned("x y @label\n") == "x y @label\n")
     }
 
+    @Test("F-01 §14 item 3: the wake keywords carry the wake tuning, not a stop phrase's")
+    func wakeKeywordsUseWakeTuning() {
+        let file = WakePhrase.keywordsFile(boost: Tuning.wakeBoost, threshold: Tuning.wakeThreshold)
+        let lines = file.split(separator: "\n")
+        #expect(lines.count == WakePhrase.forms.count)
+        #expect(lines[0] == "n ǐ h ǎo x iǎo n uò :\(Tuning.wakeBoost) #\(Tuning.wakeThreshold) @wake0")
+        // A wake hit is not a stop phrase, and a stop-phrase hit is not a wake.
+        #expect(KeywordLabel.phrase("wake0") == nil)
+        #expect(WakePhrase.form(ofKeyword: "0") == nil)
+    }
+
+    @Test("F-01 §14 item 4: the wake engine is available only when the KWS manifest and its files are there")
+    func wakeModelPresence() throws {
+        let json = #"{"name": "kws", "type": "transducer", "encoder": "e", "decoder": "d", "joiner": "j", "tokens": "t"}"#
+        #expect(SherpaWakeEngine.modelPresent(in: try dir(["kws.json": json, "e": "", "d": "", "j": "", "t": ""])))
+        #expect(!SherpaWakeEngine.modelPresent(in: try dir(["kws.json": json, "e": ""])))
+        #expect(!SherpaWakeEngine.modelPresent(in: nil))
+    }
+
     @Test func hitLabelsMapToPhrases() {
         #expect(KeywordLabel.phrase("0") == 0)
         #expect(KeywordLabel.phrase("@6") == 6)

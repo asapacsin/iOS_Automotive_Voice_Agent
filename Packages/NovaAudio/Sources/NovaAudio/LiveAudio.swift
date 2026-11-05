@@ -16,6 +16,9 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private let reply = AVAudioPlayerNode()
     private let guidance = AVAudioPlayerNode()
     private let media = AVAudioPlayerNode()
+    /// F-01 §14 items 9–10 (T-060a): the wake-ready sound. Same engine, so voice processing has it in the echo
+    /// reference; no playback events, so it is neither her reply nor guidance to the gate and the core.
+    private let cue = AVAudioPlayerNode()
     private var mediaOn = false
     private let replyFormat = AVAudioFormat(standardFormatWithSampleRate: Double(PCMBuffer.replySampleRate), channels: 1)!
     private let captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(PCMFrame16k.sampleRate),
@@ -38,10 +41,12 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         engine.attach(reply)
         engine.attach(guidance)
         engine.attach(media)
+        engine.attach(cue)
         engine.connect(reply, to: engine.mainMixerNode, format: replyFormat)
         engine.connect(guidance, to: engine.mainMixerNode, format: replyFormat)
         // Music goes through the same voice-processing engine, so it is inside the echo reference.
         engine.connect(media, to: engine.mainMixerNode, format: replyFormat)
+        engine.connect(cue, to: engine.mainMixerNode, format: replyFormat)
     }
 
     // MARK: CaptureSource
@@ -70,6 +75,7 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         try engine.start()
         reply.play()
         guidance.play()
+        cue.play()
         // Voice processing reconfigures the I/O unit after start and iOS stops the engine; restart it.
         configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
                                                                 object: engine, queue: nil) { [weak self] _ in
@@ -77,6 +83,7 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             try? self.engine.start()
             self.reply.play()
             self.guidance.play()
+            self.cue.play()
             if self.mediaPlaying { self.media.play() }
             self.lock.withLock { self.restarted }?()
         }
@@ -228,6 +235,14 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             return source
         }
         return error == nil ? output : nil
+    }
+
+    /// F-01 §14 items 9–10: plays `pcm` once on the cue node. It reports nothing, never touches the reply lane or its
+    /// epoch, and is dropped when the engine is not running.
+    public func playCue(_ pcm: PCMBuffer) {
+        guard lock.withLock({ running }), engine.isRunning, let buffer = Self.buffer(pcm, format: replyFormat) else { return }
+        cue.scheduleBuffer(buffer, completionHandler: nil)
+        if !cue.isPlaying { cue.play() }
     }
 
     public var guidanceSounding: Bool { lock.withLock { guidanceOutstanding > 0 } }

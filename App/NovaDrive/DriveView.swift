@@ -143,6 +143,8 @@ private struct DriveContent: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var bubble = BubbleFade()
     @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
+    /// F-01 §14 item 6: 「唤醒词」 changed in 设置: the listener is applied again.
+    @AppStorage(DriveSettings.wakeWord) private var wakeWord = true
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -168,6 +170,7 @@ private struct DriveContent: View {
         .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }
         .onChange(of: position.command) { _, command in if let command { apply(command.command) } }
         .onChange(of: useDeviceLocation) { _, _ in position.sourceChanged() }
+        .onChange(of: wakeWord) { _, _ in Task { await runtime.refreshWake() } }
         .onAppear {
             visible = true
             position.appear()
@@ -330,6 +333,11 @@ private struct DriveContent: View {
                 if model.sheTalks && model.stopHint && model.running {
                     Text("说「别说了」可打断").font(.caption2).foregroundStyle(.secondary)
                         .accessibilityIdentifier("stop-hint")
+                }
+                // F-01 §14 item 8: only while the wake listener is armed and no session runs.
+                if let hint = WakePhrase.hint(armed: model.wakeArmed, sessionRunning: model.running) {
+                    Text(hint).font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("wake-hint")
                 }
             }
         }

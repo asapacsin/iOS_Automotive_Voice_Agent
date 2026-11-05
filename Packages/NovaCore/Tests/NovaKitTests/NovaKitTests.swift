@@ -180,6 +180,7 @@ struct DiagnosticsTests {
         .sessionError(.audioCaptureFailed), .networkLost, .networkRestored, .offlineRestoreAttempt,
         .resumed(handle: true), .offlineCapReached, .stopSyncSent, .stopSyncInterrupted(ms: 300), .stopSyncNoInterrupt,
         .reaskSuppressed, .abandonCleared, .postStopTurnDropped, .bargeInStopped, .webSearchAsFunction, .destinationNote, .screenHidden(kind: .reply),
+        .wakeDetected,
     ]
 
     /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").

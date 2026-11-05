@@ -100,16 +100,17 @@ struct WakeDetectorTests {
 
 @Suite("T-061 F-01 when the idle app listens for the wake word")
 struct WakeListenPolicyTests {
-    @Test("F-01: listens only in the foreground, idle, linked, configured, mic granted, and not given up")
+    @Test("F-01: listens only in the foreground, idle, available, mic granted, and not given up; iFlytek needs keys")
     func policy() {
         var p = WakeListenPolicy()
-        p.engineLinked = true; p.configured = true; p.micGranted = true
+        p.engine = .iflytek
+        p.engineAvailable = true; p.keysSaved = true; p.micGranted = true
         #expect(p.shouldListen)
         for change in [\WakeListenPolicy.sessionRunning, \.gaveUp] {
             var q = p; q[keyPath: change] = true
             #expect(!q.shouldListen)
         }
-        for change in [\WakeListenPolicy.foreground, \.engineLinked, \.configured, \.micGranted] {
+        for change in [\WakeListenPolicy.foreground, \.engineAvailable, \.keysSaved, \.micGranted, \.enabled] {
             var q = p; q[keyPath: change] = false
             #expect(!q.shouldListen)
         }
