@@ -1814,6 +1814,18 @@
         "T-016f"
       ],
       "notes": "Owner 2026-11-05: the screen sometimes shows Korean or other languages. No Korean in the 8 records read, so the case itself is not traced; the code shows four unchecked paths. Row 10 is the device check."
+    },
+    {
+      "id": "T-060a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-01 §14 items 1-14: SherpaWakeEngine on the bundled KWS model, WakePhrase with two token lines, no iFlytek keys, 唤醒词 setting, screen on while listening, sound when ready, record lines; rows 1-12",
+      "depends_on": [
+        "T-061",
+        "T-022a"
+      ],
+      "notes": "Owner 2026-11-05: the wake word is not set up. The iFlytek path needs three keys and was never verified on a phone. No public false-wake numbers for this model, so rows 9-12 decide."
     }
   ]
 }

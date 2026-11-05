@@ -162,6 +162,7 @@ NOT_VERIFIED until a device run is attached.
 |---|---|---|---|---|---|---|
 | T-060 | Check OQ-IOS-9 (app-fed audio), then the `IflytekWakeDetector` adapter with bounded retry | F-01 | iFlytek SDK, T-021 | `Packages/NovaWakeIflytek/` | F-01 §10 row 3 | build, imports, D |
 | T-061 | Mic router + wake arming; one capture only | F-01 | T-060 | `Core/NovaVoice/Wake/`, `Packages/NovaAudio/` | F-01 §10 rows 1–2 | unit, D |
+| T-060a | 你好小诺 on the bundled sherpa keyword spotter: no keys, a setting, screen on while listening, a sound when ready, false-wake record lines | F-01 | T-061, T-022a | `Packages/NovaAsrSherpa/`, `Core/NovaVoice/Wake/`, `App/NovaDrive/`, `scripts/gates/` | F-01 §14 rows 1–12 | gate, unit, build, D |
 | T-062 | `BackgroundPolicy` + scene-phase bridge + background modes | F-23 | OQ-IOS-13, T-061 | `Core/NovaAgent/Background/`, `App/Lifecycle/`, Info.plist | Table in ios-architecture §11.3 (unit); device behaviour (D) | unit, D |
 | T-063 | Permission coordinator + zh-Hans/en usage strings | F-23 | T-025 | `App/Lifecycle/`, `App/Resources/` | F-23 §10 row 1 | S |
 | T-064 | M5 device run, incl. screen lock during navigation | — | T-060..T-063 | `specs/STATUS.md` | F-01/F-23 device rows | D |
