@@ -139,6 +139,8 @@ final class SpeakerTakeRecorder {
             throw error
         }
         self.audio = audio
+        // The gate learns the noise bed for 1.5 s and cannot open then: wait it out before the driver reads.
+        try? await Task.sleep(for: .milliseconds(1_600))
     }
 
     /// Stops the capture and returns the take; the raw audio is dropped by the caller after embedding.
@@ -159,16 +161,31 @@ private final class TakeBox: @unchecked Sendable {
     private var gate = SpeechUplinkGate()
     private var speech: [PCMFrame16k] = []
     private var open = false
+    /// Frames of the open segment: its pre-roll (sent with the start) and hangover are not speech.
+    private var segment: [PCMFrame16k] = []
+    private var preRoll = 0
 
     func reset() { lock.withLock { gate = SpeechUplinkGate(); speech = []; open = false } }
     func classified(_ r: SpeechClassification) { lock.withLock { gate.classified(r) } }
     func frame(_ f: PCMFrame16k) {
         lock.withLock {
-            for o in gate.process(f) {
+            let outputs = gate.process(f)
+            for o in outputs {
                 switch o {
-                case .speechStarted(let sent): open = sent
-                case .audio(let a) where open: speech.append(a)
-                case .speechStopped: open = false
+                case .speechStarted(let sent):
+                    open = sent
+                    segment = []
+                    preRoll = max(0, outputs.filter { if case .audio = $0 { true } else { false } }.count - 1)
+                case .audio(let a) where open: segment.append(a)
+                case .speechStopped:
+                    if open {
+                        // §4 item 3: speech only, without the pre-roll and the 1.2 s hangover.
+                        let hangover = Int(UplinkGateTuning().hangover.milliseconds / 10)
+                        let end = max(preRoll, segment.count - hangover)
+                        if end > preRoll { speech += segment[preRoll..<end] }
+                    }
+                    open = false
+                    segment = []
                 default: break
                 }
             }
@@ -265,6 +282,8 @@ struct SpeakerEnrollmentView: View {
                 if let message { Section { Text(message) } }
             }
             .navigationTitle("录入声纹")
+            // Swiping away mid-take would keep the microphone; 取消 ends the take first.
+            .interactiveDismissDisabled()
             .toolbar { Button("取消") { Task { if recording { _ = await recorder.finish() }; dismiss() } } }
         }
     }
@@ -346,6 +365,7 @@ struct SpeakerCalibrationView: View {
                 if let message { Section { Text(message) } }
             }
             .navigationTitle("校准")
+            .interactiveDismissDisabled()
             .toolbar { Button("关闭") { Task { if recording { _ = await recorder.finish() }; dismiss() } } }
         }
     }

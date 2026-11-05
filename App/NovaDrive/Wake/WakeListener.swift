@@ -82,6 +82,7 @@ final class WakeListener {
                         RuntimeLog.agent.notice("wake-rejected")
                         continue
                     }
+                    guard self.detector === detector else { return }
                     // §14 item 12: no words, no audio (I-8).
                     RuntimeLog.agent.notice("\(DiagnosticEvent.wakeDetected.logLine, privacy: .public)")
                     await self.release()

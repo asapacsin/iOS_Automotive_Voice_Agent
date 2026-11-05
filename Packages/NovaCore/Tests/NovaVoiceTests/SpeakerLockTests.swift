@@ -14,7 +14,7 @@ private func record(_ id: Int, sent: Bool = true) -> UtteranceRecord {
 private func utterance(_ id: Int, frames: Int, from first: Int = 1, sent: Bool = true) -> [[UplinkGateOutput]] {
     var steps: [[UplinkGateOutput]] = [[.speechStarted(sentToModel: sent), .audio(f(first))]]
     for n in (first + 1)..<(first + frames) { steps.append([.audio(f(n))]) }
-    steps.append([.speechStopped(.normal), .streamEnd, .utterance(record(id, sent: sent))])
+    steps.append([.speechStopped(.normal), .utterance(record(id, sent: sent)), .streamEnd])
     return steps
 }
 private func audioNumbers(_ outputs: [UplinkGateOutput]) -> [Int] {
@@ -55,7 +55,7 @@ struct SpeakerHoldTests {
         for step in steps.dropFirst(100) { forwarded += hold.frame(step).outputs }
         #expect(forwarded.first == .speechStarted(sentToModel: true))
         #expect(audioNumbers(forwarded) == Array(1...150))
-        #expect(forwarded.last == .utterance(record(1)))
+        #expect(Array(forwarded.suffix(2)) == [.utterance(record(1)), .streamEnd])
         let check = try! #require(hold.takeChecks().first)
         #expect(check.result == .accepted && check.speechMs == 1000 && check.scoreMs == 30)
         #expect(check.logLine.hasPrefix("speaker-check utterance=1 kind=speech score=0.8 threshold=0.5 result=accepted"))
@@ -121,7 +121,7 @@ struct SpeakerHoldTests {
         let r = try! #require(request)
         out = hold.result(.score(0.9, scoreMs: 10), utterance: r.utterance, generation: r.generation).outputs
         #expect(audioNumbers(out) == Array(1...70))
-        #expect(out.last == .utterance(record(1)))
+        #expect(Array(out.suffix(2)) == [.utterance(record(1)), .streamEnd])
     }
 
     @Test("F-04b row 4: a late result for an old utterance or old session is dropped")
@@ -385,5 +385,41 @@ struct SpeakerWordsTests {
         #expect(!w3)
         let w4 = hold.words(.final("好的"), utterance: 4, heldUtterance: nil)
         #expect(w4)
+    }
+}
+
+@Suite("T-013e F-04b speaker lock: the gate's real closing order")
+struct SpeakerRealOrderTests {
+    @Test("F-04b row 3: stop, record, closing silence, stream end; speechMs counts only the utterance")
+    func realOrder() {
+        var steps: [[UplinkGateOutput]] = [[.speechStarted(sentToModel: true), .audio(f(1))]]
+        for n in 2...61 { steps.append([.audio(f(n))]) }
+        steps.append([.speechStopped(.normal), .utterance(record(1))])
+        for n in 62...211 { steps.append([.audio(f(n))]) }
+        steps.append([.streamEnd])
+        // Rejected: only the marks, as not sent.
+        var hold = SpeakerHold()
+        _ = hold.setLock(threshold: 0.5)
+        var out: [UplinkGateOutput] = []
+        for s in steps {
+            let st = hold.frame(s)
+            out += st.outputs
+            if let r = st.request { out += hold.result(.score(0.1, scoreMs: 1), utterance: r.utterance, generation: r.generation).outputs }
+        }
+        var r = record(1)
+        r.sentToModel = false
+        r.muteReason = .speaker
+        #expect(out == [.speechStarted(sentToModel: false), .speechStopped(.normal), .utterance(r)])
+        #expect(hold.takeChecks().first?.speechMs == 610)
+        // Accepted: identical to the input.
+        var hold2 = SpeakerHold()
+        _ = hold2.setLock(threshold: 0.5)
+        var out2: [UplinkGateOutput] = []
+        for s in steps {
+            let st = hold2.frame(s)
+            out2 += st.outputs
+            if let r = st.request { out2 += hold2.result(.score(0.9, scoreMs: 1), utterance: r.utterance, generation: r.generation).outputs }
+        }
+        #expect(out2 == steps.flatMap { $0 })
     }
 }

@@ -878,7 +878,7 @@ final class AgentRuntime {
             // F-08 §16-§17: the post-stop hold and the interruption check hear the words at once.
             gate.words(words, utterance: utterance)
             // F-04b §6 item 4 (T-013e): with 声纹锁定 on, a held utterance's words wait for its verdict.
-            if gate.speakerAllows(words, utterance: utterance) { deliverWords(words) }
+            gate.deliverIfAllowed(words, utterance: utterance, deliverWords)
         }
         // F-04b (T-013e): scoring off the capture thread; released words; record and log lines (numbers only, I-8).
         let speakerService = SpeakerLockService.shared
@@ -1321,11 +1321,15 @@ final class GateBox: @unchecked Sendable {
     func setSpeakerLock(_ threshold: Double?) {
         order.lock()
         defer { order.unlock() }
+        // §6 item 12: no change (every UserDefaults change calls this) does nothing.
+        guard lock.withLock({ speaker.threshold != threshold }) else { return }
         let (step, act, forward, released, words) = lock.withLock {
             let sp = speaker.setLock(threshold: threshold)
             stopCheck.setLock(threshold: threshold)
-            let (fed, released) = speakerAfter(sp)
-            return (liveStep(raw: [], hold.pass(fed), frame: false, speaker: sp), onBargeIn, self.forward, released,
+            let (out, released) = speakerAfter(sp)
+            var fed = hold.pass(out)
+            fed += replay(released)
+            return (liveStep(raw: [], fed, frame: false, speaker: sp), onBargeIn, self.forward, released,
                     speakerWords)
         }
         step.actions.forEach { act?($0) }
@@ -1341,14 +1345,7 @@ final class GateBox: @unchecked Sendable {
             let sp = speaker.result(outcome, utterance: request.utterance, generation: request.generation)
             let (out, released) = speakerAfter(sp)
             var fed = hold.pass(out)
-            // Words that arrived while it was held reach the post-stop hold now, after its start.
-            for r in released {
-                switch r.words {
-                case .partial(let t): fed += hold.partial(t, utterance: r.utterance)
-                case .final(let t): fed += hold.final(t, utterance: r.utterance)
-                case .unclear: fed += hold.final("", utterance: r.utterance)
-                }
-            }
+            fed += replay(released)
             return (liveStep(raw: [], fed, frame: false, speaker: sp), onBargeIn, self.forward, released, speakerWords,
                     hold.takeLogs() + live.takeLogs())
         }
@@ -1358,9 +1355,26 @@ final class GateBox: @unchecked Sendable {
         logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
     }
 
-    /// §6 item 4: false = the words wait for (or were dropped by) the speaker verdict. Lock off: always true.
-    func speakerAllows(_ words: DriverWords, utterance id: Int) -> Bool {
-        lock.withLock { speakerWordsHold.words(words, utterance: id, heldUtterance: speaker.heldUtterance) }
+    /// Under `lock`: words that arrived while an utterance was held reach the post-stop hold after its start.
+    private func replay(_ released: [SpeakerWordsHold.Released]) -> [UplinkGateOutput] {
+        var fed: [UplinkGateOutput] = []
+        for r in released {
+            switch r.words {
+            case .partial(let t): fed += hold.partial(t, utterance: r.utterance)
+            case .final(let t): fed += hold.final(t, utterance: r.utterance)
+            case .unclear: fed += hold.final("", utterance: r.utterance)
+            }
+        }
+        return fed
+    }
+
+    /// §6 item 4: delivers the words now unless the speaker verdict holds (or dropped) them. Under `order`, so a
+    /// release on the scoring thread cannot interleave: released words always follow their utterance's start.
+    func deliverIfAllowed(_ words: DriverWords, utterance id: Int, _ deliver: (DriverWords) -> Void) {
+        order.lock()
+        defer { order.unlock() }
+        let now = lock.withLock { speakerWordsHold.words(words, utterance: id, heldUtterance: speaker.heldUtterance) }
+        if now { deliver(words) }
     }
 
     /// §6 item 8: a spotted stop phrase stops her only on the enrolled voice when locked; `act` runs when it may.

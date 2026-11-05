@@ -63,6 +63,13 @@ public struct SpeakerScoreRequest: Sendable, Hashable {
     public let generation: Int
     public let kind: SpeakerCheckKind
     public let frames: [PCMFrame16k]
+
+    public init(utterance: Int, generation: Int, kind: SpeakerCheckKind, frames: [PCMFrame16k]) {
+        self.utterance = utterance
+        self.generation = generation
+        self.kind = kind
+        self.frames = frames
+    }
 }
 
 /// The background queue's answer to a request.
@@ -99,7 +106,8 @@ public struct SpeakerHold: Sendable {
                      speech: Int, requested: Bool, closed: Bool)
         case passing(id: Int)
         /// Rejected: a sent one is swallowed to its end; a not-sent one passes as it is (`sent` false).
-        case dropping(id: Int, sent: Bool)
+        /// `closed`: its record went out; only the closing silence and stream end remain (swallowed).
+        case dropping(id: Int, sent: Bool, closed: Bool)
     }
 
     private let tuning: SpeakerTuning
@@ -154,6 +162,8 @@ public struct SpeakerHold: Sendable {
         let wasLocked = locked
         self.threshold = threshold
         var step = Step()
+        // §6 item 5: any lock change resets pending state; a held one then ends at the cap as unknown.
+        if wasLocked, locked { generation += 1 }
         guard wasLocked, !locked else { return step }
         unavailable = false
         generation += 1  // a pending result can no longer apply
@@ -202,7 +212,7 @@ public struct SpeakerHold: Sendable {
             utterance += 1
             // A new utterance while the last one waits: the late one is unknown.
             if case .holding = state { drop(score: nil, scoreMs: 0, into: &step) }
-            if case .dropping(_, true) = state {
+            if case .dropping(_, true, false) = state {
                 // The swallowed one never closed (should not happen): close it for the core.
                 step.outputs.append(.speechStopped(.flagged))
             }
@@ -217,22 +227,24 @@ public struct SpeakerHold: Sendable {
             return
         }
         switch state {
-        case .idle, .passing, .dropping(_, false):
+        case .idle, .passing, .dropping(_, false, _):
             if case .utterance = output { state = .idle }
             step.outputs.append(output)
-        case .dropping(_, true):
+        case .dropping(let id, true, let closed):
             switch output {
-            case .audio, .streamEnd, .speechStarted: break
-            case .speechStopped: step.outputs.append(output)
+            case .audio, .speechStarted: break
+            case .streamEnd: state = .idle
+            case .speechStopped: if !closed { step.outputs.append(output) }
             case .utterance(var record):
                 record.sentToModel = false
                 record.muteReason = .speaker
-                state = .idle
+                state = .dropping(id: id, sent: true, closed: true)
                 step.outputs.append(.utterance(record))
             }
         case .holding(let id, let sent, let since, var buffer, var frames, var speech, var requested, var closed):
             if sent { buffer.append(output) } else { step.outputs.append(output) }
-            if case .audio(let frame) = output {
+            // speechMs counts the utterance's own audio, not the closing silence after it.
+            if case .audio(let frame) = output, !closed {
                 speech += 1
                 if !requested { frames.append(frame) }
             }
@@ -300,6 +312,7 @@ public struct SpeakerHold: Sendable {
                 }
             }
         }
-        state = closed ? .idle : .dropping(id: id, sent: sent)
+        // A sent one swallows its closing silence and stream end too: nothing of it goes up.
+        state = sent ? .dropping(id: id, sent: true, closed: closed) : (closed ? .idle : .dropping(id: id, sent: false, closed: false))
     }
 }
