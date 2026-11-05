@@ -1807,7 +1807,7 @@
     {
       "id": "T-016i",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-05a §13 items 1-7: pure ScreenLanguage check before driver line, reply, guidance and camera text are shown; other scripts void her reply with NOT_MANDARIN; screen-hidden record line; rows 1-10",
       "depends_on": [
