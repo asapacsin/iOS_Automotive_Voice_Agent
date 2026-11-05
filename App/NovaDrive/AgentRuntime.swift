@@ -556,8 +556,6 @@ final class AgentRuntime {
     /// The running session's record (F-05a §13 item 5, camera lines); nil with no session or the record off.
     private var sessionRecord: ConversationRecord?
 
-    /// 问一下: the fixed question. The answer shows as her bubble and on the window, and is spoken in her
-    /// voice while a session runs; with no session it is shown only (F-20a §7 as amended).
     /// F-05a §13 item 2: a camera answer that fails the screen check becomes the fallback sentence.
     private func shownCamera(_ answer: String) -> String {
         let shown = ScreenLanguage.cameraLine(answer)
@@ -568,12 +566,15 @@ final class AgentRuntime {
         return shown.line
     }
 
+    /// 问一下: the fixed question. The answer shows as her bubble and on the window, and is spoken in her
+    /// voice while a session runs; with no session it is shown only (F-20a §7 as amended).
     func tapAsk() async {
         let result = await askCamera(CameraQuestionHandler.tapQuestion)
         // Window closed meanwhile (or a newer question): say nothing.
         guard result.code != .superseded, model.cameraOpen else { return }
-        let line = shownCamera(result.data["answer"]?.stringValue
-            ?? result.advice?.components(separatedBy: "请如实").first ?? ScreenLanguage.cameraFallback)
+        // `askCamera` already checked (and recorded) the answer; the advice is the app's own Chinese.
+        let line = model.cameraAnswer
+            ?? result.advice?.components(separatedBy: "请如实").first ?? ScreenLanguage.cameraFallback
         model.cameraAnswer = line
         model.view.subtitle = line
         await speakLine?(line)

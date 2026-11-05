@@ -17,9 +17,9 @@ public enum ScreenLanguage {
         var han = false
         var latin = false
         for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
-            if TranscriptLanguage.isHan(scalar) || ReplyLanguage.isHan(scalar) {
+            if ReplyLanguage.isHan(scalar) {
                 han = true
-            } else if TranscriptLanguage.isLatin(scalar) {
+            } else if ReplyLanguage.isLatin(scalar) {
                 latin = true
             } else if scalar.properties.generalCategory != .nonspacingMark {
                 return .hide  // Hangul, Kana, Cyrillic, Devanagari, Arabic, Thai…, even inside a Chinese sentence
@@ -29,10 +29,12 @@ public enum ScreenLanguage {
         if !latin { return .show }
         guard final else { return .wait }
         let kept = text.unicodeScalars.filter { !$0.properties.isWhitespace }
-        let short = kept.count <= shortTokenLimit && kept.allSatisfy {
-            ("A"..."Z").contains($0) || ("a"..."z").contains($0) || ("0"..."9").contains($0)
-        }
-        return short ? .show : .hide
+        return kept.count <= shortTokenLimit && kept.allSatisfy(isToken) ? .show : .hide
+    }
+
+    /// A short-token character: `A-Z` or `0-9`, half or full width. Lowercase is a word, not a token (`Hola`).
+    static func isToken(_ s: Unicode.Scalar) -> Bool {
+        ("A"..."Z").contains(s) || ("0"..."9").contains(s) || (0xFF21...0xFF3A).contains(s.value) || (0xFF10...0xFF19).contains(s.value)
     }
 
     /// Row 1 lists 「4S店」 as `show`, but `isChinese` fails it (one Han, one Latin word: 50 % < 60 %). So Han text
@@ -43,14 +45,14 @@ public enum ScreenLanguage {
         var runs: [Int] = []
         var inRun = false
         for scalar in text.unicodeScalars {
-            if TranscriptLanguage.isHan(scalar) || ReplyLanguage.isHan(scalar) {
+            if ReplyLanguage.isHan(scalar) {
                 han += 1
                 inRun = false
-            } else if ("A"..."Z").contains(scalar) || ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar) {
+            } else if isToken(scalar) {
                 if inRun { runs[runs.count - 1] += 1 } else { runs.append(1) }
                 inRun = true
             } else if scalar.properties.isAlphabetic {
-                return false  // an accented or other Latin letter: not a short token
+                return false  // a lowercase, accented or other letter: a word, not a short token
             } else {
                 inRun = false
             }
@@ -63,11 +65,11 @@ public enum ScreenLanguage {
         check(text, final: true) == .hide ? (unclearDriverLine, true) : (text, false)
     }
 
-    /// The driver's line for the whole text so far: nil keeps the line as it is (`wait`).
+    /// The driver's line for the whole text so far; `wait` shows nothing yet.
     public static func driverDisplay(_ text: String, final: Bool) -> (line: String?, hidden: Bool) {
         switch check(text, final: final) {
         case .show: (text, false)
-        case .wait: (nil, false)
+        case .wait: ("", false)
         case .hide: (unclearDriverLine, true)
         }
     }

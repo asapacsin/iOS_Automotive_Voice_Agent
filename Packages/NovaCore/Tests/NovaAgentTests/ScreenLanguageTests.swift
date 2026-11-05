@@ -16,14 +16,14 @@ private func hidden(_ effects: [AgentEffect]) -> [AgentEffect] {
 struct ScreenLanguageTests {
     @Test("Row 1: final Chinese, names inside Chinese, short tokens and numbers show")
     func shows() {
-        for text in ["你好", "导航去 Costa", "4S店", "OK", "4S", "22", "…", "去SM广场"] {
+        for text in ["你好", "导航去 Costa", "4S店", "OK", "4S", "22", "…", "去SM广场", "二〇二六年", "ＯＫ", "４Ｓ店", "SUV"] {
             #expect(ScreenLanguage.check(text, final: true) == .show, "\(text)")
         }
     }
 
     @Test("Row 2: final other scripts, mixed Hangul, and Latin sentences hide")
     func hides() {
-        for text in ["안녕하세요", "好的안녕", "こんにちは", "Привет", "मैं", "¿Qué?", "What?", "la vecina", "好 la vecina"] {
+        for text in ["안녕하세요", "好的안녕", "こんにちは", "Привет", "मैं", "¿Qué?", "What?", "la vecina", "好 la vecina", "Hola", "hello", "si no", "谢谢 thank you", "你好 hello world"] {
             #expect(ScreenLanguage.check(text, final: true) == .hide, "\(text)")
         }
     }
@@ -60,7 +60,7 @@ struct ScreenLanguageTests {
     func hangulVoided() {
         #expect(ReplyLanguage.isNotMandarin("안"))
         #expect(ReplyLanguage.isNotMandarin("好的안"))
-        #expect(!ReplyLanguage.isNotMandarin("OK"))
+        #expect(!ReplyLanguage.isNotMandarin("OK") && !ReplyLanguage.isNotMandarin("ＯＫ") && !ReplyLanguage.isNotMandarin("二〇二六年"))
         var (d, t) = replying()
         let out = d.realtime(.replyText(t, "안녕"))
         #expect(spoken(out).isEmpty && subtitles(out).allSatisfy { $0.isEmpty })
@@ -83,7 +83,7 @@ struct ScreenLanguageTests {
         let words = "la vecina"
         let shown = ScreenLanguage.driverDisplay(words, final: true)
         #expect(shown.line == "（没听清）" && shown.hidden)
-        #expect(ScreenLanguage.driverDisplay("la vec", final: false).line == nil)
+        #expect(ScreenLanguage.driverDisplay("la vec", final: false).line == "")
         let stop = ScreenLanguage.driverDisplay("别说了", final: true)
         #expect(stop.line == "别说了" && !stop.hidden)
         #expect(words == "la vecina")
