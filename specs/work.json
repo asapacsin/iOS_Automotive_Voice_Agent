@@ -1818,7 +1818,7 @@
     {
       "id": "T-060a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-01 §14 items 1-14: SherpaWakeEngine on the bundled KWS model, WakePhrase with two token lines, no iFlytek keys, 唤醒词 setting, screen on while listening, sound when ready, record lines; rows 1-12",
       "depends_on": [
