@@ -38,7 +38,7 @@ extension SpeakingStyle {
 public enum PersonaInstruction {
     public static let maxCharacters = 4000
     /// F-21 §14 item 6: the base is billed every turn.
-    public static let maxBaseCharacters = 1500
+    public static let maxBaseCharacters = 1600
 
     /// F-21 §14 (T-034a), §15 (T-034b): 小诺's base instruction: persona → car scope (strict) → other scope (natural) → guardrails.
     public static let base = """

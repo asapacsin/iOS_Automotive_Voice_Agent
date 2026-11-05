@@ -162,7 +162,8 @@ struct WebSearchClientTests {
         let two = client.request("上海后天（2026年11月6日）天气", key: "k").httpBody
         let body = String(decoding: one ?? Data(), as: UTF8.self)
         #expect(body.contains(#""forced_search":true"#) && body.contains("上海后天（2026年11月6日）天气"))
-        #expect(body.contains("回答要写明是哪一天（几月几号）。问题里写了日期就只回答那一天；找不到那一天的信息就说查不到。"))
+        // §24 (T-046m): the date now arrives as FreshPrompt's cutoff line and date turn, not a Chinese rule.
+        #expect(body.contains("Knowledge cutoff: ") && body.contains("What's today's date?") && !body.contains("查不到"))
         #expect(one == two)
     }
 
@@ -192,7 +193,8 @@ struct WebSearchClientTests {
         let first = try JSONDecoder().decode(JSONValue.self, from: client.request("q", key: "k").httpBody ?? Data())
         let retry = try JSONDecoder().decode(JSONValue.self, from: client.request("q", key: "k").httpBody ?? Data())
         #expect(first == retry)
-        #expect(first["input"]?["messages"]?[2]?["content"] == [["text": "Today is December 31, 2026 in America/New_York."]])
+        guard case .array(let messages)? = first["input"]?["messages"], messages.count == 4 else { Issue.record("no messages"); return }
+        #expect(messages[2]["content"] == [["text": "Today is December 31, 2026 in America/New_York."]])
         let system = QwenWebSearchClient.instruction(now: date, zone: zone)
         #expect(system == "You are a helpful assistant. Answer as concisely as possible. Knowledge cutoff: December 31, 2026.")
         for banned in ["查不到", "必须", "中文"] { #expect(!system.contains(banned), "\(banned)") }

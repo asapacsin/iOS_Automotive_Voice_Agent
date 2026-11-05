@@ -16,8 +16,8 @@ struct DriverWordsRecordTests {
         _ = try await client.search(message, attempt: 1)
         let x = try #require(seen.withLock { $0 }.first)
         let body = try JSONDecoder().decode(JSONValue.self, from: Data(x.requestBody.utf8))
-        guard case .array(let messages)? = body["input"]?["messages"], messages.count == 2,
-              case .array(let parts)? = messages[1]["content"], let first = parts.first else {
+        guard case .array(let messages)? = body["input"]?["messages"], messages.count == 4,
+              case .array(let parts)? = messages[3]["content"], let first = parts.first else {
             Issue.record("unexpected body shape")
             return
         }

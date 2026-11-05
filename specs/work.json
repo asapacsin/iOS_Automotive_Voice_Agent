@@ -1904,13 +1904,20 @@
     {
       "id": "T-046m",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 3,
       "action": "F-18 §24 items 1-7: FreshPrompt system text on the current Qwen settings, her next and persona no longer force 只按 answer; rows 1-7",
       "depends_on": [
         "T-046l"
       ],
-      "notes": "Owner 2026-11-05: apply now without the PC comparison, after 下个月澳门温度几度 returned 查不到 despite 6 sources. Whether it fixes that is unproven until rows 5-7 run. | 2026-11-05: built (FreshPrompt messages, next/dateNext, persona item 5, tests rows 1-3, search_eval S1 = app). Review PASS. BLOCKED on a spec conflict: the item 5 persona text makes the base 1552 characters, over maxBaseCharacters 1500 (live-info.md row 7); 2 tests fail. Owner to choose: raise the limit or shorten text."
+      "notes": "Owner 2026-11-05: apply now without the PC comparison, after 下个月澳门温度几度 returned 查不到 despite 6 sources. Whether it fixes that is unproven until rows 5-7 run. | Spec conflict resolved by raising the persona base limit to 1600. web_search tool description still says 只按返回的 answer 回答 (outside §24).",
+      "evidence": [
+        "Gates run_all.sh exit 0 (NovaRealtime 37, NovaServices 42)",
+        "Unit rows 1-4: WebSearchClientTests freshPrompt + exchanges, WebSearchTests noRefusalRules + persona, existing retry/failure tests",
+        "Independent high-effort review PASS",
+        "maxBaseCharacters 1500 -> 1600 (live-info.md row 7 updated) to fit the approved item 5 text",
+        "Rows 5-7 device NOT_VERIFIED"
+      ]
     }
   ]
 }

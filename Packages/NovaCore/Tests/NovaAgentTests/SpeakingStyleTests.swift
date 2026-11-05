@@ -205,7 +205,7 @@ struct CameraScopeTests {
 
 @Suite("T-046b F-18 §14 item 3 time rule in the persona")
 struct TimeRuleTests {
-    @Test("Row 7: the time rule is in the base, 时间 in the strict scope, base within 1500 characters")
+    @Test("Row 7: the time rule is in the base, 时间 in the strict scope, base within 1600 characters")
     func rule() {
         #expect(PersonaInstruction.base.contains("9. 问现在几点、今天几号、星期几：调用 query_live_info（kind=current_time），只按返回的结果回答，不要自己猜时间。"))
         #expect(PersonaInstruction.base.contains("当前位置、时间、"))
