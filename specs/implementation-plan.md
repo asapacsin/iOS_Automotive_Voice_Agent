@@ -141,6 +141,7 @@ NOT_VERIFIED until a device run is attached.
 | T-046g | The app works out the date of a search, writes it into the query, and refuses a future-day answer that names only other dates | F-18 | T-046f | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §19 rows 1–9 | unit, build, D |
 | T-046h | Every call to Qwen must search: `forced_search` on, sources rule unchanged | F-18 | T-046g | `Packages/NovaRealtime/` | F-18 §20 rows 1–5 | unit, build, D |
 | T-046i | During navigation: a silent note and the search result give her the destination, 目的地 in a query becomes the name, and she asks when a place name makes no sense | F-18 | T-046h | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §21 rows 1–12 | unit, build, D |
+| T-046j | Qwen searches with `search_strategy: "turbo"` instead of `agent`; forced search and the sources rule stay | F-18 | T-046i | `Packages/NovaRealtime/` | F-18 §22 rows 1–4 | unit, build, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 

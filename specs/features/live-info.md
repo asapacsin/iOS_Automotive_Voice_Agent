@@ -370,7 +370,7 @@ This section adds to §17 and §18. It depends on T-046f. It does not change her
 |---|---|---|
 | T-046g | Items 1–9; rows 1–9 | unit, build, D |
 
-## 20. Every call to Qwen must search (iOS, APPROVED 2026-11-04)
+## 20. Every call to Qwen must search (iOS, APPROVED 2026-11-04; strategy replaced by §22)
 
 **Why.** PC test 2026-11-04 with the app's §17 settings: `今日国内油价是多少 2026年11月4日` searched only 1 time in 3. The other 2 replies had no `search_results` and no search usage, and answered from memory, in 3.0 s and 4.6 s. On the phone, 「今天油价多少」 failed in 2.6 s, and 「上海后天天气怎么样」 needed a retry. The app only calls Qwen after she has decided to search, so Qwen deciding again has no purpose. Owner 2026-11-04: force the search, in the spec.
 
@@ -453,3 +453,49 @@ This section adds to §17–§20 and depends on T-046h. It changes the §17 `web
 | Task | Scope | Verify |
 |---|---|---|
 | T-046i | Items 1–10; rows 1–12 | unit, build, D |
+
+## 22. Qwen searches in `turbo` mode (iOS, APPROVED 2026-11-05)
+
+**Why.** Device 2026-11-05, 21f4478, record `20261105-090203`: Qwen searched in 1 of 10 calls. It answered 「查不到。」 in about a second with no sources, so 「横琴后天天气怎么样」 failed even when she heard it correctly and sent the right date. The §17 mode `search_strategy: "agent"` was the cause.
+
+PC test 2026-11-05, same key and endpoint, query `珠海横琴后天（2026年11月7日）天气`, `forced_search` on, 5 calls each:
+
+| Strategy | Qwen's system text | Searched | Time |
+|---|---|---|---|
+| `agent` (the exact 21f4478 request) | current | 0 of 5 | 1.8–2.2 s |
+| `agent` | without 「查不到」 | 0 of 5 | 2.1–3.3 s |
+| `turbo` | current | 5 of 5 | 2.8–4.3 s |
+| `turbo` | without 「查不到」 | 5 of 5 | 2.7–2.8 s |
+| `max` | current | 5 of 5 | 3.1–4.8 s |
+| `max` | without 「查不到」 | 5 of 5 | 3.0–4.4 s |
+| none | without 「查不到」 | 5 of 5 | 2.7–2.9 s |
+
+So the app and the phone are not the cause, and neither is the 「查不到」 wording. Source: [Qwen web search docs](https://platform.qianwenai.com/docs/developer-guides/tool-calling/web-search) say that under `agent` the model decides when and how often to search, and that only `enable_source` works with it. `turbo` is the default mode for most cases.
+
+This section changes §17 item 3 and §20 item 1, and replaces the `searchCount` part of §20 row 4.
+
+1. **The setting.** `search_options` becomes `{"search_strategy": "turbo", "enable_source": true, "forced_search": true}`. Set the strategy explicitly, so the mode is visible in the §18 record. Nothing else in the request changes, including Qwen's system text.
+2. **The sources rule stays.** §17 item 5 still applies: text and at least one source, or retry once, then fail. `search_results` is the evidence of a search. `searchCount` is only recorded, because the PC test did not read it under `turbo`.
+3. **If Alibaba refuses the setting.** As §20 item 3: the code is logged and recorded, and the app does not silently resend with another strategy.
+4. **What this does not fix or prove.**
+   - The PC test used one question, so other kinds of question are still untested under `turbo`. Row 3 tests them.
+   - Every answer said 多云, 24–27℃ for 11月7日, but this was not compared with a real forecast. Row 3 compares it.
+   - The Singapore price of `turbo` was not found. Row 4 reads it from the bill.
+   - She can still mishear 「横琴后天」 as 「前天」. That is not a search problem.
+5. **Not changed.** The voice model, `qwen3.7-flash`, the 10 s limit, the §19 date rules, the §21 destination rules, and everything with the setting off.
+6. **Decision.** No pass bars. The owner reads the §18 record from rows 3–4 and decides whether Qwen stays.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Client request, first attempt and retry | `search_options` has `search_strategy: "turbo"`, `enable_source: true` and `forced_search: true`; `agent` is not sent | unit |
+| 2 | HTTP 400 with a `code` | One request, the code is logged, no resend with another strategy; `LIVE_INFO_UNAVAILABLE` | unit |
+| 3 | Device, record on: 「横琴后天天气怎么样」, 「上海大后天天气怎么样」, 「今天油价多少」, 「今天有什么新闻」, 「美元汇率多少」, 「香港迪士尼几点关门」, each 3 times | Every `search-request` has `turbo`; every `search-response` has `sources` above 0; note any `no_sources`, `timeout` and `wrong_date`, the delay, and whether answers match a real forecast or source | D |
+| 4 | Device: after row 3, open the Model Studio bill | Note the cost per search | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046j | Items 1–6; rows 1–4 | unit, build, D |

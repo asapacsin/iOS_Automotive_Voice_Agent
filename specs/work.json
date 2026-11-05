@@ -1792,6 +1792,17 @@
         "T-046h"
       ],
       "notes": "Device 2026-11-04, e01f464: while navigating to 横琴文化艺术中心 she searched ODD几点关门 and said she could not find ODD. Owner approved the two-part fix after a community review. turnComplete false has never been sent by this app, so row 8 comes first."
+    },
+    {
+      "id": "T-046j",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-18 §22 items 1-6: search_options uses search_strategy turbo with enable_source and forced_search; sources still required; no silent resend with another strategy; rows 1-4",
+      "depends_on": [
+        "T-046i"
+      ],
+      "notes": "Device 2026-11-05, 21f4478: Qwen searched in 1 of 10 calls. PC test 2026-11-05, same question 5 times each: agent 0 of 10, turbo 10 of 10, max 10 of 10, no strategy 5 of 5. One question only, so row 3 tests the others."
     }
   ]
 }
