@@ -1900,6 +1900,17 @@
         "Independent high-effort review PASS; its eviction finding fixed (no snapshot -> nil)",
         "Row 6 (PC search_eval run) NOT_VERIFIED: needs DASHSCOPE_API_KEY on the owner's PC"
       ]
+    },
+    {
+      "id": "T-046m",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-18 §24 items 1-7: FreshPrompt system text on the current Qwen settings, her next and persona no longer force 只按 answer; rows 1-7",
+      "depends_on": [
+        "T-046l"
+      ],
+      "notes": "Owner 2026-11-05: apply now without the PC comparison, after 下个月澳门温度几度 returned 查不到 despite 6 sources. Whether it fixes that is unproven until rows 5-7 run."
     }
   ]
 }
