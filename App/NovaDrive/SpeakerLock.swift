@@ -227,7 +227,13 @@ struct SpeakerLockSection: View {
         Text(SpeakerLockPolicy.switchText).font(.footnote).foregroundStyle(.secondary)
         Text("这只是基本的声纹确认，可能认错，录音也可能通过，不是安全功能。")
             .font(.footnote).foregroundStyle(.secondary)
+        // The sheets and refresh hang on this always-shown row: an EmptyView in a Form is never rendered, so
+        // modifiers on it never fire (录入声纹 did nothing on device, build 7910dc7).
         LabeledContent("声纹", value: status.text)
+            .sheet(isPresented: $showEnroll, onDismiss: refresh) { SpeakerEnrollmentView() }
+            .sheet(isPresented: $showCalibrate, onDismiss: refresh) { SpeakerCalibrationView() }
+            .onAppear(perform: refresh)
+            .onReceive(NotificationCenter.default.publisher(for: SpeakerModelLocator.changed)) { _ in refresh() }
         if let note { Text(note).font(.footnote).foregroundStyle(.red) }
         switch status {
         case .notEnrolled, .invalidModel:
@@ -246,11 +252,6 @@ struct SpeakerLockSection: View {
                     Button("删除", role: .destructive) { SpeakerLockService.shared.deleteProfile(); refresh() }
                 }
         }
-        EmptyView()
-            .sheet(isPresented: $showEnroll, onDismiss: refresh) { SpeakerEnrollmentView() }
-            .sheet(isPresented: $showCalibrate, onDismiss: refresh) { SpeakerCalibrationView() }
-            .onAppear(perform: refresh)
-            .onReceive(NotificationCenter.default.publisher(for: SpeakerModelLocator.changed)) { _ in refresh() }
     }
 
     /// §3 item 4: the switch stays off until a calibrated profile exists; on opens the next step instead.
