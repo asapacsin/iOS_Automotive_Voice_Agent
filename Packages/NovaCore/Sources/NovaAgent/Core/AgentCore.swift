@@ -19,6 +19,12 @@ public protocol AgentEffectSink: Sendable {
     func speakGuidance(_ text: String, id: GuidanceID) async
     /// The uplink gate force-closes while `open` is false (F-08).
     func uplink(open: Bool)
+    /// F-05a §13 item 5: the record line `screen-hidden`; the text stays local (I-8).
+    func screenHidden(_ kind: ScreenTextKind, text: String)
+}
+
+extension AgentEffectSink {
+    public func screenHidden(_ kind: ScreenTextKind, text: String) {}
 }
 
 /// Runs tool calls as child tasks (ios-architecture §5.1): cancellable, always ends in a `ToolResult`.
@@ -122,6 +128,9 @@ public actor AgentCore {
         case .diagnostic(let event): sink.diagnostic(event)
         case .speakGuidance(let text, let id): await sink.speakGuidance(text, id: id)
         case .uplink(let open): sink.uplink(open: open)
+        case .screenHidden(let kind, let text):
+            sink.diagnostic(.screenHidden(kind: kind))
+            sink.screenHidden(kind, text: ScreenLanguage.recordText(text))
         }
     }
 }

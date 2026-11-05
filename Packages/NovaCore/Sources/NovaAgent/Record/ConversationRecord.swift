@@ -38,6 +38,8 @@ public enum RecordEvent: Sendable, Hashable {
     case searchOutcome(WebSearchOutcome)
     /// F-18 §21 item 7: a destination note; nil = the end note.
     case contextNote(destination: String?)
+    /// F-05a §13 item 5: text the screen check hid; the first 80 characters.
+    case screenHidden(kind: ScreenTextKind, text: String)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -129,6 +131,8 @@ public struct ConversationRecorder: Sendable {
         case .searchExchange(let x): return Self.searchLines(x).map { line($0.kind, $0.content) }
         case .searchOutcome(let o): return Self.searchLine(o).map { [line($0.kind, $0.content)] } ?? []
         case .contextNote(let name): return [line("context-note", "destination=\(name ?? "none")")]
+        case .screenHidden(let kind, let text):
+            return [line("screen-hidden", "kind=\(kind.rawValue) text=\(ScreenLanguage.recordText(text))")]
         case .session(let what):
             // A session event ends every open turn: her words are never lost from the file.
             var out: [String] = []

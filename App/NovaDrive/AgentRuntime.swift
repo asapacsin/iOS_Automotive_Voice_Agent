@@ -218,6 +218,10 @@ struct RuntimeSink: AgentEffectSink {
         }
     }
 
+    func screenHidden(_ kind: ScreenTextKind, text: String) {
+        record?.submit(.screenHidden(kind: kind, text: text))
+    }
+
     /// F-14 fallback voice: rendered off the core, played on the guidance lane. A sentence that cannot
     /// be rendered still ends, so the relay moves on.
     func speakGuidance(_ text: String, id: GuidanceID) async {
@@ -435,7 +439,7 @@ final class AgentRuntime {
         if switching { model.cameraSwitching = false }
         if result.code != .superseded {
             model.cameraAsking = false
-            model.cameraAnswer = result.data["answer"]?.stringValue
+            model.cameraAnswer = result.data["answer"]?.stringValue.map { shownCamera($0) }
         }
         return result
     }
@@ -549,15 +553,27 @@ final class AgentRuntime {
 
     /// Speaks a line in her voice while a session runs (set in `start()`, cleared in `stop()`).
     private var speakLine: (@Sendable (String) async -> Void)?
+    /// The running session's record (F-05a §13 item 5, camera lines); nil with no session or the record off.
+    private var sessionRecord: ConversationRecord?
 
     /// 问一下: the fixed question. The answer shows as her bubble and on the window, and is spoken in her
     /// voice while a session runs; with no session it is shown only (F-20a §7 as amended).
+    /// F-05a §13 item 2: a camera answer that fails the screen check becomes the fallback sentence.
+    private func shownCamera(_ answer: String) -> String {
+        let shown = ScreenLanguage.cameraLine(answer)
+        if shown.hidden {
+            RuntimeLog.agent.notice("\(DiagnosticEvent.screenHidden(kind: .camera).logLine, privacy: .public)")
+            sessionRecord?.submit(.screenHidden(kind: .camera, text: answer))
+        }
+        return shown.line
+    }
+
     func tapAsk() async {
         let result = await askCamera(CameraQuestionHandler.tapQuestion)
         // Window closed meanwhile (or a newer question): say nothing.
         guard result.code != .superseded, model.cameraOpen else { return }
-        let line = result.data["answer"]?.stringValue
-            ?? result.advice?.components(separatedBy: "请如实").first ?? "刚才没看清楚，再问我一次吧。"
+        let line = shownCamera(result.data["answer"]?.stringValue
+            ?? result.advice?.components(separatedBy: "请如实").first ?? ScreenLanguage.cameraFallback)
         model.cameraAnswer = line
         model.view.subtitle = line
         await speakLine?(line)
@@ -732,6 +748,7 @@ final class AgentRuntime {
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
             searchKey: webSearch ? searchKeySaved : nil))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
+        sessionRecord = record
         // F-18 §16 items 3, 6-7 and §17 items 1-8: `web_search` through the search model, only with the setting on.
         if webSearch {
             let qwenKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
@@ -794,11 +811,17 @@ final class AgentRuntime {
         let gateEvents = AsyncStream.makeStream(of: UplinkEvent.self, bufferingPolicy: .unbounded)
         let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core,
                                           clock: SystemClock()) { [gate] words, utterance in
-            let line: String? = switch words {
-            case .partial(let text), .final(let text): text
-            case .unclear: "（没听清）"
+            // F-05a §13 item 2: display only; the words below and the guards are unchanged.
+            let shown: (line: String?, hidden: Bool) = switch words {
+            case .partial(let text): ScreenLanguage.driverDisplay(text, final: false)
+            case .final(let text): ScreenLanguage.driverDisplay(text, final: true)
+            case .unclear: (ScreenLanguage.unclearDriverLine, false)
             }
-            if let line { Task { @MainActor in model.driverLine = line } }
+            if shown.hidden, case .final(let text) = words {
+                RuntimeLog.agent.notice("\(DiagnosticEvent.screenHidden(kind: .driver).logLine, privacy: .public)")
+                record?.submit(.screenHidden(kind: .driver, text: text))
+            }
+            if let line = shown.line { Task { @MainActor in model.driverLine = line } }
             switch words {
             case .final(let text): record?.submit(.heardLocal(text))
             case .unclear: record?.submit(.heardLocal(nil))
@@ -1109,6 +1132,7 @@ final class AgentRuntime {
         // F-20a §5: session stop closes the camera.
         if model.cameraOpen { closeCamera() }
         speakLine = nil
+        sessionRecord = nil
         lifecycle = nil
         guard let core else { return }
         let audio = audio

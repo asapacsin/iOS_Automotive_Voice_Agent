@@ -53,6 +53,13 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case webSearchAsFunction
     /// F-18 §21 item 7 (T-046i): a destination note went to the model. No name (I-8).
     case destinationNote
+    /// F-05a §13 item 5 (T-016i): conversation text failed the screen check and was not shown. No words (I-8).
+    case screenHidden(kind: ScreenTextKind)
+}
+
+/// F-05a §13 item 2: which conversation text the screen check hid.
+public enum ScreenTextKind: String, Sendable, Hashable, CaseIterable {
+    case driver, reply, guidance, camera
 }
 
 public enum StopPhraseSource: String, Sendable, Hashable {
@@ -97,6 +104,7 @@ extension DiagnosticEvent {
         case bargeInStopped
         case webSearchAsFunction
         case destinationNote
+        case screenHidden
     }
 
     public var kind: Kind {
@@ -135,6 +143,7 @@ extension DiagnosticEvent {
         case .bargeInStopped: .bargeInStopped
         case .webSearchAsFunction: .webSearchAsFunction
         case .destinationNote: .destinationNote
+        case .screenHidden: .screenHidden
         }
     }
 }
@@ -156,6 +165,7 @@ extension DiagnosticEvent {
         case .stopSyncInterrupted(let ms): "stopSync interrupted ms=\(ms)"
         case .stopSyncNoInterrupt: "stopSyncNoInterrupt"
         case .destinationNote: "destinationNote"
+        case .screenHidden(let kind): "screenHidden kind=\(kind.rawValue)"
         case .reaskSuppressed: "reaskSuppressed reason=stop"
         case .abandonCleared: "abandonCleared reason=newUtterance"
         case .postStopTurnDropped: "postStopTurnDropped reason=noSentUtterance"

@@ -5,14 +5,18 @@ public enum ReplyLanguage {
     /// Latin token alone (「OK」, 「4S」) stays allowed.
     static let foreignLetterLimit = 6
 
-    /// The reply so far is in another language: enough letters, none of them Chinese.
+    /// The reply so far is in another language: any letter of a script other than Han or Latin (F-05a §13
+    /// item 4), or enough letters with none of them Chinese.
     public static func isNotMandarin(_ text: String) -> Bool {
         var foreign = 0
+        var han = false
         for scalar in text.unicodeScalars {
-            if isHan(scalar) { return false }
-            if scalar.properties.isAlphabetic { foreign += 1 }
+            if isHan(scalar) { han = true; continue }
+            guard scalar.properties.isAlphabetic else { continue }
+            if !TranscriptLanguage.isLatin(scalar), scalar.properties.generalCategory != .nonspacingMark { return true }
+            foreign += 1
         }
-        return foreign >= foreignLetterLimit
+        return !han && foreign >= foreignLetterLimit
     }
 
     static func isHan(_ s: Unicode.Scalar) -> Bool {

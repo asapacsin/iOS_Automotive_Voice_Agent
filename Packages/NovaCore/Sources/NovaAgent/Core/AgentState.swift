@@ -122,6 +122,8 @@ public enum AgentEffect: Sendable, Hashable {
     case speakGuidance(String, GuidanceID)
     /// The uplink may send (F-08 uplink rules). The gate force-closes while false.
     case uplink(open: Bool)
+    /// F-05a §13 item 5: text that failed the screen check (once per text). The sink logs only the kind.
+    case screenHidden(ScreenTextKind, String)
 }
 
 /// The single serialisation point (Android's session mutex), as a pure value: `VoiceSession`,
@@ -553,6 +555,52 @@ public struct AgentState: Sendable {
                                   workPending: runningTools > 0, focusHeld: arbiter.focus == .held)
     }
 
+    // MARK: F-05a §13 (T-016i): the screen check on her bubble
+
+    /// The whole reply or reading so far; `view.subtitle` shows it only when it passes.
+    private var subtitleRaw = ""
+    private var subtitleKind: ScreenTextKind = .reply
+    private var subtitleGuidance: String?
+    private var subtitleHidden = false
+
+    private mutating func resetSubtitle() {
+        view.subtitle = ""
+        subtitleRaw = ""
+        subtitleKind = .reply
+        subtitleGuidance = nil
+        subtitleHidden = false
+    }
+
+    /// Item 2: checked on the whole text so far. `wait` shows nothing yet; `hide` shows nothing, or the engine's
+    /// own sentence for a guidance reading. Once hidden, the text stays hidden.
+    private mutating func subtitle(adding text: String, _ kind: ScreenTextKind, guidance: String? = nil) -> [AgentEffect] {
+        subtitleRaw += text
+        subtitleKind = kind
+        if let guidance { subtitleGuidance = guidance }
+        return applySubtitle(final: false)
+    }
+
+    /// The text is complete (the turn closed): `wait` becomes `show` or `hide`.
+    private mutating func finalSubtitle() -> [AgentEffect] {
+        guard !subtitleRaw.isEmpty, !subtitleHidden else { return [] }
+        let before = view.subtitle
+        let effects = applySubtitle(final: true)
+        return effects + (view.subtitle == before ? [] : [.publish(view)])
+    }
+
+    private mutating func applySubtitle(final: Bool) -> [AgentEffect] {
+        guard !subtitleHidden else { return [] }
+        switch ScreenLanguage.check(subtitleRaw, final: final) {
+        case .show: view.subtitle = subtitleRaw
+        case .wait: view.subtitle = ""
+        case .hide:
+            subtitleHidden = true
+            view.subtitle = subtitleKind == .guidance ? (subtitleGuidance ?? "") : ""
+            return [.screenHidden(subtitleKind, subtitleRaw)]
+        }
+        return []
+    }
+
     private mutating func relayOutputs(_ outputs: [GuidanceRelayOutput], at now: NovaInstant) -> [AgentEffect] {
         var effects: [AgentEffect] = []
         for output in outputs {
@@ -850,7 +898,7 @@ public struct AgentState: Sendable {
                 // The driver spoke after the prompt: this may be the reading or their answer.
                 unclassified = (turn, id)
                 unclassifiedText = ""
-                view.subtitle = ""
+                resetSubtitle()
                 return [.newReply]
             }
             if let id = relayAwaiting {
@@ -863,19 +911,19 @@ public struct AgentState: Sendable {
                     return []
                 }
                 relayReading = turn
-                view.subtitle = ""
+                resetSubtitle()
                 return [.newReply] + relayOutputs(relay.assistantStarted(at: now), at: now)
             }
             answerOwed = false
-            view.subtitle = ""
+            resetSubtitle()
             return [.newReply] + pipeline(.turnOpened(turn), at: now)
         case .replyText(let turn, let text):
             guard !silenced.contains(turn) else { return [] }
             if relayTurns[turn] != nil {
                 // A guidance reading: spoken as given, judged afterwards for fidelity, never a claim.
                 if relayReading == turn { relay.assistantText(text) }
-                view.subtitle += text
-                return [.publish(view)] + speak(segmenter.append(text), at: now)
+                let shown = subtitle(adding: text, .guidance, guidance: relayTurns[turn].flatMap { relay.text(for: $0) } ?? awaitingText)
+                return shown + [.publish(view)] + speak(segmenter.append(text), at: now)
             }
             return pipeline(.replyText(turn, text), at: now)
         case .replyAudio(let turn, let pcm):
@@ -921,7 +969,7 @@ public struct AgentState: Sendable {
             if openTurn == turn { openTurn = nil }
             guard relayReading == turn else { return [] }
             relayReading = nil
-            var effects: [AgentEffect] = []
+            var effects: [AgentEffect] = finalSubtitle()
             let completed = if case .responseDone(_, .completed) = event { true } else { false }
             if completed, !silenced.contains(turn), let rest = segmenter.flush() {
                 effects += speak([rest], at: now)
@@ -939,11 +987,16 @@ public struct AgentState: Sendable {
             }
             // Server-side interruption: whatever of this reply is still queued must not play.
             let stops = openTurn == turn && !silenced.contains(turn) ? stopReply(turn) : []
+            let open = openTurn == turn
             if openTurn == turn { openTurn = nil }
-            return synced + stops + pipeline(.turnClosed(turn, .cancelled), at: now)
+            let closed = pipeline(.turnClosed(turn, .cancelled), at: now)
+            return synced + stops + closed + (open ? finalSubtitle() : [])
         case .responseDone(let turn, let outcome):
+            let open = openTurn == turn
             if openTurn == turn { openTurn = nil }
             var effects = pipeline(.turnClosed(turn, outcome), at: now)
+            // F-05a §13: the reply is complete once the pipeline has released what it held.
+            if open { effects += finalSubtitle() }
             // The last half clause is spoken only for a reply that completed and still may be heard.
             if outcome == .completed, !silenced.contains(turn), let rest = segmenter.flush() {
                 effects += speak([rest], at: now)
@@ -1012,14 +1065,14 @@ public struct AgentState: Sendable {
             switch output {
             case .speechText(let turn, let text):
                 guard !silenced.contains(turn) else { continue }
-                view.subtitle += text
+                effects += subtitle(adding: text, .reply)
                 effects.append(.publish(view))
                 effects += speak(segmenter.append(text), at: now)
             case .speechAudio:
                 // Revoicing is on (ADR-016): the provider's own audio is never played.
                 break
             case .voided(let turn):
-                view.subtitle = ""
+                resetSubtitle()
                 effects += silenced.contains(turn) ? [] : stopReply(turn)
                 effects.append(.publish(view))
             case .sendCorrection(let reason):
