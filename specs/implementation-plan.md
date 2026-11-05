@@ -61,6 +61,7 @@ NOT_VERIFIED until a device run is attached.
 | T-016 | Gemini transport + provider; local fake WebSocket server | F-05, F-24 | T-015 | `Packages/NovaRealtime/` | F-05 §10 rows 2–3; F-24 §10 row 1 (W4) | unit, contract |
 | T-016g | Callbacks answered once: `ResumeOnce` helper, ping double-callback crash fix, audit of Apple-callback continuations | F-05, F-24 | T-016 | `Packages/NovaRealtime/`, `Packages/NovaPlatform/`, `Packages/NovaAudio/` | F-05 §14 rows 1–8 | unit, review, D |
 | T-016h | Wait for the network: `NetworkPathWatcher`, offline wait without spending attempts, immediate reconnect on restore, 10 min offline cap | F-24 | T-016g | `Packages/NovaPlatform/`, `Packages/NovaCore/`, `App/NovaDrive/` | F-24 §14 rows 1–10 | unit, build, D |
+| T-016j | Retry for 60 s with the network up, then close the session and keep the handle in memory, so 你好小诺 or a tap connects again and continues | F-24 | T-016h, T-060a | `Core/NovaVoice/Session/`, `Core/NovaKit/`, `App/NovaDrive/` | F-24 §15 rows 1–9 | unit, build, D |
 | T-016a | `LocalTranscriber` port, `TranscriptSelector`, `TranscriptLanguage`, `wordsReliable` | F-05a | T-016, T-013a | `Core/NovaPorts/`, `Core/NovaVoice/Transcript/`, `Core/NovaTools/Dispatch/` | F-05a §10 rows 1–4 | unit |
 | T-016b | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | F-05a | T-016a | `Packages/NovaAudio/`, `scripts/gates/` | F-05a §4 | build |
 | T-016c | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | F-05a | T-016b | `App/NovaDrive/` | F-05a §10 rows 5–9 | S, D |

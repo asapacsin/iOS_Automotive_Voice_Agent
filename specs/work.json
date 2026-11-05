@@ -1826,6 +1826,18 @@
         "T-022a"
       ],
       "notes": "Owner 2026-11-05: the wake word is not set up. The iFlytek path needs three keys and was never verified on a phone. No public false-wake numbers for this model, so rows 9-12 decide."
+    },
+    {
+      "id": "T-016j",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-24 §15 items 1-10: 60 s retry window with the network up, give-up closes the session through the offline-end path, handle kept in memory for 2 hours, wake word or tap connects again, chip text, record lines; rows 1-9",
+      "depends_on": [
+        "T-016h",
+        "T-060a"
+      ],
+      "notes": "Owner 2026-11-05: once disconnected it does not connect back; let the wake word connect again. The 3 drops in the records recovered, so the owner's failure is not captured yet."
     }
   ]
 }
