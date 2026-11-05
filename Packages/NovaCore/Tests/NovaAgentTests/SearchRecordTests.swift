@@ -191,7 +191,7 @@ struct SearchDateTests {
         #expect(!result.ok && result.code == ToolErrorCode.liveInfoUnavailable)
         #expect(!"\(result)".contains("11月5日"))
         #expect(service.calls.withLock { $0 } == 2)
-        #expect(service.queries.withLock { $0 } == Array(repeating: "上海后天（2026年11月6日）天气怎么样", count: 2))
+        #expect(service.queries.withLock { $0 } == Array(repeating: WebSearchExecutor.userMessage(query: "上海后天（2026年11月6日）天气怎么样", words: nil), count: 2))
         if case .failed(let reason, _, _)? = o.end { #expect(reason == "wrong_date") } else { Issue.record("no outcome") }
         #expect(o.dates == Array(repeating: .date(query: "上海后天天气怎么样", target: "2026-11-06", added: true, check: .mismatch), count: 2))
     }
@@ -259,13 +259,13 @@ struct SearchPlaceTests {
             let service = ScriptedSearch([.reply(reply("周三9点到17点"))])
             let o = Outcomes()
             _ = await searcher(service, destination: dest, collect: o.add).execute(searchCall(q))
-            #expect(service.queries.withLock { $0 } == [sent], "\(q)")
+            #expect(service.queries.withLock { $0 } == [WebSearchExecutor.userMessage(query: sent, words: nil)], "\(q)")
             guard case .place(let query, _, let added, _)? = o.places.first else { Issue.record("no place"); continue }
             #expect(query == q && added == (q != "横琴文化艺术中心目的地几点关门"))
         }
         let none = ScriptedSearch([.reply(reply("x"))])
         _ = await searcher(none).execute(searchCall("目的地几点关门"))
-        #expect(none.queries.withLock { $0 } == ["目的地几点关门"])
+        #expect(none.queries.withLock { $0 } == ["question: 目的地几点关门\nanswer: "])
         #expect(SearchPlace.substitute("目的地几点关门", destination: "终点站咖啡").query == "终点站咖啡几点关门")
     }
 

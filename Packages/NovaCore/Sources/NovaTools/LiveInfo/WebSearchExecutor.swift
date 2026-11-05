@@ -44,14 +44,18 @@ public struct WebSearchExecutor: ToolExecutor {
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
     private let destination: @Sendable () -> String?
+    private let driverWords: @Sendable () -> String?
     private let onOutcome: @Sendable (WebSearchOutcome) -> Void
 
-    /// `destination` is the current destination's name (§21 item 1), cleaned here.
+    /// `destination` is the current destination's name (§21 item 1), cleaned here. `driverWords` is the last final
+    /// transcript before the call (§23 item 5).
     public init(service: any WebSearchService, clock: any NovaClock, limit: NovaDuration = .seconds(10),
                 onOutcome: @escaping @Sendable (WebSearchOutcome) -> Void = { _ in },
                 now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current },
-                destination: @escaping @Sendable () -> String? = { nil }) {
+                destination: @escaping @Sendable () -> String? = { nil },
+                driverWords: @escaping @Sendable () -> String? = { nil }) {
         self.service = service
+        self.driverWords = driverWords
         self.clock = clock
         self.limit = limit
         self.now = now
@@ -78,6 +82,8 @@ public struct WebSearchExecutor: ToolExecutor {
         let substituted = SearchPlace.substitute(query, destination: place)
         let resolved = SearchDate.resolve(substituted.query, now: now(), zone: zone())
         let hint = SearchPlace.hint(resolved.query, destination: place)
+        // §23 item 5: the driver's words are only content in the message; every decision above used her query.
+        let message = Self.userMessage(query: resolved.query, words: driverWords())
         onOutcome(.place(query: query, sent: substituted.query, added: substituted.added, hint: hint))
         let service = service
         let deadline = start + limit
@@ -85,7 +91,7 @@ public struct WebSearchExecutor: ToolExecutor {
         let zone = zone()
         let report = onOutcome
         let attempted: Attempted? = await withTaskGroup(of: Attempted?.self) { group in
-            group.addTask { await Self.attempt(query, resolved, zone: zone, service, report) }
+            group.addTask { await Self.attempt(query, message, resolved, zone: zone, service, report) }
             group.addTask {
                 do { try await clock.sleep(until: deadline) } catch { return nil }
                 return .failed("timeout", code: nil)
@@ -131,7 +137,7 @@ public struct WebSearchExecutor: ToolExecutor {
         !r.answer.allSatisfy(\.isWhitespace) && !r.sources.isEmpty
     }
 
-    private static func attempt(_ query: String, _ resolved: SearchDate.Resolved, zone: TimeZone,
+    private static func attempt(_ query: String, _ message: String, _ resolved: SearchDate.Resolved, zone: TimeZone,
                                 _ service: any WebSearchService,
                                 _ report: @Sendable (WebSearchOutcome) -> Void) async -> Attempted {
         var last: Attempted = .failed("no_sources", code: nil)
@@ -140,7 +146,7 @@ public struct WebSearchExecutor: ToolExecutor {
             var check = SearchDate.Check.skipped
             defer { report(.date(query: query, target: target, added: resolved.added, check: check)) }
             do {
-                let reply = try await service.search(resolved.query, attempt: attempt)
+                let reply = try await service.search(message, attempt: attempt)
                 if grounded(reply) {
                     check = SearchDate.check(reply.answer, resolved, zone: zone)
                     if check != .mismatch { return .ok(reply, attempts: attempt) }
@@ -158,6 +164,16 @@ public struct WebSearchExecutor: ToolExecutor {
             if Task.isCancelled { return .failed("cancelled", code: nil) }
         }
         return last
+    }
+
+    /// §23 item 5: the driver's words are cut to this many characters.
+    public static let maxDriverWords = 200
+
+    /// §23 item 5, FreshPrompt's labels: `query: {her query}\n\nquestion: {the driver's words}\nanswer: `, or with no
+    /// words `question: {her query}\nanswer: `. `query` is after the §19 and §21 rewrites.
+    public static func userMessage(query: String, words: String?) -> String {
+        let said = String((words ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxDriverWords))
+        return said.isEmpty ? "question: \(query)\nanswer: " : "query: \(query)\n\nquestion: \(said)\nanswer: "
     }
 
     static func reason(_ error: WebSearchError) -> String {

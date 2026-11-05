@@ -695,6 +695,8 @@ final class AgentRuntime {
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         // F-18 §21 item 1: written by the navigation stream below, read by web_search.
         let currentDestination = DestinationHolder()
+        // F-18 §23 item 5: the driver's last final words, only for the search model's message and the local record.
+        let driverWords = DriverWordsHolder()
         // This session listens to the trip from now on; it first sees the trip as it is (a drive that went
         // on after the last session, F-15a §9 OQ-NAVM-5).
         trip.listeners.attach(flags.continuation)
@@ -797,6 +799,7 @@ final class AgentRuntime {
             // F-18 §18 item 7: with the record off, no exchange is built.
             let onExchange: (@Sendable (WebSearchExchange) -> Void)? = record.map { record in { @Sendable exchange in record.submit(.searchExchange(exchange)) } }
             let destinationName = currentDestination
+            let lastWords = driverWords
             executors[WebSearchExecutor.tool] = WebSearchExecutor(
                 service: QwenWebSearchClient(key: qwenKey, onExchange: onExchange), clock: SystemClock(),
                 onOutcome: { outcome in
@@ -815,7 +818,7 @@ final class AgentRuntime {
                 case .place(_, _, let added, let hint):
                     RuntimeLog.agent.notice("webSearchPlace added=\(added ? "yes" : "no", privacy: .public) hint=\(hint ? "yes" : "no", privacy: .public)")
                 }
-            }, destination: { destinationName.name })
+            }, destination: { destinationName.name }, driverWords: { lastWords.text })
         } else {
             // Setting off: an undeclared web_search call is UNKNOWN_TOOL, as before T-046c.
             executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
@@ -912,6 +915,7 @@ final class AgentRuntime {
         tasks.append(Task {
             for await event in provider.events {
                 if let record { Self.recordProvider(event.event, record) }
+                driverWords.observe(event.event)  // F-18 §23 item 5: this turn's final words only; never logged (I-8)
                 switch event.event {
                 case .userTranscript(let text, let isFinal):
                     // F-05a: the subtitle comes from `DriverTranscript`; Gemini's text is its fallback only.

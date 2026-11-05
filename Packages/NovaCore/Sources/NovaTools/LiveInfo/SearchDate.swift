@@ -1,5 +1,6 @@
 import Foundation
 import Synchronization
+import NovaPorts
 
 /// F-18 §19 (T-046g): the app works out which day a search means from the phone's date, writes that date into the
 /// question, and checks a future day's answer. Pure.
@@ -214,4 +215,29 @@ public final class DestinationHolder: Sendable {
     public init() {}
     public var name: String? { value.withLock { $0 } }
     public func set(_ name: String?) { value.withLock { $0 = name } }
+}
+
+/// F-18 §23 item 5: the driver's last final transcript of the current turn, shared between the provider stream
+/// (writer, `observe`) and `web_search` (reader). Cleared when the turn ends (`responseDone`, `interrupted`,
+/// `turnEnded`, `closed`) and when a new utterance starts, so an earlier turn's words never go to the search model.
+/// Content for the search model only: nothing decides anything from it (F-05a §6); never in `RuntimeLog` (I-8).
+public final class DriverWordsHolder: Sendable {
+    private struct State { var text: String?; var final = false }
+    private let value = Mutex(State())
+    public init() {}
+    public var text: String? { value.withLock { $0.text } }
+    public func set(_ text: String?) { value.withLock { $0 = State(text: text, final: text != nil) } }
+
+    public func observe(_ event: RealtimeEvent) {
+        switch event {
+        case .userTranscript(let text, let isFinal):
+            value.withLock { s in
+                if isFinal { s = State(text: text, final: true) } else if s.final { s = State() }
+            }
+        case .responseDone, .interrupted, .turnEnded, .closed:
+            value.withLock { $0 = State() }
+        default:
+            break
+        }
+    }
 }
