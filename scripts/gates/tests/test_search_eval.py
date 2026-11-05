@@ -35,14 +35,15 @@ class PromptTests(unittest.TestCase):
                 {"role": "user", "text": "query: 横琴后天（2026年11月7日）天气怎么样\n\nquestion: 横琴后天天气怎么样\nanswer: "},
             ])
 
-    def test_s0_is_the_app_system_text(self):
+    def test_s1_is_the_app_system_text(self):
+        # F-18 §24 (T-046m): the app now sends S1; S0 keeps the pre-§24 text for comparison.
         swift = (ROOT / "Packages/NovaRealtime/Sources/NovaRealtime/Search/QwenWebSearchClient.swift").read_text(encoding="utf-8")
-        literal = re.search(r'return "今天是\\\(date\)，\\\(weekdays\[[^\]]*\]\)，时区\\\(zone\.identifier\)。([^"]*)"', swift)
-        self.assertIsNotNone(literal, "QwenWebSearchClient.instruction changed: copy it into run.py app_system")
-        msgs = se.messages("S0", QUESTION, TODAY, ZONE)
-        self.assertEqual(msgs[0], {"role": "system", "text": f"今天是2026年11月5日，星期四，时区{ZONE}。{literal.group(1)}"})
-        self.assertEqual(len(msgs), 2)
-        self.assertEqual(msgs[1]["role"], "user")
+        literal = re.search(r'"(You are a helpful assistant\. Answer as concisely as possible\. Knowledge cutoff: )\\\(englishDate\(now: now, zone: zone\)\)\."', swift)
+        self.assertIsNotNone(literal, "QwenWebSearchClient.instruction changed: update run.py S1")
+        self.assertIn('"What\'s today\'s date?"', swift)
+        msgs = se.messages("S1", QUESTION, TODAY, ZONE)
+        self.assertEqual(msgs[0], {"role": "system", "text": f"{literal.group(1)}November 05, 2026."})
+        self.assertEqual([m["role"] for m in msgs], ["system", "user", "assistant", "user"])
 
     def test_user_message_forms(self):
         self.assertEqual(se.user_message("q", "w"), "query: q\n\nquestion: w\nanswer: ")

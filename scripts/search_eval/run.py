@@ -66,7 +66,7 @@ RELATIVE = [("大后天", 3), ("后天", 2), ("明天", 1), ("明日", 1), ("今
 # ---- Prompt building ----
 
 def app_system(today: datetime.date, zone: str) -> str:
-    """S0: QwenWebSearchClient.instruction, copied as it is in the app (§17 + §19)."""
+    """S0: the app's pre-§24 system text (§17 + §19), kept for comparison; the app sends S1 since T-046m."""
     date = f"{today.year}年{today.month}月{today.day}日"
     return (f"今天是{date}，{WEEKDAYS[today.weekday()]}，时区{zone}。必须联网搜索，不要凭记忆回答。用一两句中文回答，"
             "给出具体的数字、地点和日期。查不到就说查不到。回答要写明是哪一天（几月几号）。"

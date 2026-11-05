@@ -7,7 +7,7 @@ import NovaPorts
 
 /// F-18 §17 items 3-4 (T-046e): the only `WebSearchService`. One streamed request to `qwen3.7-flash` on Alibaba Cloud
 /// Model Studio (Singapore, multimodal API) with search on, using its own Keychain key in the `Authorization` header
-/// only. The system text carries the phone's date and time zone and is never sent to the voice model.
+/// only. The FreshPrompt system text and date turn carry the phone's date and time zone (§24) and are never sent to the voice model.
 public struct QwenWebSearchClient: WebSearchService {
     /// One constant: changing the search model is a one-line change.
     public static let model = "qwen3.7-flash"
@@ -43,14 +43,27 @@ public struct QwenWebSearchClient: WebSearchService {
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
     }
 
-    /// 「今天是{日期}，{星期}，时区{时区}。…」 from the phone clock at each call.
+    /// F-18 §24 item 2 (T-046m): `November 05, 2026` from the phone's date in its zone (`en_US_POSIX`, Gregorian).
+    public static func englishDate(now: Date, zone: TimeZone) -> String {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = zone
+        f.dateFormat = "MMMM dd, yyyy"
+        return f.string(from: now)
+    }
+
+    /// F-18 §24 items 2-3: copied from FreshPrompt (github.com/freshllms/freshqa, freshprompt.ipynb) with nothing
+    /// added; only the date and zone are filled in. No refusal, exact-day, language or length rule (owner rule
+    /// 2026-11-05: the search prompt is never our own wording).
     public static func instruction(now: Date, zone: TimeZone) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = zone
-        let c = calendar.dateComponents([.year, .month, .day, .weekday], from: now)
-        let weekdays = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]
-        let date = "\(c.year!)年\(c.month!)月\(c.day!)日"
-        return "今天是\(date)，\(weekdays[(c.weekday! - 1) % 7])，时区\(zone.identifier)。必须联网搜索，不要凭记忆回答。用一两句中文回答，给出具体的数字、地点和日期。查不到就说查不到。回答要写明是哪一天（几月几号）。问题里写了日期就只回答那一天；找不到那一天的信息就说查不到。"
+        "You are a helpful assistant. Answer as concisely as possible. Knowledge cutoff: \(englishDate(now: now, zone: zone))."
+    }
+
+    /// The FreshPrompt date turn: user `What's today's date?`, assistant `Today is {date} in {zone}.`
+    public static let dateQuestion = "What's today's date?"
+    public static func dateAnswer(now: Date, zone: TimeZone) -> String {
+        "Today is \(englishDate(now: now, zone: zone)) in \(zone.identifier)."
     }
 
     public func request(_ query: String, key: String) -> URLRequest {
@@ -59,10 +72,14 @@ public struct QwenWebSearchClient: WebSearchService {
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("enable", forHTTPHeaderField: "X-DashScope-SSE")
+        let date = now()
+        let zone = zone()
         let body: JSONValue = [
             "model": .string(Self.model),
             "input": ["messages": [
-                ["role": "system", "content": [["text": .string(Self.instruction(now: now(), zone: zone()))]]],
+                ["role": "system", "content": [["text": .string(Self.instruction(now: date, zone: zone))]]],
+                ["role": "user", "content": [["text": .string(Self.dateQuestion)]]],
+                ["role": "assistant", "content": [["text": .string(Self.dateAnswer(now: date, zone: zone))]]],
                 ["role": "user", "content": [["text": .string(query)]]],
             ]],
             "parameters": [

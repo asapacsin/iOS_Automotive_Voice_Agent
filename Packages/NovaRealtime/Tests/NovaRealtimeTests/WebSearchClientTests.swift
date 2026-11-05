@@ -47,10 +47,12 @@ struct WebSearchClientTests {
                                        "search_options": ["search_strategy": "turbo", "enable_source": true,
                                                           "forced_search": true]])
         guard case .array(let messages)? = body["input"]?["messages"] else { Issue.record("no messages"); return }
-        #expect(messages.count == 2)
-        #expect(messages[0]["role"] == "system" && messages[1]["role"] == "user")
-        #expect(messages[0]["content"] == [["text": .string("今天是2026年11月4日，星期三，时区Asia/Shanghai。必须联网搜索，不要凭记忆回答。用一两句中文回答，给出具体的数字、地点和日期。查不到就说查不到。回答要写明是哪一天（几月几号）。问题里写了日期就只回答那一天；找不到那一天的信息就说查不到。")]])
-        #expect(messages[1]["content"] == [["text": "上海后天天气怎么样"]])
+        // F-18 §24 row 1 (T-046m): FreshPrompt's messages, in order, date from the injected clock and zone.
+        #expect(messages.map { $0["role"] } == ["system", "user", "assistant", "user"])
+        #expect(messages[0]["content"] == [["text": "You are a helpful assistant. Answer as concisely as possible. Knowledge cutoff: November 04, 2026."]])
+        #expect(messages[1]["content"] == [["text": "What's today's date?"]])
+        #expect(messages[2]["content"] == [["text": "Today is November 04, 2026 in Asia/Shanghai."]])
+        #expect(messages[3]["content"] == [["text": "上海后天天气怎么样"]])
         let text = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
         #expect(!text.contains(TestKey.value) && !(request.url?.absoluteString.contains(TestKey.value) ?? true))
         #expect(!text.contains("google"))
@@ -180,5 +182,19 @@ struct WebSearchClientTests {
         #expect(sent.count == 2)
         #expect(sent.allSatisfy { $0.contains(#""search_strategy":"turbo""#) && $0.contains(#""forced_search":true"#)
             && $0.contains(#""enable_source":true"#) && !$0.contains("agent") })
+    }
+
+    @Test("T-046m F-18 §24 rows 1-2: retry sends the same FreshPrompt messages; the system text has no 查不到, 必须, 中文")
+    func freshPrompt() throws {
+        let zone = TimeZone(identifier: "America/New_York")!
+        let date = Date(timeIntervalSince1970: 1_798_761_600)  // 2027-01-01T00:00Z → December 31, 2026 in New York
+        let client = QwenWebSearchClient(key: { "k" }, now: { date }, zone: { zone })
+        let first = try JSONDecoder().decode(JSONValue.self, from: client.request("q", key: "k").httpBody ?? Data())
+        let retry = try JSONDecoder().decode(JSONValue.self, from: client.request("q", key: "k").httpBody ?? Data())
+        #expect(first == retry)
+        #expect(first["input"]?["messages"]?[2]?["content"] == [["text": "Today is December 31, 2026 in America/New_York."]])
+        let system = QwenWebSearchClient.instruction(now: date, zone: zone)
+        #expect(system == "You are a helpful assistant. Answer as concisely as possible. Knowledge cutoff: December 31, 2026.")
+        for banned in ["查不到", "必须", "中文"] { #expect(!system.contains(banned), "\(banned)") }
     }
 }
