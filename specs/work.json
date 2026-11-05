@@ -1830,7 +1830,7 @@
     {
       "id": "T-016j",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-24 §15 items 1-10: 60 s retry window with the network up, give-up closes the session through the offline-end path, handle kept in memory for 2 hours, wake word or tap connects again, chip text, record lines; rows 1-9",
       "depends_on": [
