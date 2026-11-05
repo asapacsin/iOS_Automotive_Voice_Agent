@@ -1450,7 +1450,9 @@ final class GateBox: @unchecked Sendable {
             // A stale classifier result is no result (item 3: no classifier result fails closed).
             shadow.frame(r, frame: frame, speechProbability: gate.classifierFresh ? gate.lastSpeechProbability : nil,
                          muteReason: gate.muteReason)
-            speaker.scoreUnsent = live.enabled
+            // §6 items 8–9: when locked every utterance is scored, so neither an interruption nor a transcript stop
+            // phrase of a not-sent one acts before its voice is accepted.
+            speaker.scoreUnsent = true
             let sp = speaker.frame(r)
             let (fed, released) = speakerAfter(sp)
             let step = liveStep(raw: r, hold.frame(fed), frame: true, speaker: sp)

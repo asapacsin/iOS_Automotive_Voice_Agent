@@ -423,3 +423,26 @@ struct SpeakerRealOrderTests {
         #expect(out2 == steps.flatMap { $0 })
     }
 }
+
+@Suite("T-013e F-04b speaker lock: the closing burst in one batch")
+struct SpeakerBatchTests {
+    @Test("F-04b row 3: a rejection after the whole closing burst ends the utterance; her volume is always restored")
+    func batchedBurst() {
+        var hold = SpeakerHold()
+        _ = hold.setLock(threshold: 0.5)
+        var request: SpeakerScoreRequest?
+        var steps: [[UplinkGateOutput]] = [[.speechStarted(sentToModel: true), .audio(f(1))]]
+        for n in 2...70 { steps.append([.audio(f(n))]) }
+        steps.append([.speechStopped(.normal), .utterance(record(1))] + (71...220).map { .audio(f($0)) } + [.streamEnd])
+        for s in steps { if let r = hold.frame(s).request { request = r } }
+        let r = try! #require(request)
+        _ = hold.result(.score(0.1, scoreMs: 1), utterance: r.utterance, generation: r.generation)
+        #expect(hold.verdict == nil)
+        var actions = SpeakerActionHold()
+        var s = BargeInLive.Step()
+        s.actions = [.dip(false), .stop]
+        _ = actions.step(s, verdict: .pending)
+        #expect(actions.decided([.rejected]).actions == [.dip(false)])
+        #expect(actions.step(s, verdict: .rejected).actions == [.dip(false)])
+    }
+}

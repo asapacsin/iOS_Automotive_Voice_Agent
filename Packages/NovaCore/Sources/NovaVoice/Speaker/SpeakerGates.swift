@@ -57,12 +57,15 @@ public struct SpeakerActionHold: Sendable {
         let all = flush()
         var kept = BargeInLive.Step()
         kept.outputs = all.outputs
+        kept.actions = all.actions.filter { $0 == .dip(false) }
         return kept
     }
 
     /// Nothing of it goes up: no actions, no adopt, a sent start becomes not sent, audio and stream end are dropped.
     static func unsent(_ step: BargeInLive.Step) -> BargeInLive.Step {
         var out = BargeInLive.Step()
+        // Restoring her volume is never held back: only a dip, a stop and an adopt need an accepted voice.
+        out.actions = step.actions.filter { $0 == .dip(false) }
         for output in step.outputs {
             switch output {
             case .speechStarted: out.outputs.append(.speechStarted(sentToModel: false))

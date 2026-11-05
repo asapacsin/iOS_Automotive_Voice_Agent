@@ -140,8 +140,9 @@ public struct SpeakerHold: Sendable {
 
     /// The number of the sent utterance being held, if any: its words wait for the verdict too (no driver line,
     /// no driver turn before acceptance).
+    /// Not-sent ones too: their words could still stop her as a transcript stop phrase (§6 item 8).
     public var heldUtterance: Int? {
-        if case .holding(let id, true, _, _, _, _, _, _) = state { return id }
+        if case .holding(let id, _, _, _, _, _, _, _) = state { return id }
         return nil
     }
 
@@ -313,6 +314,8 @@ public struct SpeakerHold: Sendable {
             }
         }
         // A sent one swallows its closing silence and stream end too: nothing of it goes up.
-        state = sent ? .dropping(id: id, sent: true, closed: closed) : (closed ? .idle : .dropping(id: id, sent: false, closed: false))
+        let ended = buffer.contains(.streamEnd)
+        state = ended ? .idle
+            : sent ? .dropping(id: id, sent: true, closed: closed) : (closed ? .idle : .dropping(id: id, sent: false, closed: false))
     }
 }

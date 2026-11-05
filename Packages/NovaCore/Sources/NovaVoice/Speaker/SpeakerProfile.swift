@@ -180,7 +180,12 @@ public enum EnrollmentProblem: String, Sendable, Hashable, Error {
 
 /// §4 items 3, 5: checks before saving. Constants are iOS choices, re-tuned from device runs.
 public enum SpeakerEnrollment {
-    public static let sentences = ["今天天气不错，我们出去走走吧。", "帮我导航到最近的加油站。", "把空调温度调到二十四度。"]
+    /// About 15 s read aloud in total (§4 item 1).
+    public static let sentences = [
+        "今天天气不错，阳光很好，我们吃完午饭以后一起开车出去走走吧。",
+        "帮我导航到最近的加油站，顺便看看附近有没有可以停车的地方。",
+        "把空调温度调到二十四度，风量小一点，再放一首轻松的音乐。",
+    ]
     public static let minSpeech = NovaDuration.seconds(8)
     public static let maxClippedSamples = 16
     public static let maxNoiseDb = 55

@@ -121,8 +121,16 @@ final class SpeakerTakeRecorder {
     private var classifier: SoundAnalysisSpeechClassifier?
     private let box = TakeBox()
 
+    /// Set by `finish`; a start still waiting for the microphone then gives it back instead of capturing.
+    private var finished = false
+
     func start() async throws {
+        finished = false
         guard await RuntimeHolder.shared.runtime.beginExclusiveCapture() else { throw SpeakerTakeError.sessionRunning }
+        guard !finished else {
+            await RuntimeHolder.shared.runtime.endExclusiveCapture()
+            throw SpeakerTakeError.sessionRunning
+        }
         box.reset()
         let classifier = SoundAnalysisSpeechClassifier()
         try? classifier.start { [box] result in box.classified(result) }
@@ -139,12 +147,14 @@ final class SpeakerTakeRecorder {
             throw error
         }
         self.audio = audio
-        // The gate learns the noise bed for 1.5 s and cannot open then: wait it out before the driver reads.
-        try? await Task.sleep(for: .milliseconds(1_600))
     }
+
+    /// The gate learns the noise bed for 1.5 s and cannot open then: the screen says 请稍等 until it can.
+    static let warmUp = Duration.milliseconds(1_600)
 
     /// Stops the capture and returns the take; the raw audio is dropped by the caller after embedding.
     func finish() async -> (frames: [PCMFrame16k], speech: NovaDuration, clipped: Int, noiseDb: Int) {
+        finished = true
         audio?.stop()
         audio = nil
         classifier?.stop()
@@ -175,7 +185,7 @@ private final class TakeBox: @unchecked Sendable {
                 case .speechStarted(let sent):
                     open = sent
                     segment = []
-                    preRoll = max(0, outputs.filter { if case .audio = $0 { true } else { false } }.count - 1)
+                    preRoll = Int(UplinkGateTuning().preRoll.milliseconds / 10)
                 case .audio(let a) where open: segment.append(a)
                 case .speechStopped:
                     if open {
@@ -194,6 +204,10 @@ private final class TakeBox: @unchecked Sendable {
     func take() -> (frames: [PCMFrame16k], speech: NovaDuration, clipped: Int, noiseDb: Int) {
         lock.withLock {
             let db = Int((20 * log10(max(gate.noiseRMS, 1) / 32_768) + 96).rounded())
+            // A segment still open at 读完了 (inside its hangover): all of it after the pre-roll is speech.
+            if open, segment.count > preRoll { speech += segment[preRoll...] }
+            open = false
+            segment = []
             return (speech, .milliseconds(Int64(speech.count) * 10), EnrollmentTake.clipped(speech), db)
         }
     }
@@ -262,6 +276,7 @@ struct SpeakerEnrollmentView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var index = 0
     @State private var recording = false
+    @State private var preparing = false
     @State private var takes: [EnrollmentTake] = []
     @State private var message: String?
     @State private var recorder = SpeakerTakeRecorder()
@@ -276,7 +291,8 @@ struct SpeakerEnrollmentView: View {
                 if index < SpeakerEnrollment.sentences.count {
                     Section("第 \(index + 1) / \(SpeakerEnrollment.sentences.count) 句") {
                         Text(SpeakerEnrollment.sentences[index]).font(.title3)
-                        Button(recording ? "读完了" : "开始读") { Task { await toggle() } }
+                        Button(preparing ? "请稍等…" : recording ? "读完了" : "开始读") { Task { await toggle() } }
+                            .disabled(preparing)
                     }
                 }
                 if let message { Section { Text(message) } }
@@ -290,7 +306,16 @@ struct SpeakerEnrollmentView: View {
 
     private func toggle() async {
         if !recording {
-            do { try await recorder.start(); recording = true; message = nil } catch {
+            // Set first, so 取消/关闭 during the start or the warm-up still ends the take.
+            recording = true
+            preparing = true
+            defer { preparing = false }
+            do {
+                try await recorder.start()
+                message = nil
+                try? await Task.sleep(for: SpeakerTakeRecorder.warmUp)
+            } catch {
+                recording = false
                 message = "对话进行中或麦克风不可用，结束对话后再录入。"
             }
             return
@@ -329,6 +354,7 @@ struct SpeakerCalibrationView: View {
     @State private var forDriver = true
     @State private var index = 0
     @State private var recording = false
+    @State private var preparing = false
     @State private var recorder = SpeakerTakeRecorder()
     @State private var message: String?
 
@@ -345,7 +371,8 @@ struct SpeakerCalibrationView: View {
                     .pickerStyle(.segmented)
                     .onChange(of: forDriver) { index = 0 }
                     Text(lines[index % lines.count]).font(.title3)
-                    Button(recording ? "说完了" : "开始说") { Task { await toggle() } }
+                    Button(preparing ? "请稍等…" : recording ? "说完了" : "开始说") { Task { await toggle() } }
+                        .disabled(preparing)
                 }
                 if calibration.enough, let t = calibration.suggested {
                     Section("结果") {
@@ -372,7 +399,16 @@ struct SpeakerCalibrationView: View {
 
     private func toggle() async {
         if !recording {
-            do { try await recorder.start(); recording = true; message = nil } catch {
+            // Set first, so 取消/关闭 during the start or the warm-up still ends the take.
+            recording = true
+            preparing = true
+            defer { preparing = false }
+            do {
+                try await recorder.start()
+                message = nil
+                try? await Task.sleep(for: SpeakerTakeRecorder.warmUp)
+            } catch {
+                recording = false
                 message = "对话进行中或麦克风不可用，结束对话后再校准。"
             }
             return
