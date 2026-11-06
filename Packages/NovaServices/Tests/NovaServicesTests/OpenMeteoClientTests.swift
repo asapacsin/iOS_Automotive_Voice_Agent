@@ -19,8 +19,8 @@ struct OpenMeteoClientTests {
     @Test("F-18 §26 row 04: the forecast request is item 4 with 2-decimal coordinates; days parsed in order")
     func forecastRequest() async throws {
         let t = WeatherBodyTransport(Self.forecast)
-        let days = try await OpenMeteoClient(transport: t).dailyForecast(latitude: 59.91, longitude: 10.75)
-        #expect(t.urls.withLock { $0 } == ["https://api.open-meteo.com/v1/forecast?latitude=59.91&longitude=10.75&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=auto&forecast_days=16"])
+        let days = try await OpenMeteoClient(transport: t).dailyForecast(latitude: 59.91, longitude: 10.75).days
+        #expect(t.urls.withLock { $0 } == ["https://api.open-meteo.com/v1/forecast?latitude=59.91&longitude=10.75&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=auto&forecast_days=16"])
         #expect(days.map(\.time) == ["2026-11-06", "2026-11-07"])
         #expect(days[1] == DailyForecastDay(time: "2026-11-07", weatherCode: 61, tempMax: 2.1, tempMin: -1.2, rainChance: 80,
                                            rainMm: 4.2, windMaxKmh: 20.1))

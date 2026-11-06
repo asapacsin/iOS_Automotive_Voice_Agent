@@ -305,10 +305,41 @@ public struct DailyForecastDay: Sendable, Hashable {
     }
 }
 
+/// F-18 §27 item 2: the weather now at the place. `time` is `yyyy-MM-ddTHH:mm` on the place's own clock.
+public struct CurrentWeather: Sendable, Hashable {
+    public let time: String
+    public let temperature: Double
+    public let feelsLike: Double?
+    public let humidity: Double?
+    public let weatherCode: Int?
+    public let windKmh: Double?
+
+    public init(time: String, temperature: Double, feelsLike: Double?, humidity: Double?, weatherCode: Int?,
+                windKmh: Double?) {
+        self.time = time
+        self.temperature = temperature
+        self.feelsLike = feelsLike
+        self.humidity = humidity
+        self.weatherCode = weatherCode
+        self.windKmh = windKmh
+    }
+}
+
+/// F-18 §26 item 11, §27 item 2: the days and an optional current block (nil when missing or unreadable).
+public struct DailyForecast: Sendable, Hashable {
+    public let days: [DailyForecastDay]
+    public let current: CurrentWeather?
+
+    public init(days: [DailyForecastDay], current: CurrentWeather? = nil) {
+        self.days = days
+        self.current = current
+    }
+}
+
 /// F-18 §26 item 11: a daily forecast port (Open-Meteo in NovaServices). `days[0]` is the place's own today.
 public protocol DailyForecastService: Sendable {
     /// Coordinates are already rounded by the caller (§26 item 4).
-    func dailyForecast(latitude: Double, longitude: Double) async throws -> [DailyForecastDay]
+    func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast
 }
 
 /// F-18 §26 item 4: a forecast call that timed out or failed. No response text (I-8).

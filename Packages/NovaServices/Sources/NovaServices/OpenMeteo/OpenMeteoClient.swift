@@ -10,6 +10,7 @@ import NovaPorts
 public struct OpenMeteoClient: DailyForecastService, PlaceLookup {
     public static let forecastHost = "https://api.open-meteo.com"
     public static let geocodingHost = "https://geocoding-api.open-meteo.com"
+    static let currentVariables = "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m"
     static let daily = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max"
 
     private let transport: any HTTPTransport
@@ -22,11 +23,22 @@ public struct OpenMeteoClient: DailyForecastService, PlaceLookup {
     }
 
     /// §26 item 4: the caller rounds the coordinates to 2 decimals; they are written with 2 decimals here too.
-    public func dailyForecast(latitude: Double, longitude: Double) async throws -> [DailyForecastDay] {
+    /// §27 item 1: `current=` is placed before `daily=` in the same single call.
+    public func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast {
         let url = Self.forecastHost + "/v1/forecast?latitude=\(String(format: "%.2f", latitude))&longitude=\(String(format: "%.2f", longitude))"
-            + "&daily=\(Self.daily)&timezone=auto&forecast_days=16"
+            + "&current=\(Self.currentVariables)&daily=\(Self.daily)&timezone=auto&forecast_days=16"
         let body = try await get(url)
-        return Self.days(body)
+        return DailyForecast(days: Self.days(body), current: Self.current(body))
+    }
+
+    /// §27 item 2: a missing or unreadable `current` (no `time` or no `temperature_2m`) is nil, never an error.
+    static func current(_ body: [String: Any]) -> CurrentWeather? {
+        guard let c = body["current"] as? [String: Any], let time = c["time"] as? String,
+              let temperature = (c["temperature_2m"] as? NSNumber)?.doubleValue else { return nil }
+        func number(_ key: String) -> Double? { (c[key] as? NSNumber)?.doubleValue }
+        return CurrentWeather(time: time, temperature: temperature, feelsLike: number("apparent_temperature"),
+                              humidity: number("relative_humidity_2m"), weatherCode: number("weather_code").map { Int($0) },
+                              windKmh: number("wind_speed_10m"))
     }
 
     static func days(_ body: [String: Any]) -> [DailyForecastDay] {

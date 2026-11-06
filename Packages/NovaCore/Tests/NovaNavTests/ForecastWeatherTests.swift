@@ -17,19 +17,21 @@ final class RecordingLookup: PlaceLookup, @unchecked Sendable {
     }
 }
 
-/// Records each forecast call; answers with `days`.
+/// Records each forecast call; answers with `days` and `current` (§27 item 2).
 final class RecordingForecast: DailyForecastService, @unchecked Sendable {
     let days: [DailyForecastDay]
+    let current: CurrentWeather?
     var error: ForecastError?
     let asked = Mutex<[[Double]]>([])
-    init(_ days: [DailyForecastDay], error: ForecastError? = nil) {
+    init(_ days: [DailyForecastDay], current: CurrentWeather? = nil, error: ForecastError? = nil) {
         self.days = days
+        self.current = current
         self.error = error
     }
-    func dailyForecast(latitude: Double, longitude: Double) async throws -> [DailyForecastDay] {
+    func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast {
         asked.withLock { $0.append([latitude, longitude]) }
         if let error { throw error }
-        return days
+        return DailyForecast(days: days, current: current)
     }
 }
 
@@ -54,14 +56,15 @@ let zhuhaiCity = LookedUpPlace(name: "珠海市", coordinate: GeoCoordinate(lati
 final class LogBox: @unchecked Sendable { let lines = Mutex<[WeatherSourceLog]>([]) }
 
 func forecastSetup(amap: [LookedUpPlace] = [zhuhaiCity], foreign: [LookedUpPlace] = [oslo], days: [DailyForecastDay] = forecastDays(),
-                   weather: (any WeatherService)? = nil, log: LogBox = LogBox(), forecastError: ForecastError? = nil)
+                   weather: (any WeatherService)? = nil, log: LogBox = LogBox(), forecastError: ForecastError? = nil,
+                   current: CurrentWeather? = nil)
     -> (LiveInfoExecutor, CountingWeather, RecordingLookup, RecordingLookup, RecordingForecast) {
     let location = FixedLocation()
     let nav = NavigationController(search: FixedSearch(places: []), engine: ScriptedNaviEngine(routes: []), location: location,
                                    clock: ManualClock())
     let counting = CountingWeather()
     let amapLookup = RecordingLookup(amap), foreignLookup = RecordingLookup(foreign)
-    let forecast = RecordingForecast(days, error: forecastError)
+    let forecast = RecordingForecast(days, current: current, error: forecastError)
     let executor = LiveInfoExecutor(navigation: nav, weather: weather ?? counting, geocoder: FakeGeocoder(), location: location,
                                     now: { phoneNov6 }, zone: { shanghai }, amapLookup: amapLookup, forecastLookup: foreignLookup,
                                     forecast: forecast, onWeather: { l in log.lines.withLock { $0.append(l) } })
@@ -84,7 +87,7 @@ struct ForecastWeatherTests {
         #expect(w?["place"] == "奥斯陆" && w?["country"] == "挪威")
         #expect(w?["rain_chance"] == .int(60) && w?["rain_mm"] == .double(0.5) && w?["wind_max_kmh"] == .double(12.3))
         #expect(r.data["next"] == .string(ForecastWeather.next))
-        #expect(r.data["next"] == "只按 weather 里的数据用一两句话回答，说出地点和几月几号星期几，不要编造。")
+        #expect(r.data["next"] == "只按 weather 里的数据用一两句话回答，说出地点和几月几号星期几；问现在几度时说现在的气温（now 里的 temperature_c，高德结果的 temperature_c），不要编造。")
         let t = await ex.execute(weatherCall(["where": "Oslo", "country": "NO", "day": "tomorrow"]))
         #expect(t.ok && t.data["weather"]?["date"] == "2026-11-07" && t.data["weather"]?["weekday"] == "星期六")
         #expect(amap.asked.withLock { $0.isEmpty })
@@ -241,7 +244,7 @@ struct ForecastWeatherTests {
         #expect(props?["day"]?["enum"] == ["today", "tomorrow", "day_after", "day_after_next"])
         #expect(props?["date"] == ["type": "string", "description": "说几号或星期几时填，yyyy-MM-dd。"])
         #expect(props?["country"] == ["type": "string", "description": "国外地点的国家代码，例如 NO、JP、US。中国、香港、澳门不填。"])
-        #expect(d.description.contains("weather：今后16天内任何地方、任何一天的天气预报。「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。"))
+        #expect(d.description.contains("weather：任何地方现在的气温，和今后16天内任何一天的天气预报。「今天天气怎么样」→where=here；「奥斯陆现在几度」→where=Oslo, country=NO（不填 day）；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。"))
         #expect(!d.description.contains("问明天加 day=tomorrow"))
         #expect(ForecastWeather.credit == "天气数据：Open-Meteo.com（CC BY 4.0）")
     }

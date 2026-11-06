@@ -109,7 +109,7 @@ public enum CurrentTimeQuery {
 /// days later, or there is no target and none of the month, week, season or usual-weather words.
 public enum WeatherForecastQuery {
     public static let advice = "16天内的天气预报不用搜索：调用 query_live_info（kind=weather），国外地点用英文名并填 country。"
-    static let weatherWords = ["天气", "气温", "温度", "下雨", "下雪", "降雨", "降水", "预报"]
+    static let weatherWords = ["天气", "气温", "温度", "下雨", "下雪", "降雨", "降水", "预报", "几度", "多少度"]
     static let otherDayWords = ["月", "年", "周", "星期", "礼拜", "号", "季", "平均", "一般", "往年", "去年", "历史"]
 
     public static func matches(_ query: String, now: Date, zone: TimeZone) -> Bool {

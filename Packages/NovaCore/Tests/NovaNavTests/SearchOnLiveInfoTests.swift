@@ -75,7 +75,7 @@ struct SearchOnLiveInfoTests {
             #expect(on.parametersJSONSchema == off.parametersJSONSchema)
             #expect(on.parametersJSONSchema["properties"]?["kind"]?["enum"] == .array(ToolCatalog.liveInfoKinds.map { .string($0) }))
             // §26 item 8 replaced the §23 sentence.
-            #expect(on.description.contains("天气预报（今后16天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。"))
+            #expect(on.description.contains("现在的气温和天气预报（今后16天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。"))
             #expect(on.description.contains("weather：") && on.description.contains("place_details："))
             #expect(!on.description.contains("新闻、股票、油价、汇率无数据源"))
         }

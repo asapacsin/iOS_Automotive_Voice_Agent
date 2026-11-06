@@ -133,9 +133,22 @@ public enum ForecastWeather {
 
     // MARK: Item 6: the result
 
-    public static let next = "只按 weather 里的数据用一两句话回答，说出地点和几月几号星期几，不要编造。"
+    /// §27 item 4: for both sources.
+    public static let next = "只按 weather 里的数据用一两句话回答，说出地点和几月几号星期几；问现在几度时说现在的气温（now 里的 temperature_c，高德结果的 temperature_c），不要编造。"
 
-    public static func summary(_ d: DailyForecastDay, place: String, country: String?) -> JSONValue {
+    /// §27 item 3: `now` only when the answered day is `daily.time[0]` (the place's today) and `current` is there.
+    public static func now(_ c: CurrentWeather?, answered: DailyForecastDay, days: [DailyForecastDay]) -> JSONValue? {
+        guard let c, answered.time == days.first?.time else { return nil }
+        func whole(_ v: Double?) -> JSONValue { v.map { .int(Int64($0.rounded())) } ?? .null }
+        func number(_ v: Double?) -> JSONValue { v.map { $0 == $0.rounded() ? .int(Int64($0)) : .double($0) } ?? .null }
+        let clock = c.time.split(separator: "T").last.map(String.init) ?? c.time
+        return .object([
+            "temperature_c": whole(c.temperature), "feels_like_c": whole(c.feelsLike), "humidity": whole(c.humidity),
+            "weather": .string(words(c.weatherCode)), "wind_kmh": number(c.windKmh), "time": .string(clock),
+        ])
+    }
+
+    public static func summary(_ d: DailyForecastDay, place: String, country: String?, now: JSONValue? = nil) -> JSONValue {
         func whole(_ v: Double?) -> JSONValue { v.map { .int(Int64($0.rounded())) } ?? .null }
         func number(_ v: Double?) -> JSONValue { v.map { $0 == $0.rounded() ? .int(Int64($0)) : .double($0) } ?? .null }
         var o: [String: JSONValue] = [
@@ -145,6 +158,7 @@ public enum ForecastWeather {
             "source": "open-meteo",
         ]
         if let country { o["country"] = .string(country) }
+        if let now { o["now"] = now }
         return .object(o)
     }
 

@@ -2012,13 +2012,20 @@
     {
       "id": "T-046p",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-18 §27 items 1-8: Open-Meteo current= in the forecast call, current block in the port, now (temperature_c, feels_like_c, humidity, weather, wind_kmh, time) in today's result, next text, weatherPart/officialFirst/web_search/persona texts, 几度 and 多少度 in the search block; rows 1-7",
       "depends_on": [
         "T-046o"
       ],
-      "notes": "Owner device issue 5, 2026-11-06: no current temperature for 奥斯陆. §26 asked Open-Meteo for daily only. China keeps 高德's live report (owner's 高德-vs-Open-Meteo choice not yet given; §26 as approved). Search-block words are ours, not from a source."
+      "notes": "Owner device issue 5, 2026-11-06: no current temperature for 奥斯陆. §26 asked Open-Meteo for daily only. China keeps 高德's live report (owner's 高德-vs-Open-Meteo choice not yet given; §26 as approved). Search-block words are ours, not from a source.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 1-6: OpenMeteoCurrentTests, CurrentWeatherTests, CurrentTemperatureSearchTests; older text tests updated",
+        "Independent high-effort review PASS, no blocking findings",
+        "Persona base 1679 (was 1673); maxBaseCharacters unchanged at 1700",
+        "Row 7 device NOT_VERIFIED"
+      ]
     },
     {
       "id": "T-013j",

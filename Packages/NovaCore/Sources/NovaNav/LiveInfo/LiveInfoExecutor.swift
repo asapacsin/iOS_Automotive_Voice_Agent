@@ -175,18 +175,20 @@ public struct LiveInfoExecutor: ToolExecutor {
             report("open-meteo", ok: false, reason: "not_configured")
             return .failure(.liveInfoUnavailable, advice: Self.noForecastAdvice)
         }
-        let days: [DailyForecastDay]
+        let result: DailyForecast
         do {
-            days = try await forecast.dailyForecast(latitude: ForecastWeather.rounded(coordinate.latitude),
+            result = try await forecast.dailyForecast(latitude: ForecastWeather.rounded(coordinate.latitude),
                                                     longitude: ForecastWeather.rounded(coordinate.longitude))
         } catch {
             report("open-meteo", ok: false, reason: Self.reason(error))
             return Self.failure(error)
         }
+        let days = result.days
         switch ForecastWeather.pick(days, day: parsed.day, date: parsed.date) {
         case .day(let entry):
             report("open-meteo", ok: true, reason: "ok")
-            return .success(["weather": ForecastWeather.summary(entry, place: place, country: country),
+            let now = ForecastWeather.now(result.current, answered: entry, days: days)
+            return .success(["weather": ForecastWeather.summary(entry, place: place, country: country, now: now),
                              "date": .string(entry.time), "next": .string(ForecastWeather.next)])
         case .past:
             report("open-meteo", ok: false, reason: "past")
