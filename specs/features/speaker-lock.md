@@ -109,6 +109,7 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 | T-013e | §3–§10; rows 1–18 | unit, script, build, D |
 | T-013f | §12; rows 19–26 | unit, script, build, D |
 | T-013g | §13; rows 27–36 | unit, build, D |
+| T-013h | §14; rows 37–46 | unit, build, D |
 
 ## 12. Model delivered at install, not in the app (owner request 2026-11-05)
 
@@ -177,3 +178,48 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 | 36 | Device: finish calibration, turn the lock on, install a new build over it, reopen 设置 | Status 已录入, switch still on, no calibration asked; `speaker-check` lines show the same threshold | D |
 
 **Trace gate.** Add `T-013g: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013g.
+
+## 14. Calibrate on the clip the live check scores, and show what the lock did (owner request 2026-11-06)
+
+**Why.** Device 2026-11-06, 339f513, installed over 289ecc2 at 10:19. The voiceprint (enrolled 11-05) and the calibration finished at 09:02 (threshold 0.46) both survived the install, and the lock was on. From 10:20 to 10:22 every sentence the owner said was rejected: `speaker-check` scores 0.25, 0.09, 0.03, 0.39, 0.43, 0.44, all `kind=speech speechMs≈1000–1200 result=rejected`, each `sentToModel=false muteReason=speaker`. Only 「你好小诺」 passed (`kind=wake speechMs=2000 score=0.492`). Nothing on screen said a sentence had been dropped, so the app looked dead, and the owner turned the lock off at 10:22. In the 09:02 calibration file the same driver's lines scored 0.37–0.71 (19 of 21 at 0.46 or above) and the other person's 0.19–0.45. Three causes, from the code:
+1. **Different clips.** 校准 scores each line's whole take (`SpeakerCalibrationView` sends `take.frames`). The live check scores only the first `minVerifySpeech` (1.0 s) of an utterance (§6 item 3, `SpeakerHold`). The threshold is set on whole lines and applied to 1-second clips.
+2. **Nothing shown after calibration.** 「使用这个阈值」 saves the threshold and `calibratedAt` in the profile, then deletes the draft (§13 item 6). The 设置 row exists only while a draft exists (§13 item 4), so after finishing, 设置 shows no calibration, and 校准 reopens at 0 / 20.
+3. **Nothing shown on a rejection.** A rejected utterance leaves no driver line and no message (§6 item 4).
+
+Cause 1 is the most likely reason for the low live scores, but it is not proved: the calibration file holds no 1-second scores. Row 45 checks it.
+
+**Sources.**
+- Thresholds set on long test audio do not hold for short test audio; scores and the best threshold move with test duration, so calibration data should match the test duration, or calibration should depend on it: [Intelligent Voice 2016 system](https://arxiv.org/pdf/1611.00514) (threshold moves with enrollment and test duration), [Cumani et al.](https://iris.polito.it/retrieve/handle/11583/2979926/656155) (global calibration fitted on long segments fails on short ones), [duration-aware calibration](https://iris.polito.it/retrieve/handle/11583/2968877/594269), [Duke short-utterance paper](https://sites.duke.edu/dkusmiip/files/2022/11/663_Paper.pdf).
+- No vendor publishes a fixed threshold for this model. sherpa-onnx's [speaker identification example](https://k2-fsa.github.io/sherpa/onnx/javascript-api/examples/speaker_identification.html) uses 0.5 and [speakeronnx](https://pypi.org/project/speakeronnx/0.0.2a1/) 0.45; [Picovoice](https://picovoice.ai/cookbook/ai-voice-assistant-speaker-recognition/) leaves the cutoff to the app. So the threshold stays measured on the phone (§5).
+- Saying so when a voice is not verified: Google Nest speakers answer 「I can't verify your voice」 ([Nest community](https://www.googlenestcommunity.com/t5/Speakers-and-Displays/Error-msg-I-can-t-verify-your-voice/m-p/277322)). That is from user reports, not a design guide. Here it is text only, so a passenger's speech does not make her talk.
+
+**Rule in plain words.** 校准 scores exactly the audio the live check will score. A threshold measured the old way is not used. 设置 always shows the saved calibration. When the lock drops a sentence, the screen says so.
+
+1. **One clip rule for both.** A pure `SpeakerVerifyClip.frames(_ frames: [PCMFrame16k], tuning: SpeakerTuning) -> [PCMFrame16k]?` in `NovaVoice` returns the first `minVerifySpeech` of the frames, in order; all of them when there is less, if that is at least `minScoreSpeech`; nil below that. `SpeakerHold` uses the same `SpeakerTuning` values, so a change to `minVerifySpeech` changes both. A unit test feeds one frame sequence to `SpeakerHold` and to `SpeakerVerifyClip` and checks that the scorer receives the same frames.
+2. **校准 scores the clip.** Each accepted line is scored on `SpeakerVerifyClip.frames(take.frames)`, not the whole take. nil keeps today's 「没听到说话，请再说一次。」 and saves nothing. The whole take is also scored, for the file only: it is not used for counts, the table or the suggested threshold.
+3. **Scores file.** Each line becomes `driver <clip score> whole=<whole score>` or `other <clip score> whole=<whole score>`, plus a first line `clipMs=<minVerifySpeech in ms>`. Numbers only, as §5 item 4.
+4. **The threshold records its clip.** `SpeakerProfile` gains `calibrationClipMs: Int?`, `calibrationDriverLines: Int?` and `calibrationOtherLines: Int?`, all optional so old files still load. 「使用这个阈值」 sets them with the threshold and `calibratedAt`. The draft gains `clipMs`; a draft without it, or with another value, does not match (§13 item 2) and is removed.
+5. **An old threshold is not used.** A profile with a threshold but `calibrationClipMs` missing or not equal to the current `minVerifySpeech` in ms is a new status, `recalibrate`:
+   - status text 「已录入，需要重新校准」, and under it 「校准方法已更新：请重新校准一次（两人各 20 句），声纹不用重新录入。」;
+   - `liveThreshold()` is nil, so the lock cannot turn on (§3 item 4), and a switch that is on is turned off the way `dropInvalidLock` does for `invalidModel`;
+   - the voiceprint, `enrolledAt` and the old threshold stay in the file; 重新录入 is not needed or asked for.
+6. **设置 shows the saved calibration.** With status `ready`, a row under 「声纹」 says 「已校准：{M月D日}，阈值 {0.00}（录入的人 {N} 句，其他人 {M} 句）」 from the profile, in the phone's time zone. With status `recalibrate` it says 「上次校准：{M月D日}，阈值 {0.00}（旧方法，已停用）」. The §13 item 4 progress row still shows, below it, while a draft exists.
+7. **校准 shows it too.** With a saved threshold, the top of 校准 shows the same text as item 6. Saying new lines does not change the saved threshold until 「使用这个阈值」 (§13 item 6).
+8. **Dropped sentence shown on screen.** With the lock on and a session running, each utterance the lock rejects or marks unknown (§6 item 4, `kind=speech`) shows 「没听出是录入的声音，这句没有发送」 for 3 s in the place where the §6 item 11 chip appears. Text only: no sound, no driver line, no turn. A new rejection restarts the 3 s; it never stacks. While the §6 item 11 chip is showing, that chip wins. A rejected wake word (§6 item 7) shows 「没听出是录入的声音，没有唤醒」 for 3 s on the idle screen. Rejected stop phrases show nothing. Accepted utterances and lock off show nothing.
+9. **Not changed.** `minVerifySpeech` (1.0 s), `minScoreSpeech`, the 20 + 20 lines, the suggested-threshold rule, enrollment, the wake check's 2 s of audio and its use of the same threshold, and §13's draft saving. Known effect, not fixed here: the wake check scores 2 s against a threshold now set on 1 s clips, so it may accept others a little more easily. Row 46 notes it.
+10. **Where the code goes.** `SpeakerVerifyClip`, the profile and draft fields, the `recalibrate` status and the item 6 texts go in `Packages/NovaCore/Sources/NovaVoice/Speaker/`, so rows 37–42 are unit tests. The rejection notice is a published event from the gate to `AgentModel`, like `speakerUnavailable`; the screens are in `App/NovaDrive/SpeakerLock.swift`, `DriveView.swift` and the wake idle view.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 37 | `SpeakerVerifyClip` with 2.5 s, 0.8 s and 0.4 s of frames | First 1.0 s; all 0.8 s; nil. The same frame sequence through `SpeakerHold` sends the scorer the same frames | unit |
+| 38 | 校准 adds a line from a 2.5 s take | The clip score goes into the draft and counts; the scores file line has both numbers, and the file starts with `clipMs=1000` | unit |
+| 39 | 「使用这个阈值」 with 21 and 20 lines | Profile has the threshold, `calibratedAt`, `calibrationClipMs` 1000, lines 21 and 20; draft removed | unit |
+| 40 | Profile with threshold 0.46 and no `calibrationClipMs` (today's file); with 500; with 1000 | `recalibrate`, `liveThreshold` nil, switch turned off, file unchanged; `recalibrate`; `ready`. A draft without `clipMs` is removed | unit |
+| 41 | Item 6 and 7 texts from a profile calibrated 2026-11-06T01:02:37Z, 0.46, 21 and 20, zone Asia/Macau | 「已校准：11月6日，阈值 0.46（录入的人 21 句，其他人 20 句）」; the old-method text for `recalibrate` | unit |
+| 42 | Lock on: speech rejected; unknown; accepted; wake rejected; stop phrase rejected; lock off | One notice each for the first two, with the item 8 text; none; the wake text; none; none | unit |
+| 43 | Device: install over 339f513, open 设置 | 「已录入，需要重新校准」 with the item 5 text and the old-method row; the switch cannot turn on; no 录入 asked | D |
+| 44 | Device: 校准 20 + 20, 「使用这个阈值」, close and reopen 设置 and 校准, then install a new build over it | The item 6 row with the real date, threshold and counts, before and after the install; 校准 shows it at the top | D |
+| 45 | Device, lock on, parked: the driver says 20 everyday commands | Note accepted out of 20, and compare the live `speaker-check` scores with the driver's clip scores in the scores file | D |
+| 46 | Device, lock on: the other person says 10 commands and 「你好小诺」 3 times | Each command shows the item 8 notice and gets no reply; note how many wake words pass | D |
+
+**Trace gate.** Add `T-013h: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013h.

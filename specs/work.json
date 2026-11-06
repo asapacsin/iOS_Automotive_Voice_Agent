@@ -1881,6 +1881,17 @@
       ]
     },
     {
+      "id": "T-013h",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 2,
+      "action": "F-04b §14 items 1-10: SpeakerVerifyClip shared by 校准 and SpeakerHold, threshold records its clip and old thresholds need recalibration, 设置 and 校准 show the saved calibration, on-screen notice for dropped sentences and rejected wake words; rows 37-46",
+      "depends_on": [
+        "T-013g"
+      ],
+      "notes": "Owner 2026-11-06 (339f513): lock on after install rejected every sentence (scores 0.03-0.44 on 1 s clips vs threshold 0.46 set on whole lines), no message shown, no calibration shown in 设置. The clip mismatch is the likely cause, not proved; row 45 checks it. The owner recalibrates once after this ships."
+    },
+    {
       "id": "T-042c",
       "owner": "AUTONOMOUS",
       "status": "PASS",
