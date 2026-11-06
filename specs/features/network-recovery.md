@@ -162,3 +162,79 @@ This section changes the online retry budget in §5, §9 and §14 item 2 ("5 att
 | Task | Scope | Verify |
 |---|---|---|
 | T-016j | Items 1–10; rows 1–9 | unit, build, D |
+
+## 16. See through the VPN, and drop a resume that keeps being closed (iOS, APPROVED 2026-10-31 as §15 / T-016i on branch 10-31-vpn-network-spec; moved here 2026-11-06)
+
+**History.** This was written on 2026-10-31 (commit 53771c3) and never merged. §15 and T-016i were later used for other work, so it is now §16 / T-016k. §15 (T-016j, built) already gives a 60 s retry window and then lets 你好小诺 connect again, so the old item 3 (60 s window with probe wait) is dropped here. The rest was not built: the code at 50a55a4 has no `usesInterfaceType` check, `pingInterval` is still 20 s with no separate pong deadline, and there is no `providerClosed` log or quick-close handle drop.
+
+**Why.** Device run ac53787 (2026-10-31, checklist 10-02, VPN on; Gemini needs a VPN in China): after airplane mode
+was turned off the app showed 连接失败 instead of reconnecting. Log (syslog 15:38–15:41):
+- **The watcher never fired.** Zero `networkLost` / `networkRestored` lines. NovaDrive's traffic runs over the VPN
+  tunnel (`utun5`), and the tunnel path stays `satisfied` when the real network under it goes away. The path
+  description shows the gap: normally `interface: utun5 … uses wifi` (or `uses cell`); at 15:38:30–15:38:34 (airplane
+  mode on) and at 15:40:19.6 (airplane mode off, 0.7 s before the drop) it was `interface: utun5, ipv4, dns` with no
+  `uses wifi` / `uses cell`. §14 item 1 checks only `status == .satisfied`, so both gaps counted as "online".
+- **Retries ran out during the route change.** 15:40:17 airplane mode off; 15:40:20 TCP reset (`ECONNRESET`) while the
+  VPN moved to the new route; three attempts got HTTP 101 and were closed about 0.5–1 s later (`provider failed
+  CONNECTION_CLOSED` 15:40:24, 15:40:30, 15:40:35); the 5-attempt budget (§5/§9, about 15 s) ended in ERROR at
+  15:40:35 while the path was already back (`uses wifi` again from 15:40:23.8).
+- **The close reason is not logged,** so whether Gemini refused the resumption handle or the VPN dropped the new
+  socket cannot be told. `GeminiCloseClassifier` maps only the recorded 1008 "session not found" to
+  `RESUME_UNAVAILABLE`; these closes were not that one.
+- **Dead sockets are noticed late.** `RealtimeTuning.pingInterval` is 20 s with a one-interval pong deadline, so a
+  black-holed socket can take up to 40 s to be closed.
+Community review 2026-10-31: Apple DTS: `NWPathMonitor` can give false positives and negatives and is advisory only;
+watch the path that actually carries the traffic; VPN paths report the real interface separately
+(`usesInterfaceType`). Realtime clients (WebSocket guides, y-websocket on iOS, LiveKit with Gemini Live) use an
+application heartbeat to detect a dead connection, back off with a time window rather than a few quick tries, and start
+a fresh session when resuming keeps failing (Gemini Live forum reports: resume after a drop closed at once with
+1007/1011). Owner 2026-10-31: "Yes, spec it".
+
+**Rule in plain words.** A VPN that says "connected" with no Wi-Fi or mobile data under it is no network: she shows 等待网络… and waits (§14). A dead socket is noticed within 15 s. If resuming keeps being closed, she starts a fresh session instead of trying the same handle again. Every close is logged with its code.
+
+1. **Network means a real interface (platform).** `NetworkPathWatcher` reports available only when the path is
+   `satisfied` **and** uses Wi-Fi, cellular or wired Ethernet (`usesInterfaceType(.wifi / .cellular /
+   .wiredEthernet)`). A satisfied path with only a tunnel or other interface counts as unavailable. The decision is a
+   pure function in NovaKit over a snapshot (`NetworkPathSnapshot(satisfied:, wifi:, cellular:, wired:, other:)`), so
+   it is unit-tested without the Network framework; the 500 ms debounce (§14 item 1) is unchanged. A tuning switch
+   `RealtimeTuning.requirePhysicalInterface` (default true) turns the extra check off if a device misreports.
+   Each change logs `networkPath satisfied=<bool> via=wifi|cell|wired|none tunnel=<bool>` (no addresses, no names).
+2. **Unreachable is not a server failure (NovaCore).** A failure is *unreachable* when no server close frame was
+   received: `CONNECTION`, `DNS`, `TIMEOUT` (connect or setup), or a socket closed with 1006 / no close frame,
+   including a ping timeout. It is a *server close* when the socket got HTTP 101 and then a close frame with a code.
+   The close classifier carries this as a flag on the failure; `VoiceSession` stays pure. Since §15 owns the retry budget, the flag is used for the item 5 log only; it does not change the §15 window.
+3. **Faster dead-socket check.** `pingInterval` 10 s and a separate `pongTimeout` 5 s (`RealtimeTuning`), so a dead
+   socket is closed within 15 s. A ping timeout is *unreachable* (item 2). `pingInterval` is in `Packages/NovaCore/Sources/NovaKit/Tuning.swift` (20 s today); the ping loop is in `GeminiLiveProvider`.
+4. **Fresh session when resuming keeps failing.** If two attempts in a row that resume with a handle are closed by the
+   server before setupComplete, or within 3 s after it, the handle is dropped and the next attempt opens a new session
+   (log `resumeDropped reason=quickClose`). She then behaves as for `RESUME_UNAVAILABLE` (§14 item 3). The §15 2-hour handle kept for the wake word follows the same rule: a dropped handle is not kept: no claim to
+   remember the lost turn. The recorded 1008 "session not found" still drops it at once.
+5. **Close details in the log.** Every socket end logs `providerClosed code=<int> reason=<text, max 120 chars>
+   http=<status|none> afterSetup=yes|no resumed=yes|no openMs=<ms since open> kind=unreachable|server`. The reason is
+   the server's close text only; never the URL, query, headers or key (I-7).
+6. **Not in scope.** The degraded answers after the resume at 15:38:41 (「我在哪」 unanswered, `turnUnanswered`,
+   `correctionSent`, `classifierMax` stuck at 0.28 for every later utterance) happened with the network up and are a
+   separate investigation; the `toolCall` diagnostic of F-21 §15 (T-034b) will show whether the location tool ran.
+   The VPN app itself is not controlled by NovaDrive.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Snapshots: satisfied + wifi; satisfied + cellular; satisfied + wired; satisfied + other only; unsatisfied + wifi | available, available, available, unavailable, unavailable; with `requirePhysicalInterface = false` the 4th is available | unit (NovaKit) |
+| 2 | Watcher fed satisfied+wifi, then satisfied+other only for 300 ms, then for 600 ms | No report for the 300 ms gap; `.networkLost` for the 600 ms gap, then `.networkRestored` | unit (fake path source, fake clock) |
+| 3 | Scripted: two resumed attempts closed 0.5 s after 101 | Third attempt sends no handle; `resumeDropped reason=quickClose`; the §15 kept handle is cleared; after setupComplete she does not claim the lost turn | unit (VoiceSession + provider fake) |
+| 4 | Provider: socket closed with code 1011 reason "x", and one with no close frame | `providerClosed` lines with code, reason, `kind=server` / `kind=unreachable`; no URL or key in either | unit (log capture) |
+| 5 | Provider: no pong for 5 s | Socket closed as unreachable within 15 s of the last pong | unit (fake connection) |
+| 6 | Device, VPN on: checklist 10-02 (airplane mode on mid-conversation, then off, then 「我在哪」) | `networkLost` / `networkRestored` logged; chip 「等待网络…」 while offline; reconnects without a tap within the §15 window; `providerClosed` lines show the close codes | D |
+| 7 | Device, VPN on: walk from Wi-Fi to cellular (leave the building) mid-conversation | Reconnects within the §15 window; no 连接失败 | D |
+| 8 | Device, VPN on: normal 10-minute conversation | No spurious `networkLost`; no extra reconnects | D (log) |
+| 9 | Device, VPN off (Wi-Fi only, if reachable): §14 rows 8–10 and §15 rows 7–9 | Still pass | D |
+
+**Trace gate.** Add `T-016k: F-24` to `specs/trace-ids.txt` together with the first `@Test` that names T-016k.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-016k | Items 1–5; rows 1–9 | unit, build, D (rows 6–9) |

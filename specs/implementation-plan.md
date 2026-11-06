@@ -61,12 +61,14 @@ NOT_VERIFIED until a device run is attached.
 | T-013g | Calibration progress saved after every line and resumed; warning before 重新录入 | F-04b §13 | T-013f | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §13 rows 27–36 | unit, build, D |
 | T-013h | 校准 scores the same 1 s clip as the live check; an old threshold needs recalibration; 设置 shows the saved calibration; dropped sentences shown on screen | F-04b §14 | T-013g | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §14 rows 37–46 | unit, build, D |
 | T-013i | A threshold calibrated before §14 stays in use (no forced recalibration); 设置 shows it as 整句校准 | F-04b §15 | T-013h | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §15 rows 47–50 | unit, build, D |
+| T-013j | Threshold slider in 设置 with the calibration counts at each value, 恢复建议值, recent live scores; applies with no restart | F-04b §16 | T-013i | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §16 rows 51–61 | unit, build, D |
 | T-014 | `VoiceSession` state machine + `ReconnectPolicy` | F-05 core, F-24 | T-011 | `Core/NovaVoice/Session/` | contracts/voice-agent.md §1 and §8 transitions; auth error → no retry | unit |
 | T-015 | Gemini codec, turn assembler, error classifier | F-05 | T-011, T-003 | `Packages/NovaRealtime/Sources/Codec/` | Fixture replay gives the §4 event order; 1007/1008 classification | unit, contract |
 | T-016 | Gemini transport + provider; local fake WebSocket server | F-05, F-24 | T-015 | `Packages/NovaRealtime/` | F-05 §10 rows 2–3; F-24 §10 row 1 (W4) | unit, contract |
 | T-016g | Callbacks answered once: `ResumeOnce` helper, ping double-callback crash fix, audit of Apple-callback continuations | F-05, F-24 | T-016 | `Packages/NovaRealtime/`, `Packages/NovaPlatform/`, `Packages/NovaAudio/` | F-05 §14 rows 1–8 | unit, review, D |
 | T-016h | Wait for the network: `NetworkPathWatcher`, offline wait without spending attempts, immediate reconnect on restore, 10 min offline cap | F-24 | T-016g | `Packages/NovaPlatform/`, `Packages/NovaCore/`, `App/NovaDrive/` | F-24 §14 rows 1–10 | unit, build, D |
 | T-016j | Retry for 60 s with the network up, then close the session and keep the handle in memory, so 你好小诺 or a tap connects again and continues | F-24 | T-016h, T-060a | `Core/NovaVoice/Session/`, `Core/NovaKit/`, `App/NovaDrive/` | F-24 §15 rows 1–9 | unit, build, D |
+| T-016k | A VPN with no Wi-Fi or cellular under it counts as offline; ping 10 s / pong 5 s; drop a resume closed twice quickly; providerClosed log | F-24 §16 | T-016j | `Packages/NovaCore/`, `Packages/NovaPlatform/`, `Packages/NovaRealtime/` | F-24 §16 rows 1–9 | unit, build, D |
 | T-016a | `LocalTranscriber` port, `TranscriptSelector`, `TranscriptLanguage`, `wordsReliable` | F-05a | T-016, T-013a | `Core/NovaPorts/`, `Core/NovaVoice/Transcript/`, `Core/NovaTools/Dispatch/` | F-05a §10 rows 1–4 | unit |
 | T-016b | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | F-05a | T-016a | `Packages/NovaAudio/`, `scripts/gates/` | F-05a §4 | build |
 | T-016c | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | F-05a | T-016b | `App/NovaDrive/` | F-05a §10 rows 5–9 | S, D |
@@ -155,6 +157,7 @@ NOT_VERIFIED until a device run is attached.
 | T-046m | Qwen gets the copied FreshPrompt text with no refusal or exact-day rule; she may give usual weather for far-off dates | F-18 | T-046l | `Packages/NovaRealtime/`, `Packages/NovaCore/` | F-18 §24 rows 1–7 | unit, build, D |
 | T-046n | current_time takes an IANA time_zone; every time question uses it; web_search refuses current-time queries | F-18 §25 | T-046m | `Packages/NovaCore/` | F-18 §25 rows 1–9 | unit, build, D |
 | T-046o | Weather for any place and any day in the next 16 days: 高德 for China to 大后天, Open-Meteo for the rest; foreign places by English name and country; web_search refuses near-term weather | F-18 §26 | T-046n | `Packages/NovaCore/`, `Packages/NovaServices/`, `App/` | F-18 §26 rows 1–13 | unit, build, D |
+| T-046p | The temperature now for any place: Open-Meteo `current=` in the same call, `now` in today's result, texts and search block cover 现在几度 | F-18 §27 | T-046o | `Packages/NovaCore/`, `Packages/NovaServices/` | F-18 §27 rows 1–7 | unit, build, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 

@@ -802,3 +802,53 @@ Also from the §25 record: 高德's geocoder answered 仙台 with 弋阳县 and 
 | Task | Scope | Verify |
 |---|---|---|
 | T-046o | Items 1–12; rows 1–13 | unit, build, D |
+
+## 27. The temperature now, for any place (iOS, PROPOSED 2026-11-06)
+
+**Why.** Owner's device issue 5, 2026-11-06: she cannot give the current temperature of a foreign city, for example 奥斯陆. From the code on the T-046o line (281b72d, 50a55a4):
+- China, 香港 and 澳门 today go to 高德's live report (`extensions=base`), which has `temperature_c`. That works.
+- Foreign places go to Open-Meteo. `OpenMeteoClient.dailyForecast` asks only for `daily=` (§26 item 4), so today's answer has the day's high and low and no temperature now. 「奥斯陆现在几度」 has no answer.
+- `web_search` cannot fill it: search pages are not live, and §26 item 9 blocks 气温 and 温度 searches anyway.
+- This gap was in §26 itself: it moved foreign places to a new source without listing everything the old path answered.
+
+**Sources (2026-11-06).**
+- **Current weather is its own answer, from the same feed.** [isdaniel/mcp_weather_server](https://github.com/isdaniel/mcp_weather_server) has `get_current_weather` (temperature, "feels like", humidity, wind) next to its forecast tool, from Open-Meteo, with English city names only.
+- **Same request.** Open-Meteo's [forecast docs](https://open-meteo.com/en/docs) take `current=` variables in the same request as `daily=`.
+- **Measured on the PC, 2026-11-06.** `current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m` with `daily=` and `timezone=auto` for Oslo (59.91, 10.75) returned `current.time` 2026-11-06T06:00 (Oslo time, `interval` 900 s), 0.9 °C, feels like −2.2 °C, 81 %, code 1, 4.3 km/h, and the daily lists in the same answer.
+
+**Rule in plain words.** When she answers for a place's today from Open-Meteo, the answer also carries the temperature now. China keeps 高德's live report, as now. "现在几度" goes to the weather tool, never to search.
+
+1. **The request.** `OpenMeteoClient`'s forecast URL gains `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m`, placed before `&daily=`. Everything else in §26 item 4 stays: the same single call, no key, coordinates rounded to 2 decimals, the same time limit.
+2. **The port.** The daily forecast port returns the days and an optional current block: `time` (`yyyy-MM-ddTHH:mm`, the place's own clock), `temperature`, `feelsLike`, `humidity`, `weatherCode`, `windKmh`. A missing or unreadable `current` gives nil, never an error. The days are read as now.
+3. **The result.** When the answered day is `daily.time[0]` (the place's today, §26 item 5) and the current block is there, `weather` also holds `now`: `temperature_c` and `feels_like_c` (whole degrees), `humidity` (%), `weather` (§26 item 7 words), `wind_kmh`, and `time` (`HH:mm` from `current.time`). Other days have no `now`. With no current block, today's answer is returned without `now`. 高德's results are unchanged: today already has `temperature_c`.
+4. **`next`.** §26 item 6's text becomes 「只按 weather 里的数据用一两句话回答，说出地点和几月几号星期几；问现在几度时说现在的气温（now 里的 temperature_c，高德结果的 temperature_c），不要编造。」 for both sources.
+5. **Her texts.**
+   - `ToolCatalog.weatherPart`: 「weather：今后16天内任何地方、任何一天的天气预报。」 becomes 「weather：任何地方现在的气温，和今后16天内任何一天的天气预报。」, and 「「奥斯陆现在几度」→where=Oslo, country=NO（不填 day）；」 is added after 「「今天天气怎么样」→where=here；」. The rest stays.
+   - `officialFirst`: 「天气预报（今后16天内）只用 query_live_info，不用 web_search。」 becomes 「现在的气温和天气预报（今后16天内）只用 query_live_info，不用 web_search。」
+   - `web_search` description: 「不用于查16天内的天气预报（用 query_live_info 的 weather）。」 becomes 「不用于查现在的气温或16天内的天气预报（用 query_live_info 的 weather）。」
+   - Persona `webSearchSentence`: 「天气预报用 query_live_info（今后16天内，国外地点用英文名并填 country）。」 becomes 「现在的气温和天气预报用 query_live_info（今后16天内，国外地点用英文名并填 country）。」 If the base then passes `maxBaseCharacters` (1700), the limit may rise by the added length and no more. Record the new limit in STATUS.
+6. **Search block (ours, not from a source; the owner may remove it).** §26 item 9's word list (`CurrentTime.swift` `weatherWords`) gains 几度 and 多少度. Its other conditions and its advice stay.
+7. **Where the code goes.** `OpenMeteoClient` (NovaServices) for items 1–2, the port in NovaPorts, items 3–4 in `ForecastWeather` (NovaCore), item 5 in `ToolCatalog` and `SpeakingStyle`, item 6 in `CurrentTime.swift`. `RuntimeLog` stays as §26 item 11: no place names, dates, coordinates or temperatures (I-8).
+8. **Not changed.** 高德 for China today to 大后天 (§26 item 3), the place lookup and name check, the day choice, the not-out and past advice, the credit, and weather with search off, which gets `now` too.
+
+**Not verified.** Open-Meteo's `current` is model data refreshed every 15 minutes, not a station reading. How close it is to a station near the asked place (for Oslo, yr.no) is unknown; row 7 compares them.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | `OpenMeteoClient` for 59.91, 10.75 | The URL is §26 row 1's with `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m` before `&daily=` | unit |
+| 2 | Fixture with `current` (time 2026-11-06T06:00, 0.9, −2.2, 81, code 1, 4.3) and `daily.time` 2026-11-06…2026-11-21: no `day` or `date`; `date` 2026-11-06; `day` tomorrow | `now` = time 06:00, 1, −2, 81, 大致晴, 4.3 beside the day's values, twice; tomorrow has no `now` | unit |
+| 3 | Same fixture with no `current`; with `current` missing `temperature_2m` | Today's values, no `now`, no error | unit |
+| 4 | 高德 today for 横琴 | Result as before, with the item 4 `next` | unit |
+| 5 | `web_search`, phone date 2026-11-06: 「奥斯陆现在几度」, 「东京现在多少度」; 「下个月澳门温度几度」 | First two blocked (`search-blocked reason=weather`, no Qwen call); the third goes to Qwen | unit |
+| 6 | Catalog, `officialFirst`, `web_search` description, persona | Texts exactly as item 5; base within the limit | unit |
+| 7 | Device, record on, search on: 「奥斯陆现在几度」, 「东京现在气温多少」, 「纽约现在冷不冷」, 「横琴现在几度」, each 3 times | Each from `query_live_info` (foreign places by English name and `country`), no `web_search`; she says the place and the temperature now; foreign numbers within 2 °C of open-meteo.com's current value at the same time (and noted against yr.no for Oslo); 横琴 matches 高德 | D |
+
+**Trace gate.** Add `T-046p: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046p.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046p | Items 1–8; rows 1–7 | unit, build, D |

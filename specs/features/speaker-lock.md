@@ -111,6 +111,7 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 | T-013g | §13; rows 27–36 | unit, build, D |
 | T-013h | §14; rows 37–46 | unit, build, D |
 | T-013i | §15; rows 47–50 | unit, build, D |
+| T-013j | §16; rows 51–61 | unit, build, D |
 
 ## 12. Model delivered at install, not in the app (owner request 2026-11-05)
 
@@ -245,3 +246,54 @@ This section replaces §14 item 5 and row 43. §14 items 1–4 and 6–10 stay: 
 | 50 | Device: lock on, the driver says 20 everyday commands; then the other person says 10 | Note accepted out of 20, rejected out of 10, and that each rejection shows the §14 item 8 notice | D |
 
 **Trace gate.** Add `T-013i: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013i.
+
+## 16. Threshold slider in 设置 (owner request 2026-11-06; moved here from local commit 9ed69d8, where it was numbered §14 / T-013h)
+
+**Why.** On 2026-11-06 the lock dropped the owner's voice. Calibration that morning saved 0.46, just above the other person's highest score (0.454). The owner's own calibration lines scored 0.366–0.707. In use that day, the owner's accepted scores were mostly 0.48–0.65, and 8 of the 26 loud (84–92 dB) utterances it scored were rejected at 0.37–0.455. Three of them came right after an accepted 你好小诺 (0.492). The owner asked for a slider to raise and lower the threshold by hand, to match what they see. §5 item 1 still holds: there is no built-in threshold, and the slider only moves one that 校准 has set.
+
+**Source.** A verification threshold trades false rejects against false accepts. It is chosen from those two measured rates, as on the DET curve (Martin et al., *The DET curve in assessment of detection task performance*, Eurospeech 1997). So at every value, the slider shows those two counts from the owner's own calibration.
+
+**Fits §14 and §15 (built in 281b72d and 50a55a4).**
+- "Status 「已录入」" in item 1 means `ready`, which since §15 includes a threshold calibrated before §14. The slider is hidden for `recalibrate` and for every status without a threshold.
+- The §14 item 6 and §15 item 3 rows show the saved threshold, so after a slider save they show the slider's value. `calibratedAt`, `calibrationClipMs` and the line counts are not changed by the slider.
+- Item 4's Documents fallback reads both scores file formats: the §14 format (first line `clipMs=<ms>`, lines `driver <clip score> whole=<whole score>`) uses the clip score; the older format (lines `driver <score>`) uses that score. Row 55 covers both.
+
+1. **Where.** In `Section("声音")`, under the 声纹 row. It is shown only when the status is 「已录入」, meaning a threshold is saved. The title is 「声纹阈值 0.46」 with the current value, followed by a `Slider` with step 0.01 (`SpeakerCalibration.step`). The range is 0.30–0.70, widened to include the saved value when it lies outside.
+2. **Words.** Under the slider: 「调低：你更少被拒，别人更容易通过。调高：别人更难通过，你更容易被拒。」
+3. **Counts at the value under the finger.** One line from `SpeakerCalibration.row(at:)` on the saved calibration scores: 「校准时：你的 21 句里被拒 2 句，别人的 20 句里通过 0 句」, with the real counts. Below it, 「校准建议 0.46」 (`suggested`) and a 「恢复建议值」 button, which moves the slider to that value and saves it (item 6).
+4. **Where the scores come from.** 「使用这个阈值」 in 校准 also writes the scores to `Application Support/SpeakerLock/calibration-result.json`. The file also holds the profile's `enrolledAt`, `modelName` and `dimension`, uses the same protection, and is excluded from backup, like the §13 draft. It is used only when those three fields match the loaded profile. A file that does not match, or cannot be read, is removed. A calibration finished before this change has no result file. In that case the newest `Documents/speaker-calibration-<stamp>.txt` (§5 item 4) whose stamp is later than `enrolledAt` is read once and written as the result file. With no usable scores, the slider still works. The count line then says 「没有校准分数，无法显示误拒和误通过」, and 恢复建议值 is hidden.
+5. **Recent live scores.** `SpeakerLockService` keeps the last 20 `kind=speech` scores of this app run in memory: score and result, numbers only (I-8), never saved. Under the counts, 「最近 20 次（任何说话的人）：」 lists them newest first, with rejected ones marked, for example 「0.45✗ 0.52 0.40✗」. With none yet it says 「还没有分数」. The list refreshes when the section appears and after each save.
+6. **Saving.** The value is saved when the finger lifts (`onEditingChanged` false), not at every step. It is snapped to the 0.01 grid and written as the profile's threshold only, atomically, through `SpeakerProfileStore`. A failed save puts the slider back to the saved value and shows 「阈值保存失败」.
+7. **Applies with no restart.** After a save, `SpeakerLockService` posts a notification. The session runtime and the wake listener observe it and call `setSpeakerLock(liveThreshold())` / `setLock(threshold:)`, as they do for the switch (§6 item 10). The next utterance, wake word and stop phrase use the new value. An utterance that is being checked at that moment follows the existing generation rule: its result is dropped and it ends as unknown. This is stated here, not changed.
+8. **Record line.** `speaker-threshold old=<n> new=<n> source=slider|suggested` goes to the record and to `RuntimeLog`, numbers only. `speaker-check` lines already carry the threshold in use.
+9. **Calibrating and re-recording.** 「使用这个阈值」 in 校准 still sets the threshold, and the slider then shows the new value. A successful 重新录入 still leaves a profile with no threshold, so the slider is hidden until 校准 (§13 item 9). The result file is removed on a successful enrollment, on 删除声纹 and on wipe-all, like the draft.
+10. **Not changed.** These stay as they are:
+    - the suggestion rule (§5 item 3);
+    - `minVerifySpeech` and scoring;
+    - the switch rule: the lock still needs a calibrated threshold before it can turn on (§3 item 4);
+    - the live pipeline.
+
+    Nothing leaves the phone (§4 item 7).
+11. **Where the code goes.** These go in `Packages/NovaCore/Sources/NovaVoice/Speaker/`, pure, so rows 51–57 run as unit tests:
+    - the result type and its file store, behind a small store protocol like `SpeakerCalibrationDraftStore`;
+    - the Documents fallback reader;
+    - the range rule and the count line;
+    - the recent-score ring.
+
+    The view goes in `App/NovaDrive/SpeakerLock.swift`. The notification goes in `SpeakerLockService`, and its observers in `App/NovaDrive/AgentRuntime.swift` and `App/NovaDrive/Wake/WakeListener.swift`.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 51 | Status 已录入; 已录入，未校准; 未录入; 声纹模型不可用 | Slider shown at the saved value; hidden; hidden; hidden | unit |
+| 52 | Saved threshold 0.46; saved 0.75; saved 0.25 | Range 0.30–0.70; 0.30–0.75; 0.25–0.70 | unit |
+| 53 | The 2026-11-06 scores (21 driver, 20 other) at 0.46 and at 0.40 | 被拒 2 / 21, 通过 0 / 20; 被拒 2 / 21, 通过 3 / 20; suggestion 0.46 | unit |
+| 54 | Result file: save and reload; a different `enrolledAt`, `modelName` or `dimension`; unreadable file | Same scores; treated as empty and removed; removed | unit |
+| 55 | No result file; Documents holds one scores file older and one newer than `enrolledAt`, the newer in the §14 format; again with the newer in the older format | The newer one is read and written as the result file; with neither, the 没有校准分数 line and no 恢复建议值 | unit |
+| 56 | Finger lifts at 0.403; 恢复建议值; the profile save fails | Threshold 0.4 saved and `speaker-threshold old=0.46 new=0.4 source=slider`; 0.46 saved with `source=suggested`; slider back to the saved value and 「阈值保存失败」 | unit |
+| 57 | Ring after 25 speech checks and 3 wake checks | The last 20 speech scores, newest first, rejected ones marked; no wake scores | unit |
+| 58 | Device: during a session, move the slider from 0.46 to 0.40, then talk | The next `speaker-check` lines show `threshold=0.4`; no restart; a `speaker-threshold` line in the record | D |
+| 59 | Device: say 10 lines with the lock on, then open 设置 | 最近 20 次 shows those scores; the count line matches the pulled scores file | D |
+| 60 | Device: on this phone, calibrated before this change, open 设置 after the install | Counts shown from the 2026-11-06 scores file, with no new calibration | D |
+| 61 | Device: set 0.42, install a new build over it, reopen 设置 | Slider at 0.42; switch still on | D |
+
+**Trace gate.** Add `T-013j: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013j.
