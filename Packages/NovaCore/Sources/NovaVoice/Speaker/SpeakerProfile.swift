@@ -252,20 +252,25 @@ public enum SpeakerEnrollment {
     /// §13 item 9: a failed enrollment keeps the old profile, threshold and draft; a successful one removes the draft.
     @discardableResult
     public static func enroll(_ takes: [EnrollmentTake], modelName: String, dimension: Int, at date: Date,
-                              store: any SpeakerProfileStore, draftStore: (any SpeakerCalibrationDraftStore)? = nil)
+                              store: any SpeakerProfileStore, draftStore: (any SpeakerCalibrationDraftStore)? = nil,
+                              resultStore: (any SpeakerCalibrationResultStore)? = nil)
         -> Result<SpeakerProfile, EnrollmentProblem> {
         let result = check(takes, modelName: modelName, dimension: dimension, at: date)
         if case .success(let profile) = result {
             do { try store.save(profile) } catch { return .failure(.noEmbedding) }
             try? draftStore?.delete()
+            try? resultStore?.delete()  // §16 item 9: the result file goes on a successful enrollment
         }
         return result
     }
 
     /// §4 item 5, §3 item 5: delete (also from the wipe-all); the caller turns the switch off. §13 item 10: the
     /// draft goes too.
-    public static func delete(store: any SpeakerProfileStore, draftStore: (any SpeakerCalibrationDraftStore)? = nil) throws {
+    /// §16 item 9: the calibration result file goes too.
+    public static func delete(store: any SpeakerProfileStore, draftStore: (any SpeakerCalibrationDraftStore)? = nil,
+                              resultStore: (any SpeakerCalibrationResultStore)? = nil) throws {
         try? draftStore?.delete()
+        try? resultStore?.delete()
         try store.delete()
     }
 }

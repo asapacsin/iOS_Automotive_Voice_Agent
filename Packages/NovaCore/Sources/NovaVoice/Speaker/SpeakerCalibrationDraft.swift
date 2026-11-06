@@ -172,6 +172,7 @@ public enum SpeakerCalibrationProgress {
     public static func finish(_ threshold: Double, calibration: SpeakerCalibration, profile: SpeakerProfile,
                               at date: Date, profileStore: any SpeakerProfileStore,
                               draftStore: any SpeakerCalibrationDraftStore,
+                              resultStore: (any SpeakerCalibrationResultStore)? = nil,
                               writeScores: (SpeakerCalibration) -> Void) throws -> SpeakerProfile {
         var updated = profile
         updated.threshold = threshold
@@ -182,6 +183,8 @@ public enum SpeakerCalibrationProgress {
         updated.calibrationOtherLines = calibration.others.count
         try profileStore.save(updated)
         writeScores(calibration)
+        // §16 item 4 (T-013j): the scores also go to the result file behind the 设置 slider's counts.
+        if let resultStore { try? SpeakerCalibrationScores.save(calibration, profile: updated, store: resultStore) }
         try? draftStore.delete()
         return updated
     }

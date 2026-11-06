@@ -2030,13 +2030,20 @@
     {
       "id": "T-013j",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 2,
       "action": "F-04b §16 items 1-11: threshold slider in 设置 (0.30-0.70, step 0.01), calibration counts at the value, 恢复建议值, calibration-result.json with Documents fallback (both scores formats), last 20 live scores, save on release, applies with no restart, speaker-threshold record line; rows 51-61",
       "depends_on": [
         "T-013i"
       ],
-      "notes": "Owner request 2026-11-06, written in local commit 9ed69d8 as §14 / T-013h, which collided with the built §14; renumbered."
+      "notes": "Owner request 2026-11-06, written in local commit 9ed69d8 as §14 / T-013h, which collided with the built §14; renumbered.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 51-57: SpeakerThresholdSliderTests (8 tests); no existing tests changed",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 58-61 device NOT_VERIFIED",
+        "App target not compiled here"
+      ]
     },
     {
       "id": "T-016k",

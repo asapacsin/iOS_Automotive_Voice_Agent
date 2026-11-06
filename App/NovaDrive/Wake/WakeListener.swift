@@ -29,6 +29,8 @@ final class WakeListener {
     /// F-04b §6 item 7 (T-013e): the last 2 s of frames, scored on a detection when 声纹锁定 is on.
     private let recent = RecentBox()
     private var wakeCheck = SpeakerPhraseCheck(kind: .wake)
+    /// F-04b §16 item 7 (T-013j): a threshold saved from the 设置 slider applies to the next wake word.
+    private var thresholdObserver: NSObjectProtocol?
     /// One engine for the app run, so the sherpa spotter is loaded once and kept between listens.
     private lazy var engine: any WakeEngine = makeEngine()
 
@@ -47,6 +49,12 @@ final class WakeListener {
         self.onArmed = onArmed
         self.onWake = onWake
         self.onSpeakerNotice = onSpeakerNotice
+        thresholdObserver = NotificationCenter.default.addObserver(forName: SpeakerLockService.thresholdChanged,
+                                                                   object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.wakeCheck.setLock(threshold: SpeakerLockService.shared.liveThreshold())
+            }
+        }
     }
 
     func update(scene: AppScenePhase? = nil, sessionRunning: Bool? = nil) async {

@@ -401,6 +401,8 @@ final class AgentRuntime {
     /// F-04a: re-reads the 抗噪 switch when UserDefaults change during a session.
     private var defaultsObserver: NSObjectProtocol?
     private var speakerModelObserver: NSObjectProtocol?
+    /// F-04b §16 item 7 (T-013j): a threshold saved from the 设置 slider applies with no restart.
+    private var speakerThresholdObserver: NSObjectProtocol?
     private var network: NetworkPathWatcher?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
@@ -921,6 +923,8 @@ final class AgentRuntime {
         }, words: { words, _ in deliverWords(words) }, check: { line in
             RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
             record?.submit(.speakerCheck(line))
+            // F-04b §16 item 5: the last 20 speech scores of this app run, for 设置 (numbers only, never saved).
+            speakerService.noteCheck(line)
             // F-04b §14 item 8: a rejected or unknown sentence says so on screen (numbers in the log, text on screen).
             if let text = SpeakerRejectionNotice.text(for: line) {
                 Task { @MainActor in model.showSpeakerNotice(text) }
@@ -1121,6 +1125,15 @@ final class AgentRuntime {
                                                                       object: nil, queue: nil) { _ in
             gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
         }
+        // F-04b §16 items 7-8 (T-013j): a slider save applies from the next utterance; its line goes to the record.
+        if let speakerThresholdObserver { NotificationCenter.default.removeObserver(speakerThresholdObserver) }
+        speakerThresholdObserver = NotificationCenter.default.addObserver(
+            forName: SpeakerLockService.thresholdChanged, object: nil, queue: nil) { note in
+            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
+            if let line = note.userInfo?[SpeakerLockService.thresholdLineKey] as? SpeakerThresholdLine {
+                record?.submit(.speakerThreshold(line))
+            }
+        }
         let classifier = SoundAnalysisSpeechClassifier()
         do {
             try classifier.start { result in gate.classified(result) }
@@ -1283,6 +1296,8 @@ final class AgentRuntime {
         defaultsObserver = nil
         if let speakerModelObserver { NotificationCenter.default.removeObserver(speakerModelObserver) }
         speakerModelObserver = nil
+        if let speakerThresholdObserver { NotificationCenter.default.removeObserver(speakerThresholdObserver) }
+        speakerThresholdObserver = nil
         let wake = UITestDrive.enabled ? nil : wake
         Task { [model] in
             await core.send(.stop)

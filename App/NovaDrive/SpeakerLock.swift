@@ -24,6 +24,15 @@ final class SpeakerLockService: @unchecked Sendable {
     /// F-04b §13 (T-013g): calibration progress, `Application Support/SpeakerLock/calibration.json`.
     let draftStore: any SpeakerCalibrationDraftStore = FileSpeakerCalibrationDraftStore.standard()
         ?? FileSpeakerCalibrationDraftStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("calibration.json"))
+    /// F-04b §16 item 4 (T-013j): the saved calibration scores, `Application Support/SpeakerLock/calibration-result.json`.
+    let resultStore: any SpeakerCalibrationResultStore = FileSpeakerCalibrationResultStore.standard()
+        ?? FileSpeakerCalibrationResultStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("calibration-result.json"))
+
+    /// §16 item 7: posted after a slider save; `userInfo[thresholdLineKey]` is the `SpeakerThresholdLine`.
+    static let thresholdChanged = Notification.Name("SpeakerLockService.thresholdChanged")
+    static let thresholdLineKey = "line"
+    /// §16 item 5: the last 20 speech scores of this app run, in memory only (numbers, I-8).
+    private var recent = SpeakerRecentScores()
 
     var modelPresent: Bool { SherpaSpeakerVerifier.modelPresent(in: Self.directory) }
 
@@ -87,7 +96,8 @@ final class SpeakerLockService: @unchecked Sendable {
 
     /// §4 item 5, §3 item 5: delete the profile and turn the lock off.
     func deleteProfile() {
-        try? SpeakerEnrollment.delete(store: store, draftStore: draftStore)  // §13 item 10: the draft goes too
+        // §13 item 10, §16 item 9: the draft and the result file go too.
+        try? SpeakerEnrollment.delete(store: store, draftStore: draftStore, resultStore: resultStore)
         UserDefaults.standard.set(false, forKey: DriveSettings.speakerLock)
     }
 
@@ -97,6 +107,31 @@ final class SpeakerLockService: @unchecked Sendable {
         if SpeakerLockPolicy.turnsSwitchOff(status()), DriveSettings.speakerLockOn() {
             UserDefaults.standard.set(false, forKey: DriveSettings.speakerLock)
         }
+    }
+
+    /// §16 item 5: called for every check line; only speech scores are kept.
+    func noteCheck(_ line: SpeakerCheckLine) { lock.withLock { recent.add(line) } }
+
+    var recentText: String { lock.withLock { recent.text } }
+
+    /// §16 item 4: the result file, or once the newest Documents scores file later than `enrolledAt`.
+    func calibrationScores() -> SpeakerCalibration? {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        let names = docs.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) } ?? []
+        return SpeakerCalibrationScores.load(resultStore, profile: store.load(), documents: names) { name in
+            docs.flatMap { try? String(contentsOf: $0.appendingPathComponent(name), encoding: .utf8) }
+        }
+    }
+
+    /// §16 items 6-8: saves the profile's threshold only, then logs it and tells the session and the wake listener.
+    func saveThreshold(_ value: Double, source: SpeakerThresholdLine.Source) -> SpeakerThresholdSlider.Saved {
+        let saved = SpeakerThresholdSlider.save(value, source: source, store: store)
+        if let line = saved.line {
+            RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+            NotificationCenter.default.post(name: Self.thresholdChanged, object: nil,
+                                            userInfo: [Self.thresholdLineKey: line])
+        }
+        return saved
     }
 
     /// §5 item 4: scores to Documents (pulled over USB / Files), never audio.
@@ -229,6 +264,8 @@ struct SpeakerLockSection: View {
     /// §14 item 6: the saved calibration, from the profile.
     @State private var summary: String?
     @State private var note: String?
+    /// §16 item 1: the saved threshold while the slider shows; nil hides it.
+    @State private var sliderThreshold: Double?
 
     var body: some View {
         Toggle("声纹锁定", isOn: Binding(get: { lockOn }, set: { requested($0) }))
@@ -250,6 +287,10 @@ struct SpeakerLockSection: View {
         if let summary { Text(summary).font(.footnote).foregroundStyle(.secondary) }
         // §13 item 4: progress from a matching draft with any lines.
         if let progress { Text(progress).font(.footnote).foregroundStyle(.secondary) }
+        // §16 item 1: the threshold slider, only for 已录入 with a saved threshold.
+        if let sliderThreshold {
+            SpeakerThresholdRow(saved: sliderThreshold, onSaved: refresh).id(sliderThreshold)
+        }
         if let note { Text(note).font(.footnote).foregroundStyle(.red) }
         switch status {
         case .notEnrolled, .invalidModel:
@@ -308,6 +349,7 @@ struct SpeakerLockSection: View {
         let profile = service.store.load()
         progress = SpeakerCalibrationProgress.settingsRow(service.draftStore, profile: profile)
         summary = SpeakerCalibrationSummary.text(profile: profile, status: status)
+        sliderThreshold = SpeakerThresholdSlider.visible(status: status, profile: profile) ? profile?.threshold : nil
         // §12 item 4: a model that is still downloading or failed keeps the stored switch (fails closed live).
         if status != .ready && status != .modelUnavailable { lockOn = false }
         note = status == .modelUnavailable ? Self.unavailableNote : nil
@@ -382,7 +424,7 @@ struct SpeakerEnrollmentView: View {
         let dim = takes.first?.embedding.count ?? 0
         let name = service.modelInfo(profile: nil)?.name ?? ""
         switch SpeakerEnrollment.enroll(takes, modelName: name, dimension: dim, at: Date(), store: service.store,
-                                        draftStore: service.draftStore) {
+                                        draftStore: service.draftStore, resultStore: service.resultStore) {
         case .success:
             // A new profile has no threshold: the lock stays off until 校准.
             UserDefaults.standard.set(false, forKey: DriveSettings.speakerLock)
@@ -537,11 +579,68 @@ struct SpeakerCalibrationView: View {
         do {
             _ = try SpeakerCalibrationProgress.finish(threshold, calibration: calibration, profile: profile, at: Date(),
                                                       profileStore: service.store, draftStore: service.draftStore,
+                                                      resultStore: service.resultStore,
                                                       writeScores: service.writeScores)
             message = "已保存。现在可以打开声纹锁定。"
             refreshSaved()
         } catch {
             message = "保存失败"
         }
+    }
+}
+
+/// F-04b §16 (T-013j): the threshold slider under 声纹, with the counts at the value under the finger and the last 20
+/// live scores. Saved when the finger lifts; never moves a threshold 校准 has not set (§5 item 1).
+struct SpeakerThresholdRow: View {
+    let saved: Double
+    let onSaved: () -> Void
+    @State private var value: Double
+    @State private var scores: SpeakerCalibration?
+    @State private var recent = SpeakerRecentScores.empty
+    @State private var error: String?
+
+    init(saved: Double, onSaved: @escaping () -> Void) {
+        self.saved = saved
+        self.onSaved = onSaved
+        _value = State(initialValue: saved)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(SpeakerThresholdSlider.title(value))
+            Slider(value: $value, in: SpeakerThresholdSlider.range(saved: saved), step: SpeakerCalibration.step) { editing in
+                // §16 item 6: saved when the finger lifts, not at every step.
+                if !editing { save(value, source: .slider) }
+            }
+            Text(SpeakerThresholdSlider.hint).font(.footnote).foregroundStyle(.secondary)
+            Text(SpeakerThresholdSlider.countLine(scores, at: value)).font(.footnote.monospacedDigit())
+            if let suggested = scores?.suggested, let text = SpeakerThresholdSlider.suggestedText(scores) {
+                Text(text).font(.footnote)
+                Button(SpeakerThresholdSlider.restoreButton) {
+                    value = suggested
+                    save(suggested, source: .suggested)
+                }
+                .buttonStyle(.borderless)
+            }
+            Text(SpeakerRecentScores.header).font(.footnote).foregroundStyle(.secondary)
+            Text(recent).font(.footnote.monospacedDigit())
+            if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+        }
+        .onAppear(perform: reload)
+    }
+
+    /// §16 item 5: refreshed when the section appears and after each save.
+    private func reload() {
+        let service = SpeakerLockService.shared
+        scores = service.calibrationScores()
+        recent = service.recentText
+    }
+
+    private func save(_ v: Double, source: SpeakerThresholdLine.Source) {
+        let result = SpeakerLockService.shared.saveThreshold(v, source: source)
+        value = result.value
+        error = result.error
+        reload()
+        if result.error == nil { onSaved() }
     }
 }

@@ -51,6 +51,8 @@ public enum RecordEvent: Sendable, Hashable {
     case sessionResume(handle: Bool, result: SessionResumeResult)
     /// F-04b §7 (T-013e): `speaker-check utterance= kind= score= threshold= result= speechMs= scoreMs= waitMs=`.
     case speakerCheck(SpeakerCheckLine)
+    /// F-04b §16 item 8 (T-013j): `speaker-threshold old= new= source=slider|suggested`.
+    case speakerThreshold(SpeakerThresholdLine)
     /// F-16 §14 item 9 (T-042c): `dest-search destination= step= n= top= score= km= check=`.
     case destSearch(DestinationSearchLine)
 }
@@ -153,6 +155,7 @@ public struct ConversationRecorder: Sendable {
         case .wakeToListening(let n): return [line("wake-to-listening", "ms=\(n)")]
         case .wakeUnused: return ["\(ms) wake-unused"]
         case .speakerCheck(let check): return [line("speaker-check", check.fields)]
+        case .speakerThreshold(let change): return [line("speaker-threshold", change.fields)]
         case .destSearch(let search): return [line("dest-search", search.fields)]
         case .sessionGaveUp(let since, let attempts, let code):
             return add(.session("gave-up ms=\(since) attempts=\(attempts) code=\(code.rawValue)"), atMs: ms)
