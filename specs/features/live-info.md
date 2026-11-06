@@ -92,7 +92,7 @@ says. She never guesses the time.
    - Questions like 「明天星期几」 or 「离周五还有几天」 are answered by the model from the returned `date`/`weekday`.
 3. **Persona line (NovaAgent `PersonaInstruction.base`).** Add 时间 to the strict car-scope list and one rule:
    「问现在几点、今天几号、星期几：调用 query_live_info（kind=current_time），只按返回的结果回答，不要自己猜时间。」
-   The base must stay within `maxBaseCharacters` (1700; raised from 1500 on 2026-11-05 for §24 item 5 (T-046m) and to 1700 on 2026-11-06 for §25 item 5 (T-046n)).
+   The base must stay within `maxBaseCharacters` (1700; raised from 1500 to 1600 on 2026-11-05 for §24 item 5 (T-046m) and to 1700 on 2026-11-06 for §25 item 5 (T-046n)).
 4. **Instant reply.** `current_time` is read-only and answers at once: it goes in `DriverTurnPipeline.readOnlyTools`
    handling like the other `query_live_info` kinds, and gets no wait cue (WaitCues: none for this kind).
 5. **Logs.** `toolCall name=query_live_info kind=current_time` and the result code only; no time value needed (I-8).
