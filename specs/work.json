@@ -279,14 +279,30 @@
     {
       "id": "T-020a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-07 §14 items 1-11: PC check script (10 runs on one connection, length limit, each voice); QwenSpeechClient (required workspace host, one kept-open connection, SSE split on blank lines with data lines joined, base64 PCM 24 kHz, cuts, codes, no instruction); 设置 她的声音 source, API Host with format check, 龙安欢/龙安灵心/龙安风悦 picker (default longanhuan_v3.1) with 试听, 千问 default; VoiceSource at session start; one retry for both sources; onFailure wired to voice-failed record line; voice timing line with first_ms; docs; rows 1-11",
       "depends_on": [
         "T-020"
       ],
       "notes": "Owner 2026-11-06: replies showed text with no sound; Azure japaneast requests timed out (-1001) through the VPN, and the failure was not recorded. Owner judged Azure generally unreliable. Rows 9-11 are device rows. No fallback voice (owner may add later). Model qwen-audio-3.1-tts-flash: owner console shows 1M free characters until 2027-01-08 (qwen3-tts-flash only 10K). Owner workspace is Singapore (ap-southeast-1); sk-ws- key rejected by dashscope.aliyuncs.com; only the 龙安 voices work there (精品中文 voices give Engine error [411]). PC timing 2026-11-06, one kept connection: first audio 272-373 ms after warm-up; instruction delays first audio to 3.6-7.6 s, so none is sent.",
-      "evidence": []
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "4a925ea"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "row1": "NOT_VERIFIED no key"
+        },
+        {
+          "rows9-11": "NOT_VERIFIED device"
+        }
+      ]
     },
     {
       "id": "T-024",
