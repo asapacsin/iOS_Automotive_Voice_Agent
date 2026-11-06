@@ -37,6 +37,8 @@ struct NovaDriveApp: App {
     init() {
         // F-04b §12 (T-013f): find the install-time speaker model pack (no load, no network of our own).
         SpeakerModelLocator.shared.refresh()
+        // F-04b §16 item 6 (T-013j): the old calibration draft is deleted on first launch (no 校准 any more).
+        SpeakerLockService.removeCalibrationDraft()
     }
 
     var body: some Scene {

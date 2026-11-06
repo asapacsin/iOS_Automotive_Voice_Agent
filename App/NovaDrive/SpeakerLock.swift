@@ -21,9 +21,43 @@ final class SpeakerLockService: @unchecked Sendable {
     private var verifier: SherpaSpeakerVerifier?
     let store: any SpeakerProfileStore = FileSpeakerProfileStore.standard()
         ?? FileSpeakerProfileStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("profile.json"))
-    /// F-04b §13 (T-013g): calibration progress, `Application Support/SpeakerLock/calibration.json`.
-    let draftStore: any SpeakerCalibrationDraftStore = FileSpeakerCalibrationDraftStore.standard()
-        ?? FileSpeakerCalibrationDraftStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("calibration.json"))
+
+    /// F-04b §16 items 1, 10 (T-013j): the cohort files in the bundle (`Resources/SpeakerCohort/`). They may be missing
+    /// (「声纹对比数据缺失」, the lock fails closed); nothing is downloaded.
+    static var cohortDirectory: URL? {
+        (Bundle.main.url(forResource: "speaker_cohort", withExtension: "json", subdirectory: "SpeakerCohort")
+            ?? Bundle.main.url(forResource: "speaker_cohort", withExtension: "json"))?.deletingLastPathComponent()
+    }
+
+    /// Read once, on first use; the bundle does not change while the app runs.
+    private var cohortLoaded = false
+    private var cohortValue: SpeakerCohort?
+    var cohort: SpeakerCohort? {
+        lock.withLock {
+            if !cohortLoaded {
+                cohortValue = SpeakerCohort.load(from: DirectorySpeakerCohortFiles(directory: Self.cohortDirectory))
+                cohortLoaded = true
+            }
+            return cohortValue
+        }
+    }
+    /// §16 item 2: the enrollment side is computed once per profile load and reused for every check.
+    private var scorerCache: (profile: SpeakerProfile, scorer: SpeakerCohortScorer)?
+
+    private func scorer(for profile: SpeakerProfile) -> SpeakerCohortScorer? {
+        let cohort = self.cohort
+        return lock.withLock {
+            if let scorerCache, scorerCache.profile == profile { return scorerCache.scorer }
+            guard let cohort, SpeakerLockPolicy.cohortMatches(cohort.meta, profile: profile,
+                                                              modelSha256: SpeakerModelPin.sha256),
+                  let scorer = SpeakerCohortScorer(embedding: profile.embedding, cohort: cohort) else {
+                scorerCache = nil
+                return nil
+            }
+            scorerCache = (profile, scorer)
+            return scorer
+        }
+    }
 
     var modelPresent: Bool { SherpaSpeakerVerifier.modelPresent(in: Self.directory) }
 
@@ -49,17 +83,19 @@ final class SpeakerLockService: @unchecked Sendable {
         return (name, dim)
     }
 
-    /// §3 item 2.
+    /// §3 item 2, §16 items 6–7.
     func status() -> SpeakerLockStatus {
         let profile = store.load()
-        return SpeakerLockPolicy.status(profile: profile, model: modelInfo(profile: profile))
+        return SpeakerLockPolicy.status(profile: profile, model: modelInfo(profile: profile), cohort: cohort?.meta)
     }
 
-    /// The live threshold: the switch on and a calibrated, valid profile; nil = the lock is off.
+    /// The live threshold (§16 item 3: the cohort's): the switch on and a ready lock; nil = the lock is off.
     func liveThreshold() -> Double? {
+        // §6 item 12: lock off reads neither the profile nor the cohort file.
+        guard DriveSettings.speakerLockOn() else { return nil }
         let profile = store.load()
-        return SpeakerLockPolicy.threshold(switchOn: DriveSettings.speakerLockOn(), profile: profile,
-                                           model: modelInfo(profile: profile))
+        return SpeakerLockPolicy.threshold(switchOn: true, profile: profile,
+                                           model: modelInfo(profile: profile), cohort: cohort?.meta)
     }
 
     /// Embeds on the background queue; the time it took for `scoreMs`.
@@ -72,39 +108,34 @@ final class SpeakerLockService: @unchecked Sendable {
         }
     }
 
-    /// §6 items 3–4: one request scored against the profile.
+    /// §6 items 3–4, §16 items 2–5: one request (speech, wake word or stop phrase) scored against the profile and
+    /// the cohort. No cohort for this model: a scoring failure, so the lock fails closed (§16 item 7).
     func score(_ request: SpeakerScoreRequest, done: @escaping @Sendable (SpeakerScoreOutcome) -> Void) {
-        guard let profile = store.load() else { done(.failed(scoreMs: 0)); return }
+        guard let profile = store.load(), let scorer = scorer(for: profile) else { done(.failed(scoreMs: 0)); return }
         embed(request.frames) { result, ms in
             switch result {
-            case .success(let e):
-                if let s = profile.score(e) { done(.score(s, scoreMs: ms)) } else { done(.failed(scoreMs: ms)) }
-            case .failure:
-                done(.failed(scoreMs: ms))
+            case .success(let e): done(scorer.outcome(e, scoreMs: ms))
+            case .failure: done(.failed(scoreMs: ms))
             }
         }
     }
 
     /// §4 item 5, §3 item 5: delete the profile and turn the lock off.
     func deleteProfile() {
-        try? SpeakerEnrollment.delete(store: store, draftStore: draftStore)  // §13 item 10: the draft goes too
+        try? SpeakerEnrollment.delete(store: store)
         UserDefaults.standard.set(false, forKey: DriveSettings.speakerLock)
     }
 
-    /// §4 item 6: a profile of another model turns the lock off. §14 item 5, §15 item 2: so does a threshold of another recorded clip
-    /// (`recalibrate`); the voiceprint and the file stay.
+    /// §4 item 6: a profile of another model turns the lock off; the voiceprint and the file stay.
     func dropInvalidLock() {
         if SpeakerLockPolicy.turnsSwitchOff(status()), DriveSettings.speakerLockOn() {
             UserDefaults.standard.set(false, forKey: DriveSettings.speakerLock)
         }
     }
 
-    /// §5 item 4: scores to Documents (pulled over USB / Files), never audio.
-    func writeScores(_ calibration: SpeakerCalibration) {
-        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        try? calibration.scoresFile.write(to: docs.appendingPathComponent("speaker-calibration-\(stamp).txt"),
-                                          atomically: true, encoding: .utf8)
+    /// §16 item 6: the §13 calibration draft is deleted on first launch; no calibration file is written any more.
+    static func removeCalibrationDraft() {
+        SpeakerLegacyCalibration.removeDraft(at: SpeakerLegacyCalibration.standardDraftURL())
     }
 }
 
@@ -217,17 +248,12 @@ private final class TakeBox: @unchecked Sendable {
     }
 }
 
-/// §3: the rows under 设置 → 声音.
+/// §3, §16 items 6–7: the rows under 设置 → 声音. No 校准 and no progress row (§16 item 6).
 struct SpeakerLockSection: View {
     @AppStorage(DriveSettings.speakerLock) private var lockOn = false
     @State private var status = SpeakerLockStatus.notEnrolled
     @State private var showEnroll = false
-    @State private var showCalibrate = false
     @State private var confirmDelete = false
-    @State private var confirmReenroll = false
-    @State private var progress: String?
-    /// §14 item 6: the saved calibration, from the profile.
-    @State private var summary: String?
     @State private var note: String?
 
     var body: some View {
@@ -235,81 +261,49 @@ struct SpeakerLockSection: View {
         Text(SpeakerLockPolicy.switchText).font(.footnote).foregroundStyle(.secondary)
         Text("这只是基本的声纹确认，可能认错，录音也可能通过，不是安全功能。")
             .font(.footnote).foregroundStyle(.secondary)
-        // The sheets and refresh hang on this always-shown row: an EmptyView in a Form is never rendered, so
+        // The sheet and refresh hang on this always-shown row: an EmptyView in a Form is never rendered, so
         // modifiers on it never fire (录入声纹 did nothing on device, build 7910dc7).
         LabeledContent("声纹", value: status.text)
             .sheet(isPresented: $showEnroll, onDismiss: refresh) { SpeakerEnrollmentView() }
-            .sheet(isPresented: $showCalibrate, onDismiss: refresh) { SpeakerCalibrationView() }
             .onAppear(perform: refresh)
             .onReceive(NotificationCenter.default.publisher(for: SpeakerModelLocator.changed)) { _ in refresh() }
-        // §14 item 5: why the old threshold is not used.
-        if status == .recalibrate {
-            Text(SpeakerLockPolicy.recalibrateNote).font(.footnote).foregroundStyle(.secondary)
-        }
-        // §14 item 6: the saved calibration; the §13 item 4 progress row below it while a draft exists.
-        if let summary { Text(summary).font(.footnote).foregroundStyle(.secondary) }
-        // §13 item 4: progress from a matching draft with any lines.
-        if let progress { Text(progress).font(.footnote).foregroundStyle(.secondary) }
         if let note { Text(note).font(.footnote).foregroundStyle(.red) }
-        switch status {
-        case .notEnrolled, .invalidModel:
-            Button("录入声纹") { showEnroll = true }
-        case .enrolledUncalibrated, .ready, .recalibrate:
-            Button("重新录入") { reenroll() }
-                // §13 item 8: neither answer changes anything by itself.
-                .confirmationDialog(SpeakerCalibrationProgress.reenrollWarning, isPresented: $confirmReenroll,
-                                    titleVisibility: .visible) {
-                    Button("继续") { showEnroll = true }
-                    Button("取消", role: .cancel) {}
-                }
-            Button("校准") { showCalibrate = true }
-        case .modelUnavailable:
-            if SpeakerModelLocator.shared.availability.canRetry {
-                Button("重试") { SpeakerModelLocator.shared.refresh() }
+        // §16 item 6: the buttons from `SpeakerLockSettings` (no 校准).
+        ForEach(SpeakerLockSettings.buttons(status), id: \.self) { title in
+            if title == "删除声纹" {
+                Button(title, role: .destructive) { confirmDelete = true }
+                    .confirmationDialog("删除声纹？", isPresented: $confirmDelete, titleVisibility: .visible) {
+                        Button("删除", role: .destructive) { SpeakerLockService.shared.deleteProfile(); refresh() }
+                    }
+            } else {
+                Button(title) { showEnroll = true }  // 录入声纹 / 重新录入
             }
         }
-        if status != .notEnrolled && status != .modelUnavailable {
-            Button("删除声纹", role: .destructive) { confirmDelete = true }
-                .confirmationDialog("删除声纹？", isPresented: $confirmDelete, titleVisibility: .visible) {
-                    Button("删除", role: .destructive) { SpeakerLockService.shared.deleteProfile(); refresh() }
-                }
+        if status == .modelUnavailable, SpeakerModelLocator.shared.availability.canRetry {
+            Button("重试") { SpeakerModelLocator.shared.refresh() }
         }
     }
 
-    /// §3 item 4: the switch stays off until a calibrated profile exists; on opens the next step instead.
+    /// §3 item 4: the switch stays off until the lock would work; on opens enrollment instead.
     private func requested(_ on: Bool) {
         guard on else { lockOn = false; return }
         let service = SpeakerLockService.shared
         let profile = service.store.load()
-        switch SpeakerLockPolicy.requestOn(profile: profile, model: service.modelInfo(profile: profile)) {
+        switch SpeakerLockPolicy.requestOn(profile: profile, model: service.modelInfo(profile: profile),
+                                           cohort: service.cohort?.meta) {
         case .on: lockOn = true; note = nil
         case .openEnrollment: showEnroll = true
-        case .openCalibration: showCalibrate = true
         case .modelUnavailable: note = Self.unavailableNote
-        }
-    }
-
-    /// §13 item 8: warn first with a saved threshold or any draft lines.
-    private func reenroll() {
-        let service = SpeakerLockService.shared
-        let profile = service.store.load()
-        let saved = SpeakerCalibrationProgress.load(service.draftStore, profile: profile)
-        if SpeakerCalibrationProgress.warnBeforeReenroll(profile: profile, calibration: saved) {
-            confirmReenroll = true
-        } else {
-            showEnroll = true
+        case .cohortMissing: note = SpeakerLockStatus.cohortMissing.text
         }
     }
 
     private func refresh() {
         SpeakerLockService.shared.dropInvalidLock()
         status = SpeakerLockService.shared.status()
-        let service = SpeakerLockService.shared
-        let profile = service.store.load()
-        progress = SpeakerCalibrationProgress.settingsRow(service.draftStore, profile: profile)
-        summary = SpeakerCalibrationSummary.text(profile: profile, status: status)
-        // §12 item 4: a model that is still downloading or failed keeps the stored switch (fails closed live).
-        if status != .ready && status != .modelUnavailable { lockOn = false }
+        // §12 item 4, §16 item 7: a model still downloading or failed, or a missing cohort, keeps the stored switch
+        // (fails closed live).
+        if !status.isReady && status != .modelUnavailable && status != .cohortMissing { lockOn = false }
         note = status == .modelUnavailable ? Self.unavailableNote : nil
     }
 
@@ -381,167 +375,14 @@ struct SpeakerEnrollmentView: View {
         let service = SpeakerLockService.shared
         let dim = takes.first?.embedding.count ?? 0
         let name = service.modelInfo(profile: nil)?.name ?? ""
-        switch SpeakerEnrollment.enroll(takes, modelName: name, dimension: dim, at: Date(), store: service.store,
-                                        draftStore: service.draftStore) {
+        switch SpeakerEnrollment.enroll(takes, modelName: name, dimension: dim, at: Date(), store: service.store) {
         case .success:
-            // A new profile has no threshold: the lock stays off until 校准.
-            UserDefaults.standard.set(false, forKey: DriveSettings.speakerLock)
-            message = "已录入。请再做一次「校准」，之后才能打开声纹锁定。"
+            // §16 item 6: no calibration; the lock can turn on once the cohort is there.
+            message = "已录入。现在可以打开声纹锁定。"
         case .failure(let problem):
             message = problem.text
             takes = []
             index = 0
-        }
-    }
-}
-
-/// §5: 20 lines from the enrolled driver and 20 from another person (more people optional). Scores are kept, audio
-/// is not; the owner confirms the suggested threshold.
-struct SpeakerCalibrationView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var calibration = SpeakerCalibration()
-    @State private var forDriver = true
-    @State private var loaded = false
-    @State private var confirmStartOver = false
-    @State private var recording = false
-    @State private var preparing = false
-    @State private var recorder = SpeakerTakeRecorder()
-    @State private var message: String?
-    /// §14 item 7: the saved calibration at the top; new lines do not change it until 「使用这个阈值」.
-    @State private var saved: String?
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                if let saved { Section { Text(saved).font(.footnote) } }
-                Section {
-                    Picker("谁在说", selection: $forDriver) {
-                        Text("录入的人（\(calibration.driver.count)）").tag(true)
-                        Text("其他人（\(calibration.others.count)）").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    // §13 item 3: each person carries on with their next line (replaces the old index reset).
-                    Text(SpeakerCalibrationProgress.line(calibration, driver: forDriver)).font(.title3)
-                    Button(preparing ? "请稍等…" : recording ? "说完了" : "开始说") { Task { await toggle() } }
-                        .disabled(preparing)
-                }
-                if calibration.enough, let t = calibration.suggested {
-                    Section("结果") {
-                        ForEach(calibration.rows.filter { abs($0.threshold - t) < 0.105 }, id: \.threshold) { row in
-                            Text(String(format: "阈值 %.2f：误拒 %d / %d，误通过 %d / %d", row.threshold,
-                                        row.falseRejects, calibration.driver.count, row.falseAccepts,
-                                        calibration.others.count))
-                                .font(.footnote.monospacedDigit())
-                        }
-                        Text(String(format: "建议阈值 %.2f（没有误通过的最低值）。", t))
-                        Text(calibration.caveat).font(.footnote).foregroundStyle(.secondary)
-                        Button("使用这个阈值") { confirm(t) }
-                    }
-                } else {
-                    Section { Text("每人至少说 \(SpeakerCalibration.minimumLines) 句。").font(.footnote) }
-                }
-                if !calibration.driver.isEmpty || !calibration.others.isEmpty {
-                    Section {
-                        // §13 item 5: empties the draft; the saved threshold is not touched.
-                        Button(SpeakerCalibrationProgress.startOverButton, role: .destructive) { confirmStartOver = true }
-                            .disabled(recording)
-                            .confirmationDialog(SpeakerCalibrationProgress.startOverQuestion, isPresented: $confirmStartOver,
-                                                titleVisibility: .visible) {
-                                Button(SpeakerCalibrationProgress.startOverButton, role: .destructive) { startOver() }
-                            }
-                    }
-                }
-                if let message { Section { Text(message) } }
-            }
-            .onAppear(perform: load)
-            .navigationTitle("校准")
-            .interactiveDismissDisabled()
-            .toolbar { Button("关闭") { Task { if recording { _ = await recorder.finish() }; dismiss() } } }
-        }
-    }
-
-    private func toggle() async {
-        if !recording {
-            // Set first, so 取消/关闭 during the start or the warm-up still ends the take.
-            recording = true
-            preparing = true
-            defer { preparing = false }
-            do {
-                try await recorder.start()
-                message = nil
-                try? await Task.sleep(for: SpeakerTakeRecorder.warmUp)
-            } catch {
-                recording = false
-                message = "对话进行中或麦克风不可用，结束对话后再校准。"
-            }
-            return
-        }
-        recording = false
-        let take = await recorder.finish()
-        // §14 items 1–2: score exactly the clip the live check scores; nil keeps 「没听到说话」 and saves nothing.
-        guard let clips = SpeakerCalibrationProgress.clips(take.frames) else { message = "没听到说话，请再说一次。"; return }
-        let id = calibration.driver.count + calibration.others.count
-        let clipRequest = SpeakerScoreRequest(utterance: id, generation: 0, kind: .speech, frames: clips.clip)
-        let wholeRequest = SpeakerScoreRequest(utterance: id, generation: 0, kind: .speech, frames: clips.whole)
-        let outcome: SpeakerScoreOutcome = await withCheckedContinuation { done in
-            SpeakerLockService.shared.score(clipRequest) { done.resume(returning: $0) }
-        }
-        guard case .score(let s, _) = outcome else { message = "声纹模型不可用"; return }
-        // The whole take, for the scores file only (not counts, table or suggestion).
-        let wholeOutcome: SpeakerScoreOutcome = await withCheckedContinuation { done in
-            SpeakerLockService.shared.score(wholeRequest) { done.resume(returning: $0) }
-        }
-        var whole: Double?
-        if case .score(let w, _) = wholeOutcome { whole = w }
-        let service = SpeakerLockService.shared
-        guard let profile = service.store.load() else { message = "请先录入声纹。"; return }
-        // §13 items 1, 7: saved straight away; a failed write keeps the score for this visit and says so.
-        if !SpeakerCalibrationProgress.add(s, whole: whole, driver: forDriver, to: &calibration, profile: profile,
-                                           store: service.draftStore) {
-            message = SpeakerCalibrationProgress.saveFailedText
-        }
-    }
-
-    /// §13 items 2–3: the saved counts for this voiceprint; the picker starts on whoever still needs lines.
-    private func load() {
-        guard !loaded else { return }
-        loaded = true
-        let service = SpeakerLockService.shared
-        calibration = SpeakerCalibrationProgress.load(service.draftStore, profile: service.store.load())
-        forDriver = SpeakerCalibrationProgress.startsOnDriver(calibration)
-        refreshSaved()
-    }
-
-    /// §14 item 7: the same text as 设置 (§14 item 6).
-    private func refreshSaved() {
-        let service = SpeakerLockService.shared
-        saved = SpeakerCalibrationSummary.text(profile: service.store.load(), status: service.status())
-    }
-
-    private func startOver() {
-        let service = SpeakerLockService.shared
-        do {
-            try SpeakerCalibrationProgress.startOver(service.draftStore)
-            calibration = SpeakerCalibration()
-            forDriver = true
-            message = nil
-        } catch {
-            message = SpeakerCalibrationProgress.saveFailedText
-        }
-    }
-
-    /// §13 item 6: threshold, then the scores file, then the draft is removed; a failed profile save keeps it.
-    private func confirm(_ threshold: Double) {
-        let service = SpeakerLockService.shared
-        guard let profile = service.store.load() else { message = "请先录入声纹。"; return }
-        do {
-            _ = try SpeakerCalibrationProgress.finish(threshold, calibration: calibration, profile: profile, at: Date(),
-                                                      profileStore: service.store, draftStore: service.draftStore,
-                                                      writeScores: service.writeScores)
-            message = "已保存。现在可以打开声纹锁定。"
-            refreshSaved()
-        } catch {
-            message = "保存失败"
         }
     }
 }

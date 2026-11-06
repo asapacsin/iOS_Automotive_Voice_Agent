@@ -1918,13 +1918,21 @@
     {
       "id": "T-013j",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 2,
       "action": "F-04b §16 items 1-10: scripts/speaker_cohort.py (CN-Celeb1 dev cohort, EER threshold on CN-Celeb1 test), SpeakerScoreNorm (AS-norm, topN 300), whole-utterance scoring in SpeakerHold, no calibration, 设置 texts; rows 51-60. Do not download CN-Celeb in the cloud; tests use a synthetic cohort.",
       "depends_on": [
         "T-013i"
       ],
-      "notes": "Owner 2026-11-06 (50a55a4): scores bunch at 0.40-0.64 around the 0.46 threshold, so the lock cannot separate voices. Owner wants only their own voiceprint, no calibration, copied from published practice (WeSpeaker AS-norm). Row 57 (real cohort file) runs on the owner PC and is committed before the device rows."
+      "notes": "Owner 2026-11-06 (50a55a4): scores bunch at 0.40-0.64 around the 0.46 threshold, so the lock cannot separate voices. Owner wants only their own voiceprint, no calibration, copied from published practice (WeSpeaker AS-norm). Row 57 (real cohort file) runs on the owner PC and is committed before the device rows.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Row 51: scripts/gates/tests/test_speaker_cohort.py (6 tests, synthetic set, fake embedder); speaker_cohort.py unchanged",
+        "Unit rows 52-56: SpeakerCohortTests; row 52 parity 1.1272553062759825 from speaker_cohort.as_norm",
+        "Removed tests for §13, §14 items 1-7 and §15 rows 27-32, 37-41, 47-48 (no longer apply); row 42 notice test kept",
+        "Independent high-effort review PASS, no blocking findings",
+        "Row 57 owner PC run pending; rows 58-60 device NOT_VERIFIED"
+      ]
     },
     {
       "id": "T-042c",

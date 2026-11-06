@@ -42,14 +42,15 @@ struct SpeakerModelSourceTests {
 
     @Test("F-04b row 21: lock on with the model downloading or failed stays locked (fails closed); never turns on new")
     func failsClosed() {
-        let calibrated = SpeakerProfile(embedding: [1, 0], modelName: "m", dimension: 2, threshold: 0.5,
-                                        enrolledAt: Date(timeIntervalSince1970: 0), calibrationClipMs: 1000)
-        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: calibrated, model: nil) == 0.5)
-        #expect(SpeakerLockPolicy.threshold(switchOn: false, profile: calibrated, model: nil) == nil)
-        #expect(SpeakerLockPolicy.requestOn(profile: calibrated, model: nil) == .modelUnavailable)
-        var uncalibrated = calibrated
-        uncalibrated.threshold = nil
-        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: uncalibrated, model: nil) == nil)
+        // §16 item 6: the cohort's threshold; the profile needs no calibration.
+        let enrolled = SpeakerProfile(embedding: [1, 0], modelName: "m", dimension: 2,
+                                      enrolledAt: Date(timeIntervalSince1970: 0))
+        let cohort = SpeakerCohortMeta(source: "synthetic", license: "test", model: "m", modelSha256: SpeakerModelPin.sha256,
+                                       speakers: 4, dimension: 2, topN: 3, threshold: 1.1, eer: 0.1, trials: 4)
+        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: enrolled, model: nil, cohort: cohort) == 1.1)
+        #expect(SpeakerLockPolicy.threshold(switchOn: false, profile: enrolled, model: nil, cohort: cohort) == nil)
+        #expect(SpeakerLockPolicy.requestOn(profile: enrolled, model: nil, cohort: cohort) == .modelUnavailable)
+        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: nil, model: nil, cohort: cohort) == nil)
     }
 
     @Test("F-04b row 21: pin matches scripts/sherpa/models.sha256")

@@ -35,30 +35,30 @@ struct SpeakerHoldTests {
         #expect(hold.verdict == nil)
     }
 
-    @Test("F-04b row 2: accepted at 1.0 s releases pre-roll and frames in order, no gap or duplicate")
+    @Test("F-04b row 2 (§16 item 4): accepted at the end releases pre-roll and frames in order, no gap or duplicate")
     func acceptedReleasesInOrder() {
         var hold = SpeakerHold()
         _ = hold.setLock(threshold: 0.5)
         var forwarded: [UplinkGateOutput] = []
         var request: SpeakerScoreRequest?
         let steps = utterance(1, frames: 150)
-        for step in steps.prefix(100) {
+        for step in steps {
             let s = hold.frame(step)
             forwarded += s.outputs
             if let r = s.request { request = r }
         }
         #expect(forwarded.isEmpty)
         let r = try! #require(request)
-        #expect(r.frames.count == 100)
+        #expect(r.frames.count == 150)
         #expect(r.kind == .speech)
         forwarded += hold.result(.score(0.8, scoreMs: 30), utterance: r.utterance, generation: r.generation).outputs
-        for step in steps.dropFirst(100) { forwarded += hold.frame(step).outputs }
         #expect(forwarded.first == .speechStarted(sentToModel: true))
         #expect(audioNumbers(forwarded) == Array(1...150))
         #expect(Array(forwarded.suffix(2)) == [.utterance(record(1)), .streamEnd])
         let check = try! #require(hold.takeChecks().first)
-        #expect(check.result == .accepted && check.speechMs == 1000 && check.scoreMs == 30)
-        #expect(check.logLine.hasPrefix("speaker-check utterance=1 kind=speech score=0.8 threshold=0.5 result=accepted"))
+        #expect(check.result == .accepted && check.speechMs == 1500 && check.scoreMs == 30)
+        #expect(check.logLine.hasPrefix(
+            "speaker-check utterance=1 kind=speech score=0.8 raw=none norm=0.8 cohort=none threshold=0.5 result=accepted"))
     }
 
     /// Runs the utterance with a result after 1 s (or none) and returns everything forwarded.
@@ -86,7 +86,7 @@ struct SpeakerHoldTests {
         #expect(r.logLine.contains("muteReason=speaker"))
     }
 
-    @Test("F-04b row 3: rejected, unknown, scoring failure and buffer past 3 s send nothing, muteReason=speaker")
+    @Test("F-04b row 3: rejected, unknown and scoring failure send nothing, muteReason=speaker")
     func rejectedUnknownFailureCap() {
         var (out, hold) = run(.score(0.2, scoreMs: 20))
         notSent(out)
@@ -100,10 +100,6 @@ struct SpeakerHoldTests {
         notSent(out)
         #expect(hold.unavailable)
         #expect(hold.takeChecks().first?.score == nil)
-        // No result ever: unknown once past 3 s.
-        (out, hold) = run(nil, frames: 400)
-        notSent(out)
-        #expect(hold.takeChecks().map(\.result) == [.unknown])
     }
 
     @Test("F-04b row 3: between minScoreSpeech and 1 s, scored at the end")
@@ -185,16 +181,17 @@ struct SpeakerHoldTests {
         #expect(requests == 0)
         hold.scoreUnsent = true
         var request: SpeakerScoreRequest?
-        for step in utterance(2, frames: 120, from: 300, sent: false).prefix(100) {
+        // §16 item 4: scored once at the end, so an interruption waits for the end of the sentence.
+        for step in utterance(2, frames: 120, from: 300, sent: false) {
             let s = hold.frame(step)
             #expect(s.outputs == step)
             if let r = s.request { request = r }
         }
         #expect(hold.verdict == .pending)
         let r = try! #require(request)
+        #expect(r.frames.count == 120)
         let res = hold.result(.score(0.1, scoreMs: 1), utterance: r.utterance, generation: r.generation)
         #expect(res.decided == [.rejected])
-        #expect(hold.verdict == .rejected)
     }
 }
 
@@ -278,6 +275,9 @@ private final class MemoryStore: SpeakerProfileStore, @unchecked Sendable {
 @Suite("T-013e F-04b speaker lock: enrollment, profile, settings, calibration")
 struct SpeakerProfileTests {
     static let model = (name: "campplus", dimension: 3)
+    static let cohort = SpeakerCohortMeta(source: "synthetic", license: "test", model: "campplus",
+                                          modelSha256: SpeakerModelPin.sha256, speakers: 5, dimension: 3, topN: 3,
+                                          threshold: 1.2, eer: 0.1, trials: 10)
     static func take(_ e: [Float], speech: Int64 = 3_000, clipped: Int = 0, noise: Int = 40) -> EnrollmentTake {
         EnrollmentTake(speech: .milliseconds(speech), clippedSamples: clipped, noiseDb: noise, embedding: e)
     }
@@ -311,58 +311,36 @@ struct SpeakerProfileTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = FileSpeakerProfileStore(url: dir.appendingPathComponent("SpeakerLock/profile.json"))
         let at = Date(timeIntervalSince1970: 1_700_000_000)
-        var profile = try SpeakerEnrollment.enroll(Self.good, modelName: "campplus", dimension: 3, at: at, store: store).get()
-        profile.threshold = 0.42
-        profile.calibrationClipMs = 1000  // §14 item 4: measured on the live clip
-        try store.save(profile)
+        let profile = try SpeakerEnrollment.enroll(Self.good, modelName: "campplus", dimension: 3, at: at, store: store).get()
         #expect(FileSpeakerProfileStore(url: store.url).load() == profile)
         // A failing re-enrollment keeps the old file.
         _ = SpeakerEnrollment.enroll([Self.take([1, 0, 0])], modelName: "campplus", dimension: 3, at: at, store: store)
         #expect(store.load() == profile)
-        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: store.load(), model: Self.model) == 0.42)
+        // §16 item 3: the cohort's threshold.
+        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: store.load(), model: Self.model,
+                                            cohort: Self.cohort) == 1.2)
         // Model change: invalid and lock off.
-        #expect(SpeakerLockPolicy.status(profile: profile, model: (name: "other", dimension: 3)) == .invalidModel)
-        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: profile, model: (name: "campplus", dimension: 4)) == nil)
+        #expect(SpeakerLockPolicy.status(profile: profile, model: (name: "other", dimension: 3), cohort: Self.cohort)
+            == .invalidModel)
+        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: profile, model: (name: "campplus", dimension: 4),
+                                            cohort: Self.cohort) == nil)
         // Delete (also what the wipe-all calls): removed and lock off.
         try SpeakerEnrollment.delete(store: store)
         #expect(store.load() == nil)
-        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: store.load(), model: Self.model) == nil)
+        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: store.load(), model: Self.model,
+                                            cohort: Self.cohort) == nil)
         try SpeakerEnrollment.delete(store: store)  // deleting twice is fine
     }
 
-    @Test("F-04b row 8: switch on with no profile or no threshold opens enrollment or calibration")
-    func switchOnNeedsCalibratedProfile() {
+    @Test("F-04b row 8 (§16 item 6): switch on with no profile opens enrollment; an enrolled profile needs no calibration")
+    func switchOnNeedsProfile() {
         let enrolled = SpeakerProfile(embedding: [1, 0, 0], modelName: "campplus", dimension: 3, enrolledAt: Date())
-        var calibrated = enrolled
-        calibrated.threshold = 0.5
-        calibrated.calibrationClipMs = 1000  // §14 item 4: measured on the live clip
-        #expect(SpeakerLockPolicy.requestOn(profile: nil, model: Self.model) == .openEnrollment)
-        #expect(SpeakerLockPolicy.requestOn(profile: enrolled, model: Self.model) == .openCalibration)
-        #expect(SpeakerLockPolicy.requestOn(profile: calibrated, model: Self.model) == .on(threshold: 0.5))
-        #expect(SpeakerLockPolicy.requestOn(profile: calibrated, model: nil) == .modelUnavailable)
-        #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: enrolled, model: Self.model) == nil)
-        #expect(SpeakerLockPolicy.threshold(switchOn: false, profile: calibrated, model: Self.model) == nil)
-        #expect(SpeakerLockPolicy.status(profile: nil, model: Self.model).text == "未录入")
-        #expect(SpeakerLockPolicy.status(profile: enrolled, model: Self.model).text == "已录入，未校准")
-        #expect(SpeakerLockPolicy.status(profile: calibrated, model: Self.model).text == "已录入")
-        #expect(SpeakerLockPolicy.status(profile: calibrated, model: nil).text == "声纹模型不可用")
-    }
-
-    @Test("F-04b §5: calibration suggests the lowest threshold with no false accepts and states the weak evidence")
-    func calibration() {
-        var c = SpeakerCalibration(driver: (0..<20).map { 0.5 + Double($0) * 0.02 },
-                                   others: (0..<19).map { Double($0) * 0.02 })
-        #expect(c.suggested == nil)  // 19 lines are not enough
-        c.others.append(0.555)
-        #expect(c.suggested.map { abs($0 - 0.56) < 1e-9 } == true)
-        let row = c.row(at: 0.56)
-        #expect(row.falseAccepts == 0 && row.falseRejects == 3)
-        #expect(c.rows.first.map { $0.falseAccepts == 20 } == true)
-        #expect(abs(SpeakerCalibration.upperBound(zeroOf: 20) - 0.139) < 0.001)
-        #expect(c.caveat.contains("约 14%"))
-        #expect(c.scoresFile.hasPrefix("clipMs=1000\ndriver 0.5 whole=none\n"))  // §14 item 3
-        #expect(SpeakerCalibration.lines.count == 20)
-        #expect(Set(SpeakerCalibration.lines).isDisjoint(with: SpeakerEnrollment.sentences))
+        #expect(SpeakerLockPolicy.requestOn(profile: nil, model: Self.model, cohort: Self.cohort) == .openEnrollment)
+        #expect(SpeakerLockPolicy.requestOn(profile: enrolled, model: Self.model, cohort: Self.cohort) == .on(threshold: 1.2))
+        #expect(SpeakerLockPolicy.requestOn(profile: enrolled, model: nil, cohort: Self.cohort) == .modelUnavailable)
+        #expect(SpeakerLockPolicy.threshold(switchOn: false, profile: enrolled, model: Self.model, cohort: Self.cohort) == nil)
+        #expect(SpeakerLockPolicy.status(profile: nil, model: Self.model, cohort: Self.cohort).text == "未录入")
+        #expect(SpeakerLockPolicy.status(profile: enrolled, model: nil, cohort: Self.cohort).text == "声纹模型不可用")
     }
 }
 

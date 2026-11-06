@@ -158,14 +158,16 @@ public struct SpeakerPhraseCheck: Sendable {
         guard g == generation, let p = pending, p.id == id, let threshold else { return nil }
         pending = nil
         let speech = NovaDuration.milliseconds(Int64(p.frames) * 10)
-        let score: Double?, ms: Int
+        let score: Double?, ms: Int, raw: Double?, cohort: Int?
         switch outcome {
-        case .score(let s, let m): score = speech >= minScore ? s : nil; ms = m
-        case .failed(let m): score = nil; ms = m
+        // §16 item 5 (T-013j): the same AS-norm score and cohort threshold as speech.
+        case .score(let s, let m, let r, let c):
+            score = speech >= minScore ? s : nil; ms = m; raw = score == nil ? nil : r; cohort = c
+        case .failed(let m): score = nil; ms = m; raw = nil; cohort = nil
         }
         let result: SpeakerCheckResult = score.map { $0 >= threshold ? .accepted : .rejected } ?? .unknown
         let line = SpeakerCheckLine(utterance: id, kind: kind, score: score, threshold: threshold, result: result,
-                                    speechMs: p.frames * 10, scoreMs: ms, waitMs: waitMs)
+                                    speechMs: p.frames * 10, scoreMs: ms, waitMs: waitMs, raw: raw, cohort: cohort)
         return (result == .accepted, line)
     }
 }

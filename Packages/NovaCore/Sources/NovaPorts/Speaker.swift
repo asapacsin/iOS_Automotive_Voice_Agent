@@ -1,7 +1,8 @@
+import Foundation
 import NovaKit
 
 /// F-04b §6 item 1 (T-013e): speaker verification on the phone. Frames in, an embedding out; the score is the cosine
-/// against the enrolled embedding (`SpeakerScore`). The adapter is `SherpaSpeakerVerifier` in NovaAsrSherpa; no
+/// against the enrolled embedding (`SpeakerScore`), normalized against a cohort (`SpeakerScoreNorm`, F-04b §16 item 2). The adapter is `SherpaSpeakerVerifier` in NovaAsrSherpa; no
 /// Gemini code knows about it. Nothing it computes leaves the phone (§4 item 7). A target-speaker extractor, if one is
 /// ever added, is a stage before this port.
 public protocol SpeakerVerifier: Sendable {
@@ -41,4 +42,10 @@ public enum SpeakerScore {
         guard norm > 0 else { return nil }
         return sum.map { Float($0 / norm) }
     }
+}
+
+/// F-04b §16 items 1, 10 (T-013j): the cohort files (`speaker_cohort.f32`, `speaker_cohort.json`), read through a port
+/// so the app passes the bundle path and tests pass bytes. nil when a file is missing or unreadable.
+public protocol SpeakerCohortFiles: Sendable {
+    func read(_ name: String) -> Data?
 }

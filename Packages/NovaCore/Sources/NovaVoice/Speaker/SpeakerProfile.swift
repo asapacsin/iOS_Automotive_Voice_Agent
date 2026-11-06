@@ -8,12 +8,11 @@ public struct SpeakerProfile: Codable, Sendable, Hashable {
     public var embedding: [Float]
     public var modelName: String
     public var dimension: Int
-    /// nil until 校准 sets it: there is no built-in threshold (§5 item 1).
+    /// From §5 calibration; kept in the file but not used since §16 item 6 (T-013j): the cohort sets the threshold.
     public var threshold: Double?
     public var enrolledAt: Date
     public var calibratedAt: Date?
-    /// §14 item 4 (T-013h): the clip length (ms) the threshold was measured on, and the lines behind it. Optional so
-    /// old files still load; a threshold without the current clip length is not used (§14 item 5).
+    /// §14 item 4 (T-013h): calibration fields. Optional so old files still load; not used since §16 item 6.
     public var calibrationClipMs: Int?
     public var calibrationDriverLines: Int?
     public var calibrationOtherLines: Int?
@@ -90,89 +89,130 @@ public struct FileSpeakerProfileStore: SpeakerProfileStore {
     }
 }
 
-/// §3 item 2: what 设置 shows.
+/// §3 item 2, §16 items 6–7: what 设置 shows.
 public enum SpeakerLockStatus: Sendable, Hashable {
-    case notEnrolled, enrolledUncalibrated, ready
+    case notEnrolled
+    /// §16 item 6: model ready, enrolled with it, and a cohort of `cohort` voices made with the same model.
+    case ready(cohort: Int)
     /// §4 item 6: enrolled with another model; re-enroll.
     case invalidModel
     /// §3 item 4: the model cannot load.
     case modelUnavailable
-    /// §14 item 5 (T-013h): a threshold measured on another clip length: not used.
-    case recalibrate
+    /// §16 item 7 (T-013j): the cohort file is missing or for another model; the switch cannot turn on.
+    case cohortMissing
+
+    public var isReady: Bool {
+        if case .ready = self { return true }
+        return false
+    }
 
     public var text: String {
         switch self {
         case .notEnrolled: "未录入"
-        case .enrolledUncalibrated: "已录入，未校准"
-        case .ready: "已录入"
+        case .ready(let n): "已录入 · 和 \(n) 个公开声音比较，自动区分"
         case .invalidModel: "声纹模型已更换，请重新录入"
         case .modelUnavailable: "声纹模型不可用"
-        case .recalibrate: "已录入，需要重新校准"
+        case .cohortMissing: "声纹对比数据缺失"
         }
     }
 }
 
-/// §3 items 1, 4; §4 items 5–6; §5 item 1: when the lock may be on. Pure.
+/// §3 items 1, 4; §4 items 5–6; §16 items 3, 6–7: when the lock may be on. Pure.
+/// §16 item 6 (T-013j): no calibration; a profile's `threshold`, `calibratedAt` and calibration fields are not used.
 public enum SpeakerLockPolicy {
     /// What turning the switch on leads to.
     public enum OnRequest: Sendable, Hashable {
+        /// The cohort file's threshold (§16 item 3).
         case on(threshold: Double)
         case openEnrollment
-        case openCalibration
         case modelUnavailable
+        case cohortMissing
     }
 
     public static let switchText = "开：只有录入的声音能唤醒和使用小诺。说话重叠时可能听不准。"
     /// §6 item 11.
     public static let unavailableChip = "声纹不可用，可在设置关闭"
-    /// §14 item 5: shown under the `recalibrate` status text.
-    public static let recalibrateNote = "校准方法已更新：请重新校准一次（两人各 20 句），声纹不用重新录入。"
+    /// §16 item 7, §12 item 4: a switch that is on with no usable cohort stays locked and fails closed. No score is
+    /// ever at or above this, and the scorer reports a failure.
+    public static let failClosedThreshold = Double.infinity
 
-    /// §4 item 6, §14 item 5, §15 item 2: a switch that is on is turned off for these (the voiceprint and file stay).
-    public static func turnsSwitchOff(_ status: SpeakerLockStatus) -> Bool {
-        status == .invalidModel || status == .recalibrate
+    /// §4 item 6: a switch that is on is turned off for this (the voiceprint and file stay).
+    public static func turnsSwitchOff(_ status: SpeakerLockStatus) -> Bool { status == .invalidModel }
+
+    /// §16 item 6: the cohort's `modelSha256` matches the loaded model (and its vectors fit the profile).
+    public static func cohortMatches(_ cohort: SpeakerCohortMeta?, profile: SpeakerProfile,
+                                     modelSha256: String) -> Bool {
+        guard let cohort else { return false }
+        return cohort.matches(modelSha256: modelSha256) && cohort.dimension == profile.dimension
     }
 
-    /// §14 item 5, §15 items 1-2 (T-013i): the threshold is used unless a recorded clip length differs from the
-    /// live check's. A threshold calibrated before §14 (no `calibrationClipMs`) is used as it is.
-    public static func currentClip(_ profile: SpeakerProfile, clipMs: Int) -> Bool {
-        profile.calibrationClipMs.map { $0 == clipMs } ?? true
-    }
-
-    /// `model`: the loaded model's name and dimension; nil when it cannot load.
-    /// `clipMs`: the live check's clip length now (`SpeakerVerifyClip.clipMs`).
+    /// `model`: the loaded model's name and dimension; nil when it cannot load. `cohort`: the loaded cohort file's
+    /// metadata; nil when missing. `modelSha256`: the loaded model's (the pinned value, §12 item 3).
     public static func status(profile: SpeakerProfile?, model: (name: String, dimension: Int)?,
-                              clipMs: Int = SpeakerVerifyClip.clipMs()) -> SpeakerLockStatus {
+                              cohort: SpeakerCohortMeta?,
+                              modelSha256: String = SpeakerModelPin.sha256) -> SpeakerLockStatus {
         guard let model else { return .modelUnavailable }
         guard let profile else { return .notEnrolled }
         guard profile.valid(modelName: model.name, dimension: model.dimension) else { return .invalidModel }
-        guard profile.threshold != nil else { return .enrolledUncalibrated }
-        return currentClip(profile, clipMs: clipMs) ? .ready : .recalibrate
+        guard cohortMatches(cohort, profile: profile, modelSha256: modelSha256), let cohort else {
+            return .cohortMissing
+        }
+        return .ready(cohort: cohort.speakers)
     }
 
     public static func requestOn(profile: SpeakerProfile?, model: (name: String, dimension: Int)?,
-                                 clipMs: Int = SpeakerVerifyClip.clipMs()) -> OnRequest {
-        switch status(profile: profile, model: model, clipMs: clipMs) {
+                                 cohort: SpeakerCohortMeta?,
+                                 modelSha256: String = SpeakerModelPin.sha256) -> OnRequest {
+        switch status(profile: profile, model: model, cohort: cohort, modelSha256: modelSha256) {
         case .modelUnavailable: return .modelUnavailable
         case .notEnrolled, .invalidModel: return .openEnrollment
-        case .enrolledUncalibrated, .recalibrate: return .openCalibration
-        case .ready: return .on(threshold: profile!.threshold!)
+        case .cohortMissing: return .cohortMissing
+        case .ready: return .on(threshold: cohort!.threshold)
         }
     }
 
-    /// The threshold the live pipeline uses: the switch on and a calibrated, valid profile; else nil (lock off).
-    /// §12 item 4 (T-013f): a model that is not usable right now (downloading, failed) keeps a calibrated lock on,
-    /// so scoring fails closed (§6 item 11) instead of the lock quietly turning off.
-    /// §14 item 5, §15 item 2: a threshold of another recorded clip length is never used, with or without the model.
+    /// The threshold the live pipeline uses: the switch on and a ready lock; else nil (lock off).
+    /// §12 item 4: a model that is not usable right now (downloading, failed) keeps an enrolled lock on, so scoring
+    /// fails closed (§6 item 11) instead of the lock quietly turning off. §16 item 7: so does a missing cohort.
     public static func threshold(switchOn: Bool, profile: SpeakerProfile?, model: (name: String, dimension: Int)?,
-                                 clipMs: Int = SpeakerVerifyClip.clipMs()) -> Double? {
-        guard switchOn else { return nil }
-        if model == nil {
-            guard let profile, currentClip(profile, clipMs: clipMs) else { return nil }
-            return profile.threshold
+                                 cohort: SpeakerCohortMeta?,
+                                 modelSha256: String = SpeakerModelPin.sha256) -> Double? {
+        guard switchOn, let profile else { return nil }
+        let matched = cohortMatches(cohort, profile: profile, modelSha256: modelSha256) ? cohort?.threshold : nil
+        if model == nil { return matched ?? failClosedThreshold }
+        switch status(profile: profile, model: model, cohort: cohort, modelSha256: modelSha256) {
+        case .ready: return matched
+        case .cohortMissing: return failClosedThreshold
+        case .notEnrolled, .invalidModel, .modelUnavailable: return nil
         }
-        guard case .on(let t) = requestOn(profile: profile, model: model, clipMs: clipMs) else { return nil }
-        return t
+    }
+}
+
+/// §16 item 6 (T-013j): 设置 has no 校准. The buttons under 「声纹」 for each status. Pure.
+public enum SpeakerLockSettings {
+    public static func buttons(_ status: SpeakerLockStatus) -> [String] {
+        switch status {
+        case .notEnrolled: ["录入声纹"]
+        case .invalidModel: ["录入声纹", "删除声纹"]
+        case .ready, .cohortMissing: ["重新录入", "删除声纹"]
+        case .modelUnavailable: []
+        }
+    }
+}
+
+/// §16 item 6: the calibration draft of §13 (`Application Support/SpeakerLock/calibration.json`) is deleted on first
+/// launch; no calibration file is written any more.
+public enum SpeakerLegacyCalibration {
+    public static func standardDraftURL() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("SpeakerLock/calibration.json")
+    }
+
+    /// True when a file was removed.
+    @discardableResult
+    public static func removeDraft(at url: URL?) -> Bool {
+        guard let url, FileManager.default.fileExists(atPath: url.path) else { return false }
+        return (try? FileManager.default.removeItem(at: url)) != nil
     }
 }
 
@@ -248,115 +288,18 @@ public enum SpeakerEnrollment {
     }
 
     /// §4 item 5: a re-enrollment replaces the file only after the new one passes; the old one is kept otherwise.
-    /// The new profile has no threshold: it must be calibrated again.
-    /// §13 item 9: a failed enrollment keeps the old profile, threshold and draft; a successful one removes the draft.
     @discardableResult
     public static func enroll(_ takes: [EnrollmentTake], modelName: String, dimension: Int, at date: Date,
-                              store: any SpeakerProfileStore, draftStore: (any SpeakerCalibrationDraftStore)? = nil)
-        -> Result<SpeakerProfile, EnrollmentProblem> {
+                              store: any SpeakerProfileStore) -> Result<SpeakerProfile, EnrollmentProblem> {
         let result = check(takes, modelName: modelName, dimension: dimension, at: date)
         if case .success(let profile) = result {
             do { try store.save(profile) } catch { return .failure(.noEmbedding) }
-            try? draftStore?.delete()
         }
         return result
     }
 
-    /// §4 item 5, §3 item 5: delete (also from the wipe-all); the caller turns the switch off. §13 item 10: the
-    /// draft goes too.
-    public static func delete(store: any SpeakerProfileStore, draftStore: (any SpeakerCalibrationDraftStore)? = nil) throws {
-        try? draftStore?.delete()
+    /// §4 item 5, §3 item 5: delete (also from the wipe-all); the caller turns the switch off.
+    public static func delete(store: any SpeakerProfileStore) throws {
         try store.delete()
-    }
-}
-
-/// §5 items 2–4: 校准 from scores only (no audio kept). Pure.
-public struct SpeakerCalibration: Sendable, Hashable {
-    public static let minimumLines = 20
-    /// §5 item 2: everyday lines, not the enrollment sentences. Each person reads them all (20).
-    public static let lines = [
-        "打开空调", "第一个", "导航回家", "放首歌", "今天天气怎么样", "关掉音乐", "附近有没有停车场", "温度调低一点",
-        "打电话给妈妈", "还有多远", "换一首", "开一下车窗", "前面堵不堵", "我有点困", "找个加油站", "声音大一点",
-        "取消导航", "现在几点了", "去公司", "谢谢你",
-    ]
-    /// Candidate thresholds are on this grid.
-    public static let step = 0.01
-
-    public struct Row: Sendable, Hashable {
-        public let threshold: Double
-        public let falseRejects: Int
-        public let falseAccepts: Int
-    }
-
-    /// §14 item 2: clip scores (`SpeakerVerifyClip`); these drive the counts, the table and the suggestion.
-    public var driver: [Double]
-    public var others: [Double]
-    /// §14 item 2: whole-take scores, for the scores file only (aligned with `driver` / `others`; nil = not scored).
-    public var driverWhole: [Double?]
-    public var othersWhole: [Double?]
-    /// §14 item 3: the clip length the lines were scored on.
-    public var clipMs: Int
-
-    public init(driver: [Double] = [], others: [Double] = [], driverWhole: [Double?] = [], othersWhole: [Double?] = [],
-                clipMs: Int = SpeakerVerifyClip.clipMs()) {
-        self.driver = driver
-        self.others = others
-        self.driverWhole = driverWhole
-        self.othersWhole = othersWhole
-        self.clipMs = clipMs
-    }
-
-    public var enough: Bool { driver.count >= Self.minimumLines && others.count >= Self.minimumLines }
-
-    /// Accepted when score ≥ threshold.
-    public func row(at t: Double) -> Row {
-        Row(threshold: t, falseRejects: driver.filter { $0 < t }.count, falseAccepts: others.filter { $0 >= t }.count)
-    }
-
-    static func grid(_ v: Double) -> Double { (v / step).rounded() * step }
-
-    /// Thresholds from the lowest score to just above the highest, on the grid.
-    public var rows: [Row] {
-        let all = driver + others
-        guard let lo = all.min(), let hi = all.max() else { return [] }
-        var out: [Row] = []
-        var t = Self.grid((lo / Self.step).rounded(.down) * Self.step)
-        while t <= hi + Self.step + 1e-9 {
-            out.append(row(at: t))
-            t = Self.grid(t + Self.step)
-        }
-        return out
-    }
-
-    /// The lowest threshold with no false accepts; nil before enough lines.
-    public var suggested: Double? {
-        guard enough, let maxOther = others.max() else { return nil }
-        // The grid point strictly above every other person's score.
-        var t = Self.grid((maxOther / Self.step).rounded(.down) * Self.step)
-        while t <= maxOther { t = Self.grid(t + Self.step) }
-        return t
-    }
-
-    /// 95% upper bound of the true rate when `count` of `n` happened (exact for 0: 1 − 0.05^(1/n)).
-    public static func upperBound(zeroOf n: Int) -> Double { n > 0 ? 1 - pow(0.05, 1 / Double(n)) : 1 }
-
-    /// §5 item 3: what the screen says about the evidence.
-    public var caveat: String {
-        let n = others.count
-        let pct = Int((Self.upperBound(zeroOf: n) * 100).rounded())
-        return "别人说的 \(n) 句里 0 句通过，这只是很弱的证据：真实的误通过率仍可能高达约 \(pct)%。"
-    }
-
-    /// §5 item 4, §14 item 3: the local scores file (Documents). First `clipMs=1000`, then
-    /// `driver <clip> whole=<whole>` / `other <clip> whole=<whole>` per line. Numbers only.
-    public var scoresFile: String {
-        func lines(_ name: String, _ clip: [Double], _ whole: [Double?]) -> [String] {
-            clip.indices.map { i in
-                let w = i < whole.count ? whole[i] : nil
-                return "\(name) \(SpeakerCheckLine.number(clip[i])) whole=\(w.map(SpeakerCheckLine.number) ?? "none")"
-            }
-        }
-        return (["clipMs=\(clipMs)"] + lines("driver", driver, driverWhole) + lines("other", others, othersWhole))
-            .joined(separator: "\n") + "\n"
     }
 }

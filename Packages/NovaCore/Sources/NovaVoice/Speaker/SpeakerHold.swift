@@ -2,19 +2,14 @@ import NovaKit
 import NovaPorts
 
 /// F-04b §6 tuning (T-013e). Starting values; they change only from the device measurements (rows 12–17).
+/// §16 item 4 (T-013j): the whole utterance is scored once at its end, so `minVerifySpeech` and the 3 s held-buffer
+/// limit are gone.
 public struct SpeakerTuning: Sendable, Hashable {
-    /// Scoring runs once when the utterance has this much audio, or at its end if sooner.
-    public var minVerifySpeech: NovaDuration
     /// Less audio than this at the end cannot be scored: unknown.
     public var minScoreSpeech: NovaDuration
-    /// A held utterance with no result after this is unknown.
-    public var holdCap: NovaDuration
 
-    public init(minVerifySpeech: NovaDuration = .seconds(1), minScoreSpeech: NovaDuration = .milliseconds(500),
-                holdCap: NovaDuration = .seconds(3)) {
-        self.minVerifySpeech = minVerifySpeech
+    public init(minScoreSpeech: NovaDuration = .milliseconds(500)) {
         self.minScoreSpeech = minScoreSpeech
-        self.holdCap = holdCap
     }
 }
 
@@ -26,7 +21,11 @@ public struct SpeakerCheckLine: Sendable, Hashable {
     public var utterance: Int
     public var kind: SpeakerCheckKind
     /// nil when there was nothing to score or scoring failed: no made-up confidence (§6 item 4).
+    /// §16 item 2: the AS-norm score (also written as `norm=`).
     public var score: Double?
+    /// §16 item 8: the raw cosine s and the cohort size behind `score`.
+    public var raw: Double?
+    public var cohort: Int?
     public var threshold: Double
     public var result: SpeakerCheckResult
     public var speechMs: Int
@@ -34,10 +33,12 @@ public struct SpeakerCheckLine: Sendable, Hashable {
     public var waitMs: Int
 
     public init(utterance: Int, kind: SpeakerCheckKind, score: Double?, threshold: Double, result: SpeakerCheckResult,
-                speechMs: Int, scoreMs: Int, waitMs: Int) {
+                speechMs: Int, scoreMs: Int, waitMs: Int, raw: Double? = nil, cohort: Int? = nil) {
         self.utterance = utterance
         self.kind = kind
         self.score = score
+        self.raw = raw
+        self.cohort = cohort
         self.threshold = threshold
         self.result = result
         self.speechMs = speechMs
@@ -45,11 +46,15 @@ public struct SpeakerCheckLine: Sendable, Hashable {
         self.waitMs = waitMs
     }
 
-    static func number(_ v: Double) -> String { String((v * 1000).rounded() / 1000) }
+    /// A non-finite threshold (the fail-closed lock with no cohort, §16 item 7) is written `none`.
+    static func number(_ v: Double) -> String { v.isFinite ? String((v * 1000).rounded() / 1000) : "none" }
 
-    /// `utterance=3 kind=speech score=0.712 threshold=0.55 result=accepted speechMs=1000 scoreMs=40 waitMs=1040`
+    /// `utterance=3 kind=speech score=2.1 raw=0.712 norm=2.1 cohort=797 threshold=1.5 result=accepted speechMs=2400
+    /// scoreMs=40 waitMs=60`. Numbers only (I-8).
     public var fields: String {
-        "utterance=\(utterance) kind=\(kind.rawValue) score=\(score.map(Self.number) ?? "none") "
+        let norm = score.map(Self.number) ?? "none"
+        return "utterance=\(utterance) kind=\(kind.rawValue) score=\(norm) raw=\(raw.map(Self.number) ?? "none") "
+            + "norm=\(norm) cohort=\(cohort.map(String.init) ?? "none") "
             + "threshold=\(Self.number(threshold)) result=\(result.rawValue) speechMs=\(speechMs) scoreMs=\(scoreMs) "
             + "waitMs=\(waitMs)"
     }
@@ -74,15 +79,17 @@ public struct SpeakerScoreRequest: Sendable, Hashable {
 
 /// The background queue's answer to a request.
 public enum SpeakerScoreOutcome: Sendable, Hashable {
-    case score(Double, scoreMs: Int)
+    /// §16 items 2, 8: the AS-norm score, the raw cosine and the cohort size (nil outside the cohort scorer).
+    case score(Double, scoreMs: Int, raw: Double? = nil, cohort: Int? = nil)
     case failed(scoreMs: Int)
 }
 
 /// F-04b §6 items 2–5, 10, 12 (T-013e): with the lock on, nothing of an utterance goes to Gemini until its voice is
 /// accepted. Sits between the uplink gate and `PostStopHold`: the gate's outputs come in, what may go up comes out.
-/// Each sent utterance is held from its `speechStarted` (pre-roll included); at `minVerifySpeech` of audio (or its end
-/// if sooner) one score request is made. Accepted: the held outputs go out in order and the rest passes. Rejected or
-/// unknown (too short, failure, past `holdCap`): it becomes a not-sent utterance with `muteReason=speaker` (start and
+/// Each sent utterance is held from its `speechStarted` (pre-roll included); at its end mark one score request is made
+/// with all of its speech (§16 item 4, T-013j). Accepted: the held outputs go out in order and the rest passes.
+/// Rejected or unknown (under `minScoreSpeech`, or a failure): it becomes a not-sent utterance with
+/// `muteReason=speaker` (start and
 /// stop marks only). Off: outputs pass unchanged and no request is ever made. Utterances are numbered like the
 /// recognizer's (one per `speechStarted`). Pure and synchronous; time moves 10 ms per frame.
 public struct SpeakerHold: Sendable {
@@ -163,7 +170,7 @@ public struct SpeakerHold: Sendable {
         let wasLocked = locked
         self.threshold = threshold
         var step = Step()
-        // §6 item 5: any lock change resets pending state; a held one then ends at the cap as unknown.
+        // §6 item 5: any lock change resets pending state; a held one's late result is dropped.
         if wasLocked, locked { generation += 1 }
         guard wasLocked, !locked else { return step }
         unavailable = false
@@ -194,11 +201,7 @@ public struct SpeakerHold: Sendable {
     /// One captured frame and what the gate made of it.
     public mutating func frame(_ outputs: [UplinkGateOutput]) -> Step {
         now = now + .milliseconds(10)
-        var step = pass(outputs)
-        if case .holding(_, _, let since, _, _, _, _, _) = state, now - since > tuning.holdCap {
-            drop(score: nil, scoreMs: 0, into: &step)
-        }
-        return step
+        return pass(outputs)
     }
 
     /// Outputs that come from no frame (the force-close).
@@ -252,7 +255,8 @@ public struct SpeakerHold: Sendable {
             if case .utterance = output { closed = true }
             let audio = NovaDuration.milliseconds(Int64(speech) * 10)
             var request: SpeakerScoreRequest?
-            if !requested, audio >= tuning.minVerifySpeech || (closed && audio >= tuning.minScoreSpeech) {
+            // §16 item 4: once, at the end, on all of its speech.
+            if !requested, closed, audio >= tuning.minScoreSpeech {
                 requested = true
                 request = SpeakerScoreRequest(utterance: id, generation: generation, kind: .speech, frames: frames)
                 frames = []
@@ -275,29 +279,31 @@ public struct SpeakerHold: Sendable {
         case .failed(let ms):
             unavailable = true
             drop(score: nil, scoreMs: ms, into: &step)
-        case .score(let score, let ms) where score >= threshold:
+        case .score(let score, let ms, let raw, let cohort) where score >= threshold:
             unavailable = false
             checks.append(SpeakerCheckLine(utterance: id, kind: .speech, score: score, threshold: threshold,
                                            result: .accepted, speechMs: speech * 10, scoreMs: ms,
-                                           waitMs: Int((now - since).milliseconds)))
+                                           waitMs: Int((now - since).milliseconds), raw: raw, cohort: cohort))
             if sent { step.outputs = buffer }
             state = closed ? .idle : .passing(id: id)
             step.decided.append(.accepted)
             step.decidedUtterances.append(id)
-        case .score(let score, let ms):
+        case .score(let score, let ms, let raw, let cohort):
             unavailable = false
-            drop(score: score, scoreMs: ms, into: &step)
+            drop(score: score, scoreMs: ms, raw: raw, cohort: cohort, into: &step)
         }
         return step
     }
 
     /// Rejected (a score under the threshold) or unknown (no score): nothing of it goes up; the core hears a not-sent
     /// utterance (start and stop marks only, `muteReason=speaker`).
-    private mutating func drop(score: Double?, scoreMs: Int, into step: inout Step) {
+    private mutating func drop(score: Double?, scoreMs: Int, raw: Double? = nil, cohort: Int? = nil,
+                               into step: inout Step) {
         guard case .holding(let id, let sent, let since, let buffer, _, let speech, _, let closed) = state else { return }
         checks.append(SpeakerCheckLine(utterance: id, kind: .speech, score: score, threshold: threshold ?? 0,
                                        result: score == nil ? .unknown : .rejected, speechMs: speech * 10,
-                                       scoreMs: scoreMs, waitMs: Int((now - since).milliseconds)))
+                                       scoreMs: scoreMs, waitMs: Int((now - since).milliseconds), raw: raw,
+                                       cohort: cohort))
         step.decided.append(.rejected)
         step.decidedUtterances.append(id)
         if sent {
