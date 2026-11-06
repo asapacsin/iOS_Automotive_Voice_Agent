@@ -1,0 +1,105 @@
+import NovaAgent
+import NovaAudio
+import NovaKit
+import NovaPlatform
+import NovaPorts
+import NovaServices
+import NovaVoice
+import SwiftUI
+
+/// F-07 §14 item 2 (T-020a): 「她的声音」 — source, 千问 API Host and voice with 试听, or the Azure fields.
+/// A change applies from the next session start.
+struct VoiceSettingsSection: View {
+    static let previewText = "你好，我是小诺。"
+
+    @AppStorage(SettingsKey.voiceSource) private var savedSource = ""
+    @AppStorage(SettingsKey.qwenTTSHost) private var qwenHost = ""
+    @AppStorage(SettingsKey.qwenVoice) private var qwenVoice = QwenVoiceOption.defaultID
+    @AppStorage(DriveSettings.azureRegion) private var azureRegion = ""
+    @AppStorage(DriveSettings.azureVoice) private var azureVoice = DriveSettings.defaultVoice
+    @State private var hostDraft = ""
+    @State private var hostMessage: String?
+    @State private var previewMessage: String?
+    @State private var previewing = false
+    @State private var player = PCMPreviewPlayer()
+    let onChange: () -> Void
+
+    private var source: Binding<VoiceSourceKind> {
+        Binding(get: { VoiceSettingsSection.effectiveSource(savedSource) },
+                set: { savedSource = $0.rawValue; onChange() })
+    }
+
+    static func effectiveSource(_ saved: String) -> VoiceSourceKind {
+        let store = KeychainCredentialStore()
+        func has(_ key: CredentialKey) -> Bool { ((try? store.value(for: key)) ?? nil)?.isEmpty == false }
+        return VoiceSource.effectiveChoice(VoiceSourceKind(rawValue: saved), hasQwenKey: has(.qwenAPIKey),
+                                           hasAzureKey: has(.azureSpeechKey))
+    }
+
+    var body: some View {
+        Section("她的声音") {
+            Picker("来源", selection: source) {
+                Text("千问（阿里云）").tag(VoiceSourceKind.qwen)
+                Text("Azure").tag(VoiceSourceKind.azure)
+            }
+            switch source.wrappedValue {
+            case .qwen:
+                TextField(qwenHost.isEmpty ? "API Host" : qwenHost, text: $hostDraft)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                Text("在百炼控制台的 API Key 页复制 API Host").font(.footnote).foregroundStyle(.secondary)
+                Button("保存 API Host") { saveHost() }.disabled(hostDraft.isEmpty)
+                if let hostMessage { Text(hostMessage).font(.footnote) }
+                Picker("音色", selection: $qwenVoice) {
+                    ForEach(QwenVoiceOption.all, id: \.id) { Text($0.label).tag($0.id) }
+                }
+                Button(previewing ? "试听中…" : "试听") { preview() }.disabled(previewing)
+                if let previewMessage { Text(previewMessage).font(.footnote) }
+            case .azure:
+                TextField("区域（留空自动识别）", text: $azureRegion)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("声音", text: $azureVoice)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+        }
+    }
+
+    private func saveHost() {
+        let host = hostDraft
+        guard VoiceHostCheck.isValid(host) else {
+            hostMessage = VoiceHostCheck.invalidMessage
+            return
+        }
+        qwenHost = host
+        hostDraft = ""
+        hostMessage = "已保存"
+        onChange()
+    }
+
+    private func preview() {
+        previewMessage = nil
+        guard let key = (try? KeychainCredentialStore().value(for: .qwenAPIKey)) ?? nil, !key.isEmpty,
+              VoiceHostCheck.isValid(qwenHost) else {
+            previewMessage = VoiceSource.qwenMissingMessage
+            return
+        }
+        previewing = true
+        let client = QwenSpeechClient(config: QwenSpeechConfig(key: key, host: qwenHost, voice: qwenVoice))
+        let text = Self.previewText
+        Task { @MainActor in
+            defer { previewing = false }
+            do {
+                let pcm = try await client.synthesize(text, style: .default,
+                                                      deadline: AzureSpeechTuning().clauseDeadline(characters: text.count))
+                try player.play(pcm)
+            } catch let error as SpeechSynthesisError {
+                previewMessage = "试听失败：\(error.code)"
+            } catch {
+                previewMessage = "试听失败：QWEN_TTS_PLAYBACK"
+            }
+        }
+    }
+}

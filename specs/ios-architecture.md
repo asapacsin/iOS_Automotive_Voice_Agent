@@ -112,7 +112,7 @@ NovaDriveIOS/
 │   │                                 #   resampler, playback lanes, epoch flush, fallback guidance voice
 │   ├── NovaNavAmap/                  # the only importer of AMapNaviKit; engine adapter + SwiftUI map view
 │   ├── NovaWakeIflytek/              # the only importer of iflyMSC (M5)
-│   ├── NovaServices/                 # Azure TTS, Amap Web REST, Qianfan, Keychain, UserDefaults,
+│   ├── NovaServices/                 # Qwen-Audio TTS, Azure TTS, Amap Web REST, Qianfan, Keychain, UserDefaults,
 │   │                                 #   SimulatedVehicle; Tests: fixtures/amap/*.json via URLProtocol stubs
 │   └── NovaPlatform/                 # CoreLocation, Contacts, tel:// dialer, AVCapture still frames, MusicKit (M6)
 ├── App/
@@ -162,7 +162,7 @@ usually one target plus its tests.
 | `CaptureSource` | 10 ms 16 kHz PCM16 frames, already echo-cancelled | `EngineCapture` (NovaAudio) | `PCMCorpusSource` |
 | `PlaybackPort` | Reply lane, guidance lane, media lane, epochs, playback events | `EnginePlayback` (NovaAudio) | `RecordingPlayback` |
 | `AudioSessionEvents` | Interruptions, route changes, media-services reset | `AudioSessionMonitor` (NovaAudio) | scripted |
-| `SpeechSynthesizer` | Clause → 24 kHz PCM (Azure) | `AzureSpeechClient` (NovaServices) | `FakeSynthesizer` (fixed latency) |
+| `SpeechSynthesizer` | Clause → 24 kHz PCM (Qwen-Audio TTS by default, Azure as an option; F-07 §14) | `QwenSpeechClient`, `AzureSpeechClient` (NovaServices), wrapped by `RetryingSpeechSynthesizer` (NovaVoice, one retry) | `FakeSynthesizer` (fixed latency) |
 | `FallbackGuidanceVoice` | Speak a guidance sentence when the relay falls back | `SystemSpeechGuidanceVoice` (NovaAudio, §9.5) | recording |
 | `WakeWordDetector` | Arm/disarm, take frames, emit wake | `IflytekWakeDetector` (NovaWakeIflytek) | scripted |
 | `SpeakerVerifier` | F-04b (T-013e): frames → speaker embedding, scored by cosine against the enrolled profile; used only with 声纹锁定 on | `SherpaSpeakerVerifier` (NovaAsrSherpa) | fixed embeddings |
@@ -239,7 +239,7 @@ capture and playback, plus a navigation lock with generation counters. The iOS m
 | **AgentCore** | `actor` | session state machine, listening lifecycle, turn/reply pipeline, truthfulness guards, arbiter, guidance relay, driver context, dispatch decisions, navigation mirror | The single serialisation point (Android's mutex). Transitions are synchronous; I/O happens in effects after the transition |
 | NavigationActor | `actor` | navigation phase machine, generation counter, pending choices | SDK calls go through the adapter; results come back tagged with a generation and stale ones are dropped |
 | Provider | `GeminiLiveProvider` (`actor`) | socket, codec, turn assembler | Emits `RealtimeEvent` into a stream bounded at 1024, as on Android; overflow is counted as a bug signal |
-| Revoicer | `actor` | clause queue, ≤2 Azure requests in flight, ordering, warm-up timer | Drops any synthesis result whose epoch is not current |
+| Revoicer | `actor` | clause queue, ≤2 TTS requests in flight (Qwen or Azure, chosen at session start by `VoiceSource`), one retry per clause (`RetryingSpeechSynthesizer`), ordering, warm-up timer, `voice` / `voice-failed` lines | Drops any synthesis result whose epoch is not current |
 | Playback | serial `DispatchQueue` | the three `AVAudioPlayerNode` lanes, current epoch | Checks the epoch before scheduling a buffer; a flush stops the reply node and raises the epoch |
 | Tool execution | child `Task`s owned by `ToolRunner` | one call each | Cancellable; always ends in a `ToolResult`, never throws into the session |
 | UI | `@MainActor` | `@Observable` view models, Amap views | Consumes snapshots; emits `UIIntent`; holds no product state |

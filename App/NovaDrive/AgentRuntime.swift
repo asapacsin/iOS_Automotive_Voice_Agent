@@ -668,24 +668,48 @@ final class AgentRuntime {
         case nil:
             break
         }
-        guard let azureKey = try? store.value(for: .azureSpeechKey), !azureKey.isEmpty else {
-            model.notice = "请先在设置里保存 Azure Speech key"
-            return
-        }
+        // F-07 §14 item 5 (T-020a): the chosen source of her voice, read at session start.
         let defaults = UserDefaults.standard
-        var region = defaults.string(forKey: DriveSettings.azureRegion) ?? ""
-        if region.isEmpty {
-            model.notice = "正在识别 Azure 区域…"
-            guard let found = await AzureRegionProbe.find(key: azureKey) else {
-                model.notice = "Azure key 在常用区域都无效，请在设置里填写区域"
+        let voiceSource: VoiceSourceKind
+        let baseSynthesizer: any SpeechSynthesizer
+        let azureKey = (try? store.value(for: .azureSpeechKey)) ?? nil
+        switch VoiceSource.resolve(choice: defaults.string(forKey: SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:)),
+                                   qwenKey: (try? store.value(for: .qwenAPIKey)) ?? nil,
+                                   qwenHost: defaults.string(forKey: SettingsKey.qwenTTSHost), azureKey: azureKey) {
+        case .blocked(let message):
+            model.notice = message
+            return
+        case .qwen(let key, let host):
+            let voice = defaults.string(forKey: SettingsKey.qwenVoice) ?? QwenVoiceOption.defaultID
+            voiceSource = .qwen
+            // Item 3 "One connection": this client and its URLSession live for this session.
+            baseSynthesizer = QwenSpeechClient(config: QwenSpeechConfig(key: key, host: host, voice: voice))
+        case .azure:
+            guard let azureKey, !azureKey.isEmpty else {
+                model.notice = "请先在设置里保存 Azure Speech key"
                 return
             }
-            region = found
-            defaults.set(found, forKey: DriveSettings.azureRegion)
+            var region = defaults.string(forKey: DriveSettings.azureRegion) ?? ""
+            if region.isEmpty {
+                model.notice = "正在识别 Azure 区域…"
+                guard let found = await AzureRegionProbe.find(key: azureKey) else {
+                    model.notice = "Azure key 在常用区域都无效，请在设置里填写区域"
+                    return
+                }
+                region = found
+                defaults.set(found, forKey: DriveSettings.azureRegion)
+            }
+            let voice = defaults.string(forKey: DriveSettings.azureVoice) ?? DriveSettings.defaultVoice
+            voiceSource = .azure
+            baseSynthesizer = AzureSpeechClient(config: AzureSpeechConfig(key: azureKey, region: region, voice: voice))
         }
         model.notice = nil
-        let voice = defaults.string(forKey: DriveSettings.azureVoice) ?? DriveSettings.defaultVoice
-        let synthesizer = AzureSpeechClient(config: AzureSpeechConfig(key: azureKey, region: region, voice: voice))
+        // F-07 §14 items 6-8: one retry for both sources; timing and failure lines (numbers and codes only, I-8).
+        let voiceLines = VoiceLineSink()
+        let synthesizer = RetryingSpeechSynthesizer(baseSynthesizer, source: voiceSource, onClause: { line in
+            RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+            voiceLines.record?.submit(.voiceClause(line))
+        })
 
         let model = model
         let audio = LiveAudio()
@@ -693,7 +717,11 @@ final class AgentRuntime {
                                           connector: URLSessionWebSocketConnector(onDuplicate: { site in
             RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
         }))
-        let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
+        let revoicer = Revoicer(synthesizer: synthesizer, playback: audio, onFailure: { code in
+            let line = VoiceFailedLine(turn: voiceLines.turn, source: voiceSource, code: code)
+            RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+            voiceLines.record?.submit(.voiceFailed(line))
+        })
         let navigationClock = self.navigationClock
         let device = deviceLocation
         // F-16a: read per request, so switching 位置来源 in 设置 applies to the next question.
@@ -813,6 +841,7 @@ final class AgentRuntime {
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
             searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
+        voiceLines.record = record
         sessionRecord = record
         // F-01 §14 items 9-12 (T-060a): one watch per session; the line is written before the record closes.
         let wakeWatch = WakeSessionWatch(origin: origin, clock: navigationClock)
@@ -934,7 +963,7 @@ final class AgentRuntime {
         })
         self.audio = audio
         speakLine = { line in
-            if let pcm = try? await synthesizer.synthesize(line, style: .default, deadline: .seconds(6)) {
+            if let pcm = try? await baseSynthesizer.synthesize(line, style: .default, deadline: .seconds(6)) {
                 audio.playGuidance(pcm, id: GuidanceID(UInt64(abs(line.hashValue % 1_000_000))))
             }
         }
@@ -952,8 +981,9 @@ final class AgentRuntime {
                     await transcript.gemini(text, isFinal: isFinal)
                 case .replyText(_, let text):
                     gate.herWords(text)  // F-08 §17 item 5, in memory only
-                case .responseStarted:
+                case .responseStarted(let turn):
                     gate.newModelTurn()
+                    voiceLines.turn = Int(turn.value)
                 case .failed(let error):
                     RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
                     await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
@@ -1692,6 +1722,21 @@ final class CoreRelay: @unchecked Sendable {
     }
 
     func send(_ event: AgentEvent) async { await core?.send(event) }
+}
+
+/// F-07 §14 item 7 (T-020a): the record (made after the revoicer) and the current turn, for her voice's lines.
+final class VoiceLineSink: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _record: ConversationRecord?
+    private var _turn = 0
+    var record: ConversationRecord? {
+        get { lock.withLock { _record } }
+        set { lock.withLock { _record = newValue } }
+    }
+    var turn: Int {
+        get { lock.withLock { _turn } }
+        set { lock.withLock { _turn = newValue } }
+    }
 }
 
 /// Finds the Azure Speech region a key belongs to: the token endpoint answers 200 only there.
