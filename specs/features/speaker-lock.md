@@ -110,6 +110,7 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 | T-013f | §12; rows 19–26 | unit, script, build, D |
 | T-013g | §13; rows 27–36 | unit, build, D |
 | T-013h | §14; rows 37–46 | unit, build, D |
+| T-013i | §15; rows 47–50 | unit, build, D |
 
 ## 12. Model delivered at install, not in the app (owner request 2026-11-05)
 
@@ -223,3 +224,24 @@ Cause 1 is the most likely reason for the low live scores, but it is not proved:
 | 46 | Device, lock on: the other person says 10 commands and 「你好小诺」 3 times | Each command shows the item 8 notice and gets no reply; note how many wake words pass | D |
 
 **Trace gate.** Add `T-013h: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013h.
+
+## 15. Keep the threshold calibrated before §14 (owner decision 2026-11-06)
+
+**Why.** After 281b72d the owner's profile (calibrated 2026-11-06 09:02, threshold 0.46, whole-line scores) shows 「已录入，需要重新校准」 and the lock cannot turn on (§14 item 5). The owner does not want to record 20 + 20 lines again: the lock did work for them with that threshold, and they think the unreliable moments came from other causes, such as app stability or the network. §14's claim that whole-line thresholds are too high for the 1 s live clip is not proved (§14 "Why"). On 2026-11-06 10:20–10:22 six speech checks were rejected at 0.46, which is the only data either way. Owner's decision: keep using the old threshold; do not force recalibration.
+
+This section replaces §14 item 5 and row 43. §14 items 1–4 and 6–10 stay: a new calibration still scores the 1 s clip and records `calibrationClipMs`.
+
+1. **An old threshold is used as it is.** A profile with a threshold and **no** `calibrationClipMs` is `ready`. `liveThreshold()` returns its threshold, the switch can turn on, and a switch that is on stays on. Nothing in the file changes.
+2. **`recalibrate` only for a recorded, different clip.** `recalibrate` (§14 item 5 texts and behaviour) applies only when `calibrationClipMs` is present and differs from the current `minVerifySpeech` in ms. Today no profile has that, so it is only for a future change of `minVerifySpeech`.
+3. **What 设置 and 校准 show for an old threshold.** 「已校准：{M月D日}，阈值 {0.00}（整句校准）」, from `calibratedAt` and the threshold. No line counts, because the old file has none. The §14 item 6 text with counts stays for profiles calibrated after §14.
+4. **Calibrating again is optional.** 校准 stays available. Saying new lines does not change the old threshold until 「使用这个阈值」 (§13 item 6); after that the profile has `calibrationClipMs` and the §14 item 6 text.
+5. **Not changed.** §14 items 1–4 and 6–10, the rejection notice (§14 item 8), the draft rules (§13), enrollment, the live pipeline, and `minVerifySpeech` (1.0 s).
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 47 | Profile with threshold 0.46, `calibratedAt` 2026-11-06T01:02:37Z, no `calibrationClipMs`; switch on | `ready`; `liveThreshold` 0.46; switch stays on; file unchanged; 设置 text 「已校准：11月6日，阈值 0.46（整句校准）」 (Asia/Macau) | unit |
+| 48 | Same profile with `calibrationClipMs` 1000; with 500 | `ready` with the §14 item 6 text; `recalibrate` | unit |
+| 49 | Device: install over 281b72d, open 设置 | 「已录入」, the item 3 row, the switch turns on; no calibration asked | D |
+| 50 | Device: lock on, the driver says 20 everyday commands; then the other person says 10 | Note accepted out of 20, rejected out of 10, and that each rejection shows the §14 item 8 notice | D |
+
+**Trace gate.** Add `T-013i: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013i.

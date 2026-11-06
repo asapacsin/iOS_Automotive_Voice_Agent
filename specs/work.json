@@ -1899,6 +1899,17 @@
       ]
     },
     {
+      "id": "T-013i",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-04b §15 items 1-5: a profile with a threshold and no calibrationClipMs is ready and its threshold is used; recalibrate only for a recorded different clip; 设置 and 校准 show 已校准 …（整句校准）; rows 47-50",
+      "depends_on": [
+        "T-013h"
+      ],
+      "notes": "Owner 2026-11-06: does not want to record calibration again; the lock worked for them with the 09:02 threshold 0.46. Replaces §14 item 5 and row 43."
+    },
+    {
       "id": "T-042c",
       "owner": "AUTONOMOUS",
       "status": "PASS",
