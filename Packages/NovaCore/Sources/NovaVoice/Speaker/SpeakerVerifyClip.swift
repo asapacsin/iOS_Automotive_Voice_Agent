@@ -28,6 +28,9 @@ public enum SpeakerCalibrationSummary {
         let date = "\(day.month ?? 0)月\(day.day ?? 0)日"
         let t = String(format: "%.2f", threshold)
         switch status {
+        case .ready where profile.calibrationClipMs == nil:
+            // §15 item 3: calibrated before §14 on whole lines; the old file has no line counts.
+            return "已校准：\(date)，阈值 \(t)（整句校准）"
         case .ready:
             return "已校准：\(date)，阈值 \(t)（录入的人 \(profile.calibrationDriverLines ?? 0) 句，"
                 + "其他人 \(profile.calibrationOtherLines ?? 0) 句）"

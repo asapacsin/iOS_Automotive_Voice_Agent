@@ -91,7 +91,7 @@ final class SpeakerLockService: @unchecked Sendable {
         UserDefaults.standard.set(false, forKey: DriveSettings.speakerLock)
     }
 
-    /// §4 item 6: a profile of another model turns the lock off. §14 item 5: so does a threshold measured the old way
+    /// §4 item 6: a profile of another model turns the lock off. §14 item 5, §15 item 2: so does a threshold of another recorded clip
     /// (`recalibrate`); the voiceprint and the file stay.
     func dropInvalidLock() {
         if SpeakerLockPolicy.turnsSwitchOff(status()), DriveSettings.speakerLockOn() {

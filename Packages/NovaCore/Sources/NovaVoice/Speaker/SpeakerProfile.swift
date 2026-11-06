@@ -97,7 +97,7 @@ public enum SpeakerLockStatus: Sendable, Hashable {
     case invalidModel
     /// §3 item 4: the model cannot load.
     case modelUnavailable
-    /// §14 item 5 (T-013h): a threshold measured on another clip length (or the old whole-line way): not used.
+    /// §14 item 5 (T-013h): a threshold measured on another clip length: not used.
     case recalibrate
 
     public var text: String {
@@ -128,14 +128,15 @@ public enum SpeakerLockPolicy {
     /// §14 item 5: shown under the `recalibrate` status text.
     public static let recalibrateNote = "校准方法已更新：请重新校准一次（两人各 20 句），声纹不用重新录入。"
 
-    /// §4 item 6, §14 item 5: a switch that is on is turned off for these (the voiceprint and file stay).
+    /// §4 item 6, §14 item 5, §15 item 2: a switch that is on is turned off for these (the voiceprint and file stay).
     public static func turnsSwitchOff(_ status: SpeakerLockStatus) -> Bool {
         status == .invalidModel || status == .recalibrate
     }
 
-    /// §14 item 5: the threshold was measured on the clip the live check scores now.
+    /// §14 item 5, §15 items 1-2 (T-013i): the threshold is used unless a recorded clip length differs from the
+    /// live check's. A threshold calibrated before §14 (no `calibrationClipMs`) is used as it is.
     public static func currentClip(_ profile: SpeakerProfile, clipMs: Int) -> Bool {
-        profile.calibrationClipMs == clipMs
+        profile.calibrationClipMs.map { $0 == clipMs } ?? true
     }
 
     /// `model`: the loaded model's name and dimension; nil when it cannot load.
@@ -162,7 +163,7 @@ public enum SpeakerLockPolicy {
     /// The threshold the live pipeline uses: the switch on and a calibrated, valid profile; else nil (lock off).
     /// §12 item 4 (T-013f): a model that is not usable right now (downloading, failed) keeps a calibrated lock on,
     /// so scoring fails closed (§6 item 11) instead of the lock quietly turning off.
-    /// §14 item 5: a threshold of another clip length is never used, with or without the model.
+    /// §14 item 5, §15 item 2: a threshold of another recorded clip length is never used, with or without the model.
     public static func threshold(switchOn: Bool, profile: SpeakerProfile?, model: (name: String, dimension: Int)?,
                                  clipMs: Int = SpeakerVerifyClip.clipMs()) -> Double? {
         guard switchOn else { return nil }

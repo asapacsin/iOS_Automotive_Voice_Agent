@@ -1901,13 +1901,19 @@
     {
       "id": "T-013i",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-04b §15 items 1-5: a profile with a threshold and no calibrationClipMs is ready and its threshold is used; recalibrate only for a recorded different clip; 设置 and 校准 show 已校准 …（整句校准）; rows 47-50",
       "depends_on": [
         "T-013h"
       ],
-      "notes": "Owner 2026-11-06: does not want to record calibration again; the lock worked for them with the 09:02 threshold 0.46. Replaces §14 item 5 and row 43."
+      "notes": "Owner 2026-11-06: does not want to record calibration again; the lock worked for them with the 09:02 threshold 0.46. Replaces §14 item 5 and row 43.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 47-48: SpeakerKeepOldCalibrationTests; row 40 test now uses a recorded clipMs 500 (§15 replaces §14 item 5)",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 49-50 device NOT_VERIFIED"
+      ]
     },
     {
       "id": "T-042c",

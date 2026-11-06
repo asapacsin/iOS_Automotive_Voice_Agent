@@ -97,17 +97,17 @@ struct SpeakerCalibrationLiveClipTests {
         #expect(SpeakerLockPolicy.status(profile: saved, model: Self.model) == .ready)
     }
 
-    @Test("F-04b row 40: an old threshold (no or another clipMs) is recalibrate, not used, switch off, file unchanged; 1000 is ready")
+    @Test("F-04b row 40 (§15 replaces §14 item 5): another recorded clipMs is recalibrate, not used, switch off, file unchanged; 1000 is ready")
     func oldThresholdNotUsed() throws {
         var old = Self.profile
         old.threshold = 0.46
         old.calibratedAt = Self.at
+        old.calibrationClipMs = 500
         let profileURL = FileManager.default.temporaryDirectory.appendingPathComponent("clip-\(UUID().uuidString)/profile.json")
         let file = FileSpeakerProfileStore(url: profileURL)
         try file.save(old)
         let before = try Data(contentsOf: profileURL)
-        let loaded = try #require(file.load())  // today's file (no calibrationClipMs) still loads
-        #expect(loaded.calibrationClipMs == nil)
+        let loaded = try #require(file.load())
         let status = SpeakerLockPolicy.status(profile: loaded, model: Self.model)
         #expect(status == .recalibrate)
         #expect(status.text == "已录入，需要重新校准")
@@ -116,7 +116,7 @@ struct SpeakerCalibrationLiveClipTests {
         #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: loaded, model: nil) == nil)
         #expect(SpeakerLockPolicy.requestOn(profile: loaded, model: Self.model) == .openCalibration)
         #expect(SpeakerLockPolicy.turnsSwitchOff(status))
-        #expect(try Data(contentsOf: profileURL) == before)  // voiceprint, enrolledAt and old threshold stay
+        #expect(try Data(contentsOf: profileURL) == before)
         var half = old
         half.calibrationClipMs = 500
         #expect(SpeakerLockPolicy.status(profile: half, model: Self.model) == .recalibrate)
