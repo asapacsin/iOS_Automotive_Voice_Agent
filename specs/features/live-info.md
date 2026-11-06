@@ -710,3 +710,95 @@ This section is the T-046m scope. It replaces §23 items 8, 9 and 11 and rows 7�
 | Task | Scope | Verify |
 |---|---|---|
 | T-046n | Items 1–8; rows 1–9 | unit, build, D |
+
+## 26. Weather for any place and any day in the next 16 days from Open-Meteo (iOS, APPROVED 2026-11-06)
+
+**Why.** Device 2026-11-06, 289ecc2. Asked about weather on 11/10 and 11/12, she answered with no forecast; days up to 大后天 worked. 高德 only has today to 大后天 (§23 item 2), so later days go to Qwen. PC tests the same day, using the app's exact Qwen request (S1, §24):
+- 澳门 11/10 and 11/12, 横琴 11/10: 12 of 12 answered (from the Macau weather bureau's 7-day page and AccuWeather).
+- 奥斯陆 11/11 (5 days out): 3 of 3 answered, with 0–3℃ against Open-Meteo's 0.7–3.9 °C.
+- 奥斯陆 11/12 (6 days out): 0 of 3. Qwen said the pages had no forecast for that day and gave November averages instead. One reply was in English. The §19 check passed all three, because the refusal itself names 11月12日.
+- Alibaba's `enable_search_extension` (垂域搜索, weather data) changed nothing on `qwen3.7-flash`: `extra_tool_info` stayed empty and the answers were word for word the same.
+- Search only sees the few pages it gets back, and forecast tables on those pages often do not reach the asked day. Google and ChatGPT answer weather from a weather data feed, not from page text.
+
+Also from the §25 record: 高德's geocoder answered 仙台 with 弋阳县 and 奥斯陆 with 湖里区, both `ok=true`, so a foreign city sent to 高德 silently gets a Chinese district's weather.
+
+**Sources (2026-11-06).**
+- **Weather MCP servers and agents call a forecast API; code picks the day.** [cmer81/open-meteo-mcp](https://github.com/cmer81/open-meteo-mcp) and [isdaniel/mcp_weather_server](https://github.com/isdaniel/mcp_weather_server) (Open-Meteo, up to 16 days, no key), [TimLukaHorstmann/mcp-weather](https://github.com/TimLukaHorstmann/mcp-weather) (AccuWeather, 1/5/10/15 days), [iflow-mcp weather](https://pypi.org/project/iflow-mcp_flyaibox-weather/) (和风天气, 3–30 days). The Qwen weather case at [lilting.ch](https://lilting.ch/en/articles/qwen-voice-chat-web-search-tools) dropped Qwen's built-in search for a forecast feed (JMA), after which answers matched JMA.
+- **The model passes a date; code returns that day.** Home Assistant's LLM forecast script takes ISO start and end dates and returns only that period ([forum](https://community.home-assistant.io/t/weather-forecast-access-for-llm-eg-chatgpt-or-gemini/803166)).
+- **Past the forecast window, say it is not out yet; do not search for it.** [HyxiaoGe/agent-tools PR #57](https://github.com/HyxiaoGe/agent-tools/pull/57): "If that day is clearly beyond the window… do not call this tool; say its forecast is not available yet", and "dates beyond the forecast" was removed from its web-search fallback.
+- **Open-Meteo API.** [Forecast docs](https://open-meteo.com/en/docs): `daily` variables, `timezone=auto` (dates in the place's own zone), `forecast_days` up to 16; WMO weather codes. [Geocoding API](https://open-meteo.com/en/docs/geocoding-api): `name`, `count`, `language`, `countryCode`. [Terms](https://open-meteo.com/en/terms): the free API is non-commercial, under 10,000 calls a day, data under CC BY 4.0 with attribution.
+- **Measured on the PC, 2026-11-06.** The forecast call returned 16 days (`2026-11-06` … `2026-11-21` for Oslo, local dates) in about 1.2 s. Geocoding with English names picks the right city first (Sendai, Tokyo, New York, Paris, Macau). Chinese names for foreign cities often fail or hit a Chinese village: 仙台 → villages in 河南 and 北京; 东京 → 江苏; 纽约, 首尔 with their country codes → nothing. 奥斯陆, 巴黎, 澳门, 香港, 横琴 work.
+
+**Rule in plain words.** Weather for any day from today to 15 days ahead, anywhere, comes from forecast data, never from search. China (with 香港 and 澳门) keeps 高德 for today to 大后天. Everything else comes from Open-Meteo. A foreign place is named in English with its country code. A day past the forecast is answered as "not out yet".
+
+1. **Arguments of `query_live_info(kind=weather)`.** Applied in `ToolCatalog` as iOS overrides, the way §23 item 2 did, not in the generated file.
+   - `where`: as now (`here`, `destination` or a place name); `maxLength` 40. Description: 「here=当前位置，destination=导航目的地，或地名。中国（含香港、澳门）用中文；国外用英文名并填 country，例如 Oslo、Sendai。」
+   - `day`: the four §23 names, unchanged.
+   - New `date`: string `yyyy-MM-dd`. Description: 「说几号或星期几时填，yyyy-MM-dd。」
+   - New `country`: ISO 3166-1 alpha-2, two capital letters. Description: 「国外地点的国家代码，例如 NO、JP、US。中国、香港、澳门不填。」
+   - `INVALID_ARGUMENT` when: both `day` and `date`; `date` is not a real `yyyy-MM-dd` day; `country` is not two capital letters; `country` with `where` = `here` or `destination`. Advice: 「日期用 yyyy-MM-dd（只填 day 或 date 其中一个）；国外地点 country 填两个大写字母，例如 NO。」 With neither `day` nor `date` the day is today, as now.
+2. **Finding the place.**
+   - `here` and `destination`: their coordinates and 高德 adcode, as now.
+   - No `country`, or `country` CN, HK or MO: 高德 `/v3/geocode/geo`, as now, now also reading `location` (longitude,latitude) and `formatted_address`. **Name check (ours, not from a source):** remove 省, 市, 区, 县, 镇 from `where`; every remaining character must appear in `formatted_address`. If not, nothing else is called and the result is `LIVE_INFO_UNAVAILABLE` with advice 「高德没有找到这个地点。如果是国外的地方，用英文名并填 country 再调用一次，例如 where=Oslo, country=NO。」 This stops 奥斯陆 becoming 湖里区.
+   - Any other `country`: Open-Meteo geocoding `https://geocoding-api.open-meteo.com/v1/search?name={where}&countryCode={country}&count=10&language=zh&format=json`. Take the result with the largest `population` (missing counts as 0; on a tie, the first). No result: `LIVE_INFO_UNAVAILABLE` with advice 「没有找到这个地点。请用一句话如实说没找到，问一下是哪里。」
+3. **Which source answers.**
+   - A place found through 高德 (including `here` and `destination`), asking `day` or a `date` 0–3 days after the phone's date: 高德, exactly as §23 item 2.
+   - 高德 has no `casts` entry for that date (`WeatherForecastMissing`), or the date is later: Open-Meteo, with 高德's coordinates.
+   - A place found through Open-Meteo geocoding: Open-Meteo for every day.
+4. **The Open-Meteo forecast call.** `https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=auto&forecast_days=16`. No key. Coordinates are rounded to 2 decimals before sending (ours: about 1 km, enough for a forecast, and the car's exact position never leaves the phone). The time limit is the same as 高德's. A timeout or failure is `LIVE_INFO_UNAVAILABLE` with the existing weather failure advice.
+5. **Which day in the forecast.** `daily.time[0]` is the place's own today.
+   - `day`: offset 0–3 from `time[0]`, so 明天 in 奥斯陆 is Oslo's tomorrow.
+   - `date`: the entry whose `time` equals it, never picked by position.
+   - Date before `time[0]`: `LIVE_INFO_UNAVAILABLE`, advice 「过去的天气查不到，请如实说明。」
+   - Date after the last `time`: `LIVE_INFO_UNAVAILABLE`, advice 「预报只到{last M月D日}，这一天的预报还没出来。请如实说还没有预报，不要用 web_search 查这一天的预报。可以说这个时候一般的气温，并说明不是预报。」 The first two sentences follow PR #57. The last keeps the owner's §24 item 5 choice.
+6. **The result.** `weather` holds `place` (高德's `city` or Open-Meteo's `name`), `country` (Open-Meteo's `country`, foreign places only), `date` (`yyyy-MM-dd`), `weekday` (星期一…星期日), `weather` (item 7), `temp_high` and `temp_low` (°C, rounded to whole degrees), `rain_chance` (%), `rain_mm`, `wind_max_kmh`, and `source` (`amap` or `open-meteo`). The top-level `date` stays as §23. `next`: 「只按 weather 里的数据用一两句话回答，说出地点和几月几号星期几，不要编造。」 高德 results get `weekday`, `source` and the new `next` too.
+7. **Weather words.** WMO code to Chinese, one fixed table in NovaCore. 0 晴; 1 大致晴; 2 局部多云; 3 阴; 45 雾; 48 雾凇; 51 小毛毛雨; 53 毛毛雨; 55 大毛毛雨; 56, 57 冻毛毛雨; 61 小雨; 63 中雨; 65 大雨; 66, 67 冻雨; 71 小雪; 73 中雪; 75 大雪; 77 雪粒; 80 小阵雨; 81 阵雨; 82 强阵雨; 85 小阵雪; 86 大阵雪; 95 雷阵雨; 96, 99 雷阵雨伴有冰雹. Any other code: 未知.
+8. **Her texts.**
+   - `query_live_info` description: the weather part 「weather：「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；问明天加 day=tomorrow。」 becomes 「weather：今后16天内任何地方、任何一天的天气预报。「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。」
+   - `officialFirst` (search on) becomes 「天气预报（今后16天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。」
+   - `web_search` description: remove 「任何一天的天气、」 and append 「不用于查16天内的天气预报（用 query_live_info 的 weather）。」 after the §25 item 6 sentence.
+   - Persona `webSearchSentence`: 「（任何一天的天气、新闻、营业时间、价格、油价、汇率、比分等）」 becomes 「（新闻、营业时间、价格、油价、汇率、比分等）」, and 「天气预报用 query_live_info（今后16天内，国外地点用英文名并填 country）。」 is added before 「问很久以后的天气时」. If the base then passes `maxBaseCharacters`, the limit may rise by the added length and no more. Record the new limit in STATUS.
+9. **Code check before search (ours, not from a source; the owner may remove it).** `WebSearchExecutor` does not call Qwen when the query contains one of 天气, 气温, 温度, 下雨, 下雪, 降雨, 降水 or 预报 **and** either:
+   - the §19 target is between the phone's today and 15 days later; or
+   - there is no target and the query has none of 月, 年, 周, 星期, 礼拜, 号, 季, 平均, 一般, 往年, 去年, 历史.
+
+   The result is `INVALID_ARGUMENT` with advice 「16天内的天气预报不用搜索：调用 query_live_info（kind=weather），国外地点用英文名并填 country。」 The record gets `search-blocked reason=weather`. Questions about other days, a month, or usual weather still go to Qwen (§24 item 5).
+10. **Licence and credit.** Open-Meteo's free API is non-commercial only, and its data is CC BY 4.0. 设置 shows 「天气数据：Open-Meteo.com（CC BY 4.0）」 in its about or data-source area, or at the bottom of 设置 if there is none. STATUS notes that a commercial release needs Open-Meteo's paid plan, or another source.
+11. **Where the code goes.**
+    - NovaCore (pure, no UIKit or AVFoundation): argument checks, name check, choosing the source and day, the WMO table, the result, and the item 9 check.
+    - NovaPorts: a provider-neutral daily forecast port and a place-lookup port.
+    - NovaServices: an `OpenMeteoClient` over the same transport as `AmapWebClient`, and 高德 geocoding that also returns coordinates and `formatted_address`.
+    - App: wiring, and the item 10 credit.
+    - `RuntimeLog` gets `weather source=<amap|open-meteo> ok=<yes|no> reason=<…>` only: no place names, dates or coordinates (I-8). The tool call and result already go to the local record when it is on.
+12. **Not changed.** 高德 for China today to 大后天, `current_time` and §25, Qwen's model, settings and text (§24), the §19 date rewrite and check, and weather with search off, which now also reaches 16 days and foreign places.
+
+**Not verified.**
+- How well the model follows the English-name rule; rows 11–12 check it.
+- Open-Meteo's accuracy against the Macau and Hong Kong observatories and 中国天气网 beyond 大后天.
+- Reaching `api.open-meteo.com` from the phone's network in China; row 11 checks it.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Open-Meteo fixture, Oslo, `time` 2026-11-06…2026-11-21: `date` 2026-11-12; `day` tomorrow | That day's values, `weekday` 星期四, `source` open-meteo; tomorrow is 2026-11-07 | unit |
+| 2 | Same fixture: `date` 2026-11-05; `date` 2026-11-30 | Item 5 past advice; item 5 not-out advice with 11月21日; no Qwen call | unit |
+| 3 | `day` and `date` together; `date` 「11/12」 and 2026-02-30; `country` 「no」 and 「NOR」; `country` with `where=here` | `INVALID_ARGUMENT` with the item 1 advice | unit |
+| 4 | Phone date 2026-11-06: 珠海 `day=day_after`; 珠海 `date=2026-11-12`; 珠海 `day=day_after_next` when 高德 has no cast; Oslo NO; 澳门 MO | 高德 only; 高德 geocode then Open-Meteo with coordinates rounded to 2 decimals; Open-Meteo; Open-Meteo geocoding and forecast with no 高德 call; 高德 | unit |
+| 5 | 高德 geocode answers 奥斯陆 with 「福建省厦门市湖里区」; 珠海横琴 with 「广东省珠海市香洲区横琴镇」 | First: item 2 advice, no forecast call; second: passes | unit |
+| 6 | Geocoding fixture with several results; with none | Largest `population` picked; item 2 not-found advice | unit |
+| 7 | Every code in item 7; code 4 | Its words; 未知 | unit |
+| 8 | `web_search`, phone date 2026-11-06: 「上海天气怎么样」, 「奥斯陆11月12日天气」, 「横琴后天会下雨吗」; and 「下个月澳门温度几度」, 「2026年12月25日上海天气」, 「上海下周三天气」, 「今天油价多少」 | First three blocked as item 9 with no Qwen call; the rest go to Qwen | unit |
+| 9 | Catalog, `officialFirst`, `web_search` description, persona; 设置 | Texts exactly as items 1 and 8; base within the limit; the item 10 credit is shown | unit |
+| 10 | `RuntimeLog` after rows 1–6 | No place names, dates or coordinates | unit |
+| 11 | Device, record on, search on: 「奥斯陆11月11日天气」, 「奥斯陆11月12日天气」, 「仙台下周四天气怎么样」, 「横琴11月10日天气」, 「横琴后天天气怎么样」, 「澳门11月12日会下雨吗」, each 3 times | Each from `query_live_info` with the right place and date, no `web_search`; the numbers match open-meteo.com or 高德 for that day; she says the place and date | D |
+| 12 | Device: 「北京12月30日天气怎么样」, 「下个月澳门温度几度」 | First: forecast not out yet, no search for it; second: usual temperatures from search, said to be not a forecast | D |
+| 13 | Device: search off, 「奥斯陆11月12日天气」 | Answered from Open-Meteo | D |
+
+**Trace gate.** Add `T-046o: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046o.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046o | Items 1–12; rows 1–13 | unit, build, D |
