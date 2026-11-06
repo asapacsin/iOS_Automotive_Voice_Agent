@@ -24,10 +24,13 @@ public struct WebSocketClosed: Error, Sendable, Hashable {
     public let code: Int
     public let reason: String
     public let httpStatus: Int?
-    public init(code: Int, reason: String, httpStatus: Int? = nil) {
+    /// F-24 §16 item 5: the upgrade response's status, 101 included (nil when no response came), for the log only.
+    public let responseStatus: Int?
+    public init(code: Int, reason: String, httpStatus: Int? = nil, responseStatus: Int? = nil) {
         self.code = code
         self.reason = reason
         self.httpStatus = httpStatus
+        self.responseStatus = responseStatus ?? httpStatus
     }
 }
 
@@ -95,7 +98,7 @@ final class URLSessionWebSocketConnection: WebSocketConnection, @unchecked Senda
         let code = task.closeCode == .invalid ? 1006 : task.closeCode.rawValue
         let status = (task.response as? HTTPURLResponse)?.statusCode
         return WebSocketClosed(code: code, reason: task.closeReason.map { String(decoding: $0, as: UTF8.self) } ?? "",
-                               httpStatus: status == 101 ? nil : status)
+                               httpStatus: status == 101 ? nil : status, responseStatus: status)
     }
 }
 

@@ -694,7 +694,10 @@ final class AgentRuntime {
         let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
                                           connector: URLSessionWebSocketConnector(onDuplicate: { site in
             RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
-        }))
+        }), onClose: { close in
+            // F-24 §16 item 5 (T-016k): codes, the server's close text and timings only; never the URL or key (I-7).
+            RuntimeLog.agent.notice("\(close.logLine, privacy: .public)")
+        })
         let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
         let navigationClock = self.navigationClock
         let device = deviceLocation
@@ -880,7 +883,10 @@ final class AgentRuntime {
         // One consumer, so a quick lost/restored pair reaches the core in order.
         let paths = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .unbounded)
         tasks.append(Task { for await available in paths.stream { await core.send(.network(available: available)) } })
-        let network = NetworkPathWatcher { available in paths.continuation.yield(available) }
+        // F-24 §16 item 1 (T-016k): a VPN tunnel with no Wi-Fi or cellular under it counts as no network.
+        let network = NetworkPathWatcher(log: { event in
+            RuntimeLog.agent.notice("\(event.logLine, privacy: .public)")
+        }) { available in paths.continuation.yield(available) }
         network.start()
         self.network = network
         // F-05a §12: the driver's words from the bundled sherpa-onnx recognizer (loaded once per app run);

@@ -61,6 +61,15 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case sessionGaveUp(ms: Int, attempts: Int, code: RetryableErrorCode)
     /// F-24 §15 item 8: the first setup after a give-up; whether a kept handle was sent (never the handle, I-7).
     case sessionResume(handle: Bool, result: SessionResumeResult)
+    /// F-24 §16 item 1 (T-016k): the watched path changed. No addresses, no interface names.
+    case networkPath(satisfied: Bool, via: NetworkPathVia, tunnel: Bool)
+    /// F-24 §16 item 4: resuming kept being closed; the handle is dropped and the next attempt opens a new session.
+    case resumeDropped(reason: ResumeDropReason)
+}
+
+/// F-24 §16 item 4: why a resumption handle was dropped.
+public enum ResumeDropReason: String, Sendable, Hashable, CaseIterable {
+    case quickClose
 }
 
 /// F-05a §13 item 2: which conversation text the screen check hid.
@@ -114,6 +123,8 @@ extension DiagnosticEvent {
         case wakeDetected
         case sessionGaveUp
         case sessionResume
+        case networkPath
+        case resumeDropped
     }
 
     public var kind: Kind {
@@ -156,6 +167,8 @@ extension DiagnosticEvent {
         case .wakeDetected: .wakeDetected
         case .sessionGaveUp: .sessionGaveUp
         case .sessionResume: .sessionResume
+        case .networkPath: .networkPath
+        case .resumeDropped: .resumeDropped
         }
     }
 }
@@ -185,6 +198,8 @@ extension DiagnosticEvent {
         case .wakeDetected: "wakeDetected"
         case .sessionGaveUp(let ms, let n, let code): "session gave-up ms=\(ms) attempts=\(n) code=\(code.rawValue)"
         case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
+        case .networkPath(let satisfied, let via, let tunnel): "networkPath satisfied=\(satisfied) via=\(via.rawValue) tunnel=\(tunnel)"
+        case .resumeDropped(let reason): "resumeDropped reason=\(reason.rawValue)"
         default: "diagnostic \(self)"
         }
     }

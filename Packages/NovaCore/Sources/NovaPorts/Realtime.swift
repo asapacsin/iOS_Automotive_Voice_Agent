@@ -150,7 +150,15 @@ public enum RealtimeErrorCode: String, Sendable, Hashable, CaseIterable {
 
 public struct RealtimeError: Error, Sendable, Hashable {
     public let code: RealtimeErrorCode
-    public init(_ code: RealtimeErrorCode) { self.code = code }
+    /// F-24 §16 item 2 (T-016k): no server close frame was received (connect failure, DNS, timeout, 1006 or no close
+    /// frame, ping timeout). False: a server close (HTTP 101, then a close frame with a code).
+    public let unreachable: Bool
+    /// `unreachable` nil: `CONNECTION`, `DNS` and `TIMEOUT` are unreachable by definition; other codes are server closes
+    /// unless the socket says otherwise (1006, ping timeout).
+    public init(_ code: RealtimeErrorCode, unreachable: Bool? = nil) {
+        self.code = code
+        self.unreachable = unreachable ?? [.connection, .dns, .timeout].contains(code)
+    }
     public var isRetryable: Bool { code.isRetryable }
 }
 

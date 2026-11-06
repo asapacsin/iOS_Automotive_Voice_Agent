@@ -67,6 +67,10 @@ public struct ReconnectTuning: Sendable, Hashable {
     public var retryWindow = NovaDuration.seconds(60)
     /// F-24 §15 item 4: a resumption handle kept after giving up is dropped this long after it was saved.
     public var keptHandleLifetime = NovaDuration.minutes(120)
+    /// F-24 §16 item 4: a resumed attempt closed by the server before setupComplete, or within this long after it,
+    /// is a quick close; `quickClosesToDropHandle` in a row drop the handle.
+    public var quickCloseWindow = NovaDuration.seconds(3)
+    public var quickClosesToDropHandle = 2
     public var initialDelay = NovaDuration.milliseconds(200)
     public var maxDelay = NovaDuration.seconds(8)
     /// Delay doubles after each failed attempt, capped at `maxDelay`.
@@ -88,12 +92,18 @@ public struct ReconnectTuning: Sendable, Hashable {
 public struct RealtimeTuning: Sendable, Hashable {
     public var connectTimeout = NovaDuration.seconds(10)
     public var setupCompleteTimeout = NovaDuration.seconds(10)
-    public var pingInterval = NovaDuration.seconds(20)
+    /// F-24 §16 item 3 (T-016k): a ping every 10 s, and a pong due within `pongTimeout`, so a dead socket is
+    /// closed within 15 s of the last pong.
+    public var pingInterval = NovaDuration.seconds(10)
+    public var pongTimeout = NovaDuration.seconds(5)
     public var eventBufferLimit = 1024
     /// Client messages queued on a socket before it counts as stalled (~5 s of 10 ms audio frames).
     public var outboxLimit = 512
     /// F-24 §14 item 4: how long she waits for the network before the session ends quietly.
     public var offlineWaitCap = NovaDuration.seconds(600)
+    /// F-24 §16 item 1: the network counts as available only on Wi-Fi, cellular or wired Ethernet (not a tunnel
+    /// alone). Off if a device misreports its interfaces.
+    public var requirePhysicalInterface = true
     public init() {}
 }
 

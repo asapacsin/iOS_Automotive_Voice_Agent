@@ -2048,13 +2048,20 @@
     {
       "id": "T-016k",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-24 §16 items 1-5: physical-interface check (pure snapshot, requirePhysicalInterface switch, networkPath log), unreachable vs server flag for the log, ping 10 s / pong 5 s, drop the resume handle after two quick closes (also the §15 kept handle), providerClosed log; rows 1-9",
       "depends_on": [
         "T-016j"
       ],
-      "notes": "Owner approved 2026-10-31 as §15 / T-016i on branch 10-31-vpn-network-spec (53771c3), never merged; IDs reused since. Old item 3 (60 s window) dropped: §15 / T-016j built it differently."
+      "notes": "Owner approved 2026-10-31 as §15 / T-016i on branch 10-31-vpn-network-spec (53771c3), never merged; IDs reused since. Old item 3 (60 s window) dropped: §15 / T-016j built it differently.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (NovaCore, NovaServices, NovaRealtime)",
+        "Unit rows 1-5: VpnNetworkRecoveryTests, ProviderCloseTests; three GeminiLiveProviderTests expectations gain unreachable: true",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 6-9 device NOT_VERIFIED",
+        "NovaPlatform watcher and App not compiled here"
+      ]
     }
   ]
 }

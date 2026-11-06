@@ -185,7 +185,7 @@ struct GeminiLiveProviderTests {
             return completed == 1
         }
 
-        #expect(harness.events.contains(.failed(RealtimeError(.disconnect))))
+        #expect(harness.events.contains(.failed(RealtimeError(.disconnect, unreachable: true))))
         #expect(harness.states.contains(.reconnecting))
         #expect(SessionUIState.reconnecting.chip == .processing)
         #expect(!harness.states.contains(.error))
@@ -324,7 +324,7 @@ struct GeminiLiveProviderTests {
         await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
         var it = provider.events.makeAsyncIterator()
         #expect(await it.next()?.event == .setupComplete)
-        #expect(await it.next()?.event == .failed(RealtimeError(.disconnect)))
+        #expect(await it.next()?.event == .failed(RealtimeError(.disconnect, unreachable: true)))
     }
 
     @Test("F-05: a close() while connect waits for the socket leaves nothing open and emits nothing")
@@ -399,7 +399,7 @@ struct GeminiProviderHandshakeTests {
         #expect(await it.next()?.event == .setupComplete)
         for _ in 0..<10 { provider.sendAudio(.silence) }
         let event = await it.next()?.event
-        #expect(event == .failed(RealtimeError(.wsFailed)))
+        #expect(event == .failed(RealtimeError(.wsFailed, unreachable: true)))
         #expect(RealtimeErrorCode.wsFailed.isRetryable)
         await provider.close()
     }

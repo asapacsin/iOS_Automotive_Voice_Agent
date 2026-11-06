@@ -182,6 +182,7 @@ struct DiagnosticsTests {
         .reaskSuppressed, .abandonCleared, .postStopTurnDropped, .bargeInStopped, .webSearchAsFunction, .destinationNote, .screenHidden(kind: .reply),
         .wakeDetected,
         .sessionGaveUp(ms: 52_600, attempts: 11, code: .connection), .sessionResume(handle: true, result: .resumed),
+        .networkPath(satisfied: true, via: .wifi, tunnel: true), .resumeDropped(reason: .quickClose),
     ]
 
     /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").
