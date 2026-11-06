@@ -92,7 +92,7 @@ says. She never guesses the time.
    - Questions like 「明天星期几」 or 「离周五还有几天」 are answered by the model from the returned `date`/`weekday`.
 3. **Persona line (NovaAgent `PersonaInstruction.base`).** Add 时间 to the strict car-scope list and one rule:
    「问现在几点、今天几号、星期几：调用 query_live_info（kind=current_time），只按返回的结果回答，不要自己猜时间。」
-   The base must stay within `maxBaseCharacters` (1600; raised from 1500 on 2026-11-05 for the §24 item 5 text, T-046m).
+   The base must stay within `maxBaseCharacters` (1700; raised from 1500 on 2026-11-05 for §24 item 5 (T-046m) and to 1700 on 2026-11-06 for §25 item 5 (T-046n)).
 4. **Instant reply.** `current_time` is read-only and answers at once: it goes in `DriverTurnPipeline.readOnlyTools`
    handling like the other `query_live_info` kinds, and gets no wait cue (WaitCues: none for this kind).
 5. **Logs.** `toolCall name=query_live_info kind=current_time` and the result code only; no time value needed (I-8).
@@ -109,7 +109,7 @@ says. She never guesses the time.
 | 4 | Phone set to English, 12-hour clock, Buddhist calendar | Still `HH:mm` 24-hour, Gregorian, Chinese date and weekday | unit |
 | 5 | Unknown extra argument | `INVALID_ARGUMENT` | unit |
 | 6 | Catalog | `current_time` in the kind enum; description text as item 1; golden test updated | unit (catalog) |
-| 7 | Persona | Rule line present; base ≤ 1600 characters | unit |
+| 7 | Persona | Rule line present; base ≤ 1700 characters | unit |
 | 8 | Device: 「现在几点」「今天几号」「今天星期几」 | Matches the phone's status-bar clock (± 1 min); log shows `kind=current_time` for each | D |
 | 9 | Device: airplane mode on, 「现在几点」 asked before the session drops, or after reconnect | Correct local time (no network needed for the answer itself) | D |
 | 10 | Device: 「明天星期几」 | Correct weekday | D |

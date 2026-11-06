@@ -74,7 +74,7 @@ struct WebSearchTests {
             #expect(live.description.contains(ToolCatalog.officialFirst) && !live.description.contains("新闻、股票"))
             #expect(live.parametersJSONSchema == off.first { $0.name == "query_live_info" }!.parametersJSONSchema)
             let search = try #require(on.first { $0.name == "web_search" })
-            #expect(search.description == "查网上的信息：任何一天的天气、新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。")
+            #expect(search.description == "查网上的信息：任何一天的天气、新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。")
             #expect(search.parametersJSONSchema["required"] == ["query"])
             #expect(search.parametersJSONSchema["additionalProperties"] == false)
 

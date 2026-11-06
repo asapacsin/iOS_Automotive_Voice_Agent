@@ -815,6 +815,8 @@ final class AgentRuntime {
                     RuntimeLog.agent.notice("webSearchFailed reason=\(reason, privacy: .public) ms=\(ms, privacy: .public)")
                 case .date(_, _, let added, let check):
                     RuntimeLog.agent.notice("webSearchDate added=\(added ? "yes" : "no", privacy: .public) check=\(check.rawValue, privacy: .public)")
+                case .blocked(let reason):
+                    RuntimeLog.agent.notice("webSearchBlocked reason=\(reason, privacy: .public)")
                 case .place(_, _, let added, let hint):
                     RuntimeLog.agent.notice("webSearchPlace added=\(added ? "yes" : "no", privacy: .public) hint=\(hint ? "yes" : "no", privacy: .public)")
                 }

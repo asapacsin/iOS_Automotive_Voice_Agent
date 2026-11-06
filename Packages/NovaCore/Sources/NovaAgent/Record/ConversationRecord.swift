@@ -244,6 +244,8 @@ public struct ConversationRecorder: Sendable {
             return ("search-date", "query=\(query) target=\(target ?? "none") added=\(added ? "yes" : "no") check=\(check.rawValue)")
         case .place(let query, let sent, let added, let hint):
             return ("search-place", "query=\(query) sent=\(sent) added=\(added ? "yes" : "no") hint=\(hint ? "yes" : "no")")
+        case .blocked(let reason):
+            return ("search-blocked", "reason=\(reason)")
         }
     }
 

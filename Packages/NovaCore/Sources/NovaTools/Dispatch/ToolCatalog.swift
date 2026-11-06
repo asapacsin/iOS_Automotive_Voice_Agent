@@ -111,7 +111,7 @@ public enum ToolCatalog {
     /// F-18 §16 item 3: one general information tool; only declared with 「联网搜索（实验）」 on.
     public static let webSearchSpec = ToolSpec(domain: "live_info", repeatSensitive: true, declaration: ToolDeclaration(
         name: "web_search",
-        description: "查网上的信息：任何一天的天气、新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。",
+        description: "查网上的信息：任何一天的天气、新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。",
         parametersJSONSchema: [
             "type": "object",
             "properties": ["query": ["type": "string", "minLength": .int(1), "maxLength": .int(200)]],
@@ -243,12 +243,13 @@ public enum ToolCatalog {
         case "place_call":
             return nil  // PhoneDomain: no rules beyond the schema; the handler checks its own arguments.
         case "query_live_info":
-            if !keys.contains("kind") || !keys.isSubset(of: ["kind", "where", "day", "category", "target"]) {
+            if !keys.contains("kind") || !keys.isSubset(of: ["kind", "where", "day", "category", "target", "time_zone"]) {
                 return .invalidFields
             }
             if keys.contains(where: { !isString($0) }) { return .invalidFieldType }
             if !liveInfoKinds.contains(str("kind")!) { return .invalidKind }
-            if keys.contains(where: { str($0)!.utf16.count > 20 }) { return .invalidArgument }
+            // F-18 §25 item 2: IANA names can be longer than 20 (America/Argentina/ComodRivadavia); CurrentTime checks them.
+            if keys.contains(where: { $0 != "time_zone" && str($0)!.utf16.count > 20 }) { return .invalidArgument }
         case "web_search":
             if keys != ["query"] { return .invalidFields }
             guard let q = str("query") else { return .invalidFieldType }

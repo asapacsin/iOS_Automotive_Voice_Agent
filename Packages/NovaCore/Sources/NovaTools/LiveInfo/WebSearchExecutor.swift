@@ -13,6 +13,8 @@ public enum WebSearchOutcome: Sendable, Hashable {
     case date(query: String, target: String?, added: Bool, check: SearchDate.Check)
     /// Once per call (§21 item 7). `sent` is the query after item 3.
     case place(query: String, sent: String, added: Bool, hint: Bool)
+    /// §25 item 7: not sent to Qwen; numbers only in the record.
+    case blocked(reason: String)
 }
 
 /// F-18 §16 items 3, 6-7, §17 items 5, 7, §18 item 4, §19 items 1-5, §21 items 3-4 (T-046e..i): `web_search`
@@ -77,6 +79,11 @@ public struct WebSearchExecutor: ToolExecutor {
         if Task.isCancelled {
             onOutcome(.failed(reason: "cancelled", ms: 0))
             return .failure(.liveInfoUnavailable, advice: Self.advice)
+        }
+        // §25 item 7: the current time, date or weekday never goes to search.
+        if CurrentTimeQuery.matches(query) {
+            onOutcome(.blocked(reason: "current_time"))
+            return .failure(.invalidArgument, advice: CurrentTimeQuery.advice)
         }
         let place = SearchPlace.clean(destination())
         let substituted = SearchPlace.substitute(query, destination: place)
