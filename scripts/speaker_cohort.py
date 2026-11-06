@@ -112,18 +112,34 @@ def make_embedder(model: pathlib.Path, threads: int):
     return embed, extractor.dim
 
 
-def embed_all(paths: list[pathlib.Path], embed, cache: pathlib.Path | None, tag: str) -> dict[str, np.ndarray]:
+_EMBED = None
+
+
+def _init_worker(model: str, threads: int) -> None:
+    global _EMBED
+    _EMBED, _ = make_embedder(pathlib.Path(model), threads)
+
+
+def _work(path: str):
+    return path, _EMBED(pathlib.Path(path))
+
+
+def embed_all(paths: list[pathlib.Path], model: pathlib.Path, cache: pathlib.Path | None, tag: str,
+              workers: int, threads: int) -> dict[str, np.ndarray]:
+    import multiprocessing as mp
+
     store = cache / f"{tag}.npz" if cache else None
     done: dict[str, np.ndarray] = dict(np.load(store)) if store and store.exists() else {}
-    t0, todo = time.time(), [p for p in paths if p.as_posix() not in done]
-    for i, p in enumerate(todo, 1):
-        v = embed(p)
-        if v is not None:
-            done[p.as_posix()] = v
-        if i % 2000 == 0 or i == len(todo):
-            print(f"{tag}: {i}/{len(todo)} {time.time() - t0:.0f}s", flush=True)
-            if store:
-                np.savez(store, **done)
+    t0, todo = time.time(), [p.as_posix() for p in paths if p.as_posix() not in done]
+    if todo:
+        with mp.Pool(workers, initializer=_init_worker, initargs=(str(model), threads)) as pool:
+            for i, (p, v) in enumerate(pool.imap_unordered(_work, todo, chunksize=16), 1):
+                if v is not None:
+                    done[p] = v
+                if i % 5000 == 0 or i == len(todo):
+                    print(f"{tag}: {i}/{len(todo)} {time.time() - t0:.0f}s", flush=True)
+                    if store:
+                        np.savez(store, **done)
     return done
 
 
@@ -132,7 +148,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--data", type=pathlib.Path, required=True)
     ap.add_argument("--model", type=pathlib.Path, required=True)
     ap.add_argument("--out", type=pathlib.Path, required=True)
-    ap.add_argument("--threads", type=int, default=8)
+    ap.add_argument("--threads", type=int, default=1)
+    ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--top-n", type=int, default=300)
     ap.add_argument("--min-speakers", type=int, default=300)
     ap.add_argument("--cache", type=pathlib.Path)
@@ -149,11 +166,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if a.cache:
         a.cache.mkdir(parents=True, exist_ok=True)
-    embed, dim = make_embedder(a.model, a.threads)
+    _, dim = make_embedder(a.model, 1)
 
     dev_paths = {s: sorted((a.data / "data" / s).glob("*.flac")) + sorted((a.data / "data" / s).glob("*.wav"))
                  for s in speakers}
-    dev = embed_all([p for ps in dev_paths.values() for p in ps], embed, a.cache, "dev")
+    dev = embed_all([p for ps in dev_paths.values() for p in ps], a.model, a.cache, "dev", a.workers, a.threads)
     cohort = np.stack([speaker_mean(np.stack([dev[p.as_posix()] for p in dev_paths[s] if p.as_posix() in dev]))
                        for s in speakers]).astype(np.float32)
 
@@ -179,8 +196,8 @@ def main(argv: list[str] | None = None) -> int:
             return alt
         raise SystemExit(f"speaker_cohort: test audio {i} not found")
 
-    enr = embed_all([enroll_path(i) for i in enroll_ids], embed, a.cache, "enroll")
-    tst = embed_all([test_path(i) for i in test_ids], embed, a.cache, "test")
+    enr = embed_all([enroll_path(i) for i in enroll_ids], a.model, a.cache, "enroll", a.workers, a.threads)
+    tst = embed_all([test_path(i) for i in test_ids], a.model, a.cache, "test", a.workers, a.threads)
     e_ok = [i for i in enroll_ids if enroll_path(i).as_posix() in enr]
     t_ok = [i for i in test_ids if test_path(i).as_posix() in tst]
     E = unit(np.stack([enr[enroll_path(i).as_posix()] for i in e_ok]))
