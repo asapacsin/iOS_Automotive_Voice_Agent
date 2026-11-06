@@ -44,8 +44,7 @@ M1 acceptance: W1, W2, W3, W4 pass on a device; unit suites for F-02/F-04/F-06/F
 | M3 | Navigation core: search, pick, route, start, cancel, HUD on Amap iOS; guards while navigating | W8; F-15/F-16/F-17 unit + simulator drive |
 | M4 | Guidance relay + arbitration with navigation; overspeed | W5; F-14 device |
 | M5 | Wake word, listening lifecycle with sleep/deep-idle, background policy | F-01/F-23 device |
-| M6 | Phone, vision, named music (MusicKit if approved) | F-19/F-20/F-13 |
-| M7 (optional) | CarPlay app in ONE category: navigation or voice-based conversational (OQ-IOS-8, owner) | entitlement granted; CarPlay Simulator test |
+| M6 | Phone, vision | F-19/F-20/F-13 |
 
 ## Specification drift control
 

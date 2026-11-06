@@ -13,10 +13,27 @@ public struct LiveInfoExecutor: ToolExecutor {
     /// F-18 §14: the phone clock and time zone, read at each call.
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
+    /// F-18 §23 item 3: with 「联网搜索（实验）」 on, place details without hours point her to `web_search`.
+    /// (§23 item 1: weather and place details stay here with search on.)
+    private let webSearch: Bool
+    /// F-18 §26 items 2, 4: 高德 geocoding (nil: the name goes to `weather` as before), Open-Meteo geocoding and
+    /// forecast, and the `RuntimeLog` line (item 11).
+    private let amapLookup: (any PlaceLookup)?
+    private let forecastLookup: (any PlaceLookup)?
+    private let forecast: (any DailyForecastService)?
+    private let onWeather: @Sendable (WeatherSourceLog) -> Void
 
-    public init(navigation: NavigationController, weather: (any WeatherService)?, geocoder: (any ReverseGeocoder)?,
+    public init(webSearch: Bool = false, navigation: NavigationController, weather: (any WeatherService)?, geocoder: (any ReverseGeocoder)?,
                 location: any LocationProvider, now: @escaping @Sendable () -> Date = { Date() },
-                zone: @escaping @Sendable () -> TimeZone = { TimeZone.current }) {
+                zone: @escaping @Sendable () -> TimeZone = { TimeZone.current },
+                amapLookup: (any PlaceLookup)? = nil, forecastLookup: (any PlaceLookup)? = nil,
+                forecast: (any DailyForecastService)? = nil,
+                onWeather: @escaping @Sendable (WeatherSourceLog) -> Void = { _ in }) {
+        self.amapLookup = amapLookup
+        self.forecastLookup = forecastLookup
+        self.forecast = forecast
+        self.onWeather = onWeather
+        self.webSearch = webSearch
         self.now = now
         self.zone = zone
         self.navigation = navigation
@@ -38,21 +55,38 @@ public struct LiveInfoExecutor: ToolExecutor {
         case "along_route":
             return await navigation.alongRoute(category: call.arguments["category"]?.stringValue)
         case "place_details":
-            return await navigation.placeDetails(target: call.arguments["target"])
+            let result = await navigation.placeDetails(target: call.arguments["target"])
+            return webSearch ? Self.searchFallback(result) : result
         default:
             return .failure(.liveInfoUnavailable, advice: "这项信息在 iOS 上还没有数据源。请如实说暂时查不到，不要编造。")
         }
     }
 
+    /// F-18 §26 (T-046o): `where` (here, destination, a name), `day` or `date`, and `country`. China (with 香港 and 澳门)
+    /// keeps 高德 for today to 大后天; everything else comes from Open-Meteo (items 2-3).
     private func weatherReport(_ args: JSONValue) async -> ToolResult {
+        guard let parsed = ForecastWeather.arguments(args) else {
+            return .failure(.invalidArgument, advice: ForecastWeather.argumentAdvice)
+        }
+        let today = SearchDate.today(now(), zone: zone())
+        if !ForecastWeather.usesAmap(country: parsed.country) {
+            return await foreignWeather(parsed)
+        }
+        // Item 3: a `date` 0–3 days after the phone's date is a 高德 day; any other date goes to Open-Meteo.
+        let amapOffset: Int? = if let date = parsed.date {
+            (0...3).contains(ForecastWeather.days(from: today, to: date)) ? ForecastWeather.days(from: today, to: date) : nil
+        } else {
+            WeatherDay.names.firstIndex(of: parsed.day ?? "today") ?? 0
+        }
         guard let weather else {
             return .failure(.amapWebKeyMissing, advice: "天气查询还没有配置。请如实说明，不要编造。")
         }
-        let target = args["where"]?.stringValue ?? "here"
-        let forecast = args["day"]?.stringValue == "tomorrow"
+        let day = WeatherDay(offset: amapOffset ?? 0, date: SearchDate.adding(amapOffset ?? 0, to: today, zone: zone()).iso)
         do {
             let place: String
-            switch target {
+            var coordinate: GeoCoordinate?
+            var name: String?
+            switch parsed.where {
             case "here", "":
                 if await location.authorization() == .denied { return Self.permissionDenied }
                 let noLocation = ToolResult.failure(.noLocation, advice: "现在拿不到位置。请如实说明，可以请用户说城市名。")
@@ -66,6 +100,7 @@ public struct LiveInfoExecutor: ToolExecutor {
                 }
                 guard let adcode else { return noLocation }
                 place = adcode
+                coordinate = here
             case "destination":
                 guard let destination = await navigation.current.destination else {
                     return .failure(.noDestination, advice: "现在没有导航目的地。请如实说明。")
@@ -74,18 +109,135 @@ public struct LiveInfoExecutor: ToolExecutor {
                     return .failure(.noLocation, advice: "目的地的位置没有查到。请如实说明。")
                 }
                 place = adcode
+                coordinate = destination.coordinate
+                name = destination.name
             default:
-                place = target
+                if let amapLookup {
+                    // Item 2: 高德 geocoding, then the name check; a mismatch calls nothing else.
+                    let found = try await amapLookup.lookUp(parsed.where, country: nil).first
+                    guard let found, let adcode = found.adcode,
+                          ForecastWeather.nameMatches(parsed.where, formatted: found.formatted) else {
+                        report("amap", ok: false, reason: "not_found")
+                        return .failure(.liveInfoUnavailable, advice: ForecastWeather.amapNotFoundAdvice)
+                    }
+                    place = adcode
+                    coordinate = found.coordinate
+                    name = found.name
+                } else {
+                    place = parsed.where
+                }
             }
-            let report = try await weather.weather(adcode: place, forecast: forecast)
-            return .success(["weather": report.summary,
-                             "next": "只按 weather 里的数据用一两句话回答，不要编造。"])
+            guard amapOffset != nil else {
+                return await openMeteo(at: coordinate, place: name ?? parsed.where, country: nil, parsed)
+            }
+            do {
+                let result = try await weather.weather(adcode: place, day: day)
+                report("amap", ok: true, reason: "ok")
+                var summary = result.summary
+                if case .object(var o) = summary {
+                    o["weekday"] = .string(ForecastWeather.weekday(day.date) ?? "")
+                    o["source"] = "amap"
+                    summary = .object(o)
+                }
+                return .success(["weather": summary, "date": .string(day.date), "next": .string(ForecastWeather.next)])
+            } catch is WeatherForecastMissing {
+                // Item 3: no `casts` entry for that date: Open-Meteo with 高德's coordinates.
+                report("amap", ok: false, reason: "no_cast")
+                guard let coordinate else { return .failure(.liveInfoUnavailable, advice: Self.noForecastAdvice) }
+                return await openMeteo(at: coordinate, place: name ?? parsed.where, country: nil, parsed)
+            }
         } catch {
+            report("amap", ok: false, reason: Self.reason(error))
             return Self.failure(error)
         }
     }
 
+    /// Item 2: a foreign `country`: Open-Meteo geocoding (largest population), then its forecast.
+    private func foreignWeather(_ parsed: ForecastWeather.Arguments) async -> ToolResult {
+        guard let forecastLookup else { return .failure(.liveInfoUnavailable, advice: "天气没有查到。请如实说明，不要编造。") }
+        do {
+            let places = try await forecastLookup.lookUp(parsed.where, country: parsed.country)
+            guard let found = ForecastWeather.pick(places), let coordinate = found.coordinate else {
+                report("open-meteo", ok: false, reason: "not_found")
+                return .failure(.liveInfoUnavailable, advice: ForecastWeather.notFoundAdvice)
+            }
+            return await openMeteo(at: coordinate, place: found.name, country: found.country ?? parsed.country, parsed)
+        } catch {
+            report("open-meteo", ok: false, reason: Self.reason(error))
+            return Self.failure(error)
+        }
+    }
+
+    /// Items 4-6: the forecast at coordinates rounded to 2 decimals; the day by item 5.
+    private func openMeteo(at coordinate: GeoCoordinate?, place: String, country: String?,
+                           _ parsed: ForecastWeather.Arguments) async -> ToolResult {
+        guard let forecast, let coordinate else {
+            report("open-meteo", ok: false, reason: "not_configured")
+            return .failure(.liveInfoUnavailable, advice: Self.noForecastAdvice)
+        }
+        let result: DailyForecast
+        do {
+            result = try await forecast.dailyForecast(latitude: ForecastWeather.rounded(coordinate.latitude),
+                                                    longitude: ForecastWeather.rounded(coordinate.longitude))
+        } catch {
+            report("open-meteo", ok: false, reason: Self.reason(error))
+            return Self.failure(error)
+        }
+        let days = result.days
+        switch ForecastWeather.pick(days, day: parsed.day, date: parsed.date) {
+        case .day(let entry):
+            report("open-meteo", ok: true, reason: "ok")
+            let now = ForecastWeather.now(result.current, answered: entry, days: days)
+            return .success(["weather": ForecastWeather.summary(entry, place: place, country: country, now: now),
+                             "date": .string(entry.time), "next": .string(ForecastWeather.next)])
+        case .past:
+            report("open-meteo", ok: false, reason: "past")
+            return .failure(.liveInfoUnavailable, advice: ForecastWeather.pastAdvice)
+        case .notOut(let last):
+            report("open-meteo", ok: false, reason: "not_out")
+            return .failure(.liveInfoUnavailable, advice: ForecastWeather.notOutAdvice(last: last))
+        case .missing:
+            report("open-meteo", ok: false, reason: "no_day")
+            return Self.failure(ForecastError.failed)
+        }
+    }
+
+    private func report(_ source: String, ok: Bool, reason: String) {
+        onWeather(WeatherSourceLog(source: source, ok: ok, reason: reason))
+    }
+
+    static func reason(_ error: any Error) -> String {
+        switch error {
+        case let e as AmapWebError:
+            switch e {
+            case .keyMissing, .keyRejected: "key"
+            case .quota: "quota"
+            case .timeout: "timeout"
+            case .failed: "failed"
+            }
+        case ForecastError.timeout: "timeout"
+        default: "failed"
+        }
+    }
+
     static func failure(_ error: any Error) -> ToolResult { LiveInfoFailure.result(error, what: "天气") }
+
+    /// F-18 §23 item 2: no `casts` entry for the asked date.
+    static let noForecastAdvice = "高德没有这一天的预报，请用 web_search 查。"
+
+    /// F-18 §23 item 2: `day` → offset 0–3 and that day's `yyyy-MM-dd` on the phone clock. Anything else is today,
+    /// as before.
+    static func weatherDay(_ name: String?, now: Date, zone: TimeZone) -> WeatherDay {
+        let offset = name.flatMap { WeatherDay.names.firstIndex(of: $0) } ?? 0
+        let date = SearchDate.adding(offset, to: SearchDate.today(now, zone: zone), zone: zone)
+        return WeatherDay(offset: offset, date: date.iso)
+    }
+
+    /// F-18 §23 item 3: search on, Amap's detail without opening hours fails with the search advice.
+    static func searchFallback(_ result: ToolResult) -> ToolResult {
+        guard result.ok, result.data["opening_hours"] == nil, let name = result.data["name"]?.stringValue else { return result }
+        return .failure(.liveInfoUnavailable, advice: "高德没有\(name)的营业时间，请用 web_search 查，query 带上「\(name)」。")
+    }
 
     // MARK: current_location
 

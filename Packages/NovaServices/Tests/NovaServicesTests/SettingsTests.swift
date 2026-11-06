@@ -49,6 +49,22 @@ struct SettingsTests {
         #expect(SecretField.display(.zhipuKey, in: store) == .notSet)
     }
 
+    @Test("T-046e F-18 §17 row 1: the Qwen key is stored and wiped and never blocks a session")
+    func qwenKey() throws {
+        #expect(CredentialKey.qwenAPIKey.rawValue == "qwen_api_key")
+        let settings = defaults()
+        settings.set(true, for: SettingsKey.geminiConsentAccepted)
+        let store = InMemoryCredentialStore([.geminiAPIKey: "k"])
+        let before = SettingsReadiness(credentials: store, settings: settings)
+        #expect(before.sessionBlocker == nil && before.geminiKey)
+        #expect(try SecretField.save("q", for: .qwenAPIKey, in: store))
+        #expect(SecretField.display(.qwenAPIKey, in: store) == .saved)
+        let after = SettingsReadiness(credentials: store, settings: settings)
+        #expect(after.sessionBlocker == nil && after.geminiKey == before.geminiKey)
+        #expect(CredentialWipe.wipe(store, settings: settings).isEmpty)
+        #expect(SecretField.display(.qwenAPIKey, in: store) == .notSet)
+    }
+
     @Test("F-22 wipe keeps going past a failing key and reports it")
     func wipeFailure() {
         let store = InMemoryCredentialStore(Dictionary(uniqueKeysWithValues: CredentialKey.allCases.map { ($0, "v") }))

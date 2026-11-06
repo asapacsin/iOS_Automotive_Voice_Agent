@@ -8,6 +8,9 @@ public struct GeminiTurnAssembler: Sendable {
     private var openTurn: TurnID?
     private var inputTranscript = ""
     private var stashedOutput: [String] = []
+    private var endReason: TurnEndReason?
+    /// §4 rule 5: the `turnComplete` that trails an interruption belongs to the turn already closed.
+    private var trailingComplete = false
 
     public init() {}
 
@@ -50,15 +53,28 @@ public struct GeminiTurnAssembler: Sendable {
         case .interrupted:
             guard let turn = openTurn else { return [] }
             close()
+            trailingComplete = true
             return [.interrupted(turn, reason: .serverVAD), .responseDone(turn, outcome: .cancelled)]
+        case .turnCompleteReason(let reason):
+            endReason = reason
+            return []
         case .turnComplete:
+            let reason = endReason
+            endReason = nil
+            let trailing = trailingComplete
+            trailingComplete = false
             guard let turn = openTurn else {
-                // Nothing opened (e.g. a text-only reply): no response, and stale text does not leak forward.
+                if trailing {
+                    stashedOutput = []
+                    return reason.map { [.turnEnded($0)] } ?? []
+                }
+                // Nothing opened (e.g. a text-only or rejected reply): no response, and stale text does not leak
+                // forward; F-12 §15 item 2 says why the turn ended.
                 stashedOutput = []
-                return []
+                return [.turnEnded(reason ?? .empty)]
             }
             close()
-            return [.responseDone(turn, outcome: .completed)]
+            return (reason.map { [.turnEnded($0)] } ?? []) + [.responseDone(turn, outcome: .completed)]
         case .goAway(let timeLeft):
             return [.goAway(timeLeft: timeLeft)]
         }
@@ -67,6 +83,7 @@ public struct GeminiTurnAssembler: Sendable {
     /// Rule 2: opening flushes the input transcript as `UserTranscript`, then `ResponseStarted`.
     private mutating func open() -> [RealtimeEvent] {
         guard openTurn == nil else { return [] }
+        trailingComplete = false
         nextTurn = nextTurn.next()
         openTurn = nextTurn
         var events: [RealtimeEvent] = []

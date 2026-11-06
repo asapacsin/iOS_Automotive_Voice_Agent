@@ -10,6 +10,10 @@ public enum Tuning {
     /// Per phrase: 别说了, 不要说了, 别说啦, 停, 停一下, 闭嘴, 安静. The bare 停 is two tokens long, so it is stricter.
     public static let thresholds: [Float] = [0.25, 0.25, 0.25, 0.40, 0.30, 0.30, 0.30]
     public static let boosts: [Float] = [1.5, 1.5, 1.5, 1.0, 1.2, 1.2, 1.2]
+    /// F-01 §14 item 3 (T-060a): the wake phrase's own threshold and boost, separate from the stop phrases. They start
+    /// at the stop-phrase defaults above and change only from the device rows (wake-word §14 rows 9–12).
+    public static let wakeThreshold: Float = 0.25
+    public static let wakeBoost: Float = 1.0
     public static let maxActivePaths: Int32 = 4
     public static let numTrailingBlanks: Int32 = 1
     public static let numThreads: Int32 = 1

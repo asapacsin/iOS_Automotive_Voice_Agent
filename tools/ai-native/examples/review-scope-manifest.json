@@ -1,0 +1,130 @@
+{
+  "allow_scope_expansion": true,
+  "base_commit": "2bd9afa47a573185ab302ae21efb108afa086dd7",
+  "changed_files": [
+    "build/tracked.py",
+    "deleted.txt",
+    "new.txt",
+    "old.txt",
+    "renamed.txt",
+    "scripts/service.py"
+  ],
+  "context_hashes": {
+    ".ai-native/device-result.json": "6489d6d7a33c5d40e18fc61eeb6c34c341279ee61816394dde5189aa4ad8fae5",
+    ".ai-native/runs/scope/attempt-01/gates.json": "4dc88e90f06dbecfc8187b41d54b9163f7ec6d27e26667cee5163220a95f16dc",
+    "AGENTS.md": "3d9a753d8fd3d5854225bfd0311bb45c34efed6d8418f0baaf471c9c1ac44893",
+    "pyproject.toml": "874ce04b7320d550993d21feb306fd772ba7238b58020423133bf68c6feb4ef7",
+    "scripts/AGENTS.md": "7faf98572cc8748b8825d1ca60b34726c14101aea5a0e66a5bf45218bc121c76",
+    "tests/test_service.py": "03481a56daf9beb1a49e467a3e3ccd654ea68771567825a9745662410dc8a94c"
+  },
+  "context_paths": [
+    ".ai-native/device-result.json"
+  ],
+  "contract_hash": "e1f869d8a7eff02c0a91e7c6be418493ea74ba2d259e3aeace3fc96ea515cbdb",
+  "diffs": {
+    "committed": {
+      "argv": [
+        "git",
+        "--no-replace-objects",
+        "--no-optional-locks",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--ignore-submodules=none",
+        "--binary",
+        "--full-index",
+        "--no-color",
+        "--find-renames",
+        "--submodule=short",
+        "2bd9afa47a573185ab302ae21efb108afa086dd7",
+        "c3d54468eb5b7dc8113b193ddb6b7814b268de17",
+        "--"
+      ],
+      "files": [
+        "old.txt",
+        "renamed.txt",
+        "scripts/service.py"
+      ],
+      "sha256": "f74f83879ef6204a5898685e7a7190c120b6959296ee7b0db11b86a779690afa"
+    },
+    "staged": {
+      "argv": [
+        "git",
+        "--no-replace-objects",
+        "--no-optional-locks",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--ignore-submodules=none",
+        "--binary",
+        "--full-index",
+        "--no-color",
+        "--find-renames",
+        "--submodule=short",
+        "--cached",
+        "c3d54468eb5b7dc8113b193ddb6b7814b268de17",
+        "--"
+      ],
+      "files": [
+        "build/tracked.py",
+        "deleted.txt"
+      ],
+      "sha256": "738b816a244b902bf4fdd0d3c1d06be8b4f4031d68b5e0c729c61aba4a96f8ee"
+    },
+    "unstaged": {
+      "argv": [
+        "git",
+        "--no-replace-objects",
+        "--no-optional-locks",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--ignore-submodules=none",
+        "--binary",
+        "--full-index",
+        "--no-color",
+        "--find-renames",
+        "--submodule=short",
+        "--"
+      ],
+      "files": [
+        "build/tracked.py"
+      ],
+      "sha256": "6fa78c6336e11d77e100add913a57166ea86bdfd47f6d6cbc4f25c22f2783465"
+    }
+  },
+  "exclude_paths": [
+    "build/**",
+    "scripts/**",
+    ".ai-native/**",
+    "new.txt"
+  ],
+  "gate_evidence": ".ai-native/runs/scope/attempt-01/gates.json",
+  "head_commit": "c3d54468eb5b7dc8113b193ddb6b7814b268de17",
+  "initial_files": [
+    "build/tracked.py",
+    "deleted.txt",
+    "new.txt",
+    "old.txt",
+    "renamed.txt",
+    "scripts/service.py",
+    ".ai-native/device-result.json",
+    ".ai-native/runs/scope/attempt-01/gates.json",
+    "AGENTS.md",
+    "pyproject.toml",
+    "scripts/AGENTS.md",
+    "tests/test_service.py"
+  ],
+  "log_scope_expansions": true,
+  "mode": "diff_first",
+  "project_instructions": [
+    "AGENTS.md",
+    "scripts/AGENTS.md"
+  ],
+  "read_policy": "advisory",
+  "schema_version": 1,
+  "source_fingerprint": "31a7c173e60046174b4b6affd82421807468b6154bf112bc968eb89ba8f9539a",
+  "untracked": {
+    "new.txt": "040202f366ca8469f70ff1987cb47ce0e2406eb55ec9d4b1764cac361e9ad44e"
+  }
+}

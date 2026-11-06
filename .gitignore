@@ -8,3 +8,6 @@ Secrets.xcconfig
 __pycache__/
 App/*.xcodeproj/
 App/NovaDrive/SherpaModels/
+.claude/worktrees/
+scripts/search_eval/results.csv
+scripts/search_eval/summary.csv

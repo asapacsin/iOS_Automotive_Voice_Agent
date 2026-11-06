@@ -21,6 +21,9 @@ public final class GeminiLiveProvider: RealtimeProvider {
     private let credentials: any RealtimeCredentialSource
     private let connector: any WebSocketConnector
     private let tuning: RealtimeTuning
+    /// F-24 §16 item 5: told once per socket end (`ProviderClose.logLine`).
+    private let onClose: (@Sendable (ProviderClose) -> Void)?
+    private let clock: any NovaClock
     /// The live socket and the attempt counter: a `connect` or `close` that started later wins.
     /// `activityOpen`: an activityStart was sent and its activityEnd not yet; a socket installed meanwhile
     /// (reconnect mid-utterance) opens with activityStart, so its audio and the later activityEnd are bracketed.
@@ -32,6 +35,9 @@ public final class GeminiLiveProvider: RealtimeProvider {
         let connection: any WebSocketConnection
         let generation: Generation
         let resumed: Bool
+        let openedAt: NovaInstant
+        let clock: any NovaClock
+        let onClose: (@Sendable (ProviderClose) -> Void)?
         let outbox: AsyncStream<String>.Continuation
         /// Messages queued but not yet written. Past the limit the socket is stalled: fail it so the
         /// session reconnects instead of queueing audio without bound (PROPOSED).
@@ -43,8 +49,12 @@ public final class GeminiLiveProvider: RealtimeProvider {
         private let tasks = Mutex<[Task<Void, Never>]>([])
 
         init(connection: any WebSocketConnection, generation: Generation, resumed: Bool, pendingLimit: Int,
+             clock: any NovaClock, onClose: (@Sendable (ProviderClose) -> Void)?,
              outbox: AsyncStream<String>.Continuation, sink: AsyncStream<ProviderEvent>.Continuation) {
             self.connection = connection
+            self.clock = clock
+            self.onClose = onClose
+            openedAt = clock.now
             self.pendingLimit = pendingLimit
             self.generation = generation
             self.resumed = resumed
@@ -62,7 +72,8 @@ public final class GeminiLiveProvider: RealtimeProvider {
                 return false
             }
             if overflow {
-                end(.failed(RealtimeError(.wsFailed)))
+                // A stalled writer: no close frame came.
+                closedLocally(.failed(RealtimeError(.wsFailed, unreachable: true)))
                 return
             }
             outbox.yield(text)
@@ -78,8 +89,9 @@ public final class GeminiLiveProvider: RealtimeProvider {
             }
         }
 
-        /// The terminal event, once; nothing after it.
-        func end(_ event: RealtimeEvent?) {
+        /// The terminal event, once; nothing after it. True for the first end.
+        @discardableResult
+        func end(_ event: RealtimeEvent?) -> Bool {
             let first = ended.withLock { done -> Bool in
                 guard !done else { return false }
                 done = true
@@ -87,29 +99,45 @@ public final class GeminiLiveProvider: RealtimeProvider {
                 return true
             }
             if first { shutDown() }
+            return first
+        }
+
+        /// An end with no close frame (stall, a non-WebSocket error), logged as code 1006.
+        private func closedLocally(_ event: RealtimeEvent) {
+            if end(event) { log(WebSocketClosed(code: 1006, reason: ""), unreachable: true) }
+        }
+
+        /// F-24 §16 item 5: one `providerClosed` line per socket end, after its terminal event.
+        private func log(_ closed: WebSocketClosed, unreachable: Bool) {
+            guard let onClose else { return }
+            onClose(ProviderClose(code: closed.code, reason: closed.reason, http: closed.responseStatus,
+                                  afterSetup: setupDone.withLock { $0 }, resumed: resumed,
+                                  openMs: max(0, Int((clock.now - openedAt).milliseconds)), unreachable: unreachable))
         }
 
         /// Ends the socket for a transport error, classified from its close code.
         func fail(_ error: Error) {
             guard let closed = error as? WebSocketClosed else {
-                end(.failed(RealtimeError(.wsFailed)))
+                closedLocally(.failed(RealtimeError(.wsFailed, unreachable: true)))
                 return
             }
+            // F-24 §16 item 2: 1006 means no close frame came (a drop or a ping timeout).
+            let unreachable = GeminiCloseClassifier.isUnreachable(closed)
+            let afterSetup = setupDone.withLock { $0 }
+            let event: RealtimeEvent
             // The upgrade itself was refused: classify the HTTP status, not the absent close frame.
-            if let status = closed.httpStatus, !setupDone.withLock({ $0 }) {
-                end(.failed(RealtimeError(GeminiCloseClassifier.classify(handshakeStatus: status))))
-                return
-            }
-            // A 1007 after setupComplete is a rejected client message, not a rejected setup or handle.
-            let beforeSetup = !setupDone.withLock { $0 }
-            if closed.code == 1007 && !beforeSetup {
-                end(.failed(RealtimeError(.connectionClosed)))
+            if let status = closed.httpStatus, !afterSetup {
+                event = .failed(RealtimeError(GeminiCloseClassifier.classify(handshakeStatus: status), unreachable: unreachable))
+            } else if closed.code == 1007 && afterSetup {
+                // A 1007 after setupComplete is a rejected client message, not a rejected setup or handle.
+                event = .failed(RealtimeError(.connectionClosed, unreachable: unreachable))
             } else if let code = GeminiCloseClassifier.classify(code: closed.code, reason: closed.reason,
                                                                 resumedSetup: resumed) {
-                end(.failed(RealtimeError(code)))
+                event = .failed(RealtimeError(code, unreachable: unreachable))
             } else {
-                end(.closed)
+                event = .closed
             }
+            if end(event) { log(closed, unreachable: unreachable) }
         }
 
         /// Silent stop (`close()` or a newer `connect`).
@@ -129,10 +157,13 @@ public final class GeminiLiveProvider: RealtimeProvider {
     }
 
     public init(credentials: any RealtimeCredentialSource, connector: any WebSocketConnector = URLSessionWebSocketConnector(),
-                tuning: RealtimeTuning = RealtimeTuning()) {
+                tuning: RealtimeTuning = RealtimeTuning(), clock: any NovaClock = SystemClock(),
+                onClose: (@Sendable (ProviderClose) -> Void)? = nil) {
         self.credentials = credentials
         self.connector = connector
         self.tuning = tuning
+        self.clock = clock
+        self.onClose = onClose
         (events, continuation) = AsyncStream.makeStream(of: ProviderEvent.self,
                                                         bufferingPolicy: .bufferingNewest(tuning.eventBufferLimit))
     }
@@ -156,12 +187,18 @@ public final class GeminiLiveProvider: RealtimeProvider {
         do {
             connection = try await connector.open(request)
         } catch {
-            yieldIfCurrent(attempt, ProviderEvent(connection: generation, event: .failed(RealtimeError(.connection))))
+            // F-24 §16 items 2, 5: the socket never opened, so no close frame: unreachable.
+            let current = yieldIfCurrent(attempt, ProviderEvent(connection: generation,
+                                                                event: .failed(RealtimeError(.connection, unreachable: true))))
+            if current {
+                onClose?(ProviderClose(code: 1006, reason: "", http: nil, afterSetup: false, resumed: handle != nil,
+                                       openMs: 0, unreachable: true))
+            }
             return
         }
         let (outbox, outboxContinuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .unbounded)
         let socket = Socket(connection: connection, generation: generation, resumed: handle != nil,
-                            pendingLimit: tuning.outboxLimit, outbox: outboxContinuation, sink: continuation)
+                            pendingLimit: tuning.outboxLimit, clock: clock, onClose: onClose, outbox: outboxContinuation, sink: continuation)
         // Setup is queued before the socket becomes reachable, so no client message can precede it.
         if let setup = try? GeminiCodec.encode(GeminiCodec.setup(config, resume: handle)) {
             socket.enqueue(String(decoding: setup, as: UTF8.self))
@@ -200,14 +237,16 @@ public final class GeminiLiveProvider: RealtimeProvider {
             }
         }
         let interval = tuning.pingInterval
+        let pongTimeout = tuning.pongTimeout
         let pinger = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(interval.milliseconds))
                 if Task.isCancelled { return }
-                // A ping that fails or gets no pong within one interval means a dead socket (W4).
-                let alive = await Self.ping(connection, within: interval)
+                // F-24 §16 item 3: a ping that fails or gets no pong within `pongTimeout` means a dead socket (W4),
+                // closed as unreachable (no close frame) within interval + pongTimeout of the last pong.
+                let alive = await Self.ping(connection, within: pongTimeout)
                 if !alive {
-                    socket.fail(WebSocketClosed(code: 1006, reason: "ping"))
+                    socket.fail(WebSocketClosed(code: 1006, reason: ""))
                     return
                 }
             }
@@ -269,8 +308,13 @@ public final class GeminiLiveProvider: RealtimeProvider {
         socket?.enqueue(String(decoding: data, as: UTF8.self))
     }
 
-    private func yieldIfCurrent(_ attempt: UInt64, _ event: ProviderEvent) {
-        state.withLock { s in if s.attempt == attempt { continuation.yield(event) } }
+    @discardableResult
+    private func yieldIfCurrent(_ attempt: UInt64, _ event: ProviderEvent) -> Bool {
+        state.withLock { s in
+            guard s.attempt == attempt else { return false }
+            continuation.yield(event)
+            return true
+        }
     }
 
     /// Whichever comes first: the pong, or the deadline. A task group would wait for the ping child,
@@ -318,5 +362,35 @@ private final class PingRace: Sendable {
             return !r
         }
         if first { done.resume(returning: alive) }
+    }
+}
+
+/// F-24 §16 item 5 (T-016k): one socket end. `reason` is the server's close text only (never the URL, query, headers
+/// or key, I-7), cut to 120 characters. `http`: the upgrade response status, nil when none came.
+public struct ProviderClose: Sendable, Hashable {
+    public static let reasonLimit = 120
+    public let code: Int
+    public let reason: String
+    public let http: Int?
+    public let afterSetup: Bool
+    public let resumed: Bool
+    public let openMs: Int
+    public let unreachable: Bool
+
+    public init(code: Int, reason: String, http: Int?, afterSetup: Bool, resumed: Bool, openMs: Int, unreachable: Bool) {
+        self.code = code
+        // One line: newlines become spaces.
+        self.reason = String(reason.prefix(Self.reasonLimit).map { $0.isNewline ? " " : $0 })
+        self.http = http
+        self.afterSetup = afterSetup
+        self.resumed = resumed
+        self.openMs = openMs
+        self.unreachable = unreachable
+    }
+
+    public var logLine: String {
+        "providerClosed code=\(code) reason=\(reason) http=\(http.map(String.init) ?? "none") "
+            + "afterSetup=\(afterSetup ? "yes" : "no") resumed=\(resumed ? "yes" : "no") openMs=\(openMs) "
+            + "kind=\(unreachable ? "unreachable" : "server")"
     }
 }

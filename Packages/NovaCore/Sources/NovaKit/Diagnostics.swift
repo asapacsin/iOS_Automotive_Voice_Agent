@@ -47,6 +47,34 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case abandonCleared
     /// F-08 §16 item 3: Gemini opened a turn after a stop with no utterance sent since; it is not spoken.
     case postStopTurnDropped
+    /// F-08 §17 item 11 (T-022e): confirmed new words ended her reply (setting on).
+    case bargeInStopped
+    /// F-18 §15 item 8: `google_search` came as an ordinary function call; it is refused, not executed.
+    case webSearchAsFunction
+    /// F-18 §21 item 7 (T-046i): a destination note went to the model. No name (I-8).
+    case destinationNote
+    /// F-05a §13 item 5 (T-016i): conversation text failed the screen check and was not shown. No words (I-8).
+    case screenHidden(kind: ScreenTextKind)
+    /// F-01 §14 item 12 (T-060a): the wake listener heard 你好小诺. No words, no audio (I-8).
+    case wakeDetected
+    /// F-24 §15 item 8 (T-016j): the 60 s retry window ended and the session closed. Numbers and a code only.
+    case sessionGaveUp(ms: Int, attempts: Int, code: RetryableErrorCode)
+    /// F-24 §15 item 8: the first setup after a give-up; whether a kept handle was sent (never the handle, I-7).
+    case sessionResume(handle: Bool, result: SessionResumeResult)
+    /// F-24 §16 item 1 (T-016k): the watched path changed. No addresses, no interface names.
+    case networkPath(satisfied: Bool, via: NetworkPathVia, tunnel: Bool)
+    /// F-24 §16 item 4: resuming kept being closed; the handle is dropped and the next attempt opens a new session.
+    case resumeDropped(reason: ResumeDropReason)
+}
+
+/// F-24 §16 item 4: why a resumption handle was dropped.
+public enum ResumeDropReason: String, Sendable, Hashable, CaseIterable {
+    case quickClose
+}
+
+/// F-05a §13 item 2: which conversation text the screen check hid.
+public enum ScreenTextKind: String, Sendable, Hashable, CaseIterable {
+    case driver, reply, guidance, camera
 }
 
 public enum StopPhraseSource: String, Sendable, Hashable {
@@ -88,6 +116,15 @@ extension DiagnosticEvent {
         case reaskSuppressed
         case abandonCleared
         case postStopTurnDropped
+        case bargeInStopped
+        case webSearchAsFunction
+        case destinationNote
+        case screenHidden
+        case wakeDetected
+        case sessionGaveUp
+        case sessionResume
+        case networkPath
+        case resumeDropped
     }
 
     public var kind: Kind {
@@ -123,6 +160,15 @@ extension DiagnosticEvent {
         case .reaskSuppressed: .reaskSuppressed
         case .abandonCleared: .abandonCleared
         case .postStopTurnDropped: .postStopTurnDropped
+        case .bargeInStopped: .bargeInStopped
+        case .webSearchAsFunction: .webSearchAsFunction
+        case .destinationNote: .destinationNote
+        case .screenHidden: .screenHidden
+        case .wakeDetected: .wakeDetected
+        case .sessionGaveUp: .sessionGaveUp
+        case .sessionResume: .sessionResume
+        case .networkPath: .networkPath
+        case .resumeDropped: .resumeDropped
         }
     }
 }
@@ -143,9 +189,17 @@ extension DiagnosticEvent {
         case .stopSyncSent: "stopSync sent"
         case .stopSyncInterrupted(let ms): "stopSync interrupted ms=\(ms)"
         case .stopSyncNoInterrupt: "stopSyncNoInterrupt"
+        case .destinationNote: "destinationNote"
+        case .screenHidden(let kind): "screenHidden kind=\(kind.rawValue)"
         case .reaskSuppressed: "reaskSuppressed reason=stop"
         case .abandonCleared: "abandonCleared reason=newUtterance"
         case .postStopTurnDropped: "postStopTurnDropped reason=noSentUtterance"
+        case .bargeInStopped: "bargeInStopped"
+        case .wakeDetected: "wakeDetected"
+        case .sessionGaveUp(let ms, let n, let code): "session gave-up ms=\(ms) attempts=\(n) code=\(code.rawValue)"
+        case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
+        case .networkPath(let satisfied, let via, let tunnel): "networkPath satisfied=\(satisfied) via=\(via.rawValue) tunnel=\(tunnel)"
+        case .resumeDropped(let reason): "resumeDropped reason=\(reason.rawValue)"
         default: "diagnostic \(self)"
         }
     }

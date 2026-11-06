@@ -101,7 +101,7 @@ struct DispatchTests {
             (call("play_music", ["exclude_title": "x"]), .missingValue),
             (call("play_music", ["mood": "提神"]), nil),
             (call("query_live_info", ["kind": "news"]), .invalidKind),
-            (call("query_live_info", ["kind": "weather", "where": .string(String(repeating: "北", count: 21))]), .invalidArgument),
+            (call("query_live_info", ["kind": "weather", "where": .string(String(repeating: "北", count: 41))]), .invalidArgument),  // F-18 §26 item 1: where up to 40
             (call("set_speaking_style", ["style": "bossy"]), .styleNotAllowed),
             (call("exit_navigation_mode", ["x": 1]), .invalidFields),
             (ToolCall(id: CallID("c")!, name: "open_app", arguments: "maps"), .malformedJson),

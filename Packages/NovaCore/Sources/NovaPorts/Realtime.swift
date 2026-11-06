@@ -150,7 +150,15 @@ public enum RealtimeErrorCode: String, Sendable, Hashable, CaseIterable {
 
 public struct RealtimeError: Error, Sendable, Hashable {
     public let code: RealtimeErrorCode
-    public init(_ code: RealtimeErrorCode) { self.code = code }
+    /// F-24 §16 item 2 (T-016k): no server close frame was received (connect failure, DNS, timeout, 1006 or no close
+    /// frame, ping timeout). False: a server close (HTTP 101, then a close frame with a code).
+    public let unreachable: Bool
+    /// `unreachable` nil: `CONNECTION`, `DNS` and `TIMEOUT` are unreachable by definition; other codes are server closes
+    /// unless the socket says otherwise (1006, ping timeout).
+    public init(_ code: RealtimeErrorCode, unreachable: Bool? = nil) {
+        self.code = code
+        self.unreachable = unreachable ?? [.connection, .dns, .timeout].contains(code)
+    }
     public var isRetryable: Bool { code.isRetryable }
 }
 
@@ -161,6 +169,16 @@ public enum InterruptReason: String, Sendable, Hashable {
 
 public enum TurnOutcome: String, Sendable, Hashable {
     case completed, cancelled
+}
+
+/// F-12 §15 item 2: why the server ended a turn, as an enum (never words). `empty`: the turn ended with no audio and
+/// no tool call, which before this event reached nobody.
+public enum TurnEndReason: String, Sendable, Hashable {
+    case empty
+    case malformedFunctionCall = "malformed_function_call"
+    case responseRejected = "response_rejected"
+    case needMoreInput = "need_more_input"
+    case other
 }
 
 /// Provider-neutral event names (contracts/voice-agent.md §4).
@@ -177,6 +195,9 @@ public enum RealtimeEvent: Sendable, Hashable {
     case audioDone(TurnID)
     case interrupted(TurnID, reason: InterruptReason)
     case responseDone(TurnID, outcome: TurnOutcome)
+    /// The server's `turnComplete` with a reason, or one that closed no open turn. Diagnostic only; the turn's
+    /// `responseDone` (when one was open) still follows.
+    case turnEnded(TurnEndReason)
     case resumptionHandle(String?)
     case goAway(timeLeft: NovaDuration?)
     case failed(RealtimeError)
@@ -230,4 +251,9 @@ public enum RealtimeCredential: Sendable, Hashable, CustomStringConvertible, Cus
 /// API key from the Keychain now; ephemeral token from an owner backend later (OQ-IOS-15).
 public protocol RealtimeCredentialSource: Sendable {
     func credential() async throws -> RealtimeCredential
+}
+
+extension RealtimeErrorCode {
+    /// F-24 §15 item 8: the same code for the give-up diagnostic; nil for a terminal code.
+    public var retryableCode: RetryableErrorCode? { isRetryable ? RetryableErrorCode(rawValue: rawValue) : nil }
 }

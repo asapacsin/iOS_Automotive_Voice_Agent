@@ -7,7 +7,7 @@ import Testing
 final class CountingWeather: WeatherService, ReverseGeocoder, @unchecked Sendable {
     let calls = Mutex((weather: 0, regeo: 0))
     let fail = Mutex(false)
-    func weather(adcode: String, forecast: Bool) async throws -> WeatherReport {
+    func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
         calls.withLock { $0.weather += 1 }
         if fail.withLock({ $0 }) { throw AmapWebError.timeout }
         return WeatherReport(adcode: adcode, summary: "晴")
@@ -29,15 +29,15 @@ struct LiveInfoCacheTests {
         let clock = ManualClock()
         let cache = LiveInfoCache(weather: source, geocoder: source, clock: clock)
         let here = GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .gcj02)
-        _ = try await cache.weather(adcode: "440402", forecast: false)
+        _ = try await cache.weather(adcode: "440402", day: WeatherDay(offset: 0, date: "2026-11-05"))
         clock.advance(by: .minutes(9))
-        _ = try await cache.weather(adcode: "440402", forecast: false)
+        _ = try await cache.weather(adcode: "440402", day: WeatherDay(offset: 0, date: "2026-11-05"))
         #expect(source.calls.withLock { $0.weather } == 1)
         clock.advance(by: .minutes(1))
         source.fail.withLock { $0 = true }
-        await #expect(throws: AmapWebError.self) { try await cache.weather(adcode: "440402", forecast: false) }
+        await #expect(throws: AmapWebError.self) { try await cache.weather(adcode: "440402", day: WeatherDay(offset: 0, date: "2026-11-05")) }
         source.fail.withLock { $0 = false }
-        _ = try await cache.weather(adcode: "440402", forecast: false)
+        _ = try await cache.weather(adcode: "440402", day: WeatherDay(offset: 0, date: "2026-11-05"))
         #expect(source.calls.withLock { $0.weather } == 3)
 
         _ = try await cache.adcode(at: here)

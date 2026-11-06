@@ -205,9 +205,14 @@ public struct Place: Sendable, Hashable {
     /// From the place detail only (F-18 place_details); nil when Amap gives none.
     public let openingHours: String?
     public let phone: String?
+    /// F-16 §14 item 7: Amap's `cityname` and `adname`; nil when Amap gives none.
+    public let city: String?
+    public let district: String?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
-                openingHours: String? = nil, phone: String? = nil) {
+                openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil) {
+        self.city = city
+        self.district = district
         self.openingHours = openingHours
         self.phone = phone
         self.id = id
@@ -228,6 +233,19 @@ public protocol PlaceSearch: Sendable {
     func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place]
     func polygon(_ keywords: String, vertices: [GeoCoordinate]) async throws -> [Place]
     func detail(id: String) async throws -> Place?
+    /// F-16 §14 item 1: `/v3/place/text` limited to `city` (`citylimit=true`) when `cityLimit` is set.
+    func text(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place]
+    /// F-16 §14 item 1: `/v3/place/around` only, with no nationwide fallback when nothing is in the radius.
+    func aroundOnly(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place]
+}
+
+public extension PlaceSearch {
+    func text(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place] {
+        try await text(keywords, city: city)
+    }
+    func aroundOnly(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {
+        try await around(keywords, center: center, radiusMeters: radiusMeters, sort: sort)
+    }
 }
 
 public struct WeatherReport: Sendable, Hashable {
@@ -240,13 +258,149 @@ public struct WeatherReport: Sendable, Hashable {
     }
 }
 
+/// F-18 §23 item 2: which day a weather call means. `offset` 0–3 from the phone's date; `date` is that day as
+/// `yyyy-MM-dd` on the phone clock, the value Amap's `casts[].date` must equal.
+public struct WeatherDay: Sendable, Hashable {
+    public static let names = ["today", "tomorrow", "day_after", "day_after_next"]
+    public let offset: Int
+    public let date: String
+
+    public init(offset: Int, date: String) {
+        self.offset = offset
+        self.date = date
+    }
+
+    public var name: String { Self.names[min(max(offset, 0), Self.names.count - 1)] }
+}
+
+/// F-18 §23 item 2: Amap's forecast has no entry with the asked date.
+public struct WeatherForecastMissing: Error, Sendable, Hashable {
+    public let date: String
+    public init(date: String) { self.date = date }
+}
+
 public protocol WeatherService: Sendable {
-    func weather(adcode: String, forecast: Bool) async throws -> WeatherReport
+    func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport
+}
+
+/// F-18 §26 item 11: one day of a provider-neutral daily forecast. `time` is `yyyy-MM-dd` in the place's own zone.
+public struct DailyForecastDay: Sendable, Hashable {
+    public let time: String
+    public let weatherCode: Int?
+    public let tempMax: Double?
+    public let tempMin: Double?
+    public let rainChance: Double?
+    public let rainMm: Double?
+    public let windMaxKmh: Double?
+
+    public init(time: String, weatherCode: Int?, tempMax: Double?, tempMin: Double?, rainChance: Double?,
+                rainMm: Double?, windMaxKmh: Double?) {
+        self.time = time
+        self.weatherCode = weatherCode
+        self.tempMax = tempMax
+        self.tempMin = tempMin
+        self.rainChance = rainChance
+        self.rainMm = rainMm
+        self.windMaxKmh = windMaxKmh
+    }
+}
+
+/// F-18 §27 item 2: the weather now at the place. `time` is `yyyy-MM-ddTHH:mm` on the place's own clock.
+public struct CurrentWeather: Sendable, Hashable {
+    public let time: String
+    public let temperature: Double
+    public let feelsLike: Double?
+    public let humidity: Double?
+    public let weatherCode: Int?
+    public let windKmh: Double?
+
+    public init(time: String, temperature: Double, feelsLike: Double?, humidity: Double?, weatherCode: Int?,
+                windKmh: Double?) {
+        self.time = time
+        self.temperature = temperature
+        self.feelsLike = feelsLike
+        self.humidity = humidity
+        self.weatherCode = weatherCode
+        self.windKmh = windKmh
+    }
+}
+
+/// F-18 §26 item 11, §27 item 2: the days and an optional current block (nil when missing or unreadable).
+public struct DailyForecast: Sendable, Hashable {
+    public let days: [DailyForecastDay]
+    public let current: CurrentWeather?
+
+    public init(days: [DailyForecastDay], current: CurrentWeather? = nil) {
+        self.days = days
+        self.current = current
+    }
+}
+
+/// F-18 §26 item 11: a daily forecast port (Open-Meteo in NovaServices). `days[0]` is the place's own today.
+public protocol DailyForecastService: Sendable {
+    /// Coordinates are already rounded by the caller (§26 item 4).
+    func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast
+}
+
+/// F-18 §26 item 4: a forecast call that timed out or failed. No response text (I-8).
+public enum ForecastError: Error, Sendable, Hashable {
+    case timeout
+    case failed
+}
+
+/// F-18 §26 item 2: one place a name lookup found.
+public struct LookedUpPlace: Sendable, Hashable {
+    /// 高德's `city` or Open-Meteo's `name`.
+    public let name: String
+    /// Open-Meteo's `country` (foreign places only).
+    public let country: String?
+    public let coordinate: GeoCoordinate?
+    /// 高德's `formatted_address`.
+    public let formatted: String?
+    /// 高德's adcode.
+    public let adcode: String?
+    /// Open-Meteo's `population`.
+    public let population: Int?
+
+    public init(name: String, country: String? = nil, coordinate: GeoCoordinate?, formatted: String? = nil,
+                adcode: String? = nil, population: Int? = nil) {
+        self.name = name
+        self.country = country
+        self.coordinate = coordinate
+        self.formatted = formatted
+        self.adcode = adcode
+        self.population = population
+    }
+}
+
+/// F-18 §26 item 11: a place-lookup port (高德 `/v3/geocode/geo`, or Open-Meteo geocoding with `country`).
+public protocol PlaceLookup: Sendable {
+    func lookUp(_ name: String, country: String?) async throws -> [LookedUpPlace]
 }
 
 public protocol ReverseGeocoder: Sendable {
     func adcode(at coordinate: GeoCoordinate) async throws -> String?
     func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress?
+    /// F-16 §14 item 1: the car's adcode and formatted address (its province and city) in one lookup.
+    func region(at coordinate: GeoCoordinate) async throws -> PlaceRegion
+}
+
+/// F-16 §14 item 1: where the car is, for the city-limited search and the other-city check.
+public struct PlaceRegion: Sendable, Hashable {
+    public let adcode: String?
+    /// Regeo `formatted_address` (starts with the province and city), or nil.
+    public let formatted: String?
+
+    public init(adcode: String?, formatted: String?) {
+        self.adcode = adcode
+        self.formatted = formatted
+    }
+}
+
+public extension ReverseGeocoder {
+    func region(at coordinate: GeoCoordinate) async throws -> PlaceRegion {
+        PlaceRegion(adcode: try await adcode(at: coordinate), formatted: try await address(at: coordinate)?.formatted)
+    }
 }
 
 public struct StaticMapRequest: Sendable, Hashable {

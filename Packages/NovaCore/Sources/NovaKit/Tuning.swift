@@ -20,7 +20,8 @@ public struct UplinkGateTuning: Sendable, Hashable {
     /// Digital silence sent before `audioStreamEnd`.
     public var closingSilence = NovaDuration.milliseconds(1500)
     /// F-04 §14: her voice can still come back through the microphone this long after her playback ends.
-    public var echoTail = NovaDuration.milliseconds(500)
+    /// F-08 §17 item 7: 800 ms (one iOS field report: 300 ms leaked, 800 ms did not).
+    public var echoTail = NovaDuration.milliseconds(800)
     /// F-04a: speech confirmation by the sound classifier; nil = 抗噪 off (F-04 rules only).
     public var speechConfirm: SpeechConfirmTuning? = SpeechConfirmTuning()
     public init() {}
@@ -62,7 +63,14 @@ public struct ListeningLifecycleTuning: Sendable, Hashable {
 
 /// contracts/voice-agent.md §8, `I/ReconnectPolicy.kt`.
 public struct ReconnectTuning: Sendable, Hashable {
-    public var maxAttempts = 5
+    /// F-24 §15 item 1: with the network up, retry until this long after the first failure (no attempt limit).
+    public var retryWindow = NovaDuration.seconds(60)
+    /// F-24 §15 item 4: a resumption handle kept after giving up is dropped this long after it was saved.
+    public var keptHandleLifetime = NovaDuration.minutes(120)
+    /// F-24 §16 item 4: a resumed attempt closed by the server before setupComplete, or within this long after it,
+    /// is a quick close; `quickClosesToDropHandle` in a row drop the handle.
+    public var quickCloseWindow = NovaDuration.seconds(3)
+    public var quickClosesToDropHandle = 2
     public var initialDelay = NovaDuration.milliseconds(200)
     public var maxDelay = NovaDuration.seconds(8)
     /// Delay doubles after each failed attempt, capped at `maxDelay`.
@@ -84,12 +92,18 @@ public struct ReconnectTuning: Sendable, Hashable {
 public struct RealtimeTuning: Sendable, Hashable {
     public var connectTimeout = NovaDuration.seconds(10)
     public var setupCompleteTimeout = NovaDuration.seconds(10)
-    public var pingInterval = NovaDuration.seconds(20)
+    /// F-24 §16 item 3 (T-016k): a ping every 10 s, and a pong due within `pongTimeout`, so a dead socket is
+    /// closed within 15 s of the last pong.
+    public var pingInterval = NovaDuration.seconds(10)
+    public var pongTimeout = NovaDuration.seconds(5)
     public var eventBufferLimit = 1024
     /// Client messages queued on a socket before it counts as stalled (~5 s of 10 ms audio frames).
     public var outboxLimit = 512
     /// F-24 §14 item 4: how long she waits for the network before the session ends quietly.
     public var offlineWaitCap = NovaDuration.seconds(600)
+    /// F-24 §16 item 1: the network counts as available only on Wi-Fi, cellular or wired Ethernet (not a tunnel
+    /// alone). Off if a device misreports its interfaces.
+    public var requirePhysicalInterface = true
     public init() {}
 }
 
@@ -104,6 +118,17 @@ public struct TruthfulnessTuning: Sendable, Hashable {
     public var phantomMaxLatin = 40
     public var phantomMinTranscript = 2
     public init() {}
+
+    /// F-18 §15 item 5 (T-046c): with web search on, the re-ask waits 12 s so it does not fire during a search;
+    /// the give-up time after the re-ask stays the same. Off: today's values.
+    public static func session(webSearch: Bool) -> TruthfulnessTuning {
+        var t = TruthfulnessTuning()
+        guard webSearch else { return t }
+        let after = t.emptyResponseGiveUp - t.emptyResponseReask
+        t.emptyResponseReask = .seconds(12)
+        t.emptyResponseGiveUp = t.emptyResponseReask + after
+        return t
+    }
 }
 
 /// contracts/voice-agent.md §7, `A/voice/WaitCues.kt`.

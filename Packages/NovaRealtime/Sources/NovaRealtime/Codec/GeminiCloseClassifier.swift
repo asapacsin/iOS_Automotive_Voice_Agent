@@ -29,6 +29,12 @@ public enum GeminiCloseClassifier {
         }
     }
 
+    /// F-24 §16 item 2 (T-016k): no server close frame was received. 1006 (and 0) mean the socket dropped or a ping
+    /// timed out; a refused upgrade (an HTTP status, no 101) did get a server answer and counts as a server close.
+    public static func isUnreachable(_ closed: WebSocketClosed) -> Bool {
+        closed.httpStatus == nil && (closed.code == 1006 || closed.code == 0)
+    }
+
     /// A refused upgrade (no 101). PROPOSED: 401/403 is a bad key (terminal, like a 1008 auth close),
     /// 429 is rate limiting, 5xx is a retryable outage; anything else is a retryable connection error.
     public static func classify(handshakeStatus status: Int) -> RealtimeErrorCode {

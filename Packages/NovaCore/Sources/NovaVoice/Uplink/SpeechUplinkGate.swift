@@ -14,6 +14,8 @@ public enum SegmentVerdict: String, Sendable, Hashable {
 /// F-04 §14: why an utterance was not sent to the model.
 public enum MuteReason: String, Sendable, Hashable {
     case reply, guidance, echoTail, none
+    /// F-04b §7 (T-013e): the speaker lock rejected the voice (or could not tell).
+    case speaker
 }
 
 /// F-04 §14 item 7: how an utterance ended.
@@ -188,6 +190,17 @@ public struct SpeechUplinkGate: Sendable {
         return true
     }
 
+    /// F-08 §17 item 11 (T-022e): a live interruption was confirmed. The open muted utterance is sent from here
+    /// on (its earlier audio was released by `BargeInLive`) and is not cut when her reply stops. True when one was
+    /// open.
+    @discardableResult
+    public mutating func adoptOpenUtterance() -> Bool {
+        // Never the stop utterance held to its pause (§16 item 1).
+        guard phase == .open, !sending, !holdUntilPause else { return false }
+        sending = true
+        return true
+    }
+
     public mutating func process(_ frame: PCMFrame16k) -> [UplinkGateOutput] {
         let rms = Self.rms(frame)
         let warmingUp = elapsed < tuning.warmUp
@@ -283,7 +296,7 @@ public struct SpeechUplinkGate: Sendable {
     }
 
     /// dB relative to full scale, offset so that full scale is 96 (as 音频测试 shows it).
-    static func decibels(_ rms: Double) -> Int { Int((20 * log10(max(rms, 1) / 32_768) + 96).rounded()) }
+    public static func decibels(_ rms: Double) -> Int { Int((20 * log10(max(rms, 1) / 32_768) + 96).rounded()) }
 
     // MARK: F-04a speech confirmation
 
@@ -414,7 +427,7 @@ public struct SpeechUplinkGate: Sendable {
         if preRoll.count > keep { preRoll.removeFirst(preRoll.count - keep) }
     }
 
-    static func rms(_ frame: PCMFrame16k) -> Double {
+    public static func rms(_ frame: PCMFrame16k) -> Double {
         let sum = frame.samples.reduce(0.0) { $0 + Double($1) * Double($1) }
         return (sum / Double(frame.samples.count)).squareRoot()
     }

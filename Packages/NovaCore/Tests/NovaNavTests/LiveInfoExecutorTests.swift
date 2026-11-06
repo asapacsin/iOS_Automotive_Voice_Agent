@@ -6,7 +6,7 @@ import Testing
 struct FakeWeather: WeatherService {
     var error: AmapWebError?
 
-    func weather(adcode: String, forecast: Bool) async throws -> WeatherReport {
+    func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
         if let error { throw error }
         return WeatherReport(adcode: adcode, summary: .object(["text": "晴", "temperature": "26"]))
     }

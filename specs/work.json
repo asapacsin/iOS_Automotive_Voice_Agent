@@ -1161,8 +1161,11 @@
     },
     {
       "id": "T-016b",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "NOT_RUN",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "evidence": [
+        "Owner 2026-11-03: unneeded specs removed. T-016f replaced Apple Speech with the bundled recognizer; the T-016a review notes are in AgentState and AgentRuntime"
+      ],
       "priority": 35,
       "action": "F-05a AppleSpeechTranscriber (NovaAudio, Speech framework), import gate entry, NSSpeechRecognitionUsageDescription, permission with first mic use; iOS build",
       "depends_on": [
@@ -1171,8 +1174,11 @@
     },
     {
       "id": "T-016c",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "NOT_RUN",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "evidence": [
+        "Owner 2026-11-03: unneeded specs removed. T-016f replaced Apple Speech with the bundled recognizer; the T-016a review notes are in AgentState and AgentRuntime"
+      ],
       "priority": 40,
       "action": "F-05a wire transcriber + selector into AgentRuntime, audio-test diagnostics line; S, D rows 5-9",
       "depends_on": [
@@ -1561,7 +1567,500 @@
         "scripts/gates/run_all.sh PASS (Linux, 2026-11-01)",
         "independent read-only review high effort: PASS; notes 1-2 fixed",
         "period: 8 o'clock hour is 早上 per row 2 (item 2 clarified; owner to confirm)",
-        "device rows 8-10 NOT_VERIFIED; Codemagic build pending"
+        "device rows 8-10 NOT_VERIFIED; Codemagic build green on 0ed6299"
+      ]
+    },
+    {
+      "id": "T-001a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §17 items 1-2: EchoSpike matches LiveAudio (voiceChat, player attached before voice processing), volume and AGC matrix, peak in peakDb units; earlier T-001 numbers marked as not the app's setup; row 12",
+      "depends_on": [
+        "T-001"
+      ],
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. EchoSpike used .default and enabled voice processing before attaching the player.",
+      "evidence": [
+        "EchoSpike in LiveAudio's setup (voiceChat, player before voice processing, AGC/ducking/restart), volume + AGC matrix, peakDb; T-001 numbers flagged; review PASS",
+        "device row 12 NOT_VERIFIED; Codemagic build green on 0ed6299"
+      ]
+    },
+    {
+      "id": "T-022d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §17 items 3-8: pure BargeInCheck, driver level bar, recent words as pinyin, bargeInShadow and levelCheck logs with no words, echo tail 800 ms, muteEndedMidReply log; no other behaviour change; unit rows 1-6; device rows 9-11",
+      "depends_on": [
+        "T-022c"
+      ],
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. Device 0be787e 10:00:43 and 10:01:04: quiet sounds (peakDb 69, 64) with ASR partials were sent and answered.",
+      "evidence": [
+        "BargeInCheck/BargeInShadow log-only, driver bar, her words as pinyin, bargeInShadow/wouldStopAt/levelCheck numbers only, echoTail 800 ms, muteEndedMidReply per model turn; unit rows 1-6; gates green; review PASS after fixes (0ab2d7c)",
+        "row 3 嗯嗯: item 3 order gives noWords (filler) before echoWords; echo stage tested directly",
+        "device rows 9-11 NOT_VERIFIED; Codemagic build green on 0ed6299"
+      ]
+    },
+    {
+      "id": "T-022e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §17 items 9-12 and 14-16: setting off by default, 10 dB dip, buffered audio, stop on confirmed new words, new echoWords rule with word order; unit rows 7-8, 18 and row 3 still passing; device rows 13-17",
+      "depends_on": [
+        "T-022d"
+      ],
+      "notes": "Owner 2026-11-02 said yes to building now behind the setting, without waiting for T-022d's device numbers. On by default still needs owner approval of rows 9-11, 14, 16, 17.",
+      "evidence": [
+        "BargeInLive behind 可以打断她（实验） (default off): 10 dB dip on early stages, kept audio released on wouldStop after core .bargeInStop flush (also between clauses), gate adopts the rest; cut at unmute held until judged (echo never sent); stop phrase / setting off / cap cancel and restore volume; word-order echoWords (runs of 3, 70%); unit rows 3, 7, 8, 18; gates green (481 tests); independent review PASS on third round (80fc1fc) + P1 fix",
+        "known, not fixed: spotter-stop vs wouldStop race (N3); guidance checked only at start (L2); core utterance counter +1 per live stop (L4); closed candidate dropped by next onset within its 2 s final wait (L5); two driverUtterance inputs on a carry release (P2); new candidate during carrying uses today's path (P3)",
+        "device rows 13-17 NOT_VERIFIED; Codemagic build pending; on by default needs owner approval of rows 9-11, 14, 16, 17"
+      ]
+    },
+    {
+      "id": "T-031a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §14 items 1-6: comfort test set of 55+ cases with held-out cases, outcome scorer, in-app runner over sendText, baseline on the fixed table; rows 1, 2, 7",
+      "depends_on": [
+        "T-031"
+      ],
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Keys stay in the app's settings; logs hold numbers and case ids only.",
+      "evidence": [
+        "gates green (run_all.sh PASS, NovaCore 494 tests, 1 known noise-corpus issue)",
+        "rows 1, 2 unit; runner unit with a scripted provider; review PASS (second round)",
+        "row 7 device NOT_VERIFIED: baseline (table) and model-mode scores pending owner run; Codemagic build pending"
+      ]
+    },
+    {
+      "id": "T-031b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §14 items 7-13: setting off by default, catalog variant without run_scenario, get_vehicle_state, goal prompt, VehicleActionPolicy on both paths, claims need an ok result of the named tool; rows 3-9",
+      "depends_on": [
+        "T-031a"
+      ],
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Off path stays byte-equal to the Android catalog. windowSpeedKmh and windowMaxAtSpeed are proposed values.",
+      "evidence": [
+        "gates green; rows 3-6 unit; review PASS after fix f3f8c09 (claim topics compound words only)",
+        "rows 7-9 device NOT_VERIFIED; Codemagic build pending; windowSpeedKmh 100 and windowMaxAtSpeed 30 stay PROPOSED"
+      ]
+    },
+    {
+      "id": "T-031c",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 4,
+      "action": "F-12 §14 items 14-15, only after the owner approves the numbers: model-chosen actions become the only path, table and run_scenario removed, F-09, F-12 and J5 updated",
+      "depends_on": [
+        "T-031b",
+        "T-031d",
+        "T-031e"
+      ],
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Do not start until the owner approves in specs/STATUS.md."
+    },
+    {
+      "id": "T-031d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §15 items 1-11: runner separates failure causes, answer timer from sendText, stage times, blocks listed, 10 fresh held-out cases, tune model mode on tuning cases only, score table and model again; rows 1-7",
+      "depends_on": [
+        "T-031b"
+      ],
+      "notes": "Owner 2026-11-02 \"Yes, write it\" after scores on ace916f: model 27/27 no wrongful action but behind on unprompted wordings and worst time. Stop after this round; T-031c stays an owner decision."
+    },
+    {
+      "id": "T-031e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §16 items 1-14: end of reply at generationComplete, decision from last sentence, scorer checked on real replies and known outcomes, trial run, 100 cases, pass^3, paired comparison with interval, clean runs, correction in the runner, two small rule changes on tuning cases, score table and model; rows 1-9",
+      "depends_on": [
+        "T-031d"
+      ],
+      "notes": "Owner 2026-11-03 \"what ever you just take those approach and write that on spec\". Bars in item 14 are PROPOSED. Item 4 verdicts come from the owner and mentor before the full run. T-031c stays an owner decision."
+    },
+    {
+      "id": "T-031f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §17 items 1-7: off-by-default setting saves each conversation to a local file with what she heard, said and did; no change to behaviour; rows 1-7",
+      "depends_on": [
+        "T-031e"
+      ],
+      "notes": "Owner 2026-11-03 \"you should build that for testing\" and \"you jsut wrie a spec and push to cloud\". Needed to diagnose the repeated reply reported that day."
+    },
+    {
+      "id": "T-031g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §18 items 1-5: model-mode control_window and control_climate descriptions state the tool's purpose; no test case added or changed; score table and model; rows 1-3",
+      "depends_on": [
+        "T-031f"
+      ],
+      "notes": "Owner 2026-11-03 \"this make sense then write the spec\" after a community review. Keep-or-revert rule in item 5 is PROPOSED."
+    },
+    {
+      "id": "T-031h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §19 items 1-3: remove lower temperature from the model-mode sleepy rule; test cases unchanged; same build as T-031g; row 1",
+      "depends_on": [
+        "T-031g"
+      ],
+      "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\" and \"the current test case is ok don't add extra stuff\"."
+    },
+    {
+      "id": "T-046c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §15 items 1-12: Google Search in the live session behind 联网搜索（实验）, instruction, re-ask time, record and log lines; car tools and guards unchanged; rows 1-11",
+      "depends_on": [
+        "T-046b"
+      ],
+      "notes": "Owner 2026-11-03: the LLM should find the data itself; fixed tools are only for car functions. Mentor complaint: 后天 weather."
+    },
+    {
+      "id": "T-046d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §16 items 1-15: two models; web_search through gemini-2.5-flash-lite with sources required, no googleSearch in the live setup, weather and place_details leave query_live_info with the setting on, Search Suggestions shown, record and log lines; rows 1-15",
+      "depends_on": [
+        "T-046c"
+      ],
+      "notes": "Device 2026-11-03, c161c9d: googleSearch in the live setup closes UNAVAILABLE on the free key; 后天 weather hit the today/tomorrow tool. Owner chose two models with 2.5 Flash-Lite. Replaces §15 items 2, 3, 4, 6, 7, 8, 10."
+    },
+    {
+      "id": "T-046e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §17 items 1-11: web_search through qwen3.7-flash on the Singapore multimodal API with its own key and sources required; Gemini search client and Search Suggestions removed; error codes logged; rows 1-12",
+      "depends_on": [
+        "T-046d"
+      ],
+      "notes": "Device 2026-11-03, e87affb: web_search failed with http_404, likely gemini-2.5-flash-lite closed to new users. Owner chose to test Qwen on the free quota. Wire format not yet run against the model. Replaces §16 items 4, 5, 8."
+    },
+    {
+      "id": "T-046f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §18 items 1-9: local record shows each Qwen request body, raw reply, parser counts and outcome, plus whether a key is saved; cancelled path reported; key never recorded; search behaviour unchanged; rows 1-10",
+      "depends_on": [
+        "T-046e"
+      ],
+      "notes": "Device 2026-11-04, e01f464: PC call to qwen3.7-flash found 18 sources; on the phone one query failed no_sources after 3572 ms and 上海明天天气 failed in 2 ms with no system log. Owner asked to record Qwen input and response."
+    },
+    {
+      "id": "T-046g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §19 items 1-9: SearchDate reads relative and written dates from the query, writes the date into the query, refuses a future-day answer that names only other dates with reason=wrong_date, target_date and next ask her to say the day, record and log lines; rows 1-9",
+      "depends_on": [
+        "T-046f"
+      ],
+      "notes": "Device 2026-11-04, e01f464: 上海后天天气 answered with 11月5日, the 明天 forecast, and she dropped the date. Owner approved a code date fix."
+    },
+    {
+      "id": "T-046h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §20 items 1-5: search_options gets forced_search true; sources still required; no silent resend without it; rows 1-5",
+      "depends_on": [
+        "T-046g"
+      ],
+      "notes": "PC test 2026-11-04: the same oil price query searched 1 time in 3 with the §17 settings. Owner: the app only calls Qwen to search, so force it. Not yet tested on qwen3.7-flash multimodal streaming."
+    },
+    {
+      "id": "T-046i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §21 items 1-10: current destination from the snapshot, silent clientContent note with turnComplete false when idle and a constant to turn it off, 目的地 and 终点 in a query become the name, hours questions get current_destination in the result, new sentence in her instruction, record and log lines; rows 1-12",
+      "depends_on": [
+        "T-046h"
+      ],
+      "notes": "Device 2026-11-04, e01f464: while navigating to 横琴文化艺术中心 she searched ODD几点关门 and said she could not find ODD. Owner approved the two-part fix after a community review. turnComplete false has never been sent by this app, so row 8 comes first."
+    },
+    {
+      "id": "T-046j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §22 items 1-6: search_options uses search_strategy turbo with enable_source and forced_search; sources still required; no silent resend with another strategy; rows 1-4",
+      "depends_on": [
+        "T-046i"
+      ],
+      "notes": "Device 2026-11-05, 21f4478: Qwen searched in 1 of 10 calls. PC test 2026-11-05, same question 5 times each: agent 0 of 10, turbo 10 of 10, max 10 of 10, no strategy 5 of 5. One question only, so row 3 tests the others."
+    },
+    {
+      "id": "T-016i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-05a §13 items 1-7: pure ScreenLanguage check before driver line, reply, guidance and camera text are shown; other scripts void her reply with NOT_MANDARIN; screen-hidden record line; rows 1-10",
+      "depends_on": [
+        "T-016f"
+      ],
+      "notes": "Owner 2026-11-05: the screen sometimes shows Korean or other languages. No Korean in the 8 records read, so the case itself is not traced; the code shows four unchecked paths. Row 10 is the device check."
+    },
+    {
+      "id": "T-060a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-01 §14 items 1-14: SherpaWakeEngine on the bundled KWS model, WakePhrase with two token lines, no iFlytek keys, 唤醒词 setting, screen on while listening, sound when ready, record lines; rows 1-12",
+      "depends_on": [
+        "T-061",
+        "T-022a"
+      ],
+      "notes": "Owner 2026-11-05: the wake word is not set up. The iFlytek path needs three keys and was never verified on a phone. No public false-wake numbers for this model, so rows 9-12 decide."
+    },
+    {
+      "id": "T-016j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-24 §15 items 1-10: 60 s retry window with the network up, give-up closes the session through the offline-end path, handle kept in memory for 2 hours, wake word or tap connects again, chip text, record lines; rows 1-9",
+      "depends_on": [
+        "T-016h",
+        "T-060a"
+      ],
+      "notes": "Owner 2026-11-05: once disconnected it does not connect back; let the wake word connect again. The 3 drops in the records recovered, so the owner's failure is not captured yet."
+    },
+    {
+      "id": "T-013e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-04b §3-§10: Speaker Lock settings, enrollment, calibration, SpeakerHold before upload, wake and stop phrase checks, speaker_eval.py, record lines; rows 1-18",
+      "depends_on": [
+        "T-013a",
+        "T-060a"
+      ],
+      "notes": "Owner request 2026-11-05. No built-in threshold: the lock cannot turn on until calibrated on the phone. Accuracy and delay are unmeasured until rows 12-18 run. Code PASS 2026-11-05 (gates 611+35+41, review PASS after 2 FAIL rounds). Licence: primary ModelScope card Apache-2.0. Eval on AISHELL-1/HI-MIA clips (studio, not car). Rows 11-18 NOT_VERIFIED (device)."
+    },
+    {
+      "id": "T-013f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-04b §12: speaker model as an Apple-hosted Background Assets pack downloaded at install; Release builds drop the bundled copy; rows 19-26",
+      "depends_on": [
+        "T-013e"
+      ],
+      "notes": "Owner request 2026-11-05. Code PASS 2026-11-05 (gates 616+35+41, py 30; review FAIL then PASS, fixes f3449a4). App and extension not built (no Xcode here). Rows 23-26 NOT_VERIFIED (device). Deferred: v2 pack folder reuse; retry after checksum mismatch."
+    },
+    {
+      "id": "T-013g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-04b §13: save calibration scores after every line and resume them; warn before 重新录入; rows 27-36",
+      "depends_on": [
+        "T-013f"
+      ],
+      "notes": "Owner 2026-11-05: keeps being asked to set the lock up again. Phone check: voiceprint survived the install, calibration never finished. Rows 33-36 are device rows.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 27-32: SpeakerCalibrationDraftTests (7 tests)",
+        "Independent high-effort review PASS",
+        "App/NovaDrive/SpeakerLock.swift builds on iOS CI only",
+        "Rows 33-36 device NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-013h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-04b §14 items 1-10: SpeakerVerifyClip shared by 校准 and SpeakerHold, threshold records its clip and old thresholds need recalibration, 设置 and 校准 show the saved calibration, on-screen notice for dropped sentences and rejected wake words; rows 37-46",
+      "depends_on": [
+        "T-013g"
+      ],
+      "notes": "Owner 2026-11-06 (339f513): lock on after install rejected every sentence (scores 0.03-0.44 on 1 s clips vs threshold 0.46 set on whole lines), no message shown, no calibration shown in 设置. The clip mismatch is the likely cause, not proved; row 45 checks it. The owner recalibrates once after this ships.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (T-013h and T-046o together)",
+        "Unit rows 37-42: SpeakerCalibrationLiveClipTests; SpeakerLockTests and SpeakerModelSourceTests updated for clipMs",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 43-46 device NOT_VERIFIED",
+        "App target not compiled here; needs a Codemagic build"
+      ]
+    },
+    {
+      "id": "T-013i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-04b §15 items 1-5: a profile with a threshold and no calibrationClipMs is ready and its threshold is used; recalibrate only for a recorded different clip; 设置 and 校准 show 已校准 …（整句校准）; rows 47-50",
+      "depends_on": [
+        "T-013h"
+      ],
+      "notes": "Owner 2026-11-06: does not want to record calibration again; the lock worked for them with the 09:02 threshold 0.46. Replaces §14 item 5 and row 43.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 47-48: SpeakerKeepOldCalibrationTests; row 40 test now uses a recorded clipMs 500 (§15 replaces §14 item 5)",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 49-50 device NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-042c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-16 §14 items 1-11: near-first 高德 search, pinyin+distance score, confirm tiers, far_only, CONFIRM_FIRST by driver-turn order, next candidate then DESTINATION_REJECTED, km+hours start sentence, record/log lines; unit rows 2-7",
+      "depends_on": [
+        "T-042"
+      ],
+      "notes": "Gates PASS on stack 1ff2f9f (NovaCore 632, Realtime 36, Services 42, py 42; spec-trace 91/0). Review FAIL (navigate_to while navigating bypassed §14; turn read before search; tool name in spoken text) fixed, re-review PASS. App not built. Rows 1 (PC) and 8 (device) NOT_VERIFIED."
+    },
+    {
+      "id": "T-046k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §23 items 1-4: weather today..大后天 and place_details stay in query_live_info with search on; forecast picked by cast date; unit rows 2-4",
+      "depends_on": [
+        "T-046j"
+      ],
+      "notes": "Gates PASS (same stack). Review PASS first round. Open: §16 item 11 persona/web_search text still sends weather/hours to web_search (spec gap, owner). Row 1 (PC) NOT_VERIFIED."
+    },
+    {
+      "id": "T-046l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §23 items 5-8: driver words to Qwen (FreshPrompt user message), scripts/search_eval harness (not run); unit row 5",
+      "depends_on": [
+        "T-046j"
+      ],
+      "notes": "Race blocker fixed 2026-11-05. App line (AgentRuntime driverWords: words(for:)) builds only on iOS CI.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (NovaCore 633, 1 known NoiseCorpus issue; NovaRealtime 36)",
+        "Words snapshot per CallID at toolCalls (DriverWordsHolder.words(for:)); test snapshotPerCall",
+        "Independent high-effort review PASS; its eviction finding fixed (no snapshot -> nil)",
+        "Row 6 (PC search_eval run) NOT_VERIFIED: needs DASHSCOPE_API_KEY on the owner's PC"
+      ]
+    },
+    {
+      "id": "T-046m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §24 items 1-7: FreshPrompt system text on the current Qwen settings, her next and persona no longer force 只按 answer; rows 1-7",
+      "depends_on": [
+        "T-046l"
+      ],
+      "notes": "Owner 2026-11-05: apply now without the PC comparison, after 下个月澳门温度几度 returned 查不到 despite 6 sources. Whether it fixes that is unproven until rows 5-7 run. | Spec conflict resolved by raising the persona base limit to 1600. web_search tool description still says 只按返回的 answer 回答 (outside §24).",
+      "evidence": [
+        "Gates run_all.sh exit 0 (NovaRealtime 37, NovaServices 42)",
+        "Unit rows 1-4: WebSearchClientTests freshPrompt + exchanges, WebSearchTests noRefusalRules + persona, existing retry/failure tests",
+        "Independent high-effort review PASS",
+        "maxBaseCharacters 1500 -> 1600 (live-info.md row 7 updated) to fit the approved item 5 text",
+        "Rows 5-7 device NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-046n",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-18 §25 items 1-8: current_time time_zone argument (copied from mcp-server-time), persona and descriptions route every time question to it, web_search refuses current-time queries; rows 1-9",
+      "depends_on": [
+        "T-046m"
+      ],
+      "notes": "Owner 2026-11-06: times for 仙台, 奥斯陆 and 澳门 all made up by Qwen after she sent them to web_search (record 20261106-091340). Item 7 code check is ours, not from a source; the owner may remove it.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 1-7: CurrentTimeZoneTests (7 tests); older persona/web_search/catalog tests updated",
+        "Independent high-effort review: code matches items 1-8; its two doc findings (limit history wording, STATUS entry) fixed",
+        "maxBaseCharacters 1600 -> 1700 (§25 item 5)",
+        "Rows 8-9 device NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-046o",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-18 §26 items 1-12: query_live_info weather takes date and country; 高德 for China today to 大后天, Open-Meteo (16 days, no key) for later days and foreign places; name check stops foreign names becoming Chinese districts; past-window answer per PR #57; web_search refuses near-term weather; Open-Meteo credit in 设置; rows 1-13",
+      "depends_on": [
+        "T-046n"
+      ],
+      "notes": "Owner 2026-11-06 chose Open-Meteo after 11/10 and 11/12 weather failed on the device and PC tests showed Qwen gives no forecast 6 days out (Oslo 11/12, 0 of 3) and enable_search_extension changed nothing. Name check (item 2) and search block (item 9) are ours, not from a source; the owner may remove them. Free API is non-commercial.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (T-013h and T-046o together)",
+        "Unit rows 1-10: ForecastWeatherTests, ForecastSearchTests, OpenMeteoClientTests; older search tests moved off weather queries",
+        "Independent high-effort review: code matches items 1-12; its one blocking finding (STATUS licence note, item 10) fixed",
+        "maxBaseCharacters unchanged at 1700",
+        "Rows 11-13 device NOT_VERIFIED",
+        "App target not compiled here; needs a Codemagic build"
+      ]
+    },
+    {
+      "id": "T-046p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §27 items 1-8: Open-Meteo current= in the forecast call, current block in the port, now (temperature_c, feels_like_c, humidity, weather, wind_kmh, time) in today's result, next text, weatherPart/officialFirst/web_search/persona texts, 几度 and 多少度 in the search block; rows 1-7",
+      "depends_on": [
+        "T-046o"
+      ],
+      "notes": "Owner device issue 5, 2026-11-06: no current temperature for 奥斯陆. §26 asked Open-Meteo for daily only. China keeps 高德's live report (owner's 高德-vs-Open-Meteo choice not yet given; §26 as approved). Search-block words are ours, not from a source.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 1-6: OpenMeteoCurrentTests, CurrentWeatherTests, CurrentTemperatureSearchTests; older text tests updated",
+        "Independent high-effort review PASS, no blocking findings",
+        "Persona base 1679 (was 1673); maxBaseCharacters unchanged at 1700",
+        "Row 7 device NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-013j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-04b §16 items 1-11: threshold slider in 设置 (0.30-0.70, step 0.01), calibration counts at the value, 恢复建议值, calibration-result.json with Documents fallback (both scores formats), last 20 live scores, save on release, applies with no restart, speaker-threshold record line; rows 51-61",
+      "depends_on": [
+        "T-013i"
+      ],
+      "notes": "Owner request 2026-11-06, written in local commit 9ed69d8 as §14 / T-013h, which collided with the built §14; renumbered.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 51-57: SpeakerThresholdSliderTests (8 tests); no existing tests changed",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 58-61 device NOT_VERIFIED",
+        "App target not compiled here"
+      ]
+    },
+    {
+      "id": "T-016k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-24 §16 items 1-5: physical-interface check (pure snapshot, requirePhysicalInterface switch, networkPath log), unreachable vs server flag for the log, ping 10 s / pong 5 s, drop the resume handle after two quick closes (also the §15 kept handle), providerClosed log; rows 1-9",
+      "depends_on": [
+        "T-016j"
+      ],
+      "notes": "Owner approved 2026-10-31 as §15 / T-016i on branch 10-31-vpn-network-spec (53771c3), never merged; IDs reused since. Old item 3 (60 s window) dropped: §15 / T-016j built it differently.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (NovaCore, NovaServices, NovaRealtime)",
+        "Unit rows 1-5: VpnNetworkRecoveryTests, ProviderCloseTests; three GeminiLiveProviderTests expectations gain unreachable: true",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 6-9 device NOT_VERIFIED",
+        "NovaPlatform watcher and App not compiled here"
       ]
     }
   ]

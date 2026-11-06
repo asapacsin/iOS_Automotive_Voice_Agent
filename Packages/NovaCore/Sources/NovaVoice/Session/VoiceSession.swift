@@ -54,7 +54,11 @@ public enum SessionEffect: Sendable, Hashable {
     case showConfigError(RealtimeErrorCode)
     case diagnostic(DiagnosticEvent)
     /// F-24 §14 item 4: the offline cap ended the session; the shell releases the microphone and audio session.
+    /// F-24 §15 item 2: giving up after the retry window ends the session the same way.
     case offlineEnded
+    /// F-24 §15 item 4: keep this handle in memory for the next start (always just before `offlineEnded`).
+    /// Never logged or persisted (I-7).
+    case keepHandle(String?)
 }
 
 /// `VoiceSessionController` + `VoiceSessionStateMachine` (F-05 core, F-24). Pure: no socket, no timers.
@@ -74,10 +78,25 @@ public struct VoiceSession: Sendable {
     private var timerEpoch = Epoch.initial
     /// Pending timers by kind, so a stale token can be told apart.
     private var timers: [SessionTimer.Kind: Epoch] = [:]
+    /// F-24 §15 item 8: set when this session started after a give-up; reported once at the first setup.
+    private var resumeReport: (offered: Bool, rejected: Bool)?
+    private let reconnectTuning: ReconnectTuning
+    /// F-24 §16 item 4: the open attempt sent a handle; when its setupComplete came; resumed attempts in a row that
+    /// the server closed quickly.
+    private var attemptResumed = false
+    private var setupAt: NovaInstant?
+    public private(set) var quickCloses = 0
 
-    public init(realtime: RealtimeTuning = RealtimeTuning(), reconnect: ReconnectTuning = ReconnectTuning()) {
+    /// `resume`: F-24 §15 item 5, what a give-up or the offline cap kept for this start.
+    public init(realtime: RealtimeTuning = RealtimeTuning(), reconnect: ReconnectTuning = ReconnectTuning(),
+                resume: SessionResume? = nil) {
         tuning = realtime
         policy = ReconnectPolicy(tuning: reconnect)
+        reconnectTuning = reconnect
+        if let resume {
+            resumptionHandle = resume.handle
+            resumeReport = (resume.handle != nil, false)
+        }
     }
 
     public mutating func handle(_ input: SessionInput, at now: NovaInstant) -> [SessionEffect] {
@@ -91,6 +110,7 @@ public struct VoiceSession: Sendable {
         case .stop:
             guard state != .disconnected else { return [] }
             resumptionHandle = nil
+            quickCloses = 0
             waitingForNetwork = false
             reconnecting = false
             connection = connection.next()  // late events of the closed socket are now stale
@@ -110,15 +130,12 @@ public struct VoiceSession: Sendable {
             timers[timer.kind] = nil
             switch timer.kind {
             case .setupDeadline:
-                return [.diagnostic(.setupTimeout)] + fail(.timeout, at: now)
+                return [.diagnostic(.setupTimeout)] + fail(.timeout, at: now, socketEnd: .unreachable)
             case .reconnectDelay:
                 return openSocket(at: now)
             case .offlineCap:
                 guard waitingForNetwork else { return [] }
-                waitingForNetwork = false
-                reconnecting = false
-                resumptionHandle = nil
-                return cancelAll() + [.diagnostic(.offlineCapReached), .offlineEnded] + transition(to: .disconnected)
+                return cancelAll() + [.diagnostic(.offlineCapReached)] + endQuietly()
             }
         case .networkLost:
             guard online else { return [] }
@@ -144,6 +161,17 @@ public struct VoiceSession: Sendable {
         }
     }
 
+    /// F-24 §14 item 4 and §15 item 2: the session ends; the handle is handed to the shell to keep (§15 item 4).
+    private mutating func endQuietly() -> [SessionEffect] {
+        let kept = resumptionHandle
+        waitingForNetwork = false
+        reconnecting = false
+        resumptionHandle = nil
+        quickCloses = 0
+        policy.reset()
+        return [.keepHandle(kept), .offlineEnded] + transition(to: .disconnected)
+    }
+
     private mutating func waitForNetwork(at now: NovaInstant) -> [SessionEffect] {
         waitingForNetwork = true
         reconnecting = true
@@ -155,7 +183,13 @@ public struct VoiceSession: Sendable {
         case .setupComplete:
             guard state == .connecting || state == .reconnecting else { return [] }
             policy.reset()
-            let resumed: [SessionEffect] = reconnecting ? [.diagnostic(.resumed(handle: resumptionHandle != nil))] : []
+            setupAt = now
+            var resumed: [SessionEffect] = reconnecting ? [.diagnostic(.resumed(handle: resumptionHandle != nil))] : []
+            if let report = resumeReport {
+                resumeReport = nil
+                let result: SessionResumeResult = !report.offered ? .none : report.rejected ? .rejected : .resumed
+                resumed.append(.diagnostic(.sessionResume(handle: report.offered, result: result)))
+            }
             reconnecting = false
             return cancel(.setupDeadline) + resumed + transition(to: .listening)
         case .resumptionHandle(let handle):
@@ -169,29 +203,61 @@ public struct VoiceSession: Sendable {
             return state == .speaking || state == .thinking ? transition(to: .listening) : []
         case .goAway:
             // The server will close soon: move to a fresh socket now, resuming with the handle.
-            return fail(.disconnect, at: now)
+            return fail(.disconnect, at: now, socketEnd: nil)
         case .failed(let error):
-            return fail(error.code, at: now)
+            return fail(error.code, at: now, socketEnd: error.unreachable ? .unreachable : .server)
         case .closed:
-            return fail(.connectionClosed, at: now)
-        case .userTranscript, .toolCalls, .toolCallCancellation, .audioDone:
+            return fail(.connectionClosed, at: now, socketEnd: .server)
+        case .userTranscript, .toolCalls, .toolCallCancellation, .audioDone, .turnEnded:
             return []
         }
     }
 
+    /// F-24 §16 item 2: how a socket ended (nil: no socket end, e.g. goAway).
+    private enum SocketEnd { case unreachable, server }
+
+    /// F-24 §16 item 4: two resumed attempts in a row closed by the server before setupComplete or within 3 s after
+    /// it drop the handle, as `RESUME_UNAVAILABLE` does.
+    private mutating func countQuickClose(_ end: SocketEnd?, at now: NovaInstant) -> [SessionEffect] {
+        guard let end, attemptResumed else { return [] }
+        attemptResumed = false
+        let quick = end == .server && setupAt.map { now - $0 <= reconnectTuning.quickCloseWindow } ?? true
+        guard quick else {
+            quickCloses = 0
+            return []
+        }
+        quickCloses += 1
+        guard quickCloses >= reconnectTuning.quickClosesToDropHandle, resumptionHandle != nil else { return [] }
+        dropHandle()
+        return [.diagnostic(.resumeDropped(reason: .quickClose))]
+    }
+
+    private mutating func dropHandle() {
+        if resumptionHandle != nil, resumeReport?.offered == true { resumeReport?.rejected = true }
+        resumptionHandle = nil
+        quickCloses = 0
+    }
+
     /// One error per socket: the socket is abandoned at once, so a second error from it is stale.
-    private mutating func fail(_ code: RealtimeErrorCode, at now: NovaInstant) -> [SessionEffect] {
-        if code == .resumeUnavailable { resumptionHandle = nil }
+    private mutating func fail(_ code: RealtimeErrorCode, at now: NovaInstant, socketEnd: SocketEnd?) -> [SessionEffect] {
+        let dropped = code.isRetryable ? countQuickClose(socketEnd, at: now) : []
+        if code == .resumeUnavailable { dropHandle() }
         connection = connection.next()
-        let base = cancel(.setupDeadline) + [.close]
+        let base = cancel(.setupDeadline) + [.close] + dropped
         // Item 2: with no network a retryable failure waits for it instead of spending an attempt.
         if !online, code.isRetryable { return base + cancel(.reconnectDelay) + waitForNetwork(at: now) }
-        switch policy.next(after: code) {
+        switch policy.next(after: code, at: now) {
         case .retry(let attempt, let delay):
             reconnecting = true
             return base + transition(to: .reconnecting)
                 + [.diagnostic(.reconnectAttempt(attempt: attempt, delay: delay))]
                 + schedule(.reconnectDelay, at: now + delay)
+        case .giveUp where code.isRetryable:
+            // F-24 §15 item 2: the retry window ended; close the session as the offline cap does.
+            let gaveUp = DiagnosticEvent.sessionGaveUp(ms: policy.msSinceFirstFailure(at: now),
+                                                       attempts: policy.attempts,
+                                                       code: code.retryableCode ?? .connection)
+            return base + cancelAll() + [.diagnostic(gaveUp)] + endQuietly()
         case .giveUp:
             resumptionHandle = nil
             reconnecting = false
@@ -200,7 +266,9 @@ public struct VoiceSession: Sendable {
     }
 
     private mutating func openSocket(at now: NovaInstant) -> [SessionEffect] {
-        [.connect(connection: connection, resume: resumptionHandle)]
+        attemptResumed = resumptionHandle != nil
+        setupAt = nil
+        return [.connect(connection: connection, resume: resumptionHandle)]
             + schedule(.setupDeadline, at: now + tuning.setupCompleteTimeout)
     }
 

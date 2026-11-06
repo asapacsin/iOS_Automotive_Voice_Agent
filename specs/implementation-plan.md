@@ -39,6 +39,7 @@ NOT_VERIFIED until a device run is attached.
 |---|---|---|---|---|---|
 | T-000 | Repo scaffold: package layout and NovaCore targets (empty), adapter packages, App project, `AGENTS.md`, gate scripts (`imports`, `secrets`, `spec-trace`), CI (macOS: swift test + xcodebuild) | prerequisites | whole tree, `scripts/`, CI config | All gates run green on an empty tree; a planted `import UIKit` in NovaCore fails `imports` | build, unit, lint, secrets, imports |
 | T-001 | Audio spike app: VP engine, loud 24 kHz playback, 10 silent trials; three AGC configurations; sink node vs tap latency | T-000 | `Spikes/AudioSpike/` | Answers OQ-IOS-3 and OQ-IOS-14 in open-questions.md, with clips and numbers | D |
+| T-001a | Echo re-test with the app's real audio setup: `EchoSpike` matches `LiveAudio`, volume and AGC matrix | T-001 | `Packages/NovaAudio/`, `App/NovaDrive/` | F-08 §17 row 12, numbers in open-questions.md | build, D |
 | T-002 | Amap hello-route: key from the Keychain at runtime, privacy-compliance calls, multi-route, route-select call, `startEmulatorNavi`, `playNaviSoundString` log | T-000 | `Spikes/AmapSpike/` | Closes the remaining part of OQ-IOS-2; records Amap callback threads | S, D |
 | T-003 | Gemini recorder: `URLSessionWebSocketTask` setup + audio + tool call against the live API; save sanitised server messages | T-000 | `Spikes/GeminiRecorder/`, `Packages/NovaRealtime/Tests/fixtures/gemini/` | ≥6 `.jsonl` fixtures: plain turn, tool turn, interrupted, goAway, resumption, 1007 close; no keys or transcripts of real people | secrets |
 | **G0** | **Decision gate**: is voice processing good enough (≥9/10 silent trials without the gate opening)? If not, plan AEC3 in NovaAudio (ios-architecture §6.7) | T-001 | — | Written go/no-go per subsystem | OWNER review |
@@ -55,20 +56,31 @@ NOT_VERIFIED until a device run is attached.
 | T-013b | `SoundAnalysisSpeechClassifier` (SNAudioStreamAnalyzer); voice processing pinned | F-04a | T-013a | `Packages/NovaAudio/` | F-04a §10 rows 4, 8 | build, D |
 | T-013c | Barge-in uses speech confirmation; 音频测试 diagnostics line; 设置 抗噪 switch | F-04a | T-013a | `Core/NovaVoice/Arbiter/`, `App/NovaDrive/` | F-04a §10 rows 3, 7 | unit, S, D |
 | T-013d | Noise corpus fixtures + corpus tests | F-04a | T-013a | `Fixtures/audio/noise/`, tests | F-04a §10 rows 1–2 | unit |
+| T-013e | Optional Speaker Lock: on-device enrollment and calibration, `SpeakerHold` before upload, wake and stop phrase checks, default off | F-04b | T-013a, T-060a | `Packages/NovaCore/`, `Packages/NovaAsrSherpa/`, `App/NovaDrive/`, `scripts/` | F-04b §8 rows 1–18 | unit, script, build, D |
+| T-013f | Speaker model as an Apple-hosted Background Assets pack, downloaded at install; Release builds drop the bundled copy | F-04b §12 | T-013e | `Packages/NovaCore/`, `App/`, `scripts/` | F-04b §12 rows 19–26 | unit, script, build, D |
+| T-013g | Calibration progress saved after every line and resumed; warning before 重新录入 | F-04b §13 | T-013f | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §13 rows 27–36 | unit, build, D |
+| T-013h | 校准 scores the same 1 s clip as the live check; an old threshold needs recalibration; 设置 shows the saved calibration; dropped sentences shown on screen | F-04b §14 | T-013g | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §14 rows 37–46 | unit, build, D |
+| T-013i | A threshold calibrated before §14 stays in use (no forced recalibration); 设置 shows it as 整句校准 | F-04b §15 | T-013h | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §15 rows 47–50 | unit, build, D |
+| T-013j | Threshold slider in 设置 with the calibration counts at each value, 恢复建议值, recent live scores; applies with no restart | F-04b §16 | T-013i | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §16 rows 51–61 | unit, build, D |
 | T-014 | `VoiceSession` state machine + `ReconnectPolicy` | F-05 core, F-24 | T-011 | `Core/NovaVoice/Session/` | contracts/voice-agent.md §1 and §8 transitions; auth error → no retry | unit |
 | T-015 | Gemini codec, turn assembler, error classifier | F-05 | T-011, T-003 | `Packages/NovaRealtime/Sources/Codec/` | Fixture replay gives the §4 event order; 1007/1008 classification | unit, contract |
 | T-016 | Gemini transport + provider; local fake WebSocket server | F-05, F-24 | T-015 | `Packages/NovaRealtime/` | F-05 §10 rows 2–3; F-24 §10 row 1 (W4) | unit, contract |
 | T-016g | Callbacks answered once: `ResumeOnce` helper, ping double-callback crash fix, audit of Apple-callback continuations | F-05, F-24 | T-016 | `Packages/NovaRealtime/`, `Packages/NovaPlatform/`, `Packages/NovaAudio/` | F-05 §14 rows 1–8 | unit, review, D |
 | T-016h | Wait for the network: `NetworkPathWatcher`, offline wait without spending attempts, immediate reconnect on restore, 10 min offline cap | F-24 | T-016g | `Packages/NovaPlatform/`, `Packages/NovaCore/`, `App/NovaDrive/` | F-24 §14 rows 1–10 | unit, build, D |
+| T-016j | Retry for 60 s with the network up, then close the session and keep the handle in memory, so 你好小诺 or a tap connects again and continues | F-24 | T-016h, T-060a | `Core/NovaVoice/Session/`, `Core/NovaKit/`, `App/NovaDrive/` | F-24 §15 rows 1–9 | unit, build, D |
+| T-016k | A VPN with no Wi-Fi or cellular under it counts as offline; ping 10 s / pong 5 s; drop a resume closed twice quickly; providerClosed log | F-24 §16 | T-016j | `Packages/NovaCore/`, `Packages/NovaPlatform/`, `Packages/NovaRealtime/` | F-24 §16 rows 1–9 | unit, build, D |
 | T-016a | `LocalTranscriber` port, `TranscriptSelector`, `TranscriptLanguage`, `wordsReliable` | F-05a | T-016, T-013a | `Core/NovaPorts/`, `Core/NovaVoice/Transcript/`, `Core/NovaTools/Dispatch/` | F-05a §10 rows 1–4 | unit |
-| T-016b | `AppleSpeechTranscriber` (on-device zh-CN), import gate, Info.plist key | F-05a | T-016a | `Packages/NovaAudio/`, `scripts/gates/` | F-05a §4 | build |
-| T-016c | Transcriber wiring in `AgentRuntime`, 音频测试 diagnostics line | F-05a | T-016b | `App/NovaDrive/` | F-05a §10 rows 5–9 | S, D |
+| T-016b | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | F-05a | T-016a | `Packages/NovaAudio/`, `scripts/gates/` | F-05a §4 | build |
+| T-016c | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | F-05a | T-016b | `App/NovaDrive/` | F-05a §10 rows 5–9 | S, D |
 | T-016d | Transcript display-only: no tool guard reads it; withdraw `wordsReliable` / `wordsUnclear` | F-05a | T-016a | `Core/NovaTools/Dispatch/`, `Core/NovaAgent/` | F-05a §10 row 4 (revised) | unit |
 | T-016e | 结束导航 ends at once: remove the exit confirmation (`CONFIRM_REQUIRED`) | F-05a | T-016d | `Core/NovaTools/Dispatch/` | F-05a §6 (ending navigation) | unit, D |
 | T-016f | Bundled sherpa-onnx streaming Mandarin recognizer replaces Apple's (no keyboard dependence, no speech permission) | F-05a | T-016c | `Packages/NovaAsrSherpa/`, `App/NovaDrive/`, `scripts/`, `codemagic.yaml` | F-05a §12 rows 1–10 | unit, gate, build, D |
+| T-016i | One check before conversation text is shown: other languages never reach the driver line, reply, guidance or camera text; other scripts void her reply | F-05a | T-016f | `Packages/NovaCore/`, `App/NovaDrive/` | F-05a §13 rows 1–10 | unit, build, D |
 | T-022a | Stop phrase while she talks: sherpa keyword spotter on a fixed 7-phrase set, transcript as backup | F-08 | T-016f | `Packages/NovaAsrSherpa/`, `Core/NovaVoice/`, `App/NovaDrive/` | F-08 §14 rows 1–8 | unit, build, D |
 | T-022b | Stop phrase also ends the reply for Gemini: START_OF_ACTIVITY_INTERRUPTS + empty activity on a stop, unmute on stop, re-ask names the newest question, scoped abandonNextTurn | F-08, F-06, F-05 | T-022a | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-08 §15 rows 1–9 | unit, S, D |
 | T-022c | After 别说了 nothing is sent until real words: stop utterance held to the pause, 3 s post-stop window with word-gated release (local ASR) or drop, no reply without a sent utterance | F-08, F-04, F-05a | T-022b | `Packages/NovaCore/`, `App/NovaDrive/` | F-08 §16 rows 1–12 | unit, build, D |
+| T-022d | Log-only interruption check while she talks: `BargeInCheck`, driver level bar, her recent words, `bargeInShadow` log, 800 ms echo tail, mute-end log; no behaviour change besides the tail | F-08, F-04 | T-022c | `Packages/NovaCore/`, `App/NovaDrive/` | F-08 §17 rows 1–6, 9–11 | unit, build, D |
+| T-022e | Live interruption behind a setting: dip, buffered audio, stop on confirmed new words, `echoWords` rule that respects word order. Owner go-ahead 2026-11-02; on by default needs approval of the device numbers | F-08, F-04 | T-022d | `Packages/NovaCore/`, `Packages/NovaAudio/`, `App/NovaDrive/` | F-08 §17 rows 7–8, 13–18 | unit, build, D |
 | T-017 | Tool catalog (Android names and schemas byte-for-byte), validation, guards in order, dispatcher decisions, `ToolFailureAdvice`, `NotYetExecutor` | F-09 | T-011 + Android tables | `Core/NovaTools/Dispatch/` | F-09 §10: every guard table ported; sunroof → `UNSUPPORTED_BODY_PART` | unit, spec-trace |
 | T-018 | Climate/seat/window handlers + `SimulatedVehicle` with fault injection | F-11 | T-017 | `Core/NovaTools/Vehicle/`, `Packages/NovaServices/Sources/Vehicle/` | F-11 §10 golden files; `BACKEND_LABEL=simulated` | unit |
 | T-019 | Reply pipeline: claim gate, `ActionClaimGuard`, correction grace, empty-response re-ask, phantom gate | F-06 | T-011 | `Core/NovaVoice/Reply/` | F-06 §10 (3 rows); W3 | unit, spec-trace |
@@ -88,6 +100,14 @@ NOT_VERIFIED until a device run is attached.
 |---|---|---|---|---|---|---|
 | T-030 | Driver context + context resolver | F-10 | T-018 | `Core/NovaTools/Context/` | F-10 §10 (3 rows), including the misheard 「第一点」 | unit |
 | T-031 | Comfort scenarios | F-12 | T-018 | `Core/NovaTools/Scenarios/` | F-12 §10 golden files; partial → no full claim | unit |
+| T-031a | Comfort test set of 55+ cases, outcome scorer, in-app runner, baseline score on the fixed table | F-12 | T-031 | `Packages/NovaCore/`, `App/NovaDrive/` | F-12 §14 rows 1, 2, 7 | unit, build, D |
+| T-031b | Model-chosen comfort actions behind a setting: catalog variant, `get_vehicle_state`, goal prompt, `VehicleActionPolicy`, claims per tool | F-12, F-09, F-21, F-06 | T-031a | `Packages/NovaCore/`, `App/NovaDrive/` | F-12 §14 rows 3–9 | unit, build, D |
+| T-031d | Comfort tuning round: test reports failure causes and stage times, 10 fresh held-out cases, tune on tuning cases only, score both versions again | F-12 | T-031b | `Packages/NovaCore/`, `App/NovaDrive/` | F-12 §15 rows 1–7 | unit, build, D |
+| T-031e | Trustworthy comfort test (end of reply, decision reading, checked scorer, 100 cases, consistency, paired comparison, clean runs), small model fixes on tuning cases, score both versions | F-12 | T-031d | `Packages/NovaCore/`, `App/NovaDrive/` | F-12 §16 rows 1–9 | unit, build, D |
+| T-031f | Conversation record for testing: an off-by-default setting saves what she heard, said and did to a file on the phone | F-12 | T-031d | `Packages/NovaCore/`, `App/NovaDrive/` | F-12 §17 rows 1–7 | unit, build, D |
+| T-031g | Window and climate tool descriptions say what the tool is for, in model mode only | F-12 | T-031f | `Packages/NovaCore/` | F-12 §18 rows 1–3 | unit, build, D |
+| T-031h | Sleepy driver in model mode: no lower temperature in rule 5 | F-12 | T-031g | `Packages/NovaCore/` | F-12 §19 row 1 | unit, build |
+| T-031c | Make model-chosen actions the only path and remove the table. Starts only after owner approval of the numbers | F-12, F-09 | T-031b | `Packages/NovaCore/`, `App/NovaDrive/`, `specs/` | F-12 §14 items 14–15 | unit, build, D |
 | T-032 | Bundled music on the media lane; `control_music` | F-13 | T-021 | `Core/NovaTools/Media/`, `Packages/NovaAudio/Sources/MediaLane/` | F-13 §10 row 1 offline; no self barge-in during music (D) | unit, D |
 | T-033 | Amap Web client (weather, regeo) + live-info weather | F-18 | T-017 | `Packages/NovaServices/Sources/AmapWeb/`, `Core/NovaTools/LiveInfo/` | 4 s timeout → honest failure; TTLs 10/30 min | unit, contract |
 | T-034 | Persona and speaking style | F-21 | T-017 | `Core/NovaTools/Persona/` | F-21 §10 (3 rows) | unit |
@@ -102,6 +122,7 @@ NOT_VERIFIED until a device run is attached.
 | T-040 | `NavigationController` phase machine + `NavigationActor` + `ScriptedNaviEngine` | F-15 | T-011, T-002 | `Core/NovaNav/Flow/`, `Core/NovaAgent/Navigation/` | contracts/navigation.md transitions; W8; no double start | unit |
 | T-041 | Choice resolver (index/preference/name), 120 s expiry, picker intercept, 5 s duplicate suppression | F-15 | T-040 | `Core/NovaNav/Choice/` | Ported choice tables; `OPTIONS_STALE` | unit |
 | T-042 | Destination queries, saved places, along-route corridor, WGS-84→GCJ-02; `CoreLocationProvider` | F-16 | T-033 | `Core/NovaNav/Search/`, `Packages/NovaPlatform/Sources/Location/` | F-16 §10 (4 rows) | unit, contract |
+| T-042c | No route to a nonsense place: near-first search, sound-alike score with distance, confirm by score, far places need a yes, km and hours in the start sentence | F-16 | T-042 | `Core/NovaNav/Search/`, `Core/NovaNav/Flow/`, `Packages/NovaServices/`, `App/NovaDrive/` | F-16 §14 rows 1–8 | unit, PC, D |
 | T-042a | `CoreLocationProvider` first-fix wait, authorization changes, denied state; `SwitchableLocationProvider` | F-16a | T-042 | `Packages/NovaPlatform/Sources/Location/`, `Core/NovaNav/Search/` | F-16a §10 rows 5–7 | unit, build |
 | T-042b | 设置 → 位置来源, permission state, 打开系统设置; 演示位置 header label | F-16a | T-042a | `App/NovaDrive/` | F-16a §10 rows 1, 4 | S, D |
 | T-043 | `AmapNaviEngine` adapter with generation tagging | F-15 | T-040, T-002 | `Packages/NovaNavAmap/Sources/Engine/` | Stale callback dropped (S) | build, S, imports |
@@ -123,6 +144,20 @@ NOT_VERIFIED until a device run is attached.
 | T-046 | Live info: route_traffic, along_route, place_details | F-18 | T-042, T-040 | `Core/NovaTools/LiveInfo/` | `NOT_NAVIGATING` when idle | unit, contract |
 | T-046a | `query_live_info` `current_location` (regeo address), codes, catalog + persona line | F-16a | T-046, T-042a | `Core/NovaNav/LiveInfo/`, `Packages/NovaServices/`, `Core/NovaTools/Dispatch/` | F-16a §10 rows 2–3, 7 | unit, contract, D |
 | T-046b | `query_live_info` `current_time` from the phone clock and time zone, catalog + persona line | F-18 | T-046a | `Core/NovaNav/LiveInfo/`, `Core/NovaTools/Dispatch/`, `Core/NovaAgent/Persona/` | F-18 §14 rows 1–10 | unit, build, D |
+| T-046c | Google Search in the live session behind a setting; instruction, re-ask time, record line | F-18 | T-046b | `Packages/NovaRealtime/`, `Packages/NovaCore/`, `App/NovaDrive/` | F-18 §15 rows 1–11 | unit, build, D |
+| T-046d | Two models: `web_search` through Gemini 2.5 Flash-Lite, search removed from the live setup, weather and place details leave `query_live_info` with the setting on | F-18 | T-046c | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §16 rows 1–15 | unit, build, D |
+| T-046e | The search model becomes `qwen3.7-flash` with its own key; Gemini search client and Search Suggestions removed | F-18 | T-046d | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §17 rows 1–12 | unit, build, D |
+| T-046f | The record shows each Qwen request, raw reply and outcome; no failure path is silent; search behaviour unchanged | F-18 | T-046e | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §18 rows 1–10 | unit, build, D |
+| T-046g | The app works out the date of a search, writes it into the query, and refuses a future-day answer that names only other dates | F-18 | T-046f | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §19 rows 1–9 | unit, build, D |
+| T-046h | Every call to Qwen must search: `forced_search` on, sources rule unchanged | F-18 | T-046g | `Packages/NovaRealtime/` | F-18 §20 rows 1–5 | unit, build, D |
+| T-046i | During navigation: a silent note and the search result give her the destination, 目的地 in a query becomes the name, and she asks when a place name makes no sense | F-18 | T-046h | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-18 §21 rows 1–12 | unit, build, D |
+| T-046j | Qwen searches with `search_strategy: "turbo"` instead of `agent`; forced search and the sources rule stay | F-18 | T-046i | `Packages/NovaRealtime/` | F-18 §22 rows 1–4 | unit, build, D |
+| T-046k | Weather up to 大后天 and place details from 高德 even with search on; forecast picked by date | F-18 | T-046j | `Packages/NovaCore/`, `Packages/NovaServices/` | F-18 §23 rows 1–4 | PC, unit, build |
+| T-046l | Driver's words to Qwen; PC comparison of four Qwen setups with the FreshPrompt system text | F-18 | T-046j | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `scripts/search_eval/` | F-18 §23 rows 5–6 | unit, PC |
+| T-046m | Qwen gets the copied FreshPrompt text with no refusal or exact-day rule; she may give usual weather for far-off dates | F-18 | T-046l | `Packages/NovaRealtime/`, `Packages/NovaCore/` | F-18 §24 rows 1–7 | unit, build, D |
+| T-046n | current_time takes an IANA time_zone; every time question uses it; web_search refuses current-time queries | F-18 §25 | T-046m | `Packages/NovaCore/` | F-18 §25 rows 1–9 | unit, build, D |
+| T-046o | Weather for any place and any day in the next 16 days: 高德 for China to 大后天, Open-Meteo for the rest; foreign places by English name and country; web_search refuses near-term weather | F-18 §26 | T-046n | `Packages/NovaCore/`, `Packages/NovaServices/`, `App/` | F-18 §26 rows 1–13 | unit, build, D |
+| T-046p | The temperature now for any place: Open-Meteo `current=` in the same call, `now` in today's result, texts and search block cover 现在几度 | F-18 §27 | T-046o | `Packages/NovaCore/`, `Packages/NovaServices/` | F-18 §27 rows 1–7 | unit, build, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 
@@ -142,6 +177,7 @@ NOT_VERIFIED until a device run is attached.
 |---|---|---|---|---|---|---|
 | T-060 | Check OQ-IOS-9 (app-fed audio), then the `IflytekWakeDetector` adapter with bounded retry | F-01 | iFlytek SDK, T-021 | `Packages/NovaWakeIflytek/` | F-01 §10 row 3 | build, imports, D |
 | T-061 | Mic router + wake arming; one capture only | F-01 | T-060 | `Core/NovaVoice/Wake/`, `Packages/NovaAudio/` | F-01 §10 rows 1–2 | unit, D |
+| T-060a | 你好小诺 on the bundled sherpa keyword spotter: no keys, a setting, screen on while listening, a sound when ready, false-wake record lines | F-01 | T-061, T-022a | `Packages/NovaAsrSherpa/`, `Core/NovaVoice/Wake/`, `App/NovaDrive/`, `scripts/gates/` | F-01 §14 rows 1–12 | gate, unit, build, D |
 | T-062 | `BackgroundPolicy` + scene-phase bridge + background modes | F-23 | OQ-IOS-13, T-061 | `Core/NovaAgent/Background/`, `App/Lifecycle/`, Info.plist | Table in ios-architecture §11.3 (unit); device behaviour (D) | unit, D |
 | T-063 | Permission coordinator + zh-Hans/en usage strings | F-23 | T-025 | `App/Lifecycle/`, `App/Resources/` | F-23 §10 row 1 | S |
 | T-064 | M5 device run, incl. screen lock during navigation | — | T-060..T-063 | `specs/STATUS.md` | F-01/F-23 device rows | D |
@@ -160,13 +196,6 @@ NOT_VERIFIED until a device run is attached.
 | T-071e | `CameraLensChooser` + `camera` argument/result in `CameraQuestionHandler`; catalog property | F-20b | T-071a | `Core/NovaTools/Vision/`, `Core/NovaTools/Dispatch/` | F-20b §10 rows 3, 4, 7 | unit |
 | T-071f | `CameraSession` lens switch (`.back` ↔ `.front`, unmirrored still, 1 s deadline) | F-20b | T-071b | `Packages/NovaPlatform/Sources/Camera/` | F-20b §10 rows 1, 5, 6 | build, D |
 | T-071g | Window switch button, 前方/后方 label, voice-driven switch before capture | F-20b | T-071e, T-071f | `App/NovaDrive/` | F-20b §10 rows 1–2 | S, D |
-| T-072 | MusicKit named music + now-playing check (only if OQ-IOS-7 approves) | F-13 | OQ-IOS-7 | `Packages/NovaPlatform/Sources/Music/` | No claim without verified now-playing; closes OQ-IOS-11 | unit, D |
-
-### M7 (optional): CarPlay
-
-| ID | Task | Depends | Acceptance |
-|---|---|---|---|
-| T-080 | Entitlement request + CarPlay scene in one category (OQ-IOS-8) | entitlement | CarPlay Simulator test |
 
 ## 4. Order and parallel lanes
 

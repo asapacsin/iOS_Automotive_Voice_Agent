@@ -45,7 +45,16 @@ enum VehicleArgs {
         case .unavailable(let r): failure(action, .vehicleUnavailable, r)
         case .permissionDenied(let r): failure(action, .vehiclePermissionDenied, r)
         case .failure(let r): failure(action, .vehicleExecutionFailed, r)
+        case .blocked(let rule): blocked(action, rule)
         }
+    }
+
+    /// F-12 §14 item 11: a policy refusal, with the rule and the advice the driver hears.
+    static func blocked(_ action: String, _ rule: String) -> VehicleToolOutcome {
+        VehicleToolOutcome(result: .failure(.vehicleBlocked, advice: ToolFailureAdvice.forCode(.vehicleBlocked),
+                                            data: ["action": .string(action), "blocked": .string(rule),
+                                                   "detail": .string(VehicleActionPolicy.Rule(rawValue: rule)?.detail ?? rule),
+                                                   "instruction": .string(failureInstruction)]), chip: nil)
     }
 }
 

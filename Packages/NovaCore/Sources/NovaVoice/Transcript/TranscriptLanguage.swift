@@ -9,7 +9,7 @@ public enum TranscriptLanguage {
         var other = 0
         var inLatinWord = false
         for scalar in text.unicodeScalars {
-            if isHan(scalar) {
+            if isHan(scalar) || ReplyLanguage.isHan(scalar) {
                 han += 1
                 inLatinWord = false
             } else if inLatinWord, scalar.properties.generalCategory == .nonspacingMark {

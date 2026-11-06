@@ -178,8 +178,8 @@ model acts on and is known to come back in the wrong language while the model un
 | ID | Task | Verification |
 |---|---|---|
 | T-016a | `LocalTranscriber` port, `TranscriptSelector`, `TranscriptLanguage`, `GuardContext.wordsReliable` + `.wordsUnclear`; rows 1–4 | unit (Linux gates) |
-| T-016b | `AppleSpeechTranscriber` (NovaAudio), import gate entry, Info.plist key, permission with first mic use | build |
-| T-016c | Wire into `AgentRuntime` (frames to transcriber, selector in front of `AgentState`), 音频测试 diagnostics line; rows 5–9 | S, D |
+| T-016b | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | — |
+| T-016c | CLOSED, replaced by T-016f (bundled recognizer; Apple Speech removed) | — |
 | T-016e | §6 ending navigation: remove `confirmExit` / `exitConfirmWindow` from `ToolDispatcher`; `exit_navigation_mode` ends guidance on the call and the result's `next` says 「已结束导航」; tests: one call ends guidance whatever the transcript, no `CONFIRM_REQUIRED` ever; D: 结束导航 ends at once | unit (Linux gates), D |
 | T-016d | §6 revised: remove the transcript from every tool guard (table), withdraw `wordsReliable` / `.wordsUnclear`, `CONFIRM_REQUIRED` for exit while guiding (withdrawn by T-016e), along-route list instead of P61; row 4 (revised); F-09 guard rows that read words marked superseded | unit (Linux gates) |
 
@@ -252,3 +252,61 @@ or languages the phone has. Nothing is downloaded at run time and no audio leave
 | Task | Scope | Verify |
 |---|---|---|
 | T-016f | §12 items 1–11: NovaAsrSherpa package (xcframeworks, `SherpaTranscriber`); model pick and pinned fetch with checksum; wiring in `AgentRuntime` in place of `AppleSpeechTranscriber`; remove Apple's recognizer and permission; diagnostics and log lines; import gate and §3.2 row | unit, gate, build, D (rows 5–10) |
+
+## 13. Only Chinese reaches the conversation text on screen (iOS, APPROVED 2026-11-05)
+
+**Why.** Owner 2026-11-05: the screen sometimes shows Korean or other languages; force it to Chinese. Records `20261104-*` and `20261105-*` (8 files) contain no Korean, and they do not record what was on screen, so the Korean itself is not traced. They do show Gemini returning Spanish and Hindi, and a Spanish reply 「Disculpa…」 caught by the reply guard. Reading the code at 21f4478 shows four ways other text can still reach the screen:
+
+| Path | Gap |
+|---|---|
+| Her reply (`ReplyLanguage.isNotMandarin`) | The reply is voided only at 6 letters with no Han, so up to 5 letters can show first, and 5 Korean syllables are a visible word. One Han character passes the whole reply, so mixed text is never caught. |
+| A guidance reading (`AgentState`, `relayTurns`) | Added to the subtitle with no language check |
+| The driver's line from the local recognizer (`TranscriptSelector`, S1) | Shown with no language check; only Gemini's fallback text is checked |
+| The camera answer (`tapAsk`, `cameraAnswer`) | Shown with no language check |
+
+Code can guarantee what is shown. It cannot guarantee what Gemini hears or writes.
+
+**Rule in plain words.** All conversation text passes one check just before it is shown. Text that fails is not shown.
+
+1. **One pure check.** `ScreenLanguage` in `NovaVoice/Transcript`, with no UI imports. It takes the text and whether it is final, and returns `show`, `wait` or `hide`:
+   - Any letter in a script other than Han or Latin (Hangul, Kana, Cyrillic, Devanagari, Arabic, Thai and so on) → `hide`, even inside a Chinese sentence.
+   - No letters (`22`, `…`) → `show`.
+   - Has Han and passes `TranscriptLanguage.isChinese` → `show`. A name inside a Chinese sentence stays (「导航去 Costa」, 「4S店」).
+   - Has Han and fails `isChinese`: not final → `wait`; final → `hide`.
+   - No Han, only Latin: not final → `wait`. Final → `show` only for at most 5 characters of `A-Z` and `0-9` (`OK`, `4S`); otherwise `hide` (`What?`, `¿Qué?`).
+2. **Where it applies.** At the last step before each of these is published, and on the whole text so far, not on each new piece:
+   - **The driver's line** (`driverLine`), from any source. `hide` shows 「（没听清）」.
+   - **Her reply** (`view.subtitle`). `wait` shows nothing yet, and the text appears whole once it passes. `hide` shows nothing.
+   - **A guidance reading.** `hide` shows the engine's own guidance text instead. Her voice for guidance is not changed (F-14).
+   - **The camera answer** (`cameraAnswer` and the subtitle). `hide` shows and speaks the existing 「刚才没看清楚，再问我一次吧。」 instead.
+3. **Display only.** The check never changes what the guards, the stop phrase, the echo filter or the tools read (§6). A hidden driver line can still be 「别说了」 for the stop-phrase path.
+4. **Her voice follows for other scripts.** `ReplyLanguage.isNotMandarin` also returns true as soon as the reply has a letter from a script other than Han or Latin, so that reply is voided with `NOT_MANDARIN` as today, not spoken and then hidden. The 6-letter Latin rule is unchanged.
+5. **Seeing what happened.** Record line `screen-hidden kind=<driver|reply|guidance|camera> text=<first 80 characters>`, so the next case can be traced. `RuntimeLog` gets only `screenHidden kind=<...>`, with no words (I-8).
+6. **What this does not cover.**
+   - Map labels drawn by the map SDK, and iOS system alerts and permission text.
+   - Fixed labels and product names: `Nova Drive`, `Gemini`, `Azure`, `AGC`, and error codes in 「连接错误：…」.
+   - Place names and addresses from Amap in the lists, which are shown as Amap returns them.
+   - Developer pages: recorder, audio test and comfort evaluation.
+   - Mishearing. A wrong Chinese sentence still shows, because it is Chinese.
+7. **Not changed.** The input audio, the Gemini setup, the `NOT_MANDARIN` correction text, and the rule that the local recognizer's text wins over Gemini's.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Final: 「你好」, 「导航去 Costa」, 「4S店」, `OK`, `4S`, `22` | `show` | unit |
+| 2 | Final: 「안녕하세요」, 「好的안녕」, 「こんにちは」, 「Привет」, 「मैं」, `¿Qué?`, `What?`, `la vecina` | `hide` | unit |
+| 3 | Not final: `Disc`, `OK`; 「안」; 「你好」 | `wait`, `wait`; `hide`; `show` | unit |
+| 4 | Reply pieces `OK`, `，好的` | Nothing shows after the first piece; 「OK，好的」 shows whole after the second | unit |
+| 5 | Reply 「안녕」 | Voided with `NOT_MANDARIN` at the first Hangul letter; nothing published, nothing spoken | unit |
+| 6 | Reply in Spanish, piece by piece | Nothing shows at any point; voided at 6 letters as today | unit |
+| 7 | Local recognizer text and Gemini fallback text, each `la vecina` | The driver's line shows 「（没听清）」; guards and the stop phrase receive the same words as before | unit |
+| 8 | A hidden guidance reading; a hidden camera answer | The engine's guidance text shows and her guidance voice is unchanged; the fallback sentence shows and is spoken | unit |
+| 9 | Each hidden kind | One `screen-hidden` record line; the log line has no words | unit |
+| 10 | Device, record on: normal use for a day, including noise and short words such as 「什么」 | No Korean, Spanish or other script in the bubbles. If any shows, take a screenshot with the time and compare with `screen-hidden` | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-016i | Items 1–7; rows 1–10 | unit, build, D |

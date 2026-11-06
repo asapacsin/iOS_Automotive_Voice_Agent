@@ -44,7 +44,7 @@ Poll 250 ms, timeout 6 s.
 Controlling other apps' playback is class C.
 
 ## iOS notes (PROPOSED unless labelled)
-Bundled track: `AVAudioPlayer` (A/B). Third-party app control: iOS cannot drive other apps' sessions; Apple Music via MusicKit `ApplicationMusicPlayer` plays Apple Music in-app and in background (VERIFIED; needs the user's subscription; OQ-IOS-7). Netease/QQ Music: no iOS API to control them (VERIFIED by absence; OWNER decides whether Apple Music only is acceptable).
+Bundled track: `AVAudioPlayer` (A/B). Third-party app control: iOS cannot drive other apps' sessions; Netease/QQ Music: no iOS API to control them (VERIFIED by absence). Named music: none (owner 2026-10-27, OQ-IOS-7); `play_music` answers MUSIC_HANDOFF_UNAVAILABLE.
 
 ## Contract for the truthfulness gate (2026-10-23, T-019 review 7)
 The media lane reports now-playing to `DriverTurnPipeline` as `musicPlaying(Bool)` transitions: `false`

@@ -34,6 +34,11 @@ struct TabSurfaces: AppSurfacePort {
 struct NovaDriveApp: App {
     @StateObject private var navigation = AppNavigation.shared
 
+    init() {
+        // F-04b §12 (T-013f): find the install-time speaker model pack (no load, no network of our own).
+        SpeakerModelLocator.shared.refresh()
+    }
+
     var body: some Scene {
         WindowGroup {
             TabView(selection: $navigation.tab) {

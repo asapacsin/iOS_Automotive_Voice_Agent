@@ -35,8 +35,14 @@ public enum AgentEvent: Sendable, Hashable {
     case ui(UIIntent)
     /// F-08 §14 item 4 (T-022a): the on-phone keyword spotter heard a stop phrase while she talked.
     case stopPhraseSpotted(StopPhraseHit)
+    /// F-08 §17 item 11 (T-022e): the live check confirmed new words while she talked (setting on). Her reply is
+    /// flushed; the released utterance that follows (`speechStarted(sentToModel: true)`, whose activityStart cancels
+    /// her turn at Gemini) is the new question. Unlike a stop phrase, nothing is abandoned.
+    case bargeInStop
     /// F-24 §14 item 1: `NetworkPathWatcher` says the path went away (false) or came back (true).
     case network(available: Bool)
+    /// F-18 §21 item 1 (T-046i): the current destination's cleaned name, or nil when there is none.
+    case destination(String?)
 }
 
 /// Screen actions (ios-architecture §11.1). Each becomes the tool call the voice path would make.
@@ -88,7 +94,7 @@ public struct AgentViewState: Sendable, Hashable {
     public var configError: RealtimeErrorCode?
     /// F-24 §14 item 3: no network; the chip reads 等待网络… instead of PROCESSING.
     public var waitingForNetwork = false
-    /// F-24 §14 item 4: the offline cap ended the session; the chip reads 网络已断开，点按重新开始 until a start.
+    /// F-24 §14 item 4: the offline cap ended the session; the chip reads `SessionEndedChip` (F-24 §15 item 6) until a start.
     public var offlineEnded = false
 
     public init() {}
@@ -116,6 +122,11 @@ public enum AgentEffect: Sendable, Hashable {
     case speakGuidance(String, GuidanceID)
     /// The uplink may send (F-08 uplink rules). The gate force-closes while false.
     case uplink(open: Bool)
+    /// F-05a §13 item 5: text that failed the screen check (once per text). The sink logs only the kind.
+    case screenHidden(ScreenTextKind, String)
+    /// F-24 §15 item 4 (T-016j): the session gave up or hit the offline cap; the shell keeps this handle in
+    /// memory for the next start. Never logged or persisted (I-7).
+    case keepResumption(String?)
 }
 
 /// The single serialisation point (Android's session mutex), as a pure value: `VoiceSession`,
@@ -150,6 +161,8 @@ public struct AgentState: Sendable {
     private var transcriptEpoch = 0
     /// Utterances closed by the uplink gate (F-04a `activityEnd`): F-15a driver turns, counted from audio.
     private var closedTurns = 0
+    /// F-16 §14 item 5 (T-042c): the same count, for the navigation flow's CONFIRM_FIRST (never a transcript).
+    public var closedDriverTurns: Int { closedTurns }
     /// F-04 §14 (T-004i): the open utterance was sent to the model (the gate's decision, followed here).
     private var utteranceSent = true
     /// F-08 §14 items 4, 5, 7: every utterance the gate opened (sent or not), when the last one started and ended,
@@ -198,6 +211,9 @@ public struct AgentState: Sendable {
     /// How long a fallback waits for trailing reply audio before cutting it (PROPOSED).
     static let fallbackWaitMax = NovaDuration.milliseconds(4000)
     private var runningTools = 0
+    /// F-18 §16 item 7 (T-046d): running `web_search` calls and their turn; a barge-in or the turn's interruption
+    /// cancels them, and a cancelled one sends no result.
+    private var searchCalls: [CallID: TurnID] = [:]
     /// Calls that came from a tap: their result goes to the model as a note to announce, not as a
     /// tool response (the model never issued them).
     private var uiCalls: Set<CallID> = []
@@ -212,10 +228,89 @@ public struct AgentState: Sendable {
     private var stopSyncTurn: TurnID?
     private var pipelineTimers: [PipelineTimer.Kind: PipelineTimer] = [:]
 
+    /// F-18 §21 item 2 (T-046i): silent destination notes (on with the search setting; off sends none).
+    private var destinationNotes = false
+    private var destination: String?
+    /// The note waiting for an idle moment: `.some(name)` or `.some(nil)` for the end note. Only the latest is kept.
+    private var pendingNote: String??
+    /// What the last sent note said (`.some(nil)` = the end note), and whether a turn completed since.
+    private var lastNote: String??
+    private var turnSinceNote = false
+    /// A (re)connect: the note goes again even with no turn since.
+    private var noteOnConnect = false
+
     public init() {}
 
+    /// F-18 §15 item 5: the session's no-answer times (web search on waits longer before the re-ask).
+    /// F-18 §21 item 2: `destinationNotes` sends the destination notes.
+    /// `resume`: F-24 §15 item 5, what the last give-up kept for this session's first connect.
+    public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil) {
+        pipeline = DriverTurnPipeline(tuning: truthfulness)
+        if let resume { session = VoiceSession(resume: resume) }
+        self.destinationNotes = destinationNotes
+    }
+
+    /// F-18 §21 item 2: the note texts.
+    public static func destinationNote(_ name: String?) -> String {
+        guard let name else { return "[系统] 导航已结束，现在没有目的地。这句不用回答。" }
+        return "[系统] 现在的导航目的地是「\(name)」。司机没说清地点时，指的可能是这里。这句不用回答。"
+    }
+
     public mutating func handle(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
+        let effects = dispatch(event, at: now)
+        guard destinationNotes else { return effects }
+        noteTriggers(event)
+        return effects + flushNote()
+    }
+
+    /// §21 item 2 "When": a destination change, a completed turn, or a (re)connect with a destination.
+    private mutating func noteTriggers(_ event: AgentEvent) {
         switch event {
+        case .destination(let name):
+            guard name != destination else { return }
+            let had = destination != nil
+            destination = name
+            if let name { pendingNote = .some(name) } else if had { pendingNote = .some(nil) }
+        case .realtime(.responseDone(_, .completed), _):
+            // Only a completed turn counts (an interrupted one is no new exchange).
+            turnSinceNote = true
+            if let destination { pendingNote = .some(destination) }
+        case .realtime(.setupComplete, _):
+            if let destination {
+                pendingNote = .some(destination)
+                noteOnConnect = true
+            }
+        default:
+            break
+        }
+    }
+
+    /// §21 item 2 "Only when idle": connected, no reply open, no answer owed, no tool running, driver not
+    /// speaking, no guidance prompt waiting. A note never interrupts a reply.
+    private var noteIdle: Bool {
+        session.state == .listening && openTurn == nil && !answerOwed && runningTools == 0 && !driverSpeaking
+            && !utteranceOpen && relayAwaiting == nil && unclassified == nil
+    }
+
+    private mutating func flushNote() -> [AgentEffect] {
+        guard let pending = pendingNote, noteIdle else { return [] }
+        pendingNote = nil
+        // No second note when nothing happened since the last one; the end note goes once.
+        // The end note goes once, and only after a destination note was sent.
+        if pending == nil, (lastNote ?? nil) == nil { return [] }
+        if let name = pending, lastNote == .some(name), !turnSinceNote, !noteOnConnect { return [] }
+        lastNote = .some(pending)
+        turnSinceNote = false
+        noteOnConnect = false
+        // `turnComplete: false`, never `realtimeInput` (§21 item 2, item 8 is the risk).
+        return [.provider(.text([TextTurn(role: .user, text: Self.destinationNote(pending))], turnComplete: false)),
+                .diagnostic(.destinationNote)]
+    }
+
+    private mutating func dispatch(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
+        switch event {
+        case .destination:
+            return []
         case .start:
             return session(.start, at: now)
         case .stop:
@@ -289,6 +384,7 @@ public struct AgentState: Sendable {
                 return []
             }
         case .toolFinished(let turn, let call, let result):
+            if call.name == "web_search", searchCalls.removeValue(forKey: call.id) == nil { return [] }
             runningTools = max(runningTools - 1, 0)
             if uiCalls.remove(call.id) != nil {
                 context.record(call, ok: result.ok, at: now)
@@ -384,6 +480,31 @@ public struct AgentState: Sendable {
         case .stopPhraseSpotted(let hit):
             // Nothing is sent to Gemini and no driver turn opens: the utterance stays unsent (F-04 §14 item 1).
             return stopPhrase(.kws, phrase: hit.phrase, score: hit.score, at: now) ?? []
+        case .bargeInStop:
+            var stop = bargeIn(.stopPhrase, at: now)
+            if stop.isEmpty {
+                // Between clauses the arbiter already counts her as silent, while the shell still plays the rest of
+                // the reply: flush it the way a void does, so nothing of it plays over the new question.
+                if let turn = openTurn { silenced.insert(turn) }
+                segmenter.reset()
+                heldClauses = []
+                stop = arbiter.void().compactMap { effect in
+                    switch effect {
+                    case .flushPlayback(let epoch): .flushPlayback(epoch)
+                    case .cancelRevoicing(let epoch): .cancelRevoicing(epoch)
+                    case .bargeIn: nil
+                    }
+                } + session(.bargeIn(qualified: true), at: now)
+            }
+            missCandidate = nil
+            arbiter.replyDrained()
+            var spoken: [AgentEffect] = []
+            if let waiting = waitingFallback {
+                waitingFallback = nil
+                spoken.append(.speakGuidance(waiting.text, waiting.id))
+            }
+            // F-18 §16 item 7: a qualified barge-in cancels running searches (an ignored onset never does).
+            return stop + cancelSearches { _ in true } + spoken + [.diagnostic(.bargeInStopped)] + arbiterChanged(at: now)
         case .ui(.choose(let row)):
             uiCount += 1
             let call = ToolCall(id: CallID("ui_\(uiCount)")!, name: "choose_navigation_option",
@@ -439,6 +560,52 @@ public struct AgentState: Sendable {
         return GuidanceConditions(enabled: relayEnabled, connected: connected, capable: true,
                                   driverSpeaking: driverSpeaking, responseOpen: openTurn != nil || answerOwed,
                                   workPending: runningTools > 0, focusHeld: arbiter.focus == .held)
+    }
+
+    // MARK: F-05a §13 (T-016i): the screen check on her bubble
+
+    /// The whole reply or reading so far; `view.subtitle` shows it only when it passes.
+    private var subtitleRaw = ""
+    private var subtitleKind: ScreenTextKind = .reply
+    private var subtitleGuidance: String?
+    private var subtitleHidden = false
+
+    private mutating func resetSubtitle() {
+        view.subtitle = ""
+        subtitleRaw = ""
+        subtitleKind = .reply
+        subtitleGuidance = nil
+        subtitleHidden = false
+    }
+
+    /// Item 2: checked on the whole text so far. `wait` shows nothing yet; `hide` shows nothing, or the engine's
+    /// own sentence for a guidance reading. Once hidden, the text stays hidden.
+    private mutating func subtitle(adding text: String, _ kind: ScreenTextKind, guidance: String? = nil) -> [AgentEffect] {
+        subtitleRaw += text
+        subtitleKind = kind
+        if let guidance { subtitleGuidance = guidance }
+        return applySubtitle(final: false)
+    }
+
+    /// The text is complete (the turn closed): `wait` becomes `show` or `hide`.
+    private mutating func finalSubtitle() -> [AgentEffect] {
+        guard !subtitleRaw.isEmpty, !subtitleHidden else { return [] }
+        let before = view.subtitle
+        let effects = applySubtitle(final: true)
+        return effects + (view.subtitle == before ? [] : [.publish(view)])
+    }
+
+    private mutating func applySubtitle(final: Bool) -> [AgentEffect] {
+        guard !subtitleHidden else { return [] }
+        switch ScreenLanguage.check(subtitleRaw, final: final) {
+        case .show: view.subtitle = subtitleRaw
+        case .wait: view.subtitle = ""
+        case .hide:
+            subtitleHidden = true
+            view.subtitle = subtitleKind == .guidance ? (subtitleGuidance ?? "") : ""
+            return [.screenHidden(subtitleKind, subtitleRaw)]
+        }
+        return []
     }
 
     private mutating func relayOutputs(_ outputs: [GuidanceRelayOutput], at now: NovaInstant) -> [AgentEffect] {
@@ -526,6 +693,8 @@ public struct AgentState: Sendable {
                 effects.append(.publish(view))
             case .offlineEnded:
                 view.offlineEnded = true
+            case .keepHandle(let handle):
+                effects.append(.keepResumption(handle))
             case .connect(let connection, let resume):
                 effects += newSocket(at: now)
                 effects.append(.provider(.connect(connection: connection, resume: resume)))
@@ -600,6 +769,14 @@ public struct AgentState: Sendable {
         return effects
     }
 
+    /// F-18 §16 item 7: cancels the running searches that `match` their turn; their results are never sent.
+    private mutating func cancelSearches(_ match: (TurnID) -> Bool) -> [AgentEffect] {
+        let ids = searchCalls.filter { match($0.value) }.keys.sorted { $0.rawValue < $1.rawValue }
+        for id in ids { searchCalls[id] = nil }
+        runningTools = max(runningTools - ids.count, 0)
+        return ids.map { .cancelTool($0) }
+    }
+
     /// Nothing of hers is left to sound. With her turn closed, a waiting fallback may speak.
     private mutating func replyIdle(at now: NovaInstant) -> [AgentEffect] {
         if openTurn == nil || openTurn.map({ relayTurns[$0] != nil && relayReading == nil }) == true {
@@ -620,8 +797,11 @@ public struct AgentState: Sendable {
         // Item 5: the other source, in the same utterance, is ignored (whichever fired first stopped her). The
         // transcript's final lands after the utterance closed, so for it a closed utterance still counts.
         if stopUtterance == utterances, stopSource != source, utteranceOpen || source == .transcript { return nil }
-        let stop = bargeIn(.stopPhrase, at: now)
-        guard !stop.isEmpty else { return nil }
+        var stop = bargeIn(.stopPhrase, at: now)
+        // F-18 §16 item 7: a stop phrase also cancels a running search, even while she waits silently for it.
+        let cancelled = cancelSearches { _ in true }
+        guard !stop.isEmpty else { return cancelled.isEmpty ? nil : cancelled }
+        stop += cancelled
         lastStopAt = now
         stopUtterance = utterances
         stopSource = source
@@ -727,7 +907,7 @@ public struct AgentState: Sendable {
                 // The driver spoke after the prompt: this may be the reading or their answer.
                 unclassified = (turn, id)
                 unclassifiedText = ""
-                view.subtitle = ""
+                resetSubtitle()
                 return [.newReply]
             }
             if let id = relayAwaiting {
@@ -740,19 +920,19 @@ public struct AgentState: Sendable {
                     return []
                 }
                 relayReading = turn
-                view.subtitle = ""
+                resetSubtitle()
                 return [.newReply] + relayOutputs(relay.assistantStarted(at: now), at: now)
             }
             answerOwed = false
-            view.subtitle = ""
+            resetSubtitle()
             return [.newReply] + pipeline(.turnOpened(turn), at: now)
         case .replyText(let turn, let text):
             guard !silenced.contains(turn) else { return [] }
             if relayTurns[turn] != nil {
                 // A guidance reading: spoken as given, judged afterwards for fidelity, never a claim.
                 if relayReading == turn { relay.assistantText(text) }
-                view.subtitle += text
-                return [.publish(view)] + speak(segmenter.append(text), at: now)
+                let shown = subtitle(adding: text, .guidance, guidance: relayTurns[turn].flatMap { relay.text(for: $0) } ?? awaitingText)
+                return shown + [.publish(view)] + speak(segmenter.append(text), at: now)
             }
             return pipeline(.replyText(turn, text), at: now)
         case .replyAudio(let turn, let pcm):
@@ -765,6 +945,8 @@ public struct AgentState: Sendable {
             }))]
         case .toolCalls(let turn, let calls):
             var effects = pipeline(.toolCalls(turn, calls), at: now)
+            // F-18 §15 item 8: refused below as UNKNOWN_TOOL like any undeclared name; only noted here.
+            if calls.contains(where: { $0.name == "google_search" }) { effects.append(.diagnostic(.webSearchAsFunction)) }
             for call in calls {
                 // F-05a §6: the guards read state and turn counts only, never the transcript.
                 let guardContext = GuardContext(turn: speechOnsets, closedTurns: closedTurns, now: now,
@@ -774,6 +956,7 @@ public struct AgentState: Sendable {
                 switch dispatcher.decide(call, context: guardContext) {
                 case .execute(let running):
                     runningTools += 1
+                    if running.name == "web_search" { searchCalls[running.id] = turn }
                     effects.append(.startTool(turn, running))
                 case .refuse(let result):
                     let response = ToolResponse(id: call.id, name: call.name, result: result)
@@ -785,6 +968,7 @@ public struct AgentState: Sendable {
             }
             return effects
         case .toolCallCancellation(let ids):
+            for id in ids where searchCalls.removeValue(forKey: id) != nil { runningTools = max(runningTools - 1, 0) }
             return ids.map { .cancelTool($0) }
         case .audioDone(let turn):
             if relayTurns[turn] != nil { return [] }
@@ -794,7 +978,7 @@ public struct AgentState: Sendable {
             if openTurn == turn { openTurn = nil }
             guard relayReading == turn else { return [] }
             relayReading = nil
-            var effects: [AgentEffect] = []
+            var effects: [AgentEffect] = finalSubtitle()
             let completed = if case .responseDone(_, .completed) = event { true } else { false }
             if completed, !silenced.contains(turn), let rest = segmenter.flush() {
                 effects += speak([rest], at: now)
@@ -804,25 +988,30 @@ public struct AgentState: Sendable {
                                                                   cut: !completed), at: now)
         case .interrupted(let turn, _):
             // F-08 §15 item 1: the stopped reply closed for Gemini too.
-            var synced: [AgentEffect] = []
+            var synced: [AgentEffect] = cancelSearches { $0 == turn }
             if let sent = stopSyncAt, stopSyncTurn == nil || stopSyncTurn == turn {
                 stopSyncAt = nil
                 stopSyncTurn = nil
-                synced = [.diagnostic(.stopSyncInterrupted(ms: Int((now - sent).milliseconds))), .cancelTimer(.stopSync(sent))]
+                synced += [.diagnostic(.stopSyncInterrupted(ms: Int((now - sent).milliseconds))), .cancelTimer(.stopSync(sent))]
             }
             // Server-side interruption: whatever of this reply is still queued must not play.
             let stops = openTurn == turn && !silenced.contains(turn) ? stopReply(turn) : []
+            let open = openTurn == turn
             if openTurn == turn { openTurn = nil }
-            return synced + stops + pipeline(.turnClosed(turn, .cancelled), at: now)
+            let closed = pipeline(.turnClosed(turn, .cancelled), at: now)
+            return synced + stops + closed + (open ? finalSubtitle() : [])
         case .responseDone(let turn, let outcome):
+            let open = openTurn == turn
             if openTurn == turn { openTurn = nil }
             var effects = pipeline(.turnClosed(turn, outcome), at: now)
+            // F-05a §13: the reply is complete once the pipeline has released what it held.
+            if open { effects += finalSubtitle() }
             // The last half clause is spoken only for a reply that completed and still may be heard.
             if outcome == .completed, !silenced.contains(turn), let rest = segmenter.flush() {
                 effects += speak([rest], at: now)
             }
             return effects
-        case .setupComplete, .resumptionHandle, .goAway, .failed, .closed:
+        case .setupComplete, .resumptionHandle, .goAway, .failed, .closed, .turnEnded:
             return []
         }
     }
@@ -885,14 +1074,14 @@ public struct AgentState: Sendable {
             switch output {
             case .speechText(let turn, let text):
                 guard !silenced.contains(turn) else { continue }
-                view.subtitle += text
+                effects += subtitle(adding: text, .reply)
                 effects.append(.publish(view))
                 effects += speak(segmenter.append(text), at: now)
             case .speechAudio:
                 // Revoicing is on (ADR-016): the provider's own audio is never played.
                 break
             case .voided(let turn):
-                view.subtitle = ""
+                resetSubtitle()
                 effects += silenced.contains(turn) ? [] : stopReply(turn)
                 effects.append(.publish(view))
             case .sendCorrection(let reason):
@@ -956,7 +1145,8 @@ extension RealtimeEvent {
         case .responseStarted(let t), .replyText(let t, _), .replyAudio(let t, _), .toolCalls(let t, _),
              .audioDone(let t), .interrupted(let t, _), .responseDone(let t, _):
             t
-        case .setupComplete, .userTranscript, .toolCallCancellation, .resumptionHandle, .goAway, .failed, .closed:
+        case .setupComplete, .userTranscript, .toolCallCancellation, .resumptionHandle, .goAway, .failed, .closed,
+             .turnEnded:
             nil
         }
     }

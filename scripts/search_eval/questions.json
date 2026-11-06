@@ -1,0 +1,185 @@
+{
+  "about": "F-18 §23 item 6: 20 driver questions. `words` is what the driver said (the last final transcript); `query` is what she would send to web_search before the app's §19 date rewrite; `previous` is the turn before a follow-up (the app sends only the last transcript, so it is not sent). Fill `reference` on the day of the run, as `reference_source` says.",
+  "questions": [
+    {
+      "id": "w01",
+      "category": "weather",
+      "words": "横琴后天天气怎么样",
+      "query": "横琴后天天气怎么样",
+      "adcode": "440404",
+      "day": "day_after",
+      "reference": "",
+      "reference_source": "On the day of the run: 高德 Web weather API from a PC, /v3/weather/weatherInfo?city=440404&extensions=all; copy the casts entry whose date is the asked day (dayweather, daytemp, nighttemp)."
+    },
+    {
+      "id": "w02",
+      "category": "weather",
+      "words": "横琴大后天天气怎么样",
+      "query": "横琴大后天天气怎么样",
+      "adcode": "440404",
+      "day": "day_after_next",
+      "reference": "",
+      "reference_source": "On the day of the run: 高德 Web weather API from a PC, /v3/weather/weatherInfo?city=440404&extensions=all; copy the casts entry whose date is the asked day (dayweather, daytemp, nighttemp)."
+    },
+    {
+      "id": "w03",
+      "category": "weather",
+      "words": "上海后天天气怎么样",
+      "query": "上海后天天气怎么样",
+      "adcode": "310000",
+      "day": "day_after",
+      "reference": "",
+      "reference_source": "On the day of the run: 高德 Web weather API from a PC, /v3/weather/weatherInfo?city=310000&extensions=all; copy the casts entry whose date is the asked day (dayweather, daytemp, nighttemp)."
+    },
+    {
+      "id": "w04",
+      "category": "weather",
+      "words": "上海大后天天气怎么样",
+      "query": "上海大后天天气怎么样",
+      "adcode": "310000",
+      "day": "day_after_next",
+      "reference": "",
+      "reference_source": "On the day of the run: 高德 Web weather API from a PC, /v3/weather/weatherInfo?city=310000&extensions=all; copy the casts entry whose date is the asked day (dayweather, daytemp, nighttemp)."
+    },
+    {
+      "id": "w05",
+      "category": "weather",
+      "words": "北京后天天气怎么样",
+      "query": "北京后天天气怎么样",
+      "adcode": "110000",
+      "day": "day_after",
+      "reference": "",
+      "reference_source": "On the day of the run: 高德 Web weather API from a PC, /v3/weather/weatherInfo?city=110000&extensions=all; copy the casts entry whose date is the asked day (dayweather, daytemp, nighttemp)."
+    },
+    {
+      "id": "w06",
+      "category": "weather",
+      "words": "北京大后天天气怎么样",
+      "query": "北京大后天天气怎么样",
+      "adcode": "110000",
+      "day": "day_after_next",
+      "reference": "",
+      "reference_source": "On the day of the run: 高德 Web weather API from a PC, /v3/weather/weatherInfo?city=110000&extensions=all; copy the casts entry whose date is the asked day (dayweather, daytemp, nighttemp)."
+    },
+    {
+      "id": "w07",
+      "category": "weather",
+      "words": "横琴明天会下雨吗",
+      "query": "横琴明天会下雨吗",
+      "adcode": "440404",
+      "day": "tomorrow",
+      "reference": "",
+      "reference_source": "On the day of the run: 高德 Web weather API from a PC, /v3/weather/weatherInfo?city=440404&extensions=all; copy the casts entry whose date is the asked day (dayweather, daytemp, nighttemp)."
+    },
+    {
+      "id": "w08",
+      "category": "weather",
+      "words": "上海明天多少度",
+      "query": "上海明天气温多少度",
+      "adcode": "310000",
+      "day": "tomorrow",
+      "reference": "",
+      "reference_source": "On the day of the run: 高德 Web weather API from a PC, /v3/weather/weatherInfo?city=310000&extensions=all; copy the casts entry whose date is the asked day (dayweather, daytemp, nighttemp)."
+    },
+    {
+      "id": "p01",
+      "category": "oil_price",
+      "words": "今天油价多少",
+      "query": "珠海今天92号汽油价格",
+      "reference": "",
+      "reference_source": "On the day of the run: the 广东省发展和改革委员会 published 成品油 price for 92号 on that date (official page URL in the mark sheet)."
+    },
+    {
+      "id": "p02",
+      "category": "oil_price",
+      "words": "上海95号油多少钱",
+      "query": "上海今天95号汽油价格",
+      "reference": "",
+      "reference_source": "On the day of the run: the 上海市发展和改革委员会 published 成品油 price for 95号 on that date."
+    },
+    {
+      "id": "r01",
+      "category": "fx_rate",
+      "words": "美元汇率多少",
+      "query": "今天美元兑人民币汇率",
+      "reference": "",
+      "reference_source": "On the day of the run: the 中国外汇交易中心 (chinamoney.com.cn) USD/CNY central parity for that date."
+    },
+    {
+      "id": "r02",
+      "category": "fx_rate",
+      "words": "港币汇率多少",
+      "query": "今天港币兑人民币汇率",
+      "reference": "",
+      "reference_source": "On the day of the run: the 中国外汇交易中心 (chinamoney.com.cn) HKD/CNY central parity for that date."
+    },
+    {
+      "id": "r03",
+      "category": "fx_rate",
+      "words": "欧元现在多少钱",
+      "query": "今天欧元兑人民币汇率",
+      "reference": "",
+      "reference_source": "On the day of the run: the 中国外汇交易中心 (chinamoney.com.cn) EUR/CNY central parity for that date."
+    },
+    {
+      "id": "n01",
+      "category": "news",
+      "words": "今天有什么新闻",
+      "query": "今天的国内新闻头条",
+      "reference": "",
+      "reference_source": "On the day of the run: the 新华网 (xinhuanet.com) front-page headlines of that date; an answer is right if it names a story published that day."
+    },
+    {
+      "id": "n02",
+      "category": "news",
+      "words": "珠海今天有什么新闻",
+      "query": "珠海今天的新闻",
+      "reference": "",
+      "reference_source": "On the day of the run: the 珠海市人民政府 or 珠海特区报 site headlines of that date."
+    },
+    {
+      "id": "d01",
+      "category": "hours",
+      "words": "香港迪士尼几点关门",
+      "query": "香港迪士尼乐园今天几点关门",
+      "reference": "",
+      "reference_source": "On the day of the run: the official Hong Kong Disneyland park-hours calendar (hongkongdisneyland.com) for that date."
+    },
+    {
+      "id": "d02",
+      "category": "hours",
+      "words": "上海迪士尼今天几点关门",
+      "query": "上海迪士尼乐园今天几点关门",
+      "reference": "",
+      "reference_source": "On the day of the run: the official Shanghai Disney Resort park-hours calendar (shanghaidisneyresort.com) for that date."
+    },
+    {
+      "id": "d03",
+      "category": "hours",
+      "words": "故宫几点关门",
+      "query": "北京故宫博物院今天几点关门",
+      "reference": "",
+      "reference_source": "On the day of the run: the 故宫博物院 official site (dpm.org.cn) opening hours for that date."
+    },
+    {
+      "id": "f01",
+      "category": "follow_up",
+      "previous": "横琴明天天气怎么样",
+      "words": "那后天呢",
+      "query": "横琴后天天气怎么样",
+      "adcode": "440404",
+      "day": "day_after",
+      "reference": "",
+      "reference_source": "On the day of the run: 高德 Web weather API from a PC, /v3/weather/weatherInfo?city=440404&extensions=all; copy the casts entry whose date is the asked day (dayweather, daytemp, nighttemp)."
+    },
+    {
+      "id": "f02",
+      "category": "follow_up",
+      "previous": "美元汇率多少",
+      "words": "那港币呢",
+      "query": "今天港币兑人民币汇率",
+      "reference": "",
+      "reference_source": "On the day of the run: the 中国外汇交易中心 (chinamoney.com.cn) HKD/CNY central parity for that date."
+    }
+  ]
+}

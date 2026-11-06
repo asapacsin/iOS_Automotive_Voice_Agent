@@ -9,10 +9,15 @@ public struct EchoTrial: Sendable, Hashable {
     public let gateOpened: Bool
     /// Loudest 10 ms frame RMS (PCM16 units) captured while the reply played.
     public let peakRMS: Double
+    /// The same in the units of the utterance log's `peakDb` (F-08 §17 item 2).
+    public var peakDb: Int { SpeechUplinkGate.decibels(peakRMS) }
 }
 
 public struct EchoSpikeReport: Sendable, Hashable {
     public let voiceProcessing: Bool
+    /// F-08 §17 item 2: the matrix cell. System volume as read (set by hand), and voice-processing AGC.
+    public let volumePercent: Int
+    public let agc: Bool
     public let trials: [EchoTrial]
     public let inputLatencyMs: Double
     public let outputLatencyMs: Double
@@ -24,12 +29,12 @@ public struct EchoSpikeReport: Sendable, Hashable {
     public var passed: Bool { closedCount >= 9 && trials.count >= 10 }
 
     public var summary: String {
-        let peaks = trials.map { String(Int($0.peakRMS)) }.joined(separator: ",")
+        let peaks = trials.map { String($0.peakDb) }.joined(separator: ",")
         return """
-        T-001 echo spike (OQ-IOS-3, OQ-IOS-14)
-        voice processing: \(voiceProcessing ? "on" : "off")
+        T-001a echo spike, app audio setup (voiceChat, player before voice processing)
+        volume: \(volumePercent)% · AGC: \(agc ? "on" : "off") · voice processing: \(voiceProcessing ? "on" : "off")
         gate closed: \(closedCount)/\(trials.count) → \(passed ? "PASS" : "FAIL")
-        peak RMS per trial: \(peaks)
+        peakDb per trial: \(peaks)
         input latency: \(String(format: "%.1f", inputLatencyMs)) ms
         output latency: \(String(format: "%.1f", outputLatencyMs)) ms
         IO buffer: \(String(format: "%.1f", ioBufferMs)) ms
@@ -38,8 +43,10 @@ public struct EchoSpikeReport: Sendable, Hashable {
     }
 }
 
-/// T-001 device spike: plays a speech-like 24 kHz signal through `AVAudioEngine` with Apple voice
+/// T-001 / T-001a device spike: plays a speech-like 24 kHz signal through `AVAudioEngine` with Apple voice
 /// processing on the I/O node and runs the real `SpeechUplinkGate` on the captured 16 kHz frames.
+/// F-08 §17 item 1: the audio setup is `LiveAudio`'s (`.playAndRecord` + `.voiceChat` + `.defaultToSpeaker`, the
+/// player attached and connected before voice processing is enabled, same AGC, ducking and restart handling).
 public final class EchoSpike: @unchecked Sendable {
     private let lock = NSLock()
     private var gate = SpeechUplinkGate()
@@ -50,18 +57,26 @@ public final class EchoSpike: @unchecked Sendable {
 
     public init() {}
 
-    public func run(trials: Int = 10, voiceProcessing: Bool = true) async throws -> EchoSpikeReport {
+    public func run(trials: Int = 10, voiceProcessing: Bool = true, agc: Bool = true) async throws -> EchoSpikeReport {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
         try session.setActive(true)
         defer { try? session.setActive(false, options: .notifyOthersOnDeactivation) }
+        let volume = Int((session.outputVolume * 100).rounded())
 
         let engine = AVAudioEngine()
-        try engine.inputNode.setVoiceProcessingEnabled(voiceProcessing)
         let player = AVAudioPlayerNode()
         let replyFormat = AVAudioFormat(standardFormatWithSampleRate: Double(PCMBuffer.replySampleRate), channels: 1)!
+        // As in `LiveAudio`: the player is attached and connected before voice processing is turned on.
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: replyFormat)
+        if voiceProcessing {
+            try engine.inputNode.setVoiceProcessingEnabled(true)
+            engine.inputNode.isVoiceProcessingBypassed = false
+            engine.inputNode.isVoiceProcessingAGCEnabled = agc
+            engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
+                AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
+        }
 
         let outFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(PCMFrame16k.sampleRate),
                                       channels: 1, interleaved: true)!
@@ -100,7 +115,7 @@ public final class EchoSpike: @unchecked Sendable {
             })
             try await Task.sleep(for: .milliseconds(800))
         }
-        return EchoSpikeReport(voiceProcessing: voiceProcessing, trials: results,
+        return EchoSpikeReport(voiceProcessing: voiceProcessing, volumePercent: volume, agc: agc, trials: results,
                                inputLatencyMs: session.inputLatency * 1000, outputLatencyMs: session.outputLatency * 1000,
                                ioBufferMs: session.ioBufferDuration * 1000,
                                captureSampleRate: engine.inputNode.outputFormat(forBus: 0).sampleRate)

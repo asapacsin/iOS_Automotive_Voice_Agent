@@ -42,6 +42,11 @@ def check(data: dict) -> list[str]:
             errors.append(name + ": invalid owner or status")
         if not isinstance(task.get("depends_on"), list):
             errors.append(name + ": depends_on list required")
+        required = task.get("requires", [])
+        if (not isinstance(required, list) or any(
+                not isinstance(cap, str) or not cap.strip() for cap in required)
+                or len(required) != len(set(required))):
+            errors.append(name + ": requires must contain unique nonempty capability names")
         if not str(task.get("action", "")).strip():
             errors.append(name + ": actionable command/instruction required")
         status = task.get("status")

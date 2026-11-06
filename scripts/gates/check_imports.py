@@ -26,6 +26,8 @@ OWNERS = {
     "Security": {"NovaServices"},
     "UIKit": {"App", "NovaNavAmap"}, "SwiftUI": {"App", "NovaNavAmap"},
     "CarPlay": {"App"},
+    # F-04b §12 (T-013f): the speaker model asset pack; the app and its downloader extension only.
+    "BackgroundAssets": {"App"},
 }
 # Symbols (not modules) with one owner package.
 # `session.webSocketTask(with:)` (or a reference to it) makes one without naming the type.

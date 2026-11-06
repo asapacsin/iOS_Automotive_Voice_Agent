@@ -27,7 +27,7 @@ final class DriveModel: ObservableObject {
     @Published var sheTalks = false
     /// F-08 §14 item 6: her reply (not guidance) plays, so 别说了 stops her: the hint under 「她在说话」.
     @Published var stopHint = false
-    /// F-24 §14 item 4: the offline cap ended the session: 「网络已断开，点按重新开始」 until the next start.
+    /// F-24 §14 item 4: the offline cap ended the session: the §15 item 6 text (`SessionEndedChip`) until the next start.
     @Published var networkEnded = false
     @Published var notice: String?
     // F-20a floating camera window
@@ -40,6 +40,25 @@ final class DriveModel: ObservableObject {
     @Published var cameraSwitching = false
     /// F-04a diagnostics for 音频测试: speech probability, noise level, last rejection.
     @Published var noiseLine = ""
+    /// F-01 §14 item 8 (T-060a): the wake listener is armed; the idle screen shows 「说“你好小诺”唤醒」.
+    @Published var wakeArmed = false
+    /// F-04b §6 item 11 (T-013e): scoring broke while 声纹锁定 is on; speech is not sent.
+    @Published var speakerUnavailable = false
+    /// F-04b §14 item 8 (T-013h): the lock dropped a sentence or a wake word; shown for 3 s where the §6 item 11 chip
+    /// appears (that chip wins). Text only.
+    @Published var speakerNotice: String?
+    private var speakerNoticeID = 0
+
+    /// A new notice restarts the 3 s and replaces the old one; it never stacks.
+    func showSpeakerNotice(_ text: String) {
+        speakerNoticeID += 1
+        let id = speakerNoticeID
+        speakerNotice = text
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(SpeakerRejectionNotice.duration.milliseconds)))
+            if let self, self.speakerNoticeID == id { self.speakerNotice = nil }
+        }
+    }
 }
 
 /// Non-secret settings of the drive screen (UserDefaults).
@@ -55,6 +74,36 @@ enum DriveSettings {
     static let useDeviceLocation = "use_device_location"
     /// F-04a 抗噪: only a human voice opens the mic or interrupts her (default on).
     static let noiseSuppression = "noise_suppression"
+
+    /// F-08 §17 item 10 (T-022e) 「可以打断她（实验）」: talking over her can stop her (default off).
+    static let interruptible = "interruptible_experimental"
+
+    /// F-12 §14 item 7 (T-031b) 「由模型决定舒适动作（实验）」: default off; read at session start.
+    static let modelComfort = "model_comfort_experimental"
+
+    static func comfortMode(_ defaults: UserDefaults = .standard) -> ToolCatalog.ComfortMode {
+        defaults.object(forKey: modelComfort) as? Bool ?? false ? .model : .table
+    }
+
+    /// F-12 §17 item 1 (T-031f) 「保存对话记录（测试用）」: default off; read at session start.
+    static let conversationRecord = "conversation_record_test"
+
+    /// F-18 §15 item 1 (T-046c) 「联网搜索（实验）」: default off; read at session start.
+    static let webSearch = "web_search_experimental"
+    /// F-18 §21 items 2, 8 (T-046i): one constant; turn it off if the note makes her stop answering (row 8).
+    static let destinationNotes = true
+
+    static func searchesWeb(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: webSearch) as? Bool ?? false
+    }
+
+    static func recordsConversation(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: conversationRecord) as? Bool ?? false
+    }
+
+    static func isInterruptible(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: interruptible) as? Bool ?? false
+    }
 
     static func usesNoiseSuppression(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: noiseSuppression) as? Bool ?? true
@@ -75,6 +124,13 @@ enum DriveSettings {
     static func naviMode(_ defaults: UserDefaults = .standard) -> NaviMode {
         NavigationModeSetting.mode(navigationModeSetting(defaults),
                                    source: usesDeviceLocation(defaults) ? .device : .demo)
+    }
+
+    /// F-01 §14 item 6 (T-060a) 「唤醒词」: on by default; read when the wake listener is applied.
+    static let wakeWord = "wake_word"
+
+    static func wakeWordOn(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: wakeWord) as? Bool ?? true
     }
 }
 
@@ -112,6 +168,8 @@ struct DemoLocation: LocationProvider, LocationUpdates {
 /// Applies AgentCore effects to the real provider, revoicer, playback and screen.
 struct RuntimeSink: AgentEffectSink {
     let realtime: GeminiLiveProvider
+    /// F-12 §17: the test record, nil when the setting is off.
+    let record: ConversationRecord?
     let config: SessionConfig
     let revoicer: Revoicer
     let audio: LiveAudio
@@ -123,13 +181,39 @@ struct RuntimeSink: AgentEffectSink {
     let guidanceEnded: @Sendable (GuidanceID) async -> Void
     /// F-24 §14 item 4: the offline cap ended the session; the runtime releases the microphone and audio session.
     let offlineEnded: @Sendable () async -> Void
+    /// F-01 §14 items 9-12 (T-060a): the sound and `wake-to-listening` when a woken session first listens.
+    let wakeWatch: WakeSessionWatch
+    /// F-24 §15 item 4 (T-016j): the runtime keeps the handle in memory; never logged or written (I-7).
+    let keepHandle: @Sendable (String?) async -> Void
+
+    func keepResumption(_ handle: String?) async { await keepHandle(handle) }
 
     func provider(_ command: ProviderCommand) async {
         switch command {
         case .connect(let connection, let resume): await realtime.connect(config, resume: resume, connection: connection)
         case .close: await realtime.close()
-        case .toolResponses(let responses): await realtime.sendToolResponses(responses)
-        case .text(let turns, let complete): await realtime.sendText(turns, turnComplete: complete)
+        case .toolResponses(let responses):
+            for r in responses {
+                record?.submit(.toolResult(name: r.name, ok: r.result.ok, code: r.result.code?.rawValue,
+                                           data: .object(r.result.data)))
+            }
+            await realtime.sendToolResponses(responses)
+        case .text(let turns, let complete):
+            if let record, let text = turns.last?.text,
+               let reason = CorrectionReason.allCases.first(where: { $0.instruction == text }) {
+                record.submit(.correction(reason.rawValue))
+            }
+            // F-18 §21 item 7: a destination note (the only text sent with turnComplete false).
+            if let record, !complete, let text = turns.last?.text {
+                if text == AgentState.destinationNote(nil) {
+                    record.submit(.contextNote(destination: nil))
+                } else if let name = text.firstRange(of: "「").flatMap({ open in
+                    text[open.upperBound...].firstRange(of: "」").map { String(text[open.upperBound..<$0.lowerBound]) }
+                }), text == AgentState.destinationNote(name) {
+                    record.submit(.contextNote(destination: name))
+                }
+            }
+            await realtime.sendText(turns, turnComplete: complete)
         case .interruptReply:
             realtime.sendEmptyActivity()
             gate.stopped()
@@ -137,6 +221,7 @@ struct RuntimeSink: AgentEffectSink {
     }
 
     func flushPlayback(to epoch: Epoch) {
+        record?.submit(.flushed)
         audio.flush(to: epoch)
         // F-04 §14: her reply stopped sounding (barge-in or void); the gate's echo tail starts now.
         gate.setPlaying(reply: false)
@@ -146,6 +231,7 @@ struct RuntimeSink: AgentEffectSink {
     func speak(_ clause: String) async {
         // set_speech_output silent: keep listening and acting, voice nothing.
         guard speechOutput.mode == .spoken else { return }
+        record?.submit(.spoke)
         await revoicer.speak(clause)
     }
 
@@ -156,6 +242,26 @@ struct RuntimeSink: AgentEffectSink {
 
     func diagnostic(_ event: DiagnosticEvent) {
         RuntimeLog.agent.notice("\(event.logLine, privacy: .public)")
+        switch event {
+        case .claimHeld: record?.submit(.held)
+        case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
+        case .resumed: record?.submit(.session("reconnected"))
+        // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
+        case .sessionGaveUp(let ms, let attempts, let code): record?.submit(.sessionGaveUp(ms: ms, attempts: attempts, code: code))
+        case .sessionResume(let handle, let result): record?.submit(.sessionResume(handle: handle, result: result))
+        case .sessionState(let state):
+            for effect in wakeWatch.sessionState(state) {
+                switch effect {
+                case .playCue: audio.playCue(WakeCue.pcm)
+                case .wakeToListening(let ms): record?.submit(.wakeToListening(ms: ms))
+                }
+            }
+        default: break
+        }
+    }
+
+    func screenHidden(_ kind: ScreenTextKind, text: String) {
+        record?.submit(.screenHidden(kind: kind, text: text))
     }
 
     /// F-14 fallback voice: rendered off the core, played on the guidance lane. A sentence that cannot
@@ -188,6 +294,11 @@ struct ObservedVehicleExecutor: ToolExecutor {
 
     func execute(_ call: ToolCall) async -> ToolResult {
         let result = await inner.execute(call)
+        // F-12 §14 item 11: which tool the policy blocked and by which rule (a closed set), never values.
+        if result.code == .vehicleBlocked {
+            let rule = result.data["blocked"]?.stringValue ?? "unknown"
+            RuntimeLog.agent.notice("vehicleBlocked \(call.name, privacy: .public) \(rule, privacy: .public)")
+        }
         let climate = await vehicle.climateState()
         let cabin = await vehicle.cabinState()
         await MainActor.run {
@@ -269,7 +380,19 @@ final class AgentRuntime {
     init() { LocalSpeechModels.shared.load() }
 
     /// T-061: 你好小诺 while idle starts a session (off in the simulator drive test).
-    private lazy var wake = WakeListener { [weak self] in await self?.start() }
+    /// F-01 §14: the armed state drives the idle hint; a wake that could not start a session listens again.
+    private lazy var wake: WakeListener = WakeListener(clock: navigationClock, onArmed: { [weak self] armed in
+        if let model = self?.model, model.wakeArmed != armed { model.wakeArmed = armed }
+    }, onWake: { [weak self] at in
+        guard let self else { return }
+        await self.start(by: .wake(at: at))
+        if !self.model.running { await self.wake.update() }
+    }, onSpeakerNotice: { [weak self] text in
+        // F-04b §14 item 8: a rejected 你好小诺 says so on the idle screen.
+        self?.model.showSpeakerNotice(text)
+    })
+    /// F-01 §14 item 12: writes `wake-unused` for a woken session that sent nothing; set per session in `start`.
+    private var wakeEnd: (() -> Void)?
     private var core: AgentCore?
     /// Bumped per session so a delayed end_conversation stop never ends a newer session.
     private var session = 0
@@ -277,6 +400,9 @@ final class AgentRuntime {
     private var classifier: SoundAnalysisSpeechClassifier?
     /// F-04a: re-reads the 抗噪 switch when UserDefaults change during a session.
     private var defaultsObserver: NSObjectProtocol?
+    private var speakerModelObserver: NSObjectProtocol?
+    /// F-04b §16 item 7 (T-013j): a threshold saved from the 设置 slider applies with no restart.
+    private var speakerThresholdObserver: NSObjectProtocol?
     private var network: NetworkPathWatcher?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
@@ -370,7 +496,7 @@ final class AgentRuntime {
         if switching { model.cameraSwitching = false }
         if result.code != .superseded {
             model.cameraAsking = false
-            model.cameraAnswer = result.data["answer"]?.stringValue
+            model.cameraAnswer = result.data["answer"]?.stringValue.map { shownCamera($0) }
         }
         return result
     }
@@ -484,6 +610,18 @@ final class AgentRuntime {
 
     /// Speaks a line in her voice while a session runs (set in `start()`, cleared in `stop()`).
     private var speakLine: (@Sendable (String) async -> Void)?
+    /// The running session's record (F-05a §13 item 5, camera lines); nil with no session or the record off.
+    private var sessionRecord: ConversationRecord?
+
+    /// F-05a §13 item 2: a camera answer that fails the screen check becomes the fallback sentence.
+    private func shownCamera(_ answer: String) -> String {
+        let shown = ScreenLanguage.cameraLine(answer)
+        if shown.hidden {
+            RuntimeLog.agent.notice("\(DiagnosticEvent.screenHidden(kind: .camera).logLine, privacy: .public)")
+            sessionRecord?.submit(.screenHidden(kind: .camera, text: answer))
+        }
+        return shown.line
+    }
 
     /// 问一下: the fixed question. The answer shows as her bubble and on the window, and is spoken in her
     /// voice while a session runs; with no session it is shown only (F-20a §7 as amended).
@@ -491,15 +629,17 @@ final class AgentRuntime {
         let result = await askCamera(CameraQuestionHandler.tapQuestion)
         // Window closed meanwhile (or a newer question): say nothing.
         guard result.code != .superseded, model.cameraOpen else { return }
-        let line = result.data["answer"]?.stringValue
-            ?? result.advice?.components(separatedBy: "请如实").first ?? "刚才没看清楚，再问我一次吧。"
+        // `askCamera` already checked (and recorded) the answer; the advice is the app's own Chinese.
+        let line = model.cameraAnswer
+            ?? result.advice?.components(separatedBy: "请如实").first ?? ScreenLanguage.cameraFallback
         model.cameraAnswer = line
         model.view.subtitle = line
         await speakLine?(line)
     }
 
-    func start() async {
-        guard !model.running else { return }
+    func start(by origin: SessionOrigin = .tap) async {
+        // F-04b §4 item 1: never while enrollment or 校准 holds the microphone (one capture only, ADR-006).
+        guard !model.running, !exclusiveCapture else { return }
         model.notice = nil
         model.networkEnded = false
         // F-23 (T-063): the microphone is asked at the first talk; a denial is explained.
@@ -554,7 +694,10 @@ final class AgentRuntime {
         let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
                                           connector: URLSessionWebSocketConnector(onDuplicate: { site in
             RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
-        }))
+        }), onClose: { close in
+            // F-24 §16 item 5 (T-016k): codes, the server's close text and timings only; never the URL or key (I-7).
+            RuntimeLog.agent.notice("\(close.logLine, privacy: .public)")
+        })
         let revoicer = Revoicer(synthesizer: synthesizer, playback: audio)
         let navigationClock = self.navigationClock
         let device = deviceLocation
@@ -573,15 +716,38 @@ final class AgentRuntime {
         let savedPlaces = trip.savedPlaces
         let navigation = trip.navigation
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
+        // F-18 §21 item 1: written by the navigation stream below, read by web_search.
+        let currentDestination = DestinationHolder()
+        // F-18 §23 item 5: the driver's last final words, only for the search model's message and the local record.
+        let driverWords = DriverWordsHolder()
         // This session listens to the trip from now on; it first sees the trip as it is (a drive that went
         // on after the last session, F-15a §9 OQ-NAVM-5).
         trip.listeners.attach(flags.continuation)
         flags.continuation.yield(await navigation.current)
         self.navigation = navigation
-        let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: vehicle), vehicle: vehicle, model: model)
+        // F-12 §14 item 11: every vehicle action passes the policy; speed is the phone's when fresh, else unknown.
+        let speedKmh: @Sendable () async -> Double? = { [location, navigationClock] in
+            guard let fix = await location.latestFix(), let mps = fix.speedMetersPerSecond,
+                  navigationClock.now - fix.timestamp < .seconds(10) else { return nil }
+            return mps * 3.6
+        }
+        let port = PolicedVehiclePort(vehicle, speedKmh: speedKmh)
+        // F-12 §14 item 7: the comfort path is fixed for the whole session (the catalog goes in `setup`).
+        let comfortMode = DriveSettings.comfortMode()
+        RuntimeLog.agent.notice("comfortMode \(comfortMode.rawValue, privacy: .public)")
+        let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: port), vehicle: vehicle, model: model)
         // F-18: weather cached 10 min, adcodes 30 min (T-033).
         let cache = LiveInfoCache(weather: web, geocoder: web, clock: SystemClock())
-        let liveInfo = LiveInfoExecutor(navigation: navigation, weather: cache, geocoder: cache, location: location)
+        // F-18 §15 item 1, §16: 「联网搜索（实验）」 is read once here, at session start.
+        let webSearch = DriveSettings.searchesWeb()
+        RuntimeLog.agent.notice("webSearch \(webSearch ? "on" : "off", privacy: .public)")
+        // F-18 §26 (T-046o): 高德 geocoding with the name check, Open-Meteo for foreign places and later days. The log
+        // gets the source, ok and reason only (I-8).
+        let openMeteo = OpenMeteoClient()
+        let liveInfo = LiveInfoExecutor(webSearch: webSearch, navigation: navigation, weather: cache, geocoder: cache, location: location,
+                                        amapLookup: web, forecastLookup: openMeteo, forecast: openMeteo, onWeather: { log in
+            RuntimeLog.agent.notice("\(log.line, privacy: .public)")
+        })
         var executors: [String: any ToolExecutor] = [:]
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
         // F-12: scenarios go through the same simulated vehicle; the car card refreshes after each run.
@@ -589,8 +755,15 @@ final class AgentRuntime {
         let music = LaneMusicPlayer(audio: audio)
         let musicTools = MusicToolHandler(music: music, clock: SystemClock())
         for name in MusicToolHandler.tools { executors[name] = musicTools }
-        executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: vehicle, music: music),
-                                                                      vehicle: vehicle, model: model)
+        switch comfortMode {
+        case .table:
+            executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: port, music: music),
+                                                                          vehicle: vehicle, model: model)
+        case .model:
+            executors[VehicleStateTool.tool] = VehicleStateTool(port: port, music: music,
+                                                                navigating: { await navigation.current.navigating },
+                                                                speedKmh: speedKmh)
+        }
         for name in NavigationController.tools { executors[name] = navigation }
         executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
@@ -630,26 +803,90 @@ final class AgentRuntime {
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
         // F-21: the saved tone is read once here, at session start.
-        let instruction = PersonaInstruction.build(base: PersonaInstruction.base, style: SpeakingStyle.saved(in: settings))
+        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(PersonaInstruction.base(for: comfortMode),
+                                                                                 webSearch: webSearch),
+                                                   style: SpeakingStyle.saved(in: settings))
+        // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
+        let info = Bundle.main.infoDictionary
+        let recordFile = DriveSettings.recordsConversation() ? ConversationRecordFile.create() : nil
+        // F-18 §18 item 6: whether a search key is saved, never its value.
+        let searchKeySaved = ((try? KeychainCredentialStore().value(for: .qwenAPIKey)) ?? nil)?.isEmpty == false
+        if webSearch { RuntimeLog.agent.notice("webSearch on key=\(searchKeySaved ? "saved" : "missing", privacy: .public)") }
+        let record = recordFile == nil ? nil : ConversationRecord.make(enabled: true, header: RecordHeader(
+            appVersion: "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))",
+            comfortMode: comfortMode.rawValue, interruptible: DriveSettings.isInterruptible(),
+            speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
+            searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy))
+        if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
+        sessionRecord = record
+        // F-01 §14 items 9-12 (T-060a): one watch per session; the line is written before the record closes.
+        let wakeWatch = WakeSessionWatch(origin: origin, clock: navigationClock)
+        wakeEnd = { if wakeWatch.end() { record?.submit(.wakeUnused) } }
+        // F-18 §16 items 3, 6-7 and §17 items 1-8: `web_search` through the search model, only with the setting on.
+        if webSearch {
+            let qwenKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
+            // F-18 §18 item 7: with the record off, no exchange is built.
+            let onExchange: (@Sendable (WebSearchExchange) -> Void)? = record.map { record in { @Sendable exchange in record.submit(.searchExchange(exchange)) } }
+            let destinationName = currentDestination
+            let lastWords = driverWords
+            executors[WebSearchExecutor.tool] = WebSearchExecutor(
+                service: QwenWebSearchClient(key: qwenKey, onExchange: onExchange), clock: SystemClock(),
+                onOutcome: { outcome in
+                // F-18 §18 items 3, 8: the whole outcome goes to the local record; the log gets no words (I-8).
+                record?.submit(.searchOutcome(outcome))
+                switch outcome {
+                case .used(let ms, let attempts, let query, _, _):
+                    RuntimeLog.agent.notice("webSearchUsed ms=\(ms, privacy: .public) attempts=\(attempts, privacy: .public)")
+                    record?.submit(.search(query))
+                case .failed(let reason, let ms, let code):
+                    // I-7, I-8: the cleaned provider code only; never its message, the query, the answer or the key.
+                    if let code { RuntimeLog.agent.notice("webSearchError code=\(code, privacy: .public)") }
+                    RuntimeLog.agent.notice("webSearchFailed reason=\(reason, privacy: .public) ms=\(ms, privacy: .public)")
+                case .date(_, _, let added, let check):
+                    RuntimeLog.agent.notice("webSearchDate added=\(added ? "yes" : "no", privacy: .public) check=\(check.rawValue, privacy: .public)")
+                case .blocked(let reason):
+                    RuntimeLog.agent.notice("webSearchBlocked reason=\(reason, privacy: .public)")
+                case .place(_, _, let added, let hint):
+                    RuntimeLog.agent.notice("webSearchPlace added=\(added ? "yes" : "no", privacy: .public) hint=\(hint ? "yes" : "no", privacy: .public)")
+                }
+            }, destination: { destinationName.name }, driverWords: { lastWords.words(for: $0) })
+        } else {
+            // Setting off: an undeclared web_search call is UNKNOWN_TOOL, as before T-046c.
+            executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
+        }
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
-        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
+        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: comfortMode, webSearch: webSearch),
+                                   thinkingLevel: nil)
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
         // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
         config.activityDetection = .novaDrive
         let manual = config.activityDetection.manual
         let ended = CoreRelay()
-        let sink = RuntimeSink(realtime: provider, config: config, revoicer: revoicer, audio: audio, model: model,
+        let sink = RuntimeSink(realtime: provider, record: record, config: config, revoicer: revoicer, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
-                               offlineEnded: { [weak self] in await self?.endedOffline() })
-        let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors))
+                               offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch,
+                               keepHandle: { [weak self, session] handle in await self?.keepResumption(handle, session: session) })
+        // F-24 §15 item 5 (T-016j): a handle kept by the last give-up is sent once, then forgotten.
+        let resume = keptResumption.take(at: navigationClock.now)
+        let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
+                             state: AgentState(truthfulness: .session(webSearch: webSearch),
+                                               destinationNotes: webSearch && DriveSettings.destinationNotes,
+                                               resume: resume))
         ended.core = core
         self.core = core
+        // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.
+        trip.session.attach(core: core, record: record)
+        // A new session's turn count starts again: no yes-needed list or no-state carries over.
+        await navigation.forgetConfirmations()
         // F-24 §14 item 1: the network path, only while this session exists.
         // One consumer, so a quick lost/restored pair reaches the core in order.
         let paths = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .unbounded)
         tasks.append(Task { for await available in paths.stream { await core.send(.network(available: available)) } })
-        let network = NetworkPathWatcher { available in paths.continuation.yield(available) }
+        // F-24 §16 item 1 (T-016k): a VPN tunnel with no Wi-Fi or cellular under it counts as no network.
+        let network = NetworkPathWatcher(log: { event in
+            RuntimeLog.agent.notice("\(event.logLine, privacy: .public)")
+        }) { available in paths.continuation.yield(available) }
         network.start()
         self.network = network
         // F-05a §12: the driver's words from the bundled sherpa-onnx recognizer (loaded once per app run);
@@ -659,16 +896,46 @@ final class AgentRuntime {
         // The gate's marks and the driver's words reach the core through one stream, in the order they happened
         // (F-08 §16: an utterance the words release is started before the words arrive).
         let gateEvents = AsyncStream.makeStream(of: UplinkEvent.self, bufferingPolicy: .unbounded)
-        let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core,
-                                          clock: SystemClock()) { [gate] words, utterance in
-            let line: String? = switch words {
-            case .partial(let text), .final(let text): text
-            case .unclear: "（没听清）"
+        @Sendable func deliverWords(_ words: DriverWords) {
+            // F-05a §13 item 2: display only; the words below and the guards are unchanged.
+            let shown: (line: String?, hidden: Bool) = switch words {
+            case .partial(let text): ScreenLanguage.driverDisplay(text, final: false)
+            case .final(let text): ScreenLanguage.driverDisplay(text, final: true)
+            case .unclear: (ScreenLanguage.unclearDriverLine, false)
             }
-            if let line { Task { @MainActor in model.driverLine = line } }
-            gate.words(words, utterance: utterance)
+            if shown.hidden, case .final(let text) = words {
+                RuntimeLog.agent.notice("\(DiagnosticEvent.screenHidden(kind: .driver).logLine, privacy: .public)")
+                record?.submit(.screenHidden(kind: .driver, text: text))
+            }
+            if let line = shown.line { Task { @MainActor in model.driverLine = line } }
+            switch words {
+            case .final(let text): record?.submit(.heardLocal(text))
+            case .unclear: record?.submit(.heardLocal(nil))
+            case .partial: break
+            }
             gateEvents.continuation.yield(.words(words))
         }
+        let transcript = DriverTranscript(transcriber: BundledTranscriber(models: speechModels), core: core,
+                                          clock: SystemClock()) { [gate] words, utterance in
+            // F-08 §16-§17: the post-stop hold and the interruption check hear the words at once.
+            gate.words(words, utterance: utterance)
+            // F-04b §6 item 4 (T-013e): with 声纹锁定 on, a held utterance's words wait for its verdict.
+            gate.deliverIfAllowed(words, utterance: utterance, deliverWords)
+        }
+        // F-04b (T-013e): scoring off the capture thread; released words; record and log lines (numbers only, I-8).
+        let speakerService = SpeakerLockService.shared
+        gate.onSpeaker(score: { [gate] request in
+            speakerService.score(request) { gate.speakerResult($0, for: request) }
+        }, words: { words, _ in deliverWords(words) }, check: { line in
+            RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+            record?.submit(.speakerCheck(line))
+            // F-04b §16 item 5: the last 20 speech scores of this app run, for 设置 (numbers only, never saved).
+            speakerService.noteCheck(line)
+            // F-04b §14 item 8: a rejected or unknown sentence says so on screen (numbers in the log, text on screen).
+            if let text = SpeakerRejectionNotice.text(for: line) {
+                Task { @MainActor in model.showSpeakerNotice(text) }
+            }
+        })
         tasks.append(Task { await transcript.listen() })
         // Utterance marks and frames in capture order, so the recognizer gets exactly what goes up.
         let transcriptInputs = AsyncStream.makeStream(of: DriverTranscript.Input.self, bufferingPolicy: .bufferingNewest(1024))
@@ -687,14 +954,20 @@ final class AgentRuntime {
         // Provider events, in order, to the core; the driver's words also to the screen.
         tasks.append(Task {
             for await event in provider.events {
+                if let record { Self.recordProvider(event.event, record) }
+                driverWords.observe(event.event)  // F-18 §23 item 5: this turn's final words only; never logged (I-8)
                 switch event.event {
                 case .userTranscript(let text, let isFinal):
                     // F-05a: the subtitle comes from `DriverTranscript`; Gemini's text is its fallback only.
                     await transcript.gemini(text, isFinal: isFinal)
+                case .replyText(_, let text):
+                    gate.herWords(text)  // F-08 §17 item 5, in memory only
+                case .responseStarted:
+                    gate.newModelTurn()
                 case .failed(let error):
                     RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
                     await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
-                case .closed, .setupComplete, .goAway:
+                case .closed, .setupComplete, .goAway, .turnEnded:
                     RuntimeLog.agent.notice("provider \(String(describing: event.event), privacy: .public)")
                 default:
                     break
@@ -704,7 +977,12 @@ final class AgentRuntime {
         })
         tasks.append(Task {
             for await event in audio.events {
+                // F-08 §17 item 8: reply audio of a turn whose mute already ended.
+                if case .replyStarted(let epoch) = event, let line = gate.replyAudioStarted(epoch) {
+                    RuntimeLog.agent.notice("\(line, privacy: .public)")
+                }
                 // F-04 §14: the gate hears whether she is talking first, then the core and the screen.
+                if case .replyStarted = event { record?.submit(.playbackStarted) }
                 switch event {
                 case .replyStarted: gate.setPlaying(reply: true)
                 // replyFinished also fires between clauses; she stops talking only when nothing of the reply
@@ -722,11 +1000,14 @@ final class AgentRuntime {
                 // F-14: a fallback waits until nothing of her reply is left, at the revoicer or on the lane.
                 if case .replyFinished(let epoch) = event, await revoicer.pendingClauses == 0 {
                     gate.setPlaying(reply: false)
+                    gate.muteEnded(epoch)
+                    gate.herTurnEnded()  // F-08 §17 item 5: her words are forgotten echoWindow after playback ends
                     let talking = gate.sheTalks, hint = gate.stopPhraseWindow
                     await MainActor.run {
                         model.sheTalks = talking
                         model.stopHint = hint
                     }
+                    record?.submit(.playbackFinished)
                     await core.send(.playback(.replyIdle(epoch)))
                 }
             }
@@ -738,6 +1019,12 @@ final class AgentRuntime {
             var overspeedID = GuidanceID(1 << 40)
             var overspeed = OverspeedMonitor(clock: SystemClock())
             for await snapshot in flags.stream {
+                // F-18 §21 item 1: the destination for the search and the silent note.
+                let name = snapshot.currentDestination
+                if name != currentDestination.name {
+                    currentDestination.set(name)
+                    await core.send(.destination(name))
+                }
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen)))
@@ -762,15 +1049,20 @@ final class AgentRuntime {
                 case .words(let words):
                     await core.send(.driverWords(words))
                     continue
+                case .bargeInStop:
+                    await core.send(.bargeInStop)
+                    continue
                 case .gate(let o): output = o
                 }
                 switch output {
                 case .speechStarted(let sent):
+                    wakeWatch.speechStarted(sentToModel: sent)
                     // F-04 §14 item 1: the core follows the gate's decision, never re-checks it.
                     await core.send(.speechStarted(recentSpeech: gate.recentSpeech, sentToModel: sent))
-                case .utterance(let record):
+                case .utterance(let utterance):
                     // F-04 §14 item 7: numbers and enums only (I-8).
-                    RuntimeLog.agent.notice("\(record.logLine, privacy: .public)")
+                    RuntimeLog.agent.notice("\(utterance.logLine, privacy: .public)")
+                    record?.submit(.utterance(id: utterance.id, sent: utterance.sentToModel, mute: utterance.muteReason.rawValue))
                 case .speechStopped:
                     await core.send(.speechStopped)
                 case .streamEnd:
@@ -797,6 +1089,14 @@ final class AgentRuntime {
             }
         }
         gate.onOutput(route)
+        // F-08 §17 item 11 (T-022e): the dip is the reply node's volume; the stop reaches the core before the
+        // released utterance's speechStarted (same ordered stream).
+        gate.onBargeInAction { action in
+            switch action {
+            case .dip(let on): audio.setReplyDipped(on, byDb: BargeInLive.dipDb)
+            case .stop: gateEvents.continuation.yield(.bargeInStop)
+            }
+        }
         // F-08 §16: the recognizer hears every utterance as the gate cut it, held or not.
         gate.onRaw({ output in
             switch output {
@@ -813,11 +1113,32 @@ final class AgentRuntime {
         // F-04a: the sound classifier confirms that an onset is a human voice; if it cannot start, the gate
         // keeps F-04 rules (it only confirms once a result has arrived).
         gate.setSuppression(DriveSettings.usesNoiseSuppression())
+        gate.setInterruptible(DriveSettings.isInterruptible())
+        SpeakerLockService.shared.dropInvalidLock()
+        gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
         // §6: the 抗噪 switch also applies when changed mid-session.
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
                                                                   object: nil, queue: nil) { _ in
             gate.setSuppression(DriveSettings.usesNoiseSuppression())
+            gate.setInterruptible(DriveSettings.isInterruptible())
+            // F-04b §6 item 10: 声纹锁定 applies mid-session with no restart. Only reads defaults (see setInterruptible).
+            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
+        }
+        // F-04b §12 item 5: a speaker model pack that finishes (or fails) mid-session applies with no restart.
+        if let speakerModelObserver { NotificationCenter.default.removeObserver(speakerModelObserver) }
+        speakerModelObserver = NotificationCenter.default.addObserver(forName: SpeakerModelLocator.changed,
+                                                                      object: nil, queue: nil) { _ in
+            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
+        }
+        // F-04b §16 items 7-8 (T-013j): a slider save applies from the next utterance; its line goes to the record.
+        if let speakerThresholdObserver { NotificationCenter.default.removeObserver(speakerThresholdObserver) }
+        speakerThresholdObserver = NotificationCenter.default.addObserver(
+            forName: SpeakerLockService.thresholdChanged, object: nil, queue: nil) { note in
+            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
+            if let line = note.userInfo?[SpeakerLockService.thresholdLineKey] as? SpeakerThresholdLine {
+                record?.submit(.speakerThreshold(line))
+            }
         }
         let classifier = SoundAnalysisSpeechClassifier()
         do {
@@ -832,17 +1153,22 @@ final class AgentRuntime {
                 let line = gate.diagnostics + "\n" + speechModels.diagnostics
                 // The echo tail ends on a capture frame, not a playback event, so 请说 is refreshed here too.
                 let talking = gate.sheTalks, hint = gate.stopPhraseWindow
+                // F-04b §6 item 11: fails closed; the chip says how to get her back.
+                let speakerDown = gate.speakerUnavailable
                 await MainActor.run {
                     model.noiseLine = line
                     if model.sheTalks != talking { model.sheTalks = talking }
                     if model.stopHint != hint { model.stopHint = hint }
+                    if model.speakerUnavailable != speakerDown { model.speakerUnavailable = speakerDown }
                 }
             }
         })
         // F-08 §14 items 3–4: the stop-phrase spotter hears only her reply and its echo tail; a hit stops her.
-        let stopPhrases = StopPhraseFeed(models: speechModels) { hit in
-            Task { await core.send(.stopPhraseSpotted(hit)) }
+        let stopPhrases = StopPhraseFeed(models: speechModels) { [gate] hit in
+            // F-04b §6 item 8 (T-013e): with 声纹锁定 on, only the enrolled voice's stop phrase stops her.
+            gate.stopPhrase { Task { await core.send(.stopPhraseSpotted(hit)) } }
         }
+        audio.onEngineRestart { gate.engineStarted() }
         do {
             try audio.start { frame in
                 classifier.feed(frame)
@@ -878,6 +1204,15 @@ final class AgentRuntime {
                                      location: location, clock: navigationClock,
                                      onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         let listeners = TripListeners()
+        let tripSession = TripSession()
+        // F-16 §14 (T-042c): near-first search; the turn count is the uplink gate's (F-04a), never a transcript.
+        let nearFirst = NearFirstSearch(
+            match: DestinationMatch(pinyin: FoundationPinyinConverter()), geocoder: web,
+            driverTurns: { await tripSession.driverTurns() },
+            onLine: { line in
+                tripSession.record()?.submit(.destSearch(line))
+                RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+            })
         let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
         // The screen follows the trip with or without a session, in snapshot order.
         let screen = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
@@ -890,33 +1225,74 @@ final class AgentRuntime {
             }
         }
         let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
-                                              saved: savedPlaces, mode: { DriveSettings.naviMode() }) { snapshot in
+                                              saved: savedPlaces, mode: { DriveSettings.naviMode() },
+                                              nearFirst: nearFirst) { snapshot in
             screen.continuation.yield(snapshot)
             // The running session, if any, gets the flags.
             listeners.yield(snapshot)
         }
         await navigation.start()
-        let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners)
+        let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners,
+                           session: tripSession)
         self.trip = trip
         return trip
+    }
+
+    /// F-12 §17 item 4: provider events as record lines (never to `RuntimeLog`).
+    nonisolated static func recordProvider(_ event: RealtimeEvent, _ record: ConversationRecord) {
+        switch event {
+        case .userTranscript(let text, let isFinal): if isFinal { record.submit(.heardGemini(text)) }
+        case .responseStarted(let t): record.submit(.turnStarted(t))
+        case .replyText(let t, let text): record.submit(.replyText(t, text))
+        case .toolCalls(_, let calls):
+            for c in calls { record.submit(.toolCall(name: c.name, arguments: c.arguments)) }
+        case .audioDone(let t): record.submit(.generationComplete(t))
+        case .responseDone(let t, let outcome): record.submit(.turnComplete(t, outcome: outcome.rawValue))
+        case .turnEnded(let reason): record.submit(.turnEnded(reason))
+        case .setupComplete: record.submit(.session("connected"))
+        case .failed(let error): record.submit(.session("failed code=\(error.code.rawValue)"))
+        case .closed: record.submit(.session("closed"))
+        case .goAway: record.submit(.session("goAway"))
+        case .interrupted(let t, let reason): record.submit(.session("interrupted turn=\(t) reason=\(reason.rawValue)"))
+        case .replyAudio, .toolCallCancellation, .resumptionHandle: break
+        }
     }
 
     /// F-24 §14 item 4: the session ended quietly after the offline cap; the chip says why until the next start.
     private func endedOffline() {
         guard model.running else { return }
+        // F-24 §15 item 4: this stop is not the driver's; the kept handle survives it.
+        let kept = keptResumption
         stop()
+        keptResumption = kept
         model.networkEnded = true
     }
 
+    /// F-24 §15 item 4 (T-016j): the handle the last give-up or offline cap kept. Memory only (I-7).
+    private var keptResumption = KeptResumption()
+
+    /// Only for the session still running: a driver stop in between means nothing is kept (item 4).
+    private func keepResumption(_ handle: String?, session: Int) {
+        guard session == self.session, model.running else { return }
+        keptResumption.keep(handle, at: navigationClock.now)
+    }
+
     func stop() {
+        // F-24 §15 item 4: the driver stopped a running session: a kept handle is not sent next time.
+        if model.running { keptResumption.drop() }
         session += 1
+        wakeEnd?()
+        wakeEnd = nil
         network?.stop()
         network = nil
         // F-15a §9: the trip is the app's; it keeps going (HUD, marker, progress) with no session listening.
         trip?.listeners.detach()
+        trip?.session.detach()
+        if let navigation = trip?.navigation { Task { await navigation.forgetConfirmations() } }
         // F-20a §5: session stop closes the camera.
         if model.cameraOpen { closeCamera() }
         speakLine = nil
+        sessionRecord = nil
         lifecycle = nil
         guard let core else { return }
         let audio = audio
@@ -924,6 +1300,10 @@ final class AgentRuntime {
         classifier = nil
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         defaultsObserver = nil
+        if let speakerModelObserver { NotificationCenter.default.removeObserver(speakerModelObserver) }
+        speakerModelObserver = nil
+        if let speakerThresholdObserver { NotificationCenter.default.removeObserver(speakerThresholdObserver) }
+        speakerThresholdObserver = nil
         let wake = UITestDrive.enabled ? nil : wake
         Task { [model] in
             await core.send(.stop)
@@ -941,6 +1321,23 @@ final class AgentRuntime {
         model.view = AgentViewState()
     }
 
+    /// F-04b §4 item 1 (T-013e): enrollment and 校准 use the microphone only with no session running; the wake
+    /// listener lets go of it first (one capture only, ADR-006). False while a session runs.
+    func beginExclusiveCapture() async -> Bool {
+        guard !model.running, !exclusiveCapture else { return false }
+        exclusiveCapture = true
+        await wake.update(sessionRunning: true)
+        return true
+    }
+
+    func endExclusiveCapture() async {
+        guard exclusiveCapture else { return }
+        exclusiveCapture = false
+        if !model.running { await wake.update(sessionRunning: false) }
+    }
+
+    private var exclusiveCapture = false
+
     /// Applies the wake policy at launch and after settings change.
     func refreshWake() async {
         guard !UITestDrive.enabled else { return }
@@ -957,6 +1354,8 @@ enum RuntimeLog {
 enum UplinkEvent: Sendable {
     case gate(UplinkGateOutput)
     case words(DriverWords)
+    /// F-08 §17 item 11 (T-022e): confirmed new words; comes before the released utterance's marks.
+    case bargeInStop
 }
 
 /// The uplink gate behind a lock; it runs on the capture thread.
@@ -968,6 +1367,155 @@ final class GateBox: @unchecked Sendable {
     private var gate = SpeechUplinkGate()
     /// F-08 §16: after a stop, what goes up waits for the phone's words.
     private var hold = PostStopHold()
+    /// F-08 §17 (T-022d): log-only check of what would interrupt her; never changes an output.
+    private var shadow = BargeInShadow()
+    /// F-08 §17 items 10–11 (T-022e): the live interruption behind 「可以打断她（实验）」.
+    private var live = BargeInLive()
+    /// What the shell does for a live interruption (dip, stop), called outside the lock and before the outputs.
+    private var onBargeIn: (@Sendable (BargeInAction) -> Void)?
+    /// F-04b §6 (T-013e): 声纹锁定. Before the post-stop hold; off = bypassed (no scoring, outputs unchanged).
+    private var speaker = SpeakerHold()
+    /// §6 item 9: an interruption acts only on an accepted utterance.
+    private var speakerActions = SpeakerActionHold()
+    /// §6 item 4: the words of a held utterance wait for its verdict.
+    private var speakerWordsHold = SpeakerWordsHold()
+    private var speakerScore: (@Sendable (SpeakerScoreRequest) -> Void)?
+    /// §6 item 8: the last 2 s of capture, for a spotted stop phrase.
+    private var recentFrames = RecentFrames()
+    private var stopCheck = SpeakerPhraseCheck(kind: .stop)
+    private var speakerWords: (@Sendable (DriverWords, Int) -> Void)?
+    private var speakerCheck: (@Sendable (SpeakerCheckLine) -> Void)?
+
+    /// `score` runs a request off the capture thread and calls `speakerResult`; `words` delivers released words;
+    /// `check` writes the record and log line.
+    func onSpeaker(score: @escaping @Sendable (SpeakerScoreRequest) -> Void,
+                   words: @escaping @Sendable (DriverWords, Int) -> Void,
+                   check: @escaping @Sendable (SpeakerCheckLine) -> Void) {
+        lock.withLock {
+            speakerScore = score
+            speakerWords = words
+            speakerCheck = check
+        }
+    }
+
+    /// §6 item 10: read on every settings change; off releases what is held, on applies from the next utterance.
+    func setSpeakerLock(_ threshold: Double?) {
+        order.lock()
+        defer { order.unlock() }
+        // §6 item 12: no change (every UserDefaults change calls this) does nothing.
+        guard lock.withLock({ speaker.threshold != threshold }) else { return }
+        let (step, act, forward, released, words) = lock.withLock {
+            let sp = speaker.setLock(threshold: threshold)
+            stopCheck.setLock(threshold: threshold)
+            let (out, released) = speakerAfter(sp)
+            var fed = hold.pass(out)
+            fed += replay(released)
+            return (liveStep(raw: [], fed, frame: false, speaker: sp), onBargeIn, self.forward, released,
+                    speakerWords)
+        }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
+        released.forEach { words?($0.words, $0.utterance) }
+    }
+
+    /// The background queue's score for `request`.
+    func speakerResult(_ outcome: SpeakerScoreOutcome, for request: SpeakerScoreRequest) {
+        order.lock()
+        defer { order.unlock() }
+        let (step, act, forward, released, words, logs) = lock.withLock {
+            let sp = speaker.result(outcome, utterance: request.utterance, generation: request.generation)
+            let (out, released) = speakerAfter(sp)
+            var fed = hold.pass(out)
+            fed += replay(released)
+            return (liveStep(raw: [], fed, frame: false, speaker: sp), onBargeIn, self.forward, released, speakerWords,
+                    hold.takeLogs() + live.takeLogs())
+        }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
+        released.forEach { words?($0.words, $0.utterance) }
+        logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
+    }
+
+    /// Under `lock`: words that arrived while an utterance was held reach the post-stop hold after its start.
+    private func replay(_ released: [SpeakerWordsHold.Released]) -> [UplinkGateOutput] {
+        var fed: [UplinkGateOutput] = []
+        for r in released {
+            switch r.words {
+            case .partial(let t): fed += hold.partial(t, utterance: r.utterance)
+            case .final(let t): fed += hold.final(t, utterance: r.utterance)
+            case .unclear: fed += hold.final("", utterance: r.utterance)
+            }
+        }
+        return fed
+    }
+
+    /// §6 item 4: delivers the words now unless the speaker verdict holds (or dropped) them. Under `order`, so a
+    /// release on the scoring thread cannot interleave: released words always follow their utterance's start.
+    func deliverIfAllowed(_ words: DriverWords, utterance id: Int, _ deliver: (DriverWords) -> Void) {
+        order.lock()
+        defer { order.unlock() }
+        let now = lock.withLock { speakerWordsHold.words(words, utterance: id, heldUtterance: speaker.heldUtterance) }
+        if now { deliver(words) }
+    }
+
+    /// §6 item 8: a spotted stop phrase stops her only on the enrolled voice when locked; `act` runs when it may.
+    func stopPhrase(_ act: @escaping @Sendable () -> Void) {
+        let decision = lock.withLock { stopCheck.hit(recent: recentFrames.frames) }
+        switch decision {
+        case .act: act()
+        case .ignore: break
+        case .verify(let request):
+            let started = Date()
+            SpeakerLockService.shared.score(request) { [self] outcome in
+                let waitMs = Int(Date().timeIntervalSince(started) * 1000)
+                let (verdict, check) = lock.withLock {
+                    (stopCheck.result(outcome, check: request.utterance, generation: request.generation, waitMs: waitMs),
+                     speakerCheck)
+                }
+                guard let verdict else { return }
+                check?(verdict.line)
+                if verdict.act { act() }
+            }
+        }
+    }
+
+    /// §6 item 11: scoring failed while locked.
+    var speakerUnavailable: Bool { lock.withLock { speaker.locked && speaker.unavailable } }
+
+    /// Under `lock`: dispatches the request and check lines, resolves held words. Returns the outputs for the
+    /// post-stop hold and the words to deliver.
+    private func speakerAfter(_ sp: SpeakerHold.Step) -> ([UplinkGateOutput], [SpeakerWordsHold.Released]) {
+        if let request = sp.request, let score = speakerScore { DispatchQueue.global().async { score(request) } }
+        let checks = speaker.takeChecks()
+        if !checks.isEmpty, let check = speakerCheck { DispatchQueue.global().async { checks.forEach(check) } }
+        let released = speakerWordsHold.decided(sp.decided, utterances: sp.decidedUtterances)
+        return (sp.outputs, released)
+    }
+
+    /// Called on every UserDefaults change: takes `order`, so nothing on the capture or forward path may write
+    /// UserDefaults (it would deadlock on this non-recursive lock).
+    func setInterruptible(_ on: Bool) {
+        order.lock()
+        defer { order.unlock() }
+        let (step, act, forward) = lock.withLock { (live.setEnabled(on), onBargeIn, self.forward) }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
+    }
+    func onBargeInAction(_ handler: @escaping @Sendable (BargeInAction) -> Void) { lock.withLock { onBargeIn = handler } }
+
+    /// One live step, under the lock: the gate sends the rest of an adopted utterance. Its outputs replace
+    /// `outputs` (the hold's), with any release after them.
+    private func liveStep(raw: [UplinkGateOutput], _ outputs: [UplinkGateOutput], frame: Bool,
+                          speaker sp: SpeakerHold.Step = SpeakerHold.Step()) -> BargeInLive.Step {
+        let events = shadow.takeEvents()
+        let g = gate.guidancePlaying
+        let live = frame ? self.live.frame(raw: raw, held: outputs, events: events, guidancePlaying: g)
+            : self.live.pass(raw: raw, held: outputs, events: events, guidancePlaying: g)
+        // F-04b §6 item 9: with the lock on, no dip or stop before the utterance is accepted.
+        let step = speakerActions.decided(sp.decided) + speakerActions.step(live, verdict: speaker.verdict)
+        if step.adopt { gate.adoptOpenUtterance() }
+        return step
+    }
     /// The recognizer hears every gate output, before the hold (so it can hear the words that release it).
     private var raw: (@Sendable (UplinkGateOutput) -> Void)?
     /// F-08 §16 item 2: whether the bundled recognizer can give words; without it nothing is held.
@@ -977,12 +1525,26 @@ final class GateBox: @unchecked Sendable {
     func process(_ frame: PCMFrame16k) {
         order.lock()
         defer { order.unlock() }
-        let (gated, outputs, rawFeed, forward, logs) = lock.withLock {
+        let (gated, released, rawFeed, forward, logs, step, act) = lock.withLock {
             let r = gate.process(frame)
-            return (r, hold.frame(r), self.raw, self.forward, hold.takeLogs())
+            if speaker.locked { recentFrames.append(frame) }
+            // A stale classifier result is no result (item 3: no classifier result fails closed).
+            shadow.frame(r, frame: frame, speechProbability: gate.classifierFresh ? gate.lastSpeechProbability : nil,
+                         muteReason: gate.muteReason)
+            // §6 items 8–9: when locked every utterance is scored, so neither an interruption nor a transcript stop
+            // phrase of a not-sent one acts before its voice is accepted.
+            speaker.scoreUnsent = true
+            let sp = speaker.frame(r)
+            let (fed, released) = speakerAfter(sp)
+            let step = liveStep(raw: r, hold.frame(fed), frame: true, speaker: sp)
+            return (r, released, self.raw, self.forward,
+                    hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step, self.onBargeIn)
         }
         gated.forEach { rawFeed?($0) }
-        outputs.forEach { forward?($0) }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
+        let words = lock.withLock { speakerWords }
+        released.forEach { words?($0.words, $0.utterance) }
         logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
     }
 
@@ -995,17 +1557,31 @@ final class GateBox: @unchecked Sendable {
 
     /// F-08 §16: the recognizer's words for utterance `id` (numbered like the gate's starts) may release a held one.
     func words(_ words: DriverWords, utterance id: Int) {
+        // F-08 §17: pinyin conversion is slow; never under the lock every capture frame needs.
+        let syllables: [String]? = switch words {
+        case .partial(let text), .final(let text): BargeInCheck.syllables(text)
+        case .unclear: nil
+        }
         order.lock()
         defer { order.unlock() }
-        let (outputs, forward, logs) = lock.withLock {
+        let (outputs, forward, logs, step, act) = lock.withLock {
+            switch words {
+            case .partial(let text): shadow.partial(text, syllables: syllables, utterance: id)
+            case .final(let text): shadow.final(text, syllables: syllables, utterance: id)
+            case .unclear: shadow.final("", syllables: [], utterance: id)
+            }
             let o: [UplinkGateOutput] = switch words {
             case .partial(let text): hold.partial(text, utterance: id)
             case .final(let text): hold.final(text, utterance: id)
             case .unclear: hold.final("", utterance: id)
             }
-            return (o, self.forward, hold.takeLogs())
+            let step = liveStep(raw: [], o, frame: false)
+            return ([UplinkGateOutput](), self.forward, hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step,
+                    self.onBargeIn)
         }
         outputs.forEach { forward?($0) }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
         logs.forEach { RuntimeLog.agent.notice("\($0, privacy: .public)") }
     }
     var recentSpeech: Bool { lock.withLock { gate.hasRecentSpeech } }
@@ -1018,15 +1594,33 @@ final class GateBox: @unchecked Sendable {
     /// F-08 §15 item 2 / §16 items 1–2: a stop ended her reply. The echo-tail mute ends, an open muted utterance is
     /// held unsent to its pause, and the post-stop window starts.
     func stopped() {
-        lock.withLock {
+        order.lock()
+        defer { order.unlock() }
+        let (step, act, forward) = lock.withLock {
             gate.endEchoTail()
             let holding = gate.holdStopUtterance()
             hold.stopped(holdingStopUtterance: holding, wordsAvailable: wordsAvailable())
+            // F-08 §17 item 12: a candidate that is the stop utterance is never released as a question.
+            return (live.stopPhrase(), onBargeIn, self.forward)
         }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
     }
     func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
         lock.withLock { gate.setPlaying(reply: reply, guidance: guidance) }
     }
+    /// F-08 §17 items 3 and 5: the engine (re)started; her words and the end of her turn. Kept as syllables only.
+    func engineStarted() { lock.withLock { shadow.engineStarted() } }
+    func herWords(_ text: String) {
+        let syllables = BargeInCheck.syllables(text)  // outside the lock
+        lock.withLock { shadow.herWords(syllables: syllables) }
+    }
+    func herTurnEnded() { lock.withLock { shadow.herTurnEnd() } }
+    /// F-08 §17 item 8: reply audio of a turn whose mute already ended.
+    private var muteEnd = MuteEndWatch()
+    func muteEnded(_ epoch: Epoch) { lock.withLock { muteEnd.muteEnded(epoch) } }
+    func replyAudioStarted(_ epoch: Epoch) -> String? { lock.withLock { muteEnd.replyStarted(epoch) } }
+    func newModelTurn() { lock.withLock { muteEnd.newTurn() } }
     /// The gate's decision for the open utterance, as carried by its `speechStarted`; never decided here.
     private var following = true
     func follow(_ output: UplinkGateOutput) -> Bool {
@@ -1081,12 +1675,18 @@ final class GateBox: @unchecked Sendable {
     func setForcedClosed(_ closed: Bool) {
         order.lock()
         defer { order.unlock() }
-        let (raw, outputs, rawFeed, forward) = lock.withLock {
+        let (raw, outputs, rawFeed, forward, step, act) = lock.withLock {
             let r = gate.setForcedClosed(closed)
-            return (r, hold.pass(r), self.raw, self.forward)
+            shadow.observe(r, muteReason: gate.muteReason)
+            let sp = speaker.pass(r)
+            let (fed, _) = speakerAfter(sp)
+            return (r, [UplinkGateOutput](), self.raw, self.forward, liveStep(raw: r, hold.pass(fed), frame: false, speaker: sp),
+                    self.onBargeIn)
         }
         raw.forEach { rawFeed?($0) }
         outputs.forEach { forward?($0) }
+        step.actions.forEach { act?($0) }
+        step.outputs.forEach { forward?($0) }
     }
 }
 
@@ -1151,6 +1751,35 @@ struct AppTrip {
     let web: AmapWebClient
     let savedPlaces: SavedPlaces
     let listeners: TripListeners
+    let session: TripSession
+}
+
+/// F-16 §14 (T-042c): the running session's core (its driver-turn count) and record, for the trip's search.
+final class TripSession: @unchecked Sendable {
+    private let lock = NSLock()
+    private var core: AgentCore?
+    private var current: ConversationRecord?
+
+    func attach(core: AgentCore, record: ConversationRecord?) {
+        lock.withLock {
+            self.core = core
+            current = record
+        }
+    }
+
+    func detach() {
+        lock.withLock {
+            core = nil
+            current = nil
+        }
+    }
+
+    func record() -> ConversationRecord? { lock.withLock { current } }
+
+    func driverTurns() async -> Int {
+        guard let core = lock.withLock({ core }) else { return 0 }
+        return await core.closedDriverTurns
+    }
 }
 
 /// The trip's snapshots go to the voice session that is running, if any; none while no session is.
