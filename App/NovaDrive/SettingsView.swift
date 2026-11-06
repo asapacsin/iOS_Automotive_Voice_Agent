@@ -149,6 +149,11 @@ struct SettingsView: View {
                     Button("清除所有密钥", role: .destructive) { confirmWipe = true }
                 }
                 if let message { Section { Text(message) } }
+                // F-18 §26 item 10: no about or data-source area, so the Open-Meteo credit is at the bottom.
+                Section {
+                    Text(ForecastWeather.credit).font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("weather-credit")
+                }
             }
             .navigationTitle("设置")
             .onAppear(perform: refresh)

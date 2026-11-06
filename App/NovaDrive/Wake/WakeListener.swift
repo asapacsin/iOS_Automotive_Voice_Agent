@@ -23,6 +23,8 @@ final class WakeListener {
     private let clock: any NovaClock
     private let onArmed: @MainActor (Bool) -> Void
     private let onWake: @MainActor (NovaInstant) async -> Void
+    /// F-04b §14 item 8 (T-013h): the lock rejected the wake word; the idle screen says so for 3 s.
+    private let onSpeakerNotice: @MainActor (String) -> Void
     private let kind = WakeEngineKind.selected
     /// F-04b §6 item 7 (T-013e): the last 2 s of frames, scored on a detection when 声纹锁定 is on.
     private let recent = RecentBox()
@@ -39,10 +41,12 @@ final class WakeListener {
 
     /// `clock` stamps the wake for `wake-to-listening`; `onArmed` is true while the detector is ready.
     init(clock: any NovaClock, onArmed: @escaping @MainActor (Bool) -> Void,
-         onWake: @escaping @MainActor (NovaInstant) async -> Void) {
+         onWake: @escaping @MainActor (NovaInstant) async -> Void,
+         onSpeakerNotice: @escaping @MainActor (String) -> Void = { _ in }) {
         self.clock = clock
         self.onArmed = onArmed
         self.onWake = onWake
+        self.onSpeakerNotice = onSpeakerNotice
     }
 
     func update(scene: AppScenePhase? = nil, sessionRunning: Bool? = nil) async {
@@ -131,6 +135,7 @@ final class WakeListener {
         guard let verdict = wakeCheck.result(outcome, check: request.utterance, generation: request.generation,
                                              waitMs: waitMs) else { return false }
         RuntimeLog.agent.notice("\(verdict.line.logLine, privacy: .public)")
+        if let text = SpeakerRejectionNotice.text(for: verdict.line) { onSpeakerNotice(text) }
         return verdict.act
     }
 

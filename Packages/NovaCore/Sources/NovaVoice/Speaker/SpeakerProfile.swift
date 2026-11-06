@@ -12,15 +12,24 @@ public struct SpeakerProfile: Codable, Sendable, Hashable {
     public var threshold: Double?
     public var enrolledAt: Date
     public var calibratedAt: Date?
+    /// §14 item 4 (T-013h): the clip length (ms) the threshold was measured on, and the lines behind it. Optional so
+    /// old files still load; a threshold without the current clip length is not used (§14 item 5).
+    public var calibrationClipMs: Int?
+    public var calibrationDriverLines: Int?
+    public var calibrationOtherLines: Int?
 
     public init(embedding: [Float], modelName: String, dimension: Int, threshold: Double? = nil, enrolledAt: Date,
-                calibratedAt: Date? = nil) {
+                calibratedAt: Date? = nil, calibrationClipMs: Int? = nil, calibrationDriverLines: Int? = nil,
+                calibrationOtherLines: Int? = nil) {
         self.embedding = embedding
         self.modelName = modelName
         self.dimension = dimension
         self.threshold = threshold
         self.enrolledAt = enrolledAt
         self.calibratedAt = calibratedAt
+        self.calibrationClipMs = calibrationClipMs
+        self.calibrationDriverLines = calibrationDriverLines
+        self.calibrationOtherLines = calibrationOtherLines
     }
 
     /// §4 item 6: a profile of another model (name or dimension) is invalid.
@@ -88,6 +97,8 @@ public enum SpeakerLockStatus: Sendable, Hashable {
     case invalidModel
     /// §3 item 4: the model cannot load.
     case modelUnavailable
+    /// §14 item 5 (T-013h): a threshold measured on another clip length (or the old whole-line way): not used.
+    case recalibrate
 
     public var text: String {
         switch self {
@@ -96,6 +107,7 @@ public enum SpeakerLockStatus: Sendable, Hashable {
         case .ready: "已录入"
         case .invalidModel: "声纹模型已更换，请重新录入"
         case .modelUnavailable: "声纹模型不可用"
+        case .recalibrate: "已录入，需要重新校准"
         }
     }
 }
@@ -113,20 +125,36 @@ public enum SpeakerLockPolicy {
     public static let switchText = "开：只有录入的声音能唤醒和使用小诺。说话重叠时可能听不准。"
     /// §6 item 11.
     public static let unavailableChip = "声纹不可用，可在设置关闭"
+    /// §14 item 5: shown under the `recalibrate` status text.
+    public static let recalibrateNote = "校准方法已更新：请重新校准一次（两人各 20 句），声纹不用重新录入。"
+
+    /// §4 item 6, §14 item 5: a switch that is on is turned off for these (the voiceprint and file stay).
+    public static func turnsSwitchOff(_ status: SpeakerLockStatus) -> Bool {
+        status == .invalidModel || status == .recalibrate
+    }
+
+    /// §14 item 5: the threshold was measured on the clip the live check scores now.
+    public static func currentClip(_ profile: SpeakerProfile, clipMs: Int) -> Bool {
+        profile.calibrationClipMs == clipMs
+    }
 
     /// `model`: the loaded model's name and dimension; nil when it cannot load.
-    public static func status(profile: SpeakerProfile?, model: (name: String, dimension: Int)?) -> SpeakerLockStatus {
+    /// `clipMs`: the live check's clip length now (`SpeakerVerifyClip.clipMs`).
+    public static func status(profile: SpeakerProfile?, model: (name: String, dimension: Int)?,
+                              clipMs: Int = SpeakerVerifyClip.clipMs()) -> SpeakerLockStatus {
         guard let model else { return .modelUnavailable }
         guard let profile else { return .notEnrolled }
         guard profile.valid(modelName: model.name, dimension: model.dimension) else { return .invalidModel }
-        return profile.threshold == nil ? .enrolledUncalibrated : .ready
+        guard profile.threshold != nil else { return .enrolledUncalibrated }
+        return currentClip(profile, clipMs: clipMs) ? .ready : .recalibrate
     }
 
-    public static func requestOn(profile: SpeakerProfile?, model: (name: String, dimension: Int)?) -> OnRequest {
-        switch status(profile: profile, model: model) {
+    public static func requestOn(profile: SpeakerProfile?, model: (name: String, dimension: Int)?,
+                                 clipMs: Int = SpeakerVerifyClip.clipMs()) -> OnRequest {
+        switch status(profile: profile, model: model, clipMs: clipMs) {
         case .modelUnavailable: return .modelUnavailable
         case .notEnrolled, .invalidModel: return .openEnrollment
-        case .enrolledUncalibrated: return .openCalibration
+        case .enrolledUncalibrated, .recalibrate: return .openCalibration
         case .ready: return .on(threshold: profile!.threshold!)
         }
     }
@@ -134,11 +162,15 @@ public enum SpeakerLockPolicy {
     /// The threshold the live pipeline uses: the switch on and a calibrated, valid profile; else nil (lock off).
     /// §12 item 4 (T-013f): a model that is not usable right now (downloading, failed) keeps a calibrated lock on,
     /// so scoring fails closed (§6 item 11) instead of the lock quietly turning off.
-    public static func threshold(switchOn: Bool, profile: SpeakerProfile?, model: (name: String, dimension: Int)?)
-        -> Double? {
+    /// §14 item 5: a threshold of another clip length is never used, with or without the model.
+    public static func threshold(switchOn: Bool, profile: SpeakerProfile?, model: (name: String, dimension: Int)?,
+                                 clipMs: Int = SpeakerVerifyClip.clipMs()) -> Double? {
         guard switchOn else { return nil }
-        if model == nil { return profile?.threshold }
-        guard case .on(let t) = requestOn(profile: profile, model: model) else { return nil }
+        if model == nil {
+            guard let profile, currentClip(profile, clipMs: clipMs) else { return nil }
+            return profile.threshold
+        }
+        guard case .on(let t) = requestOn(profile: profile, model: model, clipMs: clipMs) else { return nil }
         return t
     }
 }
@@ -255,12 +287,22 @@ public struct SpeakerCalibration: Sendable, Hashable {
         public let falseAccepts: Int
     }
 
+    /// §14 item 2: clip scores (`SpeakerVerifyClip`); these drive the counts, the table and the suggestion.
     public var driver: [Double]
     public var others: [Double]
+    /// §14 item 2: whole-take scores, for the scores file only (aligned with `driver` / `others`; nil = not scored).
+    public var driverWhole: [Double?]
+    public var othersWhole: [Double?]
+    /// §14 item 3: the clip length the lines were scored on.
+    public var clipMs: Int
 
-    public init(driver: [Double] = [], others: [Double] = []) {
+    public init(driver: [Double] = [], others: [Double] = [], driverWhole: [Double?] = [], othersWhole: [Double?] = [],
+                clipMs: Int = SpeakerVerifyClip.clipMs()) {
         self.driver = driver
         self.others = others
+        self.driverWhole = driverWhole
+        self.othersWhole = othersWhole
+        self.clipMs = clipMs
     }
 
     public var enough: Bool { driver.count >= Self.minimumLines && others.count >= Self.minimumLines }
@@ -304,9 +346,16 @@ public struct SpeakerCalibration: Sendable, Hashable {
         return "别人说的 \(n) 句里 0 句通过，这只是很弱的证据：真实的误通过率仍可能高达约 \(pct)%。"
     }
 
-    /// §5 item 4: the local scores file (Documents), `driver 0.712` / `other 0.301` per line.
+    /// §5 item 4, §14 item 3: the local scores file (Documents). First `clipMs=1000`, then
+    /// `driver <clip> whole=<whole>` / `other <clip> whole=<whole>` per line. Numbers only.
     public var scoresFile: String {
-        (driver.map { "driver \(SpeakerCheckLine.number($0))" } + others.map { "other \(SpeakerCheckLine.number($0))" })
+        func lines(_ name: String, _ clip: [Double], _ whole: [Double?]) -> [String] {
+            clip.indices.map { i in
+                let w = i < whole.count ? whole[i] : nil
+                return "\(name) \(SpeakerCheckLine.number(clip[i])) whole=\(w.map(SpeakerCheckLine.number) ?? "none")"
+            }
+        }
+        return (["clipMs=\(clipMs)"] + lines("driver", driver, driverWhole) + lines("other", others, othersWhole))
             .joined(separator: "\n") + "\n"
     }
 }

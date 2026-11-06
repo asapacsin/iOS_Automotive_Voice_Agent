@@ -44,6 +44,21 @@ final class DriveModel: ObservableObject {
     @Published var wakeArmed = false
     /// F-04b §6 item 11 (T-013e): scoring broke while 声纹锁定 is on; speech is not sent.
     @Published var speakerUnavailable = false
+    /// F-04b §14 item 8 (T-013h): the lock dropped a sentence or a wake word; shown for 3 s where the §6 item 11 chip
+    /// appears (that chip wins). Text only.
+    @Published var speakerNotice: String?
+    private var speakerNoticeID = 0
+
+    /// A new notice restarts the 3 s and replaces the old one; it never stacks.
+    func showSpeakerNotice(_ text: String) {
+        speakerNoticeID += 1
+        let id = speakerNoticeID
+        speakerNotice = text
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(SpeakerRejectionNotice.duration.milliseconds)))
+            if let self, self.speakerNoticeID == id { self.speakerNotice = nil }
+        }
+    }
 }
 
 /// Non-secret settings of the drive screen (UserDefaults).
@@ -372,6 +387,9 @@ final class AgentRuntime {
         guard let self else { return }
         await self.start(by: .wake(at: at))
         if !self.model.running { await self.wake.update() }
+    }, onSpeakerNotice: { [weak self] text in
+        // F-04b §14 item 8: a rejected 你好小诺 says so on the idle screen.
+        self?.model.showSpeakerNotice(text)
     })
     /// F-01 §14 item 12: writes `wake-unused` for a woken session that sent nothing; set per session in `start`.
     private var wakeEnd: (() -> Void)?
@@ -718,7 +736,13 @@ final class AgentRuntime {
         // F-18 §15 item 1, §16: 「联网搜索（实验）」 is read once here, at session start.
         let webSearch = DriveSettings.searchesWeb()
         RuntimeLog.agent.notice("webSearch \(webSearch ? "on" : "off", privacy: .public)")
-        let liveInfo = LiveInfoExecutor(webSearch: webSearch, navigation: navigation, weather: cache, geocoder: cache, location: location)
+        // F-18 §26 (T-046o): 高德 geocoding with the name check, Open-Meteo for foreign places and later days. The log
+        // gets the source, ok and reason only (I-8).
+        let openMeteo = OpenMeteoClient()
+        let liveInfo = LiveInfoExecutor(webSearch: webSearch, navigation: navigation, weather: cache, geocoder: cache, location: location,
+                                        amapLookup: web, forecastLookup: openMeteo, forecast: openMeteo, onWeather: { log in
+            RuntimeLog.agent.notice("\(log.line, privacy: .public)")
+        })
         var executors: [String: any ToolExecutor] = [:]
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
         // F-12: scenarios go through the same simulated vehicle; the car card refreshes after each run.
@@ -897,6 +921,10 @@ final class AgentRuntime {
         }, words: { words, _ in deliverWords(words) }, check: { line in
             RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
             record?.submit(.speakerCheck(line))
+            // F-04b §14 item 8: a rejected or unknown sentence says so on screen (numbers in the log, text on screen).
+            if let text = SpeakerRejectionNotice.text(for: line) {
+                Task { @MainActor in model.showSpeakerNotice(text) }
+            }
         })
         tasks.append(Task { await transcript.listen() })
         // Utterance marks and frames in capture order, so the recognizer gets exactly what goes up.

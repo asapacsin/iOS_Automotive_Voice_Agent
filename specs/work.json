@@ -1883,13 +1883,20 @@
     {
       "id": "T-013h",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 2,
       "action": "F-04b §14 items 1-10: SpeakerVerifyClip shared by 校准 and SpeakerHold, threshold records its clip and old thresholds need recalibration, 设置 and 校准 show the saved calibration, on-screen notice for dropped sentences and rejected wake words; rows 37-46",
       "depends_on": [
         "T-013g"
       ],
-      "notes": "Owner 2026-11-06 (339f513): lock on after install rejected every sentence (scores 0.03-0.44 on 1 s clips vs threshold 0.46 set on whole lines), no message shown, no calibration shown in 设置. The clip mismatch is the likely cause, not proved; row 45 checks it. The owner recalibrates once after this ships."
+      "notes": "Owner 2026-11-06 (339f513): lock on after install rejected every sentence (scores 0.03-0.44 on 1 s clips vs threshold 0.46 set on whole lines), no message shown, no calibration shown in 设置. The clip mismatch is the likely cause, not proved; row 45 checks it. The owner recalibrates once after this ships.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (T-013h and T-046o together)",
+        "Unit rows 37-42: SpeakerCalibrationLiveClipTests; SpeakerLockTests and SpeakerModelSourceTests updated for clipMs",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 43-46 device NOT_VERIFIED",
+        "App target not compiled here; needs a Codemagic build"
+      ]
     },
     {
       "id": "T-042c",
@@ -1969,13 +1976,21 @@
     {
       "id": "T-046o",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 2,
       "action": "F-18 §26 items 1-12: query_live_info weather takes date and country; 高德 for China today to 大后天, Open-Meteo (16 days, no key) for later days and foreign places; name check stops foreign names becoming Chinese districts; past-window answer per PR #57; web_search refuses near-term weather; Open-Meteo credit in 设置; rows 1-13",
       "depends_on": [
         "T-046n"
       ],
-      "notes": "Owner 2026-11-06 chose Open-Meteo after 11/10 and 11/12 weather failed on the device and PC tests showed Qwen gives no forecast 6 days out (Oslo 11/12, 0 of 3) and enable_search_extension changed nothing. Name check (item 2) and search block (item 9) are ours, not from a source; the owner may remove them. Free API is non-commercial."
+      "notes": "Owner 2026-11-06 chose Open-Meteo after 11/10 and 11/12 weather failed on the device and PC tests showed Qwen gives no forecast 6 days out (Oslo 11/12, 0 of 3) and enable_search_extension changed nothing. Name check (item 2) and search block (item 9) are ours, not from a source; the owner may remove them. Free API is non-commercial.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (T-013h and T-046o together)",
+        "Unit rows 1-10: ForecastWeatherTests, ForecastSearchTests, OpenMeteoClientTests; older search tests moved off weather queries",
+        "Independent high-effort review: code matches items 1-12; its one blocking finding (STATUS licence note, item 10) fixed",
+        "maxBaseCharacters unchanged at 1700",
+        "Rows 11-13 device NOT_VERIFIED",
+        "App target not compiled here; needs a Codemagic build"
+      ]
     }
   ]
 }

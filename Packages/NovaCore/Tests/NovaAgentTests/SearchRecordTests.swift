@@ -187,27 +187,27 @@ struct SearchDateTests {
     func wrongDate() async {
         let o = Outcomes()
         let service = ScriptedSearch([.reply(reply("上海11月5日阴，14到19度")), .reply(reply("上海11月5日阴，14到19度"))])
-        let result = await searcher(service, collect: o.add).execute(searchCall("上海后天天气怎么样"))
+        let result = await searcher(service, collect: o.add).execute(searchCall("上海后天有什么演出"))
         #expect(!result.ok && result.code == ToolErrorCode.liveInfoUnavailable)
         #expect(!"\(result)".contains("11月5日"))
         #expect(service.calls.withLock { $0 } == 2)
-        #expect(service.queries.withLock { $0 } == Array(repeating: WebSearchExecutor.userMessage(query: "上海后天（2026年11月6日）天气怎么样", words: nil), count: 2))
+        #expect(service.queries.withLock { $0 } == Array(repeating: WebSearchExecutor.userMessage(query: "上海后天（2026年11月6日）有什么演出", words: nil), count: 2))
         if case .failed(let reason, _, _)? = o.end { #expect(reason == "wrong_date") } else { Issue.record("no outcome") }
-        #expect(o.dates == Array(repeating: .date(query: "上海后天天气怎么样", target: "2026-11-06", added: true, check: .mismatch), count: 2))
+        #expect(o.dates == Array(repeating: .date(query: "上海后天有什么演出", target: "2026-11-06", added: true, check: .mismatch), count: 2))
     }
 
     @Test("Row 6: passes, target_date and the date next only for future days")
     func passes() async throws {
         let retry = ScriptedSearch([.reply(reply("11月5日阴")), .reply(reply("11月6日小雨"))])
         let o = Outcomes()
-        let ok = await searcher(retry, collect: o.add).execute(searchCall("上海后天天气怎么样"))
+        let ok = await searcher(retry, collect: o.add).execute(searchCall("上海后天有什么演出"))
         #expect(ok.ok && ok.data["target_date"] == "11月6日" && ok.data["next"] == .string(WebSearchExecutor.dateNext))
         let checks: [SearchDate.Check] = o.dates.map { if case .date(_, _, _, let c) = $0 { c } else { .skipped } }
         #expect(checks == [.mismatch, .match])
         guard case .used(_, let attempts, _, _, _)? = o.end else { Issue.record("no outcome"); return }
         #expect(attempts == 2)
         for answer in ["11月5日至7日有雨", "11月6号小雨", "小雨"] {
-            let r = await searcher(ScriptedSearch([.reply(reply(answer))])).execute(searchCall("上海后天天气怎么样"))
+            let r = await searcher(ScriptedSearch([.reply(reply(answer))])).execute(searchCall("上海后天有什么演出"))
             #expect(r.ok && r.data["target_date"] == "11月6日", "\(answer)")
         }
         let today = await searcher(ScriptedSearch([.reply(reply("11月3日油价下调"))])).execute(searchCall("今天油价多少"))

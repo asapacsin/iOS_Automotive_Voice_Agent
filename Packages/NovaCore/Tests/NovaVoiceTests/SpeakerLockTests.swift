@@ -313,6 +313,7 @@ struct SpeakerProfileTests {
         let at = Date(timeIntervalSince1970: 1_700_000_000)
         var profile = try SpeakerEnrollment.enroll(Self.good, modelName: "campplus", dimension: 3, at: at, store: store).get()
         profile.threshold = 0.42
+        profile.calibrationClipMs = 1000  // §14 item 4: measured on the live clip
         try store.save(profile)
         #expect(FileSpeakerProfileStore(url: store.url).load() == profile)
         // A failing re-enrollment keeps the old file.
@@ -334,6 +335,7 @@ struct SpeakerProfileTests {
         let enrolled = SpeakerProfile(embedding: [1, 0, 0], modelName: "campplus", dimension: 3, enrolledAt: Date())
         var calibrated = enrolled
         calibrated.threshold = 0.5
+        calibrated.calibrationClipMs = 1000  // §14 item 4: measured on the live clip
         #expect(SpeakerLockPolicy.requestOn(profile: nil, model: Self.model) == .openEnrollment)
         #expect(SpeakerLockPolicy.requestOn(profile: enrolled, model: Self.model) == .openCalibration)
         #expect(SpeakerLockPolicy.requestOn(profile: calibrated, model: Self.model) == .on(threshold: 0.5))
@@ -358,7 +360,7 @@ struct SpeakerProfileTests {
         #expect(c.rows.first.map { $0.falseAccepts == 20 } == true)
         #expect(abs(SpeakerCalibration.upperBound(zeroOf: 20) - 0.139) < 0.001)
         #expect(c.caveat.contains("约 14%"))
-        #expect(c.scoresFile.hasPrefix("driver 0.5\n"))
+        #expect(c.scoresFile.hasPrefix("clipMs=1000\ndriver 0.5 whole=none\n"))  // §14 item 3
         #expect(SpeakerCalibration.lines.count == 20)
         #expect(Set(SpeakerCalibration.lines).isDisjoint(with: SpeakerEnrollment.sentences))
     }

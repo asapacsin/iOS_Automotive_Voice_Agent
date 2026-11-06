@@ -85,6 +85,11 @@ public struct WebSearchExecutor: ToolExecutor {
             onOutcome(.blocked(reason: "current_time"))
             return .failure(.invalidArgument, advice: CurrentTimeQuery.advice)
         }
+        // §26 item 9: a forecast within 16 days goes to query_live_info, not search.
+        if WeatherForecastQuery.matches(query, now: now(), zone: zone()) {
+            onOutcome(.blocked(reason: "weather"))
+            return .failure(.invalidArgument, advice: WeatherForecastQuery.advice)
+        }
         let place = SearchPlace.clean(destination())
         let substituted = SearchPlace.substitute(query, destination: place)
         let resolved = SearchDate.resolve(substituted.query, now: now(), zone: zone())

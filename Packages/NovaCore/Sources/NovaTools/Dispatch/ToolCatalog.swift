@@ -30,10 +30,13 @@ public enum ToolCatalog {
 
     /// All tools in Android domain order; iOS descriptions where the iOS flow differs (`iosDescriptions`).
     public static let specs: [ToolSpec] = generatedSpecs.map { spec in
-        let schema = spec.name == "query_live_info" ? longerDays(spec.declaration.parametersJSONSchema)
+        let live = spec.name == "query_live_info"
+        let schema = live ? forecastArguments(longerDays(spec.declaration.parametersJSONSchema))
             : spec.declaration.parametersJSONSchema
+        let description = live ? forecastDescription(spec.declaration.description)
+            : iosDescriptions[spec.name] ?? spec.declaration.description
         return ToolSpec(domain: spec.domain, repeatSensitive: spec.repeatSensitive,
-                        declaration: ToolDeclaration(name: spec.name, description: iosDescriptions[spec.name] ?? spec.declaration.description,
+                        declaration: ToolDeclaration(name: spec.name, description: description,
                                                      parametersJSONSchema: schema))
     }
 
@@ -46,6 +49,31 @@ public enum ToolCatalog {
         props["day"] = .object(day)
         root["properties"] = .object(props)
         return .object(root)
+    }
+
+    /// F-18 §26 item 1 (T-046o): `where` up to 40 with the new description, and the new `date` and `country`.
+    public static let whereDescription = "here=当前位置，destination=导航目的地，或地名。中国（含香港、澳门）用中文；国外用英文名并填 country，例如 Oslo、Sendai。"
+    public static let dateDescription = "说几号或星期几时填，yyyy-MM-dd。"
+    public static let countryDescription = "国外地点的国家代码，例如 NO、JP、US。中国、香港、澳门不填。"
+    public static let maxWhereLength = 40
+    static func forecastArguments(_ schema: JSONValue) -> JSONValue {
+        guard case .object(var root) = schema, case .object(var props)? = root["properties"],
+              case .object(var place)? = props["where"] else { preconditionFailure("query_live_info schema changed") }
+        place["maxLength"] = .int(Int64(maxWhereLength))
+        place["description"] = .string(whereDescription)
+        props["where"] = .object(place)
+        props["date"] = ["type": "string", "description": .string(dateDescription)]
+        props["country"] = ["type": "string", "description": .string(countryDescription)]
+        root["properties"] = .object(props)
+        return .object(root)
+    }
+
+    /// F-18 §26 item 8: the weather part of the `query_live_info` description.
+    static let oldWeatherPart = "weather：「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；问明天加 day=tomorrow。"
+    public static let weatherPart = "weather：今后16天内任何地方、任何一天的天气预报。「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。"
+    static func forecastDescription(_ today: String) -> String {
+        precondition(today.contains(oldWeatherPart), "query_live_info description changed")
+        return today.replacingOccurrences(of: oldWeatherPart, with: weatherPart)
     }
 
     /// F-15a §2.5 (T-040h): iOS has no route list; guidance starts on the recommended route once the place is
@@ -108,10 +136,10 @@ public enum ToolCatalog {
 
     // MARK: Web search (F-18 §16, T-046d)
 
-    /// F-18 §16 item 3: one general information tool; only declared with 「联网搜索（实验）」 on.
+    /// F-18 §16 item 3: one general information tool; only declared with 「联网搜索（实验）」 on. §26 item 8: no forecasts.
     public static let webSearchSpec = ToolSpec(domain: "live_info", repeatSensitive: true, declaration: ToolDeclaration(
         name: "web_search",
-        description: "查网上的信息：任何一天的天气、新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。",
+        description: "查网上的信息：新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。不用于查16天内的天气预报（用 query_live_info 的 weather）。",
         parametersJSONSchema: [
             "type": "object",
             "properties": ["query": ["type": "string", "minLength": .int(1), "maxLength": .int(200)]],
@@ -119,8 +147,8 @@ public enum ToolCatalog {
             "additionalProperties": false,
         ]))
 
-    /// F-18 §23 item 1: the sentence her search-on `query_live_info` text adds (a tool description, not the search prompt).
-    public static let officialFirst = "天气（今天到大后天）和地点营业时间先用 query_live_info；它没有数据时再用 web_search。"
+    /// F-18 §23 item 1, §26 item 8: the sentence her search-on `query_live_info` text adds (a tool description, not the search prompt).
+    public static let officialFirst = "天气预报（今后16天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。"
 
     /// F-18 §16 item 9 as changed by §23 item 1: with search on, `query_live_info` keeps every kind, argument and
     /// line; only the no-data-source sentence goes, and `officialFirst` is added.
@@ -243,13 +271,15 @@ public enum ToolCatalog {
         case "place_call":
             return nil  // PhoneDomain: no rules beyond the schema; the handler checks its own arguments.
         case "query_live_info":
-            if !keys.contains("kind") || !keys.isSubset(of: ["kind", "where", "day", "category", "target", "time_zone"]) {
+            if !keys.contains("kind") || !keys.isSubset(of: ["kind", "where", "day", "date", "country", "category", "target", "time_zone"]) {
                 return .invalidFields
             }
             if keys.contains(where: { !isString($0) }) { return .invalidFieldType }
             if !liveInfoKinds.contains(str("kind")!) { return .invalidKind }
             // F-18 §25 item 2: IANA names can be longer than 20 (America/Argentina/ComodRivadavia); CurrentTime checks them.
-            if keys.contains(where: { $0 != "time_zone" && str($0)!.utf16.count > 20 }) { return .invalidArgument }
+            // F-18 §26 item 1: `where` up to 40; the day, date and country rules are LiveInfoExecutor's (with advice).
+            if keys.contains(where: { !["time_zone", "where"].contains($0) && str($0)!.utf16.count > 20 }) { return .invalidArgument }
+            if keys.contains("where") && str("where")!.utf16.count > maxWhereLength { return .invalidArgument }
         case "web_search":
             if keys != ["query"] { return .invalidFields }
             guard let q = str("query") else { return .invalidFieldType }

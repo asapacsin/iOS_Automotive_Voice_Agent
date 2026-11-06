@@ -7,7 +7,7 @@ import NovaPorts
 
 /// Amap Web service REST (`restapi.amap.com`, contracts/api-contracts.md): place search, reverse
 /// geocoding and weather. All coordinates are GCJ-02. Status codes only reach diagnostics (I-8).
-public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
+public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, PlaceLookup {
     public static let host = "https://restapi.amap.com"
 
     private let key: @Sendable () -> String?
@@ -97,6 +97,27 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService {
         let street = (component?["streetNumber"] as? [String: Any])?["street"] as? String
         return PlaceAddress(formatted: formatted, district: district?.isEmpty == false ? district : nil,
                             road: street?.isEmpty == false ? street : nil)
+    }
+
+    // MARK: PlaceLookup
+
+    /// F-18 §26 item 2: `/v3/geocode/geo` with its `location` (longitude,latitude), `formatted_address`, `city` and
+    /// adcode. `country` is not sent (高德 is only asked for China, 香港 and 澳门). Amap sends `[]` for an empty field.
+    public func lookUp(_ name: String, country: String?) async throws -> [LookedUpPlace] {
+        let body = try await get("/v3/geocode/geo", ["address": name])
+        return Self.geocodes(body)
+    }
+
+    static func geocodes(_ body: [String: Any]) -> [LookedUpPlace] {
+        ((body["geocodes"] as? [[String: Any]]) ?? []).compactMap { g in
+            let text: (Any?) -> String? = { ($0 as? String).flatMap { $0.isEmpty ? nil : $0 } }
+            guard let adcode = text(g["adcode"]) else { return nil }
+            let parts = (text(g["location"]) ?? "").split(separator: ",").compactMap { Double($0) }
+            let coordinate = parts.count == 2 ? GeoCoordinate(latitude: parts[1], longitude: parts[0], datum: .gcj02) : nil
+            let formatted = text(g["formatted_address"])
+            return LookedUpPlace(name: text(g["city"]) ?? text(g["province"]) ?? formatted ?? "", coordinate: coordinate,
+                                 formatted: formatted, adcode: adcode)
+        }
     }
 
     // MARK: WeatherService

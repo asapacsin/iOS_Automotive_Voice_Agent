@@ -18,8 +18,8 @@ struct DriverWordsSearchTests {
 
     @Test("F-18 §23 row 5: after a final transcript the message is query + question; §19 and §21 rewrites apply to her query")
     func withWords() async {
-        let (sent, _) = await run("横琴后天天气", words: "后天横琴天气怎么样")
-        #expect(sent == ["query: 横琴后天（2026年11月6日）天气\n\nquestion: 后天横琴天气怎么样\nanswer: "])
+        let (sent, _) = await run("横琴后天演出", words: "后天横琴天气怎么样")
+        #expect(sent == ["query: 横琴后天（2026年11月6日）演出\n\nquestion: 后天横琴天气怎么样\nanswer: "])
         let (dest, _) = await run("目的地几点关门", words: "那边几点关门", destination: "横琴文化艺术中心")
         #expect(dest == ["query: 横琴文化艺术中心几点关门\n\nquestion: 那边几点关门\nanswer: "])
     }

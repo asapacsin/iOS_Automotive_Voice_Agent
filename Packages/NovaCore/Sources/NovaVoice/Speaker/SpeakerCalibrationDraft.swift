@@ -1,4 +1,5 @@
 import Foundation
+import NovaPorts
 
 /// F-04b §13 (T-013g): calibration progress kept across closes and installs. Numbers only: no audio, no embedding.
 public struct SpeakerCalibrationDraft: Codable, Sendable, Hashable {
@@ -7,26 +8,40 @@ public struct SpeakerCalibrationDraft: Codable, Sendable, Hashable {
     public var enrolledAt: Date
     public var modelName: String
     public var dimension: Int
+    /// §14 item 4 (T-013h): the clip length the scores were measured on; nil in drafts from before (removed).
+    public var clipMs: Int?
+    /// §14 item 2: whole-take scores, for the scores file only.
+    public var driverWhole: [Double?]?
+    public var othersWhole: [Double?]?
 
-    public init(driver: [Double], others: [Double], enrolledAt: Date, modelName: String, dimension: Int) {
+    public init(driver: [Double], others: [Double], enrolledAt: Date, modelName: String, dimension: Int,
+                clipMs: Int? = SpeakerVerifyClip.clipMs(), driverWhole: [Double?]? = nil, othersWhole: [Double?]? = nil) {
         self.driver = driver
         self.others = others
         self.enrolledAt = enrolledAt
         self.modelName = modelName
         self.dimension = dimension
+        self.clipMs = clipMs
+        self.driverWhole = driverWhole
+        self.othersWhole = othersWhole
     }
 
     public init(_ calibration: SpeakerCalibration, for profile: SpeakerProfile) {
         self.init(driver: calibration.driver, others: calibration.others, enrolledAt: profile.enrolledAt,
-                  modelName: profile.modelName, dimension: profile.dimension)
+                  modelName: profile.modelName, dimension: profile.dimension, clipMs: calibration.clipMs,
+                  driverWhole: calibration.driverWhole, othersWhole: calibration.othersWhole)
     }
 
-    /// §13 item 2: the draft belongs to one voiceprint.
-    public func matches(_ profile: SpeakerProfile) -> Bool {
+    /// §13 item 2: the draft belongs to one voiceprint. §14 item 4: and to the current clip length.
+    public func matches(_ profile: SpeakerProfile, clipMs current: Int = SpeakerVerifyClip.clipMs()) -> Bool {
         enrolledAt == profile.enrolledAt && modelName == profile.modelName && dimension == profile.dimension
+            && clipMs == current
     }
 
-    public var calibration: SpeakerCalibration { SpeakerCalibration(driver: driver, others: others) }
+    public var calibration: SpeakerCalibration {
+        SpeakerCalibration(driver: driver, others: others, driverWhole: driverWhole ?? [], othersWhole: othersWhole ?? [],
+                           clipMs: clipMs ?? SpeakerVerifyClip.clipMs())
+    }
 }
 
 /// §13 item 12: a small store like `SpeakerProfileStore`.
@@ -111,15 +126,34 @@ public enum SpeakerCalibrationProgress {
     /// §13 item 1: one accepted line, saved straight away. Returns false when the write failed (item 7); the score
     /// is kept in `calibration` either way.
     @discardableResult
-    public static func add(_ score: Double, driver: Bool, to calibration: inout SpeakerCalibration,
+    /// §14 item 2: `score` is the clip score; `whole` the whole take's, kept for the scores file only.
+    public static func add(_ score: Double, whole: Double? = nil, driver: Bool, to calibration: inout SpeakerCalibration,
                            profile: SpeakerProfile, store: any SpeakerCalibrationDraftStore) -> Bool {
-        if driver { calibration.driver.append(score) } else { calibration.others.append(score) }
+        if driver {
+            calibration.driverWhole = padded(calibration.driverWhole, to: calibration.driver.count) + [whole]
+            calibration.driver.append(score)
+        } else {
+            calibration.othersWhole = padded(calibration.othersWhole, to: calibration.others.count) + [whole]
+            calibration.others.append(score)
+        }
         do {
             try store.save(SpeakerCalibrationDraft(calibration, for: profile))
             return true
         } catch {
             return false
         }
+    }
+
+    private static func padded(_ whole: [Double?], to n: Int) -> [Double?] {
+        whole.count >= n ? Array(whole.prefix(n)) : whole + Array(repeating: nil, count: n - whole.count)
+    }
+
+    /// §14 item 2: what 校准 scores for one take: the live check's clip (nil = 「没听到说话」, nothing saved) and the
+    /// whole take (scores file only).
+    public static func clips(_ frames: [PCMFrame16k], tuning: SpeakerTuning = SpeakerTuning())
+        -> (clip: [PCMFrame16k], whole: [PCMFrame16k])? {
+        guard let clip = SpeakerVerifyClip.frames(frames, tuning: tuning) else { return nil }
+        return (clip, frames)
     }
 
     /// §13 item 4: the 设置 row, only with a matching draft that has any lines.
@@ -142,6 +176,10 @@ public enum SpeakerCalibrationProgress {
         var updated = profile
         updated.threshold = threshold
         updated.calibratedAt = date
+        // §14 item 4: the threshold records its clip and its lines.
+        updated.calibrationClipMs = calibration.clipMs
+        updated.calibrationDriverLines = calibration.driver.count
+        updated.calibrationOtherLines = calibration.others.count
         try profileStore.save(updated)
         writeScores(calibration)
         try? draftStore.delete()

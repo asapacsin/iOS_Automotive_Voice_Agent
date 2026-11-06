@@ -283,6 +283,70 @@ public protocol WeatherService: Sendable {
     func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport
 }
 
+/// F-18 §26 item 11: one day of a provider-neutral daily forecast. `time` is `yyyy-MM-dd` in the place's own zone.
+public struct DailyForecastDay: Sendable, Hashable {
+    public let time: String
+    public let weatherCode: Int?
+    public let tempMax: Double?
+    public let tempMin: Double?
+    public let rainChance: Double?
+    public let rainMm: Double?
+    public let windMaxKmh: Double?
+
+    public init(time: String, weatherCode: Int?, tempMax: Double?, tempMin: Double?, rainChance: Double?,
+                rainMm: Double?, windMaxKmh: Double?) {
+        self.time = time
+        self.weatherCode = weatherCode
+        self.tempMax = tempMax
+        self.tempMin = tempMin
+        self.rainChance = rainChance
+        self.rainMm = rainMm
+        self.windMaxKmh = windMaxKmh
+    }
+}
+
+/// F-18 §26 item 11: a daily forecast port (Open-Meteo in NovaServices). `days[0]` is the place's own today.
+public protocol DailyForecastService: Sendable {
+    /// Coordinates are already rounded by the caller (§26 item 4).
+    func dailyForecast(latitude: Double, longitude: Double) async throws -> [DailyForecastDay]
+}
+
+/// F-18 §26 item 4: a forecast call that timed out or failed. No response text (I-8).
+public enum ForecastError: Error, Sendable, Hashable {
+    case timeout
+    case failed
+}
+
+/// F-18 §26 item 2: one place a name lookup found.
+public struct LookedUpPlace: Sendable, Hashable {
+    /// 高德's `city` or Open-Meteo's `name`.
+    public let name: String
+    /// Open-Meteo's `country` (foreign places only).
+    public let country: String?
+    public let coordinate: GeoCoordinate?
+    /// 高德's `formatted_address`.
+    public let formatted: String?
+    /// 高德's adcode.
+    public let adcode: String?
+    /// Open-Meteo's `population`.
+    public let population: Int?
+
+    public init(name: String, country: String? = nil, coordinate: GeoCoordinate?, formatted: String? = nil,
+                adcode: String? = nil, population: Int? = nil) {
+        self.name = name
+        self.country = country
+        self.coordinate = coordinate
+        self.formatted = formatted
+        self.adcode = adcode
+        self.population = population
+    }
+}
+
+/// F-18 §26 item 11: a place-lookup port (高德 `/v3/geocode/geo`, or Open-Meteo geocoding with `country`).
+public protocol PlaceLookup: Sendable {
+    func lookUp(_ name: String, country: String?) async throws -> [LookedUpPlace]
+}
+
 public protocol ReverseGeocoder: Sendable {
     func adcode(at coordinate: GeoCoordinate) async throws -> String?
     func address(at coordinate: GeoCoordinate) async throws -> PlaceAddress?

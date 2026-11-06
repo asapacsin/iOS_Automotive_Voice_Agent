@@ -97,7 +97,8 @@ struct CurrentTimeZoneTests {
         #expect(spec.declaration.parametersJSONSchema["properties"]?["time_zone"]
             == ["type": "string", "description": "IANA 时区名（例如 Asia/Tokyo、Europe/Oslo）。不填就是手机所在的时区。"])
         #expect(spec.declaration.description.contains("current_time：任何地方现在的时间、日期、星期，如「现在几点」「仙台现在几点」「今天几号」；不是手机所在地时填 time_zone。只按返回结果回答，绝不自己猜时间。"))
-        #expect(ToolCatalog.webSearchSpec.declaration.description.hasSuffix("不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。"))
+        // §26 item 8 appends the forecast sentence after this one.
+        #expect(ToolCatalog.webSearchSpec.declaration.description.hasSuffix("不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。不用于查16天内的天气预报（用 query_live_info 的 weather）。"))
         for mode in [ToolCatalog.ComfortMode.table, .model] {
             let base = PersonaInstruction.base(for: mode)
             #expect(base.contains("9. 问现在几点、今天几号、星期几，不管问哪里（包括澳门和外国城市）：调用 query_live_info（kind=current_time），不是手机所在地就填 time_zone（IANA 时区名，比如仙台 Asia/Tokyo）。只按返回的结果回答，不要用 web_search 查时间，不要自己猜。"))

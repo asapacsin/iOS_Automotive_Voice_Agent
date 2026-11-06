@@ -43,7 +43,7 @@ struct SpeakerModelSourceTests {
     @Test("F-04b row 21: lock on with the model downloading or failed stays locked (fails closed); never turns on new")
     func failsClosed() {
         let calibrated = SpeakerProfile(embedding: [1, 0], modelName: "m", dimension: 2, threshold: 0.5,
-                                        enrolledAt: Date(timeIntervalSince1970: 0))
+                                        enrolledAt: Date(timeIntervalSince1970: 0), calibrationClipMs: 1000)
         #expect(SpeakerLockPolicy.threshold(switchOn: true, profile: calibrated, model: nil) == 0.5)
         #expect(SpeakerLockPolicy.threshold(switchOn: false, profile: calibrated, model: nil) == nil)
         #expect(SpeakerLockPolicy.requestOn(profile: calibrated, model: nil) == .modelUnavailable)
