@@ -61,6 +61,7 @@ NOT_VERIFIED until a device run is attached.
 | T-013g | Calibration progress saved after every line and resumed; warning before 重新录入 | F-04b §13 | T-013f | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §13 rows 27–36 | unit, build, D |
 | T-013h | 校准 scores the same 1 s clip as the live check; an old threshold needs recalibration; 设置 shows the saved calibration; dropped sentences shown on screen | F-04b §14 | T-013g | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §14 rows 37–46 | unit, build, D |
 | T-013i | A threshold calibrated before §14 stays in use (no forced recalibration); 设置 shows it as 整句校准 | F-04b §15 | T-013h | `Packages/NovaCore/`, `App/NovaDrive/` | F-04b §15 rows 47–50 | unit, build, D |
+| T-013j | Speaker lock scores the whole utterance with AS-norm against a CN-Celeb cohort and a threshold measured on public data; no 校准 | F-04b §16 | T-013i | `Packages/NovaCore/`, `App/NovaDrive/`, `scripts/` | F-04b §16 rows 51–60 | unit, script, build, D |
 | T-014 | `VoiceSession` state machine + `ReconnectPolicy` | F-05 core, F-24 | T-011 | `Core/NovaVoice/Session/` | contracts/voice-agent.md §1 and §8 transitions; auth error → no retry | unit |
 | T-015 | Gemini codec, turn assembler, error classifier | F-05 | T-011, T-003 | `Packages/NovaRealtime/Sources/Codec/` | Fixture replay gives the §4 event order; 1007/1008 classification | unit, contract |
 | T-016 | Gemini transport + provider; local fake WebSocket server | F-05, F-24 | T-015 | `Packages/NovaRealtime/` | F-05 §10 rows 2–3; F-24 §10 row 1 (W4) | unit, contract |

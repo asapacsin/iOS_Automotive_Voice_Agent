@@ -111,6 +111,7 @@ Echo cancellation, noise suppression, VAD rules, the wake word engine, the Gemin
 | T-013g | §13; rows 27–36 | unit, build, D |
 | T-013h | §14; rows 37–46 | unit, build, D |
 | T-013i | §15; rows 47–50 | unit, build, D |
+| T-013j | §16; rows 51–60 | unit, script, build, D |
 
 ## 12. Model delivered at install, not in the app (owner request 2026-11-05)
 
@@ -245,3 +246,50 @@ This section replaces §14 item 5 and row 43. §14 items 1–4 and 6–10 stay: 
 | 50 | Device: lock on, the driver says 20 everyday commands; then the other person says 10 | Note accepted out of 20, rejected out of 10, and that each rejection shows the §14 item 8 notice | D |
 
 **Trace gate.** Add `T-013i: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013i.
+
+## 16. Compare with a crowd of public voices, no calibration (owner request 2026-11-06)
+
+**Why.** Device 2026-11-06, 50a55a4, lock on with the 0.46 threshold from §15. From 12:45 to 12:51, 15 speech checks: 9 accepted at 0.48–0.64, 5 rejected at 0.40–0.455 and one at 0.037, 1 unknown. Almost every score sits within 0.2 of the threshold, so whether a sentence passes is close to chance. The owner wants a lock that needs only their own voiceprint, with no second person and no 校准, and asked that it copy published practice instead of settings made up here.
+
+**Sources (copied, not tuned here).**
+- **Score normalization against a cohort of other speakers (AS-norm)** is the standard back end of open speaker-verification toolkits. [WeSpeaker](https://arxiv.org/pdf/2210.17016) scores with cosine similarity followed by AS-norm; its VoxCeleb recipe defaults to `asnorm` with `top_n` 300 ([recipe summary](https://deepwiki.com/wenet-e2e/wespeaker/7.1-voxceleb-recipe)). The same top 300 is used by [BUT 2019](https://arxiv.org/pdf/1910.12592) and [DKU-MSXF 2023](https://arxiv.org/pdf/2308.08766). The formula is in [this score-normalization paper](https://web3.arxiv.org/pdf/2505.13826).
+- **The cohort is one averaged embedding per training speaker** ([WeSpeaker CNSRC 2022 system](https://arxiv.org/pdf/2206.11699.pdf): the cohort is estimated from the training set by averaging each training speaker's embeddings).
+- **Chinese cohort:** WeSpeaker's CN-Celeb recipe trains on CN-Celeb2 and the CN-Celeb1 dev speakers (797) and evaluates on the CN-Celeb1 test set ([WeSpeaker paper](https://arxiv.org/pdf/2210.17016)). CN-Celeb is on [OpenSLR 82](https://openslr.org/82) under CC BY-SA 4.0; CN-Celeb1 (`cn-celeb_v2.tar.gz`) is 22 GB. The model (§2) is Chinese and English, so CN-Celeb fits better than VoxCeleb.
+- **Whole utterances.** These recipes score each test utterance on all its audio, and short test audio is where these models do worst ([ERes2NetV2](https://arxiv.org/pdf/2406.02167); [Microsoft](https://learn.microsoft.com/en-us/legal/cognitive-services/speech-service/speaker-recognition/characteristics-and-limitations-speaker-recognition): longer speech gives better accuracy). So the live check scores the whole utterance, not the first 1 s.
+- **Decision threshold:** toolkits report results at the equal error rate (EER) point of their evaluation trials. The threshold here is that EER point, measured with this model on the CN-Celeb1 test trials. It is not set from the owner's voice and not chosen by hand.
+- Google's [Personal VAD](https://google.github.io/speaker-id/publications/PersonalVAD) works the same way for the driver: only the target speaker's embedding is enrolled on the phone, and other voices are handled by what was learned from many speakers.
+
+No source gives accuracy for this setup in a car. Rows 58–60 measure it.
+
+**Rule in plain words.** The driver records their voiceprint once (§4). Each sentence is scored against the driver and against the CN-Celeb1 dev voices, and passes only when it matches the driver clearly better than the crowd, using the published method and a threshold measured on public data. No 校准 and no second person.
+
+1. **Cohort file, made once on a PC.** `scripts/speaker_cohort.py <cn-celeb1 dir> <out dir>`, using the same model and features as `scripts/speaker_eval.py` (sherpa-onnx Python, §5 item 5):
+   1. For each CN-Celeb1 **dev** speaker, embed every utterance, average, and L2-normalize. Write `speaker_cohort.f32`: speakers × dimension, float32 little-endian, in sorted speaker-id order.
+   2. On the CN-Celeb1 **test** trials (`eval/lists/trials.lst`, enrollment audio from `eval/enroll`), compute the item 2 score for every trial, then the EER and its threshold.
+   3. Write `speaker_cohort.json`: `{"source": "CN-Celeb1 dev (OpenSLR 82)", "license": "CC BY-SA 4.0", "model": <model name>, "modelSha256": <pinned sha256>, "speakers": N, "dimension": D, "topN": 300, "threshold": <EER threshold>, "eer": <EER>, "trials": <count>}`.
+   4. It refuses to write anything if the model sha256 does not match `scripts/sherpa/models.sha256`, or if fewer than 300 dev speakers are found.
+   The owner side runs it on the PC (22 GB download, no GPU needed) and commits the two files to `App/NovaDrive/Resources/SpeakerCohort/` with a `LICENSE-CN-Celeb.txt` attribution. The cloud task does not download CN-Celeb; its tests use a small synthetic cohort.
+2. **AS-norm score.** A pure `SpeakerScoreNorm` in `NovaVoice`: with enrollment embedding e, test embedding t and cohort C (all L2-normalized), s = cos(e, t). Take the `topN` largest cos(e, c) over C, giving mean μe and standard deviation σe; the same for t gives μt and σt. Score = ½·((s − μe)/σe + (s − μt)/σt). Standard deviation divides by n. The e side is computed once per profile load and cached. The Swift code and the Python script give the same score for the same embeddings (row 52).
+3. **Decision.** Accepted when the item 2 score ≥ `threshold` from `speaker_cohort.json`; otherwise rejected. Unknown stays as §6 item 4: less than `minScoreSpeech` of speech, or a scoring failure. Nothing on the phone changes the threshold.
+4. **Score the whole utterance.** `SpeakerHold` holds the utterance until its end mark, then scores all of its speech once. `minVerifySpeech` and the 3 s held-buffer limit are no longer used for speech. The rest of §6 items 2, 4 and 5 stays: accepted releases all held output in order with the pre-roll; rejected drops it all. Barge-in (§6 item 9) acts only after acceptance, so with the lock on it waits for the end of the sentence.
+5. **Wake word and stop phrases** keep their own audio (§6 items 7–8, the wake word's 2 s) and use the same item 2 score and threshold.
+6. **No calibration.** The lock is ready when the model is ready (§12), the voiceprint was enrolled with the same model, and the cohort file's `modelSha256` matches the loaded model. A profile's `threshold`, `calibratedAt` and calibration fields stay in the file but are not used. 校准 and its progress row are removed from 设置, and the calibration draft file is deleted on first launch. §5 items 1–3, §13, §14 items 2–7 and §15 no longer apply. `SpeakerVerifyClip` is removed unless something else still uses it.
+7. **What 设置 shows.** Ready: 「已录入 · 和 {N} 个公开声音比较，自动区分」. Cohort file missing or for another model: 「声纹对比数据缺失」, and the switch cannot turn on (a switch that is on fails closed, as §12 item 4). Not enrolled and the model states stay as today.
+8. **Seeing what happened.** Each `speaker-check` line gains `raw=<s>`, `norm=<score>` and `cohort=<N>`, and its `speechMs` is the whole utterance. The calibration scores file (§5 item 4) is no longer written. The §14 item 8 notice for a rejected sentence or wake word stays.
+9. **Not changed.** The model and its delivery (§2, §12), enrollment (§4), the profile file format (fields only go unused), the §14 item 8 notice, the stop-phrase rule, lock off (§6 item 12).
+10. **Where the code goes.** `SpeakerScoreNorm`, the cohort loader and the readiness rule go in `Packages/NovaCore/Sources/NovaVoice/Speaker/`, so rows 51–56 are unit or script tests; the loader reads the files through a port and the app passes the bundle path. 设置 changes are in `App/NovaDrive/SpeakerLock.swift`.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 51 | `speaker_cohort.py` on a tiny synthetic set (3 dev speakers, 2 test speakers, with a test-only minimum); with a wrong model sha256 | Both files written with the item 1 fields; refuses and writes nothing | script |
+| 52 | `SpeakerScoreNorm` with fixed e, t and a 5-vector cohort, `topN` 3 | Same score as the Python script for the same vectors, to 1e-5 | unit |
+| 53 | `SpeakerHold`, lock on: 4 s utterance; 0.3 s utterance; scoring fails | Scored once at the end on all 4 s, released in order if accepted, dropped if rejected; unknown; unknown | unit |
+| 54 | Profile enrolled, cohort matching; cohort missing; cohort for another model sha256; old profile with threshold 0.46 | ready with the item 7 text; 「声纹对比数据缺失」 and switch cannot turn on; the same; ready, 0.46 ignored | unit |
+| 55 | Wake word and stop phrase with the lock on | Scored with the item 2 score and the cohort threshold | unit |
+| 56 | First launch with a calibration draft file present | Draft deleted; 设置 has no 校准 row | unit |
+| 57 | Owner side: real run on CN-Celeb1 | Files committed; speakers, EER and threshold written in STATUS.md | script |
+| 58 | Device: install over 50a55a4, open 设置 | 「已录入 · 和 {N} 个公开声音比较，自动区分」; switch turns on; no 校准 row; no recording asked | D |
+| 59 | Device, lock on, parked: the driver says 20 everyday commands | Note accepted out of 20; `speaker-check` lines show `norm=` and the whole-utterance `speechMs`; note the extra wait before the reply in the TTFT sheet | D |
+| 60 | Device, lock on: another person says 10 commands and 「你好小诺」 3 times (optional) | Note how many are blocked; each blocked sentence shows the §14 item 8 notice | D |
+
+**Trace gate.** Add `T-013j: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013j.
