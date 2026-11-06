@@ -263,7 +263,7 @@ No source gives accuracy for this setup in a car. Rows 58–60 measure it.
 
 **Rule in plain words.** The driver records their voiceprint once (§4). Each sentence is scored against the driver and against the CN-Celeb1 dev voices, and passes only when it matches the driver clearly better than the crowd, using the published method and a threshold measured on public data. No 校准 and no second person.
 
-1. **Cohort file, made once on a PC.** `scripts/speaker_cohort.py <cn-celeb1 dir> <out dir>`, using the same model and features as `scripts/speaker_eval.py` (sherpa-onnx Python, §5 item 5):
+1. **Cohort file, made once on a PC.** `scripts/speaker_cohort.py --data <CN-Celeb_flac dir> --model <onnx> --out <dir>` (already written on the owner side with this spec; the cloud task adds its row 51 tests and does not change its math), using the same model and features as `scripts/speaker_eval.py` (sherpa-onnx Python, §5 item 5):
    1. For each CN-Celeb1 **dev** speaker, embed every utterance, average, and L2-normalize. Write `speaker_cohort.f32`: speakers × dimension, float32 little-endian, in sorted speaker-id order.
    2. On the CN-Celeb1 **test** trials (`eval/lists/trials.lst`, enrollment audio from `eval/enroll`), compute the item 2 score for every trial, then the EER and its threshold.
    3. Write `speaker_cohort.json`: `{"source": "CN-Celeb1 dev (OpenSLR 82)", "license": "CC BY-SA 4.0", "model": <model name>, "modelSha256": <pinned sha256>, "speakers": N, "dimension": D, "topN": 300, "threshold": <EER threshold>, "eer": <EER>, "trials": <count>}`.
