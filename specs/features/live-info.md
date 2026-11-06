@@ -658,3 +658,55 @@ This section is the T-046m scope. It replaces §23 items 8, 9 and 11 and rows 7�
 | Task | Scope | Verify |
 |---|---|---|
 | T-046m | Items 1–7; rows 1–7 | unit, build, D |
+
+## 25. Every time question is answered from the phone clock, for any place (iOS, APPROVED 2026-11-06)
+
+**Why.** Device 2026-11-06, 289ecc2, record `20261106-091340`, about 09:15 in Macau. Asked the time in 奥斯陆, 仙台 and 澳门, she called `web_search` every time and never `current_time`. Qwen answered 「17:00」 (Oslo, really about 02:15), 「20:41」 (Sendai, really about 10:15) and 「凌晨5点07分」 (Macau, really about 09:15). Asked 「你确定吗」, Qwen said 「如果北京时间为19:41」: it made the time up. On 2026-11-05, a plain 「现在几点」 used `current_time` and was right every time. Three things cause this:
+1. `current_time` only gives the phone's own zone and rejects every other argument, so she has no tool for another place.
+2. §14 item 3 and the persona name only 「现在几点、今天几号、星期几」. A question that names a place looks like 「会变的信息」 in the `web_search` text, so she searches, even for Macau.
+3. Search cannot know the time. Qwen gets page text, and clock pages work out the time in the browser. Qwen is told the date but not the time (§24 item 2), so it guesses.
+
+**Sources.**
+- [`mcp-server-time`](https://pypi.org/project/mcp-server-time/) (Model Context Protocol reference server): `get_current_time` has one optional argument, `timezone`: "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Defaults to the server's local timezone." Names must be exact IANA keys. It returns the zone, an ISO date and time with offset, the weekday and DST.
+- Google's ADK quickstart (Gemini) uses a `get_current_time(city)` tool that maps a city to an IANA zone in code and returns an error for unknown cities. This is from search summaries; the page could not be opened.
+- In both, the model only names the place or zone. Code reads the clock and does the arithmetic, and nothing comes from search.
+- Putting the time into the instruction is also used, but §14 already rejects it for Gemini, because it goes stale in long, resumed sessions.
+
+**Rule in plain words.** Any question about the current time, date or weekday, anywhere, is answered from the phone clock. She names the time zone when the place is not where the phone is. Search never answers it.
+
+1. **`time_zone` argument (copies `mcp-server-time`).** `query_live_info(kind=current_time)` gains one optional string argument, `time_zone`. Schema description: 「IANA 时区名（例如 Asia/Tokyo、Europe/Oslo）。不填就是手机所在的时区。」 The catalog golden test is updated, the same way as §14 item 1.
+2. **Checking the zone.** `time_zone` must exactly equal one of `TimeZone.knownTimeZoneIdentifiers`, case included. Otherwise the result is `INVALID_ARGUMENT` with `advice` 「time_zone 要用 IANA 时区名，比如 Asia/Tokyo。」 Any argument other than `kind` and `time_zone` is still `INVALID_ARGUMENT` (§14 row 5).
+3. **Result.** It is exactly as §14 item 2, computed in the given zone, or the phone's zone when none is given. `timeZone` and `utcOffset` are those of the zone used. With `time_zone`, `next` is 「只按 time 和 date 回答，一句话，说出是哪里的时间。」 Without it, `next` is unchanged.
+4. **Kind description.** In the `query_live_info` description, the `current_time` text becomes: 「current_time：任何地方现在的时间、日期、星期，如「现在几点」「仙台现在几点」「今天几号」；不是手机所在地时填 time_zone。只按返回结果回答，绝不自己猜时间。」
+5. **Persona item 9** becomes: 「9. 问现在几点、今天几号、星期几，不管问哪里（包括澳门和外国城市）：调用 query_live_info（kind=current_time），不是手机所在地就填 time_zone（IANA 时区名，比如仙台 Asia/Tokyo）。只按返回的结果回答，不要用 web_search 查时间，不要自己猜。」 If the base then passes `maxBaseCharacters`, the limit may rise to 1700 and no more. Record the new limit in STATUS.
+6. **`web_search` description.** Append: 「不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。」
+7. **Code check before search (ours, not from a source).** The descriptions do the routing in the sources. The record shows she does not always follow them, and AGENTS.md says product rules are code-enforced, so `WebSearchExecutor` also checks. A pure `CurrentTimeQuery.matches(_ query: String) -> Bool` in NovaCore returns true when the query:
+   - contains 现在 followed within 8 characters by 几点 or 时间;
+   - or contains 几点了, 当地时间, 当前时间 or 北京时间;
+   - or contains 今天 followed within 4 characters by 几号, 星期几, 礼拜几 or 周几;
+   - and it is false when 几点 is directly followed by 关门, 开门, 营业, 开始, 结束, 出发, 到, 下班, 上班, 闭馆, 开放, 起飞 or 发车, or when 时间 directly follows 营业, 开放, 办公, 上班, 飞行, 行驶, 等待 or 排队.
+
+   On a match, Qwen is not called. The result is `INVALID_ARGUMENT` with `advice` 「现在的时间和日期不用搜索：调用 query_live_info（kind=current_time），别的地方填 time_zone。」 The record gets `search-blocked reason=current_time`, numbers only. Rows 5–6 hold the exact examples. The owner may remove this check; items 1–6 stand without it.
+8. **Not changed.** Qwen's text (§24 item 2) is not touched, because of the copied-prompt rule and because time questions no longer reach Qwen. Not changed either: ETA and 几点到, 营业时间 through place_details or search, and the weather rules. Separate problem in the same record, not in this task: 高德 answered 仙台 with 弋阳县 and 奥斯陆 with 湖里区, both `ok=true`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Fake clock 2026-11-06 01:15 UTC, `time_zone` Asia/Tokyo | `time` 10:15, `period` 上午, `date` 2026年11月6日, `weekday` 星期五, `timeZone` Asia/Tokyo, `utcOffset` +09:00; `next` as item 3 | unit |
+| 2 | Same instant, `time_zone` Europe/Oslo; America/New_York | 02:15 凌晨 +01:00, 11月6日; 20:15 晚上 −05:00, 2026年11月5日 星期四 | unit |
+| 3 | No `time_zone`, phone zone Asia/Macau | Same as §14 in Asia/Macau, `next` unchanged | unit |
+| 4 | `time_zone` 「asia/tokyo」, 「仙台」, 「UTC+9」, empty; `where` or `day` with current_time | `INVALID_ARGUMENT` with item 2 `advice`; `INVALID_ARGUMENT` | unit |
+| 5 | `web_search` with 「日本仙台现在时间」, 「现在澳门时间」, 「现在澳门的具体时间」, 「澳门现在的时间」, 「奥斯陆现在几点」, 「几点了」, 「今天是几号」 | Each blocked: no Qwen call, item 7 `advice`, `search-blocked reason=current_time` | unit |
+| 6 | `web_search` with 「香港迪士尼几点关门」, 「香港迪士尼现在几点关门」, 「故宫营业时间」, 「澳门现在的营业时间」, 「今天油价多少」, 「上海明天几点日出」 | Not blocked; sent to Qwen as today | unit |
+| 7 | Catalog, persona, `web_search` description | Texts exactly as items 1, 4, 5 and 6; base within the limit | unit |
+| 8 | Device, record on, search on: 「现在几点」, 「澳门现在几点」, 「仙台现在几点」, 「奥斯陆现在几点」, 「纽约现在几点」, 「今天几号」, each 3 times | Every answer matches the phone clock plus the city's offset; the record shows `current_time` (with `time_zone` for other cities) and no `web_search` for these | D |
+| 9 | Device: 「香港迪士尼几点关门」 3 times | Still goes to search | D |
+
+**Trace gate.** Add `T-046n: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046n.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046n | Items 1–8; rows 1–9 | unit, build, D |

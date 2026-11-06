@@ -151,6 +151,7 @@ NOT_VERIFIED until a device run is attached.
 | T-046k | Weather up to 大后天 and place details from 高德 even with search on; forecast picked by date | F-18 | T-046j | `Packages/NovaCore/`, `Packages/NovaServices/` | F-18 §23 rows 1–4 | PC, unit, build |
 | T-046l | Driver's words to Qwen; PC comparison of four Qwen setups with the FreshPrompt system text | F-18 | T-046j | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `scripts/search_eval/` | F-18 §23 rows 5–6 | unit, PC |
 | T-046m | Qwen gets the copied FreshPrompt text with no refusal or exact-day rule; she may give usual weather for far-off dates | F-18 | T-046l | `Packages/NovaRealtime/`, `Packages/NovaCore/` | F-18 §24 rows 1–7 | unit, build, D |
+| T-046n | current_time takes an IANA time_zone; every time question uses it; web_search refuses current-time queries | F-18 §25 | T-046m | `Packages/NovaCore/` | F-18 §25 rows 1–9 | unit, build, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 

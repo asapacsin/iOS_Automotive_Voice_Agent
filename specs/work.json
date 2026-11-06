@@ -1936,6 +1936,17 @@
         "maxBaseCharacters 1500 -> 1600 (live-info.md row 7 updated) to fit the approved item 5 text",
         "Rows 5-7 device NOT_VERIFIED"
       ]
+    },
+    {
+      "id": "T-046n",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 2,
+      "action": "F-18 §25 items 1-8: current_time time_zone argument (copied from mcp-server-time), persona and descriptions route every time question to it, web_search refuses current-time queries; rows 1-9",
+      "depends_on": [
+        "T-046m"
+      ],
+      "notes": "Owner 2026-11-06: times for 仙台, 奥斯陆 and 澳门 all made up by Qwen after she sent them to web_search (record 20261106-091340). Item 7 code check is ours, not from a source; the owner may remove it."
     }
   ]
 }
