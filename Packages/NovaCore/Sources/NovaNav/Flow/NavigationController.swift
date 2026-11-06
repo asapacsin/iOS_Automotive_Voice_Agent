@@ -53,6 +53,15 @@ public struct NavigationFlowState: Sendable, Hashable {
     }
 }
 
+extension NavigationFlowState {
+    /// F-18 §21 item 1 (T-046i): the destination's cleaned name while navigating (a list over guidance keeps it)
+    /// or arrived; nil otherwise.
+    public var currentDestination: String? {
+        guard phase == .navigating || phase == .arrived else { return nil }
+        return SearchPlace.clean(destination?.name)
+    }
+}
+
 public struct NavigationTuning: Sendable, Hashable {
     /// Candidate lists older than this are refused (`OPTIONS_STALE`).
     public var choiceLifetime = NovaDuration.seconds(120)
@@ -63,6 +72,31 @@ public struct NavigationTuning: Sendable, Hashable {
     public var searchRadiusMeters = 50_000
     public var mode: NaviMode = .emulator
     public init() {}
+}
+
+/// F-16 §14 (T-042c): near-first search, sound-alike match and confirm by score for named places. Without it
+/// (`nearFirst: nil`) the F-16 §4 search is used. Reads app state and the uplink gate's turn count only, never a
+/// transcript (F-05a §6).
+public struct NearFirstSearch: Sendable {
+    let match: DestinationMatch
+    let geocoder: (any ReverseGeocoder)?
+    let driverTurns: @Sendable () async -> Int
+    let onLine: @Sendable (DestinationSearchLine) -> Void
+
+    /// `driverTurns` is the count of driver utterances the uplink gate closed (F-04a, `GuardContext.closedTurns`).
+    /// `onLine` gets one item 9 line per call.
+    public init(match: DestinationMatch, geocoder: (any ReverseGeocoder)?, driverTurns: @escaping @Sendable () async -> Int,
+                onLine: @escaping @Sendable (DestinationSearchLine) -> Void = { _ in }) {
+        self.match = match
+        self.geocoder = geocoder
+        self.driverTurns = driverTurns
+        self.onLine = onLine
+    }
+
+    /// Item 6: what she is told after the second no.
+    public static let rejectedText = "这个地名刚被否定了，请问司机要去哪里。"
+    /// Item 3: no fit.
+    public static let noFitText = "没有找到和这个名字相符的地点。请只问一句司机要去哪里，不要重复刚才听到的地名。"
 }
 
 /// F-15 flow: search → pick → route → navigate → cancel, for `navigate_to`, `choose_navigation_option`
@@ -95,10 +129,25 @@ public actor NavigationController: ToolExecutor {
 
     private enum Wait { case routes, started }
 
+    private let nearFirst: NearFirstSearch?
+    /// F-16 §14 item 6: the last listed named-place search, for a no and the next candidate.
+    private struct Asked {
+        let destination: String
+        let ranked: [ScoredPlace]
+        let step: DestinationSearchStep
+        var offered = 0
+        var advanced = false
+    }
+    private var asked: Asked?
+    private var rejectedName: String?
+    /// F-16 §14 item 5: listed place ids that need a yes on a later driver turn, and the turn count when listed.
+    private var confirm: (ids: Set<String>, turn: Int)?
+
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
                 clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(), saved: SavedPlaces? = nil,
-                mode: (@Sendable () -> NaviMode)? = nil,
+                mode: (@Sendable () -> NaviMode)? = nil, nearFirst: NearFirstSearch? = nil,
                 onChange: @escaping @Sendable (NavigationFlowState) -> Void = { _ in }) {
+        self.nearFirst = nearFirst
         self.saved = saved
         self.search = search
         self.engine = engine
@@ -124,7 +173,7 @@ public actor NavigationController: ToolExecutor {
     public func execute(_ call: ToolCall) async -> ToolResult {
         switch call.name {
         case "navigate_to": return await navigate(call.arguments["destination"]?.stringValue ?? "")
-        case "choose_navigation_option": return await choose(call.arguments)
+        case "choose_navigation_option": return await choose(call.arguments, fromTap: call.id.rawValue.hasPrefix("ui"))
         case "exit_navigation_mode": return await exit()
         default: return .failure(.unknownTool)
         }
@@ -133,9 +182,18 @@ public actor NavigationController: ToolExecutor {
     // MARK: navigate_to
 
     private func navigate(_ destination: String) async -> ToolResult {
+        confirm = nil
         // F-05a §6 (replaces the P61 word guard): while guiding, a new place is listed over the running route;
         // the route changes only when the driver picks one.
-        if snapshot.navigating { return await listOverGuidance(destination) }
+        if snapshot.navigating {
+            // F-16 §14: a named place while guiding goes through the same near-first match (item 10 exempts only
+            // along-route search); a saved slot and categories keep the list over guidance.
+            let slot = saved == nil ? nil : PlaceSlot.slot(for: destination)
+            if let nearFirst, slot == nil, DestinationQuery(destination).sort == .weight {
+                return await nearFirstNavigate(DestinationQuery(destination), nearFirst)
+            }
+            return await listOverGuidance(destination)
+        }
         // F-16: 家/公司 (whole utterance, never 家乐福) is the saved place or a refusal, never a POI search.
         // An unset slot is refused before anything stops, so the current route keeps going (I-14).
         if let saved, let slot = PlaceSlot.slot(for: destination) {
@@ -146,6 +204,10 @@ public actor NavigationController: ToolExecutor {
             snapshot.routes = []
             snapshot.info = nil
             return await route(to: place)
+        }
+        // F-16 §14 item 10: 附近的X and category searches keep the F-16 §4 search.
+        if let nearFirst, DestinationQuery(destination).sort == .weight {
+            return await nearFirstNavigate(DestinationQuery(destination), nearFirst)
         }
         let generation = advance(to: .resolvingDestination)
         snapshot.places = []
@@ -192,18 +254,210 @@ public actor NavigationController: ToolExecutor {
                 }
                 guard current() else { return .failure(ToolResultBox(.failure(.optionsStale))) }
             }
-        } catch let error as AmapWebError {
-            return .failure(ToolResultBox(error == .keyMissing || error == .keyRejected
-                ? .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有查到。")
-                : .failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到，可以请用户再说一遍。")))
         } catch {
-            return .failure(ToolResultBox(.failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到。")))
+            return .failure(Self.searchFailure(error))
         }
         let top = Array(places.prefix(tuning.maxCandidates))
         guard !top.isEmpty else {
             return .failure(ToolResultBox(.failure(.noCandidates, advice: "没有找到这个地点。请如实说没找到，请用户换个说法。")))
         }
         return .success(top)
+    }
+
+    private static func searchFailure(_ error: any Error) -> ToolResultBox {
+        guard let error = error as? AmapWebError else {
+            return ToolResultBox(.failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到。"))
+        }
+        return ToolResultBox(error == .keyMissing || error == .keyRejected
+            ? .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有查到。")
+            : .failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到，可以请用户再说一遍。"))
+    }
+
+    // MARK: F-16 §14 near-first search
+
+    private func nearFirstNavigate(_ query: DestinationQuery, _ near: NearFirstSearch) async -> ToolResult {
+        let key = query.stripped
+        let match = near.match
+        let exhausted = asked.map { $0.destination == key && ($0.advanced || $0.offered + 1 >= $0.ranked.count) } ?? false
+        if rejectedName == key || exhausted {
+            let step = asked?.step ?? .country
+            if snapshot.alongRouteList { closeAlongRouteList() } else if !snapshot.navigating, snapshot.listOpen { reset() }
+            asked = nil
+            rejectedName = key
+            near.onLine(DestinationSearchLine(destination: key, step: step, count: 0, top: nil, score: 0, km: 0,
+                                              check: .rejected))
+            return .failure(.destinationRejected, advice: NearFirstSearch.rejectedText)
+        }
+        if var again = asked, again.destination == key {
+            // Item 6: she asked and the driver said no; the same name once more is the next candidate.
+            again.offered += 1
+            again.advanced = true
+            asked = again
+            let next = again.ranked[again.offered]
+            let guiding = snapshot.navigating
+            let turn = await near.driverTurns()
+            guard guiding == snapshot.navigating else { return .failure(.optionsStale) }
+            if guiding {
+                snapshot.alongRouteList = true
+            } else {
+                _ = advance(to: .awaitingDestinationSelection)
+                snapshot.routes = []
+                snapshot.destination = nil
+            }
+            snapshot.places = [next.place]
+            listedAt = clock.now
+            confirm = ([next.place.id], turn)
+            publish()
+            let check: DestinationCheck = match.isFar(next) ? .farOnly : .ask
+            near.onLine(Self.line(key, again.step, [next], check))
+            return .success([
+                "status": .string(check == .farOnly ? "far_only" : "next_candidate"),
+                "check": .string(check.rawValue),
+                "count": 1,
+                "candidates": .array([Self.describe(next, index: 1)]),
+                "next": .string(Self.question(next, check: check, destination: key)),
+            ])
+        }
+        asked = nil
+        rejectedName = nil
+        // While guiding nothing stops: the list goes over the running route (F-05a §6).
+        let guiding = snapshot.navigating
+        let generation: Generation
+        if guiding {
+            generation = snapshot.generation
+        } else {
+            generation = advance(to: .resolvingDestination)
+            snapshot.places = []
+            snapshot.routes = []
+            snapshot.destination = nil
+            snapshot.info = nil
+            publish()
+        }
+        let current = { [generation] in generation == self.snapshot.generation && self.snapshot.navigating == guiding }
+        let found: (step: DestinationSearchStep, places: [Place], center: GeoCoordinate?)
+        do {
+            found = try await nearSearch(query, near, current: current)
+        } catch is CancellationError {
+            return .failure(.optionsStale)
+        } catch {
+            if !guiding { reset() }
+            return Self.searchFailure(error).result
+        }
+        guard current() else { return .failure(.optionsStale) }
+        let top = Array(match.rank(found.places, destination: key, from: found.center).prefix(tuning.maxCandidates))
+        let check = match.check(top)
+        near.onLine(Self.line(key, found.step, top, check))
+        if check == .none {
+            if !guiding { reset() }
+            return .failure(.noCandidates, advice: NearFirstSearch.noFitText)
+        }
+        if check == .sure, top.count == 1, !guiding { return await route(to: top[0].place) }
+        // Item 5: the turn is read after the search, so an utterance during the search is not the later turn.
+        let turn = await near.driverTurns()
+        guard current() else { return .failure(.optionsStale) }
+        if guiding {
+            snapshot.alongRouteList = true
+        } else {
+            snapshot.phase = .awaitingDestinationSelection
+        }
+        snapshot.places = top.map(\.place)
+        listedAt = clock.now
+        // Item 5: only the sure top candidate goes without a separate yes.
+        let ids = top.enumerated().filter { $0.offset != 0 || check != .sure || match.isFar($0.element) }
+            .map(\.element.place.id)
+        confirm = (Set(ids), turn)
+        asked = Asked(destination: key, ranked: top, step: found.step)
+        publish()
+        let status = switch check {
+        case _ where guiding: "candidates_listed_over_guidance"
+        case .sure: "candidates_listed"
+        case .farOnly: "far_only"
+        default: "confirm_candidate"
+        }
+        return .success([
+            "status": .string(status),
+            "guidance_kept": .bool(guiding),
+            "check": .string(check.rawValue),
+            "count": .int(Int64(top.count)),
+            "candidates": .array(top.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
+            "next": .string(Self.question(top[0], check: check, destination: key)),
+        ])
+    }
+
+    /// Item 1: around 50 km, city text with `citylimit`, the place-type word around; nationwide only when another
+    /// region is named or all of those found nothing. Stripped query first, verbatim after (F-16 §4).
+    private func nearSearch(_ query: DestinationQuery, _ near: NearFirstSearch, current: () -> Bool) async throws
+        -> (step: DestinationSearchStep, places: [Place], center: GeoCoordinate?) {
+        let center = await usableFix()
+        var region: PlaceRegion?
+        if let center, let geocoder = near.geocoder { region = try? await geocoder.region(at: center) }
+        guard current() else { throw CancellationError() }
+        let radius = near.match.tuning.aroundRadiusMeters
+        var near: [(DestinationSearchStep, String)] = []
+        if center != nil {
+            for keywords in query.attempts {
+                near += DestinationMatch.nearSteps(keywords, hasCity: region?.adcode != nil).map { ($0, keywords) }
+            }
+        }
+        let found = try await run(near, center: center, region: region, radius: radius, current: current)
+        // Nationwide only after the near steps: when they found nothing, or another province or city is named
+        // (then both are ranked together, so 中山路 nearby still wins).
+        guard found.places.isEmpty
+            || DestinationMatch.namesOtherRegion(query.stripped, carAddress: region?.formatted) else {
+            return (found.step, found.places, center)
+        }
+        let country = try await run(query.attempts.map { (.country, $0) }, center: center, region: region,
+                                    radius: radius, current: current)
+        if country.places.isEmpty { return (found.places.isEmpty ? .country : found.step, found.places, center) }
+        let nearIDs = Set(found.places.map(\.id))
+        return (.country, found.places + country.places.filter { !nearIDs.contains($0.id) }, center)
+    }
+
+    private func run(_ plan: [(DestinationSearchStep, String)], center: GeoCoordinate?, region: PlaceRegion?, radius: Int,
+                     current: () -> Bool) async throws -> (step: DestinationSearchStep, places: [Place]) {
+        for (step, keywords) in plan {
+            let places: [Place]
+            switch (step, center) {
+            case (.around, let center?):
+                places = try await search.aroundOnly(keywords, center: center, radiusMeters: radius, sort: .weight)
+            case (.type, let center?):
+                places = try await search.aroundOnly(DestinationMatch.typeWord(keywords) ?? keywords, center: center,
+                                                     radiusMeters: radius, sort: .weight)
+            case (.city, _):
+                places = try await search.text(keywords, city: region?.adcode, cityLimit: true)
+            default:
+                places = try await search.text(keywords, city: nil)
+            }
+            guard current() else { throw CancellationError() }
+            if !places.isEmpty { return (step, places) }
+        }
+        return (.country, [])
+    }
+
+    private static func line(_ destination: String, _ step: DestinationSearchStep, _ ranked: [ScoredPlace],
+                             _ check: DestinationCheck) -> DestinationSearchLine {
+        DestinationSearchLine(destination: destination, step: step, count: ranked.count, top: ranked.first?.place.name,
+                              score: ranked.first?.score ?? 0, km: ranked.first?.km ?? 0, check: check)
+    }
+
+    /// Items 3–4: what she says about the top candidate.
+    private static func question(_ top: ScoredPlace, check: DestinationCheck, destination: String) -> String {
+        let km = DestinationMatch.kmText(top.km ?? 0)
+        switch check {
+        case .sure: return "找到\(top.place.name)，在\(km)公里外，说第一个就去，或说第几个。"
+        case .farOnly:
+            return "附近没找到\(destination)，最近的在\(km)公里外的\(top.place.city ?? top.place.district ?? "外地")，要去那里吗？"
+        default: return "是去\(top.place.name)吗？在\(km)公里外。"
+        }
+    }
+
+    /// Item 5: an unsure, far or no-fit candidate is refused until a later driver turn. A tap is itself the yes (I-6).
+    private func confirmRefusal(_ place: Place, fromTap: Bool) async -> ToolResult? {
+        guard let nearFirst, !fromTap, let pending = confirm, pending.ids.contains(place.id) else { return nil }
+        let now = await nearFirst.driverTurns()
+        guard now <= pending.turn else { return nil }
+        return .failure(.confirmFirst,
+                        advice: "还没有得到司机的确认。只问一句是不是去\(place.name)，等司机回答后再选，不要说已经开始导航。")
     }
 
     /// While guiding: the places are listed over the running route (as along-route results); nothing stops
@@ -242,7 +496,7 @@ public actor NavigationController: ToolExecutor {
 
     // MARK: choose_navigation_option
 
-    private func choose(_ args: JSONValue) async -> ToolResult {
+    private func choose(_ args: JSONValue, fromTap: Bool = false) async -> ToolResult {
         if snapshot.alongRouteList {
             if let stale = staleList() { return stale }
             switch pick(snapshot.places, args, distance: { $0.distanceMeters }, name: { $0.name }) {
@@ -252,6 +506,10 @@ public actor NavigationController: ToolExecutor {
                 // does not treat it as an open list.
                 let place = snapshot.places[index]
                 let generation = snapshot.generation
+                if let refusal = await confirmRefusal(place, fromTap: fromTap) { return refusal }
+                guard generation == snapshot.generation, snapshot.alongRouteList else { return .failure(.optionsStale) }
+                asked = nil
+                confirm = nil
                 snapshot.alongRouteList = false
                 await engine.stop(generation: generation)
                 // 算了 or a new request while the old guidance stopped: this pick is stale.
@@ -267,7 +525,14 @@ public actor NavigationController: ToolExecutor {
         case .awaitingDestinationSelection:
             if let stale = staleList() { return stale }
             switch pick(snapshot.places, args, distance: { $0.distanceMeters }, name: { $0.name }) {
-            case .success(let index): return await route(to: snapshot.places[index])
+            case .success(let index):
+                let place = snapshot.places[index]
+                let generation = snapshot.generation
+                if let refusal = await confirmRefusal(place, fromTap: fromTap) { return refusal }
+                guard generation == snapshot.generation else { return .failure(.optionsStale) }
+                asked = nil
+                confirm = nil
+                return await route(to: place)
             case .failure(let box): return box.result
             }
         case .awaitingRouteSelection:
@@ -394,18 +659,31 @@ public actor NavigationController: ToolExecutor {
         let minutes = max(1, route.durationSeconds / 60)
         let (others, offer) = alternatives(besides: route)
         let started = mode == .emulator ? "已开始模拟导航" : "已开始导航"
-        let sentence = replacing ? "已换成\(label ?? "")路线，大约\(minutes)分钟。" : "\(started)，大约\(minutes)分钟。" + (offer ?? "")
+        var sentence = replacing ? "已换成\(label ?? "")路线，大约\(minutes)分钟。" : "\(started)，大约\(minutes)分钟。" + (offer ?? "")
+        // F-16 §14 item 8: name, km and hours+minutes; a long trip asks once more and a no cancels.
+        var longTrip = false
+        if let nearFirst, !replacing {
+            let start = nearFirst.match.startSentence(name: snapshot.destination?.name ?? "", meters: route.lengthMeters,
+                                                      seconds: route.durationSeconds)
+            longTrip = start.longTrip
+            sentence = "\(started)，" + start.text + (longTrip ? "" : (offer ?? ""))
+        }
+        // Item 8: the cancel rule stays outside what she says.
+        let ifNo: JSONValue = longTrip ? "如果司机说不去，调用 exit_navigation_mode 取消导航。" : .null
         return .success([
             "status": replacing ? "route_changed" : "navigation_started",
             "destination": .string(snapshot.destination?.name ?? ""),
             "distance_km": .double(Self.km(route.lengthMeters)),
             "duration_min": .int(Int64(minutes)),
             "simulated_movement": .bool(mode == .emulator),
+            "long_trip": .bool(longTrip),
+            "if_driver_says_no": ifNo,
             "alternatives": .array(others),
             // F-15a §2.5: what a plain 好 / 换 after her offer means.
             "offer_preference": offer.map { $0.contains("更快") ? "fastest" : $0.contains("更短") ? "shortest" : "no_toll" }
                 .map(JSONValue.string) ?? .null,
-            "next": .string("只说一句：\(sentence)不要念其他路线。"),
+            "next": .string(longTrip ? "只说一句「\(sentence)」，不要念其他路线，也不要念工具名。"
+                            : "只说一句：\(sentence)不要念其他路线。"),
         ])
     }
 
@@ -657,7 +935,15 @@ public actor NavigationController: ToolExecutor {
         return .success(object)
     }
 
+    /// F-16 §14 items 5–6: a list's yes-needed ids and its no-state; cleared on exit, timeout and a new session.
+    public func forgetConfirmations() {
+        confirm = nil
+        asked = nil
+        rejectedName = nil
+    }
+
     private func closeAlongRouteList() {
+        forgetConfirmations()
         snapshot.alongRouteList = false
         snapshot.places = []
         listedAt = nil
@@ -704,6 +990,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.lastGuidanceID = nil
         listedAt = nil
         calculated = []
+        forgetConfirmations()
         publish()
     }
 
@@ -783,6 +1070,17 @@ public actor NavigationController: ToolExecutor {
         var object: [String: JSONValue] = ["index": .int(Int64(index)), "name": .string(place.name)]
         if let address = place.address { object["address"] = .string(address) }
         if let meters = place.distanceMeters { object["distance_km"] = .double(km(meters)) }
+        return .object(object)
+    }
+
+    /// F-16 §14 item 7: every candidate says where it is.
+    static func describe(_ scored: ScoredPlace, index: Int) -> JSONValue {
+        let place = scored.place
+        var object: [String: JSONValue] = ["index": .int(Int64(index)), "name": .string(place.name)]
+        if let address = place.address { object["address"] = .string(address) }
+        object["city"] = place.city.map(JSONValue.string) ?? .null
+        object["district"] = place.district.map(JSONValue.string) ?? .null
+        object["distance_km"] = scored.km.map { .double(($0 * 10).rounded() / 10) } ?? .null
         return .object(object)
     }
 

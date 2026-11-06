@@ -67,6 +67,8 @@ public enum VehicleActionResult<State: Sendable & Hashable>: Sendable, Hashable 
     case unavailable(String)
     case permissionDenied(String)
     case failure(String)
+    /// F-12 §14 item 11: refused by the action policy before the port; the value is the policy's rule code.
+    case blocked(String)
 }
 
 /// Vehicle backend; only the simulator exists (`BACKEND_LABEL=simulated`). Relative calls use the
@@ -215,6 +217,8 @@ public enum CredentialKey: String, Sendable, Hashable, CaseIterable {
     case qianfanKey = "qianfan_key"
     /// F-20a §14 item 1: Zhipu key for GLM-4.6V-Flash, the first vision backend.
     case zhipuKey = "zhipu_key"
+    /// F-18 §17 item 1: Alibaba Cloud Model Studio key for `web_search`. Never blocks a session.
+    case qwenAPIKey = "qwen_api_key"
 }
 
 /// Keychain (`kSecAttrAccessibleAfterFirstUnlock`). Values are write-only from the UI.

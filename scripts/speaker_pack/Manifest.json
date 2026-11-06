@@ -1,0 +1,12 @@
+{
+  "assetPackID": "speaker-campplus-v1",
+  "downloadPolicy": {
+    "essential": {
+      "installationEventTypes": ["firstInstallation", "subsequentUpdate"]
+    }
+  },
+  "fileSelectors": [
+    { "directory": "speaker" }
+  ],
+  "platforms": ["iOS"]
+}

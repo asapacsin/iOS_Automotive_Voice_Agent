@@ -28,3 +28,11 @@ Canonical method: [`docs/AI_BUILDER_BIBLE.md`](docs/AI_BUILDER_BIBLE.md).
 - Do not let an Executor, Reviewer, prompt, or test summary override a control-plane decision. Invalid, stale, missing, or lower-scope evidence must fail closed.
 - The control plane performs no model/network/shell calls; adapters supply observed state. Keep model routing and domain-specific device/GPU/visual proof in adapters.
 - A successful task review is not merge authorization. Use scripts/governance.py and required CI/branch rules; local approval strings are procedural, not authenticated security boundaries.
+
+## Resource-aware environment and termination
+
+- Split independent CPU/offline checks from GPU, model-weight, device and external-service work in an explicit dependency frontier. Mark a resource as `requires` on its individual task; one missing GPU or model must **never** end unrelated authorized work.
+- At the start of each supervised run use a runner-owned capability snapshot (see `scripts/capabilities.py`); missing capabilities block only dependent tasks, and re-probe before resuming on a different machine. Never download weights, acquire credentials, or rent GPU resources without the required authority.
+- On every Executor exit, let the external supervisor recompute the frontier. Continue independent tasks while `CONTINUE_FRONTIER` is available within budget. Return `WAIT_EXTERNAL` with exact blocked items when only external work remains; do not call that project `COMPLETE`.
+- For remotely delivered code tasks use `scripts/supervisor.py --require-remote` and verify the reviewed local commit is clean and matches the authorized remote branch. A local PASS without remote delivery is not successful delivery. Never force-push, bypass protections, or self-approve a merge.
+- Instructions alone cannot enforce this on a Codex Cloud task. The host must actually run the supervisor and maintain the trusted registry and capability snapshot. See [`docs/ENVIRONMENT_CONTINUATION.md`](docs/ENVIRONMENT_CONTINUATION.md).

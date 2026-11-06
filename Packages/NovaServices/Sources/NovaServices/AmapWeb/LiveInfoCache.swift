@@ -19,10 +19,10 @@ public actor LiveInfoCache: WeatherService, ReverseGeocoder {
         self.tuning = tuning
     }
 
-    public func weather(adcode: String, forecast: Bool) async throws -> WeatherReport {
-        let key = "\(adcode)|\(forecast)"
+    public func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
+        let key = "\(adcode)|\(day.offset)|\(day.date)"
         if let (report, at) = reports[key], clock.now - at < tuning.weatherTTL { return report }
-        let report = try await weather.weather(adcode: adcode, forecast: forecast)
+        let report = try await weather.weather(adcode: adcode, day: day)
         reports[key] = (report, clock.now)
         return report
     }

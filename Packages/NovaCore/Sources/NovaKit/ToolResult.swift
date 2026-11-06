@@ -16,9 +16,15 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case vehiclePermissionDenied = "VEHICLE_PERMISSION_DENIED"
     case vehicleExecutionFailed = "VEHICLE_EXECUTION_FAILED"
     case missingAction = "MISSING_ACTION"
+    /// F-12 §14 item 11 (T-031b): `VehicleActionPolicy` refused the action before the port.
+    case vehicleBlocked = "VEHICLE_BLOCKED"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"
+    /// F-16 §14 item 5 (T-042c): an unsure, far or no-fit candidate needs the driver's yes on a later turn.
+    case confirmFirst = "CONFIRM_FIRST"
+    /// F-16 §14 item 6 (T-042c): the driver said no to this name and its next candidate.
+    case destinationRejected = "DESTINATION_REJECTED"
     case homeNotSet = "HOME_NOT_SET"
     case workNotSet = "WORK_NOT_SET"
     case amapWebKeyMissing = "AMAP_WEB_KEY_MISSING"

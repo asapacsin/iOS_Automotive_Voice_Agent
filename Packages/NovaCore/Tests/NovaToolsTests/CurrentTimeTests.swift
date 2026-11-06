@@ -71,7 +71,7 @@ struct CurrentTimeTests {
     func catalog() throws {
         #expect(ToolCatalog.liveInfoKinds.contains("current_time"))
         let spec = try #require(ToolCatalog.specs.first { $0.declaration.name == "query_live_info" })
-        #expect(spec.declaration.description.contains("current_time：「现在几点」「今天几号」「今天星期几」「现在是上午还是下午」，只按返回结果回答，绝不自己猜时间"))
+        #expect(spec.declaration.description.contains("current_time：任何地方现在的时间、日期、星期，如「现在几点」「仙台现在几点」「今天几号」；不是手机所在地时填 time_zone。只按返回结果回答，绝不自己猜时间"))
         guard case .array(let kinds)? = spec.declaration.parametersJSONSchema["properties"]?["kind"]?["enum"] else {
             Issue.record("no kind enum")
             return

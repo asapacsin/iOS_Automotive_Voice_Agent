@@ -143,6 +143,8 @@ private struct DriveContent: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var bubble = BubbleFade()
     @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
+    /// F-01 §14 item 6: 「唤醒词」 changed in 设置: the listener is applied again.
+    @AppStorage(DriveSettings.wakeWord) private var wakeWord = true
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -168,6 +170,7 @@ private struct DriveContent: View {
         .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }
         .onChange(of: position.command) { _, command in if let command { apply(command.command) } }
         .onChange(of: useDeviceLocation) { _, _ in position.sourceChanged() }
+        .onChange(of: wakeWord) { _, _ in Task { await runtime.refreshWake() } }
         .onAppear {
             visible = true
             position.appear()
@@ -318,11 +321,17 @@ private struct DriveContent: View {
         }
         // F-24 §14 items 3–4: no network is not an error.
         let network: (String, Color)? = if model.networkEnded && !model.running {
-            ("网络已断开，点按重新开始", .red)
+            // F-24 §15 item 6 (T-016j): after giving up or the offline cap.
+            (SessionEndedChip.text(wakeArmed: model.wakeArmed), .red)
         } else if model.view.waitingForNetwork && model.running {
             ("等待网络…", .orange)
         } else { nil }
-        let (text, color) = network ?? (model.sheTalks && model.running ? ("她在说话", Color.blue) : state)
+        // F-04b §6 item 11 (T-013e): 声纹锁定 failed closed.
+        let speaker: (String, Color)? = model.speakerUnavailable && model.running
+            ? (SpeakerLockPolicy.unavailableChip, .red) : nil
+        // F-04b §14 item 8 (T-013h): a dropped sentence (session) or wake word (idle), 3 s; the item 11 chip wins.
+        let dropped: (String, Color)? = speaker == nil ? model.speakerNotice.map { ($0, Color.orange) } : nil
+        let (text, color) = network ?? speaker ?? dropped ?? (model.sheTalks && model.running ? ("她在说话", Color.blue) : state)
         return HStack(spacing: 5) {
             Circle().fill(color).frame(width: 9, height: 9)
             VStack(alignment: .leading, spacing: 0) {
@@ -330,6 +339,11 @@ private struct DriveContent: View {
                 if model.sheTalks && model.stopHint && model.running {
                     Text("说「别说了」可打断").font(.caption2).foregroundStyle(.secondary)
                         .accessibilityIdentifier("stop-hint")
+                }
+                // F-01 §14 item 8: only while the wake listener is armed and no session runs.
+                if let hint = WakePhrase.hint(armed: model.wakeArmed, sessionRunning: model.running) {
+                    Text(hint).font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("wake-hint")
                 }
             }
         }
@@ -488,7 +502,6 @@ private struct DriveContent: View {
             .animation(.easeOut(duration: 0.5), value: phase)
         }
         .onChange(of: model.driverLine) { _, line in
-            // A new driver line starts a new exchange.
             bubble.update(line, at: Self.now())
         }
         .onChange(of: model.view.subtitle) { _, text in

@@ -149,7 +149,7 @@ struct VoiceSessionTests {
 
 @Suite("T-014 F-24 reconnect policy")
 struct ReconnectPolicyTests {
-    @Test("F-24 5 attempts at 200, 400, 800, 1600, 3200 ms, then ERROR")
+    @Test("F-24 attempts at 200, 400, 800, 1600, 3200 ms, ... (§15: no attempt limit, then give-up, not ERROR)")
     func schedule() {
         var h = SessionHarness()
         h.connected()
@@ -162,8 +162,8 @@ struct ReconnectPolicyTests {
             h.server(.failed(RealtimeError(.connection)))
         }
         delays = h.log.compactMap { if case .diagnostic(.reconnectAttempt(_, let d)) = $0 { d } else { nil } }
-        #expect(delays.map(\.milliseconds) == [200, 400, 800, 1600, 3200])
-        #expect(h.session.state == .error)
+        #expect(delays.map(\.milliseconds).prefix(5) == [200, 400, 800, 1600, 3200])
+        #expect(h.session.state == .reconnecting)
         #expect(!h.log.contains { if case .showConfigError = $0 { true } else { false } })
         #expect(h.connects.count == 1 + 5)
     }
@@ -189,8 +189,8 @@ struct ReconnectPolicyTests {
     @Test("F-24 terminal codes are never retried by the policy")
     func policyTerminal() {
         var p = ReconnectPolicy()
-        #expect(p.next(after: .quota) == .giveUp)
-        #expect(p.next(after: .dns) == .retry(attempt: 1, after: .milliseconds(200)))
+        #expect(p.next(after: .quota, at: .zero) == .giveUp)
+        #expect(p.next(after: .dns, at: .zero) == .retry(attempt: 1, after: .milliseconds(200)))
     }
 
     @Test("F-24 goAway moves to a fresh socket resuming with the handle")
@@ -237,21 +237,21 @@ struct NetworkWaitTests {
         #expect(h.timers.isEmpty)
     }
 
-    @Test("F-24 §14 row 2: online failures keep 5 attempts with backoff, then ERROR")
+    @Test("F-24 §14 row 2 as changed by §15: online failures retry with backoff, then give up (not ERROR)")
     func onlineUnchanged() {
         var h = SessionHarness()
         h.connected()
         h.server(.closed)
-        for _ in 0..<5 {
-            guard let (_, at) = h.timers[.reconnectDelay] else { break }
+        while let (_, at) = h.timers[.reconnectDelay] {
             h.advance(by: at - h.now)
             h.server(.failed(RealtimeError(.connection)))
         }
-        #expect(h.session.state == .error)
-        #expect(h.connects.count == 6)
+        #expect(h.session.state == .disconnected)
+        #expect(h.log.contains(.offlineEnded))
+        #expect(h.connects.count > 6)
     }
 
-    @Test("F-24 §14 row 3: lost after 3 failed online attempts, then restored: up to 5 more attempts")
+    @Test("F-24 §14 row 3: lost after 3 failed online attempts, then restored: the budget starts fresh")
     func freshBudget() {
         var h = SessionHarness()
         h.connected()
@@ -267,13 +267,9 @@ struct NetworkWaitTests {
         h.send(.networkRestored)
         let afterRestore = h.connects.count
         h.server(.failed(RealtimeError(.connection)))
-        for _ in 0..<5 {
-            guard let (_, at) = h.timers[.reconnectDelay] else { break }
-            h.advance(by: at - h.now)
-            h.server(.failed(RealtimeError(.connection)))
-        }
-        #expect(h.connects.count == afterRestore + 5)
-        #expect(h.session.state == .error)
+        #expect(h.session.policy.attempts == 1)
+        #expect(h.session.state == .reconnecting)
+        #expect(h.connects.count == afterRestore)
     }
 
     @Test("F-24 §14 row 4: an auth error stays ERROR when the network returns")

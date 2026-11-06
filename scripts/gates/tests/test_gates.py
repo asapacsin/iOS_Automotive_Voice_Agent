@@ -16,6 +16,7 @@ REPO = GATES.parents[1]
 sys.path.insert(0, str(GATES))
 
 import check_imports  # noqa: E402
+import check_kws_tokens  # noqa: E402
 import check_secrets  # noqa: E402
 import spec_trace  # noqa: E402
 
@@ -176,6 +177,37 @@ class SpecTraceGateTests(unittest.TestCase):
     def test_disabled_test_does_not_count(self) -> None:
         self.assertEqual(self.check('@Test("F-04 x", .disabled()) func a() {}', "F-04"), 1)
         self.assertEqual(self.check('@Test("F-04 x", .disabled("flaky")) func a() {}', "F-04"), 1)
+
+
+class KwsTokensGateTests(unittest.TestCase):
+    """F-01 §14 row 1: the wake token lines and the stop phrases against the bundled KWS token list."""
+
+    STOP = "Packages/NovaCore/Sources/NovaVoice/Lifecycle/StopPhrases.swift"
+    WAKE = "Packages/NovaCore/Sources/NovaVoice/Wake/WakePhrase.swift"
+    VOCAB = "scripts/sherpa/kws-tokens.txt"
+
+    def check(self, wake: str | None = None) -> int:
+        tree = Tree()
+        try:
+            for rel in (self.STOP, self.WAKE, self.VOCAB):
+                tree.write(rel, (REPO / rel).read_text(encoding="utf-8"))
+            if wake is not None:
+                tree.write(self.WAKE, wake)
+            return run(check_kws_tokens.main, "--root", str(tree.root))
+        finally:
+            tree.close()
+
+    def test_repository_wake_lines_pass(self) -> None:
+        self.assertEqual(self.check(), 0)
+        wake = (REPO / self.WAKE).read_text(encoding="utf-8")
+        self.assertEqual(len(check_kws_tokens.PHRASE.findall(wake)), 2)
+
+    def test_wake_token_not_in_list_fails(self) -> None:
+        wake = (REPO / self.WAKE).read_text(encoding="utf-8").replace('"uò"', '"nuo3"', 1)
+        self.assertEqual(self.check(wake), 1)
+
+    def test_missing_wake_lines_fail(self) -> None:
+        self.assertEqual(self.check("public enum WakePhrase {}\n"), 1)
 
 
 if __name__ == "__main__":

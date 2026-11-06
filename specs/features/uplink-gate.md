@@ -65,8 +65,8 @@ again. One place decides, everything follows it, and the driver can see when it 
    "is she audible". An utterance not sent to Gemini drops **everything together**: audio, activityStart/End, the
    driver turn, `answerOwed`, the reply clock (`emptyResponseReask`), and its transcript for the tool path. Its
    transcript may still show on screen (F-05a §6: display only) and still feeds the local 别说了 check.
-2. **Ignore only while she talks.** Muted = her reply or guidance is playing, plus the echo tail (500 ms after it
-   ends; keep it as short as the device allows). When the mute ends while the gate is open, the gate **cuts the
+2. **Ignore only while she talks.** Muted = her reply or guidance is playing, plus the echo tail (800 ms after it
+   ends, F-08 §17 item 7; was 500 ms; keep it as short as the device allows). When the mute ends while the gate is open, the gate **cuts the
    utterance there**: the muted part ends without being sent, and a fresh utterance starts at that frame (with its
    pre-roll) and is sent normally. Speech that goes on after she stops is never lost because it began a moment early.
 3. **Mute state is read where it is used.** The capture side reads the mute state directly at each frame (the state

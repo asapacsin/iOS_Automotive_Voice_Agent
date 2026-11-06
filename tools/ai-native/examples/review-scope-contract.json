@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "task_id": "review-scope-example",
+  "goal": "Change the controller while preserving the existing verification workflow.",
+  "acceptance": "Controller tests pass. The independent reviewer verifies the task diff, gate results, and control-plane behavior.",
+  "base_commit": "fa223b52d1e91ea2526409b2dfd3cac211147f35",
+  "approved_paths": ["scripts/**", "tests/**"],
+  "boundaries": ["Preserve required gates, bounded retries, and independent review."],
+  "review_scope": {
+    "mode": "diff_first",
+    "context_paths": ["docs/CONTROL_PLANE.md", "tests/test_ai_native.py"],
+    "exclude_paths": ["node_modules/**", "build/**", "dist/**"],
+    "allow_scope_expansion": true,
+    "log_scope_expansions": true,
+    "read_policy": "advisory"
+  },
+  "budgets": {"max_attempts": 3, "max_total_seconds": 900},
+  "gates": [
+    {
+      "id": "unit-tests",
+      "level": "unit",
+      "command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+      "timeout_seconds": 120,
+      "required": true
+    }
+  ]
+}

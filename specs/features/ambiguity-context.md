@@ -62,6 +62,7 @@ never a guess, never a tool call until the driver answers.
 | 「去那里」/「刚才那个地方」 with no earlier place in this session | no `navigate_to` | asks where |
 | Vague exit while navigating (「好了」「不用了」) | `VAGUE_EXIT_WHILE_NAVIGATING` | asks whether to end navigation |
 | Nearby *question* while navigating (「附近有加油站吗」) | `NEARBY_QUESTION_WHILE_NAVIGATING`, route kept | answers or offers a list; route unchanged |
+| A place name that makes no sense while navigating (「ODD 几点关门」, F-18 §21) | she does not search it | 「是问X吗？」, X is the destination |
 
 **Acceptance (iOS, added):**
 - Two candidates both containing the spoken name → `AMBIGUOUS`, phase unchanged, no route calculated (unit).

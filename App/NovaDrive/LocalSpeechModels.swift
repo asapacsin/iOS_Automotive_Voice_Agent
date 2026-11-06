@@ -30,6 +30,11 @@ final class LocalSpeechModels: @unchecked Sendable {
         Task.detached(priority: .userInitiated) { self.loadNow() }
     }
 
+    /// F-01 §14 item 1: the bundled KWS model the stop phrases use; the wake engine loads its own spotter on it.
+    static var kwsDirectory: URL? {
+        Bundle.main.url(forResource: "SherpaModels", withExtension: nil)?.appendingPathComponent("kws", isDirectory: true)
+    }
+
     private func loadNow() {
         let root = Bundle.main.url(forResource: "SherpaModels", withExtension: nil)
         let start = Date()

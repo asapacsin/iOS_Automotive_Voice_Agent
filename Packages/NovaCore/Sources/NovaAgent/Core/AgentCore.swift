@@ -19,6 +19,15 @@ public protocol AgentEffectSink: Sendable {
     func speakGuidance(_ text: String, id: GuidanceID) async
     /// The uplink gate force-closes while `open` is false (F-08).
     func uplink(open: Bool)
+    /// F-05a §13 item 5: the record line `screen-hidden`; the text stays local (I-8).
+    func screenHidden(_ kind: ScreenTextKind, text: String)
+    /// F-24 §15 item 4: keep this handle in memory for the next start (never logged or persisted, I-7).
+    func keepResumption(_ handle: String?) async
+}
+
+extension AgentEffectSink {
+    public func screenHidden(_ kind: ScreenTextKind, text: String) {}
+    public func keepResumption(_ handle: String?) async {}
 }
 
 /// Runs tool calls as child tasks (ios-architecture §5.1): cancellable, always ends in a `ToolResult`.
@@ -77,6 +86,8 @@ final class TimerService: Sendable {
 /// (a barge-in flush never lands between two clauses of the old reply).
 public actor AgentCore {
     public private(set) var state = AgentState()
+    /// F-16 §14 item 5 (T-042c): driver utterances the uplink gate closed (F-04a).
+    public var closedDriverTurns: Int { state.closedDriverTurns }
     private let clock: any NovaClock
     private let sink: any AgentEffectSink
     private let tools: ToolRunner
@@ -84,7 +95,8 @@ public actor AgentCore {
     private var queue: [AgentEvent] = []
     private var draining = false
 
-    public init(clock: any NovaClock, sink: any AgentEffectSink, tools: ToolRunner) {
+    public init(clock: any NovaClock, sink: any AgentEffectSink, tools: ToolRunner, state: AgentState = AgentState()) {
+        self.state = state
         self.clock = clock
         self.sink = sink
         self.tools = tools
@@ -121,6 +133,10 @@ public actor AgentCore {
         case .diagnostic(let event): sink.diagnostic(event)
         case .speakGuidance(let text, let id): await sink.speakGuidance(text, id: id)
         case .uplink(let open): sink.uplink(open: open)
+        case .screenHidden(let kind, let text):
+            sink.diagnostic(.screenHidden(kind: kind))
+            sink.screenHidden(kind, text: ScreenLanguage.recordText(text))
+        case .keepResumption(let handle): await sink.keepResumption(handle)
         }
     }
 }

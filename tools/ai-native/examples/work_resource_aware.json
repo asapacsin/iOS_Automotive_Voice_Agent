@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "work": [
+    {
+      "id": "cpu-unit",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 10,
+      "action": "Run CPU-only unit tests and output-file validation",
+      "depends_on": [],
+      "requires": [],
+      "contract_path": "cpu-unit-contract.json"
+    },
+    {
+      "id": "cpu-ffmpeg",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 20,
+      "action": "Run fake-worker FFmpeg integration tests",
+      "depends_on": ["cpu-unit"],
+      "requires": ["ffmpeg"],
+      "contract_path": "cpu-ffmpeg-contract.json"
+    },
+    {
+      "id": "gpu-e2e",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 30,
+      "action": "Validate actual approved model inference on a GPU runner",
+      "depends_on": ["cpu-ffmpeg"],
+      "requires": ["nvidia_gpu", "model_weights"],
+      "contract_path": "gpu-e2e-contract.json"
+    }
+  ]
+}

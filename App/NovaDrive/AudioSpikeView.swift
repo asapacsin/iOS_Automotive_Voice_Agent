@@ -1,9 +1,11 @@
 import NovaAudio
 import SwiftUI
 
-/// T-001 on the phone: runs `EchoSpike` and shows the numbers to paste into specs/open-questions.md.
+/// T-001 / T-001a on the phone: runs `EchoSpike` and shows the numbers to paste into specs/open-questions.md.
+/// F-08 §17 item 2: run it at 100%, 70% and 50% volume, AGC on and off; each run is added to the results.
 struct AudioSpikeView: View {
     @State private var voiceProcessing = true
+    @State private var agc = true
     @State private var running = false
     @State private var report: String?
     @ObservedObject private var drive = RuntimeHolder.shared.runtime.model
@@ -17,8 +19,9 @@ struct AudioSpikeView: View {
                         .accessibilityIdentifier("noise-line")
                 }
                 Section {
-                    Text("把音量调到最大，测试时保持安静。手机会播放 10 次类似说话的声音，检查麦克风是否把它误当成你在说话。约 30 秒。")
+                    Text("依次把音量调到 100%、70%、50%，AGC 开和关各测一次，测试时保持安静。每次播放 10 段类似说话的声音，检查麦克风是否把它误当成你在说话。约 30 秒。")
                     Toggle("Apple 回声消除", isOn: $voiceProcessing)
+                    Toggle("自动增益（AGC）", isOn: $agc)
                     Button(running ? "测试中…" : "开始测试") { start() }
                         .disabled(running)
                 }
@@ -35,11 +38,12 @@ struct AudioSpikeView: View {
 
     private func start() {
         running = true
-        report = nil
-        let vp = voiceProcessing
+        let vp = voiceProcessing, gain = agc
         Task {
-            do { report = try await EchoSpike().run(voiceProcessing: vp).summary }
-            catch { report = "失败: \(error.localizedDescription)" }
+            let line: String
+            do { line = try await EchoSpike().run(voiceProcessing: vp, agc: gain).summary }
+            catch { line = "失败: \(error.localizedDescription)" }
+            report = [report, line].compactMap { $0 }.joined(separator: "\n\n")
             running = false
         }
     }

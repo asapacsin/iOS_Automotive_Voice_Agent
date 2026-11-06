@@ -121,7 +121,7 @@ NovaDriveIOS/
 │   ├── Screens/                      # MainScreen (map + HUD), AssistantOverlay, StatusChip, ChoiceOverlay
 │   ├── Settings/                     # developer settings cards (F-22)
 │   ├── Lifecycle/                    # PermissionCoordinator, ScenePhaseBridge
-│   ├── CarPlay/                      # M7 only: template scene reading the same snapshots
+│   ├── CarPlay/                      # unused: CarPlay skipped (OQ-IOS-8), code not connected
 │   ├── Debug/                        # #if DEBUG: launch arguments + novadrive-debug:// URL scheme
 │   └── Resources/                    # zh-Hans/en usage strings, bundled track, ivw/<APPID>.jet
 └── UITests/                          # XCUITest on the simulator + device scripts for W1–W8
@@ -133,7 +133,7 @@ NovaDriveIOS/
 |---|---|
 | `AMapNaviKit`, `AMapFoundationKit`, `MAMapKit` | NovaNavAmap |
 | `iflyMSC` | NovaWakeIflytek |
-| `CSherpaOnnx` (sherpa-onnx C API; sherpa-onnx and onnxruntime xcframeworks as `binaryTarget`s) | NovaAsrSherpa |
+| `CSherpaOnnx` (sherpa-onnx C API; sherpa-onnx and onnxruntime xcframeworks as `binaryTarget`s; ASR, keyword spotting and, F-04b, speaker embeddings) | NovaAsrSherpa |
 | `AVFAudio` (engine, session, player nodes, `AVSpeechSynthesizer`) | NovaAudio |
 | `AVFoundation` capture (`AVCaptureSession`), `CoreLocation`, `Contacts`, `MusicKit` | NovaPlatform |
 | `Security` (Keychain) | NovaServices |
@@ -165,6 +165,7 @@ usually one target plus its tests.
 | `SpeechSynthesizer` | Clause → 24 kHz PCM (Azure) | `AzureSpeechClient` (NovaServices) | `FakeSynthesizer` (fixed latency) |
 | `FallbackGuidanceVoice` | Speak a guidance sentence when the relay falls back | `SystemSpeechGuidanceVoice` (NovaAudio, §9.5) | recording |
 | `WakeWordDetector` | Arm/disarm, take frames, emit wake | `IflytekWakeDetector` (NovaWakeIflytek) | scripted |
+| `SpeakerVerifier` | F-04b (T-013e): frames → speaker embedding, scored by cosine against the enrolled profile; used only with 声纹锁定 on | `SherpaSpeakerVerifier` (NovaAsrSherpa) | fixed embeddings |
 | `NaviEngine` | Route calculation, selection, start/stop, guidance and navigation info events | `AmapNaviEngine` (NovaNavAmap) | `ScriptedNaviEngine` |
 | `PlaceSearch`, `WeatherService`, `ReverseGeocoder`, `StaticMapService` | Amap Web REST | `AmapWebClient` (NovaServices) | fixture-backed |
 | `LocationProvider` | Latest fix (WGS-84, accuracy, timestamp) | `CoreLocationProvider` (NovaPlatform) | fixed fixes |
@@ -637,12 +638,6 @@ scheme. Commands cover simulated wake, injected transcript, forced socket drop
 (`NetworkFaults.dropConnectionNow`), emulator navigation and fixture selection. Every command enters
 AgentCore as an ordinary event and never bypasses the dispatcher.
 
-### 11.5 CarPlay seam (M7)
-
-A `CPTemplateApplicationScene` in the App target reads the same snapshots and sends the same
-`UIIntent`s. It holds no logic. Only one category is possible (OQ-IOS-8). Navigation would reuse the
-Amap CarPlay drive-view adaptation inside NovaNavAmap.
-
 ## 12. Error boundaries (iOS)
 
 | Boundary | Behaviour |
@@ -711,8 +706,7 @@ Gates, added to those in ai-agent-workflow.md:
 | M3 | NovaNav, NovaNavAmap, NovaPlatform location; F-15, F-16, F-17, choice overlay |
 | M4 | Guidance lane, relay, fallback voice, arbiter R1/R6/R6a, overspeed voice |
 | M5 | NovaWakeIflytek, mic router, `BackgroundPolicy` on device |
-| M6 | NovaPlatform contacts, dialer, camera, MusicKit (if OQ-IOS-7 approves) |
-| M7 | CarPlay scene (one category, OQ-IOS-8) |
+| M6 | NovaPlatform contacts, dialer, camera |
 
 ## 16. Refinements to the existing spec
 

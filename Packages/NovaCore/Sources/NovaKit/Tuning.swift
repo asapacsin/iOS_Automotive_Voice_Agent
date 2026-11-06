@@ -20,7 +20,8 @@ public struct UplinkGateTuning: Sendable, Hashable {
     /// Digital silence sent before `audioStreamEnd`.
     public var closingSilence = NovaDuration.milliseconds(1500)
     /// F-04 §14: her voice can still come back through the microphone this long after her playback ends.
-    public var echoTail = NovaDuration.milliseconds(500)
+    /// F-08 §17 item 7: 800 ms (one iOS field report: 300 ms leaked, 800 ms did not).
+    public var echoTail = NovaDuration.milliseconds(800)
     /// F-04a: speech confirmation by the sound classifier; nil = 抗噪 off (F-04 rules only).
     public var speechConfirm: SpeechConfirmTuning? = SpeechConfirmTuning()
     public init() {}
@@ -62,7 +63,10 @@ public struct ListeningLifecycleTuning: Sendable, Hashable {
 
 /// contracts/voice-agent.md §8, `I/ReconnectPolicy.kt`.
 public struct ReconnectTuning: Sendable, Hashable {
-    public var maxAttempts = 5
+    /// F-24 §15 item 1: with the network up, retry until this long after the first failure (no attempt limit).
+    public var retryWindow = NovaDuration.seconds(60)
+    /// F-24 §15 item 4: a resumption handle kept after giving up is dropped this long after it was saved.
+    public var keptHandleLifetime = NovaDuration.minutes(120)
     public var initialDelay = NovaDuration.milliseconds(200)
     public var maxDelay = NovaDuration.seconds(8)
     /// Delay doubles after each failed attempt, capped at `maxDelay`.
@@ -104,6 +108,17 @@ public struct TruthfulnessTuning: Sendable, Hashable {
     public var phantomMaxLatin = 40
     public var phantomMinTranscript = 2
     public init() {}
+
+    /// F-18 §15 item 5 (T-046c): with web search on, the re-ask waits 12 s so it does not fire during a search;
+    /// the give-up time after the re-ask stays the same. Off: today's values.
+    public static func session(webSearch: Bool) -> TruthfulnessTuning {
+        var t = TruthfulnessTuning()
+        guard webSearch else { return t }
+        let after = t.emptyResponseGiveUp - t.emptyResponseReask
+        t.emptyResponseReask = .seconds(12)
+        t.emptyResponseGiveUp = t.emptyResponseReask + after
+        return t
+    }
 }
 
 /// contracts/voice-agent.md §7, `A/voice/WaitCues.kt`.

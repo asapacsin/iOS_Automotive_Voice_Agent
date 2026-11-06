@@ -48,7 +48,7 @@ with a small assistant overlay.
 | I-4 | Noise may reach the model but never an executor. |
 | I-5 | A false reply is held before it is heard; audio and subtitle are held together. |
 | I-6 | UI never executes actions directly; buttons and voice share one executor path. |
-| I-7 / I-8 | No secrets in source or logs; no coordinates, addresses or transcripts in logs. |
+| I-7 / I-8 | No secrets in source or logs; no coordinates, addresses or transcripts in logs. The owner-enabled test record of F-12 §17 is a local file, not a log, and is off by default. |
 | I-11 | A prompt rule is never the enforcement mechanism; code enforces. |
 | I-12 | Audio, map and lifecycle claims need device evidence. |
 | I-13 | App logic depends on the provider-neutral realtime contract, not a vendor protocol. |

@@ -268,7 +268,7 @@ struct ListenWhileSheTalksTests {
         gate.setPlaying(reply: true)
         var out = Self.feed(&gate, PCM.tone(peak: 6000, frames: 30))  // 300 ms during her reply
         gate.setPlaying(reply: false)
-        // 500 ms echo tail, then 1.5 s more of the driver's speech.
+        // 800 ms echo tail, then 1.2 s more of the driver's speech.
         out += Self.feed(&gate, PCM.tone(peak: 6000, frames: 200))
         out += Self.feed(&gate, quiet)
         #expect(starts(out) == [false, true])
@@ -288,7 +288,7 @@ struct ListenWhileSheTalksTests {
         _ = Self.feed(&gate, quiet.prefix(10).map { $0 })
         gate.setPlaying(guidance: false)
         #expect(gate.muteReason == .echoTail)
-        _ = Self.feed(&gate, quiet.prefix(50).map { $0 })
+        _ = Self.feed(&gate, quiet.prefix(80).map { $0 })  // the 800 ms echo tail (F-08 §17 item 7)
         #expect(gate.muteReason == .none)
         let out = Self.feed(&gate, PCM.tone(peak: 6000, frames: 30))
         #expect(starts(out) == [true])
@@ -339,7 +339,7 @@ struct StopPhraseWindowTests {
         func reset() { resets += 1 }
     }
 
-    @Test("F-08 §14 row 2: fed only during her reply and its 500 ms tail; never for guidance alone")
+    @Test("F-08 §14 row 2: fed only during her reply and its 800 ms tail; never for guidance alone")
     func window() {
         var gate = SpeechUplinkGate()
         let spotter = CountingSpotter()
@@ -363,10 +363,10 @@ struct StopPhraseWindowTests {
         gate.setPlaying(reply: true)
         #expect(run(10) == 10)
         gate.setPlaying(reply: false)
-        // The 500 ms echo tail: exactly the mute window of F-04 §14 item 2, then closed.
+        // The 800 ms echo tail (F-08 §17 item 7): exactly the mute window of F-04 §14 item 2, then closed.
         muted = 0
-        let tail = run(80)
-        #expect(tail == muted && tail >= 49 && tail <= 50 && spotter.resets == 1)
+        let tail = run(110)
+        #expect(tail == muted && tail >= 79 && tail <= 80 && spotter.resets == 1)
     }
 }
 

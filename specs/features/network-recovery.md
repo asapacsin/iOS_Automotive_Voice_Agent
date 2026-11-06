@@ -117,3 +117,48 @@ wrong key or quota, ends in an error.
 | Task | Scope | Verify |
 |---|---|---|
 | T-016h | §14 items 1–6: `NetworkPathWatcher` (NovaPlatform), `VoiceSession` offline wait / immediate restore / fresh budget / offline cap, chip texts, logs; unit rows 1–7; device rows 8–10 | unit, build, D (rows 8–10) |
+
+## 15. After giving up, 你好小诺 connects again (iOS, APPROVED 2026-11-05)
+
+**Why.** Owner 2026-11-05: once disconnected it does not connect back by itself. The 3 drops in the 8 records read (2026-11-04) all recovered in 2.1–6.0 s, so the owner's failure is not captured and its cause is not confirmed. The code at 21f4478 has this gap: with the phone reporting a network, the app makes 5 attempts with about 6 s of waiting in total, then goes to ERROR and keeps the session open. The wake listener stays off because `running` is still true, nothing retries, a tap on the talk button only stops the session, and the resumption handle has been deleted.
+
+Owner's choice 2026-11-05: retry for a short time, then let the wake word connect again. Sources: [LiveKit Android](https://docs.livekit.io/reference/client-sdk-android/livekit-android-sdk/io.livekit.android.room.network/-default-reconnect-policy/index.html) stops retrying after up to 60 s; [Pipecat](https://docs.pipecat.ai/api-reference/server/services/s2s/gemini-live) stops after 3 failures in a row; [Gemini Live](https://aistudio.google.com/docs/live-api/session-management) resumption tokens are valid for 2 hours after a session ends. None of these test an in-car app, so rows 7–9 are the real test.
+
+This section changes the online retry budget in §5, §9 and §14 item 2 ("5 attempts"), and the chip text in §14 item 4. It depends on T-060a for the wake word.
+
+**Rule in plain words.** Retry by itself for up to 60 seconds. Then close the session and show why. 你好小诺 or a tap connects again and continues the conversation.
+
+1. **The retry window.** With the phone reporting a network, a retryable failure keeps retrying until 60 s after the first failure (`ReconnectTuning.retryWindow`), with today's delays: 200 ms doubling to 8 s. There is no attempt limit. A completed setup clears the window. `networkRestored` starts it fresh, as §14 item 2 does for the budget.
+2. **Giving up closes the session.** When the window ends, the session ends through the same path as the §14 item 4 offline cap: `stop()`, microphone and audio session released, `networkEnded` true. `running` becomes false, so the wake listener applies again. A trip keeps going as it does today.
+3. **Terminal errors do not change.** Auth, credential, quota and malformed errors still go straight to ERROR. They are not retried and do not use this path.
+4. **Keep the resumption handle.** On giving up, and at the offline cap, the runtime keeps the latest handle in memory with the time it was saved. It is never written to disk or logged (I-7). It is dropped when the driver stops the session, when the app process ends, and 2 hours after it was saved.
+5. **Connecting again.** The next `start()`, from the wake word or a tap, uses a kept handle and then forgets it. If the server rejects it, `RESUME_UNAVAILABLE` starts a new session as §8 says, and she does not claim to remember.
+6. **What the driver sees.** After giving up or the offline cap, the chip says 「连接断开，说“你好小诺”重连」 while the listener is armed, and 「连接断开，点按重连」 otherwise. A tap on the chip connects, as today. The text clears on the next start. No error sound and no spoken message.
+7. **The ready sound.** F-01 §14 item 9 applies when the wake word starts this new session. Automatic reconnects inside the window have no sound.
+8. **Seeing what happened.** Record lines: `session gave-up ms=<since first failure> attempts=<n> code=<last code>`, and `session resume handle=<yes|no> result=<resumed|rejected|none>` in the next session's record. `RuntimeLog` gets the same numbers and codes, never the handle (I-7).
+9. **What this does not fix.**
+   - A silently dead connection still takes 20–40 s to notice (`pingInterval` 20 s, plus up to 20 s for the pong). Until then the app counts as connected, so the wake word does not run.
+   - With no working internet it still cannot connect. Saying 你好小诺 again later is the way back.
+   - The wake word runs only with the app on screen (F-01 §13). In the background, the existing policy applies.
+   - Words said while reconnecting are not replayed.
+10. **Decision.** No pass bars. If the record shows the owner still gets stuck, the owner decides whether to change the 60 s.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Fake clock, retryable failures with the network reported up | Attempts continue with the delays capped at 8 s past 5 attempts; the last starts before 60 s; then give-up | unit |
+| 2 | Failures for 30 s, then setup completes; then a new failure | No give-up; the window starts again from the new failure | unit |
+| 3 | Failures for 50 s, then `networkLost`, later `networkRestored` | §14 waiting applies; the window starts fresh on restore | unit |
+| 4 | Auth or quota error | ERROR at once; no retry and no kept handle | unit |
+| 5 | Give-up with a handle | Session stopped, `running` false, `networkEnded` true, listener applied; the next start sends the handle once | unit |
+| 6 | Kept handle and: the driver stops; 2 hours pass; the server rejects it | Not sent; not sent; a new session with no claim to remember | unit |
+| 7 | Device: mid-conversation, join Wi-Fi with no internet or a hotspot with no data for 20 s, then restore | Reconnects by itself; the conversation continues; no chip message | D |
+| 8 | Device: the same for over 60 s | The chip shows the message and `session gave-up` is recorded. Restore internet, say 「你好小诺」: it connects, the sound plays, and 「我刚才问什么」 gets an answer from before the drop. Note `session resume` | D |
+| 9 | Device: the same as row 8, with a tap on the chip and with the wake setting off | Connects; the chip shows the tap text | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-016j | Items 1–10; rows 1–9 | unit, build, D |

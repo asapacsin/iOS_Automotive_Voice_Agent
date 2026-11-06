@@ -14,21 +14,31 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 from control_plane import canonical_hash, decide_cycle
+from git_changes import DIFF_FLAGS, file_digest, git, runtime_output, untracked_paths
+from review_scope import build_manifest, check_scope_result, local_path, scope_config, trusted_base
+from process_security import child_environment, redact_argv, redact_text
 
 VERDICTS = {"PASS", "REWORK", "BLOCKED", "NOT_VERIFIED"}
 TASK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$")
-EXCLUDE_UNTRACKED = (".ai-native/", ".git/", "__pycache__/", ".pytest_cache/")
 
 
 def save_json(path: Path, obj: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", encoding="utf-8",
+                                     prefix=path.name + ".", delete=False) as stream:
+        tmp = Path(stream.name)
+        try:
+            json.dump(obj, stream, indent=2, sort_keys=True, ensure_ascii=True)
+            stream.write("\n")
+            stream.close()
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
 
 def load_json(path: Path) -> dict:
@@ -42,36 +52,26 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def git(repo: Path, *args: str) -> bytes:
-    p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True)
-    if p.returncode:
-        raise RuntimeError("git " + " ".join(args) + ": " + p.stderr.decode(errors="replace")[:300])
-    return p.stdout
-
-
 def work_snapshot(repo: Path) -> dict:
-    """Bind review to HEAD + dirty diff and untracked contents, not merely a commit."""
+    """Bind evidence to HEAD, the index, working-tree edits, and untracked contents."""
     head = git(repo, "rev-parse", "HEAD").decode().strip()
-    diff = git(repo, "diff", "--binary", "HEAD")
-    others = git(repo, "ls-files", "-o", "--exclude-standard", "-z").split(b"\0")
+    diff = git(repo, "diff", *DIFF_FLAGS, "--binary", head, "--")
+    staged = git(repo, "diff", *DIFF_FLAGS, "--binary", "--cached", head, "--")
     untracked = {}
-    for item in others:
-        if not item:
+    for rel in untracked_paths(repo):
+        if runtime_output(rel):
             continue
-        rel = item.decode("utf-8", errors="surrogateescape").replace("\\", "/")
-        if any(rel.startswith(p) for p in EXCLUDE_UNTRACKED) or "/__pycache__/" in rel:
-            continue
-        f = repo / rel
-        if not f.is_file() or f.is_symlink():
-            continue
-        digest = hashlib.sha256()
-        with f.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        untracked[rel] = digest.hexdigest()
-    fingerprint = sha(json.dumps({"head": head, "diff": sha(diff), "untracked": untracked}, sort_keys=True).encode())
+        path = repo / rel
+        if path.is_symlink():
+            untracked[rel] = "symlink:" + sha(os.fsencode(os.readlink(path)))
+        elif path.is_file():
+            untracked[rel] = file_digest(path)
+    binding = {"head": head, "diff": sha(diff), "untracked": untracked}
+    if staged:
+        binding["staged"] = sha(staged)
+    fingerprint = sha(json.dumps(binding, sort_keys=True).encode())
     return {"commit": head, "diff_sha256": sha(diff), "untracked_hashes": untracked,
-            "fingerprint": fingerprint, "dirty": bool(diff or untracked)}
+            "fingerprint": fingerprint, "dirty": bool(diff or staged or untracked)}
 
 
 def validate_contract(contract: dict) -> None:
@@ -105,24 +105,28 @@ def validate_contract(contract: dict) -> None:
         raise ValueError("max_total_seconds must be positive")
     if not isinstance(contract.get("acceptance", ""), str) or not contract["acceptance"].strip():
         raise ValueError("acceptance must be explicit")
+    scope_config(contract)
     if not any(gate.get("required", True) for gate in gates):
         raise ValueError("at least one required gate is mandatory")
 
 
-def call_argv(argv: list[str], repo: Path, env: dict, timeout: float) -> dict:
+def call_argv(argv: list[str], repo: Path, env: dict, timeout: float,
+              sensitive_environment: dict | None = None) -> dict:
     began = dt.datetime.now(dt.timezone.utc).isoformat()
     try:
         p = subprocess.run(argv, cwd=repo, capture_output=True, text=True, env=env,
                            timeout=max(1, timeout), errors="replace")
         # Store bounded excerpts only. Never pass secrets/credentials in CLI output.
-        return {"command": argv, "started": began, "exit_code": p.returncode,
-                "stdout_tail": p.stdout[-5000:], "stderr_tail": p.stderr[-5000:],
+        return {"command": redact_argv(argv, sensitive_environment), "started": began, "exit_code": p.returncode,
+                "stdout_tail": redact_text(p.stdout[-5000:], sensitive_environment),
+                "stderr_tail": redact_text(p.stderr[-5000:], sensitive_environment),
                 "status": "PASS" if p.returncode == 0 else "FAIL"}
     except subprocess.TimeoutExpired:
-        return {"command": argv, "started": began, "status": "FAIL", "error": "timeout"}
+        return {"command": redact_argv(argv, sensitive_environment), "started": began,
+                "status": "FAIL", "error": "timeout"}
     except OSError as e:
         return {"command": argv, "started": began, "status": "BLOCKED",
-                "error": e.__class__.__name__ + ": " + str(e)}
+                "error": redact_text(e.__class__.__name__ + ": " + str(e), sensitive_environment)}
 
 
 def parse_command(value: str | None) -> list[str] | None:
@@ -151,58 +155,128 @@ def attempt_cycle(repo: Path, contract: dict, attempt: int, executor: list[str] 
                   reviewer: list[str] | None, deadline: float) -> dict:
     task_id = contract["task_id"]
     folder = repo / ".ai-native" / "runs" / task_id / f"attempt-{attempt:02}"
+    settings = scope_config(contract)
+    if settings:
+        local_path(repo, folder.relative_to(repo).as_posix())
     folder.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
-    env.update({"AI_NATIVE_TASK_ID": task_id, "AI_NATIVE_ATTEMPT": str(attempt),
+    parent_env = os.environ.copy()
+    protocol = {"AI_NATIVE_TASK_ID": task_id, "AI_NATIVE_ATTEMPT": str(attempt),
                 "AI_NATIVE_CONTRACT": str((folder / "contract.json").resolve()),
-                "AI_NATIVE_FEEDBACK": str((folder.parent / "latest.json").resolve())})
+                "AI_NATIVE_FEEDBACK": str((folder.parent / "latest.json").resolve())}
     save_json(folder / "contract.json", contract)
     execution = None
+    if settings:
+        starting_snapshot = work_snapshot(repo)
+        try:
+            trusted_base(repo, contract, settings, starting_snapshot["commit"])
+        except (OSError, RuntimeError, ValueError) as exc:
+            return record(folder, contract, {
+                "verdict": "NOT_VERIFIED", "attempt": attempt, "snapshot": starting_snapshot,
+                "reason": redact_text(str(exc), parent_env),
+                "next_action": "Restore the trusted base or supported review scope policy",
+            })
     if executor:
-        execution = call_argv(executor, repo, env, min(300, max(1, deadline - time.monotonic())))
+        execution = call_argv(executor, repo, child_environment("executor", parent_env, protocol),
+                              min(300, max(1, deadline - time.monotonic())), parent_env)
+        if settings:
+            local_path(repo, folder.relative_to(repo).as_posix())
         save_json(folder / "executor.json", execution)
         if execution["status"] != "PASS":
             outcome = "BLOCKED" if execution["status"] == "BLOCKED" else "REWORK"
-            return record(folder, {"verdict": outcome, "next_action": "Resolve executor command failure", "executor": execution, "attempt": attempt})
+            return record(folder, contract, {"verdict": outcome, "next_action": "Resolve executor command failure", "executor": execution, "attempt": attempt})
     # Capture the exact tree before verification. A test/build command that mutates
     # source invalidates the evidence rather than silently redefining what was tested.
-    pre_gate_snapshot = work_snapshot(repo)
+    try:
+        pre_gate_snapshot = work_snapshot(repo)
+    except (OSError, RuntimeError) as exc:
+        if not settings:
+            raise
+        return record(folder, contract, {"verdict": "NOT_VERIFIED", "attempt": attempt,
+                      "snapshot": starting_snapshot, "reason": redact_text(str(exc), parent_env),
+                      "next_action": "Restore a readable Git worktree before review"})
     gates = []
     for gate in contract["gates"]:
         if time.monotonic() >= deadline:
-            gates.append({"id": gate["id"], "level": gate["level"], "status": "BLOCKED", "error": "time budget reached"})
+            gates.append({"id": gate["id"], "level": gate["level"], "status": "BLOCKED",
+                          "required": gate.get("required", True), "error": "time budget reached"})
             continue
-        outcome = call_argv(gate["command"], repo, env, min(gate.get("timeout_seconds", 180), max(1, deadline - time.monotonic())))
+        outcome = call_argv(gate["command"], repo, child_environment("gate", parent_env, protocol),
+                            min(gate.get("timeout_seconds", 180), max(1, deadline - time.monotonic())), parent_env)
         outcome.update({"id": gate["id"], "level": gate["level"], "required": gate.get("required", True)})
         gates.append(outcome)
     for gate in gates:
         gate["source_fingerprint"] = pre_gate_snapshot["fingerprint"]
-    save_json(folder / "gates.json", {"gates": gates,
-                                      "source_fingerprint": pre_gate_snapshot["fingerprint"]})
-    snapshot = work_snapshot(repo)
+    gate_record = {"gates": gates, "source_fingerprint": pre_gate_snapshot["fingerprint"]}
+    try:
+        if settings:
+            local_path(repo, folder.relative_to(repo).as_posix())
+        save_json(folder / "gates.json", gate_record)
+        snapshot = work_snapshot(repo)
+    except (OSError, RuntimeError, ValueError) as exc:
+        if not settings:
+            raise
+        return record(folder, contract, {"verdict": "NOT_VERIFIED", "attempt": attempt,
+                      "snapshot": pre_gate_snapshot, "reason": redact_text(str(exc), parent_env),
+                      "next_action": "Restore a readable worktree and gate evidence"})
     if snapshot["fingerprint"] != pre_gate_snapshot["fingerprint"]:
-        return record(folder, {"verdict": "NOT_VERIFIED",
+        return record(folder, contract, {"verdict": "NOT_VERIFIED",
                                "next_action": "Restore source or explicitly ignore generated test outputs; gates mutated the source tree",
                                "reason": "source fingerprint changed while verification gates were running",
                                "attempt": attempt, "snapshot": snapshot,
                                "gate_source_fingerprint": pre_gate_snapshot["fingerprint"],
                                "failed_required_gates": [g["id"] for g in gates if g.get("required") and g["status"] != "PASS"]})
     packet = review_packet(contract, snapshot, gates, attempt)
-    save_json(folder / "review_packet.json", packet)
     req_failures = [g for g in gates if g.get("required") and g["status"] != "PASS"]
+    manifest = None
+    try:
+        if settings:
+            gate_path = (folder / "gates.json").relative_to(repo).as_posix()
+            manifest = build_manifest(repo, contract, settings, snapshot, gate_path)
+            if load_json(folder / "gates.json") != gate_record:
+                raise ValueError("verification gate evidence changed before review")
+            if work_snapshot(repo)["fingerprint"] != snapshot["fingerprint"]:
+                raise ValueError("repository changed during scope discovery")
+            packet["review_scope"] = manifest
+            packet["review_scope_hash"] = canonical_hash(manifest)
+            packet["review_instructions"] = (
+                "Inspect every manifest diff and untracked path first, then the remaining initial files. "
+                "Follow applicable project instructions and verify gate evidence. Use manifest diff argv "
+                "from the repository root and verify the SHA-256 of raw output. Review symlink entries "
+                "as link metadata without following their targets. Expand only when necessary and permitted. "
+                "Report review_scope with mode, manifest_hash (packet.review_scope_hash), initial_files "
+                "(in manifest order), additional_files, one corresponding expansion_reasons entry per file, "
+                "and scope_complete. Return NOT_VERIFIED if required evidence cannot be inspected. "
+                "Bind verdict, findings and next_action to reviewed_fingerprint and reviewed_contract_hash."
+            )
+            save_json(folder / "review_scope.json", manifest)
+        save_json(folder / "review_packet.json", packet)
+        (folder / "review_result.json").unlink(missing_ok=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return record(folder, contract, {"verdict": "NOT_VERIFIED", "attempt": attempt,
+                      "snapshot": snapshot, "reason": redact_text(str(exc), parent_env),
+                      "next_action": "Restore complete review inputs and rerun verification",
+                      "failed_required_gates": [g["id"] for g in req_failures]})
     if not reviewer:
-        return record(folder, {"verdict": "NOT_VERIFIED", "next_action": "Configure an independent reviewer command",
+        return record(folder, contract, {"verdict": "NOT_VERIFIED", "next_action": "Configure an independent reviewer command",
                                "reason": "No external reviewer was invoked", "attempt": attempt, "snapshot": snapshot,
                                "failed_required_gates": [g["id"] for g in req_failures]})
-    env.update({"AI_NATIVE_REVIEW_PACKET": str((folder / "review_packet.json").resolve()),
-                "AI_NATIVE_REVIEW_RESULT": str((folder / "review_result.json").resolve())})
-    rv = call_argv(reviewer, repo, env, min(240, max(1, deadline - time.monotonic())))
+    review_protocol = ({"AI_NATIVE_TASK_ID": task_id, "AI_NATIVE_ATTEMPT": str(attempt)}
+                       if settings else dict(protocol))
+    review_protocol.update({
+                       "AI_NATIVE_REVIEW_PACKET": str((folder / "review_packet.json").resolve()),
+                       "AI_NATIVE_REVIEW_RESULT": str((folder / "review_result.json").resolve())})
+    rv = call_argv(reviewer, repo, child_environment("reviewer", parent_env, review_protocol),
+                   min(240, max(1, deadline - time.monotonic())), parent_env)
+    if settings:
+        local_path(repo, folder.relative_to(repo).as_posix())
     save_json(folder / "reviewer_process.json", rv)
     if rv["status"] != "PASS":
-        return record(folder, {"verdict": "BLOCKED" if rv["status"] == "BLOCKED" else "NOT_VERIFIED",
+        return record(folder, contract, {"verdict": "BLOCKED" if rv["status"] == "BLOCKED" else "NOT_VERIFIED",
                                "next_action": "Restore reviewer command and rerun review", "attempt": attempt,
                                "reviewer_process": rv})
     try:
+        if settings:
+            local_path(repo, (folder / "review_result.json").relative_to(repo).as_posix())
         response = load_json(folder / "review_result.json")
         if response.get("verdict") not in VERDICTS:
             raise ValueError("invalid reviewer verdict")
@@ -210,10 +284,38 @@ def attempt_cycle(repo: Path, contract: dict, attempt: int, executor: list[str] 
             raise ValueError("reviewer reviewed wrong snapshot fingerprint")
         if response.get("reviewed_contract_hash") != packet["contract_hash"]:
             raise ValueError("reviewer reviewed wrong contract hash")
-        if not isinstance(response.get("findings"), list) or not isinstance(response.get("next_action"), str):
+        if (not isinstance(response.get("findings"), list)
+                or not all(isinstance(item, str) for item in response["findings"])
+                or not isinstance(response.get("next_action"), str)):
             raise ValueError("reviewer must supply findings array and next_action")
-        if work_snapshot(repo)["fingerprint"] != snapshot["fingerprint"]:
+        current = work_snapshot(repo)
+        if current["fingerprint"] != snapshot["fingerprint"]:
             raise ValueError("repository changed while reviewer was running")
+        review_scope = None
+        if manifest is not None:
+            current_manifest = build_manifest(repo, contract, settings, current, manifest["gate_evidence"])
+            if (current_manifest != manifest
+                    or load_json(folder / "review_scope.json") != manifest
+                    or load_json(folder / "review_packet.json") != packet):
+                raise ValueError("review inputs changed while reviewer was running")
+            review_scope = response.get("review_scope")
+            check_scope_result(repo, manifest, review_scope,
+                               require_complete=response["verdict"] != "NOT_VERIFIED")
+            review_scope = {key: review_scope[key] for key in (
+                "mode", "initial_files", "additional_files", "expansion_reasons", "scope_complete", "manifest_hash"
+            )}
+            review_scope["expansion_reasons"] = [redact_text(item, parent_env)
+                                                 for item in review_scope["expansion_reasons"]]
+        response["findings"] = [redact_text(item, parent_env) for item in response["findings"]]
+        response["next_action"] = redact_text(response["next_action"], parent_env)
+        response = {key: response[key] for key in ("verdict", "reviewed_fingerprint",
+                    "reviewed_contract_hash", "findings", "next_action")}
+        if review_scope is not None:
+            response["review_scope"] = review_scope
+            if settings["log_scope_expansions"]:
+                for path, reason in zip(review_scope["additional_files"], review_scope["expansion_reasons"]):
+                    print("Reviewer scope expansion:", json.dumps([redact_text(path, parent_env), reason]))
+        save_json(folder / "review_result.json", response)
         reviewer_verdict = response["verdict"]
         outcome = reviewer_verdict
         if req_failures and outcome == "PASS":
@@ -224,17 +326,35 @@ def attempt_cycle(repo: Path, contract: dict, attempt: int, executor: list[str] 
                          "attempt": attempt, "snapshot": snapshot,
                          "gate_source_fingerprint": pre_gate_snapshot["fingerprint"],
                          "failed_required_gates": [g["id"] for g in req_failures]})
-        return record(folder, response)
-    except (OSError, ValueError, json.JSONDecodeError) as e:
-        return record(folder, {"verdict": "NOT_VERIFIED", "next_action": "Fix invalid or stale review evidence",
-                               "reason": str(e), "attempt": attempt, "snapshot": snapshot,
+        return record(folder, contract, response)
+    except (OSError, RuntimeError, ValueError) as e:
+        return record(folder, contract, {"verdict": "NOT_VERIFIED", "next_action": "Fix invalid or stale review evidence",
+                               "reason": redact_text(str(e), parent_env), "attempt": attempt, "snapshot": snapshot,
                                "reviewer_process": rv, "gate_source_fingerprint": pre_gate_snapshot["fingerprint"]})
 
 
-def record(folder: Path, outcome: dict) -> dict:
-    # Bind every verdict (including failures) to the exact task contract.
-    contract = load_json(folder / "contract.json")
-    outcome["contract_hash"] = sha(json.dumps(contract, sort_keys=True, separators=(",", ":")).encode())
+def verify_saved_scope(repo: Path, contract: dict, snapshot: dict, report: dict) -> None:
+    """Reject stale or incomplete scoped PASS evidence on resume and merge."""
+    settings = scope_config(contract)
+    if settings is None:
+        return
+    attempt = report.get("attempt")
+    if type(attempt) is not int or not 1 <= attempt <= 10:
+        raise ValueError("scoped review has no valid attempt")
+    folder = f".ai-native/runs/{contract['task_id']}/attempt-{attempt:02}"
+    stored = load_json(local_path(repo, folder + "/review_scope.json"))
+    current = build_manifest(repo, contract, settings, snapshot, folder + "/gates.json")
+    if stored != current:
+        raise ValueError("saved review scope is stale")
+    if (report.get("reviewed_fingerprint") != snapshot["fingerprint"]
+            or report.get("reviewed_contract_hash") != canonical_hash(contract)):
+        raise ValueError("saved review scope is not bound to the current source and contract")
+    check_scope_result(repo, current, report.get("review_scope"))
+
+
+def record(folder: Path, contract: dict, outcome: dict) -> dict:
+    # Use the controller's original contract, even if a child rewrote the copy.
+    outcome["contract_hash"] = canonical_hash(contract)
     outcome["task_id"] = contract["task_id"]
     save_json(folder / "verdict.json", outcome)
     save_json(folder.parent / "latest.json", outcome)

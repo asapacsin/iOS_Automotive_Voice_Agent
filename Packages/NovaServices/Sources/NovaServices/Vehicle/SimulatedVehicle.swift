@@ -21,6 +21,8 @@ public final class SimulatedVehicle: VehicleControlPort {
         var cabin: CabinState
         var failNext: InjectedClimateFailure?
         var failAlways: [ClimateOperation: InjectedClimateFailure] = [:]
+        /// F-12 §14 row 9: every window move fails while set.
+        var windowsFail = false
     }
 
     private let state: Mutex<State>
@@ -35,6 +37,9 @@ public final class SimulatedVehicle: VehicleControlPort {
     public func failAlways(_ operation: ClimateOperation, _ failure: InjectedClimateFailure?) {
         state.withLock { $0.failAlways[operation] = failure }
     }
+
+    /// F-12 §14 row 9 (T-031b): makes every window move fail with an execution failure until cleared.
+    public func failWindows(_ fail: Bool) { state.withLock { $0.windowsFail = fail } }
 
     /// Benchmark reset: a known state and no pending faults.
     public func reset(climate: ClimateState = .default, cabin: CabinState = .default) {
@@ -119,7 +124,8 @@ public final class SimulatedVehicle: VehicleControlPort {
     // MARK: Cabin
 
     public func setWindows(_ windows: Set<WindowID>, openPercent: Int) async -> VehicleActionResult<CabinState> {
-        mutateCabin { c in
+        if state.withLock({ $0.windowsFail }) { return .failure("simulated: window execution failed") }
+        return mutateCabin { c in
             if windows.isEmpty { return .invalidArgument("no window selected") }
             guard (CabinLimits.windowMin...CabinLimits.windowMax).contains(openPercent) else {
                 return .invalidArgument("window percent \(openPercent) outside \(CabinLimits.windowMin)..\(CabinLimits.windowMax)")
@@ -131,7 +137,8 @@ public final class SimulatedVehicle: VehicleControlPort {
     }
 
     public func changeWindows(_ windows: Set<WindowID>, deltaPercent: Int) async -> VehicleActionResult<CabinState> {
-        mutateCabin { c in
+        if state.withLock({ $0.windowsFail }) { return .failure("simulated: window execution failed") }
+        return mutateCabin { c in
             if windows.isEmpty { return .invalidArgument("no window selected") }
             var next = c
             var limited = false
