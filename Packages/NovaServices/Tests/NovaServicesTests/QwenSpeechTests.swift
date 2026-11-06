@@ -13,14 +13,13 @@ final class StubStream: StreamingHTTPTransport, @unchecked Sendable {
     var hang = false
     private(set) var requests: [URLRequest] = []
 
-    func stream(_ request: URLRequest) async throws -> (status: Int, body: AsyncThrowingStream<Data, any Error>) {
+    func stream(_ request: URLRequest, onChunk: (_ status: Int, _ chunk: Data) throws -> Void) async throws -> Int {
         requests.append(request)
         if hang { try await Task.sleep(for: .seconds(60)) }
         let (status, chunks) = responses.isEmpty ? (200, []) : responses.removeFirst()
-        return (status, AsyncThrowingStream { c in
-            for chunk in chunks { c.yield(chunk) }
-            c.finish()
-        })
+        for chunk in chunks { try onChunk(status, chunk) }
+        try onChunk(status, Data())
+        return status
     }
 }
 
@@ -47,6 +46,8 @@ struct QwenSpeechTests {
         #expect(body == #"{"model":"qwen-audio-3.1-tts-flash","input":{"text":"现在是下午五点。","voice":"longanhuan_v3.1","format":"pcm","sample_rate":24000}}"#)
         #expect(!body.contains("instruction"))
         #expect(!String(describing: config).contains("sk-test"))
+        #expect(QwenVoiceOption.all.map(\.id) == ["longanhuan_v3.1", "longanlingxin_v3.1", "longanfengyue_v3.1"])
+        #expect(QwenVoiceOption.defaultID == "longanhuan_v3.1")
     }
 
     @Test("T-020a row 2: style gentle still sends no instruction")
@@ -98,6 +99,7 @@ struct QwenSpeechTests {
         #expect(await failure(500, []) == "QWEN_TTS_HTTP_500")
         #expect(await failure(400, [#"{"code":"InvalidParameter","message":"voice"}"#]) == "QWEN_TTS_VOICE")
         #expect(await failure(400, [#"{"code":"InternalError","message":"[cosyvoice:]Engine error [411]"}"#]) == "QWEN_TTS_VOICE")
+        #expect(await failure(400, ["event:error\n", #"data:{"code":"InvalidParameter","message":"voice"}"# + "\n\n"]) == "QWEN_TTS_VOICE")
         #expect(await failure(200, [event(#"{"output":{"type":"sentence-end"}}"#)]) == "QWEN_TTS_EMPTY")
         #expect(await failure(200, [event(#"{"code":"InternalError","message":"x"}"#)]) == "QWEN_TTS_BAD_STREAM")
         #expect(await failure(200, ["data:not json\n\n"]) == "QWEN_TTS_BAD_STREAM")
@@ -118,9 +120,10 @@ struct QwenSpeechTests {
     @Test("T-020a row 5: a clause of 2.2 × the limit is three requests within the limit, cut at punctuation, joined in order")
     func cutting() async throws {
         let limit = 10
-        let text = "一二三四五六七，八九十" + "一二三四五，六七八九十" + "甲乙"   // 22 = 2.2 × 10
+        let text = "一二三四五六，八九十" + "一二三四五，六七八九" + "甲乙"   // 22 = 2.2 × 10
         let pieces = QwenTextCutter.pieces(text, limit: limit)
-        #expect(pieces == ["一二三四五六七，", "八九十一二三四五，", "六七八九十甲乙"])
+        #expect(pieces == ["一二三四五六，", "八九十一二三四五，", "六七八九甲乙"])
+        #expect(text.count == 22)
         #expect(pieces.allSatisfy { $0.count <= limit } && pieces.joined() == text)
         #expect(QwenTextCutter.pieces("一二三四五六七八九十一二", limit: 10) == ["一二三四五六七八九十", "一二"])
 

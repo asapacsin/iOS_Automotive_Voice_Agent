@@ -87,7 +87,5 @@ struct VoiceSourceTests {
         #expect(!VoiceHostCheck.isValid("https://ws-x.ap-southeast-1.maas.aliyuncs.com/"))
         #expect(!VoiceHostCheck.isValid("a b"))
         #expect(VoiceHostCheck.invalidMessage == "API Host 格式不对")
-        #expect(QwenVoiceOption.all.map(\.id) == ["longanhuan_v3.1", "longanlingxin_v3.1", "longanfengyue_v3.1"])
-        #expect(QwenVoiceOption.defaultID == "longanhuan_v3.1")
     }
 }

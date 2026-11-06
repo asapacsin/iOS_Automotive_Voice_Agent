@@ -27,9 +27,10 @@ public struct QwenSpeechConfig: Sendable, Hashable, CustomStringConvertible {
     public var description: String { "QwenSpeechConfig(host=\(host), voice=\(voice))" }
 }
 
-/// A streamed HTTP exchange: the status, then the body as it arrives.
+/// A streamed HTTP exchange, read in the calling task: `onChunk` gets the status and the body bytes as they
+/// arrive (at least once, possibly with empty data). Returns the status.
 public protocol StreamingHTTPTransport: Sendable {
-    func stream(_ request: URLRequest) async throws -> (status: Int, body: AsyncThrowingStream<Data, any Error>)
+    func stream(_ request: URLRequest, onChunk: (_ status: Int, _ chunk: Data) throws -> Void) async throws -> Int
 }
 
 /// Item 3 "One connection": one `URLSession` per session, kept open so later requests reuse the connection.
@@ -38,44 +39,35 @@ public final class URLSessionStreamingTransport: StreamingHTTPTransport {
 
     public init() {
         let config = URLSessionConfiguration.ephemeral
-        config.httpMaximumConnectionsPerHost = 1
         config.timeoutIntervalForRequest = 60
         session = URLSession(configuration: config)
     }
 
     deinit { session.finishTasksAndInvalidate() }
 
-    public func stream(_ request: URLRequest) async throws -> (status: Int, body: AsyncThrowingStream<Data, any Error>) {
+    public func stream(_ request: URLRequest, onChunk: (_ status: Int, _ chunk: Data) throws -> Void) async throws -> Int {
         #if canImport(FoundationNetworking)
         let (data, response) = try await session.data(for: request)
-        let body = AsyncThrowingStream<Data, any Error> { c in
-            c.yield(data)
-            c.finish()
-        }
-        return ((response as? HTTPURLResponse)?.statusCode ?? 0, body)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        try onChunk(status, data)
+        return status
         #else
         let (bytes, response) = try await session.bytes(for: request)
-        let body = AsyncThrowingStream<Data, any Error> { c in
-            let task = Task {
-                do {
-                    var chunk = Data()
-                    for try await byte in bytes {
-                        chunk.append(byte)
-                        // A blank line ends an event: hand the bytes on so first audio is not held back.
-                        if byte == 0x0A, chunk.count >= 2, chunk[chunk.count - 2] == 0x0A || chunk.count > 4096 {
-                            c.yield(chunk)
-                            chunk = Data()
-                        }
-                    }
-                    if !chunk.isEmpty { c.yield(chunk) }
-                    c.finish()
-                } catch {
-                    c.finish(throwing: error)
-                }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        var chunk = Data()
+        var last: UInt8 = 0
+        for try await byte in bytes {
+            chunk.append(byte)
+            // A blank line ends an event: hand the bytes on so first audio is not held back.
+            if byte == 0x0A, last == 0x0A || last == 0x0D || chunk.count > 4096 {
+                try onChunk(status, chunk)
+                chunk = Data()
             }
-            c.onTermination = { _ in task.cancel() }
+            if byte != 0x0D { last = byte }
         }
-        return ((response as? HTTPURLResponse)?.statusCode ?? 0, body)
+        try Task.checkCancellation()
+        try onChunk(status, chunk)
+        return status
         #endif
     }
 }
@@ -139,19 +131,9 @@ public final class QwenSpeechClient: FirstAudioTimedSynthesizer {
     /// One request: the piece's audio bytes in order, and when the first ones arrived.
     func fetch(_ text: String) async throws -> (Data, NovaInstant?) {
         let request = request(text)
-        let status: Int
-        let body: AsyncThrowingStream<Data, any Error>
-        do {
-            (status, body) = try await transport.stream(request)
-        } catch {
-            throw Self.transportError(error)
-        }
-        guard (200..<300).contains(status) else {
-            var raw = Data()
-            do { for try await chunk in body { raw.append(chunk) } } catch { throw Self.transportError(error) }
-            throw SpeechSynthesisError(Self.code(status: status, body: raw))
-        }
+        let clock = clock
         var parser = QwenSSEParser()
+        var raw = Data()
         var audio = Data()
         var first: NovaInstant?
         func take(_ events: [QwenSSEEvent]) throws {
@@ -165,13 +147,18 @@ public final class QwenSpeechClient: FirstAudioTimedSynthesizer {
                 }
             }
         }
+        let status: Int
         do {
-            for try await chunk in body { try take(parser.feed(chunk)) }
+            status = try await transport.stream(request) { status, chunk in
+                if (200..<300).contains(status) { try take(parser.feed(chunk)) } else { raw.append(chunk) }
+            }
         } catch let error as SpeechSynthesisError {
             throw error
         } catch {
             throw Self.transportError(error)
         }
+        try Task.checkCancellation()
+        guard (200..<300).contains(status) else { throw SpeechSynthesisError(Self.code(status: status, body: raw)) }
         try take(parser.finish())
         return (audio, first)
     }
@@ -197,7 +184,11 @@ public final class QwenSpeechClient: FirstAudioTimedSynthesizer {
     }
 
     static func code(status: Int, body: Data) -> String {
-        let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+        // The error may come as plain JSON or framed as SSE (`event:error` / `data:{…}`).
+        var parser = QwenSSEParser()
+        let framed = (parser.feed(body) + parser.finish()).first.map { Data($0.data.utf8) }
+        let object = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])
+            ?? framed.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let code = object?["code"] as? String ?? ""
         let message = object?["message"] as? String ?? String(decoding: body, as: UTF8.self)
         if code == "InvalidParameter" { return "QWEN_TTS_VOICE" }

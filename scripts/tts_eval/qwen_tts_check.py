@@ -59,8 +59,7 @@ class SSE:
 
     @staticmethod
     def _event(block):
-        lines = [l[5:].lstrip(b" ") if l[5:6] == b" " else l[5:]
-                 for l in block.split(b"\n") if l.startswith(b"data:")]
+        lines = [l[6:] if l[5:6] == b" " else l[5:] for l in block.split(b"\n") if l.startswith(b"data:")]
         return b"\n".join(lines).decode("utf-8") if lines else None
 
 
@@ -78,6 +77,15 @@ def worst_wait(arrivals, t0):
 
 
 def run_once(conn, key, host, text, voice):
+    """One request; a dropped connection or timeout is reported as an error and the connection reopened."""
+    try:
+        return _run_once(conn, key, host, text, voice)
+    except (OSError, http.client.HTTPException) as e:
+        conn.close()
+        return {"status": 0, "error": type(e).__name__, "engine": False, "transient": True}
+
+
+def _run_once(conn, key, host, text, voice):
     headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json", "X-DashScope-SSE": "enable",
                "Host": host, "Connection": "keep-alive"}
     t0 = time.monotonic()
@@ -91,7 +99,15 @@ def run_once(conn, key, host, text, voice):
             msg = obj.get("message", "")
         except ValueError:
             code, msg = "", raw
-        return {"status": resp.status, "error": code or "-", "engine": "Engine error" in msg}
+            for line in raw.splitlines():  # an SSE-framed error: data:{"code":…}
+                if line.startswith("data:"):
+                    try:
+                        obj = json.loads(line[5:].strip())
+                        code, msg = obj.get("code", ""), obj.get("message", "")
+                    except ValueError:
+                        pass
+        return {"status": resp.status, "error": code or "-", "engine": "Engine error" in msg,
+                "transient": resp.status == 429 or resp.status >= 500}
     sse, pcm, arrivals, chunks, bad = SSE(), bytearray(), [], 0, None
 
     def take(events):
@@ -168,24 +184,35 @@ def main(argv=None):
             if r.get("pcm"):
                 write_wav(os.path.join(out, f"a_{i:02d}.wav"), r["pcm"])
     if "b" in runs:
-        lo, hi, limit = 1, 1200, None
+        lo, hi, limit = 0, 1199, None
         r = run_once(conn, key, host, long_text(1200), DEFAULT_VOICE)
         show("(b) 1200 chars", r)
         if "error" not in r and not r["bad"]:
             limit = 1200
             write_wav(os.path.join(out, "b_1200.wav"), r["pcm"])
         else:
+            if r.get("transient"):
+                print("(b) warning: the 1200-character run failed with a transient error; the limit may be wrong")
             while lo < hi:  # the longest length that still synthesizes
                 mid = (lo + hi + 1) // 2
-                ok = "error" not in (m := run_once(conn, key, host, long_text(mid), DEFAULT_VOICE)) and not m["bad"]
+                m = run_once(conn, key, host, long_text(mid), DEFAULT_VOICE)
+                show(f"(b) {mid} chars", m)
+                if m.get("transient"):
+                    print(f"(b) warning: {mid} chars failed with a transient error; counted as too long")
+                ok = "error" not in m and not m["bad"]
                 lo, hi = (mid, hi) if ok else (lo, mid - 1)
             limit = lo
-        print(f"(b) length limit: {'none found up to 1200' if limit == 1200 else limit} characters")
+        if limit == 1200:
+            print("(b) length limit: none found up to 1200 characters")
+        elif limit == 0:
+            print("(b) length limit: not found (every probe failed)")
+        else:
+            print(f"(b) length limit: {limit} characters")
     if "c" in runs:
         for v in VOICES:
             r = run_once(conn, key, host, SHORT, v)
             show(f"(c) {v}", r)
-            print(f"(c) {v}: {'works' if 'error' not in r and r['bytes'] else 'fails'}")
+            print(f"(c) {v}: {'works' if 'error' not in r and r['bytes'] and not r['bad'] else 'fails'}")
             if r.get("pcm"):
                 write_wav(os.path.join(out, f"c_{v}.wav"), r["pcm"])
     conn.close()
