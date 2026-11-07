@@ -91,14 +91,12 @@ public final class GeminiLiveProvider: RealtimeProvider {
             let first = ended.withLock { done -> Bool in
                 guard !done else { return false }
                 done = true
+                // F-24 §16 item 3: once, only for the socket's own close, and before its terminal event.
+                if let line { onClose?(line) }
                 if let event { sink.yield(ProviderEvent(connection: generation, event: event)) }
                 return true
             }
-            if first {
-                // F-24 §16 item 3: once, only for the socket's own close (the first end claims it).
-                if let line { onClose?(line) }
-                shutDown()
-            }
+            if first { shutDown() }
         }
 
         /// Ends the socket for a transport error, classified from its close code.
