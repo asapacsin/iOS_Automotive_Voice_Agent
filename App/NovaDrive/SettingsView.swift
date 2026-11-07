@@ -15,7 +15,7 @@ struct SettingsView: View {
         (.amapSDKKey, "高德 iOS SDK key"),
         (.amapWebKey, "高德 Web 服务 key"),
         (.zhipuKey, "智谱 key（视觉，推荐）"),
-        (.qwenAPIKey, "阿里云百炼 key（联网搜索）"),
+        (.qwenAPIKey, "阿里云百炼 key（她的声音、联网搜索）"),
         (.qianfanKey, "千帆 key（可选，视觉备用）"),
         (.iflytekAppID, "讯飞 APPID（唤醒词）"),
         (.iflytekAPIKey, "讯飞 APIKey"),
@@ -30,8 +30,6 @@ struct SettingsView: View {
     @State private var readiness: SettingsReadiness?
     @State private var confirmWipe = false
     @AppStorage(SettingsKey.geminiConsentAccepted) private var geminiConsent = false
-    @AppStorage(DriveSettings.azureRegion) private var azureRegion = ""
-    @AppStorage(DriveSettings.azureVoice) private var azureVoice = DriveSettings.defaultVoice
     @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
     @AppStorage(DriveSettings.noiseSuppression) private var noiseSuppression = true
     @AppStorage(DriveSettings.interruptible) private var interruptible = false
@@ -63,14 +61,8 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Section("Azure 区域和声音") {
-                    TextField("区域（留空自动识别）", text: $azureRegion)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("声音", text: $azureVoice)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
+                // F-07 §14 item 2 (T-020a).
+                VoiceSettingsSection(onChange: refresh)
                 // F-01 §14 item 6 (T-060a).
                 Section("唤醒词") {
                     Toggle("唤醒词", isOn: $wakeWord)
@@ -171,7 +163,7 @@ struct SettingsView: View {
         Section("状态") {
             statusRow("Gemini key", ready.geminiKey)
             statusRow("Gemini 同意", ready.geminiConsent)
-            statusRow("Azure 声音", ready.azureVoice)
+            statusRow("她的声音", ready.voice)
             statusRow("高德 Web key", ready.amapWebKey)
             statusRow("视觉 key", ready.vision)
         }

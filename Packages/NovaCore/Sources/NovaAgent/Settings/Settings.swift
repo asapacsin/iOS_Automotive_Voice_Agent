@@ -1,6 +1,7 @@
 import Foundation
 import NovaKit
 import NovaPorts
+import NovaVoice
 
 /// Non-secret settings keys in `SettingsStore` (UserDefaults).
 public enum SettingsKey {
@@ -8,6 +9,11 @@ public enum SettingsKey {
     public static let geminiModel = "gemini_model"
     public static let azureVoice = "azure_voice"
     public static let personaStyle = "persona_style"
+    /// F-07 §14 item 2 (T-020a): `qwen` or `azure`; unset until the driver picks one.
+    public static let voiceSource = "voice_source"
+    /// F-07 §14 item 2: the 百炼 workspace API Host (not a secret).
+    public static let qwenTTSHost = "qwen_tts_host"
+    public static let qwenVoice = "qwen_voice"
 }
 
 /// A write-only secret field (F-22 §10 row 1): the stored value is never shown again, and saving a
@@ -51,7 +57,10 @@ public enum CredentialWipe {
 public struct SettingsReadiness: Sendable, Hashable {
     public var geminiKey: Bool
     public var geminiConsent: Bool
-    public var azureVoice: Bool
+    /// F-07 §14 item 5: the chosen source of her voice is ready (「她的声音」).
+    public var voice: Bool
+    /// F-07 §15: the source the session will use.
+    public var source: VoiceSourceKind
     public var amapSDKKey: Bool
     public var amapWebKey: Bool
     public var wakeAppID: Bool
@@ -61,7 +70,14 @@ public struct SettingsReadiness: Sendable, Hashable {
         func has(_ key: CredentialKey) -> Bool { SecretField.display(key, in: credentials) == .saved }
         geminiKey = has(.geminiAPIKey)
         geminiConsent = settings.bool(SettingsKey.geminiConsentAccepted) == true
-        azureVoice = has(.azureSpeechKey) && settings.string(SettingsKey.azureVoice)?.isEmpty == false
+        let azureReady = has(.azureSpeechKey) && settings.string(SettingsKey.azureVoice)?.isEmpty == false
+        let choice = settings.string(SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:))
+        source = VoiceSource.effectiveChoice(choice)
+        switch source {
+        case .gemini: voice = true  // F-07 §15 item 3: always ready (the Gemini key is checked by sessionBlocker)
+        case .qwen: voice = has(.qwenAPIKey) && VoiceHostCheck.isValid(settings.string(SettingsKey.qwenTTSHost) ?? "")
+        case .azure: voice = azureReady
+        }
         amapSDKKey = has(.amapSDKKey)
         amapWebKey = has(.amapWebKey)
         wakeAppID = has(.iflytekAppID) && has(.iflytekAPIKey) && has(.iflytekAPISecret)
@@ -75,6 +91,18 @@ public struct SettingsReadiness: Sendable, Hashable {
         return nil
     }
 
-    /// Replies are revoiced only when an Azure key and voice are configured (ADR-016).
-    public var revoicing: Bool { azureVoice }
+    /// Replies are revoiced only by a configured Qwen or Azure source (ADR-016, F-07 §14 item 5); Gemini 原声 plays
+    /// Gemini's own audio through the claim gate (F-07 §15 item 3).
+    public var revoicing: Bool { source != .gemini && voice }
+}
+
+/// F-07 §15 item 2 (T-020b): on the first launch of this build, an install with no saved choice or with 千问 saved
+/// moves to Gemini 原声, once; the move is remembered, so any choice saved after it is kept.
+public enum VoiceSourceMigration {
+    public static func run(_ settings: any SettingsStore) {
+        let done = settings.bool(VoiceSource.migrationKey) == true
+        guard let choice = VoiceSource.migrated(saved: settings.string(SettingsKey.voiceSource), done: done) else { return }
+        settings.set(choice.rawValue, for: SettingsKey.voiceSource)
+        settings.set(true, for: VoiceSource.migrationKey)
+    }
 }

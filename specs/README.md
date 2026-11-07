@@ -50,7 +50,7 @@ An implementing agent should load **one feature file plus the contracts it lists
    iOS for Gemini Live first; keep the provider seam so others can return.
 2. **Vehicle controls are simulated.** No real car API is used on Android (`SimulatedVehicleControl`).
    The iOS port must also simulate them; CarPlay does not give access to climate, seats or windows.
-3. **Replies are spoken by Azure TTS, not by Gemini's own audio**, when an assistant voice is
+3. **Replies are spoken by a separate TTS (Qwen-Audio by default, Azure as an option; F-07 §14), not by Gemini's own audio**, when an assistant voice is
    configured (ADR-016, `AssistantVoiceRevoicer`). Gemini audio is dropped in that mode.
 4. **Truthfulness invariants (I-1, I-5, I-14)**: the assistant may only claim an action after an
    `ok=true` tool result; false claims are held before they are heard. These are product behaviour,

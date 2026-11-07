@@ -1,0 +1,6 @@
+speaker_cohort.f32 and speaker_cohort.json are derived from CN-Celeb1 (OpenSLR 82, https://openslr.org/82),
+licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
+CN-Celeb: Fan, Y. et al., "CN-Celeb: a challenging Chinese speaker recognition dataset", ICASSP 2020;
+Li, L. et al., "CN-Celeb: multi-genre speaker recognition", Speech Communication 2022.
+Change: one averaged speaker embedding per CN-Celeb1 dev speaker (797), computed with
+3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced by scripts/speaker_cohort.py. These files are shared under CC BY-SA 4.0.

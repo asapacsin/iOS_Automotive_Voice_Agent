@@ -12,6 +12,8 @@ public protocol AgentEffectSink: Sendable {
     func cancelRevoicing(_ epoch: Epoch) async
     func newReply() async
     func speak(_ clause: String) async
+    /// F-07 §15 item 3: judged Gemini audio for the reply lane (Gemini 原声 only).
+    func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async
     func publish(_ view: AgentViewState) async
     func diagnostic(_ event: DiagnosticEvent)
     /// Fallback voice on the guidance lane (F-14). Must report `guidanceEnded(id)` through the playback
@@ -28,6 +30,7 @@ public protocol AgentEffectSink: Sendable {
 extension AgentEffectSink {
     public func screenHidden(_ kind: ScreenTextKind, text: String) {}
     public func keepResumption(_ handle: String?) async {}
+    public func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async {}
 }
 
 /// Runs tool calls as child tasks (ios-architecture §5.1): cancellable, always ends in a `ToolResult`.
@@ -123,6 +126,7 @@ public actor AgentCore {
         case .cancelRevoicing(let epoch): await sink.cancelRevoicing(epoch)
         case .newReply: await sink.newReply()
         case .speak(let clause): await sink.speak(clause)
+        case .playReplyAudio(let turn, let pcm): await sink.playReplyAudio(pcm, turn: turn)
         case .startTool(let turn, let call):
             tools.start(call) { [weak self] result in await self?.send(.toolFinished(turn, call, result)) }
         case .cancelTool(let id): tools.cancel(id)

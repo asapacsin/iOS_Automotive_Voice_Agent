@@ -110,6 +110,8 @@ public enum AgentEffect: Sendable, Hashable {
     case newReply
     /// One judged clause for the revoicer.
     case speak(String)
+    /// F-07 §15 item 3 (T-020b): judged Gemini audio of `turn` for the reply lane (only without revoicing).
+    case playReplyAudio(TurnID, PCMBuffer)
     case startTool(TurnID, ToolCall)
     case cancelTool(CallID)
     case schedule(AgentTimer, at: NovaInstant)
@@ -181,7 +183,12 @@ public struct AgentState: Sendable {
     /// F-05a: `TranscriptSelector` feeds the driver's words (`.driverWords`); Gemini's transcript is not used.
     private var selectorOwnsWords = false
     /// Clauses waiting while the arbiter holds the reply (R1 guidance, R5 transient loss).
-    private var heldClauses: [String] = []
+    /// `.speak` clauses, or `.playReplyAudio` without revoicing, waiting for the arbiter's PLAY.
+    private var heldClauses: [AgentEffect] = []
+    /// F-07 §15 item 3: false for Gemini 原声 (her voice is Gemini's own audio, judged by the same claim gate).
+    public private(set) var revoicing = true
+    /// F-07 §15 item 8: Gemini audio of the open turn sent to the reply lane: when it started, and how long it is.
+    private var turnAudio: (turn: TurnID, since: NovaInstant, ms: Int)?
     /// F-14 relay and the model turn that reads its PENDING sentence.
     public private(set) var relay = GuidanceRelay()
     private var relayEnabled = true
@@ -244,8 +251,11 @@ public struct AgentState: Sendable {
     /// F-18 §15 item 5: the session's no-answer times (web search on waits longer before the re-ask).
     /// F-18 §21 item 2: `destinationNotes` sends the destination notes.
     /// `resume`: F-24 §15 item 5, what the last give-up kept for this session's first connect.
-    public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil) {
-        pipeline = DriverTurnPipeline(tuning: truthfulness)
+    /// `revoicing`: F-07 §15 item 3, false when her voice is Gemini's own audio.
+    public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
+                revoicing: Bool = true) {
+        pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing)
+        self.revoicing = revoicing
         if let resume { session = VoiceSession(resume: resume) }
         self.destinationNotes = destinationNotes
     }
@@ -557,7 +567,8 @@ public struct AgentState: Sendable {
         case .listening, .userSpeaking, .thinking, .speaking: true
         default: false
         }
-        return GuidanceConditions(enabled: relayEnabled, connected: connected, capable: true,
+        // F-07 §15: without revoicing there is no voice to read a sentence back in; guidance takes the fallback voice.
+        return GuidanceConditions(enabled: relayEnabled, connected: connected, capable: revoicing,
                                   driverSpeaking: driverSpeaking, responseOpen: openTurn != nil || answerOwed,
                                   workPending: runningTools > 0, focusHeld: arbiter.focus == .held)
     }
@@ -1076,11 +1087,19 @@ public struct AgentState: Sendable {
                 guard !silenced.contains(turn) else { continue }
                 effects += subtitle(adding: text, .reply)
                 effects.append(.publish(view))
-                effects += speak(segmenter.append(text), at: now)
-            case .speechAudio:
-                // Revoicing is on (ADR-016): the provider's own audio is never played.
-                break
+                if revoicing { effects += speak(segmenter.append(text), at: now) }
+            case .speechAudio(let turn, let pcm):
+                // Revoicing on (ADR-016): the provider's own audio is never played. Off (F-07 §15 item 3): the
+                // pipeline released it judged, so it goes to the reply lane under the arbiter like a clause.
+                guard !revoicing, !silenced.contains(turn) else { continue }
+                heldClauses.append(.playReplyAudio(turn, pcm))
+                effects += releaseHeld(at: now)
             case .voided(let turn):
+                // F-07 §15 item 8: a claim disproven while her audio already plays is cut here; the record says how much.
+                if let played = turnAudio, played.turn == turn, !silenced.contains(turn) {
+                    let heard = min(played.ms, Int((now - played.since).milliseconds))
+                    effects.append(.diagnostic(.claimCut(turn: Int(turn.value), playedMs: max(0, heard))))
+                }
                 resetSubtitle()
                 effects += silenced.contains(turn) ? [] : stopReply(turn)
                 effects.append(.publish(view))
@@ -1116,7 +1135,7 @@ public struct AgentState: Sendable {
     /// Clauses go to the revoicer only while the arbiter says PLAY; HOLD keeps them, DROP discards them.
     private mutating func speak(_ clauses: [String], at now: NovaInstant) -> [AgentEffect] {
         guard !clauses.isEmpty else { return [] }
-        heldClauses += clauses
+        heldClauses += clauses.map { .speak($0) }
         return releaseHeld(at: now)
     }
 
@@ -1128,7 +1147,11 @@ public struct AgentState: Sendable {
             let clauses = heldClauses
             heldClauses = []
             arbiter.markReplyStarted()
-            return clauses.map { .speak($0) }
+            for case .playReplyAudio(let turn, let pcm) in clauses {
+                let ms = pcm.sampleRate > 0 ? pcm.samples.count * 1000 / pcm.sampleRate : 0
+                if let t = turnAudio, t.turn == turn { turnAudio?.ms += ms } else { turnAudio = (turn, now, ms) }
+            }
+            return clauses
         case .hold:
             return wake.map { [.schedule(.arbiter($0), at: $0)] } ?? []
         case .drop:

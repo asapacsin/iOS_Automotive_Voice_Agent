@@ -61,6 +61,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case sessionGaveUp(ms: Int, attempts: Int, code: RetryableErrorCode)
     /// F-24 §15 item 8: the first setup after a give-up; whether a kept handle was sent (never the handle, I-7).
     case sessionResume(handle: Bool, result: SessionResumeResult)
+    /// F-07 §15 item 8 (T-020b): a disproven claim cut Gemini audio already playing; `playedMs` of it was heard.
+    case claimCut(turn: Int, playedMs: Int)
 }
 
 /// F-05a §13 item 2: which conversation text the screen check hid.
@@ -114,6 +116,7 @@ extension DiagnosticEvent {
         case wakeDetected
         case sessionGaveUp
         case sessionResume
+        case claimCut
     }
 
     public var kind: Kind {
@@ -156,6 +159,7 @@ extension DiagnosticEvent {
         case .wakeDetected: .wakeDetected
         case .sessionGaveUp: .sessionGaveUp
         case .sessionResume: .sessionResume
+        case .claimCut: .claimCut
         }
     }
 }
@@ -185,6 +189,7 @@ extension DiagnosticEvent {
         case .wakeDetected: "wakeDetected"
         case .sessionGaveUp(let ms, let n, let code): "session gave-up ms=\(ms) attempts=\(n) code=\(code.rawValue)"
         case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
+        case .claimCut(let turn, let ms): "claim-cut turn=\(turn) played_ms=\(ms)"
         default: "diagnostic \(self)"
         }
     }

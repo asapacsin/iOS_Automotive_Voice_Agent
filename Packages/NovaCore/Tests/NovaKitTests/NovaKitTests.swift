@@ -181,7 +181,7 @@ struct DiagnosticsTests {
         .resumed(handle: true), .offlineCapReached, .stopSyncSent, .stopSyncInterrupted(ms: 300), .stopSyncNoInterrupt,
         .reaskSuppressed, .abandonCleared, .postStopTurnDropped, .bargeInStopped, .webSearchAsFunction, .destinationNote, .screenHidden(kind: .reply),
         .wakeDetected,
-        .sessionGaveUp(ms: 52_600, attempts: 11, code: .connection), .sessionResume(handle: true, result: .resumed),
+        .sessionGaveUp(ms: 52_600, attempts: 11, code: .connection), .sessionResume(handle: true, result: .resumed), .claimCut(turn: 1, playedMs: 800),
     ]
 
     /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").

@@ -166,3 +166,35 @@ Epoch-based flush is required for instant interruption.
 | 11 | Device: switch to Azure, start a session | The Azure voice, with today's region check | D |
 
 **Trace gate.** Add `T-020a: F-07` to `specs/trace-ids.txt` together with the first `@Test` that names T-020a.
+
+## 15. Her voice is Gemini Live's own voice by default (owner decision 2026-11-07)
+
+**Why.** Device 2026-11-07, 1f05a54, session 11:46:56. The owner says the Qwen voice is obviously not the Gemini voice, and wants the fastest option with the current Gemini voice. In the weather turn of that session, `query_live_info` returned at +8,041 ms, Gemini's reply began at +8,913, Gemini finished at +9,755, and Qwen's first sound played at +11,494. A separate TTS can start only after Gemini's text exists, plus its own request. Gemini Live already sends her audio, in the live session's voice `Leda` (`RealtimeConfig.voiceName`), with the reply.
+
+**Already built, reused as is.** Without revoicing (`Settings.revoicing == false`), Gemini's reply audio goes through `DriverTurnPipeline` as `speechAudio`, so the claim gate holds audio and subtitle together (I-1, I-5; `specs/ios-architecture.md` §5.2). The existing rules stay as they are:
+- a proven claim releases its audio at once, except while navigation or music evidence is outstanding;
+- a clean chat turn releases its text as it comes and its audio at `generationComplete`;
+- a disproven claim voids the turn before it is heard.
+One rule changes, by owner decision (2026-11-07, see the next paragraph): a clean chat turn no longer waits for `generationComplete`.
+
+1. **Choice in 设置.** 「她的声音」 来源 becomes: **「Gemini 原声（最快）」** (first and default), 「千问（阿里云）」, 「Azure」. Gemini 原声 has no fields and needs no extra key. 试听 is hidden for it, because its voice only exists inside a session.
+2. **Which installs move.** New installs, and installs whose saved choice is 千问 from 1f05a54, start on Gemini 原声. This move happens once, on first launch of this build, and is remembered. Any choice saved after that is kept.
+3. **Session start.** `VoiceSource.resolve` gains `.gemini`. It is always ready, because the session cannot start without the Gemini key. With `.gemini`, `Settings.revoicing` is false. No `Revoicer`, no TTS warm-up and no Qwen or Azure connection is created for the session.
+4. **Clearer missing message.** 「请先在设置里保存千问 key 和 API Host」 is replaced by a message naming only what is missing: 「请先在设置里保存千问 key」 or 「请先在设置里保存千问 API Host」.
+5. **Timing line.** For each turn whose audio is played, `RuntimeLog` and the record get `voice source=gemini turn=<n> held_ms=<first audio received → first audio played> first_ms=<utterance sent → first audio played>`, so the 响应速度 sheet can compare sources and show the hold.
+6. **Not changed:** the claim gate and its hold rules; barge-in and epochs; the Qwen and Azure clients and §14, kept as options; F-24 reconnection.
+
+**Stream, and cut on a bad claim (owner decision 2026-11-07).** The owner asked why her audio is collected instead of streamed. Copied from the OpenAI Agents SDK realtime agents: audio plays as it arrives, output guardrails run on the transcript as it grows (every 100 characters by default, `debounceTextLength`), and a tripped guardrail interrupts the response ([guardrail source](https://cdn.jsdelivr.net/npm/@openai/agents-realtime@0.11.6/dist/guardrail.d.ts), [Python SDK issue 1912](https://github.com/openai/openai-agents-python/issues/1912)). Here the guardrail is the existing claim check, run on every `replyText` as today (no debounce: it is local and cheap).
+
+7. **Clean chat turns stream.** With Gemini 原声, `DriverTurnPipeline`'s clean verdict releases audio as it comes, the same as text, instead of at `generationComplete`. The proven and pending rules are unchanged: a turn with a claim still holds its audio until the `ok=true` result.
+8. **A bad claim cuts what is playing.** When a claim appears in the transcript of a turn whose audio is already playing and it is disproven, the turn is voided as today: playback flushes to a new epoch at once, the subtitle is removed, and the correction nudge is sent. The record gets `claim-cut turn=<n> played_ms=<audio already heard>`.
+9. **I-5 changes.** `specs/product-spec.md` I-5 gains: 「With Gemini 原声, a clean turn's audio streams; a false claim found in its transcript cuts it at once (owner 2026-11-07).」 Qwen and Azure keep the held behaviour.
+
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 12 | No saved choice; saved 千问 on first launch of this build; saved 千问 after that launch; saved Azure; 千问 with a key but no host | Gemini 原声; Gemini 原声; 千问; Azure; 「请先在设置里保存千问 API Host」 | unit |
+| 13 | Source Gemini 原声: a clean chat turn; a proven `control_climate` turn; a disproven claim before any audio played; a claim in the transcript after 800 ms of audio played, then disproven | `revoicing` false, no `Revoicer` made; each audio part released as it arrives, `held_ms` 0; audio at the `ok=true` result; nothing heard, turn voided; playback flushed at once, `claim-cut turn=<n> played_ms=800`, nudge sent | unit |
+| 14 | Device: 设置 shows Gemini 原声 selected; 10 everyday replies, including 「现在天气怎么样」 and 「打开空调」 | Her voice is the live session's voice; every reply has `playback started`; `first_ms` and `held_ms` noted in the 响应速度 sheet against the Qwen rows of 1f05a54 | D |
+| 15 | Device: 「打开空调」; 「有蚊子」 then 「那怎么办？」; 20 chat replies | 「空调开了」 is heard only after the air-con changes; no claim of an action that did not happen; count any `claim-cut` lines | D |
+| 16 | Device: switch to 千问, then Azure; a session each | Each still speaks as before | D |

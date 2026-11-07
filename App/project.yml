@@ -22,7 +22,11 @@ targets:
     platform: iOS
     sources:
       - path: NovaDrive
-        excludes: [SherpaModels, SherpaModels/**]
+        excludes: [SherpaModels, SherpaModels/**, Resources/SpeakerCohort, Resources/SpeakerCohort/**]
+      # F-04b §16 item 1 (T-013j): CN-Celeb1 cohort, bundled as SpeakerCohort/.
+      - path: NovaDrive/Resources/SpeakerCohort
+        type: folder
+        buildPhase: resources
       # F-05a §12 / F-08 §14: fetched by scripts/fetch_sherpa_models.sh (not in git); bundled as SherpaModels/.
       - path: NovaDrive/SherpaModels
         type: folder

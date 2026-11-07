@@ -1,0 +1,15 @@
+{
+  "source": "CN-Celeb1 dev (OpenSLR 82)",
+  "license": "CC BY-SA 4.0",
+  "model": "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced",
+  "modelSha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
+  "speakers": 797,
+  "dimension": 192,
+  "topN": 300,
+  "threshold": -0.0924,
+  "eer": 0.0703,
+  "trials": 3484292,
+  "skippedTrials": 0,
+  "rawCosineEer": 0.0781,
+  "rawCosineEerThreshold": 0.3541
+}
