@@ -87,14 +87,18 @@ public final class GeminiLiveProvider: RealtimeProvider {
         }
 
         /// The terminal event, once; nothing after it.
-        func end(_ event: RealtimeEvent?) {
+        func end(_ event: RealtimeEvent?, closedBy line: SessionClosedLine? = nil) {
             let first = ended.withLock { done -> Bool in
                 guard !done else { return false }
                 done = true
                 if let event { sink.yield(ProviderEvent(connection: generation, event: event)) }
                 return true
             }
-            if first { shutDown() }
+            if first {
+                // F-24 §16 item 3: once, only for the socket's own close (the first end claims it).
+                if let line { onClose?(line) }
+                shutDown()
+            }
         }
 
         /// Ends the socket for a transport error, classified from its close code.
@@ -103,22 +107,21 @@ public final class GeminiLiveProvider: RealtimeProvider {
                 end(.failed(RealtimeError(.wsFailed)))
                 return
             }
-            // F-24 §16 item 3: reported once, for the socket's own end (not after a stop or an overflow).
-            if !isEnded { onClose?(SessionClosedLine(code: closed.code, reason: closed.reason)) }
+            let line = SessionClosedLine(code: closed.code, reason: closed.reason)
             // The upgrade itself was refused: classify the HTTP status, not the absent close frame.
             if let status = closed.httpStatus, !setupDone.withLock({ $0 }) {
-                end(.failed(RealtimeError(GeminiCloseClassifier.classify(handshakeStatus: status))))
+                end(.failed(RealtimeError(GeminiCloseClassifier.classify(handshakeStatus: status))), closedBy: line)
                 return
             }
             // A 1007 after setupComplete is a rejected client message, not a rejected setup or handle.
             let beforeSetup = !setupDone.withLock { $0 }
             if closed.code == 1007 && !beforeSetup {
-                end(.failed(RealtimeError(.connectionClosed)))
+                end(.failed(RealtimeError(.connectionClosed)), closedBy: line)
             } else if let code = GeminiCloseClassifier.classify(code: closed.code, reason: closed.reason,
                                                                 resumedSetup: resumed) {
-                end(.failed(RealtimeError(code)))
+                end(.failed(RealtimeError(code)), closedBy: line)
             } else {
-                end(.closed)
+                end(.closed, closedBy: line)
             }
         }
 

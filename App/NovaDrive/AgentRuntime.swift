@@ -1226,7 +1226,7 @@ final class AgentRuntime {
             stop()
             return
         }
-        Task { await synthesizer.warmUp() }
+        Task { await synthesizer?.warmUp() }
         await core.send(.start)
         model.running = true
     }
@@ -1885,11 +1885,11 @@ final class DirectReplyLane: @unchecked Sendable {
 
     /// Enqueues `pcm`; returns the turn's timing line the first time its audio plays.
     func play(_ pcm: PCMBuffer, turn: TurnID, on audio: LiveAudio) -> GeminiVoiceLine? {
-        let (epoch, sequence, line) = lock.withLock { () -> (Epoch, Int, GeminiVoiceLine?) in
-            defer { sequence += 1 }
-            return (epoch, sequence, timing.audioPlayed(turn: Int(turn.value), at: clock.now))
+        let (current, number, line) = lock.withLock { () -> (Epoch, Int, GeminiVoiceLine?) in
+            defer { self.sequence += 1 }
+            return (self.epoch, self.sequence, self.timing.audioPlayed(turn: Int(turn.value), at: self.clock.now))
         }
-        audio.enqueueReply(pcm, epoch: epoch, sequence: sequence)
+        audio.enqueueReply(pcm, epoch: current, sequence: number)
         return line
     }
 }
