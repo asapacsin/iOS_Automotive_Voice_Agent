@@ -221,6 +221,8 @@ public struct AgentState: Sendable {
     /// F-18 §16 item 7 (T-046d): running `web_search` calls and their turn; a barge-in or the turn's interruption
     /// cancels them, and a cancelled one sends no result.
     private var searchCalls: [CallID: TurnID] = [:]
+    /// F-18 §27 (T-020c): running NON_BLOCKING calls and when each was sent to the tool.
+    private var asyncCalls: [CallID: (tool: AsyncTool, at: NovaInstant)] = [:]
     /// Calls that came from a tap: their result goes to the model as a note to announce, not as a
     /// tool response (the model never issued them).
     private var uiCalls: Set<CallID> = []
@@ -394,7 +396,16 @@ public struct AgentState: Sendable {
                 return []
             }
         case .toolFinished(let turn, let call, let result):
-            if call.name == "web_search", searchCalls.removeValue(forKey: call.id) == nil { return [] }
+            if call.name == "web_search", searchCalls.removeValue(forKey: call.id) == nil {
+                asyncCalls[call.id] = nil
+                return []
+            }
+            var elapsedMs: Int?
+            if AsyncTool(name: call.name) != nil {
+                // F-18 §27 item 4: a result whose socket was replaced is never sent.
+                guard let started = asyncCalls.removeValue(forKey: call.id) else { return [] }
+                elapsedMs = Int(now.milliseconds - started.at.milliseconds)
+            }
             runningTools = max(runningTools - 1, 0)
             if uiCalls.remove(call.id) != nil {
                 context.record(call, ok: result.ok, at: now)
@@ -406,7 +417,7 @@ public struct AgentState: Sendable {
             arbiter.driverSpoke(at: now)
             context.record(call, ok: result.ok, at: now)
             let finished = dispatcher.finish(call, result)
-            let response = ToolResponse(id: call.id, name: call.name, result: finished)
+            let response = ToolResponse(id: call.id, name: call.name, result: finished, elapsedMs: elapsedMs)
             // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
             // The model answers a tool result with a new turn: guidance waits for it (F-14 RESPONSE_OPEN).
             answerOwed = true
@@ -513,8 +524,8 @@ public struct AgentState: Sendable {
                 waitingFallback = nil
                 spoken.append(.speakGuidance(waiting.text, waiting.id))
             }
-            // F-18 §16 item 7: a qualified barge-in cancels running searches (an ignored onset never does).
-            return stop + cancelSearches { _ in true } + spoken + [.diagnostic(.bargeInStopped)] + arbiterChanged(at: now)
+            // F-18 §27 item 4 (T-020c, replaces §16 item 7 here): a barge-in does not cancel a running search.
+            return stop + spoken + [.diagnostic(.bargeInStopped)] + arbiterChanged(at: now)
         case .ui(.choose(let row)):
             uiCount += 1
             let call = ToolCall(id: CallID("ui_\(uiCount)")!, name: "choose_navigation_option",
@@ -712,6 +723,7 @@ public struct AgentState: Sendable {
             case .close:
                 // The turn in progress dies with its socket (contracts §5: Error/Closed drop the reply).
                 effects += endTurn(at: now)
+                effects += dropAsyncCalls()
                 effects.append(.provider(.close))
             case .schedule(let timer, let at):
                 sessionTimers[timer.kind] = timer
@@ -737,6 +749,7 @@ public struct AgentState: Sendable {
         relayAwaiting = nil
         relayReading = nil
         relayTurns = [:]
+        effects += dropAsyncCalls()
         unclassified = nil
         if let waiting = waitingFallback {
             waitingFallback = nil
@@ -780,10 +793,22 @@ public struct AgentState: Sendable {
         return effects
     }
 
+    /// F-18 §27 item 4 (T-020c): background calls of a closed or replaced socket are dropped, never answered.
+    private mutating func dropAsyncCalls() -> [AgentEffect] {
+        var effects: [AgentEffect] = []
+        for (id, call) in asyncCalls.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+            searchCalls[id] = nil
+            runningTools = max(runningTools - 1, 0)
+            effects += [.cancelTool(id), .diagnostic(.asyncToolDropped(tool: call.tool))]
+        }
+        asyncCalls = [:]
+        return effects
+    }
+
     /// F-18 §16 item 7: cancels the running searches that `match` their turn; their results are never sent.
     private mutating func cancelSearches(_ match: (TurnID) -> Bool) -> [AgentEffect] {
         let ids = searchCalls.filter { match($0.value) }.keys.sorted { $0.rawValue < $1.rawValue }
-        for id in ids { searchCalls[id] = nil }
+        for id in ids { searchCalls[id] = nil; asyncCalls[id] = nil }
         runningTools = max(runningTools - ids.count, 0)
         return ids.map { .cancelTool($0) }
     }
@@ -968,6 +993,7 @@ public struct AgentState: Sendable {
                 case .execute(let running):
                     runningTools += 1
                     if running.name == "web_search" { searchCalls[running.id] = turn }
+                    if let tool = AsyncTool(name: running.name) { asyncCalls[running.id] = (tool, now) }
                     effects.append(.startTool(turn, running))
                 case .refuse(let result):
                     let response = ToolResponse(id: call.id, name: call.name, result: result)
@@ -980,6 +1006,7 @@ public struct AgentState: Sendable {
             return effects
         case .toolCallCancellation(let ids):
             for id in ids where searchCalls.removeValue(forKey: id) != nil { runningTools = max(runningTools - 1, 0) }
+            for id in ids { asyncCalls[id] = nil }
             return ids.map { .cancelTool($0) }
         case .audioDone(let turn):
             if relayTurns[turn] != nil { return [] }
@@ -999,7 +1026,8 @@ public struct AgentState: Sendable {
                                                                   cut: !completed), at: now)
         case .interrupted(let turn, _):
             // F-08 §15 item 1: the stopped reply closed for Gemini too.
-            var synced: [AgentEffect] = cancelSearches { $0 == turn }
+            // F-18 §27 item 4: the interrupted reply's running search keeps going.
+            var synced: [AgentEffect] = []
             if let sent = stopSyncAt, stopSyncTurn == nil || stopSyncTurn == turn {
                 stopSyncAt = nil
                 stopSyncTurn = nil

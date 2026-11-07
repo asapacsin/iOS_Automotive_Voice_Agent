@@ -63,6 +63,18 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case sessionResume(handle: Bool, result: SessionResumeResult)
     /// F-07 §15 item 8 (T-020b): a disproven claim cut Gemini audio already playing; `playedMs` of it was heard.
     case claimCut(turn: Int, playedMs: Int)
+    /// F-18 §27 item 4 (T-020c): a background tool's result was not sent because the socket was replaced.
+    case asyncToolDropped(tool: AsyncTool)
+}
+
+/// F-18 §27 item 1 (T-020c): the functions declared to Gemini Live as `NON_BLOCKING`; every other one blocks.
+public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
+    case webSearch = "web_search"
+    case queryLiveInfo = "query_live_info"
+
+    public init?(name: String) { self.init(rawValue: name) }
+    /// The `scheduling` their response carries (F-18 §27 item 3).
+    public static let scheduling = "WHEN_IDLE"
 }
 
 /// F-05a §13 item 2: which conversation text the screen check hid.
@@ -117,6 +129,7 @@ extension DiagnosticEvent {
         case sessionGaveUp
         case sessionResume
         case claimCut
+        case asyncToolDropped
     }
 
     public var kind: Kind {
@@ -160,6 +173,7 @@ extension DiagnosticEvent {
         case .sessionGaveUp: .sessionGaveUp
         case .sessionResume: .sessionResume
         case .claimCut: .claimCut
+        case .asyncToolDropped: .asyncToolDropped
         }
     }
 }
@@ -190,6 +204,7 @@ extension DiagnosticEvent {
         case .sessionGaveUp(let ms, let n, let code): "session gave-up ms=\(ms) attempts=\(n) code=\(code.rawValue)"
         case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
         case .claimCut(let turn, let ms): "claim-cut turn=\(turn) played_ms=\(ms)"
+        case .asyncToolDropped(let tool): "tool-result \(tool.rawValue) dropped reason=reconnect"
         default: "diagnostic \(self)"
         }
     }

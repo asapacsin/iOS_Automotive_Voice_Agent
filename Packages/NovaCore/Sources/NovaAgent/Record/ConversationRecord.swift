@@ -22,7 +22,10 @@ public enum RecordEvent: Sendable, Hashable {
     /// Her playback was flushed (a void or a barge-in).
     case flushed
     case toolCall(name: String, arguments: JSONValue)
-    case toolResult(name: String, ok: Bool, code: String?, data: JSONValue)
+    /// `elapsedMs` set: a background tool's result (F-18 §27 item 6), logged with its scheduling and time.
+    case toolResult(name: String, ok: Bool, code: String?, data: JSONValue, elapsedMs: Int? = nil)
+    /// F-18 §27 item 4: a background tool's result dropped because the socket was replaced.
+    case toolDropped(AsyncTool)
     case correction(String)
     case playbackStarted
     case playbackFinished
@@ -144,9 +147,14 @@ public struct ConversationRecorder: Sendable {
         case .bargeIn(let stopped):
             if stopped { mark { $0.bargedIn = true } }
             return [line("barge-in", stopped ? "stopped" : "rejected")]
-        case .toolCall(let name, let args): return [line("tool-call", "\(name) \(Self.json(args))")]
-        case .toolResult(let name, let ok, let code, let data):
-            return [line("tool-result", "\(name) ok=\(ok) code=\(code ?? "none") \(Self.json(data))")]
+        case .toolCall(let name, let args):
+            // F-18 §27 item 6: a NON_BLOCKING call is marked.
+            let async = AsyncTool(name: name) == nil ? "" : " async=true"
+            return [line("tool-call", "\(name)\(async) \(Self.json(args))")]
+        case .toolDropped(let tool): return [line("tool-result", "\(tool.rawValue) dropped reason=reconnect")]
+        case .toolResult(let name, let ok, let code, let data, let elapsed):
+            let timing = elapsed.map { " scheduling=\(AsyncTool.scheduling) ms=\($0)" } ?? ""
+            return [line("tool-result", "\(name)\(timing) ok=\(ok) code=\(code ?? "none") \(Self.json(data))")]
         case .correction(let reason): return settle(ms, reason: reason) + [line("correction", reason)]
         case .playbackStarted: return [line("playback", "started")]
         case .playbackFinished: return [line("playback", "finished")]

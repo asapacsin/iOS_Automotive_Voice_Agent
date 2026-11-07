@@ -90,6 +90,16 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         lock.withLock { running = true }
     }
 
+    /// F-07 §16 item 2 (T-020c): the reply's output format and session settings, read after `start`.
+    public var playbackFormat: PlaybackFormat {
+        let out = engine.outputNode.outputFormat(forBus: 0)
+        let mode = AVAudioSession.sharedInstance().mode.rawValue
+        let short = mode.hasPrefix("AVAudioSessionMode") ? String(mode.dropFirst("AVAudioSessionMode".count)) : mode
+        return PlaybackFormat(rate: Int(out.sampleRate), channels: Int(out.channelCount),
+                              mode: short.prefix(1).lowercased() + short.dropFirst(),
+                              voiceProcessing: engine.inputNode.isVoiceProcessingEnabled)
+    }
+
     public func stop() {
         guard lock.withLock({ running }) else { return }
         stopMedia()

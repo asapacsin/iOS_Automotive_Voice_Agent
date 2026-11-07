@@ -88,6 +88,9 @@ public struct DriverTurnPipeline: Sendable {
         var claims: Set<ClaimKind> = []
         var claim: ClaimKind? { claims.reduce(nil) { ClaimKind.strongest($0, $1) } }
         var pendingCalls: Set<CallID> = []
+        /// F-18 §27 item 5 (T-020c): NON_BLOCKING calls; the turn is not held for them.
+        var backgroundCalls: Set<CallID> = []
+        var hadBlockingCall = false
         var results: [ToolResponse] = []
         var hadToolCall = false
         var audioSeen = false
@@ -115,6 +118,8 @@ public struct DriverTurnPipeline: Sendable {
     /// in the next (recorded, T-003 tool.jsonl), so proof is scoped to the utterance, not the turn.
     private var utteranceCalls: Set<CallID> = []
     private var utterancePending: Set<CallID> = []
+    /// F-18 §27 item 5: the utterance's NON_BLOCKING calls (a subset of the calls it made).
+    private var utteranceBackground: Set<CallID> = []
     private var utteranceResults: [ToolResponse] = []
     private var utteranceAsksAction = false
     /// A real utterance arrived since the last turn opened.
@@ -148,6 +153,7 @@ public struct DriverTurnPipeline: Sendable {
             pendingCorrection = nil
             utteranceCalls = []
             utterancePending = []
+            utteranceBackground = []
             utteranceResults = []
             // A new driver turn cancels a pending correction and starts the no-answer clock.
             return cancel(.correction) + cancel(.giveUp) + schedule(.reask, at: now + tuning.emptyResponseReask)
@@ -156,6 +162,7 @@ public struct DriverTurnPipeline: Sendable {
             // A later turn of the same utterance inherits its calls and results.
             opened.results = utteranceResults
             opened.pendingCalls = utterancePending
+            opened.backgroundCalls = utterancePending.intersection(utteranceBackground)
             opened.hadToolCall = !utteranceCalls.isEmpty
             turn = opened
             freshUtterance = false
@@ -183,9 +190,12 @@ public struct DriverTurnPipeline: Sendable {
             }
             utteranceCalls.formUnion(calls.map(\.id))
             utterancePending.formUnion(calls.map(\.id))
+            utteranceBackground.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
             guard var t = current(id) else { return [] }
             t.pendingCalls.formUnion(calls.map(\.id))
+            t.backgroundCalls.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
             t.hadToolCall = true
+            if calls.contains(where: { AsyncTool(name: $0.name) == nil }) { t.hadBlockingCall = true }
             turn = t
             // The model did act after all: the nudge waiting in its grace period is not needed.
             pendingCorrection = nil
@@ -247,7 +257,8 @@ public struct DriverTurnPipeline: Sendable {
     /// Whether the turn must be held whole: audio can run ahead of its transcript, so in a turn that
     /// may claim an action nothing is released until the claim is proven or the turn is over (I-1, I-5).
     private func holdsWhole(_ t: Turn) -> Bool {
-        utteranceAsksAction || t.hadToolCall || !t.claims.isEmpty
+        // F-18 §27 item 5: a turn whose only calls run in the background is a chat turn.
+        utteranceAsksAction || t.hadBlockingCall || !t.claims.isEmpty
     }
 
     /// Tools whose ok result is not yet evidence: navigation is proven by the phase, music by playback.
@@ -290,7 +301,7 @@ public struct DriverTurnPipeline: Sendable {
             return .disproven(.partialScenario)
         }
         // A call still open when the turn closes will never prove anything said in it.
-        if !t.pendingCalls.isEmpty { return final && t.closed && !t.claims.isEmpty ? .disproven(.unverifiedClaim) : .pending }
+        if !t.pendingCalls.subtracting(t.backgroundCalls).isEmpty { return final && t.closed && !t.claims.isEmpty ? .disproven(.unverifiedClaim) : .pending }
         if t.claims.isEmpty {
             // An ok result of a direct-acting tool with nothing failed proves the turn's action: release it
             // (Android `DriverTurn.kt:270`). Navigation and music results wait for their own evidence.

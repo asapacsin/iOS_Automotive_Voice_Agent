@@ -150,3 +150,23 @@ public protocol SpeechClassifier: Sendable {
     func feed(_ frame: PCMFrame16k)
     func stop()
 }
+
+/// F-07 §16 item 2 (T-020c): how the reply is played, logged once at session start. Numbers and enum names only.
+public struct PlaybackFormat: Sendable, Hashable {
+    public let rate: Int
+    public let channels: Int
+    /// The `AVAudioSession` mode's name (e.g. `voiceChat`), never user text.
+    public let mode: String
+    public let voiceProcessing: Bool
+
+    public init(rate: Int, channels: Int, mode: String, voiceProcessing: Bool) {
+        self.rate = rate
+        self.channels = channels
+        self.mode = mode
+        self.voiceProcessing = voiceProcessing
+    }
+
+    public var line: String {
+        "playback format rate=\(rate) channels=\(channels) mode=\(mode) voiceProcessing=\(voiceProcessing ? "on" : "off")"
+    }
+}

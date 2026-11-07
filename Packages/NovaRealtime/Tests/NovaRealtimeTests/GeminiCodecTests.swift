@@ -266,3 +266,30 @@ struct GeminiClientMessageTests {
     }
 }
 
+
+/// F-18 §27 rows 1–3 (T-020c): the wire format of background functions.
+@Suite("T-020c F-18 §27 NON_BLOCKING and WHEN_IDLE")
+struct AsyncToolCodecTests {
+    @Test("Row 1: web_search and query_live_info carry behavior NON_BLOCKING; control_climate carries none")
+    func behavior() {
+        let config = SessionConfig(systemInstruction: "p", tools: ["web_search", "query_live_info", "control_climate"].map {
+            ToolDeclaration(name: $0, description: "d", parametersJSONSchema: ["type": "object"])
+        })
+        guard case .array(let tools)? = GeminiCodec.setup(config, resume: nil)["setup"]?["tools"],
+              case .array(let decls)? = tools.first?["functionDeclarations"] else { Issue.record("no tools"); return }
+        #expect(decls.map { $0["behavior"] } == ["NON_BLOCKING", "NON_BLOCKING", nil])
+    }
+
+    @Test("Rows 2–3: a live-info response carries scheduling WHEN_IDLE, errors too; control_climate none")
+    func scheduling() {
+        guard case .array(let rs)? = GeminiCodec.toolResponses([
+            ToolResponse(id: CallID("a")!, name: "query_live_info", result: .success(["t": 1]), elapsedMs: 3_000),
+            ToolResponse(id: CallID("b")!, name: "web_search", result: .failure(.liveInfoUnavailable)),
+            ToolResponse(id: CallID("c")!, name: "control_climate", result: .success([:])),
+        ])["toolResponse"]?["functionResponses"], rs.count == 3 else { Issue.record("no responses"); return }
+        #expect(rs[0]["response"]?["scheduling"] == "WHEN_IDLE")
+        #expect(rs[1]["response"]?["scheduling"] == "WHEN_IDLE")
+        #expect(rs[2]["response"]?["scheduling"] == nil)
+        #expect(rs[2]["response"] == ["ok": true])
+    }
+}

@@ -29,12 +29,18 @@ public struct ToolResponse: Sendable, Hashable {
     public let id: CallID
     public let name: String
     public let result: ToolResult
+    /// F-18 §27 item 6 (T-020c): call → result time of a background tool, for the record line only.
+    public let elapsedMs: Int?
 
-    public init(id: CallID, name: String, result: ToolResult) {
+    public init(id: CallID, name: String, result: ToolResult, elapsedMs: Int? = nil) {
         self.id = id
         self.name = name
         self.result = result
+        self.elapsedMs = elapsedMs
     }
+
+    /// F-18 §27 item 3: a background tool's result is answered when Gemini is idle.
+    public var scheduling: String? { AsyncTool(name: name) == nil ? nil : AsyncTool.scheduling }
 }
 
 public struct TextTurn: Sendable, Hashable {

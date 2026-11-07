@@ -188,7 +188,7 @@ struct WebSearchTests {
         #expect(outcomes.withLock { $0 }.filter(isEnd) == [.failed(reason: "timeout", ms: 10_000)])
     }
 
-    @Test("Row 8: a barge-in cancels a running search and its result is never sent; no re-ask during the search")
+    @Test("Row 8 as changed by F-18 §27 item 4: a barge-in no longer cancels a running search; no re-ask during it")
     func bargeIn() {
         var d = Drive()
         d.connect()
@@ -204,14 +204,13 @@ struct WebSearchTests {
         // Still running at (and long after) the re-ask time: no re-ask fires.
         #expect(d.fire(.reask).isEmpty)
         #expect(!d.effects.contains(.diagnostic(.emptyResponseReask)))
-        // Her cue plays, the driver talks over her: the search is cancelled.
+        // Her cue plays, the driver talks over her: §27 item 4, the search keeps running and its result is sent.
         d.realtime(.replyText(t1, "我查一下。"))
         d.send(.playback(.replyStarted(d.state.arbiter.epoch)))
         let barge = d.send(.bargeInStop)
-        #expect(barge.contains(.cancelTool(call.id)))
-        // A result that still arrives is dropped: nothing is sent to the model.
+        #expect(!barge.contains(.cancelTool(call.id)))
         let late = d.send(.toolFinished(t1, call, .success(["answer": "x"])))
-        #expect(late.isEmpty)
+        #expect(late.contains { if case .provider(.toolResponses(let r)) = $0 { r.first?.id == call.id } else { false } })
     }
 
     @Test("Row 9: record header and search line; log words-free; removed kind, blank or long query, google_search refused")
@@ -274,14 +273,13 @@ struct WebSearchCancelTests {
         #expect(done.contains { if case .provider(.toolResponses(let r)) = $0 { r.first?.id == call.id } else { false } })
     }
 
-    @Test("toolCallCancellation and the turn's interruption cancel it; no result is sent")
+    @Test("toolCallCancellation cancels it; the turn's interruption no longer does (F-18 §27 item 4)")
     func serverCancels() {
         var (d, call) = searching()
         #expect(d.realtime(.toolCallCancellation([call.id])).contains(.cancelTool(call.id)))
         #expect(d.send(.toolFinished(TurnID(1), call, .success(["answer": "x"]))).isEmpty)
         var (e, call2) = searching()
-        #expect(e.realtime(.interrupted(TurnID(1), reason: .serverVAD)).contains(.cancelTool(call2.id)))
-        #expect(e.send(.toolFinished(TurnID(1), call2, .success(["answer": "x"]))).isEmpty)
+        #expect(!e.realtime(.interrupted(TurnID(1), reason: .serverVAD)).contains(.cancelTool(call2.id)))
     }
 
     @Test("「别说了」 while she waits silently for a search cancels it")

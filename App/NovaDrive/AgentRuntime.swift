@@ -62,6 +62,14 @@ final class DriveModel: ObservableObject {
 }
 
 /// Non-secret settings of the drive screen (UserDefaults).
+/// F-07 §16 item 1: the session's `ReplyAudioKeeper` behind a lock (provider events arrive on one task).
+final class KeptReplyAudio: @unchecked Sendable {
+    private let lock = NSLock()
+    private var keeper: ReplyAudioKeeper
+    init(_ keeper: ReplyAudioKeeper) { self.keeper = keeper }
+    func with<T>(_ body: (inout ReplyAudioKeeper) -> T) -> T { lock.withLock { body(&keeper) } }
+}
+
 enum DriveSettings {
     static let azureRegion = "azure_region"
     static let azureVoice = "azure_voice"
@@ -95,6 +103,11 @@ enum DriveSettings {
 
     static func searchesWeb(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: webSearch) as? Bool ?? false
+    }
+
+    /// F-07 §16 item 1 (T-020c) 「保存她的原声」: default off; read at session start.
+    static func keepsReplyAudio(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: ReplyAudioKeeper.settingKey) as? Bool ?? false
     }
 
     static func recordsConversation(_ defaults: UserDefaults = .standard) -> Bool {
@@ -197,7 +210,7 @@ struct RuntimeSink: AgentEffectSink {
         case .toolResponses(let responses):
             for r in responses {
                 record?.submit(.toolResult(name: r.name, ok: r.result.ok, code: r.result.code?.rawValue,
-                                           data: .object(r.result.data)))
+                                           data: .object(r.result.data), elapsedMs: r.elapsedMs))
             }
             await realtime.sendToolResponses(responses)
         case .text(let turns, let complete):
@@ -259,6 +272,7 @@ struct RuntimeSink: AgentEffectSink {
         switch event {
         case .claimHeld: record?.submit(.held)
         case .claimCut(let turn, let ms): record?.submit(.claimCut(turn: turn, playedMs: ms))  // F-07 §15 item 8
+        case .asyncToolDropped(let tool): record?.submit(.toolDropped(tool))  // F-18 §27 item 4
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
@@ -860,7 +874,11 @@ final class AgentRuntime {
                                                    style: SpeakingStyle.saved(in: settings))
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
-        let recordFile = DriveSettings.recordsConversation() ? ConversationRecordFile.create() : nil
+        let sessionStart = Date()
+        let recordFile = DriveSettings.recordsConversation() ? ConversationRecordFile.create(at: sessionStart) : nil
+        // F-07 §16 item 1 (T-020c): her received audio per turn, written off the event path.
+        let keeper = DriveSettings.keepsReplyAudio()
+            ? KeptReplyAudio(ReplyAudioKeeper(record: ConversationFiles.name(for: sessionStart))) : nil
         // F-18 §18 item 6: whether a search key is saved, never its value.
         let searchKeySaved = ((try? KeychainCredentialStore().value(for: .qwenAPIKey)) ?? nil)?.isEmpty == false
         if webSearch { RuntimeLog.agent.notice("webSearch on key=\(searchKeySaved ? "saved" : "missing", privacy: .public)") }
@@ -1003,6 +1021,7 @@ final class AgentRuntime {
         tasks.append(Task {
             for await event in provider.events {
                 if let record { Self.recordProvider(event.event, record) }
+                if let keeper { Self.keepReplyAudio(event.event, keeper) }
                 driverWords.observe(event.event)  // F-18 §23 item 5: this turn's final words only; never logged (I-8)
                 switch event.event {
                 case .userTranscript(let text, let isFinal):
@@ -1226,6 +1245,10 @@ final class AgentRuntime {
             stop()
             return
         }
+        // F-07 §16 item 2 (T-020c): how her reply is played this session.
+        let format = audio.playbackFormat.line
+        RuntimeLog.agent.notice("\(format, privacy: .public)")
+        sessionRecord?.submit(.session(format))
         Task { await synthesizer?.warmUp() }
         await core.send(.start)
         model.running = true
@@ -1282,6 +1305,21 @@ final class AgentRuntime {
                            session: tripSession)
         self.trip = trip
         return trip
+    }
+
+    /// F-07 §16 item 1: the received audio of each turn, then its WAV next to the records.
+    nonisolated static func keepReplyAudio(_ event: RealtimeEvent, _ keeper: KeptReplyAudio) {
+        let file: (name: String, wav: Data)?
+        switch event {
+        case .replyAudio(let t, let pcm): keeper.with { $0.add(t, pcm) }; return
+        case .audioDone(let t), .responseDone(let t, _), .interrupted(let t, _): file = keeper.with { $0.finish(t) }
+        default: return
+        }
+        guard let file, let dir = ConversationRecordFile.directory else { return }
+        Task.detached(priority: .utility) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? file.wav.write(to: dir.appendingPathComponent(file.name))
+        }
     }
 
     /// F-12 §17 item 4: provider events as record lines (never to `RuntimeLog`).

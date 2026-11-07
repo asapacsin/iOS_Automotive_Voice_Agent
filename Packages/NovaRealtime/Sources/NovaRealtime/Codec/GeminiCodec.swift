@@ -40,8 +40,12 @@ public enum GeminiCodec {
         // F-18 §16 item 2: the live setup never sends `googleSearch`; search goes through the `web_search` tool.
         if !config.tools.isEmpty {
             setup["tools"] = [["functionDeclarations": .array(config.tools.map { tool in
-                ["name": .string(tool.name), "description": .string(tool.description),
-                 "parametersJsonSchema": tool.parametersJSONSchema]
+                var declaration: [String: JSONValue] = [
+                    "name": .string(tool.name), "description": .string(tool.description),
+                    "parametersJsonSchema": tool.parametersJSONSchema]
+                // F-18 §27 item 1 (T-020c): search and live info run while the conversation continues.
+                if AsyncTool(name: tool.name) != nil { declaration["behavior"] = "NON_BLOCKING" }
+                return .object(declaration)
             })]]
         }
         if config.inputTranscription { setup["inputAudioTranscription"] = [:] }
@@ -73,7 +77,13 @@ public enum GeminiCodec {
 
     public static func toolResponses(_ responses: [ToolResponse]) -> JSONValue {
         ["toolResponse": ["functionResponses": .array(responses.map { r in
-            ["id": .string(r.id.rawValue), "name": .string(r.name), "response": payload(r.result)]
+            var response = payload(r.result)
+            // F-18 §27 item 3: Gemini finishes what she is saying, then answers from the result.
+            if let scheduling = r.scheduling, case .object(var object) = response {
+                object["scheduling"] = .string(scheduling)
+                response = .object(object)
+            }
+            return ["id": .string(r.id.rawValue), "name": .string(r.name), "response": response] as JSONValue
         })]]
     }
 

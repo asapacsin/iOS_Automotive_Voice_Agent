@@ -36,6 +36,7 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.modelComfort) private var modelComfort = false
     @AppStorage(DriveSettings.webSearch) private var webSearch = false
     @AppStorage(DriveSettings.conversationRecord) private var conversationRecord = false
+    @AppStorage(ReplyAudioKeeper.settingKey) private var keepReplyAudio = false
     @AppStorage(DriveSettings.wakeWord) private var wakeWord = true
     @State private var confirmDeleteRecords = false
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
@@ -92,6 +93,12 @@ struct SettingsView: View {
                     Text("需要阿里云百炼 key。问题会发到阿里云新加坡。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("开：天气、新闻、营业时间这类信息由她联网查，答案可能不准。车辆操作不变，仍只通过车辆工具。关：和现在一样。下次开始对话时生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                // F-07 §16 item 1 (T-020c).
+                Section("开发") {
+                    Toggle("保存她的原声", isOn: $keepReplyAudio)
+                    Text("开：她每句回答收到的原始声音（24 kHz）存成手机上的 WAV 文件，和对话记录放在一起，用来对比她的声音。下次开始对话时生效。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 // F-12 §17 (T-031f).
