@@ -1,8 +1,10 @@
 import NovaKit
 import NovaPorts
 
-/// F-07 §14 items 2, 5 (T-020a): where her voice comes from.
+/// F-07 §14 items 2, 5 (T-020a): where her voice comes from. F-07 §15 item 1 (T-020b): Gemini Live's own voice
+/// (the live session's `Leda`), first and the default.
 public enum VoiceSourceKind: String, Sendable, Hashable, CaseIterable {
+    case gemini
     case qwen
     case azure
 }
@@ -20,35 +22,105 @@ public enum VoiceHostCheck {
     }
 }
 
-/// F-07 §14 item 5: the session-start decision. Pure.
+/// F-07 §14 item 5, §15 item 3: the session-start decision. Pure.
 public enum VoiceSourceDecision: Sendable, Hashable {
+    /// Gemini Live's own audio through the judged path: no revoicer, no TTS warm-up, no Qwen or Azure connection.
+    case gemini
     case qwen(key: String, host: String)
     /// Today's Azure check and region probe run in the app.
     case azure
     case blocked(String)
+
+    /// F-07 §15 item 3: replies are revoiced only by Qwen or Azure.
+    public var revoicing: Bool { self != .gemini }
 }
 
 public enum VoiceSource {
-    public static let qwenMissingMessage = "请先在设置里保存千问 key 和 API Host"
+    /// F-07 §15 item 4: the message names only what is missing.
+    public static let qwenKeyMissingMessage = "请先在设置里保存千问 key"
+    public static let qwenHostMissingMessage = "请先在设置里保存千问 API Host"
 
-    /// The source the picker shows: a saved choice is kept; new installs, and installs with a saved Qwen key and
-    /// no saved choice, start on 千问. An install with only an Azure key and no saved choice stays on Azure.
-    public static func effectiveChoice(_ choice: VoiceSourceKind?, hasQwenKey: Bool, hasAzureKey: Bool) -> VoiceSourceKind {
-        if let choice { return choice }
-        return hasQwenKey || !hasAzureKey ? .qwen : .azure
+    /// F-07 §15 item 2: remembered once this build has moved the saved choice.
+    public static let migrationKey = "voice_source_gemini_default_done"
+
+    /// The source the picker shows and the session uses: a saved choice is kept; no saved choice is Gemini 原声.
+    public static func effectiveChoice(_ choice: VoiceSourceKind?) -> VoiceSourceKind { choice ?? .gemini }
+
+    /// F-07 §15 item 2, run once on the first launch of this build: no saved choice, or 千问 saved by 1f05a54,
+    /// becomes Gemini 原声; Azure is kept. Returns the choice to save, or nil when the migration already ran
+    /// (anything saved after that launch is kept).
+    public static func migrated(saved: String?, done: Bool) -> VoiceSourceKind? {
+        guard !done else { return nil }
+        switch saved.flatMap(VoiceSourceKind.init(rawValue:)) {
+        case .azure?: return .azure
+        case .gemini?, .qwen?, nil: return .gemini
+        }
     }
 
-    public static func resolve(choice: VoiceSourceKind?, qwenKey: String?, qwenHost: String?,
-                               azureKey: String?) -> VoiceSourceDecision {
-        let key = qwenKey.flatMap { $0.isEmpty ? nil : $0 }
-        let host = qwenHost.flatMap { VoiceHostCheck.isValid($0) ? $0 : nil }
-        switch effectiveChoice(choice, hasQwenKey: key != nil, hasAzureKey: azureKey?.isEmpty == false) {
+    /// The Qwen message for what is missing, or nil when both are there.
+    public static func qwenMissing(key: String?, host: String?) -> String? {
+        if key?.isEmpty != false { return qwenKeyMissingMessage }
+        if !VoiceHostCheck.isValid(host ?? "") { return qwenHostMissingMessage }
+        return nil
+    }
+
+    public static func resolve(choice: VoiceSourceKind?, qwenKey: String?, qwenHost: String?) -> VoiceSourceDecision {
+        switch effectiveChoice(choice) {
+        case .gemini:
+            // Always ready: the session cannot start without the Gemini key.
+            return .gemini
         case .qwen:
-            guard let key, let host else { return .blocked(qwenMissingMessage) }
-            return .qwen(key: key, host: host)
+            if let message = qwenMissing(key: qwenKey, host: qwenHost) { return .blocked(message) }
+            return .qwen(key: qwenKey ?? "", host: qwenHost ?? "")
         case .azure:
             return .azure
         }
+    }
+}
+
+/// F-07 §15 item 5: `voice source=gemini turn= held_ms= first_ms=` for each turn whose audio is played; numbers only (I-8).
+public struct GeminiVoiceLine: Sendable, Hashable {
+    public var turn: Int
+    /// First audio received → first audio played (the claim gate's hold).
+    public var heldMs: Int
+    /// Utterance sent → first audio played; nil when no utterance was sent before (a reply to a text turn).
+    public var firstMs: Int?
+
+    public init(turn: Int, heldMs: Int, firstMs: Int?) {
+        self.turn = turn
+        self.heldMs = heldMs
+        self.firstMs = firstMs
+    }
+
+    public var fields: String {
+        "source=gemini turn=\(turn) held_ms=\(heldMs) first_ms=\(firstMs.map(String.init) ?? "none")"
+    }
+    public var logLine: String { "voice \(fields)" }
+}
+
+/// F-07 §15 item 5: the times behind `GeminiVoiceLine`. Pure; the app feeds it the clock.
+public struct GeminiVoiceTiming: Sendable {
+    private var utteranceSent: NovaInstant?
+    private var firstReceived: [Int: NovaInstant] = [:]
+    private var played: Set<Int> = []
+
+    public init() {}
+
+    /// The uplink closed an utterance that went to Gemini (`activityEnd`).
+    public mutating func utteranceSent(at now: NovaInstant) { utteranceSent = now }
+
+    /// Gemini audio of `turn` arrived (before the claim gate).
+    public mutating func audioReceived(turn: Int, at now: NovaInstant) {
+        if firstReceived[turn] == nil { firstReceived[turn] = now }
+    }
+
+    /// Judged audio of `turn` went to the reply lane; the line once per turn.
+    public mutating func audioPlayed(turn: Int, at now: NovaInstant) -> GeminiVoiceLine? {
+        guard !played.contains(turn) else { return nil }
+        played.insert(turn)
+        let received = firstReceived.removeValue(forKey: turn) ?? now
+        return GeminiVoiceLine(turn: turn, heldMs: max(0, Int((now - received).milliseconds)),
+                               firstMs: utteranceSent.map { max(0, Int((now - $0).milliseconds)) })
     }
 }
 

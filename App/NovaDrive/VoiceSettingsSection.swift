@@ -8,7 +8,8 @@ import NovaVoice
 import SwiftUI
 
 /// F-07 §14 item 2 (T-020a): 「她的声音」 — source, 千问 API Host and voice with 试听, or the Azure fields.
-/// A change applies from the next session start.
+/// F-07 §15 item 1 (T-020b): 「Gemini 原声（最快）」 first and the default; no fields and no 试听 (her voice only
+/// exists inside a session). A change applies from the next session start.
 struct VoiceSettingsSection: View {
     static let previewText = "你好，我是小诺。"
 
@@ -30,19 +31,19 @@ struct VoiceSettingsSection: View {
     }
 
     static func effectiveSource(_ saved: String) -> VoiceSourceKind {
-        let store = KeychainCredentialStore()
-        func has(_ key: CredentialKey) -> Bool { ((try? store.value(for: key)) ?? nil)?.isEmpty == false }
-        return VoiceSource.effectiveChoice(VoiceSourceKind(rawValue: saved), hasQwenKey: has(.qwenAPIKey),
-                                           hasAzureKey: has(.azureSpeechKey))
+        VoiceSource.effectiveChoice(VoiceSourceKind(rawValue: saved))
     }
 
     var body: some View {
         Section("她的声音") {
             Picker("来源", selection: source) {
+                Text("Gemini 原声（最快）").tag(VoiceSourceKind.gemini)
                 Text("千问（阿里云）").tag(VoiceSourceKind.qwen)
                 Text("Azure").tag(VoiceSourceKind.azure)
             }
             switch source.wrappedValue {
+            case .gemini:
+                Text("她的声音就是 Gemini 实时会话的声音，不需要别的 key").font(.footnote).foregroundStyle(.secondary)
             case .qwen:
                 TextField(qwenHost.isEmpty ? "API Host" : qwenHost, text: $hostDraft)
                     .textInputAutocapitalization(.never)
@@ -81,11 +82,12 @@ struct VoiceSettingsSection: View {
 
     private func preview() {
         previewMessage = nil
-        guard let key = (try? KeychainCredentialStore().value(for: .qwenAPIKey)) ?? nil, !key.isEmpty,
-              VoiceHostCheck.isValid(qwenHost) else {
-            previewMessage = VoiceSource.qwenMissingMessage
+        let key = (try? KeychainCredentialStore().value(for: .qwenAPIKey)) ?? nil
+        if let missing = VoiceSource.qwenMissing(key: key, host: qwenHost) {
+            previewMessage = missing
             return
         }
+        guard let key else { return }
         previewing = true
         let client = QwenSpeechClient(config: QwenSpeechConfig(key: key, host: qwenHost, voice: qwenVoice))
         let text = Self.previewText

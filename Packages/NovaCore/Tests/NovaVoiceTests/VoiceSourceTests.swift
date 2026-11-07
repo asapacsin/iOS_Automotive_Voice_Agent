@@ -77,15 +77,61 @@ struct VoiceSourceTests {
     @Test("T-020a row 7: VoiceSource.resolve and the API Host check")
     func resolve() {
         let host = "ws-x.ap-southeast-1.maas.aliyuncs.com"
-        #expect(VoiceSource.resolve(choice: .qwen, qwenKey: "k", qwenHost: host, azureKey: nil) == .qwen(key: "k", host: host))
-        #expect(VoiceSource.resolve(choice: .qwen, qwenKey: "k", qwenHost: nil, azureKey: nil) == .blocked("请先在设置里保存千问 key 和 API Host"))
-        #expect(VoiceSource.resolve(choice: .qwen, qwenKey: nil, qwenHost: host, azureKey: "a") == .blocked(VoiceSource.qwenMissingMessage))
-        #expect(VoiceSource.resolve(choice: .azure, qwenKey: "k", qwenHost: host, azureKey: "a") == .azure)
-        #expect(VoiceSource.resolve(choice: nil, qwenKey: "k", qwenHost: host, azureKey: "a") == .qwen(key: "k", host: host))
-        #expect(VoiceSource.effectiveChoice(nil, hasQwenKey: false, hasAzureKey: false) == .qwen)
+        #expect(VoiceSource.resolve(choice: .qwen, qwenKey: "k", qwenHost: host) == .qwen(key: "k", host: host))
+        #expect(VoiceSource.resolve(choice: .qwen, qwenKey: "k", qwenHost: nil) == .blocked("请先在设置里保存千问 API Host"))
+        #expect(VoiceSource.resolve(choice: .qwen, qwenKey: nil, qwenHost: host) == .blocked("请先在设置里保存千问 key"))
+        #expect(VoiceSource.resolve(choice: .azure, qwenKey: "k", qwenHost: host) == .azure)
         #expect(VoiceHostCheck.isValid(host))
         #expect(!VoiceHostCheck.isValid("https://ws-x.ap-southeast-1.maas.aliyuncs.com/"))
         #expect(!VoiceHostCheck.isValid("a b"))
         #expect(VoiceHostCheck.invalidMessage == "API Host 格式不对")
+    }
+
+    @Test("T-020b row 12: Gemini 原声 by default, the one-time move, kept choices, the missing message")
+    func geminiDefault() {
+        // No saved choice: Gemini 原声.
+        #expect(VoiceSource.effectiveChoice(nil) == .gemini)
+        #expect(VoiceSource.resolve(choice: nil, qwenKey: "k", qwenHost: "ws-x.ap-southeast-1.maas.aliyuncs.com") == .gemini)
+        #expect(VoiceSourceKind.allCases.first == .gemini)
+        // Saved 千问 on the first launch of this build: moved, once.
+        #expect(VoiceSource.migrated(saved: "qwen", done: false) == .gemini)
+        #expect(VoiceSource.migrated(saved: nil, done: false) == .gemini)
+        // Saved 千问 after that launch: kept.
+        #expect(VoiceSource.migrated(saved: "qwen", done: true) == nil)
+        #expect(VoiceSource.effectiveChoice(.qwen) == .qwen)
+        // Saved Azure: kept.
+        #expect(VoiceSource.migrated(saved: "azure", done: false) == .azure)
+        #expect(VoiceSource.effectiveChoice(.azure) == .azure)
+        // 千问 with a key but no host.
+        #expect(VoiceSource.resolve(choice: .qwen, qwenKey: "k", qwenHost: nil) == .blocked("请先在设置里保存千问 API Host"))
+        // Item 3: only Gemini 原声 turns revoicing off.
+        #expect(!VoiceSourceDecision.gemini.revoicing)
+        #expect(VoiceSourceDecision.azure.revoicing && VoiceSourceDecision.qwen(key: "k", host: "h.x").revoicing)
+    }
+
+    @Test("T-020b row 13: voice source=gemini turn= held_ms= first_ms=, once per played turn")
+    func geminiTimingLine() {
+        var timing = GeminiVoiceTiming()
+        timing.utteranceSent(at: NovaInstant(milliseconds: 1_000))
+        timing.audioReceived(turn: 3, at: NovaInstant(milliseconds: 1_600))
+        timing.audioReceived(turn: 3, at: NovaInstant(milliseconds: 1_700))
+        let line = timing.audioPlayed(turn: 3, at: NovaInstant(milliseconds: 2_400))
+        #expect(line == GeminiVoiceLine(turn: 3, heldMs: 800, firstMs: 1_400))
+        #expect(line?.logLine == "voice source=gemini turn=3 held_ms=800 first_ms=1400")
+        #expect(timing.audioPlayed(turn: 3, at: NovaInstant(milliseconds: 2_500)) == nil)
+    }
+
+    @Test("T-020b F-24 row 1: 95 frames then the gate closes -> 9 messages of 100 ms, then 1 of 50 ms, bytes unchanged")
+    func chunker() {
+        var chunker = AudioChunker()
+        let frames = (0..<95).map { i in PCMFrame16k(samples: (0..<160).map { Int16(truncatingIfNeeded: i * 160 + $0) })! }
+        var messages: [[PCMFrame16k]] = []
+        for f in frames { if let m = chunker.add(f) { messages.append(m) } }
+        if let rest = chunker.flush() { messages.append(rest) }
+        #expect(messages.count == 10)
+        #expect(messages.prefix(9).allSatisfy { $0.count == 10 })
+        #expect(messages.last?.count == 5)
+        #expect(messages.flatMap { $0 } == frames)
+        #expect(chunker.flush() == nil)
     }
 }

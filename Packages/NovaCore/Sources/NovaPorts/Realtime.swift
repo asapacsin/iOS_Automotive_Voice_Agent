@@ -249,3 +249,21 @@ extension RealtimeErrorCode {
     /// F-24 §15 item 8: the same code for the give-up diagnostic; nil for a terminal code.
     public var retryableCode: RetryableErrorCode? { isRetryable ? RetryableErrorCode(rawValue: rawValue) : nil }
 }
+
+/// F-24 §16 item 3 (T-020b): `session closed code=<WebSocket close code> reason=<first 80 chars of the close reason>`.
+/// The reason is the server's close text (never the driver's or her words); line breaks become spaces.
+public struct SessionClosedLine: Sendable, Hashable {
+    public static let reasonLimit = 80
+
+    public let code: Int
+    public let reason: String
+
+    public init(code: Int, reason: String) {
+        self.code = code
+        let flat = reason.map { $0.isNewline ? " " : $0 }
+        self.reason = String(flat.prefix(Self.reasonLimit))
+    }
+
+    public var fields: String { "code=\(code) reason=\(reason)" }
+    public var logLine: String { "session closed \(fields)" }
+}

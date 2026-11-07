@@ -57,6 +57,10 @@ public enum RecordEvent: Sendable, Hashable {
     case voiceClause(VoiceClauseLine)
     /// F-07 §14 item 7: `voice-failed turn= source= code=`.
     case voiceFailed(VoiceFailedLine)
+    /// F-07 §15 item 5 (T-020b): `voice source=gemini turn= held_ms= first_ms=`.
+    case voiceGemini(GeminiVoiceLine)
+    /// F-24 §16 item 3 (T-020b): `session closed code= reason=`.
+    case sessionClosed(SessionClosedLine)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -160,6 +164,8 @@ public struct ConversationRecorder: Sendable {
         case .destSearch(let search): return [line("dest-search", search.fields)]
         case .voiceClause(let v): return [line("voice", v.fields)]
         case .voiceFailed(let v): return [line("voice-failed", v.fields)]
+        case .voiceGemini(let v): return [line("voice", v.fields)]
+        case .sessionClosed(let c): return add(.session("closed \(c.fields)"), atMs: ms)
         case .sessionGaveUp(let since, let attempts, let code):
             return add(.session("gave-up ms=\(since) attempts=\(attempts) code=\(code.rawValue)"), atMs: ms)
         case .sessionResume(let handle, let result):

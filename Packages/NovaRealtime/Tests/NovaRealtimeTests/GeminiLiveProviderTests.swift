@@ -229,11 +229,12 @@ struct GeminiLiveProviderTests {
         await provider.sendToolResponses([ToolResponse(id: CallID("c1")!, name: "control_climate", result: .success())])
         await provider.sendText([TextTurn(role: .user, text: "你好")], turnComplete: true)
         let socket = try #require(server.opened.withLock { $0.first })
-        for _ in 0..<100 where socket.sent.withLock({ $0.count }) < 6 { try await Task.sleep(for: .milliseconds(10)) }
+        for _ in 0..<100 where socket.sent.withLock({ $0.count }) < 5 { try await Task.sleep(for: .milliseconds(10)) }
         let kinds = socket.sent.withLock { $0 }.map { text -> String in
             ["setup", "audioStreamEnd", "audio", "toolResponse", "clientContent"].first { text.contains("\"\($0)\"") } ?? "?"
         }
-        #expect(kinds == ["setup", "audio", "audio", "audioStreamEnd", "toolResponse", "clientContent"])
+        // F-24 §16 item 1: the two 10 ms frames go as one message, sent early before audioStreamEnd.
+        #expect(kinds == ["setup", "audio", "audioStreamEnd", "toolResponse", "clientContent"])
         await provider.close()
     }
 
@@ -260,7 +261,8 @@ struct GeminiLiveProviderTests {
         let kinds = { (socket: FakeSocket) in socket.sent.withLock { $0 }.map { text -> String in
             ["setup", "activityStart", "activityEnd", "audio"].first { text.contains("\"\($0)\"") } ?? "?"
         } }
-        #expect(kinds(sockets[0]) == ["setup", "activityStart", "audio"])
+        // F-24 §16 item 1: the held frame was not yet a 100 ms piece; it goes to the new socket, after its activityStart.
+        #expect(kinds(sockets[0]) == ["setup", "activityStart"])
         #expect(kinds(second) == ["setup", "activityStart", "audio", "activityEnd"])
         await provider.close()
     }
@@ -397,7 +399,7 @@ struct GeminiProviderHandshakeTests {
         await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
         var it = provider.events.makeAsyncIterator()
         #expect(await it.next()?.event == .setupComplete)
-        for _ in 0..<10 { provider.sendAudio(.silence) }
+        for _ in 0..<100 { provider.sendAudio(.silence) }  // 10 messages of 100 ms (F-24 §16 item 1)
         let event = await it.next()?.event
         #expect(event == .failed(RealtimeError(.wsFailed)))
         #expect(RealtimeErrorCode.wsFailed.isRetryable)
@@ -438,5 +440,107 @@ struct PingOnceTests {
             try await URLSessionWebSocketConnection.ping({ $0(Lost()) }, duplicates: DuplicateReport(sites.sink))
         }
         #expect(sites.all.isEmpty)
+    }
+}
+
+/// Writes nothing after setup until `release()`, then writes everything in order (F-24 §16 row 3).
+final class GatedConnector: WebSocketConnector, @unchecked Sendable {
+    let conn = Conn()
+    func release() { conn.released.withLock { $0 = true } }
+
+    final class Conn: WebSocketConnection, @unchecked Sendable {
+        let inbox = FakeInbox()
+        let released = Mutex(false)
+        let sent = Mutex<[String]>([])
+        func send(_ text: String) async throws {
+            if text.contains("\"setup\"") {
+                await inbox.push(.success(Data(#"{"setupComplete":{}}"#.utf8)))
+                return
+            }
+            while !released.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(5)) }
+            sent.withLock { $0.append(text) }
+        }
+        func receive() async throws -> Data {
+            switch await inbox.next() {
+            case .success(let d): return d
+            case .failure(let c): throw c
+            }
+        }
+        func ping() async throws {}
+        func close() { let inbox = inbox; Task { await inbox.finish() } }
+    }
+    func open(_ request: URLRequest) async throws -> any WebSocketConnection { conn }
+}
+
+@Suite("T-020b F-24 §16 microphone in 100 ms messages, session closed line")
+struct AudioChunkingProviderTests {
+    static func kinds(_ texts: [String]) -> [String] {
+        texts.map { text in ["setup", "activityStart", "activityEnd", "audioStreamEnd", "audio"].first { text.contains("\"\($0)\"") } ?? "?" }
+    }
+
+    @Test("T-020b F-24 row 2: frames, then activityEnd after 30 ms of audio: the 30 ms goes out before activityEnd")
+    func flushBeforeActivityEnd() async throws {
+        let server = FakeGeminiServer([.init(frames: [Data(#"{"setupComplete":{}}"#.utf8)], closeAfter: nil)])
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server)
+        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        #expect(await it.next()?.event == .setupComplete)
+        provider.sendActivityStart()
+        for _ in 0..<13 { provider.sendAudio(.silence) }   // one 100 ms piece, then 30 ms held
+        provider.sendActivityEnd()
+        let socket = try #require(server.opened.withLock { $0.first })
+        for _ in 0..<100 where socket.sent.withLock({ $0.count }) < 5 { try await Task.sleep(for: .milliseconds(10)) }
+        let sent = socket.sent.withLock { $0 }
+        #expect(Self.kinds(sent) == ["setup", "activityStart", "audio", "audio", "activityEnd"])
+        // 3,200 bytes = 4,268 base64 characters; 30 ms = 960 bytes = 1,280.
+        func dataLength(_ text: String) -> Int? {
+            guard let r = text.range(of: #""data":""#) else { return nil }
+            return text[r.upperBound...].prefix { $0 != "\"" }.count
+        }
+        #expect(dataLength(sent[2]) == 4_268)
+        #expect(dataLength(sent[3]) == 1_280)
+        await provider.close()
+    }
+
+    @Test("T-020b F-24 row 3: a held 5.6 s utterance plus 300 ms pre-roll released at once: about 60 messages, no WS_FAILED")
+    func heldUtteranceFits() async throws {
+        let connector = GatedConnector()
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: connector)
+        #expect(RealtimeTuning().outboxLimit == 512)
+        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        #expect(await it.next()?.event == .setupComplete)
+        provider.sendActivityStart()
+        for _ in 0..<590 { provider.sendAudio(.silence) }   // 5.9 s of 10 ms frames, queued before any write
+        provider.sendActivityEnd()
+        connector.release()
+        for _ in 0..<400 where connector.conn.sent.withLock({ $0.count }) < 61 { try await Task.sleep(for: .milliseconds(10)) }
+        let sent = connector.conn.sent.withLock { $0 }
+        #expect(sent.count == 61)   // activityStart, 59 audio messages, activityEnd
+        #expect(Self.kinds(sent).filter { $0 == "audio" }.count == 59)
+        #expect(sent.first.map { Self.kinds([$0]) } == ["activityStart"])
+        #expect(sent.last.map { Self.kinds([$0]) } == ["activityEnd"])
+        // A socket that had failed (WS_FAILED) would write nothing more: it still writes.
+        await provider.sendAudioStreamEnd()
+        for _ in 0..<200 where connector.conn.sent.withLock({ $0.count }) < 62 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(connector.conn.sent.withLock { $0.count } == 62)
+        await provider.close()
+    }
+
+    @Test("T-020b F-24 row 4: the socket closes with 1011 and a reason: session closed code=1011 reason=...")
+    func closedLine() async throws {
+        let server = FakeGeminiServer([.init(frames: [Data(#"{"setupComplete":{}}"#.utf8)],
+                                             closeAfter: WebSocketClosed(code: 1011, reason: "Internal error encountered."))])
+        let lines = Mutex<[SessionClosedLine]>([])
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server,
+                                          onClose: { line in lines.withLock { $0.append(line) } })
+        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        #expect(await it.next()?.event == .setupComplete)
+        _ = await it.next()   // the socket's terminal event
+        let got = lines.withLock { $0 }
+        #expect(got == [SessionClosedLine(code: 1011, reason: "Internal error encountered.")])
+        #expect(got.first?.logLine == "session closed code=1011 reason=Internal error encountered.")
+        await provider.close()
     }
 }

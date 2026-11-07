@@ -4,6 +4,7 @@ import FoundationNetworking
 #endif
 import NovaKit
 import NovaPorts
+import NovaVoice
 import Synchronization
 
 /// `A/voice/GeminiLiveClient.kt` on iOS: one socket at a time, setup first, a single reader that owns
@@ -24,7 +25,11 @@ public final class GeminiLiveProvider: RealtimeProvider {
     /// The live socket and the attempt counter: a `connect` or `close` that started later wins.
     /// `activityOpen`: an activityStart was sent and its activityEnd not yet; a socket installed meanwhile
     /// (reconnect mid-utterance) opens with activityStart, so its audio and the later activityEnd are bracketed.
-    private let state = Mutex<(socket: Socket?, attempt: UInt64, activityOpen: Bool)>((nil, 0, false))
+    /// `chunker`: F-24 §16 item 1, 10 ms frames joined into 100 ms messages; flushed under this lock before any
+    /// non-audio message, so the socket's order is the capture order.
+    private let state = Mutex<(socket: Socket?, attempt: UInt64, activityOpen: Bool, chunker: AudioChunker)>((nil, 0, false, AudioChunker()))
+    /// F-24 §16 item 3: each socket close with its code and reason (never the driver's or her words).
+    private let onClose: (@Sendable (SessionClosedLine) -> Void)?
 
     /// Everything owned by one open socket. `emit` and `end` share one lock, so no event can follow
     /// the socket's terminal event or a `stop()`.
@@ -38,13 +43,16 @@ public final class GeminiLiveProvider: RealtimeProvider {
         private let pending = Mutex(0)
         private let pendingLimit: Int
         private let sink: AsyncStream<ProviderEvent>.Continuation
+        private let onClose: (@Sendable (SessionClosedLine) -> Void)?
         private let ended = Mutex(false)
         private let setupDone = Mutex(false)
         private let tasks = Mutex<[Task<Void, Never>]>([])
 
         init(connection: any WebSocketConnection, generation: Generation, resumed: Bool, pendingLimit: Int,
-             outbox: AsyncStream<String>.Continuation, sink: AsyncStream<ProviderEvent>.Continuation) {
+             outbox: AsyncStream<String>.Continuation, sink: AsyncStream<ProviderEvent>.Continuation,
+             onClose: (@Sendable (SessionClosedLine) -> Void)? = nil) {
             self.connection = connection
+            self.onClose = onClose
             self.pendingLimit = pendingLimit
             self.generation = generation
             self.resumed = resumed
@@ -95,6 +103,8 @@ public final class GeminiLiveProvider: RealtimeProvider {
                 end(.failed(RealtimeError(.wsFailed)))
                 return
             }
+            // F-24 §16 item 3: reported once, for the socket's own end (not after a stop or an overflow).
+            if !isEnded { onClose?(SessionClosedLine(code: closed.code, reason: closed.reason)) }
             // The upgrade itself was refused: classify the HTTP status, not the absent close frame.
             if let status = closed.httpStatus, !setupDone.withLock({ $0 }) {
                 end(.failed(RealtimeError(GeminiCloseClassifier.classify(handshakeStatus: status))))
@@ -129,7 +139,8 @@ public final class GeminiLiveProvider: RealtimeProvider {
     }
 
     public init(credentials: any RealtimeCredentialSource, connector: any WebSocketConnector = URLSessionWebSocketConnector(),
-                tuning: RealtimeTuning = RealtimeTuning()) {
+                tuning: RealtimeTuning = RealtimeTuning(), onClose: (@Sendable (SessionClosedLine) -> Void)? = nil) {
+        self.onClose = onClose
         self.credentials = credentials
         self.connector = connector
         self.tuning = tuning
@@ -161,7 +172,8 @@ public final class GeminiLiveProvider: RealtimeProvider {
         }
         let (outbox, outboxContinuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .unbounded)
         let socket = Socket(connection: connection, generation: generation, resumed: handle != nil,
-                            pendingLimit: tuning.outboxLimit, outbox: outboxContinuation, sink: continuation)
+                            pendingLimit: tuning.outboxLimit, outbox: outboxContinuation, sink: continuation,
+                            onClose: onClose)
         // Setup is queued before the socket becomes reachable, so no client message can precede it.
         if let setup = try? GeminiCodec.encode(GeminiCodec.setup(config, resume: handle)) {
             socket.enqueue(String(decoding: setup, as: UTF8.self))
@@ -216,7 +228,29 @@ public final class GeminiLiveProvider: RealtimeProvider {
         state.withLock { s in if s.socket === socket, socket.isEnded { s.socket = nil } }
     }
 
-    public func sendAudio(_ frame: PCMFrame16k) { send(GeminiCodec.audio([frame])) }
+    /// F-24 §16 item 1: one message per 100 ms; a full piece goes out at once, a part waits for `flushAudio` or the
+    /// next non-audio message.
+    public func sendAudio(_ frame: PCMFrame16k) {
+        state.withLock { s in
+            guard let frames = s.chunker.add(frame) else { return }
+            Self.enqueueAudio(frames, to: s.socket)
+        }
+    }
+
+    /// Sends the held part of a 100 ms piece now: the gate closed, or a frame was kept back (mute).
+    public func flushAudio() {
+        state.withLock { s in Self.flushAudio(&s) }
+    }
+
+    private static func flushAudio(_ s: inout (socket: Socket?, attempt: UInt64, activityOpen: Bool, chunker: AudioChunker)) {
+        guard let frames = s.chunker.flush() else { return }
+        enqueueAudio(frames, to: s.socket)
+    }
+
+    private static func enqueueAudio(_ frames: [PCMFrame16k], to socket: Socket?) {
+        guard let socket, let data = try? GeminiCodec.encode(GeminiCodec.audio(frames)) else { return }
+        socket.enqueue(String(decoding: data, as: UTF8.self))
+    }
 
     public func sendAudioStreamEnd() async { send(GeminiCodec.audioStreamEnd) }
 
@@ -231,6 +265,7 @@ public final class GeminiLiveProvider: RealtimeProvider {
             // An end with no open utterance would be unmatched; a second start would nest.
             guard s.activityOpen != open else { return }
             s.activityOpen = open
+            Self.flushAudio(&s)
             s.socket?.enqueue(String(decoding: data, as: UTF8.self))
         }
     }
@@ -243,6 +278,7 @@ public final class GeminiLiveProvider: RealtimeProvider {
               let end = try? GeminiCodec.encode(GeminiCodec.activityEnd) else { return }
         state.withLock { s in
             guard !s.activityOpen, let socket = s.socket else { return }
+            Self.flushAudio(&s)
             socket.enqueue(String(decoding: start, as: UTF8.self))
             socket.enqueue(String(decoding: end, as: UTF8.self))
         }
@@ -260,13 +296,17 @@ public final class GeminiLiveProvider: RealtimeProvider {
             s.socket = nil
             s.attempt += 1
             s.activityOpen = false
+            s.chunker = AudioChunker()
         }
     }
 
     private func send(_ message: JSONValue) {
         guard let data = try? GeminiCodec.encode(message) else { return }
-        let socket = state.withLock { $0.socket }
-        socket?.enqueue(String(decoding: data, as: UTF8.self))
+        // F-24 §16 item 1: held audio goes first, in the same lock, so nothing is reordered.
+        state.withLock { s in
+            Self.flushAudio(&s)
+            s.socket?.enqueue(String(decoding: data, as: UTF8.self))
+        }
     }
 
     private func yieldIfCurrent(_ attempt: UInt64, _ event: ProviderEvent) {

@@ -171,7 +171,9 @@ struct RuntimeSink: AgentEffectSink {
     /// F-12 §17: the test record, nil when the setting is off.
     let record: ConversationRecord?
     let config: SessionConfig
-    let revoicer: Revoicer
+    /// Nil for Gemini 原声 (F-07 §15 item 3); then `direct` plays Gemini's judged audio.
+    let revoicer: Revoicer?
+    let direct: DirectReplyLane?
     let audio: LiveAudio
     let model: DriveModel
     let speechOutput: SpeechOutputSwitch
@@ -223,16 +225,28 @@ struct RuntimeSink: AgentEffectSink {
     func flushPlayback(to epoch: Epoch) {
         record?.submit(.flushed)
         audio.flush(to: epoch)
+        direct?.flushed(to: epoch)
         // F-04 §14: her reply stopped sounding (barge-in or void); the gate's echo tail starts now.
         gate.setPlaying(reply: false)
     }
-    func cancelRevoicing(_ epoch: Epoch) async { await revoicer.cancel(newEpoch: epoch) }
-    func newReply() async { await revoicer.newReply() }
+    func cancelRevoicing(_ epoch: Epoch) async {
+        direct?.flushed(to: epoch)
+        await revoicer?.cancel(newEpoch: epoch)
+    }
+    func newReply() async { await revoicer?.newReply() }
+    /// F-07 §15 items 3, 5: Gemini's judged audio to the reply lane, and the turn's timing line once.
+    func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async {
+        guard let direct, speechOutput.mode == .spoken else { return }
+        if let line = direct.play(pcm, turn: turn, on: audio) {
+            RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+            record?.submit(.voiceGemini(line))
+        }
+    }
     func speak(_ clause: String) async {
         // set_speech_output silent: keep listening and acting, voice nothing.
         guard speechOutput.mode == .spoken else { return }
         record?.submit(.spoke)
-        await revoicer.speak(clause)
+        await revoicer?.speak(clause)
     }
 
     func publish(_ view: AgentViewState) async {
@@ -668,17 +682,22 @@ final class AgentRuntime {
         case nil:
             break
         }
-        // F-07 §14 item 5 (T-020a): the chosen source of her voice, read at session start.
+        // F-07 §14 item 5 (T-020a), §15 item 3 (T-020b): the chosen source of her voice, read at session start.
         let defaults = UserDefaults.standard
         let voiceSource: VoiceSourceKind
-        let baseSynthesizer: any SpeechSynthesizer
+        let baseSynthesizer: (any SpeechSynthesizer)?
         let azureKey = (try? store.value(for: .azureSpeechKey)) ?? nil
-        switch VoiceSource.resolve(choice: defaults.string(forKey: SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:)),
-                                   qwenKey: (try? store.value(for: .qwenAPIKey)) ?? nil,
-                                   qwenHost: defaults.string(forKey: SettingsKey.qwenTTSHost), azureKey: azureKey) {
+        let decision = VoiceSource.resolve(choice: defaults.string(forKey: SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:)),
+                                           qwenKey: (try? store.value(for: .qwenAPIKey)) ?? nil,
+                                           qwenHost: defaults.string(forKey: SettingsKey.qwenTTSHost))
+        switch decision {
         case .blocked(let message):
             model.notice = message
             return
+        case .gemini:
+            // Gemini Live's own voice: no Revoicer, no TTS warm-up, no Qwen or Azure connection.
+            voiceSource = .gemini
+            baseSynthesizer = nil
         case .qwen(let key, let host):
             let voice = defaults.string(forKey: SettingsKey.qwenVoice) ?? QwenVoiceOption.defaultID
             voiceSource = .qwen
@@ -704,24 +723,33 @@ final class AgentRuntime {
             baseSynthesizer = AzureSpeechClient(config: AzureSpeechConfig(key: azureKey, region: region, voice: voice))
         }
         model.notice = nil
-        // F-07 §14 items 6-8: one retry for both sources; timing and failure lines (numbers and codes only, I-8).
+        // F-07 §14 items 6-8: one retry for both TTS sources; timing and failure lines (numbers and codes only, I-8).
         let voiceLines = VoiceLineSink()
-        let synthesizer = RetryingSpeechSynthesizer(baseSynthesizer, source: voiceSource, onClause: { line in
-            RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
-            voiceLines.record?.submit(.voiceClause(line))
-        })
+        let synthesizer = baseSynthesizer.map { base in
+            RetryingSpeechSynthesizer(base, source: voiceSource, onClause: { line in
+                RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+                voiceLines.record?.submit(.voiceClause(line))
+            })
+        }
 
         let model = model
         let audio = LiveAudio()
+        // F-24 §16 item 3 (T-020b): why each socket closed; the code and 80 characters of the reason only.
         let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
                                           connector: URLSessionWebSocketConnector(onDuplicate: { site in
             RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
-        }))
-        let revoicer = Revoicer(synthesizer: synthesizer, playback: audio, onFailure: { code in
-            let line = VoiceFailedLine(turn: voiceLines.turn, source: voiceSource, code: code)
+        }), onClose: { line in
             RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
-            voiceLines.record?.submit(.voiceFailed(line))
+            voiceLines.record?.submit(.sessionClosed(line))
         })
+        let revoicer = synthesizer.map { synthesizer in
+            Revoicer(synthesizer: synthesizer, playback: audio, onFailure: { code in
+                let line = VoiceFailedLine(turn: voiceLines.turn, source: voiceSource, code: code)
+                RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+                voiceLines.record?.submit(.voiceFailed(line))
+            })
+        }
+        let direct = decision.revoicing ? nil : DirectReplyLane()
         let navigationClock = self.navigationClock
         let device = deviceLocation
         // F-16a: read per request, so switching 位置来源 in 设置 applies to the next question.
@@ -886,7 +914,7 @@ final class AgentRuntime {
         config.activityDetection = .novaDrive
         let manual = config.activityDetection.manual
         let ended = CoreRelay()
-        let sink = RuntimeSink(realtime: provider, record: record, config: config, revoicer: revoicer, audio: audio, model: model,
+        let sink = RuntimeSink(realtime: provider, record: record, config: config, revoicer: revoicer, direct: direct, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch,
@@ -896,7 +924,7 @@ final class AgentRuntime {
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
-                                               resume: resume))
+                                               resume: resume, revoicing: decision.revoicing))
         ended.core = core
         self.core = core
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.
@@ -963,7 +991,7 @@ final class AgentRuntime {
         })
         self.audio = audio
         speakLine = { line in
-            if let pcm = try? await baseSynthesizer.synthesize(line, style: .default, deadline: .seconds(6)) {
+            if let pcm = try? await baseSynthesizer?.synthesize(line, style: .default, deadline: .seconds(6)) {
                 audio.playGuidance(pcm, id: GuidanceID(UInt64(abs(line.hashValue % 1_000_000))))
             }
         }
@@ -984,6 +1012,8 @@ final class AgentRuntime {
                 case .responseStarted(let turn):
                     gate.newModelTurn()
                     voiceLines.turn = Int(turn.value)
+                case .replyAudio(let turn, _):
+                    direct?.received(turn)  // F-07 §15 item 5: first audio received, before the claim gate
                 case .failed(let error):
                     RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
                     await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
@@ -1018,7 +1048,7 @@ final class AgentRuntime {
                 }
                 await core.send(.playback(event))
                 // F-14: a fallback waits until nothing of her reply is left, at the revoicer or on the lane.
-                if case .replyFinished(let epoch) = event, await revoicer.pendingClauses == 0 {
+                if case .replyFinished(let epoch) = event, await (revoicer?.pendingClauses ?? 0) == 0 {
                     gate.setPlaying(reply: false)
                     gate.muteEnded(epoch)
                     gate.herTurnEnded()  // F-08 §17 item 5: her words are forgotten echoWindow after playback ends
@@ -1099,9 +1129,13 @@ final class AgentRuntime {
             // follow that one decision.
             let toModel = gate.follow(output)
             if manual, toModel, case .speechStarted = output { provider.sendActivityStart() }
-            if manual, toModel, case .speechStopped = output { provider.sendActivityEnd() }
+            if manual, toModel, case .speechStopped = output {
+                provider.sendActivityEnd()
+                direct?.utteranceSent()  // F-07 §15 item 5: first_ms counts from here
+            }
             if case .audio(let frame) = output {
-                if toModel { provider.sendAudio(frame) }
+                // F-24 §16 item 1: a frame the gate keeps back (closed or muted) sends the held 100 ms piece now.
+                if toModel { provider.sendAudio(frame) } else { provider.flushAudio() }
             } else if case .streamEnd = output, !toModel {
                 // Nothing of this utterance went up, so there is no stream to end.
             } else {
@@ -1827,4 +1861,34 @@ final class TripListeners: @unchecked Sendable {
     }
 
     func yield(_ snapshot: NavigationFlowState) { _ = lock.withLock { current }?.yield(snapshot) }
+}
+
+/// F-07 §15 items 3, 5 (T-020b): Gemini 原声's reply lane. Judged Gemini audio goes to `LiveAudio` in the epoch the
+/// last flush set (so nothing of a voided or stopped reply plays), and each played turn gets its timing line once.
+final class DirectReplyLane: @unchecked Sendable {
+    private let lock = NSLock()
+    private let clock = SystemClock()
+    private var epoch = Epoch.initial
+    private var sequence = 0
+    private var timing = GeminiVoiceTiming()
+
+    func flushed(to newEpoch: Epoch) {
+        lock.withLock {
+            if newEpoch > epoch { epoch = newEpoch }
+        }
+    }
+
+    func utteranceSent() { lock.withLock { timing.utteranceSent(at: clock.now) } }
+
+    func received(_ turn: TurnID) { lock.withLock { timing.audioReceived(turn: Int(turn.value), at: clock.now) } }
+
+    /// Enqueues `pcm`; returns the turn's timing line the first time its audio plays.
+    func play(_ pcm: PCMBuffer, turn: TurnID, on audio: LiveAudio) -> GeminiVoiceLine? {
+        let (epoch, sequence, line) = lock.withLock { () -> (Epoch, Int, GeminiVoiceLine?) in
+            defer { sequence += 1 }
+            return (epoch, sequence, timing.audioPlayed(turn: Int(turn.value), at: clock.now))
+        }
+        audio.enqueueReply(pcm, epoch: epoch, sequence: sequence)
+        return line
+    }
 }

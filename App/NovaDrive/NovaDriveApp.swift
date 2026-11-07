@@ -1,3 +1,4 @@
+import NovaAgent
 import NovaKit
 import NovaPorts
 import NovaServices
@@ -39,6 +40,8 @@ struct NovaDriveApp: App {
         SpeakerModelLocator.shared.refresh()
         // F-04b §16 item 6 (T-013j): the old calibration draft is deleted on first launch (no 校准 any more).
         SpeakerLockService.removeCalibrationDraft()
+        // F-07 §15 item 2 (T-020b): once, no saved choice or 千问 moves to Gemini 原声.
+        VoiceSourceMigration.run(DefaultsSettingsStore())
     }
 
     var body: some Scene {

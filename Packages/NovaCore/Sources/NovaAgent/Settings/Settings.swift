@@ -59,6 +59,8 @@ public struct SettingsReadiness: Sendable, Hashable {
     public var geminiConsent: Bool
     /// F-07 §14 item 5: the chosen source of her voice is ready (「她的声音」).
     public var voice: Bool
+    /// F-07 §15: the source the session will use.
+    public var source: VoiceSourceKind
     public var amapSDKKey: Bool
     public var amapWebKey: Bool
     public var wakeAppID: Bool
@@ -70,7 +72,9 @@ public struct SettingsReadiness: Sendable, Hashable {
         geminiConsent = settings.bool(SettingsKey.geminiConsentAccepted) == true
         let azureReady = has(.azureSpeechKey) && settings.string(SettingsKey.azureVoice)?.isEmpty == false
         let choice = settings.string(SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:))
-        switch VoiceSource.effectiveChoice(choice, hasQwenKey: has(.qwenAPIKey), hasAzureKey: has(.azureSpeechKey)) {
+        source = VoiceSource.effectiveChoice(choice)
+        switch source {
+        case .gemini: voice = true  // F-07 §15 item 3: always ready (the Gemini key is checked by sessionBlocker)
         case .qwen: voice = has(.qwenAPIKey) && VoiceHostCheck.isValid(settings.string(SettingsKey.qwenTTSHost) ?? "")
         case .azure: voice = azureReady
         }
@@ -87,6 +91,18 @@ public struct SettingsReadiness: Sendable, Hashable {
         return nil
     }
 
-    /// Replies are revoiced only when the chosen voice source is configured (ADR-016, F-07 §14 item 5).
-    public var revoicing: Bool { voice }
+    /// Replies are revoiced only by a configured Qwen or Azure source (ADR-016, F-07 §14 item 5); Gemini 原声 plays
+    /// Gemini's own audio through the claim gate (F-07 §15 item 3).
+    public var revoicing: Bool { source != .gemini && voice }
+}
+
+/// F-07 §15 item 2 (T-020b): on the first launch of this build, an install with no saved choice or with 千问 saved
+/// moves to Gemini 原声, once; the move is remembered, so any choice saved after it is kept.
+public enum VoiceSourceMigration {
+    public static func run(_ settings: any SettingsStore) {
+        let done = settings.bool(VoiceSource.migrationKey) == true
+        guard let choice = VoiceSource.migrated(saved: settings.string(SettingsKey.voiceSource), done: done) else { return }
+        settings.set(choice.rawValue, for: SettingsKey.voiceSource)
+        settings.set(true, for: VoiceSource.migrationKey)
+    }
 }
