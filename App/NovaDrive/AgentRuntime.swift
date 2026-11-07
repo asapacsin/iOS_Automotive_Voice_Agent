@@ -258,6 +258,7 @@ struct RuntimeSink: AgentEffectSink {
         RuntimeLog.agent.notice("\(event.logLine, privacy: .public)")
         switch event {
         case .claimHeld: record?.submit(.held)
+        case .claimCut(let turn, let ms): record?.submit(.claimCut(turn: turn, playedMs: ms))  // F-07 §15 item 8
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.

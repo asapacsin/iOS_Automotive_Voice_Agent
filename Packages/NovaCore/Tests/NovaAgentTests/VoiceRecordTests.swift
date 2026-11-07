@@ -25,6 +25,7 @@ struct VoiceRecordTests {
         let closed = SessionClosedLine(code: 1011, reason: "Internal error encountered.")
         #expect(r.add(.sessionClosed(closed), atMs: 8) == ["8 session closed code=1011 reason=Internal error encountered."])
         #expect(SessionClosedLine(code: 1000, reason: reason).reason.count == 80)
+        #expect(r.add(.claimCut(turn: 2, playedMs: 800), atMs: 9) == ["9 claim-cut turn=2 played_ms=800"])
         #expect(!SessionClosedLine(code: 1000, reason: "a\nb").reason.contains("\n"))
     }
 }

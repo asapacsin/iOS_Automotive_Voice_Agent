@@ -187,6 +187,8 @@ public struct AgentState: Sendable {
     private var heldClauses: [AgentEffect] = []
     /// F-07 §15 item 3: false for Gemini 原声 (her voice is Gemini's own audio, judged by the same claim gate).
     public private(set) var revoicing = true
+    /// F-07 §15 item 8: Gemini audio of the open turn sent to the reply lane: when it started, and how long it is.
+    private var turnAudio: (turn: TurnID, since: NovaInstant, ms: Int)?
     /// F-14 relay and the model turn that reads its PENDING sentence.
     public private(set) var relay = GuidanceRelay()
     private var relayEnabled = true
@@ -252,7 +254,7 @@ public struct AgentState: Sendable {
     /// `revoicing`: F-07 §15 item 3, false when her voice is Gemini's own audio.
     public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
                 revoicing: Bool = true) {
-        pipeline = DriverTurnPipeline(tuning: truthfulness)
+        pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing)
         self.revoicing = revoicing
         if let resume { session = VoiceSession(resume: resume) }
         self.destinationNotes = destinationNotes
@@ -1093,6 +1095,11 @@ public struct AgentState: Sendable {
                 heldClauses.append(.playReplyAudio(turn, pcm))
                 effects += releaseHeld(at: now)
             case .voided(let turn):
+                // F-07 §15 item 8: a claim disproven while her audio already plays is cut here; the record says how much.
+                if let played = turnAudio, played.turn == turn, !silenced.contains(turn) {
+                    let heard = min(played.ms, Int((now - played.since).milliseconds))
+                    effects.append(.diagnostic(.claimCut(turn: Int(turn.value), playedMs: max(0, heard))))
+                }
                 resetSubtitle()
                 effects += silenced.contains(turn) ? [] : stopReply(turn)
                 effects.append(.publish(view))
@@ -1140,6 +1147,10 @@ public struct AgentState: Sendable {
             let clauses = heldClauses
             heldClauses = []
             arbiter.markReplyStarted()
+            for case .playReplyAudio(let turn, let pcm) in clauses {
+                let ms = pcm.sampleRate > 0 ? pcm.samples.count * 1000 / pcm.sampleRate : 0
+                if let t = turnAudio, t.turn == turn { turnAudio?.ms += ms } else { turnAudio = (turn, now, ms) }
+            }
             return clauses
         case .hold:
             return wake.map { [.schedule(.arbiter($0), at: $0)] } ?? []

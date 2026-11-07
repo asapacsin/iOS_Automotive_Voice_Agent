@@ -98,6 +98,9 @@ public struct DriverTurnPipeline: Sendable {
     }
 
     private let tuning: TruthfulnessTuning
+    /// F-07 §15 item 7 (T-020b, Gemini 原声 only): a clean chat turn releases its audio as it comes, like its text.
+    /// Proven and pending turns keep their holds; a claim found later is cut by the void (item 8).
+    private let streamsCleanAudio: Bool
     private var turn: Turn?
     private var navigation = NavigationPhase.idle
     private var musicPlaying = false
@@ -122,8 +125,9 @@ public struct DriverTurnPipeline: Sendable {
     private var timerEpoch = Epoch.initial
     private var timers: [PipelineTimer.Kind: Epoch] = [:]
 
-    public init(tuning: TruthfulnessTuning = TruthfulnessTuning()) {
+    public init(tuning: TruthfulnessTuning = TruthfulnessTuning(), streamsCleanAudio: Bool = false) {
         self.tuning = tuning
+        self.streamsCleanAudio = streamsCleanAudio
     }
 
     public mutating func handle(_ input: PipelineInput, at now: NovaInstant) -> [PipelineOutput] {
@@ -379,8 +383,9 @@ public struct DriverTurnPipeline: Sendable {
             // unread claim may be on it, so only judged text goes out (L1, L3).
             return evidenceOutstanding(turn!) && !final ? releaseText() : release()
         case .clean:
-            // A clean chat turn releases judged text as it comes; its audio waits for the end.
-            return final ? release() : releaseText()
+            // A clean chat turn releases judged text as it comes; its audio waits for the end, except with
+            // Gemini 原声, where it streams too (F-07 §15 item 7).
+            return final || streamsCleanAudio ? release() : releaseText()
         case .pending:
             return []
         case .disproven(let reason):
