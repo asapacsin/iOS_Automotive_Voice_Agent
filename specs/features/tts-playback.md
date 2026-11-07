@@ -175,7 +175,7 @@ Epoch-based flush is required for instant interruption.
 - a proven claim releases its audio at once, except while navigation or music evidence is outstanding;
 - a clean chat turn releases its text as it comes and its audio at `generationComplete`;
 - a disproven claim voids the turn before it is heard.
-Rows 13–14 measure the delay these rules give. Changing them is a separate decision for the owner.
+One rule changes, by owner decision (2026-11-07, see the next paragraph): a clean chat turn no longer waits for `generationComplete`.
 
 1. **Choice in 设置.** 「她的声音」 来源 becomes: **「Gemini 原声（最快）」** (first and default), 「千问（阿里云）」, 「Azure」. Gemini 原声 has no fields and needs no extra key. 试听 is hidden for it, because its voice only exists inside a session.
 2. **Which installs move.** New installs, and installs whose saved choice is 千问 from 1f05a54, start on Gemini 原声. This move happens once, on first launch of this build, and is remembered. Any choice saved after that is kept.
@@ -184,10 +184,17 @@ Rows 13–14 measure the delay these rules give. Changing them is a separate dec
 5. **Timing line.** For each turn whose audio is played, `RuntimeLog` and the record get `voice source=gemini turn=<n> held_ms=<first audio received → first audio played> first_ms=<utterance sent → first audio played>`, so the 响应速度 sheet can compare sources and show the hold.
 6. **Not changed:** the claim gate and its hold rules; barge-in and epochs; the Qwen and Azure clients and §14, kept as options; F-24 reconnection.
 
+**Stream, and cut on a bad claim (owner decision 2026-11-07).** The owner asked why her audio is collected instead of streamed. Copied from the OpenAI Agents SDK realtime agents: audio plays as it arrives, output guardrails run on the transcript as it grows (every 100 characters by default, `debounceTextLength`), and a tripped guardrail interrupts the response ([guardrail source](https://cdn.jsdelivr.net/npm/@openai/agents-realtime@0.11.6/dist/guardrail.d.ts), [Python commit](https://github.com/openai/openai-agents-python/issues/1912)). Here the guardrail is the existing claim check, run on every `replyText` as today (no debounce: it is local and cheap).
+
+7. **Clean chat turns stream.** With Gemini 原声, `DriverTurnPipeline`'s clean verdict releases audio as it comes, the same as text, instead of at `generationComplete`. The proven and pending rules are unchanged: a turn with a claim still holds its audio until the `ok=true` result.
+8. **A bad claim cuts what is playing.** When a claim appears in the transcript of a turn whose audio is already playing and it is disproven, the turn is voided as today: playback flushes to a new epoch at once, the subtitle is removed, and the correction nudge is sent. The record gets `claim-cut turn=<n> played_ms=<audio already heard>`.
+9. **I-5 changes.** `specs/product-spec.md` I-5 gains: 「With Gemini 原声, a clean turn's audio streams; a false claim found in its transcript cuts it at once (owner 2026-11-07).」 Qwen and Azure keep the held behaviour.
+
+
 | # | Given / when | Then | Test |
 |---|---|---|---|
 | 12 | No saved choice; saved 千问 on first launch of this build; saved 千问 after that launch; saved Azure; 千问 with a key but no host | Gemini 原声; Gemini 原声; 千问; Azure; 「请先在设置里保存千问 API Host」 | unit |
-| 13 | Source Gemini 原声: a clean chat turn; a proven `control_climate` turn; a turn whose claim is disproven | `revoicing` false, no `Revoicer` made; audio at `generationComplete` with `voice source=gemini` and `held_ms`; audio at the `ok=true` result; nothing heard, turn voided | unit |
+| 13 | Source Gemini 原声: a clean chat turn; a proven `control_climate` turn; a disproven claim before any audio played; a claim in the transcript after 800 ms of audio played, then disproven | `revoicing` false, no `Revoicer` made; each audio part released as it arrives, `held_ms` 0; audio at the `ok=true` result; nothing heard, turn voided; playback flushed at once, `claim-cut turn=<n> played_ms=800`, nudge sent | unit |
 | 14 | Device: 设置 shows Gemini 原声 selected; 10 everyday replies, including 「现在天气怎么样」 and 「打开空调」 | Her voice is the live session's voice; every reply has `playback started`; `first_ms` and `held_ms` noted in the 响应速度 sheet against the Qwen rows of 1f05a54 | D |
-| 15 | Device: 「打开空调」; 「有蚊子」 then 「那怎么办？」 | 「空调开了」 is heard only after the air-con changes; no claim of an action that did not happen | D |
+| 15 | Device: 「打开空调」; 「有蚊子」 then 「那怎么办？」; 20 chat replies | 「空调开了」 is heard only after the air-con changes; no claim of an action that did not happen; count any `claim-cut` lines | D |
 | 16 | Device: switch to 千问, then Azure; a session each | Each still speaks as before | D |
