@@ -162,3 +162,27 @@ This section changes the online retry budget in §5, §9 and §14 item 2 ("5 att
 | Task | Scope | Verify |
 |---|---|---|
 | T-016j | Items 1–10; rows 1–9 | unit, build, D |
+
+## 16. Send the microphone to Gemini in 100 ms pieces (owner report 2026-11-07)
+
+**Why.** Device 2026-11-07, 1f05a54, session 11:46:56, speaker lock on: the driver spoke for 5.6 s; the lock held the utterance until its end (F-04b §16 item 4) and accepted it at +17,959 ms (`waitMs=5090`). At +17,965 the session failed with `WS_FAILED`, the sentence was dropped (`sent=false`) and the screen showed a connection failure. Microphone audio goes to Gemini as one `realtimeInput` message per 10 ms frame, and `GeminiLiveProvider` ends the socket with `WS_FAILED` when more than `outboxLimit` (512) messages are queued. Releasing 5.6 s plus the 300 ms pre-roll at once queues about 590 messages, past the limit. Before F-04b §16 the hold was capped at 3 s (about 330 messages), so it never overflowed.
+
+**Source.** Google's Live API guides say to send audio in chunks of 100 ms ([live transcription](https://ai.google.dev/gemini-api/docs/live-api/live-transcribe), [live translation](https://ai.google.dev/gemini-api/docs/live-api/live-translate)).
+
+1. **100 ms messages.** Between the uplink gate and `GeminiCodec.audio`, a pure `AudioChunker` in `NovaVoice` joins 10 ms frames into one message per 100 ms (1,600 samples, 3,200 bytes). It sends what it has early, without waiting for 100 ms, when the gate closes, at `activityEnd` or `audioStreamEnd`, before any non-audio message, and on mute, so nothing is reordered or lost. A held utterance released at once becomes about 60 messages.
+2. **Not changed:** `outboxLimit` 512 and the `WS_FAILED` rule (a truly stalled writer still ends the socket), the audio format, the gate, the speaker hold, barge-in.
+3. **Seeing why a session closes.** When the socket closes, `RuntimeLog` and the record get `session closed code=<WebSocket close code> reason=<first 80 chars of the close reason>`, so the closes seen every 2 minutes on 2026-11-07 (+154,893 and +276,569 ms, each reconnected in about 2 s) can be explained later. Nothing else changes for them.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | 95 frames of 10 ms, then the gate closes | 9 messages of 100 ms, then 1 of 50 ms, in order, bytes unchanged | unit |
+| 2 | Frames, then `activityEnd` after 30 ms of audio | The 30 ms goes out before `activityEnd` | unit |
+| 3 | A held 5.6 s utterance plus 300 ms pre-roll released at once into a provider with `outboxLimit` 512 and a writer that does not write until all are queued | About 60 messages, no `WS_FAILED` | unit |
+| 4 | The socket closes with code 1011 and a reason | `session closed code=1011 reason=...` in the log and the record | unit |
+| 5 | Device, speaker lock on: say a 6–8 s sentence 5 times | Every one is sent and answered; no `WS_FAILED`; note any `session closed` lines and their codes | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-020b | Items 1–3; rows 1–5 (with F-07 §15) | unit, build, D |

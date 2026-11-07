@@ -166,3 +166,41 @@ Epoch-based flush is required for instant interruption.
 | 11 | Device: switch to Azure, start a session | The Azure voice, with today's region check | D |
 
 **Trace gate.** Add `T-020a: F-07` to `specs/trace-ids.txt` together with the first `@Test` that names T-020a.
+
+## 15. Her voice from Gemini TTS, the same voice as the live session (owner request 2026-11-07)
+
+**Why.** Device 2026-11-07, 1f05a54, session 11:46:56: the Qwen voice works (`voice source=qwen`, first audio 409–1,052 ms), but the owner says it is obviously not the Gemini voice. The owner wants her to sound like the live session's voice, `Leda` (`RealtimeConfig.voiceName`).
+
+**Why not play Gemini's own audio.** Gemini speaks before the app has checked the words (the claim gate, I-1..I-14), so its audio stays dropped (§14 item 10). Instead, the checked text is spoken by Gemini's text-to-speech service with the same voice name.
+
+**Sources** (read 2026-11-07, [speech generation](https://ai.google.dev/gemini-api/docs/speech-generation), now served at aistudio.google.com/docs/speech-generation; [models](https://ai.google.dev/gemini-api/docs/models)):
+- Models: `gemini-3.8-flash-tts` ("flagship", "maximum acoustic fidelity") and `gemini-3.8-flash-lite-tts`, which the page recommends for "conversational voice agent cascades" and "read-aloud features". `gemini-3.1-flash-tts-preview` is marked legacy.
+- Request: `POST https://generativelanguage.googleapis.com/v1beta/interactions`, header `x-goog-api-key`, body `{"model": <model>, "input": [{"type": "user_input", "content": [{"type": "text", "text": <clause>}]}], "response_format": {"type": "audio", "mime_type": "audio/l16", "sample_rate": 24000}, "generation_config": {"speech_config": [{"voice": "Leda"}]}, "stream": true}`.
+- Streaming returns headerless 16-bit signed little-endian PCM, 24 kHz, mono, in events where `event_type` is `step.delta` and `delta.type` is `audio`, base64 in `delta.data`.
+- `text` is spoken verbatim; delivery is set with an annotation `{"type": "speech_metadata", "style": <words>}`, never with words in the text.
+- The 30 prebuilt voices include `Leda` ("Youthful"). Chinese (Hans) is supported; the language is detected from the text.
+- The page does not say the TTS voices are identical to the live session's voices, and gives no latency figure or text-length limit. Rows 8–9 check this.
+
+1. **Check script, on a PC.** `scripts/tts_eval/gemini_tts_check.py`, the same shape as `qwen_tts_check.py` (§14 item 1). It reads `GEMINI_API_KEY` from the environment only, sends the item 3 request for both models over one kept-open connection, writes WAVs to a scratch folder, and prints per run: event count, bytes, duration at 24 kHz, first-audio ms, total ms, worst wait. Runs: (a) 「你好，我是小诺。现在是下午五点四十九分。」 10 times per model; (b) a 1,200-character text, to find a length limit; (c) the same sentence once with `Leda` and once with `Kore`. Results go in `specs/STATUS.md`. The model in item 3 is `gemini-3.8-flash-lite-tts` unless (a) shows it fails or its median first audio is more than 300 ms slower than `gemini-3.8-flash-tts`.
+2. **Choice in 设置.** 「她的声音」 来源 gains **「Gemini（和对话同一个声音）」**, first in the list. It has no fields and needs no extra key: it uses the saved Gemini key. 试听 speaks 「你好，我是小诺。」 with it. New installs, and installs whose saved choice is 千问 from 1f05a54, start on Gemini (one-time move, then a saved choice is kept). 千问 and Azure stay as options, unchanged.
+3. **Client `GeminiSpeechClient: SpeechSynthesizer`** in `Packages/NovaServices/Sources/NovaServices/Gemini/`:
+   - the Sources request with `stream: true`, the voice `RealtimeConfig.voiceName` (so a change of the live voice changes both), no `speech_metadata`;
+   - one kept-open `URLSession` per session, as §14 item 3;
+   - events split on the blank line and their `data:` lines joined before JSON parsing (the §14 lesson); each `step.delta` audio part decoded and appended in order to one 24 kHz `PCMBuffer`; other event types ignored;
+   - the §9 clause deadline; long clauses cut as §14 item 3, with the limit item 1 (b) found, or 600;
+   - codes only (I-8): `GEMINI_TTS_TIMEOUT`, `GEMINI_TTS_NETWORK`, `GEMINI_TTS_AUTH` (401, 403), `GEMINI_TTS_RATE` (429), `GEMINI_TTS_HTTP_<status>`, `GEMINI_TTS_EMPTY`, `GEMINI_TTS_BAD_STREAM`;
+   - `warmUp()` as the Qwen rule (one 「嗯」 at most every 15 s, never played).
+4. **Session start.** `VoiceSource.resolve` gains Gemini: ready when the Gemini key is saved (the session cannot start without it anyway). The §14 item 6 retry and item 7–8 lines apply, with `source=gemini`.
+5. **Clearer missing message (owner 2026-11-07).** 「请先在设置里保存千问 key 和 API Host」 is replaced by a message naming only what is missing: 「请先在设置里保存千问 key」 or 「请先在设置里保存千问 API Host」.
+6. **Network note.** Gemini TTS goes the same way as the live session (through the VPN), so no Clash rule is added.
+7. **Not changed:** Gemini live audio is still dropped; the claim gate; the clause queue; no fallback voice; the Qwen and Azure clients.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 12 | `gemini_tts_check.py` with a real key, runs (a)–(c) | Per-run numbers for both models, the length limit, the chosen model; written in STATUS | script |
+| 13 | Build the request for 「现在是下午五点。」 | URL, `x-goog-api-key`, body exactly as Sources with `stream: true`, voice from `RealtimeConfig.voiceName`, no `speech_metadata` | unit |
+| 14 | A stream body: 3 `step.delta` audio events (one `data:` line split across two reads), one non-audio event, the end | One 24 kHz buffer, the 3 parts joined in order | unit |
+| 15 | 401; 429; 500; 200 with no audio; an event that is not JSON; the deadline passes | `GEMINI_TTS_AUTH`, `_RATE`, `_HTTP_500`, `_EMPTY`, `_BAD_STREAM`, `_TIMEOUT` | unit |
+| 16 | No saved choice; saved 千问 from 1f05a54 (first launch); saved Azure; 千问 with key but no host | Gemini; Gemini; Azure; 「请先在设置里保存千问 API Host」 | unit |
+| 17 | Device: 设置 → 她的声音 → Gemini, 试听; start a session, 10 replies | Sounds like the live session's voice (owner's ear); every reply has `voice source=gemini` and `playback started`; note `first_ms` in the 响应速度 sheet | D |
+| 18 | Device: switch to 千问, then Azure, start a session each | Each still speaks | D |
