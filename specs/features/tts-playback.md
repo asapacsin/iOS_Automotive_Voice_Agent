@@ -167,40 +167,27 @@ Epoch-based flush is required for instant interruption.
 
 **Trace gate.** Add `T-020a: F-07` to `specs/trace-ids.txt` together with the first `@Test` that names T-020a.
 
-## 15. Her voice from Gemini TTS, the same voice as the live session (owner request 2026-11-07)
+## 15. Her voice is Gemini Live's own voice by default (owner decision 2026-11-07)
 
-**Why.** Device 2026-11-07, 1f05a54, session 11:46:56: the Qwen voice works (`voice source=qwen`, first audio 409–1,052 ms), but the owner says it is obviously not the Gemini voice. The owner wants her to sound like the live session's voice, `Leda` (`RealtimeConfig.voiceName`).
+**Why.** Device 2026-11-07, 1f05a54, session 11:46:56. The owner says the Qwen voice is obviously not the Gemini voice, and wants the fastest option with the current Gemini voice. In the weather turn of that session, `query_live_info` returned at +8,041 ms, Gemini's reply began at +8,913, Gemini finished at +9,755, and Qwen's first sound played at +11,494. A separate TTS can start only after Gemini's text exists, plus its own request. Gemini Live already sends her audio, in the live session's voice `Leda` (`RealtimeConfig.voiceName`), with the reply.
 
-**Why not play Gemini's own audio.** Gemini speaks before the app has checked the words (the claim gate, I-1..I-14), so its audio stays dropped (§14 item 10). Instead, the checked text is spoken by Gemini's text-to-speech service with the same voice name.
+**Already built, reused as is.** Without revoicing (`Settings.revoicing == false`), Gemini's reply audio goes through `DriverTurnPipeline` as `speechAudio`, so the claim gate holds audio and subtitle together (I-1, I-5; `specs/ios-architecture.md` §5.2). The existing rules stay as they are:
+- a proven claim releases its audio at once, except while navigation or music evidence is outstanding;
+- a clean chat turn releases its text as it comes and its audio at `generationComplete`;
+- a disproven claim voids the turn before it is heard.
+Rows 13–14 measure the delay these rules give. Changing them is a separate decision for the owner.
 
-**Sources** (read 2026-11-07, [speech generation](https://ai.google.dev/gemini-api/docs/speech-generation), now served at aistudio.google.com/docs/speech-generation; [models](https://ai.google.dev/gemini-api/docs/models)):
-- Models: `gemini-3.8-flash-tts` ("flagship", "maximum acoustic fidelity") and `gemini-3.8-flash-lite-tts`, which the page recommends for "conversational voice agent cascades" and "read-aloud features". `gemini-3.1-flash-tts-preview` is marked legacy.
-- Request: `POST https://generativelanguage.googleapis.com/v1beta/interactions`, header `x-goog-api-key`, body `{"model": <model>, "input": [{"type": "user_input", "content": [{"type": "text", "text": <clause>}]}], "response_format": {"type": "audio", "mime_type": "audio/l16", "sample_rate": 24000}, "generation_config": {"speech_config": [{"voice": "Leda"}]}, "stream": true}`.
-- Streaming returns headerless 16-bit signed little-endian PCM, 24 kHz, mono, in events where `event_type` is `step.delta` and `delta.type` is `audio`, base64 in `delta.data`.
-- `text` is spoken verbatim; delivery is set with an annotation `{"type": "speech_metadata", "style": <words>}`, never with words in the text.
-- The 30 prebuilt voices include `Leda` ("Youthful"). Chinese (Hans) is supported; the language is detected from the text.
-- The page does not say the TTS voices are identical to the live session's voices, and gives no latency figure or text-length limit. Rows 8–9 check this.
-
-1. **Check script, on a PC.** `scripts/tts_eval/gemini_tts_check.py`, the same shape as `qwen_tts_check.py` (§14 item 1). It reads `GEMINI_API_KEY` from the environment only, sends the item 3 request for both models over one kept-open connection, writes WAVs to a scratch folder, and prints per run: event count, bytes, duration at 24 kHz, first-audio ms, total ms, worst wait. Runs: (a) 「你好，我是小诺。现在是下午五点四十九分。」 10 times per model; (b) a 1,200-character text, to find a length limit; (c) the same sentence once with `Leda` and once with `Kore`. Results go in `specs/STATUS.md`. The model in item 3 is `gemini-3.8-flash-lite-tts` unless (a) shows it fails or its median first audio is more than 300 ms slower than `gemini-3.8-flash-tts`.
-2. **Choice in 设置.** 「她的声音」 来源 gains **「Gemini（和对话同一个声音）」**, first in the list. It has no fields and needs no extra key: it uses the saved Gemini key. 试听 speaks 「你好，我是小诺。」 with it. New installs, and installs whose saved choice is 千问 from 1f05a54, start on Gemini (one-time move, then a saved choice is kept). 千问 and Azure stay as options, unchanged.
-3. **Client `GeminiSpeechClient: SpeechSynthesizer`** in `Packages/NovaServices/Sources/NovaServices/Gemini/`:
-   - the Sources request with `stream: true`, the voice `RealtimeConfig.voiceName` (so a change of the live voice changes both), no `speech_metadata`;
-   - one kept-open `URLSession` per session, as §14 item 3;
-   - events split on the blank line and their `data:` lines joined before JSON parsing (the §14 lesson); each `step.delta` audio part decoded and appended in order to one 24 kHz `PCMBuffer`; other event types ignored;
-   - the §9 clause deadline; long clauses cut as §14 item 3, with the limit item 1 (b) found, or 600;
-   - codes only (I-8): `GEMINI_TTS_TIMEOUT`, `GEMINI_TTS_NETWORK`, `GEMINI_TTS_AUTH` (401, 403), `GEMINI_TTS_RATE` (429), `GEMINI_TTS_HTTP_<status>`, `GEMINI_TTS_EMPTY`, `GEMINI_TTS_BAD_STREAM`;
-   - `warmUp()` as the Qwen rule (one 「嗯」 at most every 15 s, never played).
-4. **Session start.** `VoiceSource.resolve` gains Gemini: ready when the Gemini key is saved (the session cannot start without it anyway). The §14 item 6 retry and item 7–8 lines apply, with `source=gemini`.
-5. **Clearer missing message (owner 2026-11-07).** 「请先在设置里保存千问 key 和 API Host」 is replaced by a message naming only what is missing: 「请先在设置里保存千问 key」 or 「请先在设置里保存千问 API Host」.
-6. **Network note.** Gemini TTS goes the same way as the live session (through the VPN), so no Clash rule is added.
-7. **Not changed:** Gemini live audio is still dropped; the claim gate; the clause queue; no fallback voice; the Qwen and Azure clients.
+1. **Choice in 设置.** 「她的声音」 来源 becomes: **「Gemini 原声（最快）」** (first and default), 「千问（阿里云）」, 「Azure」. Gemini 原声 has no fields and needs no extra key. 试听 is hidden for it, because its voice only exists inside a session.
+2. **Which installs move.** New installs, and installs whose saved choice is 千问 from 1f05a54, start on Gemini 原声. This move happens once, on first launch of this build, and is remembered. Any choice saved after that is kept.
+3. **Session start.** `VoiceSource.resolve` gains `.gemini`. It is always ready, because the session cannot start without the Gemini key. With `.gemini`, `Settings.revoicing` is false. No `Revoicer`, no TTS warm-up and no Qwen or Azure connection is created for the session.
+4. **Clearer missing message.** 「请先在设置里保存千问 key 和 API Host」 is replaced by a message naming only what is missing: 「请先在设置里保存千问 key」 or 「请先在设置里保存千问 API Host」.
+5. **Timing line.** For each turn whose audio is played, `RuntimeLog` and the record get `voice source=gemini turn=<n> held_ms=<first audio received → first audio played> first_ms=<utterance sent → first audio played>`, so the 响应速度 sheet can compare sources and show the hold.
+6. **Not changed:** the claim gate and its hold rules; barge-in and epochs; the Qwen and Azure clients and §14, kept as options; F-24 reconnection.
 
 | # | Given / when | Then | Test |
 |---|---|---|---|
-| 12 | `gemini_tts_check.py` with a real key, runs (a)–(c) | Per-run numbers for both models, the length limit, the chosen model; written in STATUS | script |
-| 13 | Build the request for 「现在是下午五点。」 | URL, `x-goog-api-key`, body exactly as Sources with `stream: true`, voice from `RealtimeConfig.voiceName`, no `speech_metadata` | unit |
-| 14 | A stream body: 3 `step.delta` audio events (one `data:` line split across two reads), one non-audio event, the end | One 24 kHz buffer, the 3 parts joined in order | unit |
-| 15 | 401; 429; 500; 200 with no audio; an event that is not JSON; the deadline passes | `GEMINI_TTS_AUTH`, `_RATE`, `_HTTP_500`, `_EMPTY`, `_BAD_STREAM`, `_TIMEOUT` | unit |
-| 16 | No saved choice; saved 千问 from 1f05a54 (first launch); saved Azure; 千问 with key but no host | Gemini; Gemini; Azure; 「请先在设置里保存千问 API Host」 | unit |
-| 17 | Device: 设置 → 她的声音 → Gemini, 试听; start a session, 10 replies | Sounds like the live session's voice (owner's ear); every reply has `voice source=gemini` and `playback started`; note `first_ms` in the 响应速度 sheet | D |
-| 18 | Device: switch to 千问, then Azure, start a session each | Each still speaks | D |
+| 12 | No saved choice; saved 千问 on first launch of this build; saved 千问 after that launch; saved Azure; 千问 with a key but no host | Gemini 原声; Gemini 原声; 千问; Azure; 「请先在设置里保存千问 API Host」 | unit |
+| 13 | Source Gemini 原声: a clean chat turn; a proven `control_climate` turn; a turn whose claim is disproven | `revoicing` false, no `Revoicer` made; audio at `generationComplete` with `voice source=gemini` and `held_ms`; audio at the `ok=true` result; nothing heard, turn voided | unit |
+| 14 | Device: 设置 shows Gemini 原声 selected; 10 everyday replies, including 「现在天气怎么样」 and 「打开空调」 | Her voice is the live session's voice; every reply has `playback started`; `first_ms` and `held_ms` noted in the 响应速度 sheet against the Qwen rows of 1f05a54 | D |
+| 15 | Device: 「打开空调」; 「有蚊子」 then 「那怎么办？」 | 「空调开了」 is heard only after the air-con changes; no claim of an action that did not happen | D |
+| 16 | Device: switch to 千问, then Azure; a session each | Each still speaks as before | D |

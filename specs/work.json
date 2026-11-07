@@ -297,12 +297,12 @@
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
       "priority": 1,
-      "action": "F-07 §15 items 1-7 (Gemini TTS client, voice = RealtimeConfig.voiceName, default source, clearer missing message, check script) and F-24 §16 items 1-3 (AudioChunker 100 ms messages, close code line); F-07 §15 rows 12-18, F-24 §16 rows 1-5.",
+      "action": "F-07 §15 items 1-6 (Gemini 原声 voice source as default using the existing judged non-revoicing path, one-time move from 千问, clearer missing message, voice source=gemini timing line) and F-24 §16 items 1-3 (AudioChunker 100 ms messages, close code line); F-07 §15 rows 12-16, F-24 §16 rows 1-5.",
       "depends_on": [
         "T-020a",
         "T-013j"
       ],
-      "notes": "Owner 2026-11-07 (1f05a54): Qwen voice is not the Gemini voice; and a 5.6 s held sentence released at once queued ~590 10 ms messages past outboxLimit 512, giving WS_FAILED and a dropped sentence. Copied from Google docs: Gemini TTS interactions API (speech-generation page) and 100 ms audio chunks (live-transcribe / live-translate pages)."
+      "notes": "Owner 2026-11-07 (1f05a54): Qwen voice is not the Gemini voice; owner chose the fastest option with the same voice, Gemini Live's own audio. A 5.6 s held sentence released at once queued ~590 10 ms messages past outboxLimit 512, giving WS_FAILED and a dropped sentence; 100 ms chunks copied from Google's Live API guides (live-transcribe / live-translate)."
     },
         {
           "review": "independent read-only high effort",
