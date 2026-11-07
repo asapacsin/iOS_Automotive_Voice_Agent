@@ -292,18 +292,33 @@
           "result": "PASS",
           "commit": "4a925ea"
         },
-    {
-      "id": "T-020b",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
-      "priority": 1,
-      "action": "F-07 §15 items 1-9 (Gemini 原声 voice source as default, clean turns streamed, a disproven claim cuts playback, one-time move from 千问, clearer missing message, voice source=gemini timing line) and F-24 §16 items 1-3 (AudioChunker 100 ms messages, close code line); F-07 §15 rows 12-16, F-24 §16 rows 1-5.",
-      "depends_on": [
-        "T-020a",
-        "T-013j"
-      ],
-      "notes": "Owner 2026-11-07 (1f05a54): Qwen voice is not the Gemini voice; owner chose the fastest option with the same voice, Gemini Live's own audio. A 5.6 s held sentence released at once queued ~590 10 ms messages past outboxLimit 512, giving WS_FAILED and a dropped sentence; 100 ms chunks copied from Google's Live API guides (live-transcribe / live-translate)."
-    },
+        {
+          "id": "T-020b",
+          "owner": "AUTONOMOUS",
+          "status": "PASS",
+          "priority": 1,
+          "action": "F-07 §15 items 1-9 (Gemini 原声 voice source as default, clean turns streamed, a disproven claim cuts playback, one-time move from 千问, clearer missing message, voice source=gemini timing line) and F-24 §16 items 1-3 (AudioChunker 100 ms messages, close code line); F-07 §15 rows 12-16, F-24 §16 rows 1-5.",
+          "depends_on": [
+            "T-020a",
+            "T-013j"
+          ],
+          "notes": "Owner 2026-11-07 (1f05a54): Qwen voice is not the Gemini voice; owner chose the fastest option with the same voice, Gemini Live's own audio. A 5.6 s held sentence released at once queued ~590 10 ms messages past outboxLimit 512, giving WS_FAILED and a dropped sentence; 100 ms chunks copied from Google's Live API guides (live-transcribe / live-translate).",
+          "evidence": [
+            {
+              "gate": "scripts/gates/run_all.sh",
+              "result": "PASS",
+              "commit": "b82b3bc"
+            },
+            {
+              "review": "independent read-only high effort",
+              "result": "PASS"
+            },
+            {
+              "device": "F-07 rows 14-16, F-24 row 5",
+              "result": "NOT_VERIFIED"
+            }
+          ]
+        },
         {
           "review": "independent read-only high effort",
           "result": "PASS"
