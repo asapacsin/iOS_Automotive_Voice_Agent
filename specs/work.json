@@ -320,6 +320,18 @@
           ]
         },
         {
+          "id": "T-020c",
+          "owner": "AUTONOMOUS",
+          "status": "TODO",
+          "priority": 1,
+          "action": "F-18 §27 items 1-6 (web_search and query_live_info declared NON_BLOCKING, run in background, responses scheduling WHEN_IDLE, other tools blocking, dropped on reconnect, logs) and F-07 §16 items 1-3 (保存她的原声 WAV switch, playback format line); F-18 §27 rows 1-6, F-07 §16 rows 17-18.",
+          "depends_on": [
+            "T-020b"
+          ],
+          "notes": "Owner 2026-11-07 (eef9860): Gemini is the main model, search is background work; copied from Gemini Live API asynchronous function calling (gemini-3.8-live supports sync and async). Owner hears an old-woman voice although records show voice source=gemini only; find out first, change nothing.",
+          "evidence": []
+        },
+        {
           "review": "independent read-only high effort",
           "result": "PASS"
         },

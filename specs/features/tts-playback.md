@@ -198,3 +198,16 @@ One rule changes, by owner decision (2026-11-07, see the next paragraph): a clea
 | 14 | Device: 设置 shows Gemini 原声 selected; 10 everyday replies, including 「现在天气怎么样」 and 「打开空调」 | Her voice is the live session's voice; every reply has `playback started`; `first_ms` and `held_ms` noted in the 响应速度 sheet against the Qwen rows of 1f05a54 | D |
 | 15 | Device: 「打开空调」; 「有蚊子」 then 「那怎么办？」; 20 chat replies | 「空调开了」 is heard only after the air-con changes; no claim of an action that did not happen; count any `claim-cut` lines | D |
 | 16 | Device: switch to 千问, then Azure; a session each | Each still speaks as before | D |
+
+## 16. Her Gemini voice sounds like an old woman on the phone (owner report 2026-11-07, find out first)
+
+**Why.** Owner 2026-11-07, eef9860: 「the original gemini voice is good」 but in the app she sounds like an old woman. The records of sessions 14:42:01, 14:42:07 and 17:10:57 show only `voice source=gemini`, so it is Gemini's own audio (`Leda`, 24 kHz) as our app plays it, not Qwen or Azure. Playback runs in an `AVAudioSession` with `.playAndRecord`, mode `.voiceChat` and voice processing on (`LiveAudio.swift`, F-04a §4 layer 1). Cause not known; nothing is changed until it is.
+
+1. **Keep what was received.** A 设置 → 开发 switch 「保存她的原声」 (off by default). When on, each turn's reply audio is written exactly as received from Gemini (24 kHz, 16-bit mono, before any playback processing) to `Documents/conversations/<record>-turn<n>.wav`.
+2. **Log the playback format.** At session start: `playback format rate=<Hz> channels=<n> mode=<session mode> voiceProcessing=<on|off>`.
+3. **Not changed:** voice, echo cancellation, session mode, playback path.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 17 | Switch on, a 2-turn reply fixture | Two WAV files, 24 kHz mono 16-bit, bytes equal to the received audio; switch off: none | unit |
+| 18 | Device: switch on, 5 replies | The WAV files pulled to the PC; the owner compares them with the phone's sound and with Leda in AI Studio; `playback format` line noted | D |

@@ -802,3 +802,31 @@ Also from the §25 record: 高德's geocoder answered 仙台 with 弋阳县 and 
 | Task | Scope | Verify |
 |---|---|---|
 | T-046o | Items 1–12; rows 1–13 | unit, build, D |
+
+## 27. Search runs in the background; Gemini keeps the conversation (iOS, APPROVED 2026-11-07)
+
+**Why.** Owner 2026-11-07: Gemini is the main model; search and tools are background work, and Gemini answers with the result when it is ready. Today every function is blocking (the Live API default: "execution pauses until the results of each function call are available"), so she is silent while a search runs (device 2026-11-07, weather turn: tool result at +8,041 ms, nothing heard before it).
+
+**Copied practice.** Gemini Live API asynchronous function calling (ai.google.dev/gemini-api/docs/live-tools; Vertex "Asynchronous function calling with Gemini Live API"): a function declared with `"behavior": "NON_BLOCKING"` runs while the conversation continues, and its `FunctionResponse.response` carries `"scheduling"`: `INTERRUPT`, `WHEN_IDLE` or `SILENT`. The model table lists `gemini-3.8-live` (ours) as supporting synchronous and asynchronous calls. Google's guide runs slow tools in a background task so the receive loop never blocks. LiveKit's async tools do the same (agent acknowledges at once, work continues; docs.livekit.io/agents/logic/tools/async).
+
+1. **Which tools.** `web_search` and `query_live_info` are declared with `"behavior": "NON_BLOCKING"`. Every other function (car controls, navigation, music, phone, camera) stays blocking, so an action is still only claimed after its result (I-1, I-5).
+2. **Running.** A NON_BLOCKING call runs as a background task; the session keeps receiving and sending, the microphone stays open, and Gemini may answer meanwhile (for example 「我查一下」). No text of ours is added to make her say it; Gemini decides.
+3. **Result.** The response is sent with `"scheduling": "WHEN_IDLE"`, so Gemini finishes what she is saying and then answers from the result. Errors and advice texts go back the same way.
+4. **Cancelled or stale.** If the session reconnects before the result arrives, the result is dropped and `tool-result <name> dropped reason=reconnect` is logged. A barge-in does not cancel a running search.
+5. **Claim gate.** An answer spoken after a `WHEN_IDLE` result is a new turn judged as today; a sentence spoken while the call runs is a chat turn (§15 of F-07: streamed).
+6. **Log.** `tool-call <name> async=true` when sent as NON_BLOCKING; `tool-result <name> scheduling=WHEN_IDLE ms=<call → result>`.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Setup message | `web_search` and `query_live_info` carry `"behavior":"NON_BLOCKING"`; `control_climate` and the other functions carry no `behavior` | unit |
+| 2 | A `query_live_info` call whose fake tool returns after 3 s while the server sends audio | Audio keeps playing and the receive loop keeps running during the 3 s; the response carries `"scheduling":"WHEN_IDLE"` | unit |
+| 3 | A `control_climate` call | Sent and answered as today (blocking, no `scheduling`) | unit |
+| 4 | Reconnect while a `web_search` runs | Result not sent; `dropped reason=reconnect` logged | unit |
+| 5 | Device, search on: 「现在天气怎么样」, 「奥斯陆11月12日天气」, 「今天油价多少」, each 3 times | She is not silent until the result: something is heard within about 3 s of the end of the question, then the answer; `async=true` in the record; numbers match as in §26 row 11 | D |
+| 6 | Device: 「打开空调」 | 「空调开了」 only after the air-con changes, as before | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-020c | Items 1–6; rows 1–6 (with F-07 §16) | unit, build, D |
