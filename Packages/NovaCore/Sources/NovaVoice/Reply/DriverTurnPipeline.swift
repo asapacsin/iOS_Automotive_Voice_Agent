@@ -164,6 +164,7 @@ public struct DriverTurnPipeline: Sendable {
             opened.pendingCalls = utterancePending
             opened.backgroundCalls = utterancePending.intersection(utteranceBackground)
             opened.hadToolCall = !utteranceCalls.isEmpty
+            opened.hadBlockingCall = !utteranceCalls.subtracting(utteranceBackground).isEmpty
             turn = opened
             freshUtterance = false
             return modelResponded()

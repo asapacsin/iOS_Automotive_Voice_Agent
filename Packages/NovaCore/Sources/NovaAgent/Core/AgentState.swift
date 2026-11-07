@@ -217,7 +217,7 @@ public struct AgentState: Sendable {
     private var waitingFallback: (text: String, id: GuidanceID, since: NovaInstant)?
     /// How long a fallback waits for trailing reply audio before cutting it (PROPOSED).
     static let fallbackWaitMax = NovaDuration.milliseconds(4000)
-    private var runningTools = 0
+    private(set) var runningTools = 0
     /// F-18 §16 item 7 (T-046d): running `web_search` calls and their turn; a barge-in or the turn's interruption
     /// cancels them, and a cancelled one sends no result.
     private var searchCalls: [CallID: TurnID] = [:]
@@ -1005,8 +1005,11 @@ public struct AgentState: Sendable {
             }
             return effects
         case .toolCallCancellation(let ids):
-            for id in ids where searchCalls.removeValue(forKey: id) != nil { runningTools = max(runningTools - 1, 0) }
-            for id in ids { asyncCalls[id] = nil }
+            for id in ids {
+                let search = searchCalls.removeValue(forKey: id) != nil
+                let background = asyncCalls.removeValue(forKey: id) != nil
+                if search || background { runningTools = max(runningTools - 1, 0) }
+            }
             return ids.map { .cancelTool($0) }
         case .audioDone(let turn):
             if relayTurns[turn] != nil { return [] }

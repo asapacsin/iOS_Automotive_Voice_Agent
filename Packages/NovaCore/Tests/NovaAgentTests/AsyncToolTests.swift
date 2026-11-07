@@ -1,4 +1,5 @@
 import Foundation
+import NovaTools
 import Testing
 import NovaKit
 import NovaPorts
@@ -124,5 +125,29 @@ struct ReplyAudioKeeperTests {
     func formatLine() {
         #expect(PlaybackFormat(rate: 48_000, channels: 1, mode: "voiceChat", voiceProcessing: true).line
             == "playback format rate=48000 channels=1 mode=voiceChat voiceProcessing=on")
+    }
+}
+
+@Suite("T-020c review fixes")
+struct AsyncToolReviewTests {
+    @Test("A later turn of an utterance whose call was blocking is still held whole (I-1, I-5)")
+    func laterTurnHeld() {
+        var p = DriverTurnPipeline(streamsCleanAudio: true)
+        let now = NovaInstant.zero
+        _ = p.handle(.driverUtterance("我有点冷"), at: now)
+        _ = p.handle(.turnOpened(TurnID(1)), at: now)
+        _ = p.handle(.toolCalls(TurnID(1), [climateOn()]), at: now)
+        _ = p.handle(.turnOpened(TurnID(2)), at: now)
+        let out = p.handle(.replyAudio(TurnID(2), PCMBuffer(sampleRate: 24_000, samples: [1])), at: now)
+        #expect(!out.contains { if case .speechAudio = $0 { true } else { false } })
+    }
+
+    @Test("A server-cancelled query_live_info frees the tool count")
+    func cancelledLiveInfo() {
+        var d = AsyncToolTests.asking()
+        let call = liveInfoCall()
+        d.realtime(.toolCalls(TurnID(1), [call]))
+        d.realtime(.toolCallCancellation([call.id]))
+        #expect(d.state.runningTools == 0)
     }
 }
