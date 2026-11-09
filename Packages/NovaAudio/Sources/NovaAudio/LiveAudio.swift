@@ -249,12 +249,15 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     /// bundled loop or an earlier preview. `onEnd` runs when it played to the end (not when stopped). False when
     /// the engine cannot play now.
     @discardableResult
-    public func playPreview(_ buffer: AVAudioPCMBuffer, onEnd: @escaping @Sendable () -> Void) -> Bool {
+    public func playPreview(_ buffer: AVAudioPCMBuffer, stillWanted: @escaping @Sendable () -> Bool,
+                            onEnd: @escaping @Sendable () -> Void) -> Bool {
         stopMedia()
         guard lock.withLock({ running }), engine.isRunning, buffer.format == previewFormat else { return false }
         let generation = lock.withLock { mediaGeneration }
         preview.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
             guard let self else { return }
+            // A completion while the engine is stopped (a route change restart) is not the preview's end.
+            guard self.engine.isRunning else { return }
             let ended = self.lock.withLock { () -> Bool in
                 guard self.mediaGeneration == generation, self.mediaOn, self.previewOn else { return false }
                 self.mediaGeneration += 1
@@ -273,6 +276,11 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             previewOn = playing
         }
         if playing { continuation.yield(.mediaPlaying(true)) }
+        // A stop or a newer preview that came while this one was being scheduled wins: stop it again.
+        if playing, !stillWanted() {
+            stopMedia()
+            return false
+        }
         return playing
     }
 

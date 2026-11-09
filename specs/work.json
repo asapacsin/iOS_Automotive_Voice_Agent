@@ -293,96 +293,6 @@
           "commit": "4a925ea"
         },
         {
-          "id": "T-020b",
-          "owner": "AUTONOMOUS",
-          "status": "PASS",
-          "priority": 1,
-          "action": "F-07 §15 items 1-9 (Gemini 原声 voice source as default, clean turns streamed, a disproven claim cuts playback, one-time move from 千问, clearer missing message, voice source=gemini timing line) and F-24 §16 items 1-3 (AudioChunker 100 ms messages, close code line); F-07 §15 rows 12-16, F-24 §16 rows 1-5.",
-          "depends_on": [
-            "T-020a",
-            "T-013j"
-          ],
-          "notes": "Owner 2026-11-07 (1f05a54): Qwen voice is not the Gemini voice; owner chose the fastest option with the same voice, Gemini Live's own audio. A 5.6 s held sentence released at once queued ~590 10 ms messages past outboxLimit 512, giving WS_FAILED and a dropped sentence; 100 ms chunks copied from Google's Live API guides (live-transcribe / live-translate).",
-          "evidence": [
-            {
-              "gate": "scripts/gates/run_all.sh",
-              "result": "PASS",
-              "commit": "b82b3bc"
-            },
-            {
-              "review": "independent read-only high effort",
-              "result": "PASS"
-            },
-            {
-              "device": "F-07 rows 14-16, F-24 row 5",
-              "result": "NOT_VERIFIED"
-            }
-          ]
-        },
-        {
-          "id": "T-020c",
-          "owner": "AUTONOMOUS",
-          "status": "PASS",
-          "priority": 1,
-          "action": "F-18 §27 items 1-6 (web_search and query_live_info declared NON_BLOCKING, run in background, responses scheduling WHEN_IDLE, other tools blocking, dropped on reconnect, logs) and F-07 §16 items 1-3 (保存她的原声 WAV switch, playback format line); F-18 §27 rows 1-6, F-07 §16 rows 17-18.",
-          "depends_on": [
-            "T-020b"
-          ],
-          "notes": "Owner 2026-11-07 (eef9860): Gemini is the main model, search is background work; copied from Gemini Live API asynchronous function calling (gemini-3.8-live supports sync and async). Owner hears an old-woman voice although records show voice source=gemini only; find out first, change nothing.",
-          "evidence": [
-            {
-              "gate": "scripts/gates/run_all.sh",
-              "result": "PASS",
-              "commit": "e51191f"
-            },
-            {
-              "review": "independent read-only high effort",
-              "result": "PASS"
-            },
-            {
-              "device": "F-18 §27 rows 5-6, F-07 §16 row 18",
-              "result": "NOT_VERIFIED"
-            }
-          ]
-        },
-        {
-          "id": "T-032b",
-          "owner": "AUTONOMOUS",
-          "status": "TODO",
-          "priority": 1,
-          "action": "F-13 §14 items 1-11 (ITunesPreviewMusic as NamedMusicPort wired into MusicToolHandler: iTunes Search API song search with the country setting, pick rule, AVPlayer streamed preview on the media lane, now-playing proof, end, card with iTunes attribution and Apple Music link, failure codes, tool text, logs); F-13 §14 rows 1-11.",
-          "depends_on": [
-            "T-032",
-            "T-020c"
-          ],
-          "notes": "Owner 2026-11-09: 「梶浦那首空之境界的歌」 should play inside the app without another app opening, with no subscription or paid account. OQ-IOS-7 reopened for 30 s iTunes previews. Apple's preview terms (promotional, not for entertainment) recorded as owner risk; the build is not distributed.",
-          "evidence": []
-        },
-        {
-          "id": "T-032c",
-          "owner": "AUTONOMOUS",
-          "status": "TODO",
-          "priority": 1,
-          "action": "F-13 §15 items 1-6 (曲库地区 HK default, CN removed and moved to HK; play_music description asks for a real title in the original language; one title-only retry; MUSIC_NOT_FOUND advice; try/term log); F-13 §15 rows 1-6.",
-          "depends_on": [
-            "T-032b"
-          ],
-          "notes": "Device 2026-11-09 (2a35f02): MUSIC_NOT_FOUND twice. Live API check 2026-11-09: country=CN returns 0 for every term; HK finds oblivious, 晴天, 十年 including simplified terms. Gemini sent no title and the driver's sentence as query.",
-          "evidence": []
-        },
-        {
-          "id": "T-090",
-          "owner": "AUTONOMOUS",
-          "status": "TODO",
-          "priority": 2,
-          "action": "F-25 §14 items 1-5 (delete MusicKitPlayer and the CarPlay scene with their project, entitlement and gate entries; tab bar 驾驶/车辆/设置 with 音频测试 and 录制 under 设置 → 开发; STATUS T-072/T-080 REMOVED); F-25 §14 rows 1-4.",
-          "depends_on": [
-            "T-032b"
-          ],
-          "notes": "Owner 2026-11-09: clear built-but-unused code. Azure express-as is wired (SpeakingStyle.saved) and ComfortEval is used by tests, so both stay.",
-          "evidence": []
-        },
-        {
           "review": "independent read-only high effort",
           "result": "PASS"
         },
@@ -393,6 +303,154 @@
           "rows9-11": "NOT_VERIFIED device"
         }
       ]
+    },
+    {
+      "id": "T-020b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-07 §15 items 1-9 (Gemini 原声 voice source as default, clean turns streamed, a disproven claim cuts playback, one-time move from 千问, clearer missing message, voice source=gemini timing line) and F-24 §16 items 1-3 (AudioChunker 100 ms messages, close code line); F-07 §15 rows 12-16, F-24 §16 rows 1-5.",
+      "depends_on": [
+        "T-020a",
+        "T-013j"
+      ],
+      "notes": "Owner 2026-11-07 (1f05a54): Qwen voice is not the Gemini voice; owner chose the fastest option with the same voice, Gemini Live's own audio. A 5.6 s held sentence released at once queued ~590 10 ms messages past outboxLimit 512, giving WS_FAILED and a dropped sentence; 100 ms chunks copied from Google's Live API guides (live-transcribe / live-translate).",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "b82b3bc"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "device": "F-07 rows 14-16, F-24 row 5",
+          "result": "NOT_VERIFIED"
+        }
+      ]
+    },
+    {
+      "id": "T-020c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §27 items 1-6 (web_search and query_live_info declared NON_BLOCKING, run in background, responses scheduling WHEN_IDLE, other tools blocking, dropped on reconnect, logs) and F-07 §16 items 1-3 (保存她的原声 WAV switch, playback format line); F-18 §27 rows 1-6, F-07 §16 rows 17-18.",
+      "depends_on": [
+        "T-020b"
+      ],
+      "notes": "Owner 2026-11-07 (eef9860): Gemini is the main model, search is background work; copied from Gemini Live API asynchronous function calling (gemini-3.8-live supports sync and async). Owner hears an old-woman voice although records show voice source=gemini only; find out first, change nothing.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "e51191f"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "device": "F-18 §27 rows 5-6, F-07 §16 row 18",
+          "result": "NOT_VERIFIED"
+        }
+      ]
+    },
+    {
+      "id": "T-032b",
+      "owner": "AUTONOMOUS",
+      "status": "HUMAN_REQUIRED",
+      "priority": 1,
+      "action": "F-13 §14 items 1-11 (ITunesPreviewMusic as NamedMusicPort wired into MusicToolHandler: iTunes Search API song search with the country setting, pick rule, AVPlayer streamed preview on the media lane, now-playing proof, end, card with iTunes attribution and Apple Music link, failure codes, tool text, logs); F-13 §14 rows 1-11.",
+      "depends_on": [
+        "T-032",
+        "T-020c"
+      ],
+      "notes": "Owner 2026-11-09: 「梶浦那首空之境界的歌」 should play inside the app without another app opening, with no subscription or paid account. OQ-IOS-7 reopened for 30 s iTunes previews. Apple's preview terms (promotional, not for entertainment) recorded as owner risk; the build is not distributed.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "2a35f02"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS with item 4 deferred"
+        },
+        {
+          "device": "F-13 §14 rows 8-11",
+          "result": "NOT_VERIFIED"
+        },
+        {
+          "owner": "item 4 (echo reference, ducking, stop paths) moved to T-032d (F-13 §16)",
+          "result": "IN_T-032d"
+        }
+      ]
+    },
+    {
+      "id": "T-032c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-13 §15 items 1-6 (曲库地区 HK default, CN removed and moved to HK; play_music description asks for a real title in the original language; one title-only retry; MUSIC_NOT_FOUND advice; try/term log); F-13 §15 rows 1-6.",
+      "depends_on": [
+        "T-032b"
+      ],
+      "notes": "Device 2026-11-09 (2a35f02): MUSIC_NOT_FOUND twice. Live API check 2026-11-09: country=CN returns 0 for every term; HK finds oblivious, 晴天, 十年 including simplified terms. Gemini sent no title and the driver's sentence as query.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "a3ceffb"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "device": "F-13 §15 rows 5-6",
+          "result": "NOT_VERIFIED"
+        }
+      ]
+    },
+    {
+      "id": "T-090",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-25 §14 items 1-5 (delete MusicKitPlayer and the CarPlay scene with their project, entitlement and gate entries; tab bar 驾驶/车辆/设置 with 音频测试 and 录制 under 设置 → 开发; STATUS T-072/T-080 REMOVED); F-25 §14 rows 1-4.",
+      "depends_on": [
+        "T-032b"
+      ],
+      "notes": "Owner 2026-11-09: clear built-but-unused code. Azure express-as is wired (SpeakingStyle.saved) and ComfortEval is used by tests, so both stay.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "e7b3479"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "device": "F-25 §14 rows 2-4",
+          "result": "NOT_VERIFIED"
+        }
+      ]
+    },
+    {
+      "id": "T-032d",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "action": "F-13 §16 items 1-6: preview through LiveAudio's engine (EnginePreviewPlayer, preview node on the media lane, in-memory download and AudioFile/ExtAudioFile decode, no AVPlayer); rows 1-5.",
+      "depends_on": [
+        "T-032b"
+      ],
+      "notes": "Owner 2026-11-09: approved routing the preview through the app's audio engine after the community check (playback must share the voice-processing engine for echo cancellation).",
+      "evidence": []
     },
     {
       "id": "T-024",

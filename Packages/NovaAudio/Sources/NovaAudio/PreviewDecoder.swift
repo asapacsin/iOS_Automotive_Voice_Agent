@@ -50,8 +50,9 @@ enum PreviewDecoder {
         propSize = UInt32(MemoryLayout<Int64>.size)
         _ = ExtAudioFileGetProperty(ext, kExtAudioFileProperty_FileLengthFrames, &propSize, &fileFrames)
         // A 30 s preview; the cap keeps a wrong length from allocating without bound.
-        let expected = Double(max(fileFrames, 0)) * format.sampleRate / fileFormat.mSampleRate
-        let capacity = AVAudioFrameCount(min(expected + 8_192, format.sampleRate * 90))
+        let cap = format.sampleRate * 90
+        let expected = fileFrames > 0 ? Double(fileFrames) * format.sampleRate / fileFormat.mSampleRate + 8_192 : cap
+        let capacity = AVAudioFrameCount(min(expected, cap))
         let chunkFrames: AVAudioFrameCount = 4_096
         guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity),
               let chunk = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkFrames),

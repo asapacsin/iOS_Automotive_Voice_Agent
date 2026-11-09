@@ -42,7 +42,9 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
                   !Task.isCancelled,
                   let pcm = PreviewDecoder.decode(fetched.0, to: audio.previewPCMFormat),
                   !Task.isCancelled, let self, self.lock.withLock({ self.generation == mine }) else { return }
-            audio.playPreview(pcm) { [weak self] in
+            audio.playPreview(pcm, stillWanted: { [weak self] in
+                self?.lock.withLock { self?.generation == mine } ?? false
+            }) { [weak self] in
                 guard let self, self.lock.withLock({ self.generation == mine }) else { return }
                 onEnded()
             }
