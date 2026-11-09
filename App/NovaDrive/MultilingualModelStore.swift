@@ -104,9 +104,13 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
         let id = UUID()
         lock.withLock { watchers[id] = onChange }
         return Task { [weak self] in
+            let store = self
             await withTaskCancellationHandler {
                 while !Task.isCancelled { try? await Task.sleep(nanoseconds: 3_600_000_000_000) }
-            } onCancel: { self?.lock.withLock { _ = self?.watchers.removeValue(forKey: id) } }
+            } onCancel: {
+                guard let store else { return }
+                store.lock.withLock { _ = store.watchers.removeValue(forKey: id) }
+            }
         }
     }
 
