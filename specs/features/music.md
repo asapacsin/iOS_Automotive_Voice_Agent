@@ -88,3 +88,31 @@ when a new play request starts, then `true` only once that request is verified p
 | Task | Scope | Verify |
 |---|---|---|
 | T-032b | Items 1–11; rows 1–11 | unit, build, D |
+
+## 15. Named music finds the song: Hong Kong catalogue, a real title, one retry (iOS, APPROVED 2026-11-09)
+
+**Why.** Device 2026-11-09, 2a35f02, record 20261109-145607: 「帮我播那个…空之境界的那个什么歌」 gave `play_music{"album_or_work":"空之境界","artist":"梶浦由记","query":"帮我播那个…什么歌"}` → `MUSIC_NOT_FOUND`, twice. Two causes, both checked against the live API on 2026-11-09:
+- **Catalogue.** `country=CN` returns 0 results for every term tried (「oblivious Kalafina」, 「Kalafina」, 「晴天 周杰伦」, 「空之境界 梶浦由记」). With `country=HK` the same terms find the songs: oblivious and sprinter by Kalafina, 晴天 by 周杰倫, 十年 by 陳奕迅, Lemon by 米津玄師, with a `previewUrl`, including simplified-character terms (「晴天 周杰伦」, 「十年 陈奕迅」). TW and JP also find them.
+- **Term.** No `title` was given, so the term was the work, the composer and the driver's whole sentence. In HK, 「空之境界 梶浦由记」 returns soundtrack pieces (「Ⅱ quiet romance」), not a song; 「oblivious」 alone returns Kalafina's oblivious first.
+
+1. **Catalogue.** 「曲库地区」 options become 香港 HK (default), 台湾 TW, 日本 JP, 美国 US. 中国大陆 is removed. A saved CN becomes HK on first launch of this build.
+2. **Tool text.** In the `play_music` description, 「确定不了只填 query 和 mood」 becomes: 「先用你的知识确定一首具体的歌：title 填发行时的歌名原文（如 oblivious），artist 填演唱者（如 Kalafina）；不要把用户的原话填进 query。实在确定不了才只填 query 或 mood。」. The rest of the description stays.
+3. **Retry in the app.** When a search with both `title` and `artist` has no usable result, one more request is made with `title` alone, then the item 3 pick rule of §14 applies. At most two requests per call.
+4. **Retry by Gemini.** `MUSIC_NOT_FOUND` advice becomes: 「曲库里没找到。如果还没填 title，请先确定一首具体的歌，用歌名原文和演唱者再调用一次 play_music；已经填了 title 还是没有，就如实说没找到，不要说在放。」.
+5. **Log.** `music search` gets `try=<1|2>` and the term kind `term=<title+artist|title|other>`.
+6. **Not changed:** the rest of §14 (preview playback, proof, card, failures).
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | No saved region; saved CN; saved JP | HK; HK; JP. Requests use that `country` | unit |
+| 2 | `title:"oblivious", artist:"梶浦由记"`, fixture: first request empty, second (`term=oblivious`) has Kalafina's oblivious | Two requests, second term `oblivious`; Kalafina's oblivious picked and played | unit |
+| 3 | Only `album_or_work` and `query`; first request empty | One request only; `MUSIC_NOT_FOUND` with the item 4 advice | unit |
+| 4 | Catalog `play_music` description; `MUSIC_NOT_FOUND` advice | Texts exactly as items 2 and 4 | unit |
+| 5 | Device: 「我想听梶浦那首空之境界的歌」 (said loosely, as on 2026-11-09) | `play_music` has a `title` (for example oblivious) and `artist`; a 空之境界 song by Kalafina plays inside the app | D |
+| 6 | Device: 「放周杰伦的晴天」; 「放陈奕迅的十年」 | Each plays | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-032c | Items 1–6; rows 1–6 | unit, build, D |

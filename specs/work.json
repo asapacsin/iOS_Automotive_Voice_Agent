@@ -359,6 +359,18 @@
           "evidence": []
         },
         {
+          "id": "T-032c",
+          "owner": "AUTONOMOUS",
+          "status": "TODO",
+          "priority": 1,
+          "action": "F-13 §15 items 1-6 (曲库地区 HK default, CN removed and moved to HK; play_music description asks for a real title in the original language; one title-only retry; MUSIC_NOT_FOUND advice; try/term log); F-13 §15 rows 1-6.",
+          "depends_on": [
+            "T-032b"
+          ],
+          "notes": "Device 2026-11-09 (2a35f02): MUSIC_NOT_FOUND twice. Live API check 2026-11-09: country=CN returns 0 for every term; HK finds oblivious, 晴天, 十年 including simplified terms. Gemini sent no title and the driver's sentence as query.",
+          "evidence": []
+        },
+        {
           "id": "T-090",
           "owner": "AUTONOMOUS",
           "status": "TODO",
