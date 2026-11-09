@@ -2057,14 +2057,33 @@
     {
       "id": "T-016l",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "PASS",
       "priority": 1,
       "action": "F-05a §14 items 1-7 (SenseVoice download after install with SHA-256 check and hf-mirror fallback; SenseVoice final with lang within the 800 ms wait; ScreenLanguage allows Kana and English; ReplyLanguage isNotAllowed; no languageCode; persona answers in the driver's language; logs); F-05a §14 rows 1-11.",
       "depends_on": [
         "T-016i"
       ],
       "notes": "Owner 2026-11-09: speaks English and Japanese too; the model must be installed after the app, not in the package. Model sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17 rev 2365baea (239 MB int8); the 2025-09-09 int8 package is a Cantonese fine-tune, not used. T-016k is taken on 11-06-unbuilt-specs.",
-      "evidence": []
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green (NovaCore 706, NovaRealtime 42, NovaServices 71, spec-trace 108 ids 0 missing); NovaAsrSherpa type-checked on Linux without its binary targets; App not compiled here (Codemagic)",
+          "commit": "e2047e1, 5b869e5, 947946b + hardening"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS after two fix rounds (Wi-Fi wait vs 用流量下载, relaunch adoption, background events, install failure, late SenseVoice finals, C string lifetime)"
+        },
+        {
+          "deviation": "maxBaseCharacters 1700 -> 1707: item 4's exact persona text adds 28 characters; smallest limit that fits"
+        },
+        {
+          "open": "FunASR licence terms for this app not reviewed (owner); utterances over 30 s: SenseVoice covers the first 30 s and replaces the streaming final, as specified"
+        },
+        {
+          "device": "rows 8-11 NOT_VERIFIED; whether gemini-3.8-live accepts a setup without languageCode is row 10"
+        }
+      ]
     },
     {
       "id": "T-013e",

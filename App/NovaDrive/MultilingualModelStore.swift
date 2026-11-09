@@ -64,7 +64,11 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
                 // One running task at most; anything else is cancelled.
                 guard !kept, parts.count == 3, let host = Int(parts[1]) else { task.cancel(); continue }
                 kept = true
-                update { $0.adopt(file: parts[0], host: host, cellular: parts[2] == "1"); return [] }
+                guard task.state == .running || task.state == .suspended else { continue }
+                update { m in
+                    if m.currentFile == nil { m.adopt(file: parts[0], host: host, cellular: parts[2] == "1") }
+                    return []
+                }
             }
             let run = lock.withLock { () -> Bool in
                 adopted = true
@@ -161,18 +165,19 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
     // MARK: machine
 
     private func update(_ step: (inout MultilingualDownload) -> [MultilingualDownload.Command]) {
-        let (commands, before, host) = lock.withLock { () -> ([MultilingualDownload.Command], MultilingualModelState, Int) in
-            let before = machine.state
+        let (commands, before, cellularBefore, host) = lock.withLock {
+            () -> ([MultilingualDownload.Command], MultilingualModelState, Bool, Int) in
+            let before = machine.state, cellular = machine.allowsCellular
             let commands = step(&machine)
-            return (commands, before, machine.hostIndex)
+            return (commands, before, cellular, machine.hostIndex)
         }
         // An install that fails resets the machine; the commands after it no longer apply.
         for command in commands {
             guard run(command, host: host) else { break }
         }
         let after = state
-        // The view also follows changes that keep the state (用流量下载 at 0% hides the button).
-        notifyView(after)
+        // The view follows a new state or a new 用流量下载 choice (which can keep the state, at 0%).
+        if after != before || lock.withLock({ machine.allowsCellular }) != cellularBefore { notifyView(after) }
         guard after != before else { return }
         // Percent steps are not a state change for the record or the log.
         if case .downloading = before, case .downloading = after { return }
