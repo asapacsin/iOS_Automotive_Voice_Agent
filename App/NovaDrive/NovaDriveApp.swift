@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The app's tabs; `open_app` (F-25) switches between them.
 enum AppTab: Hashable {
-    case drive, vehicle, audio, recorder, settings
+    case drive, vehicle, settings
 }
 
 /// Which tab is showing. Shared so a tool can switch it.
@@ -25,7 +25,7 @@ struct TabSurfaces: AppSurfacePort {
             switch AppNavigation.shared.tab {
             case .drive: return .maps
             case .settings: return .settings
-            default: return nil
+            case .vehicle: return nil
             }
         }
     }
@@ -50,8 +50,6 @@ struct NovaDriveApp: App {
             TabView(selection: $navigation.tab) {
                 DriveView().tabItem { Label("驾驶", systemImage: "steeringwheel") }.tag(AppTab.drive)
                 ContentView().tabItem { Label("车辆", systemImage: "car") }.tag(AppTab.vehicle)
-                AudioSpikeView().tabItem { Label("音频测试", systemImage: "waveform") }.tag(AppTab.audio)
-                RecorderView().tabItem { Label("录制", systemImage: "record.circle") }.tag(AppTab.recorder)
                 SettingsView().tabItem { Label("设置", systemImage: "key") }.tag(AppTab.settings)
             }
         }

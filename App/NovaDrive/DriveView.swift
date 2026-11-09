@@ -125,7 +125,7 @@ private struct CameraWindow: View {
 
 @MainActor
 final class RuntimeHolder: ObservableObject {
-    /// One runtime for the phone screen and the CarPlay scene (they read the same snapshots, §11.5).
+    /// One runtime for the phone screen.
     static let shared = RuntimeHolder()
     let runtime = AgentRuntime()
 }

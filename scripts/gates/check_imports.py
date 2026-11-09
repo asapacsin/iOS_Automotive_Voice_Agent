@@ -22,10 +22,9 @@ OWNERS = {
     "AIKIT": {"App"}, "ef7d69542_v1009_aee": {"App"},
     "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"},
     "AVFoundation": {"NovaPlatform", "NovaAudio"},
-    "CoreLocation": {"NovaPlatform"}, "Network": {"NovaPlatform"}, "Contacts": {"NovaPlatform"}, "MusicKit": {"NovaPlatform"},
+    "CoreLocation": {"NovaPlatform"}, "Network": {"NovaPlatform"}, "Contacts": {"NovaPlatform"},
     "Security": {"NovaServices"},
     "UIKit": {"App", "NovaNavAmap"}, "SwiftUI": {"App", "NovaNavAmap"},
-    "CarPlay": {"App"},
     # F-04b §12 (T-013f): the speaker model asset pack; the app and its downloader extension only.
     "BackgroundAssets": {"App"},
 }

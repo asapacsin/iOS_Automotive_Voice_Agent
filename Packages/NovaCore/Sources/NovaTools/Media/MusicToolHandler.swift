@@ -70,7 +70,7 @@ public struct MusicToolHandler: ToolExecutor {
     }
 
     private func playNamed(_ args: JSONValue) async -> ToolResult {
-        // iOS cannot drive other apps' players; only Apple Music via MusicKit, and only if approved.
+        // iOS cannot drive other apps' players; named music is iTunes previews (F-13 §14).
         guard let named else { return ToolDispatcher.failure(.musicHandoffUnavailable) }
         let request = NamedMusicRequest(title: args["title"]?.stringValue, artist: args["artist"]?.stringValue,
                                         albumOrWork: args["album_or_work"]?.stringValue, query: args["query"]?.stringValue,

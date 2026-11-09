@@ -126,7 +126,7 @@ public struct NamedMusicRequest: Sendable, Hashable {
         self.excludeTitle = clean(excludeTitle)
     }
 
-    /// The description parts in the tool's order (used by MusicKit).
+    /// The description parts in the tool's order.
     public var joined: String {
         [title, artist, albumOrWork, query, mood].compactMap { $0 }.joined(separator: " ")
     }
@@ -150,7 +150,7 @@ public enum NamedMusicError: Error, Sendable, Hashable {
     case notFound
 }
 
-/// Named music: iTunes 30 s previews (F-13 §14, T-032b) or Apple Music through MusicKit (unwired, T-072).
+/// Named music: iTunes previews (F-13 §14).
 public protocol NamedMusicPort: Sendable {
     func play(query: String) async throws
     func nowPlaying() async -> NowPlaying?

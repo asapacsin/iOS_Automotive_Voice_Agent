@@ -106,6 +106,9 @@ struct SettingsView: View {
                 }
                 // F-07 §16 item 1 (T-020c).
                 Section("开发") {
+                    // F-25 §14 item 3 (T-090): the measurement screens, moved out of the tab bar.
+                    NavigationLink("音频测试") { AudioSpikeView() }
+                    NavigationLink("录制") { RecorderView() }
                     Toggle("保存她的原声", isOn: $keepReplyAudio)
                     Text("开：她每句回答收到的原始声音（24 kHz）存成手机上的 WAV 文件，和对话记录放在一起，用来对比她的声音。下次开始对话时生效。")
                         .font(.footnote).foregroundStyle(.secondary)
