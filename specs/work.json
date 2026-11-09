@@ -2031,6 +2031,18 @@
       "notes": "Owner 2026-11-05: once disconnected it does not connect back; let the wake word connect again. The 3 drops in the records recovered, so the owner's failure is not captured yet."
     },
     {
+      "id": "T-016l",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "action": "F-05a §14 items 1-7 (SenseVoice download after install with SHA-256 check and hf-mirror fallback; SenseVoice final with lang within the 800 ms wait; ScreenLanguage allows Kana and English; ReplyLanguage isNotAllowed; no languageCode; persona answers in the driver's language; logs); F-05a §14 rows 1-11.",
+      "depends_on": [
+        "T-016i"
+      ],
+      "notes": "Owner 2026-11-09: speaks English and Japanese too; the model must be installed after the app, not in the package. Model sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17 rev 2365baea (239 MB int8); the 2025-09-09 int8 package is a Cantonese fine-tune, not used. T-016k is taken on 11-06-unbuilt-specs.",
+      "evidence": []
+    },
+    {
       "id": "T-013e",
       "owner": "AUTONOMOUS",
       "status": "PASS",

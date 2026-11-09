@@ -310,3 +310,88 @@ Code can guarantee what is shown. It cannot guarantee what Gemini hears or write
 | Task | Scope | Verify |
 |---|---|---|
 | T-016i | Items 1–7; rows 1–10 | unit, build, D |
+
+## 14. Chinese, English and Japanese: a downloaded SenseVoice model gives the final line (iOS, APPROVED 2026-11-09)
+
+**Why.** Owner 2026-11-09: the driver sometimes speaks English or Japanese, and the app only handles Chinese. The model must not make the app package bigger; it is installed after the app, as a download. At 212f52d, Chinese is fixed in five places:
+- The local recognizer (§12) is `zipformer-small-ctc-zh-int8-2025-04-01`, Chinese only, and its text wins (§5 S1). English comes out as Chinese nonsense: record 20261109-180202 has 「先稍一烧珠海」.
+- `ScreenLanguage` (§13) hides Kana and Latin sentences as 「（没听清）」.
+- `ReplyLanguage.isNotMandarin` (§13 item 4) voids English and Japanese replies as `NOT_MANDARIN`.
+- The Gemini setup sends `speechConfig.languageCode = "zh-CN"` (`RealtimeConfig`, `GeminiRecorder`).
+- The persona says 「用自然的普通话口语」 and 「只说普通话」.
+
+**Sources (2026-11-09).**
+- **Detect the language, then use the matching recognizer.** Google Assistant's two-language mode runs a language-ID model on incoming speech and a recognizer per language in parallel, then answers in the language asked ([TechRadar](https://www.techradar.com/news/you-can-now-talk-to-google-assistant-in-two-languages-at-once), [VentureBeat](https://venturebeat.com/ai/google-assistant-can-now-speak-two-languages-at-once)). Alexa's multilingual mode answers in the language asked ([Voicebot](https://voicebot.ai/?p=16060)).
+- **One on-device model for all three.** sherpa-onnx's SenseVoice (Chinese, English, Japanese, Korean, Cantonese, with auto-detect) is listed with a VAD + recognition demo ([sherpa-onnx](https://k2-fsa.github.io/sherpa/onnx/), [pretrained models](https://k2-fsa.github.io/sherpa/onnx/pretrained_models)). It is offline (whole utterance), not streaming. No single streaming model with all three was found; the streaming zh-en zipformer has no Japanese.
+- **Our build already has it.** The bundled sherpa-onnx v1.12.21 header (`CSherpaOnnx/include/c-api.h`) has `SherpaOnnxOfflineSenseVoiceModelConfig` (`model`, `language`, `use_itn`) and the offline result's `lang`.
+- **Download after install.** Apps that use large speech models download them on first use (WhisperKit from Hugging Face; sherpa-onnx apps). On-Demand Resources and Apple-hosted Background Assets need App Store or TestFlight hosting; this app is installed with xtool, so it downloads with `URLSession`.
+- **Gemini picks the language itself.** Google's Live API docs: native audio models switch language during a conversation, languages are limited in the system instruction, and `speech_config.language_code` is for non-native-audio models ([configure language and voice](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/live-api/configure-language-voice)).
+- **Checked on the PC, 2026-11-09.** Hugging Face `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`, revision `2365baeacb507f821a0c8120fcee3d484dba7a07`, converted from FunAudioLLM/SenseVoice: `model.int8.onnx` 239,233,841 bytes, SHA-256 `c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51`; `tokens.txt` 315,894 bytes, SHA-256 `f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc`. Its LICENSE refers to the FunASR licence. The newer `…-int8-2025-09-09` package is a Cantonese fine-tune (WSYue-ASR) and is not used. `hf-mirror.com` answered for the same paths.
+
+**Rule in plain words.** The live text while the driver speaks stays the streaming Chinese model. When the utterance ends, a downloaded SenseVoice model gives the final line in Chinese, English or Japanese. The screen shows those three languages and hides the rest. She answers in the language the driver used. Until the model is downloaded, everything works as it does now.
+
+1. **The download.**
+   - 设置 → 「语音识别」 gets a switch 「多语言识别（中文 / English / 日本語）」, on by default, with the state under it: 「未下载（约 240 MB）」, 「下载中 n%」, 「已就绪」, 「下载失败，点按重试」.
+   - When the switch is on and the model is missing, the download starts by itself on Wi-Fi only (`allowsExpensiveNetworkAccess = false`, `allowsConstrainedNetworkAccess = false`). A 「用流量下载」 button starts it on any network.
+   - Files: §14 Sources' `model.int8.onnx` and `tokens.txt`, from `https://huggingface.co/<repo>/resolve/<revision>/<file>`; if that fails or times out, the same path on `https://hf-mirror.com`. The repo, revision, sizes and SHA-256 are constants in the code.
+   - A background `URLSession` download, resumed after the app is suspended or relaunched. Files land in a temporary place, are checked against their SHA-256 and size, then moved to `Application Support/SpeechModels/sensevoice-2024-07-17/` with `isExcludedFromBackup`. A wrong checksum deletes the file; the state becomes 「下载失败，点按重试」. Nothing that fails the check is ever loaded.
+   - A model that passed the check stays across app updates and reinstalls over the same app, and is not downloaded again. 设置 has 「删除多语言模型」. Turning the switch off unloads the model and keeps the files.
+   - Audio never leaves the phone. Only the model files are downloaded. This replaces §12's 「Nothing is downloaded at run time」 for this model only; the streaming model, the keyword spotter and the speaker model stay in the app package.
+2. **Recognition.**
+   - The streaming Chinese recognizer runs as now and gives the live partials (§5 S1) and the local stop-phrase path.
+   - When the model is ready, `NovaAsrSherpa` also keeps the utterance's 16 kHz samples (the same frames the gate passes, up to 30 s) and, at `end`, runs a SenseVoice `OfflineRecognizer` once (`language` empty = auto, `use_itn` 1, on a background queue). Its `text` and `lang` become the utterance's final.
+   - The final of an utterance is SenseVoice's when it arrives within §5 S2's `localFinalWait` (800 ms after the end). Otherwise the streaming model's final is used, as now. Either way, it is one final per utterance.
+   - `lang` is mapped: `zh` and `yue` → zh, `en` → en, `ja` → ja, anything else (`ko`, empty) → other. SenseVoice's tags (`<|zh|>`, emotion and event tags) never reach the text.
+   - `LocalTranscript`'s final gains `language` (`zh`, `en`, `ja`, `other`, or nil for the streaming model). `TranscriptSelector` keeps S1–S5.
+   - The model is loaded when the switch is on and the files are ready, once per app run, before the first session if possible. A load failure falls back to the streaming final, with the state 「加载失败」.
+3. **The screen (§13 item 1 changes).**
+   - `ScreenLanguage` allows Han, Kana (Hiragana, Katakana) and Latin. Hangul, Cyrillic, Devanagari, Arabic, Thai and other scripts are still `hide`.
+   - A final Latin-only line is `show` when the utterance's `language` is en (any length). Without that, the 5-character rule stays.
+   - A line with Kana is `show` when final. Not final, it is `wait`.
+   - Her reply: Latin-only and Kana text follows the same rules, with the reply's language taken from the text (Kana → ja; Latin letters with no Han → en).
+4. **Her language.**
+   - `RealtimeConfig` stops sending `speechConfig.languageCode`, and `GeminiRecorder` likewise. If `gemini-3.8-live` rejects a setup without it, keep `"zh-CN"`, record that in STATUS, and rely on the system instruction.
+   - Persona: 「用自然的普通话口语」 becomes 「用自然的口语」, and 「只说普通话。」 becomes 「用户说中文就用普通话回答，说英文就用英文，说日语就用日语；只用这三种语言。」.
+   - `ReplyLanguage.isNotMandarin` becomes `isNotAllowed`: true as soon as the reply has a letter from a script other than Han, Kana or Latin. The 6-letter Latin rule is removed. The `NOT_MANDARIN` code and correction text stay for those other scripts.
+5. **Logs.** The record's `heard-local` line gains `lang=<zh|en|ja|other|stream>` and `asr=<sensevoice|stream>`, and `asr-model state=<…>` when the state changes. `RuntimeLog`: `asrMulti state=<…> ms=<decode ms>`, with no words (I-8).
+6. **Where the code goes.**
+   - NovaCore: `ScreenLanguage`, `ReplyLanguage`, the `lang` mapping, `LocalTranscript`'s `language`, and the download state machine (pure: states, checksums and URLs come in as values).
+   - NovaAsrSherpa: the SenseVoice `OfflineRecognizer` and the sample buffer.
+   - App: the `URLSession` downloader, the files, and the 设置 rows.
+   - NovaRealtime: the `languageCode` removal.
+   - Persona text in `SpeakingStyle`.
+7. **Not changed.**
+   - The streaming Chinese model, the keyword spotter (stop phrases stay Chinese) and the speaker lock.
+   - §6 (no tool reads the transcript).
+   - Gemini's input transcript as the S3 fallback.
+   - Navigation guidance stays Chinese (F-14). Azure and Qwen voices, when chosen, read whatever language she answers in.
+
+**Not verified.**
+- SenseVoice's decode time on the test phone; it must fit the 800 ms wait (row 9).
+- Download speed and reachability of huggingface.co and hf-mirror.com from the phone's network (row 8).
+- Whether `gemini-3.8-live` accepts a setup without `languageCode` (row 10).
+- The FunASR licence terms for this app; T-016l records them in STATUS.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Download state machine: missing → Wi-Fi → progress → files with the right SHA-256; a wrong SHA-256; Hugging Face fails | Ready, files in the model folder; file deleted, 「下载失败，点按重试」, nothing loaded; same path on hf-mirror.com tried | unit |
+| 2 | Not on Wi-Fi, switch on, no tap | No download; 「用流量下载」 starts it | unit |
+| 3 | SenseVoice result `lang` `zh`, `yue`, `en`, `ja`, `ko`, empty; text with `<|en|><|NEUTRAL|>` tags | zh, zh, en, ja, other, other; tags removed | unit |
+| 4 | Selector: SenseVoice final at 500 ms; at 1,200 ms; model not ready | SenseVoice text is the final; the streaming final is used and the late one is dropped; streaming final as now | unit |
+| 5 | `ScreenLanguage` final: 「What's the weather in Tokyo」 with language en; same with no language; 「東京の天気は」; 「안녕하세요」; 「Привет」 | show; hide; show; hide; hide | unit |
+| 6 | `isNotAllowed`: 「Sure, it's 22 degrees」; 「はい、22度です」; 「안녕하세요」; 「Disculpa」 | false; false; true; false | unit |
+| 7 | Gemini setup JSON; persona text | No `languageCode`; persona texts exactly as item 4 | unit |
+| 8 | Device, Wi-Fi: fresh install, switch on | Download completes, 「已就绪」, files survive the next xtool install; record has `asr-model state=ready` | D |
+| 9 | Device: say "What's the weather in Tokyo now?", 「東京の天気はどうですか」, 「现在几点」 | Screen shows each sentence in its language; `heard-local … asr=sensevoice lang=en/ja/zh`; decode ms in `RuntimeLog` under 800 | D |
+| 10 | Device: same three | She answers in English, Japanese and Chinese; no `NOT_MANDARIN`; the session connects without `languageCode` | D |
+| 11 | Device: switch off; then 「删除多语言模型」 | Chinese only as before; files removed, state 「未下载」 | D |
+
+**Trace gate.** Add `T-016l: F-05a` to `specs/trace-ids.txt` together with the first `@Test` that names T-016l.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-016l | Items 1–7; rows 1–11 | unit, build, D |
