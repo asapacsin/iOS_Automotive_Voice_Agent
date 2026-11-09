@@ -466,6 +466,30 @@
       ]
     },
     {
+      "id": "T-032e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-13 §17 items 1-9: stream the iTunes preview into the preview node as it downloads (AudioFileStream parse, AVAudioConverter to 44.1 kHz stereo float, ~0.5 s pieces, start at 1.0 s scheduled or download end); moov-last fallback to the §16 decoder; PreviewFailure stage on PreviewPlayer/NamedMusicPort; music preview start/failed/cut lines to RuntimeLog and the record; NOT_PLAYING advice by stage with no 版权/会员; rows 6-14.",
+      "depends_on": [
+        "T-032d"
+      ],
+      "notes": "Owner 2026-11-09: songs played on 2a35f02 (AVPlayer streaming) but every named song gave NOT_PLAYING on 70946b7 (whole-file download then decode inside the 6 s poll), record 20261109-181309; she then claimed 版权限制 from the generic advice. PC check: 12 HK previews (Kalafina, 梶浦由記) are all ftyp-moov-free-mdat, so AudioFileStream can parse them as they arrive.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green (NovaCore 685, NovaRealtime 42, NovaServices 66, imports 0, runners 0, spec-trace 106 ids 0 missing); NovaAudio/App not compiled on Linux, first compile on Codemagic (row 11 build NOT_VERIFIED)"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS; low findings fixed: parse failure partway is a cut with stage parse, node reset at stream begin, bytes count includes the unfed chunk"
+        },
+        {
+          "device": "F-13 §17 rows 12-14 NOT_VERIFIED"
+        }
+      ]
+    },
+    {
       "id": "T-024",
       "owner": "AUTONOMOUS",
       "status": "PASS",

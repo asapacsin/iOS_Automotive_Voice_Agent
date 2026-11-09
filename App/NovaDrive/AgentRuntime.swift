@@ -841,11 +841,13 @@ final class AgentRuntime {
         // song names reach the record through the tool result only, never RuntimeLog (I-8).
         let lane = LaneMusicPlayer(audio: audio)
         let previewBox = PreviewBox()
-        let previewPlayer = EnginePreviewPlayer(audio: audio) { previewBox.music?.ended() }
+        let previewPlayer = EnginePreviewPlayer(audio: audio) { Task { await previewBox.music?.ended() } }
         let preview = ITunesPreviewMusic(player: previewPlayer, clock: SystemClock(),
                                          country: { DriveSettings.musicCountry() },
                                          stopBundled: { await lane.stop() },
                                          log: { line in RuntimeLog.agent.notice("\(line, privacy: .public)") },
+                                         // F-13 §17 item 6 (T-032e): the music lines also go to the record.
+                                         record: { line in voiceLines.record?.submit(.music(line)) },
                                          onCard: { [model] card in Task { @MainActor in model.previewCard = card } })
         previewBox.music = preview
         let music = PreviewAwareMusic(base: lane, preview: preview)

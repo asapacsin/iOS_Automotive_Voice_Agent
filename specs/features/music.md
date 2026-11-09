@@ -124,9 +124,9 @@ when a new play request starts, then `true` only once that request is verified p
 **Copied practice.** Developers of iOS voice apps route every playback through the same engine as the voice-processed microphone, because "voice processing only works correctly when input and output are being routed via the same engine" (Apple Developer Forums thread 97679; field report barock.dev 2026-04-22 "Why your iOS voice agent still hears itself"). Streaming players built on `AVAudioEngine` (AudioStreaming, audiostreamer) download the bytes, decode them to PCM in memory and schedule them on an `AVAudioPlayerNode`.
 
 1. **Path.** The preview is played by `EnginePreviewPlayer` (NovaAudio) on a preview node (44.1 kHz stereo) of `LiveAudio`'s engine, connected to the same mixer as her voice, guidance, the bundled track and the cue. It is the media lane: `mediaPlaying` events, `stopMedia()`, session end and the engine-restart replay treat it like the bundled track. `AVPlayer` is no longer used; `AVFoundation` is not imported by NovaAudio (`AudioToolbox` is, for decoding).
-2. **Download.** The whole preview file is fetched into memory (no `URLCache`, `reloadIgnoringLocalCacheData`, 5 s timeout, at most 8 MB, status 200), then played. Nothing is written to disk. Holding the decoded preview in memory while it plays is treated as streaming (owner risk, as in §14).
-3. **Decode.** `AudioFileOpenWithCallbacks` over the bytes plus `ExtAudioFile` decode the `.m4a` (AAC) to the node's PCM format in memory, whatever the file layout.
-4. **Timing.** `play` returns at once; download and decode run in the background, and §14's 6 s now-playing poll covers them. A failed or slow download is `NOT_PLAYING` (the preview is stopped first, §14 item 8).
+2. **Download** (replaced by §17 items 1–4)**.** The whole preview file is fetched into memory (no `URLCache`, `reloadIgnoringLocalCacheData`, 5 s timeout, at most 8 MB, status 200), then played. Nothing is written to disk. Holding the decoded preview in memory while it plays is treated as streaming (owner risk, as in §14).
+3. **Decode** (kept only as the §17 item 2 fallback)**.** `AudioFileOpenWithCallbacks` over the bytes plus `ExtAudioFile` decode the `.m4a` (AAC) to the node's PCM format in memory, whatever the file layout.
+4. **Timing** (replaced by §17 items 1–4)**.** `play` returns at once; download and decode run in the background, and §14's 6 s now-playing poll covers them. A failed or slow download is `NOT_PLAYING` (the preview is stopped first, §14 item 8).
 5. **One at a time.** A new preview, the bundled track, `control_music stop` and session end each stop the one on the lane; a stale download or a stopped preview's completion never starts or ends the next one. The end of the preview (played to the end) is §14 item 6.
 6. **Not changed:** search, pick, proof, card, failures, logs (§14, §15).
 
@@ -143,3 +143,86 @@ when a new play request starts, then `true` only once that request is verified p
 | Task | Scope | Verify |
 |---|---|---|
 | T-032d | Items 1–6; rows 1–5 (completes T-032b item 4) | unit, build, D |
+
+## 17. The preview streams: it starts playing while it downloads (iOS, owner request 2026-11-09)
+
+**Why.** On 2026-11-09 the owner's songs played on 2a35f02 (T-032b, `AVPlayer` streaming) but did not play on 70946b7 (T-032d, whole-file download, then decode, then play).
+- **Before T-032d, it played.** Record 20261109-145939: `play_music{"album_or_work":"空之境界","artist":"梶浦由记",…}` → `ok=true`, 「Ⅱ quiet romance」 played.
+- **After T-032d, it failed.** Record 20261109-181309:
+  - `play_music{"album_or_work":"空之境界","artist":"Kalafina","title":"oblivious"}` at +32,005 → `NOT_PLAYING` at +39,745;
+  - `play_music{"album_or_work":"空之境界","artist":"梶浦由记"}` at +62,214 → `NOT_PLAYING` at +69,018;
+  - the search had found a song both times.
+- **She invented a reason.** She told the owner 「由于版权限制没能播放成功」. That wording comes from the generic `notPlaying` advice 「这首没放成，可能需要会员或者有版权限制」 (`ToolFailureAdvice+Generated.swift`, generated from the Android table). It was written for the Apple Music hand-off, and it is false for a preview.
+- **Nothing says what failed.** `EnginePreviewPlayer` drops a failed download, a failed decode and a refused schedule with `try?` and `guard … else { return }`, and logs nothing.
+- **The file is fine; the wait is the problem.** On a PC (2026-11-09) the same previews download in 0.2–2.6 s, 975–1,118 KB each. T-032d needs the whole file, with a 5 s request timeout, and then the decode, all inside the 6 s now-playing poll. On the phone this did not finish in time.
+- **Owner:** 「isnt the music playing should be streaming」, then 「Write the spec」.
+
+**Copied practice.** iOS streaming players built on `AVAudioEngine` parse the bytes as they arrive with Audio File Stream Services, convert the packets to PCM with Audio Converter Services, and schedule the PCM on an `AVAudioPlayerNode` while the download continues:
+- [AudioStreaming](https://github.com/dimitris-c/AudioStreaming): `AVAudioEngine` and CoreAudio, inspired by StreamingKit. It notes that "non-optimised M4A files are not supported", a limit of AudioFileStream.
+- [audiostreamer](https://github.com/carson-katri/audiostreamer): Audio File Stream Services → Audio Converter Services → `AVAudioEngine`, step by step.
+- [SwiftAudioPlayer](https://github.com/tanhakabir/SwiftAudioPlayer): `AVAudioEngine` with AudioToolbox to stream remote audio.
+- Stack Overflow ("stream data from network in AVAudioEngine, is it possible", question 30862664): a remote file cannot be opened with `AVAudioFile`; download the bytes and parse them into packets with Audio File Stream Services.
+
+**Checked on a PC, 2026-11-09.** 12 HK previews were downloaded: Kalafina 「oblivious」 (3 versions), 「seventh heaven」 and 「アレルヤ」, and 梶浦由記 「Ⅱ quiet romance」 (twice), 「in the garden of sinners」, 「Ⅰ something and nothing」 and 「Romance」 (twice). All 12 have the top-level boxes `ftyp, moov, free, mdat`. `moov` comes before `mdat`, the "optimised" layout that AudioFileStream can parse as it arrives.
+
+1. **Stream.** `EnginePreviewPlayer` no longer waits for the whole file:
+   - it reads the response as it arrives (`URLSession` `bytes(for:)` or a data delegate);
+   - it feeds the bytes to `AudioFileStreamOpen` (type hint `kAudioFileM4AType`) / `AudioFileStreamParseBytes`;
+   - it converts the packets with `AVAudioConverter` to the preview node's format (44.1 kHz stereo float, §16 item 1);
+   - it schedules the PCM on the preview node in pieces of about 0.5 s while the download continues.
+
+   The node is started when at least 1.0 s of audio is scheduled, or when the download has ended, whichever is first. The path stays inside `LiveAudio`'s engine, on the media lane, as in §16 items 1 and 5. Nothing is written to disk. No `URLCache` is used, and `reloadIgnoringLocalCacheData` stays.
+2. **Layout fallback.** A file whose `mdat` comes before `moov` cannot be parsed while it arrives. Then the bytes are kept in memory, and at the end of the download the §16 item 3 decoder (`AudioFileOpenWithCallbacks` + `ExtAudioFile`) decodes and plays them as today. A pure `PreviewLayout.scan(_ prefix: Data)` decides from the top-level boxes, giving `streamable`, `wholeFile` or `needMore`.
+3. **Network limits.**
+   - The request times out after 5 s without a byte (`timeoutIntervalForRequest`, an idle timeout), as today.
+   - There is no limit on the whole download, other than the 8 MB cap (§16 item 2).
+   - A stall after playback started does not stop the preview. When the scheduled audio runs out, it is silent until more arrives. A download that then fails ends the preview as in item 6.
+4. **Proof.** `isPlaying` is true only after the first PCM is scheduled and the node plays (`LiveAudio.previewPlaying`). The §14 250 ms / 6 s poll is unchanged. On the PC timings above, the first 1.0 s needs about 35 KB, so the start should come well inside 6 s.
+5. **Why it failed is known.** The preview player keeps the stage of the last failure of the current preview, for the handler and the log. `PreviewPlayer` and `NamedMusicPort` each gain `var lastFailure: PreviewFailure? { get async }`, and nil means none. `PreviewFailure` (NovaPorts, pure) is one of:
+   - `download_timeout`, `download_network`, `download_http_<status>`, `too_large`;
+   - `parse` (neither streaming nor the fallback decoder could read it);
+   - `engine` (the engine was not running, or the schedule was refused);
+   - `stopped` (a newer preview, a stop or session end; never reported as a failure to the driver).
+6. **Log and record.** `ITunesPreviewMusic` writes these lines to `RuntimeLog` **and** to the record, so a pulled record shows them without the syslog:
+   - the §14 item 10 / §15 item 5 lines (`music search …`, `music preview playing …`, `music preview ended`);
+   - `music preview start first_byte_ms=<n> start_ms=<n> layout=<stream|whole>`, at the node start;
+   - `music preview failed stage=<stage> ms=<n> bytes=<n>`, for a failure before playing;
+   - `music preview cut stage=<stage> played_ms=<n>`, for a failure after playing.
+
+   They hold numbers and codes only. The song names are already in the `tool-result` line.
+7. **Honest advice.** When a preview is not seen playing within 6 s, `MusicToolHandler` stops it as today (§14 item 8). It then returns `NOT_PLAYING` with its own advice, chosen by `lastFailure`, as the bundled path already does with `.failure(.notPlaying, advice:)`. The generated Android table is not edited.
+   - `download_*`, `too_large`, or nil (still loading at 6 s): 「试听没放起来：网络太慢或者连不上。请如实说没放成，可以让用户稍后再试；不要说版权或会员。」
+   - `parse`: 「试听没放起来：这首的试听文件放不了。请如实说没放成，可以换一首；不要说版权或会员。」
+   - `engine`: 「试听没放起来：手机的声音通道没准备好。请如实说没放成，可以再试一次；不要说版权或会员。」
+8. **Not changed:**
+   - search, pick, retry, card and the success result (§14, §15);
+   - the in-engine path and one-at-a-time rules (§16 items 1 and 5);
+   - the 6 s poll;
+   - the bundled track and `control_music`, whose `NOT_PLAYING` advice stays.
+9. **Where the code goes.**
+   - NovaAudio: the streaming parser and converter (`PreviewStreamer`), and `EnginePreviewPlayer` changes. `AudioToolbox` stays only in NovaAudio (`check_imports.py`).
+   - NovaPorts: `PreviewFailure` and the protocol additions.
+   - NovaCore: the pure parts, so they run as unit tests on Linux: `PreviewLayout.scan`, the start rule `PreviewStartRule.shouldStart(scheduledSeconds:downloadEnded:)`, and the stage → advice and log-line mapping.
+   - NovaServices: `ITunesPreviewMusic` (lines, `lastFailure`).
+   - NovaTools: `MusicToolHandler` (advice).
+   - Update §16 items 2–4 with a pointer: 「replaced by §17 items 1–4」.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 6 | `PreviewLayout.scan` on: `ftyp(24) moov(…) free mdat` prefix; `ftyp mdat(…)` prefix; 12 bytes of `ftyp` | `streamable`; `wholeFile`; `needMore` | unit |
+| 7 | `PreviewStartRule`: 0.9 s scheduled, download running; 1.0 s, running; 0.4 s, download ended | wait; start; start | unit |
+| 8 | Each `PreviewFailure` stage and nil | The item 7 advice for it; no advice text contains 「版权」 or 「会员」; log lines exactly as item 6, for example `music preview failed stage=download_timeout ms=5003 bytes=0` | unit |
+| 9 | `MusicToolHandler` with a fake named port that never plays and reports `download_timeout`; then `parse`; then a bundled `control_music play` that never plays | `NOT_PLAYING` with the network advice; with the file advice; the bundled advice unchanged | unit |
+| 10 | `ITunesPreviewMusic` with a fake player that fails with `download_http_404` before playing, and one that plays then reports `download_network` | The record and `RuntimeLog` get `music preview failed stage=download_http_404 …` and `music preview cut stage=download_network played_ms=…` | unit |
+| 11 | Source tree; app build | No `AVPlayer` in NovaAudio; `AudioToolbox` only in NovaAudio; gates green; Codemagic build green | gate, build |
+| 12 | Device, VPN as usual: 「我想听梶浦那首空之境界的歌」; 「放 Kalafina 的 oblivious」; 「放周杰伦的晴天」; 「放陈奕迅的十年」 | Each plays inside the app; each record has `music preview start … layout=stream` with `start_ms` under 3,000; no `NOT_PLAYING` | D |
+| 13 | Device: while a preview plays, say nothing for 30 s; then, during another, 「你好小诺，别放了」 | As §16 rows 3 and 5: no barge-in or lyrics heard as the driver; stops at once | D |
+| 14 | Device: Wi-Fi and mobile data off, 「放 Kalafina 的 oblivious」 | She says it did not play because of the network; nothing about copyright or 会员; the record has `music search` failing or `music preview failed stage=download_…` | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-032e | Items 1–9; rows 6–14 | unit, build, D |
+
+**Trace gate.** Add `T-032e: F-13` to `specs/trace-ids.txt` together with the first `@Test` that names T-032e.
