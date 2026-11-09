@@ -346,6 +346,19 @@
           ]
         },
         {
+          "id": "T-032b",
+          "owner": "AUTONOMOUS",
+          "status": "TODO",
+          "priority": 1,
+          "action": "F-13 §14 items 1-11 (ITunesPreviewMusic as NamedMusicPort wired into MusicToolHandler: iTunes Search API song search with the country setting, pick rule, AVPlayer streamed preview on the media lane, now-playing proof, end, card with iTunes attribution and Apple Music link, failure codes, tool text, logs); F-13 §14 rows 1-11.",
+          "depends_on": [
+            "T-032",
+            "T-020c"
+          ],
+          "notes": "Owner 2026-11-09: 「梶浦那首空之境界的歌」 should play inside the app without another app opening, with no subscription or paid account. OQ-IOS-7 reopened for 30 s iTunes previews. Apple's preview terms (promotional, not for entertainment) recorded as owner risk; the build is not distributed.",
+          "evidence": []
+        },
+        {
           "review": "independent read-only high effort",
           "result": "PASS"
         },

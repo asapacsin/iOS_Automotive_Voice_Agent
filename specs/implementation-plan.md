@@ -16,7 +16,7 @@ the reviewer verdicts PASS / REWORK / BLOCKED / NOT_VERIFIED. Paths are relative
 | Amap iOS SDK key (bound to the bundle id) + Amap Web key | M0 spike, M3 | OWNER | needed by T-002 |
 | iFlytek iOS SDK downloaded for the same app id | M5 | OWNER (OQ-IOS-1) | needed by T-060 |
 | Background SLEEP policy | M5 | OWNER (OQ-IOS-13) | needed by T-062 |
-| Apple Music only for named music? | M6 | OWNER (OQ-IOS-7) | DECIDED 2026-10-27: no named music; T-072 not applicable |
+| Apple Music only for named music? | M6 | OWNER (OQ-IOS-7) | DECIDED 2026-10-27: no named music; T-072 not applicable. REOPENED 2026-11-09: named music as 30 s iTunes previews in the app (F-13 §14, T-032b); T-072 still not applicable |
 | CarPlay category | M7 | OWNER (OQ-IOS-8) | DECIDED 2026-10-27: skip CarPlay; T-080 not applicable |
 | Ephemeral-token backend | release | OWNER (OQ-IOS-15) | not blocking |
 
@@ -111,6 +111,7 @@ NOT_VERIFIED until a device run is attached.
 | T-031h | Sleepy driver in model mode: no lower temperature in rule 5 | F-12 | T-031g | `Packages/NovaCore/` | F-12 §19 row 1 | unit, build |
 | T-031c | Make model-chosen actions the only path and remove the table. Starts only after owner approval of the numbers | F-12, F-09 | T-031b | `Packages/NovaCore/`, `App/NovaDrive/`, `specs/` | F-12 §14 items 14–15 | unit, build, D |
 | T-032 | Bundled music on the media lane; `control_music` | F-13 | T-021 | `Core/NovaTools/Media/`, `Packages/NovaAudio/Sources/MediaLane/` | F-13 §10 row 1 offline; no self barge-in during music (D) | unit, D |
+| T-032b | Named music as 30 s iTunes Search API previews streamed inside the app: `ITunesPreviewMusic` as `NamedMusicPort`, pick by title and artist, media lane, now-playing proof, card with iTunes attribution and Apple Music link | F-13 §14 | T-032, T-020c | `Packages/NovaServices/`, `Packages/NovaAudio/`, `Packages/NovaCore/`, `App/NovaDrive/` | F-13 §14 rows 1–11 | unit, build, D |
 | T-033 | Amap Web client (weather, regeo) + live-info weather | F-18 | T-017 | `Packages/NovaServices/Sources/AmapWeb/`, `Core/NovaTools/LiveInfo/` | 4 s timeout → honest failure; TTLs 10/30 min | unit, contract |
 | T-034 | Persona and speaking style | F-21 | T-017 | `Core/NovaTools/Persona/` | F-21 §10 (3 rows) | unit |
 | T-034a | Base instruction scope: strict for car/navigation/weather/location, natural 3–5 sentence answers for general questions | F-21 | T-034 | `App/NovaDrive/` | F-21 §14 rows 1–8 | unit, S, D |
