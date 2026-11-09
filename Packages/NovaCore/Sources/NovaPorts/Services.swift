@@ -1,3 +1,4 @@
+import Foundation
 import NovaKit
 
 // MARK: Vehicle (simulated, F-11) — mirrors `vehicle/VehicleControlPort.kt`
@@ -105,10 +106,72 @@ public struct NowPlaying: Sendable, Hashable {
     }
 }
 
-/// Apple Music through MusicKit (M6, only if OQ-IOS-7 approves).
+/// What `play_music` asked for (F-13 §14 item 2).
+public struct NamedMusicRequest: Sendable, Hashable {
+    public var title: String?
+    public var artist: String?
+    public var albumOrWork: String?
+    public var query: String?
+    public var mood: String?
+    public var excludeTitle: String?
+
+    public init(title: String? = nil, artist: String? = nil, albumOrWork: String? = nil, query: String? = nil,
+                mood: String? = nil, excludeTitle: String? = nil) {
+        func clean(_ s: String?) -> String? { s.flatMap { $0.isEmpty ? nil : $0 } }
+        self.title = clean(title)
+        self.artist = clean(artist)
+        self.albumOrWork = clean(albumOrWork)
+        self.query = clean(query)
+        self.mood = clean(mood)
+        self.excludeTitle = clean(excludeTitle)
+    }
+
+    /// The description parts in the tool's order (used by MusicKit).
+    public var joined: String {
+        [title, artist, albumOrWork, query, mood].compactMap { $0 }.joined(separator: " ")
+    }
+}
+
+/// F-13 §14 item 5: what a preview port started; nil from a port that only hands the request on.
+public struct NamedMusicStart: Sendable, Hashable {
+    public let album: String?
+    public let previewSeconds: Int
+    public let source: String
+    public init(album: String?, previewSeconds: Int, source: String) {
+        self.album = album
+        self.previewSeconds = previewSeconds
+        self.source = source
+    }
+}
+
+/// F-13 §14 item 8.
+public enum NamedMusicError: Error, Sendable, Hashable {
+    case searchFailed
+    case notFound
+}
+
+/// Named music: iTunes 30 s previews (F-13 §14, T-032b) or Apple Music through MusicKit (unwired, T-072).
 public protocol NamedMusicPort: Sendable {
     func play(query: String) async throws
     func nowPlaying() async -> NowPlaying?
+    /// Starts the asked music. Throws `NamedMusicError` for a search failure or no match.
+    func play(_ request: NamedMusicRequest) async throws -> NamedMusicStart?
+}
+
+extension NamedMusicPort {
+    public func play(_ request: NamedMusicRequest) async throws -> NamedMusicStart? {
+        try await play(query: request.joined)
+        return nil
+    }
+}
+
+/// F-13 §14 item 4 (T-032b): streams one preview URL on the media lane (AVPlayer in NovaAudio).
+public protocol PreviewPlayer: Sendable {
+    /// Replaces any earlier preview; never writes to disk.
+    func play(_ url: URL) async
+    func stop() async
+    /// True only while the current item is actually playing; false after it ended.
+    var isPlaying: Bool { get async }
 }
 
 // MARK: Phone (F-19)

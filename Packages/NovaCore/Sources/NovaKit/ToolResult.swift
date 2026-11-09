@@ -85,6 +85,10 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case handoffRejected = "HANDOFF_REJECTED"
     case musicStillPlaying = "MUSIC_STILL_PLAYING"
     case musicHandoffUnavailable = "MUSIC_HANDOFF_UNAVAILABLE"
+    /// F-13 §14 item 8 (T-032b): the iTunes search had no network, an HTTP error, a timeout or bad JSON.
+    case musicSearchFailed = "MUSIC_SEARCH_FAILED"
+    /// F-13 §14 item 8: no playable preview was left after the pick.
+    case musicNotFound = "MUSIC_NOT_FOUND"
     case noLocation = "NO_LOCATION"
     /// F-16a: location permission denied or restricted.
     case locationPermissionDenied = "LOCATION_PERMISSION_DENIED"

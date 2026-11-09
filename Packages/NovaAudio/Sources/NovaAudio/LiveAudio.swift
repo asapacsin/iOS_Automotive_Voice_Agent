@@ -225,6 +225,10 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
 
     public var mediaPlaying: Bool { lock.withLock { mediaOn } && media.isPlaying }
 
+    /// F-13 §14 item 4 (T-032b): a streamed iTunes preview reports on the media lane's events, so the core's
+    /// music rules (self-echo, barge-in) see it like the bundled track.
+    public func reportStreamedMedia(_ playing: Bool) { continuation.yield(.mediaPlaying(playing)) }
+
     static func bundledBuffer(_ track: BundledTrack, format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let url = ["m4a", "mp3", "wav", "caf"].lazy.compactMap {
             Bundle.main.url(forResource: track.resourceName, withExtension: $0)

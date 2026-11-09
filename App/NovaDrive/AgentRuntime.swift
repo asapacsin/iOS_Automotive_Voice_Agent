@@ -30,6 +30,8 @@ final class DriveModel: ObservableObject {
     /// F-24 §14 item 4: the offline cap ended the session: the §15 item 6 text (`SessionEndedChip`) until the next start.
     @Published var networkEnded = false
     @Published var notice: String?
+    /// F-13 §14 item 7 (T-032b): the iTunes preview playing now; nil hides the card.
+    @Published var previewCard: PreviewCard?
     // F-20a floating camera window
     @Published var cameraOpen = false
     @Published var cameraAsking = false
@@ -62,6 +64,16 @@ final class DriveModel: ObservableObject {
 }
 
 /// Non-secret settings of the drive screen (UserDefaults).
+/// F-13 §14 item 6: lets the player's end callback reach the port built after it.
+final class PreviewBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: ITunesPreviewMusic?
+    var music: ITunesPreviewMusic? {
+        get { lock.withLock { value } }
+        set { lock.withLock { value = newValue } }
+    }
+}
+
 /// F-07 §16 item 1: the session's `ReplyAudioKeeper` behind a lock (provider events arrive on one task).
 final class KeptReplyAudio: @unchecked Sendable {
     private let lock = NSLock()
@@ -103,6 +115,11 @@ enum DriveSettings {
 
     static func searchesWeb(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: webSearch) as? Bool ?? false
+    }
+
+    /// F-13 §14 item 2 (T-032b) 「曲库地区」: default 中国大陆.
+    static func musicCountry(_ defaults: UserDefaults = .standard) -> MusicCountry {
+        defaults.string(forKey: MusicCountry.settingKey).flatMap(MusicCountry.init(rawValue:)) ?? .default
     }
 
     /// F-07 §16 item 1 (T-020c) 「保存她的原声」: default off; read at session start.
@@ -817,9 +834,19 @@ final class AgentRuntime {
         var executors: [String: any ToolExecutor] = [:]
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
         // F-12: scenarios go through the same simulated vehicle; the car card refreshes after each run.
-        // F-13: the bundled loop on the media lane; play_music stays unavailable until OQ-IOS-7.
-        let music = LaneMusicPlayer(audio: audio)
-        let musicTools = MusicToolHandler(music: music, clock: SystemClock())
+        // F-13: the bundled loop on the media lane. F-13 §14 (T-032b): play_music streams iTunes 30 s previews;
+        // song names reach the record through the tool result only, never RuntimeLog (I-8).
+        let lane = LaneMusicPlayer(audio: audio)
+        let previewBox = PreviewBox()
+        let previewPlayer = StreamingPreviewPlayer(audio: audio) { previewBox.music?.ended() }
+        let preview = ITunesPreviewMusic(player: previewPlayer, clock: SystemClock(),
+                                         country: { DriveSettings.musicCountry() },
+                                         stopBundled: { await lane.stop() },
+                                         log: { line in RuntimeLog.agent.notice("\(line, privacy: .public)") },
+                                         onCard: { [model] card in Task { @MainActor in model.previewCard = card } })
+        previewBox.music = preview
+        let music = PreviewAwareMusic(base: lane, preview: preview)
+        let musicTools = MusicToolHandler(music: music, named: preview, clock: SystemClock())
         for name in MusicToolHandler.tools { executors[name] = musicTools }
         switch comfortMode {
         case .table:

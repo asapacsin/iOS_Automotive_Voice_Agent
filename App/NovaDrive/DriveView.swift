@@ -130,6 +130,31 @@ final class RuntimeHolder: ObservableObject {
     let runtime = AgentRuntime()
 }
 
+/// F-13 §14 item 7 (T-032b): the playing iTunes preview, with the attribution and the store link.
+private struct PreviewCardView: View {
+    let card: PreviewCard
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AsyncImage(url: card.artworkURL) { $0.resizable() } placeholder: { Color.gray.opacity(0.3) }
+                .frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(card.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                if let artist = card.artist { Text(artist).font(.caption).lineLimit(1) }
+                Text(PreviewCard.attribution).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            if let store = card.storeURL {
+                Button("在 Apple Music 中打开") { openURL(store) }.font(.caption.weight(.semibold)).buttonStyle(.bordered)
+            }
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityIdentifier("preview-card")
+    }
+}
+
 private struct DriveContent: View {
     @ObservedObject var model: DriveModel
     @ObservedObject var position: MapPositionModel
@@ -156,6 +181,7 @@ private struct DriveContent: View {
                 if model.nav.listOpen || model.nav.phase == .calculatingRoute || model.nav.phase == .resolvingDestination {
                     choices
                 }
+                if let card = model.previewCard { PreviewCardView(card: card) }
                 conversation
                 locateRow
                 carCard

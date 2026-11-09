@@ -21,7 +21,7 @@ OWNERS = {
     # only; App/NovaDrive/Wake/AIKitWakeEngine.swift is its single importer.
     "AIKIT": {"App"}, "ef7d69542_v1009_aee": {"App"},
     "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"},
-    "AVFoundation": {"NovaPlatform"},
+    "AVFoundation": {"NovaPlatform", "NovaAudio"},
     "CoreLocation": {"NovaPlatform"}, "Network": {"NovaPlatform"}, "Contacts": {"NovaPlatform"}, "MusicKit": {"NovaPlatform"},
     "Security": {"NovaServices"},
     "UIKit": {"App", "NovaNavAmap"}, "SwiftUI": {"App", "NovaNavAmap"},

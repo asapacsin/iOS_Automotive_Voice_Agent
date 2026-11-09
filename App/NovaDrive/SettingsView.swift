@@ -35,6 +35,7 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.interruptible) private var interruptible = false
     @AppStorage(DriveSettings.modelComfort) private var modelComfort = false
     @AppStorage(DriveSettings.webSearch) private var webSearch = false
+    @AppStorage(MusicCountry.settingKey) private var musicCountry = MusicCountry.default.rawValue
     @AppStorage(DriveSettings.conversationRecord) private var conversationRecord = false
     @AppStorage(ReplyAudioKeeper.settingKey) private var keepReplyAudio = false
     @AppStorage(DriveSettings.wakeWord) private var wakeWord = true
@@ -88,6 +89,14 @@ struct SettingsView: View {
                     NavigationLink("舒适场景测试") { ComfortEvalView() }
                 }
                 // F-18 §15 item 1, §17 item 2 (T-046e).
+                // F-13 §14 item 2 (T-032b).
+                Section("音乐") {
+                    Picker("曲库地区", selection: $musicCountry) {
+                        ForEach(MusicCountry.allCases, id: \.rawValue) { Text($0.label).tag($0.rawValue) }
+                    }
+                    Text("点名放歌时从 iTunes 播放 30 秒试听，按这里的地区找歌。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("联网") {
                     Toggle("联网搜索（实验）", isOn: $webSearch)
                     Text("需要阿里云百炼 key。问题会发到阿里云新加坡。")

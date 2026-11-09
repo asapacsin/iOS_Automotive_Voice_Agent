@@ -7,6 +7,8 @@ import NovaPorts
 /// lane reports playing, stop only when it reports stopped (I-1, I-14).
 public struct MusicToolHandler: ToolExecutor {
     public static let tools: Set<String> = ["control_music", "play_music"]
+    /// F-13 §14 item 9.
+    public static let previewNext = "只按 now_playing 说正在放哪首，并说是 30 秒试听。"
 
     public struct Tuning: Sendable, Hashable {
         /// Now-playing poll (F-13 §9).
@@ -60,16 +62,22 @@ public struct MusicToolHandler: ToolExecutor {
     private func playNamed(_ args: JSONValue) async -> ToolResult {
         // iOS cannot drive other apps' players; only Apple Music via MusicKit, and only if approved.
         guard let named else { return ToolDispatcher.failure(.musicHandoffUnavailable) }
-        let parts = ["title", "artist", "album_or_work", "query", "mood"].compactMap { args[$0]?.stringValue }
-            .filter { !$0.isEmpty }
-        guard !parts.isEmpty else { return .failure(.invalidFields, advice: "请用户说想听什么。") }
-        let exclude = args["exclude_title"]?.stringValue
+        let request = NamedMusicRequest(title: args["title"]?.stringValue, artist: args["artist"]?.stringValue,
+                                        albumOrWork: args["album_or_work"]?.stringValue, query: args["query"]?.stringValue,
+                                        mood: args["mood"]?.stringValue, excludeTitle: args["exclude_title"]?.stringValue)
+        guard !request.joined.isEmpty else { return .failure(.invalidFields, advice: "请用户说想听什么。") }
+        let exclude = request.excludeTitle
         // What played before the request is no evidence for it (music.md contract), unless it is the
         // very title asked for.
         let before = await named.nowPlaying()
-        let wanted = args["title"]?.stringValue
+        let wanted = request.title
+        let started: NamedMusicStart?
         do {
-            try await named.play(query: parts.joined(separator: " "))
+            started = try await named.play(request)
+        } catch NamedMusicError.searchFailed {
+            return ToolDispatcher.failure(.musicSearchFailed)   // F-13 §14 item 8
+        } catch NamedMusicError.notFound {
+            return ToolDispatcher.failure(.musicNotFound)
         } catch {
             return ToolDispatcher.failure(.musicHandoffUnavailable)
         }
@@ -81,11 +89,21 @@ public struct MusicToolHandler: ToolExecutor {
                playing != before || playing.title == wanted {
                 var nowPlaying: [String: JSONValue] = ["title": .string(playing.title)]
                 if let artist = playing.artist { nowPlaying["artist"] = .string(artist) }
-                return .success(["status": "playing", "now_playing": .object(nowPlaying),
-                                 "next": "只按 now_playing 说正在放哪首。"])
+                guard let started else {
+                    return .success(["status": "playing", "now_playing": .object(nowPlaying),
+                                     "next": "只按 now_playing 说正在放哪首。"])
+                }
+                // F-13 §14 item 5: a preview's success also says what it is.
+                var data: [String: JSONValue] = ["status": "playing", "now_playing": .object(nowPlaying),
+                                                 "preview_seconds": .int(Int64(started.previewSeconds)),
+                                                 "source": .string(started.source), "next": .string(Self.previewNext)]
+                if let album = started.album { data["album"] = .string(album) }
+                return .success(data)
             }
             do { try await clock.sleep(until: clock.now + tuning.poll) } catch { break }
         }
+        // F-13 §14 item 8: a preview port never answers requested_unverified.
+        if started != nil { return ToolDispatcher.failure(.notPlaying) }
         return .success(["status": "requested_unverified",
                          "next": "只说一句：已经让音乐 app 去找了。不要说正在播放。"])
     }
