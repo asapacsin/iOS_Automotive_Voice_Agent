@@ -8,6 +8,16 @@ import NovaPorts
 public struct MusicToolHandler: ToolExecutor {
     public static let tools: Set<String> = ["control_music", "play_music"]
     /// F-13 §14 item 9.
+    /// The 「不是这首」 title, compared lower-cased and full-width folded like the iTunes pick (F-13 §14 item 3).
+    static func same(_ a: String, _ b: String?) -> Bool {
+        guard let b else { return false }
+        func fold(_ s: String) -> String {
+            String(String.UnicodeScalarView(s.unicodeScalars.map { u in
+                (0xFF01...0xFF5E).contains(u.value) ? Unicode.Scalar(u.value - 0xFEE0)! : u
+            })).lowercased()
+        }
+        return fold(a) == fold(b)
+    }
     public static let previewNext = "只按 now_playing 说正在放哪首，并说是 30 秒试听。"
 
     public struct Tuning: Sendable, Hashable {
@@ -85,7 +95,7 @@ public struct MusicToolHandler: ToolExecutor {
         // the driver just rejected) is evidence.
         let deadline = clock.now + tuning.timeout
         while clock.now < deadline {
-            if let playing = await named.nowPlaying(), playing.title != exclude,
+            if let playing = await named.nowPlaying(), !Self.same(playing.title, exclude),
                playing != before || playing.title == wanted {
                 var nowPlaying: [String: JSONValue] = ["title": .string(playing.title)]
                 if let artist = playing.artist { nowPlaying["artist"] = .string(artist) }
@@ -103,7 +113,11 @@ public struct MusicToolHandler: ToolExecutor {
             do { try await clock.sleep(until: clock.now + tuning.poll) } catch { break }
         }
         // F-13 §14 item 8: a preview port never answers requested_unverified.
-        if started != nil { return ToolDispatcher.failure(.notPlaying) }
+        // A preview that starts after she said it did not play would contradict her: stop it first.
+        if started != nil {
+            await named.stop()
+            return ToolDispatcher.failure(.notPlaying)
+        }
         return .success(["status": "requested_unverified",
                          "next": "只说一句：已经让音乐 app 去找了。不要说正在播放。"])
     }

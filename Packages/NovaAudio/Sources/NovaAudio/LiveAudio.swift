@@ -32,6 +32,10 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private var configObserver: NSObjectProtocol?
     private var running = false
     private var restarted: (@Sendable () -> Void)?
+    private var mediaStopped: (@Sendable () -> Void)?
+
+    /// F-13 §14 item 4 (T-032b): told when the engine stops (session end), so a streamed preview stops too.
+    public func onMediaStop(_ handler: @escaping @Sendable () -> Void) { lock.withLock { mediaStopped = handler } }
 
     /// F-08 §17 item 3: told each time the engine is restarted after a configuration change.
     public func onEngineRestart(_ handler: @escaping @Sendable () -> Void) { lock.withLock { restarted = handler } }
@@ -102,6 +106,7 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
 
     public func stop() {
         guard lock.withLock({ running }) else { return }
+        lock.withLock { mediaStopped }?()
         stopMedia()
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
         engine.inputNode.removeTap(onBus: 0)

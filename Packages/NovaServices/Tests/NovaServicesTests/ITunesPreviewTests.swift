@@ -129,9 +129,11 @@ struct ITunesPreviewTests {
         }
         let empty = await Self.handler(Self.port(ScriptedHTTP(), FakePreviewPlayer(after: .zero))).execute(Self.call(args))
         #expect(!empty.ok && empty.code == ToolErrorCode.musicNotFound && empty.advice != nil)
-        let silent = await Self.handler(Self.port(ScriptedHTTP(body: Self.fixture), FakePreviewPlayer(after: nil)))
-            .execute(Self.call(args))
+        let never = FakePreviewPlayer(after: nil)
+        let silent = await Self.handler(Self.port(ScriptedHTTP(body: Self.fixture), never)).execute(Self.call(args))
         #expect(!silent.ok && silent.code == ToolErrorCode.notPlaying)
+        // Stopped, so it cannot start after she said it did not play.
+        #expect(never.state.withLock { $0.stops } == 2)
         #expect(silent.data["status"] != "requested_unverified")
     }
 

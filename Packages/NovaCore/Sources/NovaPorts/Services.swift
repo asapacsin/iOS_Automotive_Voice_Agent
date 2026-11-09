@@ -156,9 +156,13 @@ public protocol NamedMusicPort: Sendable {
     func nowPlaying() async -> NowPlaying?
     /// Starts the asked music. Throws `NamedMusicError` for a search failure or no match.
     func play(_ request: NamedMusicRequest) async throws -> NamedMusicStart?
+    /// Stops what `play` started (a preview that was not seen playing in time must not start later).
+    func stop() async
 }
 
 extension NamedMusicPort {
+    public func stop() async {}
+
     public func play(_ request: NamedMusicRequest) async throws -> NamedMusicStart? {
         try await play(query: request.joined)
         return nil
