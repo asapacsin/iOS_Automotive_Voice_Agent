@@ -163,6 +163,7 @@ NOT_VERIFIED until a device run is attached.
 | T-046m | Qwen gets the copied FreshPrompt text with no refusal or exact-day rule; she may give usual weather for far-off dates | F-18 | T-046l | `Packages/NovaRealtime/`, `Packages/NovaCore/` | F-18 §24 rows 1–7 | unit, build, D |
 | T-046n | current_time takes an IANA time_zone; every time question uses it; web_search refuses current-time queries | F-18 §25 | T-046m | `Packages/NovaCore/` | F-18 §25 rows 1–9 | unit, build, D |
 | T-046o | Weather for any place and any day in the next 16 days: 高德 for China to 大后天, Open-Meteo for the rest; foreign places by English name and country; web_search refuses near-term weather | F-18 §26 | T-046n | `Packages/NovaCore/`, `Packages/NovaServices/`, `App/` | F-18 §26 rows 1–13 | unit, build, D |
+| T-046q | Weather now, a whole day and part of a day as separate answers: `day=now` (高德 live with `reporttime` plus today's high and low; Open-Meteo `current=`), `today` as the whole-day forecast, new `part` from Open-Meteo hourly; takes in T-046p | F-18 §28 | T-046o | `Packages/NovaCore/`, `Packages/NovaServices/` | F-18 §28 rows 1–14 | unit, build, D |
 | T-047 | Choice overlay + HUD UI; tap → `UIIntent` | F-25 | T-044 | `App/Screens/` | Tap uses the same executor as voice (unit) | unit, S |
 | T-048 | Simulator drive (emulator navi), end to end | — | T-040..T-047 | `UITests/` | W8 in UI; search → pick → route → navigate | S |
 

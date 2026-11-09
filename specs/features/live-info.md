@@ -830,3 +830,81 @@ Also from the §25 record: 高德's geocoder answered 仙台 with 弋阳县 and 
 | Task | Scope | Verify |
 |---|---|---|
 | T-020c | Items 1–6; rows 1–6 (with F-07 §16) | unit, build, D |
+
+## 28. Weather now, a whole day and part of a day are separate answers (iOS, APPROVED 2026-11-09)
+
+**Why.** Owner 2026-11-09: 「现在天气怎么样」 is answered as if it were about the whole day. Record 20261109-180202 (212f52d): 「今天天气」 → `query_live_info{"kind":"weather","where":"here"}` → 高德's live report (`extensions=base`: 22℃, 多云, 湿度 54, 东北风6级), labelled `"day":"today"`, with `reporttime` dropped and a `next` that asks for 「几月几号星期几」, so she said 「香洲区今天11月9号星期一多云，气温22摄氏度」. In the code at 212f52d:
+- `day` has no "now". No `day` and `day=today` both give 高德's live report (`AmapWebClient`, offset 0), so China has no whole-day answer for today.
+- Open-Meteo is asked for `daily=` only (§26 item 4), so a foreign place has no reading for now.
+- Nothing answers part of a day (「下午会下雨吗」).
+- T-046p (temperature now from Open-Meteo `current=`; spec 6a4e38e, code 25127f9) was built on `11-06-unbuilt-specs` and never merged. This section takes it in.
+
+**Sources (2026-11-09).**
+- **Weather data keeps now, hourly and daily apart, with a time on the current reading.** Apple WeatherKit data sets `currentWeather`, `forecastHourly`, `forecastDaily` ([dataSet](https://developer.apple.com/documentation/weatherkitrestapi/dataset)). Open-Meteo `current=`, `hourly=`, `daily=` in one request ([docs](https://open-meteo.com/en/docs)). 高德 `extensions=base` gives `lives` with `reporttime` (实况), and `all` gives `casts` (预报) ([apifox](https://amap.apifox.cn/project-759159/api-14675765), [51CTO](https://blog.51cto.com/u_16213717/8741789)).
+- **Assistants keep the same split.** Home Assistant's weather entity state is the current condition, and `weather.get_forecasts` takes `type` daily, twice_daily or hourly ([get_forecasts](https://www.home-assistant.io/actions/weather.get_forecasts/), [entity](https://developers.home-assistant.io/docs/core/entity/weather)). [isdaniel/mcp_weather_server](https://github.com/isdaniel/mcp_weather_server) has `get_current_weather` next to its forecast tool. Home Assistant's LLM forecast script returns the entries for the asked period and the model words the answer (§26 sources).
+- **Measured on the PC, 2026-11-09.** One Open-Meteo call for 上海 (31.23, 121.47) with `current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code,precipitation_probability&daily=…&timezone=auto&forecast_days=16` returned `current.time` 2026-11-09T18:15 (`interval` 900 s), 384 hourly entries (2026-11-09T00:00 … 2026-11-24T23:00) and 16 days.
+
+**Rule in plain words.** 现在 → the reading now, with its time, plus today's high and low. 今天 or any day → that whole day's forecast. 上午, 下午, 晚上 → the hours of that part of the day. The same two sources as §26.
+
+1. **Arguments of `query_live_info(kind=weather)`** (`ToolCatalog` overrides, as §26 item 1).
+   - `day` gains `now`: `now`, `today`, `tomorrow`, `day_after`, `day_after_next`. Description: 「现在的天气、现在几度填 now；今天一整天填 today；明天 tomorrow，后天 day_after，大后天 day_after_next。」 With no `day`, `date` or `part`, the answer is `now`.
+   - New `part`: `morning` (06:00–12:00), `afternoon` (12:00–18:00), `evening` (18:00–24:00), on the place's own clock. Description: 「问上午、下午、晚上时填 morning、afternoon、evening，可以和 day 或 date 一起用。」 With no `day` or `date`, it is today.
+   - `INVALID_ARGUMENT` also when `part` comes with `day=now`, or `part` is not one of the three. The advice is §26 item 1's with 「part 只能是 morning、afternoon、evening，不能和 day=now 一起用。」 appended. The `query_live_info` field check accepts `part`.
+2. **Now.**
+   - **A place found through 高德** (including `here` and `destination`): two requests at once, `extensions=base` (live) and `extensions=all` (the `casts` entry whose `date` is today). `weather.now` holds `weather`, `temperature_c`, `humidity`, `wind` and `time` (`HH:mm` from `reporttime`). `weather.today` holds `weather_day`, `weather_night`, `temp_high` and `temp_low`. If the `all` request fails or has no entry for today, `today` is left out. If `base` fails, the call fails as it does now.
+   - **A place found through Open-Meteo:** T-046p items 1–2, so the same call carries `current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m`. `weather.now` holds `weather` (§26 item 7 words), `temperature_c`, `feels_like_c` (whole degrees), `humidity`, `wind_kmh` and `time` (`HH:mm` from `current.time`). `weather.today` comes from `daily.time[0]`. With no `current` block, only `today` is returned, with the item 3 `next`.
+   - The result also holds `place`, `weekday`, `source`, `day: "now"`, and the top-level `date` (today).
+   - `next` (ours): 「先说现在：地点、现在的天气和气温（now）；再用半句说今天的最高和最低气温（today）。一两句话，不说日期，不要编造。」
+3. **A whole day** (`day` from `today` to `day_after_next`, or `date`).
+   - **高德 place:** `extensions=all`, the `casts` entry by date, now including today (offset 0 joins §23 item 2's rule). The result adds `weather_night` (`nightweather`) beside `weather_day`. No entry for that date: Open-Meteo, as §26 item 3.
+   - **Open-Meteo:** §26 items 4–6, unchanged.
+   - `next`: §26 item 6's, unchanged.
+4. **Part of a day.** Always Open-Meteo hourly (高德 has no hourly), at the place's coordinates (a 高德 place uses 高德's, rounded as §26 item 4).
+   - `weather.hours` lists each hour of that window on that day: `time` (`HH:mm`), `weather` (§26 item 7 words), `temp_c` (whole degrees) and `rain_chance` (%). For today, only the hours from the place's current hour on.
+   - No hour left (the window has passed): `LIVE_INFO_UNAVAILABLE`, advice 「这段时间已经过去了。请如实说明，可以说现在的天气。」
+   - The date is past the last hourly entry: §26 item 5's not-out advice.
+   - The result also holds `place`, `date`, `weekday`, `part` and `source: "open-meteo"`.
+   - `next` (ours): 「只按 hours 用一两句话回答这段时间：会不会下雨（rain_chance）和气温范围，说出地点和是哪天的上午、下午或晚上，不要编造。」
+5. **One Open-Meteo request per question.** `OpenMeteoClient`'s URL carries `current=` (T-046p item 1), `&hourly=temperature_2m,weather_code,precipitation_probability`, then §26's `&daily=…&timezone=auto&forecast_days=16`. The port returns the current block, the hours and the days. A missing or unreadable `current` or `hourly` gives nil, never an error.
+6. **Her texts.**
+   - `ToolCatalog.weatherPart` becomes 「weather：任何地方现在的天气，和今后16天内任何一天、上午下午晚上的天气预报。「现在天气怎么样」「外面几度」→where=here, day=now；「今天天气怎么样」→day=today；「下午会下雨吗」→part=afternoon；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。」
+   - `officialFirst`, the `web_search` description, the persona `webSearchSentence` and the search block words (几度, 多少度): exactly T-046p items 5–6 (`11-06-unbuilt-specs` §27), including its `maxBaseCharacters` rule.
+7. **Where the code goes.**
+   - NovaCore (`ForecastWeather`, `LiveInfoExecutor`): items 1–4.
+   - NovaPorts: the forecast port returns the current block, the hours and the days.
+   - NovaServices: `AmapWebClient` (live with `reporttime`, today's cast, `nightweather`) and `OpenMeteoClient` (item 5).
+   - `ToolCatalog`, `SpeakingStyle` and `CurrentTime.swift`: item 6.
+   - 25127f9 may be cherry-picked for the T-046p part.
+   - `RuntimeLog`: §26 item 11's line gains `view=<now|day|hours>`. It carries no place names, dates, times or numbers (I-8).
+8. **Not changed.** Finding the place and the name check (§26 item 2), the 16-day window, the past and not-out advice, the credit, and weather with search off (which gets all three views too).
+
+**Not verified.**
+- Open-Meteo's `current` and `hourly` are model data, not station readings. 高德's live report is the source for China.
+- How reliably Gemini picks `now`, `today` and `part` from loose speech; rows 11–14 check it.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | 高德 fixtures: `base` (多云, 22, 54, 东北风 6, `reporttime` 2026-11-09 18:00:00) and `all` (today 多云 / 晴, 24 / 18). No `day`; `day=now` | Both requests each time; `now` = 多云, 22, 54, 东北风6级, 18:00; `today` = 多云, 晴, 24, 18; the item 2 `next` | unit |
+| 2 | Same; the `all` request fails | `now` only, no error | unit |
+| 3 | 高德 `day=today` | The `all` request only; today's cast with `weather_day`, `weather_night`, `temp_high`, `temp_low`; no `temperature_c`; §26 `next` | unit |
+| 4 | Open-Meteo fixture, Oslo, `current` (06:00, 0.9, −2.2, 81, code 1, 4.3), `daily.time` from 2026-11-06. No `day`; `day=today`; `day=tomorrow`; no `current` block with no `day` | `now` (06:00, 1, −2, 81, 大致晴, 4.3) and `today`; `today` only; tomorrow only; `today` only with the item 3 `next` | unit |
+| 5 | Open-Meteo fixture, place clock 2026-11-09 14:20. `part=afternoon`; `part=morning`; `day=tomorrow, part=morning` | Hours 14:00–17:00; the item 4 passed advice; hours 06:00–11:00 of 2026-11-10 | unit |
+| 6 | 横琴 (高德 place), `part=afternoon` | Open-Meteo at 高德's coordinates rounded to 2 decimals; `hours`; `source` open-meteo | unit |
+| 7 | `part=afternoon, day=now`; `part=night` | `INVALID_ARGUMENT` with the item 1 advice | unit |
+| 8 | `OpenMeteoClient` URL for 59.91, 10.75 | `current=` (T-046p), `hourly=temperature_2m,weather_code,precipitation_probability`, then §26's `daily=…&timezone=auto&forecast_days=16`, in that order | unit |
+| 9 | Catalog `weatherPart` and `day`/`part` descriptions; T-046p rows 5–6 | Texts exactly as items 1 and 6; 「奥斯陆现在几度」 blocked from search | unit |
+| 10 | `RuntimeLog` after rows 1–6 | `view=now`, `day`, `hours`; no place names, dates, times or numbers | unit |
+| 11 | Device: 「现在天气怎么样」 | `day=now` or no day; she says 现在 with the weather and temperature, and today's high and low; no date | D |
+| 12 | Device: 「今天天气怎么样」 | `day=today`; she gives the daytime and night weather and the high and low, not the live number | D |
+| 13 | Device: 「东京现在几度」 | `country` JP; `now` from Open-Meteo, within 2 °C of open-meteo.com's current value | D |
+| 14 | Device: 「下午会下雨吗」; 「明天晚上冷不冷」 | `part=afternoon`; `day=tomorrow, part=evening`; each answered from `hours` | D |
+
+**Trace gate.** Add `T-046q: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046q.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046q | Items 1–8; rows 1–14 (takes in T-046p from `11-06-unbuilt-specs`) | unit, build, D |
