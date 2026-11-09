@@ -85,7 +85,7 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
             backgroundDone = completion
             return false
         }
-        if now { Task { @MainActor in completion() } }
+        if now { let handler = MainHandler(run: completion); Task { @MainActor in handler.run() } }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
@@ -94,7 +94,7 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
             if backgroundDone == nil { eventsFinished = true }
             return backgroundDone
         }
-        if let done { Task { @MainActor in done() } }
+        if let done { let handler = MainHandler(run: done); Task { @MainActor in handler.run() } }
     }
 
     var state: MultilingualModelState { lock.withLock { machine.state } }
@@ -301,4 +301,9 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
 
 extension Notification.Name {
     static let multilingualModelState = Notification.Name("NovaDrive.multilingualModelState")
+}
+
+/// iOS's background-events completion handler, called once on the main actor.
+private struct MainHandler: @unchecked Sendable {
+    let run: () -> Void
 }
