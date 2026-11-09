@@ -54,7 +54,7 @@ struct ConversationRecordTests {
         out += r.add(.session("closed"), atMs: 1200)
         out += r.finish(atMs: 1300)
         #expect(out == [
-            "100 heard-local 有点热",
+            "100 heard-local 有点热 lang=stream asr=stream",
             "110 utterance id=1 sent=true mute=none",
             "210 tool-call control_climate {\"action\":\"adjust_temperature\",\"value\":-1}",
             "215 turn-end turnComplete turn=1 outcome=completed",

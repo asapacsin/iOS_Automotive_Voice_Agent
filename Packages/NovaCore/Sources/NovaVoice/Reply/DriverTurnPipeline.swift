@@ -175,7 +175,7 @@ public struct DriverTurnPipeline: Sendable {
             t.claims.formUnion(ClaimLexicon.claims(in: t.text))
             turn = t
             // Mandarin only (owner rule 2026-10-28): a reply in another language is voided, not spoken on.
-            if ReplyLanguage.isNotMandarin(t.text) { return modelResponded() + void(.notMandarin, at: now) }
+            if ReplyLanguage.isNotAllowed(t.text) { return modelResponded() + void(.notMandarin, at: now) }
             return modelResponded() + route(.speechText(id, text), at: now)
         case .replyAudio(let id, let pcm):
             guard current(id) != nil else { return [] }

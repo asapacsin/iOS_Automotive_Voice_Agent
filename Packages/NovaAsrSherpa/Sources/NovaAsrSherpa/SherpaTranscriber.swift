@@ -23,6 +23,25 @@ public final class SherpaTranscriber: LocalTranscriber, @unchecked Sendable {
 
     private let lock = NSLock()
     private var timingHandler: (@Sendable (SherpaUtteranceTiming) -> Void)?
+    private var senseVoiceModel: SherpaSenseVoice?
+    private var multiHandler: (@Sendable (_ decodeMs: Int) -> Void)?
+    // Queue-confined: F-05a §14 item 2, this utterance's samples for SenseVoice (nil: not kept).
+    private var samples: [Float]?
+    /// §14 item 2: up to 30 s of 16 kHz samples.
+    static let maxSamples = 30 * PCMFrame16k.sampleRate
+
+    /// F-05a §14 item 2: when set, each utterance is also decoded by SenseVoice at `end`; its final (with a
+    /// language) follows the streaming one, and `TranscriptSelector` picks. Read at `begin`.
+    public var multilingual: SherpaSenseVoice? {
+        get { lock.withLock { senseVoiceModel } }
+        set { lock.withLock { senseVoiceModel = newValue } }
+    }
+
+    /// Called with SenseVoice's decode time once per utterance (`asrMulti … ms=`; never the text).
+    public var onMultilingual: (@Sendable (_ decodeMs: Int) -> Void)? {
+        get { lock.withLock { multiHandler } }
+        set { lock.withLock { multiHandler = newValue } }
+    }
 
     /// Called on the decode queue once per finished utterance with its numbers (never the text).
     public var onTiming: (@Sendable (SherpaUtteranceTiming) -> Void)? {
@@ -60,7 +79,9 @@ public final class SherpaTranscriber: LocalTranscriber, @unchecked Sendable {
     public var availability: TranscriberAvailability { get async { .ready } }
 
     public func begin(utterance id: UtteranceID) async {
+        let keep = multilingual != nil
         queue.async { [self] in
+            samples = keep ? [] : nil
             // A superseded utterance is dropped without a final (§9).
             if let stream { SherpaOnnxDestroyOnlineStream(stream) }
             stream = SherpaOnnxCreateOnlineStream(recognizer)
@@ -80,6 +101,11 @@ public final class SherpaTranscriber: LocalTranscriber, @unchecked Sendable {
                 SherpaOnnxOnlineStreamAcceptWaveform(stream, Int32(PCMFrame16k.sampleRate), $0.baseAddress, Int32($0.count))
             }
             book.fed(samples: samples.count)
+            if var kept = self.samples, kept.count < Self.maxSamples {
+                self.samples = nil
+                kept.append(contentsOf: samples.prefix(Self.maxSamples - kept.count))
+                self.samples = kept
+            }
             decodeReady(stream)
             if let partial = book.partial(text(stream), now: Self.now) { continuation.yield(partial) }
         }
@@ -96,6 +122,15 @@ public final class SherpaTranscriber: LocalTranscriber, @unchecked Sendable {
             guard let (final, metrics) = book.finish(finalText, now: Self.now) else { return }
             continuation.yield(final)
             onTiming?(metrics)
+            // §14 item 2: SenseVoice once, on its own queue; the selector takes it only within its wait.
+            if let kept = samples, !kept.isEmpty, let model = multilingual {
+                let continuation = continuation, report = onMultilingual
+                model.decode(kept) { text, language, ms in
+                    continuation.yield(.final(id, text, language: language))
+                    report?(ms)
+                }
+            }
+            samples = nil
         }
     }
 

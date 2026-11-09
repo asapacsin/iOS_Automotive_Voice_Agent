@@ -51,7 +51,7 @@ actor DriverTranscript {
             case .ready: ready = true
             case .unavailable: ready = false
             }
-            await route(selector.begin(id, localReady: ready))
+            await route(selector.begin(id, localReady: ready, multiReady: ready && LocalSpeechModels.shared.multilingualReady))
             if ready { await transcriber.begin(utterance: id) }
         case .frame(let frame):
             if open != nil { await transcriber.append(frame) }

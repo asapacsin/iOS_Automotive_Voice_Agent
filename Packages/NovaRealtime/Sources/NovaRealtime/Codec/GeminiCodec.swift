@@ -10,10 +10,8 @@ public enum GeminiCodec {
     public static func setup(_ config: SessionConfig, resume handle: String?) -> JSONValue {
         var generation: [String: JSONValue] = [
             "responseModalities": ["AUDIO"],
-            "speechConfig": [
-                "languageCode": .string(config.languageCode),
-                "voiceConfig": ["prebuiltVoiceConfig": ["voiceName": .string(config.voiceName)]],
-            ],
+            "speechConfig": .object(["voiceConfig": ["prebuiltVoiceConfig": ["voiceName": .string(config.voiceName)]]]
+                .merging(config.languageCode.map { ["languageCode": .string($0)] } ?? [:]) { a, _ in a }),
         ]
         if let level = config.thinkingLevel { generation["thinkingConfig"] = ["thinkingLevel": .string(level)] }
         var detection: [String: JSONValue] = [

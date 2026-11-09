@@ -388,7 +388,7 @@ public struct AgentState: Sendable {
             guard session.state != .disconnected, session.state != .error else { return [] }
             switch words {
             case .partial(let text): return heard(text, isFinal: false, at: now)
-            case .final(let text): return heard(text, isFinal: true, at: now)
+            case .final(let text, _): return heard(text, isFinal: true, at: now)
             case .unclear:
                 // S4: shown as 「（没听清）」 only; no stop-phrase check. Tool calls never read words (F-05a §6).
                 transcriptEpoch = speechOnsets
@@ -619,7 +619,7 @@ public struct AgentState: Sendable {
 
     private mutating func applySubtitle(final: Bool) -> [AgentEffect] {
         guard !subtitleHidden else { return [] }
-        switch ScreenLanguage.check(subtitleRaw, final: final) {
+        switch ScreenLanguage.check(subtitleRaw, final: final, language: ScreenLanguage.replyLanguage(subtitleRaw)) {
         case .show: view.subtitle = subtitleRaw
         case .wait: view.subtitle = ""
         case .hide:

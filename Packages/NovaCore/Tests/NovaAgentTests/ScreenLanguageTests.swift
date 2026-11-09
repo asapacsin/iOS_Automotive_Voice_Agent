@@ -23,7 +23,7 @@ struct ScreenLanguageTests {
 
     @Test("Row 2: final other scripts, mixed Hangul, and Latin sentences hide")
     func hides() {
-        for text in ["안녕하세요", "好的안녕", "こんにちは", "Привет", "मैं", "¿Qué?", "What?", "la vecina", "好 la vecina", "Hola", "hello", "si no", "谢谢 thank you", "你好 hello world"] {
+        for text in ["안녕하세요", "好的안녕", "Привет", "मैं", "¿Qué?", "What?", "la vecina", "好 la vecina", "Hola", "hello", "si no", "谢谢 thank you", "你好 hello world"] {
             #expect(ScreenLanguage.check(text, final: true) == .hide, "\(text)")
         }
     }
@@ -58,9 +58,9 @@ struct ScreenLanguageTests {
 
     @Test("Row 5: 안녕 is voided with NOT_MANDARIN at the first Hangul letter; nothing shown or spoken")
     func hangulVoided() {
-        #expect(ReplyLanguage.isNotMandarin("안"))
-        #expect(ReplyLanguage.isNotMandarin("好的안"))
-        #expect(!ReplyLanguage.isNotMandarin("OK") && !ReplyLanguage.isNotMandarin("ＯＫ") && !ReplyLanguage.isNotMandarin("二〇二六年"))
+        #expect(ReplyLanguage.isNotAllowed("안"))
+        #expect(ReplyLanguage.isNotAllowed("好的안"))
+        #expect(!ReplyLanguage.isNotAllowed("OK") && !ReplyLanguage.isNotAllowed("ＯＫ") && !ReplyLanguage.isNotAllowed("二〇二六年"))
         var (d, t) = replying()
         let out = d.realtime(.replyText(t, "안녕"))
         #expect(spoken(out).isEmpty && subtitles(out).allSatisfy { $0.isEmpty })
@@ -68,14 +68,13 @@ struct ScreenLanguageTests {
                                                              turnComplete: true))))
     }
 
-    @Test("Row 6: a Spanish reply piece by piece never shows; voided at 6 letters as today")
+    @Test("Row 6: a Latin reply piece by piece shows nothing until final; F-05a §14 item 4: Latin is no longer voided")
     func spanish() {
         var (d, t) = replying()
         var shown: [String] = []
         for piece in ["Dis", "cul", "pa, no"] { shown += subtitles(d.realtime(.replyText(t, piece))) }
         #expect(shown.allSatisfy { $0.isEmpty })
-        #expect(!ReplyLanguage.isNotMandarin("Discu") && ReplyLanguage.isNotMandarin("Discul"))
-        #expect(spoken(d.effects).isEmpty)
+        #expect(!ReplyLanguage.isNotAllowed("Discu") && !ReplyLanguage.isNotAllowed("Discul"))
     }
 
     @Test("Row 7: la vecina from either source shows 「（没听清）」; the words themselves are unchanged")
@@ -112,9 +111,9 @@ struct ScreenLanguageTests {
     @Test("Row 9: one screen-hidden record line per hidden text; the log line has no words")
     func recordLines() {
         var (d, t) = replying()
-        d.realtime(.replyText(t, "What?"))
+        d.realtime(.replyText(t, "好 la vecina"))
         let done = d.realtime(.responseDone(t, outcome: .completed))
-        #expect(hidden(done) == [.screenHidden(.reply, "What?")])
+        #expect(hidden(done) == [.screenHidden(.reply, "好 la vecina")])
         #expect(hidden(d.realtime(.replyText(t, " now"))).isEmpty)
         for kind in ScreenTextKind.allCases {
             var r = ConversationRecorder()

@@ -71,6 +71,8 @@ struct SettingsView: View {
                     Text("开：应用在前台时用手机麦克风等「你好小诺」，声音只在手机上处理。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                // F-05a §14 item 1 (T-016l).
+                MultilingualSection()
                 Section("声音") {
                     Toggle("抗噪", isOn: $noiseSuppression)
                     Text("开：只有人声才会打开麦克风或打断小诺，喇叭、音乐、路噪不会。切换后立即生效。")

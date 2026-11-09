@@ -208,7 +208,7 @@ struct GeminiClientMessageTests {
         let msg = GeminiCodec.setup(config, resume: "h1")["setup"]
         #expect(msg?["model"] == "models/gemini-3.8-live")
         #expect(msg?["generationConfig"]?["responseModalities"] == ["AUDIO"])
-        #expect(msg?["generationConfig"]?["speechConfig"]?["languageCode"] == "zh-CN")
+        #expect(msg?["generationConfig"]?["speechConfig"]?["languageCode"] == nil)
         #expect(msg?["generationConfig"]?["thinkingConfig"]?["thinkingLevel"] == "LOW")
         #expect(msg?["realtimeInputConfig"]?["automaticActivityDetection"]?["silenceDurationMs"] == 100)
         #expect(msg?["realtimeInputConfig"]?["automaticActivityDetection"]?["startOfSpeechSensitivity"]

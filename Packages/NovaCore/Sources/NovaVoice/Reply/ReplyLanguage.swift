@@ -1,22 +1,21 @@
-/// Reply language guard (product-spec "Reply language", owner rule 2026-10-28): she replies only in
-/// Mandarin. Device evidence 2026-10-28: she heard 「¿Qué?」 and answered in Spanish.
+/// Reply language guard (product-spec "Reply language"): she answers in Chinese, English or Japanese, the
+/// language the driver used (F-05a §14 item 4, owner 2026-11-09; before that Mandarin only, owner rule 2026-10-28).
 public enum ReplyLanguage {
-    /// Letters outside Han before a reply with no Han character counts as another language. A short
-    /// Latin token alone (「OK」, 「4S」) stays allowed.
-    static let foreignLetterLimit = 6
-
-    /// The reply so far is in another language: any letter of a script other than Han or Latin (F-05a §13
-    /// item 4), or enough letters with none of them Chinese.
-    public static func isNotMandarin(_ text: String) -> Bool {
-        var foreign = 0
-        var han = false
-        for scalar in text.unicodeScalars {
-            if isHan(scalar) { han = true; continue }
-            guard scalar.properties.isAlphabetic else { continue }
-            if !isLatin(scalar), scalar.properties.generalCategory != .nonspacingMark { return true }
-            foreign += 1
+    /// F-05a §14 item 4: true as soon as the reply has a letter from a script other than Han, Kana or Latin.
+    public static func isNotAllowed(_ text: String) -> Bool {
+        for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
+            if isHan(scalar) || isLatin(scalar) || isKana(scalar) { continue }
+            if scalar.properties.generalCategory != .nonspacingMark { return true }
         }
-        return !han && foreign >= foreignLetterLimit
+        return false
+    }
+
+    /// Hiragana, Katakana (with ー and the phonetic extensions) and half-width Katakana (F-05a §14 item 3).
+    static func isKana(_ s: Unicode.Scalar) -> Bool {
+        switch s.value {
+        case 0x3040...0x309F, 0x30A0...0x30FF, 0x31F0...0x31FF, 0xFF66...0xFF9F: true
+        default: false
+        }
     }
 
     /// Han script, including 々 and 〇 (F-05a §13).

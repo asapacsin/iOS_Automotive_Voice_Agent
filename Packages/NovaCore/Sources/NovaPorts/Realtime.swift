@@ -88,14 +88,15 @@ public struct SessionConfig: Sendable, Hashable {
     public var systemInstruction: String
     public var tools: [ToolDeclaration]
     public var voiceName: String
-    public var languageCode: String
+    /// F-05a §14 item 4: nil sends no `speechConfig.languageCode` (native audio picks the language itself).
+    public var languageCode: String?
     public var thinkingLevel: String?
     public var activityDetection: ActivityDetectionConfig
     public var inputTranscription: Bool
     public var outputTranscription: Bool
 
     public init(model: String = "gemini-3.8-live", systemInstruction: String, tools: [ToolDeclaration],
-                voiceName: String = "Leda", languageCode: String = "zh-CN", thinkingLevel: String? = "LOW",
+                voiceName: String = "Leda", languageCode: String? = nil, thinkingLevel: String? = "LOW",
                 activityDetection: ActivityDetectionConfig = ActivityDetectionConfig(),
                 inputTranscription: Bool = true, outputTranscription: Bool = true) {
         self.model = model

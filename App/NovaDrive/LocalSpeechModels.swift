@@ -17,6 +17,9 @@ final class LocalSpeechModels: @unchecked Sendable {
     private var asrState = State.loading
     private var recognizer: SherpaTranscriber?
     private var spotterLoaded: StopPhraseSpotterBox?
+    /// F-05a §14 item 2: the downloaded SenseVoice model, loaded once per app run while the switch is on.
+    private var senseVoice: SherpaSenseVoice?
+    private var senseVoiceLoading = false
     /// The current session's subscriber; the recognizer's single event stream is consumed here once.
     private var subscriber: AsyncStream<LocalTranscript>.Continuation?
 
@@ -51,6 +54,9 @@ final class LocalSpeechModels: @unchecked Sendable {
             // F-05a §12 item 10: one line at load, no transcript text (I-8).
             RuntimeLog.agent.notice("asrLoaded model=\(asr.modelName, privacy: .public) ms=\(ms, privacy: .public)")
             Task.detached { await self.forward(asr.events) }
+            // F-05a §14 item 5: SenseVoice's decode time per utterance, numbers only (I-8).
+            asr.onMultilingual = { ms in RuntimeLog.agent.notice("asrMulti state=ready ms=\(ms, privacy: .public)") }
+            lock.withLock { asr.multilingual = senseVoice }
         } catch {
             lock.withLock { asrState = .failed }
             RuntimeLog.agent.error("ASR_LOAD_FAILED reason=\(Self.reason(error), privacy: .public)")
@@ -92,6 +98,46 @@ final class LocalSpeechModels: @unchecked Sendable {
         return stream
     }
 
+    /// F-05a §14 item 2: load the downloaded model (once per run) and hand it to the recognizer. Off the main actor.
+    func loadMultilingual() {
+        let go = lock.withLock { () -> Bool in
+            if let senseVoice { recognizer?.multilingual = senseVoice; return false }
+            defer { senseVoiceLoading = true }
+            return !senseVoiceLoading
+        }
+        guard go else { return }
+        Task.detached(priority: .utility) {
+            do {
+                let model = try SherpaSenseVoice(directory: MultilingualModelStore.folder)
+                guard MultilingualModelStore.switchOn else {
+                    self.lock.withLock { self.senseVoiceLoading = false }
+                    return
+                }
+                self.lock.withLock {
+                    self.senseVoice = model
+                    self.senseVoiceLoading = false
+                    self.recognizer?.multilingual = model
+                }
+                RuntimeLog.agent.notice("asrMulti state=loaded ms=\(model.loadMs, privacy: .public)")
+            } catch {
+                self.lock.withLock { self.senseVoiceLoading = false }
+                RuntimeLog.agent.error("asrMulti state=load_failed reason=\(Self.reason(error), privacy: .public)")
+                MultilingualModelStore.shared.loadFailed()
+            }
+        }
+    }
+
+    /// The switch turned off or the model was deleted: unload; the files stay unless deleted.
+    func unloadMultilingual() {
+        lock.withLock {
+            recognizer?.multilingual = nil
+            senseVoice = nil
+        }
+    }
+
+    /// The selector waits for SenseVoice only when it is handed to the recognizer.
+    var multilingualReady: Bool { lock.withLock { recognizer?.multilingual != nil } }
+
     var loadedRecognizer: SherpaTranscriber? { lock.withLock { recognizer } }
     var spotter: StopPhraseSpotterBox? { lock.withLock { spotterLoaded } }
 
@@ -114,7 +160,8 @@ final class LocalSpeechModels: @unchecked Sendable {
             case .failed: "识别：云端（本机不可用：模型加载失败）"
             }
             let kws = spotterLoaded != nil ? "打断词：本机" : "打断词：仅文字"
-            return asr + "\n" + kws
+            let multi = senseVoice != nil ? "多语言：本机（SenseVoice）" : "多语言：未加载"
+            return asr + "\n" + kws + "\n" + multi
         }
     }
 }

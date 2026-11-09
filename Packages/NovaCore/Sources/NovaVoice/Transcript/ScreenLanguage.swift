@@ -1,4 +1,5 @@
 import NovaKit
+import NovaPorts
 
 /// F-05a §13 items 1-2 (T-016i): the one check just before conversation text is shown. Pure, display only: it
 /// never changes what the guards, the stop phrase, the echo filter or the tools read (item 3).
@@ -12,22 +13,30 @@ public enum ScreenLanguage {
     /// Final Latin-only text up to this many `A-Z` / `0-9` characters shows (`OK`, `4S`).
     static let shortTokenLimit = 5
 
-    /// `text` is the whole text so far; `final` is true once no more of it will come.
-    public static func check(_ text: String, final: Bool) -> Verdict {
+    /// `text` is the whole text so far; `final` is true once no more of it will come. `language` is the utterance's
+    /// (SenseVoice's for the driver, `replyLanguage` for her reply; F-05a §14 item 3).
+    public static func check(_ text: String, final: Bool, language: SpokenLanguage? = nil) -> Verdict {
         var han = false
         var latin = false
-        for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
+        var kana = false
+        for scalar in text.unicodeScalars where scalar.properties.isAlphabetic || ReplyLanguage.isKana(scalar) {
             if ReplyLanguage.isHan(scalar) {
                 han = true
             } else if ReplyLanguage.isLatin(scalar) {
                 latin = true
+            } else if ReplyLanguage.isKana(scalar) {
+                kana = true
             } else if scalar.properties.generalCategory != .nonspacingMark {
-                return .hide  // Hangul, Kana, Cyrillic, Devanagari, Arabic, Thai…, even inside a Chinese sentence
+                return .hide  // Hangul, Cyrillic, Devanagari, Arabic, Thai…, even inside a Chinese sentence
             }
         }
+        // §14 item 3: a line with Kana shows when final; not final, it waits.
+        if kana { return final ? .show : .wait }
         if han { return TranscriptLanguage.isChinese(text) || shortTokensOnly(text) ? .show : (final ? .hide : .wait) }
         if !latin { return .show }
         guard final else { return .wait }
+        // §14 item 3: a final Latin-only line of an English utterance shows at any length.
+        if language == .en { return .show }
         let kept = text.unicodeScalars.filter { !$0.properties.isWhitespace }
         return kept.count <= shortTokenLimit && kept.allSatisfy(isToken) ? .show : .hide
     }
@@ -60,14 +69,24 @@ public enum ScreenLanguage {
         return han > 0 && runs.count <= han && runs.allSatisfy { $0 <= shortTokenLimit }
     }
 
+    /// §14 item 3: her reply's language from its text: Kana → ja; Latin letters with no Han → en; else nil.
+    public static func replyLanguage(_ text: String) -> SpokenLanguage? {
+        var han = false, latin = false
+        for scalar in text.unicodeScalars {
+            if ReplyLanguage.isKana(scalar) { return .ja }
+            if ReplyLanguage.isHan(scalar) { han = true } else if scalar.properties.isAlphabetic && ReplyLanguage.isLatin(scalar) { latin = true }
+        }
+        return latin && !han ? .en : nil
+    }
+
     /// The driver's line for final text: itself, or 「（没听清）」 when hidden.
-    public static func driverLine(_ text: String) -> (line: String, hidden: Bool) {
-        check(text, final: true) == .hide ? (unclearDriverLine, true) : (text, false)
+    public static func driverLine(_ text: String, language: SpokenLanguage? = nil) -> (line: String, hidden: Bool) {
+        check(text, final: true, language: language) == .hide ? (unclearDriverLine, true) : (text, false)
     }
 
     /// The driver's line for the whole text so far; `wait` shows nothing yet.
-    public static func driverDisplay(_ text: String, final: Bool) -> (line: String?, hidden: Bool) {
-        switch check(text, final: final) {
+    public static func driverDisplay(_ text: String, final: Bool, language: SpokenLanguage? = nil) -> (line: String?, hidden: Bool) {
+        switch check(text, final: final, language: language) {
         case .show: (text, false)
         case .wait: ("", false)
         case .hide: (unclearDriverLine, true)
@@ -79,7 +98,7 @@ public enum ScreenLanguage {
 
     /// The camera answer as shown and spoken: itself, or the fallback sentence when hidden.
     public static func cameraLine(_ answer: String) -> (line: String, hidden: Bool) {
-        check(answer, final: true) == .hide ? (cameraFallback, true) : (answer, false)
+        check(answer, final: true, language: replyLanguage(answer)) == .hide ? (cameraFallback, true) : (answer, false)
     }
 
     /// Item 5: the record keeps the first 80 characters.

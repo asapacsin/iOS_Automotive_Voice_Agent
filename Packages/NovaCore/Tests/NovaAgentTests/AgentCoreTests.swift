@@ -145,16 +145,16 @@ struct AgentWalkthroughTests {
         #expect(!out.contains { if case .flushPlayback = $0 { true } else { false } })
     }
 
-    @Test("Mandarin only (owner rule 2026-10-28): a Spanish reply is voided and corrected in Chinese")
+    @Test("F-05a §14 item 4: a reply in another script (Russian) is voided and corrected with NOT_MANDARIN")
     func notMandarin() {
         var d = Drive()
         d.connect()
         d.send(.speechStarted(recentSpeech: true))
         d.send(.speechStopped)
         let t1 = TurnID(1)
-        d.realtime(.userTranscript("¿Qué?", isFinal: true))
+        d.realtime(.userTranscript("你好", isFinal: true))
         d.realtime(.responseStarted(t1))
-        let out = d.realtime(.replyText(t1, "Encontré 5 lugares, por favor dime cuál quieres."))
+        let out = d.realtime(.replyText(t1, "Привет, я нашла 5 мест."))
         #expect(spoken(out).isEmpty)
         let correction = d.fire(.correction)
         #expect(correction.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.notMandarin.instruction)],

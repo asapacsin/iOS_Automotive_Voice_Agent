@@ -991,6 +991,9 @@ final class AgentRuntime {
         // Gemini's guess only as a checked fallback (§5 S3) until it is loaded or if it fails.
         let speechModels = LocalSpeechModels.shared
         speechModels.load()
+        // F-05a §14 item 5: the multilingual model's state at the start and on each change.
+        record?.submit(.asrModel(MultilingualModelStore.shared.state))
+        tasks.append(MultilingualModelStore.shared.watch { state in record?.submit(.asrModel(state)) })
         // The gate's marks and the driver's words reach the core through one stream, in the order they happened
         // (F-08 §16: an utterance the words release is started before the words arrive).
         let gateEvents = AsyncStream.makeStream(of: UplinkEvent.self, bufferingPolicy: .unbounded)
@@ -998,16 +1001,16 @@ final class AgentRuntime {
             // F-05a §13 item 2: display only; the words below and the guards are unchanged.
             let shown: (line: String?, hidden: Bool) = switch words {
             case .partial(let text): ScreenLanguage.driverDisplay(text, final: false)
-            case .final(let text): ScreenLanguage.driverDisplay(text, final: true)
+            case .final(let text, let language): ScreenLanguage.driverDisplay(text, final: true, language: language)
             case .unclear: (ScreenLanguage.unclearDriverLine, false)
             }
-            if shown.hidden, case .final(let text) = words {
+            if shown.hidden, case .final(let text, _) = words {
                 RuntimeLog.agent.notice("\(DiagnosticEvent.screenHidden(kind: .driver).logLine, privacy: .public)")
                 record?.submit(.screenHidden(kind: .driver, text: text))
             }
             if let line = shown.line { Task { @MainActor in model.driverLine = line } }
             switch words {
-            case .final(let text): record?.submit(.heardLocal(text))
+            case .final(let text, let language): record?.submit(.heardLocal(text, language: language))
             case .unclear: record?.submit(.heardLocal(nil))
             case .partial: break
             }
@@ -1556,7 +1559,7 @@ final class GateBox: @unchecked Sendable {
         for r in released {
             switch r.words {
             case .partial(let t): fed += hold.partial(t, utterance: r.utterance)
-            case .final(let t): fed += hold.final(t, utterance: r.utterance)
+            case .final(let t, _): fed += hold.final(t, utterance: r.utterance)
             case .unclear: fed += hold.final("", utterance: r.utterance)
             }
         }
@@ -1673,7 +1676,7 @@ final class GateBox: @unchecked Sendable {
     func words(_ words: DriverWords, utterance id: Int) {
         // F-08 §17: pinyin conversion is slow; never under the lock every capture frame needs.
         let syllables: [String]? = switch words {
-        case .partial(let text), .final(let text): BargeInCheck.syllables(text)
+        case .partial(let text), .final(let text, _): BargeInCheck.syllables(text)
         case .unclear: nil
         }
         order.lock()
@@ -1681,12 +1684,12 @@ final class GateBox: @unchecked Sendable {
         let (outputs, forward, logs, step, act) = lock.withLock {
             switch words {
             case .partial(let text): shadow.partial(text, syllables: syllables, utterance: id)
-            case .final(let text): shadow.final(text, syllables: syllables, utterance: id)
+            case .final(let text, _): shadow.final(text, syllables: syllables, utterance: id)
             case .unclear: shadow.final("", syllables: [], utterance: id)
             }
             let o: [UplinkGateOutput] = switch words {
             case .partial(let text): hold.partial(text, utterance: id)
-            case .final(let text): hold.final(text, utterance: id)
+            case .final(let text, _): hold.final(text, utterance: id)
             case .unclear: hold.final("", utterance: id)
             }
             let step = liveStep(raw: [], o, frame: false)

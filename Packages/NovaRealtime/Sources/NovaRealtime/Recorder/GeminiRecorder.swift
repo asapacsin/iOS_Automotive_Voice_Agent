@@ -128,8 +128,7 @@ public final class GeminiRecorder: @unchecked Sendable {
             "model": Self.model,
             "generationConfig": [
                 "responseModalities": ["AUDIO"],
-                "speechConfig": ["languageCode": "zh-CN",
-                                 "voiceConfig": ["prebuiltVoiceConfig": ["voiceName": "Leda"]]],
+                "speechConfig": ["voiceConfig": ["prebuiltVoiceConfig": ["voiceName": "Leda"]]],
             ],
             "systemInstruction": ["parts": [["text": "你是车载语音助手 Nova，回答简短。需要操作车辆时先调用工具。"]]],
             "tools": [["functionDeclarations": [[

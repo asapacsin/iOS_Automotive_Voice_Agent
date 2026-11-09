@@ -94,10 +94,12 @@ struct SpeechArbiterTests {
 struct ReplyLanguageTests {
     @Test("owner rule 2026-10-28: only Mandarin; a short Latin token inside Chinese is fine")
     func guardText() {
-        #expect(ReplyLanguage.isNotMandarin("Encontré 5 lugares, por favor dime cuál quieres."))
-        #expect(ReplyLanguage.isNotMandarin("Sure, I can help."))
-        #expect(!ReplyLanguage.isNotMandarin("找到5个地方，请问你要哪一个？"))
-        #expect(!ReplyLanguage.isNotMandarin("OK"))
-        #expect(!ReplyLanguage.isNotMandarin("已经帮你导航到 Starbucks。"))
+        // F-05a §14 item 4: Latin, Han and Kana are allowed; other scripts are not.
+        #expect(!ReplyLanguage.isNotAllowed("Encontré 5 lugares, por favor dime cuál quieres."))
+        #expect(!ReplyLanguage.isNotAllowed("Sure, I can help."))
+        #expect(!ReplyLanguage.isNotAllowed("找到5个地方，请问你要哪一个？"))
+        #expect(!ReplyLanguage.isNotAllowed("OK"))
+        #expect(!ReplyLanguage.isNotAllowed("已经帮你导航到 Starbucks。"))
+        #expect(ReplyLanguage.isNotAllowed("Привет"))
     }
 }
