@@ -6,16 +6,20 @@ import Synchronization
 import FoundationNetworking
 #endif
 
-/// F-13 §14 item 2: 设置 → 音乐 →「曲库地区」.
+/// F-13 §14 item 2, §15 item 1 (T-032c): 设置 → 音乐 →「曲库地区」. 中国大陆 is gone: CN returns nothing.
 public enum MusicCountry: String, Sendable, Hashable, CaseIterable {
-    case cn = "CN", jp = "JP", hk = "HK", tw = "TW", us = "US"
+    case hk = "HK", tw = "TW", jp = "JP", us = "US"
 
     public static let settingKey = "music_country"
-    public static let `default` = MusicCountry.cn
+    public static let `default` = MusicCountry.hk
+
+    /// §15 item 1: no saved region, a saved CN or anything unknown is HK.
+    public static func resolve(saved: String?) -> MusicCountry {
+        saved.flatMap(MusicCountry.init(rawValue:)) ?? .default
+    }
 
     public var label: String {
         switch self {
-        case .cn: "中国大陆"
         case .jp: "日本"
         case .hk: "香港"
         case .tw: "台湾"
@@ -58,6 +62,11 @@ public enum ITunesSearch {
     public static let host = "https://itunes.apple.com"
     public static let limit = 10
     public static let timeout = NovaDuration.seconds(5)
+
+    /// §15 item 5: what the term was made of.
+    public static func termKind(_ r: NamedMusicRequest) -> String {
+        r.title == nil ? "other" : r.artist == nil ? "title" : "title+artist"
+    }
 
     /// Item 2: `title artist`; without a title, the present ones of album_or_work, artist, query, mood.
     public static func term(_ r: NamedMusicRequest) -> String {
@@ -171,17 +180,13 @@ public final class ITunesPreviewMusic: NamedMusicPort, @unchecked Sendable {
     public func play(_ request: NamedMusicRequest) async throws -> NamedMusicStart? {
         let cc = country()
         let start = clock.now
-        let songs: [ITunesSong]
-        do {
-            let (status, body) = try await transport.send(ITunesSearch.request(request, country: cc))
-            guard (200..<300).contains(status) else { throw NamedMusicError.searchFailed }
-            songs = try ITunesSearch.songs(body)
-        } catch {
-            log("music search ms=\(Int(clock.now.milliseconds - start.milliseconds)) results=0 picked=none country=\(cc.rawValue)")
-            throw NamedMusicError.searchFailed
+        var (songs, picked) = try await search(request, country: cc, attempt: 1)
+        // §15 item 3 (T-032c): title and artist found nothing usable: once more with the title alone.
+        if picked == nil, request.title != nil, request.artist != nil {
+            var titleOnly = request
+            titleOnly.artist = nil
+            (songs, picked) = try await search(titleOnly, country: cc, attempt: 2)
         }
-        let picked = ITunesSearch.pick(songs, for: request)
-        log("music search ms=\(Int(clock.now.milliseconds - start.milliseconds)) results=\(songs.count) picked=\(picked.map(String.init) ?? "none") country=\(cc.rawValue)")
         guard let picked, let preview = songs[picked].previewURL else { throw NamedMusicError.notFound }
         let song = songs[picked]
         // Item 4: a preview replaces the bundled track and any earlier preview.
@@ -191,6 +196,27 @@ public final class ITunesPreviewMusic: NamedMusicPort, @unchecked Sendable {
         askedAt.withLock { $0 = start }
         await player.play(ITunesSearch.secure(preview))
         return NamedMusicStart(album: song.collectionName, previewSeconds: Self.previewSeconds, source: Self.source)
+    }
+
+    /// One request and the §14 item 3 pick; logs `music search` with `try=` and `term=` (§15 item 5).
+    private func search(_ request: NamedMusicRequest, country cc: MusicCountry,
+                        attempt: Int) async throws -> ([ITunesSong], Int?) {
+        let start = clock.now
+        func line(_ results: Int, _ picked: Int?) -> String {
+            "music search ms=\(Int(clock.now.milliseconds - start.milliseconds)) results=\(results) picked=\(picked.map(String.init) ?? "none") country=\(cc.rawValue) try=\(attempt) term=\(ITunesSearch.termKind(request))"
+        }
+        let songs: [ITunesSong]
+        do {
+            let (status, body) = try await transport.send(ITunesSearch.request(request, country: cc))
+            guard (200..<300).contains(status) else { throw NamedMusicError.searchFailed }
+            songs = try ITunesSearch.songs(body)
+        } catch {
+            log(line(0, nil))
+            throw NamedMusicError.searchFailed
+        }
+        let picked = ITunesSearch.pick(songs, for: request)
+        log(line(songs.count, picked))
+        return (songs, picked)
     }
 
     /// Item 5: the picked song, only while the player is actually playing it.

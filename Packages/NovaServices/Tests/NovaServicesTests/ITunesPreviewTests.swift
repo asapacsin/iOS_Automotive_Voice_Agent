@@ -42,6 +42,20 @@ final class FakePreviewPlayer: PreviewPlayer, @unchecked Sendable {
     }
 }
 
+/// Answers each request with the next body in turn.
+final class SequenceHTTP: HTTPTransport, @unchecked Sendable {
+    let bodies: [String]
+    let sent = Mutex<[URLRequest]>([])
+    init(_ bodies: [String]) { self.bodies = bodies }
+    func send(_ request: URLRequest) async throws -> (status: Int, body: Data) {
+        let n = sent.withLock { $0.append(request); return $0.count }
+        return (200, Data(bodies[min(n - 1, bodies.count - 1)].utf8))
+    }
+    var terms: [String] {
+        sent.withLock { $0 }.map { URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)!.queryItems!.first!.value! }
+    }
+}
+
 final class Cards: @unchecked Sendable {
     private let lock = NSLock()
     private var items: [PreviewCard?] = []
@@ -66,7 +80,7 @@ struct ITunesPreviewTests {
 
     static func port(_ http: ScriptedHTTP, _ player: FakePreviewPlayer, bundled: Flag = Flag(),
                      card: Cards? = nil) -> ITunesPreviewMusic {
-        ITunesPreviewMusic(transport: http, player: player, clock: SystemClock(), country: { .cn },
+        ITunesPreviewMusic(transport: http, player: player, clock: SystemClock(), country: { .hk },
                            stopBundled: { bundled.hit() }, onCard: { c in card?.add(c) })
     }
 
@@ -81,11 +95,11 @@ struct ITunesPreviewTests {
 
     @Test("Row 1: term, country, media, entity, limit, no cache")
     func request() throws {
-        let req = ITunesSearch.request(NamedMusicRequest(title: "oblivious", artist: "Kalafina"), country: .cn)
+        let req = ITunesSearch.request(NamedMusicRequest(title: "oblivious", artist: "Kalafina"), country: .hk)
         let items = try #require(URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems)
         #expect(req.url!.absoluteString.hasPrefix("https://itunes.apple.com/search?"))
         #expect(items.map { "\($0.name)=\($0.value ?? "")" }
-            == ["term=oblivious Kalafina", "country=CN", "media=music", "entity=song", "limit=10"])
+            == ["term=oblivious Kalafina", "country=HK", "media=music", "entity=song", "limit=10"])
         #expect(req.cachePolicy == .reloadIgnoringLocalCacheData && req.timeoutInterval == 5)
     }
 
@@ -177,7 +191,7 @@ struct ITunesPreviewTests {
         port.ended()
         let all = lines.withLock { $0 }
         #expect(all.count == 3)
-        #expect(all[0].hasPrefix("music search ms=") && all[0].hasSuffix("results=3 picked=2 country=JP"))
+        #expect(all[0].hasPrefix("music search ms=") && all[0].hasSuffix("results=3 picked=2 country=JP try=1 term=title+artist"))
         #expect(all[1].hasPrefix("music preview playing ms=") && all[2] == "music preview ended")
         #expect(!all.joined().contains("oblivious") && !all.joined().contains("Kalafina"))
     }
@@ -187,4 +201,49 @@ struct NoMusic: MusicPort {
     func playBundled() async -> Bool { false }
     func stop() async {}
     var isPlaying: Bool { get async { false } }
+}
+
+@Suite("T-032c F-13 §15 Hong Kong catalogue, real title, one retry")
+struct ITunesRetryTests {
+    static let empty = #"{"results":[]}"#
+
+    @Test("Row 1: no saved region, saved CN, saved JP: HK, HK, JP; requests use it")
+    func region() {
+        #expect(MusicCountry.resolve(saved: nil) == .hk && MusicCountry.resolve(saved: "CN") == .hk
+            && MusicCountry.resolve(saved: "JP") == .jp)
+        #expect(!MusicCountry.allCases.map(\.rawValue).contains("CN") && MusicCountry.allCases.first == .hk)
+        #expect(ITunesSearch.request(NamedMusicRequest(title: "x"), country: .jp).url!.query!.contains("country=JP"))
+    }
+
+    @Test("Row 2: title and artist empty, title alone finds Kalafina's oblivious: two requests, picked and played")
+    func retry() async {
+        let http = SequenceHTTP([Self.empty, #"{"results":["# + song("oblivious", "Kalafina") + "]}"])
+        let player = FakePreviewPlayer(after: .zero)
+        let lines = Mutex<[String]>([])
+        let port = ITunesPreviewMusic(transport: http, player: player, clock: SystemClock(), country: { .hk },
+                                      stopBundled: {}, log: { l in lines.withLock { $0.append(l) } })
+        let r = await ITunesPreviewTests.handler(port).execute(ITunesPreviewTests.call(["title": "oblivious", "artist": "梶浦由记"]))
+        #expect(http.terms == ["oblivious 梶浦由记", "oblivious"])
+        #expect(r.ok && r.data["now_playing"] == ["title": "oblivious", "artist": "Kalafina"])
+        let search = lines.withLock { $0 }.filter { $0.hasPrefix("music search") }
+        #expect(search.count == 2 && search[0].hasSuffix("try=1 term=title+artist") && search[1].hasSuffix("try=2 term=title"))
+    }
+
+    @Test("Row 3: no title: one request only, MUSIC_NOT_FOUND with the item 4 advice")
+    func noTitle() async {
+        let http = SequenceHTTP([Self.empty])
+        let port = ITunesPreviewMusic(transport: http, player: FakePreviewPlayer(after: .zero), clock: SystemClock(),
+                                      country: { .hk }, stopBundled: {})
+        let r = await ITunesPreviewTests.handler(port).execute(ITunesPreviewTests.call(
+            ["album_or_work": "空之境界", "query": "帮我播那个什么歌"]))
+        #expect(http.terms.count == 1)
+        #expect(!r.ok && r.code == ToolErrorCode.musicNotFound && r.advice == ToolFailureAdvice.forCode(.musicNotFound))
+    }
+
+    @Test("Row 4: play_music description and MUSIC_NOT_FOUND advice exactly as items 2 and 4")
+    func texts() {
+        let d = ToolCatalog.specs.first { $0.name == "play_music" }!.declaration.description
+        #expect(d == "按歌名、歌手、作品或模糊描述放歌（播放 iTunes 30 秒试听），如「梶浦由记的、空之境界里很燃的那首片头曲」「来点开车提神的」。先用你的知识确定是哪首，填 title/artist/album_or_work；先用你的知识确定一首具体的歌：title 填发行时的歌名原文（如 oblivious），artist 填演唱者（如 Kalafina）；不要把用户的原话填进 query。实在确定不了才只填 query 或 mood。只按返回的 now_playing 说在放什么；ok=false 如实说没放成。「不是这首」时再调用并填 exclude_title。无描述的「放首歌」用 control_music。")
+        #expect(ToolFailureAdvice.forCode(.musicNotFound) == "曲库里没找到。如果还没填 title，请先确定一首具体的歌，用歌名原文和演唱者再调用一次 play_music；已经填了 title 还是没有，就如实说没找到，不要说在放。")
+    }
 }

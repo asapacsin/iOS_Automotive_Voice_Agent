@@ -117,9 +117,12 @@ enum DriveSettings {
         defaults.object(forKey: webSearch) as? Bool ?? false
     }
 
-    /// F-13 §14 item 2 (T-032b) 「曲库地区」: default 中国大陆.
+    /// F-13 §14 item 2, §15 item 1 (T-032c) 「曲库地区」: default 香港; a saved CN or unknown value is rewritten as HK.
     static func musicCountry(_ defaults: UserDefaults = .standard) -> MusicCountry {
-        defaults.string(forKey: MusicCountry.settingKey).flatMap(MusicCountry.init(rawValue:)) ?? .default
+        let saved = defaults.string(forKey: MusicCountry.settingKey)
+        let country = MusicCountry.resolve(saved: saved)
+        if saved != nil, saved != country.rawValue { defaults.set(country.rawValue, forKey: MusicCountry.settingKey) }
+        return country
     }
 
     /// F-07 §16 item 1 (T-020c) 「保存她的原声」: default off; read at session start.

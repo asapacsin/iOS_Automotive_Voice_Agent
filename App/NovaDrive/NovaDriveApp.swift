@@ -42,6 +42,7 @@ struct NovaDriveApp: App {
         SpeakerLockService.removeCalibrationDraft()
         // F-07 §15 item 2 (T-020b): once, no saved choice or 千问 moves to Gemini 原声.
         VoiceSourceMigration.run(DefaultsSettingsStore())
+        _ = DriveSettings.musicCountry()  // F-13 §15 item 1 (T-032c): a saved 中国大陆 becomes 香港 at first launch
     }
 
     var body: some Scene {
