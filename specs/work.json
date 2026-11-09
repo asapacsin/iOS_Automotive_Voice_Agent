@@ -360,14 +360,14 @@
     {
       "id": "T-032b",
       "owner": "AUTONOMOUS",
-      "status": "HUMAN_REQUIRED",
+      "status": "PASS",
       "priority": 1,
       "action": "F-13 §14 items 1-11 (ITunesPreviewMusic as NamedMusicPort wired into MusicToolHandler: iTunes Search API song search with the country setting, pick rule, AVPlayer streamed preview on the media lane, now-playing proof, end, card with iTunes attribution and Apple Music link, failure codes, tool text, logs); F-13 §14 rows 1-11.",
       "depends_on": [
         "T-032",
         "T-020c"
       ],
-      "notes": "Owner 2026-11-09: 「梶浦那首空之境界的歌」 should play inside the app without another app opening, with no subscription or paid account. OQ-IOS-7 reopened for 30 s iTunes previews. Apple's preview terms (promotional, not for entertainment) recorded as owner risk; the build is not distributed.",
+      "notes": "Owner 2026-11-09: 「梶浦那首空之境界的歌」 should play inside the app without another app opening, with no subscription or paid account. OQ-IOS-7 reopened for 30 s iTunes previews. Apple's preview terms (promotional, not for entertainment) recorded as owner risk; the build is not distributed. 2026-11-09: item 4 (echo while the preview plays) moved to T-032d (F-13 §16); the rest PASS.",
       "evidence": [
         {
           "gate": "scripts/gates/run_all.sh",
@@ -443,14 +443,27 @@
     {
       "id": "T-032d",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "PASS",
       "priority": 1,
       "action": "F-13 §16 items 1-6: preview through LiveAudio's engine (EnginePreviewPlayer, preview node on the media lane, in-memory download and AudioFile/ExtAudioFile decode, no AVPlayer); rows 1-5.",
       "depends_on": [
         "T-032b"
       ],
       "notes": "Owner 2026-11-09: approved routing the preview through the app's audio engine after the community check (playback must share the voice-processing engine for echo cancellation).",
-      "evidence": []
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green (NovaCore 680, NovaRealtime 42, NovaServices 65, spec-trace 0 missing); NovaAudio/App not compiled on Linux, first compile on Codemagic",
+          "commit": "70946b7"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS after fixes (stop during scheduling, completion during engine restart, decode cap)"
+        },
+        {
+          "device": "F-13 §16 rows 2-5 NOT_VERIFIED: echo while preview plays, route change/restart, mono preview mapped to stereo, 5 s idle download timeout"
+        }
+      ]
     },
     {
       "id": "T-024",
