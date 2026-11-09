@@ -131,7 +131,7 @@ public struct LiveInfoExecutor: ToolExecutor {
             }
             // §28 item 4: part of a day is always Open-Meteo hourly, at 高德's coordinates.
             if parsed.view == .hours || amapOffset == nil {
-                return await openMeteo(at: coordinate, place: name ?? parsed.where, country: nil, parsed)
+                return await openMeteo(at: coordinate, place: await placeName(name, parsed, coordinate), country: nil, parsed)
             }
             if parsed.view == .now {
                 return try await amapNow(weather, place: place, today: day, view: view)
@@ -150,12 +150,24 @@ public struct LiveInfoExecutor: ToolExecutor {
                 // §26 item 3: no `casts` entry for that date: Open-Meteo with 高德's coordinates.
                 report("amap", ok: false, reason: "no_cast", view: view)
                 guard let coordinate else { return .failure(.liveInfoUnavailable, advice: Self.noForecastAdvice) }
-                return await openMeteo(at: coordinate, place: name ?? parsed.where, country: nil, parsed)
+                return await openMeteo(at: coordinate, place: await placeName(name, parsed, coordinate), country: nil, parsed)
             }
         } catch {
             report("amap", ok: false, reason: Self.reason(error), view: view)
             return Self.failure(error)
         }
+    }
+
+    /// §26 item 6, §28 item 4: `place` for an Open-Meteo answer. For `here` it is the regeo district (else the
+    /// address), never the word "here"; a failed regeo leaves 「当前位置」.
+    private func placeName(_ name: String?, _ parsed: ForecastWeather.Arguments, _ coordinate: GeoCoordinate?) async -> String {
+        if let name { return name }
+        guard ["here", ""].contains(parsed.where) else { return parsed.where }
+        if let coordinate, let geocoder, let address = try? await geocoder.address(at: coordinate) {
+            if let district = address.district, !district.isEmpty { return district }
+            if !address.formatted.isEmpty { return Self.trimProvince(address.formatted) }
+        }
+        return "当前位置"
     }
 
     /// §28 item 2: 高德's live report and today's cast, requested at once. A failed live report fails the call; a

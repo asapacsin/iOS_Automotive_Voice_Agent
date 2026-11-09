@@ -27,6 +27,21 @@ final class ViewsAmap: WeatherService, @unchecked Sendable {
     }
 }
 
+/// The live reply waits until the cast request has started: a sequential caller would never get the cast.
+final class GatedAmap: WeatherService, @unchecked Sendable {
+    let inner = ViewsAmap()
+    let castStarted = Mutex(false)
+    func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
+        if day.live {
+            for _ in 0..<200 where !castStarted.withLock({ $0 }) { try await Task.sleep(nanoseconds: 5_000_000) }
+            guard castStarted.withLock({ $0 }) else { throw AmapWebError.failed }
+        } else {
+            castStarted.withLock { $0 = true }
+        }
+        return try await inner.weather(adcode: adcode, day: day)
+    }
+}
+
 /// Hourly entries from `first` 00:00 for `days` days; hour h has temp 10+h, code 61 after 15:00, rain 10·(h % 10).
 func forecastHours(from first: String, days: Int = 16) -> [HourlyForecast] {
     let start = ForecastWeather.isoDay(first)!
@@ -142,6 +157,21 @@ struct WeatherViewsTests {
         let r = await ex.execute(weatherCall(["where": "横琴", "part": "afternoon"]))
         #expect(r.ok && r.data["weather"]?["source"] == "open-meteo" && r.data["weather"]?["hours"] != nil)
         #expect(forecast.asked.withLock { $0 } == [[22.13, 113.52]] && weather.calls.withLock { $0 } == 0)
+    }
+
+    @Test("T-046q F-18 §28 row 14 (unit part): 「下午会下雨吗」 at the current location names the regeo district, not here")
+    func herePart() async {
+        let (ex, _, forecast) = hoursSetup()
+        let r = await ex.execute(weatherCall(["part": "afternoon"]))
+        #expect(r.ok && r.data["weather"]?["place"] == "香洲区" && forecast.asked.withLock { $0.count } == 1)
+    }
+
+    @Test("T-046q F-18 §28 row 1: the live and cast requests are in flight at the same time")
+    func concurrent() async {
+        let amap = GatedAmap()
+        let (ex, _, _, _, _) = forecastSetup(weather: amap)
+        let r = await ex.execute(weatherCall(["where": "珠海"]))
+        #expect(r.ok && r.data["weather"]?["today"] != nil)
     }
 
     @Test("T-046q F-18 §28 row 7: part with day=now, or an unknown part, is INVALID_ARGUMENT with the item 1 advice")
