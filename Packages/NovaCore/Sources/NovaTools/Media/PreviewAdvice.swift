@@ -7,12 +7,12 @@ public enum PreviewAdvice {
     public static let file = "试听没放起来：这首的试听文件放不了。请如实说没放成，可以换一首；不要说版权或会员。"
     public static let engine = "试听没放起来：手机的声音通道没准备好。请如实说没放成，可以再试一次；不要说版权或会员。"
 
-    /// `download_*`, `too_large`, nil (still loading at 6 s) and `stopped` (not a driver-facing reason): network.
+    /// `download_*`, `too_large`, `too_long` (§18 item 2), nil (still loading at 6 s) and `stopped` (not a driver-facing reason): network.
     public static func text(for failure: PreviewFailure?) -> String {
         switch failure {
         case .parse: file
         case .engine: engine
-        case .downloadTimeout, .downloadNetwork, .downloadHTTP, .tooLarge, .stopped, nil: network
+        case .downloadTimeout, .downloadNetwork, .downloadHTTP, .tooLarge, .tooLong, .stopped, nil: network
         }
     }
 }

@@ -841,6 +841,11 @@ final class AgentRuntime {
         // song names reach the record through the tool result only, never RuntimeLog (I-8).
         let lane = LaneMusicPlayer(audio: audio)
         let previewBox = PreviewBox()
+        // F-13 §18 item 7 (T-032f): a media-lane command that waited or ran over 200 ms; numbers only.
+        audio.onSlowCommand { line in
+            RuntimeLog.agent.notice("\(line, privacy: .public)")
+            voiceLines.record?.submit(.music(line))
+        }
         let previewPlayer = EnginePreviewPlayer(audio: audio) { Task { await previewBox.music?.ended() } }
         let preview = ITunesPreviewMusic(player: previewPlayer, clock: SystemClock(),
                                          country: { DriveSettings.musicCountry() },

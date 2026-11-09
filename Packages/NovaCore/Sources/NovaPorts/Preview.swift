@@ -8,6 +8,8 @@ public enum PreviewFailure: Sendable, Hashable {
     case downloadHTTP(Int)
     /// More than the 8 MB cap (§16 item 2).
     case tooLarge
+    /// F-13 §18 item 2 (T-032f): more than the 40 s preview buffer; the preview ends at 40 s.
+    case tooLong
     /// Neither streaming nor the whole-file decoder could read it.
     case parse
     /// The engine was not running, or the schedule was refused.
@@ -22,6 +24,7 @@ public enum PreviewFailure: Sendable, Hashable {
         case .downloadNetwork: "download_network"
         case .downloadHTTP(let status): "download_http_\(status)"
         case .tooLarge: "too_large"
+        case .tooLong: "too_long"
         case .parse: "parse"
         case .engine: "engine"
         case .stopped: "stopped"

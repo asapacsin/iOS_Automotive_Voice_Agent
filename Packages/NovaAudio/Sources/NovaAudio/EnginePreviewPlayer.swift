@@ -3,10 +3,11 @@ import Foundation
 import NovaPorts
 
 /// F-13 §16 items 1, 5 and §17 items 1–5 (T-032e): an iTunes preview played through `LiveAudio`'s engine on the media
-/// lane (preview node), so voice processing has it in the echo reference, it is ducked like the bundled track and
-/// every media-lane stop stops it. The response is read as it arrives: a `moov`-first file is parsed and converted by
-/// `PreviewStreamer` and scheduled in pieces of about 0.5 s while the download continues; the node starts at 1.0 s
-/// scheduled or at the end of the download (`PreviewStartRule`). A `mdat`-first file is kept in memory and decoded at
+/// lane, so voice processing has it in the echo reference, it is ducked like the bundled track and every media-lane
+/// stop stops it. The response is read as it arrives: a `moov`-first file is parsed and converted by `PreviewStreamer`
+/// and written in pieces of about 0.5 s into `LiveAudio`'s preview buffer (§18 items 1–2, T-032f), which its source
+/// node reads; playing starts at 1.0 s written or at the end of the download (`PreviewStartRule`). A stop empties the
+/// buffer; nothing here stops a node. A `mdat`-first file is kept in memory and decoded at
 /// the end by `PreviewDecoder` (§17 item 2). Nothing is written to disk; no `URLCache`. `play` returns at once; the
 /// handler's 6 s now-playing poll is the proof. The stage of a failure is kept in `lastFailure`.
 public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
@@ -95,22 +96,32 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
         let audio = audio
         guard wanted(mine) else { return }
         guard let token = audio.beginPreviewStream() else { return fail(.engine, mine) }
+        // A stop that came between the check above and the begin: this preview is not wanted.
+        guard wanted(mine) else { return audio.stopPreview(token: token) }
         let format = audio.previewPCMFormat
         var kept = Data()
         var layout = PreviewLayout.needMore
         var scheduledFrames: AVAudioFramePosition = 0
         var started = false
         var refused = false
+        var tooLong = false
 
-        // Schedules one piece; starts the node by the start rule.
+        // Writes one piece into the buffer; starts playing by the start rule.
         func schedule(_ pcm: AVAudioPCMBuffer, downloadEnded: Bool) {
-            guard !refused, wanted(mine) else { return }
-            guard audio.schedulePreview(pcm, token: token) else {
+            guard !refused, !tooLong, wanted(mine) else { return }
+            switch audio.writePreview(pcm, token: token) {
+            case .written:
+                scheduledFrames += AVAudioFramePosition(pcm.frameLength)
+            case .overflow, .full:
+                // §18 item 2: the buffer keeps 40 s; the preview ends there (`cut stage=too_long`).
+                tooLong = true
+                scheduledFrames = AVAudioFramePosition(audio.previewFramesWritten)
+            case .stale:
+                // The lane was stopped or replaced.
                 refused = true
                 return
             }
-            scheduledFrames += AVAudioFramePosition(pcm.frameLength)
-            startIfDue(downloadEnded: downloadEnded)
+            startIfDue(downloadEnded: downloadEnded || tooLong)
         }
         func startIfDue(downloadEnded: Bool) {
             guard !started, !refused, scheduledFrames > 0,
@@ -136,7 +147,7 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
             if started {
                 audio.finishPreviewStream(token: token) { [weak self] in self?.endedIfMine(mine) }
             } else {
-                audio.stopPreview()
+                audio.stopPreview(token: token)
             }
         }
         func feed(_ chunk: Data) {
@@ -171,6 +182,7 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
                 chunk.removeAll(keepingCapacity: true)
                 guard wanted(mine) else { return }
                 if refused { return give(up: .engine) }
+                if tooLong { return give(up: .tooLong) }
             }
             guard kept.count + chunk.count <= Self.maxBytes else { return give(up: .tooLarge) }
             if !chunk.isEmpty { feed(chunk) }
@@ -199,6 +211,7 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
         startIfDue(downloadEnded: true)
         guard wanted(mine) else { return }
         if refused || !started { return give(up: .engine) }
+        if tooLong { return give(up: .tooLong) }
         // The parser stopped partway: what was scheduled plays, then the preview is cut with stage `parse`.
         if layout == .streamable, streamer.failed { return give(up: .parse) }
         audio.finishPreviewStream(token: token) { [weak self] in self?.endedIfMine(mine) }

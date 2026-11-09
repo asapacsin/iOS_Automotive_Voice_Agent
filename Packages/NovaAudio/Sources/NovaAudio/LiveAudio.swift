@@ -19,24 +19,25 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     /// F-01 §14 items 9–10 (T-060a): the wake-ready sound. Same engine, so voice processing has it in the echo
     /// reference; no playback events, so it is neither her reply nor guidance to the gate and the core.
     private let cue = AVAudioPlayerNode()
-    private var mediaOn = false
-    /// F-13 §14 item 4 (T-032b): an iTunes preview on the media lane, through this engine, so voice processing
-    /// has it in the echo reference and it is ducked and stopped like the bundled track. 44.1 kHz stereo.
-    private let preview = AVAudioPlayerNode()
-    private let previewFormat = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
-    /// Which node the media lane is using while `mediaOn`.
-    private var previewOn = false
-    /// Raised by every media stop, so a stopped preview's completion is not taken as its end.
-    private var mediaGeneration = 0
-    /// F-13 §17 item 1 (T-032e): the preview being streamed onto the preview node, piece by piece. `token` is the
-    /// `mediaGeneration` it began at; `finished` once the download ended, then the last played piece is its end.
-    private struct PreviewStream {
-        let token: Int
-        var outstanding = 0
-        var finished = false
-        var onEnd: (@Sendable () -> Void)?
-    }
-    private var stream: PreviewStream?
+    /// F-13 §18 (T-032f): the media lane. Every command runs on `mediaQueue`, one at a time, through `machine`.
+    /// The preview is a source node reading `ring`: a stop empties the buffer and never stops a node.
+    private let mediaQueue = DispatchQueue(label: "com.asapacsin.novadrive.media-lane", qos: .userInitiated)
+    private let onMediaQueue = DispatchSpecificKey<Bool>()
+    private var machine = MediaLaneMachine()  // mediaQueue only
+    private var previewEnd: (generation: Int, run: @Sendable () -> Void)?  // mediaQueue only
+    private var drainTimer: DispatchSourceTimer?  // mediaQueue only
+    private var slowLine: (@Sendable (String) -> Void)?
+    /// Mirrors of the machine for readers off the queue (`lock`).
+    private var lanePlaying = false
+    private var lanePreview = false
+    private var laneHasPreview = false
+    private var laneGeneration = 0
+    nonisolated(unsafe) private static let previewFormat = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
+    private var previewFormat: AVAudioFormat { Self.previewFormat }
+    /// §18 item 2: 40 s of stereo frames, allocated once.
+    private let ring: PreviewRing
+    /// §18 item 1: copies frames from `ring`, zeros otherwise. Atomics and a copy only.
+    private let preview: AVAudioSourceNode
     private let replyFormat = AVAudioFormat(standardFormatWithSampleRate: Double(PCMBuffer.replySampleRate), channels: 1)!
     private let captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(PCMFrame16k.sampleRate),
                                               channels: 1, interleaved: true)!
@@ -55,6 +56,22 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
 
     public init() {
         (events, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
+        let ring = PreviewRing(seconds: 40, sampleRate: 44_100)
+        self.ring = ring
+        // §18 item 1: the render block never blocks, allocates, frees, logs or calls Swift concurrency.
+        preview = AVAudioSourceNode(format: Self.previewFormat) { silence, _, frameCount, audioBufferList -> OSStatus in
+            let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let frames = Int(frameCount)
+            guard buffers.count >= 2, let left = buffers[0].mData?.assumingMemoryBound(to: Float.self),
+                  let right = buffers[1].mData?.assumingMemoryBound(to: Float.self) else {
+                for buffer in buffers { if let data = buffer.mData { memset(data, 0, Int(buffer.mDataByteSize)) } }
+                silence.pointee = true
+                return noErr
+            }
+            if ring.read(left: left, right: right, frames: frames).frames == 0 { silence.pointee = true }
+            return noErr
+        }
+        mediaQueue.setSpecific(key: onMediaQueue, value: true)
         engine.attach(reply)
         engine.attach(guidance)
         engine.attach(media)
@@ -99,12 +116,15 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
                                                                 object: engine, queue: nil) { [weak self] _ in
             guard let self else { return }
-            try? self.engine.start()
-            self.reply.play()
-            self.guidance.play()
-            self.cue.play()
-            if self.mediaPlaying { (self.lock.withLock { self.previewOn } ? self.preview : self.media).play() }
-            self.lock.withLock { self.restarted }?()
+            // §18 item 6: on mediaQueue, never waited for here; the preview keeps its buffer and generation.
+            self.laneAsync(.restart) {
+                try? self.engine.start()
+                self.reply.play()
+                self.guidance.play()
+                self.cue.play()
+                self.apply(self.machine.restart())
+                self.lock.withLock { self.restarted }?()
+            }
         }
         lock.withLock { running = true }
     }
@@ -213,154 +233,179 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         }
     }
 
+    // MARK: Media lane (F-13 §18, T-032f)
+
+    /// §18 item 7: told each slow `mediaQueue` command's line (`RuntimeLog` and the record).
+    public func onSlowCommand(_ handler: @escaping @Sendable (String) -> Void) { lock.withLock { slowLine = handler } }
+
+    private static func ms(_ from: UInt64, _ to: UInt64) -> Int { Int((to &- from) / 1_000_000) }
+
+    /// Runs `body` on `mediaQueue` and waits for it (§18 item 3). Inline when already on the queue. `body` never waits
+    /// for the render block.
+    private func lane<T>(_ command: MediaLaneLine.Command, _ body: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: onMediaQueue) == true { return body() }
+        let asked = DispatchTime.now().uptimeNanoseconds
+        return mediaQueue.sync {
+            let began = DispatchTime.now().uptimeNanoseconds
+            defer { slow(command, asked: asked, began: began) }
+            return body()
+        }
+    }
+
+    private func laneAsync(_ command: MediaLaneLine.Command, _ body: @escaping @Sendable () -> Void) {
+        let asked = DispatchTime.now().uptimeNanoseconds
+        mediaQueue.async { [self] in
+            let began = DispatchTime.now().uptimeNanoseconds
+            body()
+            slow(command, asked: asked, began: began)
+        }
+    }
+
+    private func slow(_ command: MediaLaneLine.Command, asked: UInt64, began: UInt64) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard let line = MediaLaneLine.slow(command, waitMs: Self.ms(asked, began), runMs: Self.ms(began, now)) else { return }
+        lock.withLock { slowLine }?(line)
+    }
+
+    /// On `mediaQueue`: carries out the machine's effects in order, then mirrors its state for readers off the queue.
+    private func apply(_ effects: [MediaLaneMachine.Effect]) {
+        for effect in effects {
+            switch effect {
+            case .mediaPlaying(let on): continuation.yield(.mediaPlaying(on))
+            case .resetBuffer(let generation): ring.reset(generation: generation)
+            case .activate(let generation): ring.activate(generation: generation)
+            case .deactivate: ring.deactivate()
+            case .stopBundledNode: media.stop()
+            case .playBundledNode: break  // `playMedia` schedules the loop and reads the node back
+            case .replayBundledNode: if engine.isRunning { media.play() }
+            case .startTimer: startDrainTimer()
+            case .cancelTimer:
+                drainTimer?.cancel()
+                drainTimer = nil
+            case .ended(let generation):
+                if let end = previewEnd, end.generation == generation {
+                    previewEnd = nil
+                    end.run()
+                }
+            }
+        }
+        if !machine.hasPreview { previewEnd = nil }
+        let (playing, isPreview, hasPreview) = (machine.playing, machine.previewPlaying, machine.hasPreview)
+        lock.withLock {
+            lanePlaying = playing
+            lanePreview = isPreview
+            laneHasPreview = hasPreview
+        }
+    }
+
+    /// §18 item 4: the end of a preview is seen here, on `mediaQueue`, every 250 ms; never from the render thread.
+    private func startDrainTimer() {
+        drainTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: mediaQueue)
+        timer.schedule(deadline: .now() + .milliseconds(250), repeating: .milliseconds(250))
+        timer.setEventHandler { [weak self] in
+            guard let self, case .previewPlaying(let generation) = self.machine.state,
+                  self.ring.isDrained(generation: generation) else { return }
+            let asked = DispatchTime.now().uptimeNanoseconds
+            self.apply(self.machine.drained(generation))
+            self.slow(.end, asked: asked, began: asked)
+        }
+        drainTimer = timer
+        timer.resume()
+    }
+
     /// F-13 bundled track on the media lane, looped. A bundled file named `track.resourceName` is used
     /// when present; otherwise a generated loop, so play works offline without shipping audio.
     public func playMedia(_ track: BundledTrack) {
         // music.md lane contract: a new play request reports false, then true once it is playing, so a
-        // repeated 放首歌 over the running loop is fresh evidence.
-        // A preview on the lane is replaced by the bundled loop.
-        if lock.withLock({ previewOn || stream != nil }) { stopMedia() }
-        if lock.withLock({ mediaOn }), media.isPlaying {
-            continuation.yield(.mediaPlaying(false))
-            continuation.yield(.mediaPlaying(true))
-            return
+        // repeated 放首歌 over the running loop is fresh evidence. A preview on the lane is stopped first (§18 item 5).
+        lane(.bundledPlay) {
+            let effects = machine.playBundled()
+            apply(effects)
+            guard effects.contains(.playBundledNode) else { return }
+            // An engine stopped by an interruption cannot play (AVAudioPlayerNode raises): report not playing.
+            guard lock.withLock({ running }), engine.isRunning else { return }
+            let buffer = Self.bundledBuffer(track, format: replyFormat) ?? BundledLoop.buffer(format: replyFormat)
+            guard let buffer else { return }
+            // The loop buffer has no completion handler (§18 item 5).
+            media.scheduleBuffer(buffer, at: nil, options: .loops)
+            media.play()
+            // Read back from the node, not assumed.
+            apply(machine.bundledStarted(playing: media.isPlaying))
         }
-        // An engine stopped by an interruption cannot play (AVAudioPlayerNode raises): report not playing.
-        guard lock.withLock({ running }), engine.isRunning else { return }
-        let buffer = Self.bundledBuffer(track, format: replyFormat) ?? BundledLoop.buffer(format: replyFormat)
-        guard let buffer else { return }
-        media.scheduleBuffer(buffer, at: nil, options: .loops)
-        media.play()
-        // Read back from the node, not assumed.
-        let playing = media.isPlaying
-        lock.withLock { mediaOn = playing }
-        if playing { continuation.yield(.mediaPlaying(true)) }
     }
 
     public func stopMedia() {
-        // A preview still being scheduled (node not started) is dropped too, without a lane event.
-        let (wasOn, wasPreview, pending) = lock.withLock { () -> (Bool, Bool, Bool) in
-            let pending = stream != nil && !mediaOn
-            stream = nil
-            guard mediaOn || pending else { return (false, false, false) }
-            mediaGeneration += 1
-            defer { mediaOn = false; previewOn = false }
-            return (mediaOn, previewOn, pending)
-        }
-        if pending { preview.stop() }
-        guard wasOn else { return }
-        (wasPreview ? preview : media).stop()
-        continuation.yield(.mediaPlaying(false))
+        let command: MediaLaneLine.Command = lock.withLock { laneHasPreview } ? .stop : .bundledStop
+        lane(command) { apply(machine.stop()) }
     }
 
     public var mediaPlaying: Bool {
-        let (on, isPreview) = lock.withLock { (mediaOn, previewOn) }
-        return on && (isPreview ? preview : media).isPlaying
+        let (on, isPreview) = lock.withLock { (lanePlaying, lanePreview) }
+        return on && (isPreview ? engine.isRunning : media.isPlaying)
     }
 
-    /// F-13 §17 item 1 (T-032e): begins a streamed preview on the media lane, replacing the bundled loop or an earlier
-    /// preview. Returns the token for the calls below, or nil when the engine cannot play now.
+    /// F-13 §18 item 4 (T-032f): begins a preview on the media lane, replacing the bundled loop or an earlier preview,
+    /// with an empty buffer. Returns the token (the buffer's generation), or nil when the engine cannot play now.
     public func beginPreviewStream() -> Int? {
-        stopMedia()
-        // A piece that raced a stop onto the idle node must not play at the start of this preview.
-        preview.stop()
-        guard lock.withLock({ running }), engine.isRunning else { return nil }
-        return lock.withLock { () -> Int in
-            mediaGeneration += 1
-            stream = PreviewStream(token: mediaGeneration)
-            return mediaGeneration
+        lane(.begin) {
+            guard lock.withLock({ running }), engine.isRunning else {
+                apply(machine.stop())
+                return nil
+            }
+            let (token, effects) = machine.begin()
+            apply(effects)
+            lock.withLock { laneGeneration = token }
+            return token
         }
     }
 
-    private func current(_ token: Int) -> Bool { stream?.token == token && mediaGeneration == token }
-
-    /// Schedules one piece (`previewFormat`) after the earlier ones. False when the stream was stopped or replaced,
-    /// the format is wrong or the engine is not running (the schedule is refused).
-    public func schedulePreview(_ buffer: AVAudioPCMBuffer, token: Int) -> Bool {
-        guard buffer.format == previewFormat, engine.isRunning else { return false }
-        let ok = lock.withLock { () -> Bool in
-            guard current(token) else { return false }
-            stream?.outstanding += 1
-            return true
-        }
-        guard ok else { return false }
-        preview.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            self?.piecePlayed(token)
-        }
-        return true
+    /// The download task's write (not a lane command: it never waits for the queue). `.stale` once stopped.
+    public func writePreview(_ buffer: AVAudioPCMBuffer, token: Int) -> PreviewRing.WriteResult {
+        guard buffer.format == previewFormat, let planes = buffer.floatChannelData else { return .stale }
+        return ring.write(generation: token, left: planes[0], right: planes[1], count: Int(buffer.frameLength))
     }
 
-    /// Starts the node (PreviewStartRule decides when). Read back from the node; false when it does not play.
+    /// Frames in the preview buffer now.
+    public var previewFramesWritten: Int { ring.writtenFrames }
+
+    /// Starts playing the buffer (PreviewStartRule decides when). False when stopped, replaced or the engine is down.
     public func startPreviewStream(token: Int, stillWanted: @escaping @Sendable () -> Bool) -> Bool {
-        guard lock.withLock({ running && current(token) }), engine.isRunning else { return false }
-        preview.play()
-        let playing = preview.isPlaying
-        let mine = lock.withLock { () -> Bool in
-            guard current(token) else { return false }
-            mediaOn = playing
-            previewOn = playing
-            return true
+        lane(.start) {
+            guard lock.withLock({ running }), engine.isRunning, stillWanted() else { return false }
+            let effects = machine.start(token)
+            apply(effects)
+            return !effects.isEmpty
         }
-        // A stop that came while the node was being started wins.
-        guard mine else {
-            preview.stop()
-            return false
-        }
-        if playing { continuation.yield(.mediaPlaying(true)) }
-        if playing, !stillWanted() {
-            stopMedia()
-            return false
-        }
-        return playing
     }
 
-    /// The download ended: once every scheduled piece has played, the preview ends and `onEnd` runs (§14 item 6).
+    /// The download ended: once the render block has read the last frame, the timer ends the preview and runs
+    /// `onEnd` (§14 item 6).
     public func finishPreviewStream(token: Int, onEnd: @escaping @Sendable () -> Void) {
-        let endNow = lock.withLock { () -> Bool in
-            guard current(token), var s = stream else { return false }
-            s.finished = true
-            s.onEnd = onEnd
-            stream = s
-            return s.outstanding <= 0 && mediaOn && previewOn && endLocked()
+        lane(.end) {
+            guard machine.hasPreview, lock.withLock({ laneGeneration == token }) else { return }
+            machine.finish(token)
+            previewEnd = (token, onEnd)
+            ring.finish(generation: token)
         }
-        guard endNow else { return }
-        preview.stop()
-        continuation.yield(.mediaPlaying(false))
-        onEnd()
     }
 
-    /// Under `lock`: the streamed preview played to its end; clears the lane.
-    private func endLocked() -> Bool {
-        mediaGeneration += 1
-        mediaOn = false
-        previewOn = false
-        stream = nil
-        return true
-    }
-
-    private func piecePlayed(_ token: Int) {
-        // A completion while the engine is stopped (a route change restart) is not the preview's end.
-        let running = engine.isRunning
-        let onEnd = lock.withLock { () -> (@Sendable () -> Void)?? in
-            guard current(token), var s = stream else { return nil }
-            s.outstanding -= 1
-            stream = s
-            guard running, s.finished, s.outstanding <= 0, mediaOn, previewOn else { return nil }
-            _ = endLocked()
-            return .some(s.onEnd)
-        }
-        guard let onEnd else { return }
-        continuation.yield(.mediaPlaying(false))
-        onEnd?()
-    }
-
-    /// Stops the media lane only if a preview is on it or being scheduled (the bundled loop keeps playing).
+    /// Stops the media lane only if a preview is on it (the bundled loop keeps playing).
+    /// Always queued, so it also stops a preview whose begin was queued before it.
     public func stopPreview() {
-        if lock.withLock({ previewOn || stream != nil }) { stopMedia() }
+        lane(.stop) { apply(machine.stopPreview()) }
     }
 
-    /// True only while a preview is on the lane and its node plays.
-    public var previewPlaying: Bool { lock.withLock { previewOn } && mediaPlaying }
+    /// Stops the preview of `token` only; a newer preview or the bundled loop keeps playing.
+    public func stopPreview(token: Int) {
+        lane(.stop) {
+            guard machine.state == .previewLoading(generation: token) || machine.state == .previewPlaying(generation: token) else { return }
+            apply(machine.stopPreview())
+        }
+    }
+
+    /// True only while a preview is on the lane, started, and the engine runs.
+    public var previewPlaying: Bool { lock.withLock { lanePreview } && engine.isRunning }
 
     /// The format a preview must be decoded to.
     public var previewPCMFormat: AVAudioFormat { previewFormat }

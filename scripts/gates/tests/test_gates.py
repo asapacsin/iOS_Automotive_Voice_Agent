@@ -151,6 +151,49 @@ class ImportsGateTests(unittest.TestCase):
                 self.assertEqual(self.check(code), 0, name)
 
 
+class PreviewLaneGateTests(unittest.TestCase):
+    """F-13 §18 item 10 (T-032f): no scheduleBuffer, player node or node stop for the preview in NovaAudio."""
+    PLANTED = {
+        "scheduleBuffer on the preview": "preview.scheduleBuffer(b, at: nil, options: [])",
+        "scheduleBuffer on an unknown node": "node?.scheduleBuffer(b)",
+        "preview player node": "private let preview = AVAudioPlayerNode()",
+        "typed preview node": "var previewNode: AVAudioPlayerNode",
+        "new player node": "let song = AVAudioPlayerNode()",
+        "preview stop": "preview.stop()",
+        "preview reset": "previewNode?.reset()",
+    }
+    CLEAN = {
+        "allowed nodes": "reply.scheduleBuffer(b)\nmedia.scheduleBuffer(b, at: nil, options: .loops)\nmedia.stop()\nreply.stop()",
+        "allowed declarations": "private let cue = AVAudioPlayerNode()\nlet player = AVAudioPlayerNode()",
+        "source node": "private let preview: AVAudioSourceNode\nengine.stop()",
+        "in a comment": "// preview.stop() and preview.scheduleBuffer are gone",
+    }
+
+    def check(self, code: str, package: str = "NovaAudio") -> int:
+        tree = Tree()
+        try:
+            tree.write(f"Packages/{package}/Sources/{package}/X.swift", code)
+            return run(check_imports.main, str(tree.root))
+        finally:
+            tree.close()
+
+    def test_each_planted_fails(self) -> None:
+        for name, code in self.PLANTED.items():
+            with self.subTest(name=name):
+                self.assertEqual(self.check(code), 1, name)
+
+    def test_clean_passes(self) -> None:
+        for name, code in self.CLEAN.items():
+            with self.subTest(name=name):
+                self.assertEqual(self.check(code), 0, name)
+
+    def test_other_packages_are_not_checked(self) -> None:
+        self.assertEqual(self.check("preview.stop()", package="NovaServices"), 0)
+
+    def test_repository_is_clean(self) -> None:
+        self.assertEqual(run(check_imports.main), 0)
+
+
 class SpecTraceGateTests(unittest.TestCase):
     def check(self, test_source: str, *ids: str) -> int:
         tree = Tree()

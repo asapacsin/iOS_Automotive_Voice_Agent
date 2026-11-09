@@ -80,6 +80,31 @@ def code_of(text: str) -> str:
     return "".join(out)
 
 
+# F-13 §18 item 10 (T-032f): the preview plays from the app's own buffer through a source node. In NovaAudio only these
+# player nodes may be scheduled, created or stopped (the bundled loop, her voice, guidance, the cue; EchoSpike's test
+# player). Anything else, or a name with "preview" in it, fails.
+PLAYER_NODES = {"reply", "guidance", "media", "cue", "player"}
+SCHEDULE = re.compile(r"\b(\w+)\s*\??\s*\.\s*scheduleBuffer\b")
+PLAYER_NODE = re.compile(r"\b(?:let|var)\s+(\w+)\s*(?::\s*AVAudioPlayerNode\b[^=\n]*)?=\s*AVAudioPlayerNode\s*\(|"
+                         r"\b(?:let|var)\s+(\w+)\s*:\s*AVAudioPlayerNode\b")
+STOP = re.compile(r"\b(\w+)\s*\??\s*\.\s*(?:stop|reset)\s*\(\s*\)")
+
+
+def preview_lane_failures(code: str) -> list[str]:
+    found = []
+    for m in SCHEDULE.finditer(code):
+        if m.group(1) not in PLAYER_NODES:
+            found.append(f"scheduleBuffer on {m.group(1)} (allowed: {sorted(PLAYER_NODES)})")
+    for m in PLAYER_NODE.finditer(code):
+        name = m.group(1) or m.group(2)
+        if name not in PLAYER_NODES or "preview" in name.lower():
+            found.append(f"AVAudioPlayerNode {name} (the preview plays through a source node)")
+    for m in STOP.finditer(code):
+        if "preview" in m.group(1).lower():
+            found.append(f"{m.group(0)} (a preview stop resets the buffer, never a node)")
+    return found
+
+
 def imports_in(code: str) -> list[str]:
     statements = (part for line in code.splitlines() for part in line.split(";"))
     return [m.group(1) for m in map(IMPORT.match, statements) if m]
@@ -97,6 +122,8 @@ def main(argv: list[str]) -> int:
         for symbol, owners in SYMBOL_OWNERS.items():
             if re.search(symbol, code) and owner not in owners:
                 failures.append(f"{rel}: {symbol} is owned by {sorted(owners)}, not {owner}")
+        if owner == "NovaAudio":
+            failures += [f"{rel}: {f}" for f in preview_lane_failures(code)]
         for module in imports_in(code):
             if owner == "NovaCore" and module not in CORE_ALLOWED:
                 failures.append(f"{rel}: NovaCore may not import {module}")

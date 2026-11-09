@@ -97,7 +97,7 @@ struct PreviewAdviceTests {
 
     @Test("T-032e row 8: each stage and nil maps to the item 7 advice; none gives 版权 or 会员 as the reason")
     func advice() {
-        let network: [PreviewFailure?] = [.downloadTimeout, .downloadNetwork, .downloadHTTP(404), .tooLarge, nil]
+        let network: [PreviewFailure?] = [.downloadTimeout, .downloadNetwork, .downloadHTTP(404), .tooLarge, .tooLong, nil]
         for f in network { #expect(PreviewAdvice.text(for: f) == "试听没放起来：网络太慢或者连不上。请如实说没放成，可以让用户稍后再试；不要说版权或会员。") }
         #expect(PreviewAdvice.text(for: .parse) == "试听没放起来：这首的试听文件放不了。请如实说没放成，可以换一首；不要说版权或会员。")
         #expect(PreviewAdvice.text(for: .engine) == "试听没放起来：手机的声音通道没准备好。请如实说没放成，可以再试一次；不要说版权或会员。")
