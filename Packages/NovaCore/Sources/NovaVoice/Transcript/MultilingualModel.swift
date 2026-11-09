@@ -92,7 +92,11 @@ public struct MultilingualDownload: Sendable, Hashable {
     /// waiting request first.
     public mutating func useCellular() -> [Command] {
         guard state != .ready, state != .loadFailed, !(active && cellular) else { return [] }
-        return start(cellular: true)
+        guard active else { return start(cellular: true) }
+        // Files already installed stay; the current one is fetched again with cellular allowed.
+        cellular = true
+        host = 0
+        return [fetch()]
     }
 
     /// Whether the current request may use cellular (「用流量下载」 is shown while it may not).

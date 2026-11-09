@@ -24,6 +24,8 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
     private var startPending = false
     /// iOS's completion handler for background session events (`handleEventsForBackgroundURLSession`).
     private var backgroundDone: (() -> Void)?
+    /// `urlSessionDidFinishEvents` came before iOS handed over the completion handler.
+    private var eventsFinished = false
 
     static var folder: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -74,12 +76,18 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
 
     /// `application(_:handleEventsForBackgroundURLSession:completionHandler:)`.
     func handleBackgroundEvents(_ completion: @escaping () -> Void) {
-        lock.withLock { backgroundDone = completion }
+        let now = lock.withLock { () -> Bool in
+            if eventsFinished { eventsFinished = false; return true }
+            backgroundDone = completion
+            return false
+        }
+        if now { Task { @MainActor in completion() } }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         let done = lock.withLock { () -> (() -> Void)? in
             defer { backgroundDone = nil }
+            if backgroundDone == nil { eventsFinished = true }
             return backgroundDone
         }
         if let done { Task { @MainActor in done() } }
@@ -163,13 +171,14 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
             guard run(command, host: host) else { break }
         }
         let after = state
+        // The view also follows changes that keep the state (用流量下载 at 0% hides the button).
+        notifyView(after)
         guard after != before else { return }
         // Percent steps are not a state change for the record or the log.
-        if case .downloading = before, case .downloading = after { notifyView(after); return }
+        if case .downloading = before, case .downloading = after { return }
         RuntimeLog.agent.notice("asrMulti state=\(after.code, privacy: .public)")
         let targets = lock.withLock { Array(watchers.values) }
         targets.forEach { $0(after) }
-        notifyView(after)
         if after == .ready && Self.switchOn { LocalSpeechModels.shared.loadMultilingual() }
     }
 
@@ -223,6 +232,17 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
         return true
     }
 
+    /// After iOS relaunched the app for a finished task, the machine may not have adopted it yet: the task's own
+    /// `file|host|cellular` rebuilds the state before the check.
+    private func adoptIfIdle(_ task: URLSessionTask) {
+        let parts = (task.taskDescription ?? "").split(separator: "|").map(String.init)
+        guard parts.count == 3, let host = Int(parts[1]) else { return }
+        update { m in
+            if m.currentFile == nil { m.adopt(file: parts[0], host: host, cellular: parts[2] == "1") }
+            return []
+        }
+    }
+
     /// SHA-256 of a file in 1 MB pieces (lower-case hex).
     static func sha256(of url: URL) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
@@ -243,6 +263,7 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
         let name = (downloadTask.taskDescription ?? "").split(separator: "|").first.map(String.init) ?? ""
+        adoptIfIdle(downloadTask)
         // A cancelled or stale task (not the file the machine waits for) is not checked against it.
         guard name == lock.withLock({ machine.currentFile }) else { return }
         let fm = FileManager.default
@@ -262,6 +283,7 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
         guard let error else { return }
         // A cancel from 「删除多语言模型」 is not a failure.
         if (error as? URLError)?.code == .cancelled || task.taskDescription == "cancelled" { return }
+        adoptIfIdle(task)
         let name = (task.taskDescription ?? "").split(separator: "|").first.map(String.init)
         guard name == lock.withLock({ machine.currentFile }) else { return }
         update { $0.failed() }
