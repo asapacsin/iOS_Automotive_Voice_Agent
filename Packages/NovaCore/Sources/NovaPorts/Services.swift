@@ -158,10 +158,13 @@ public protocol NamedMusicPort: Sendable {
     func play(_ request: NamedMusicRequest) async throws -> NamedMusicStart?
     /// Stops what `play` started (a preview that was not seen playing in time must not start later).
     func stop() async
+    /// F-13 §17 item 5 (T-032e): the stage of the current preview's last failure; nil means none.
+    var lastFailure: PreviewFailure? { get async }
 }
 
 extension NamedMusicPort {
     public func stop() async {}
+    public var lastFailure: PreviewFailure? { get async { nil } }
 
     public func play(_ request: NamedMusicRequest) async throws -> NamedMusicStart? {
         try await play(query: request.joined)
@@ -169,13 +172,22 @@ extension NamedMusicPort {
     }
 }
 
-/// F-13 §14 item 4 (T-032b): streams one preview URL on the media lane (AVPlayer in NovaAudio).
+/// F-13 §14 item 4, §16, §17 (T-032e): streams one preview URL on the media lane (LiveAudio's preview node).
 public protocol PreviewPlayer: Sendable {
     /// Replaces any earlier preview; never writes to disk.
     func play(_ url: URL) async
     func stop() async
     /// True only while the current item is actually playing; false after it ended.
     var isPlaying: Bool { get async }
+    /// F-13 §17 item 5: the stage of the current preview's last failure; nil means none.
+    var lastFailure: PreviewFailure? { get async }
+    /// F-13 §17 item 6: first byte, start, layout and bytes of the current preview.
+    var progress: PreviewProgress { get async }
+}
+
+extension PreviewPlayer {
+    public var lastFailure: PreviewFailure? { get async { nil } }
+    public var progress: PreviewProgress { get async { PreviewProgress() } }
 }
 
 // MARK: Phone (F-19)

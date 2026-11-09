@@ -156,20 +156,31 @@ public final class ITunesPreviewMusic: NamedMusicPort, @unchecked Sendable {
     private let country: @Sendable () -> MusicCountry
     private let stopBundled: @Sendable () async -> Void
     private let log: @Sendable (String) -> Void
+    private let record: @Sendable (String) -> Void
     private let onCard: @Sendable (PreviewCard?) -> Void
     private let current = Mutex<ITunesSong?>(nil)
     /// When the current preview was asked for; cleared once it is seen playing.
     private let askedAt = Mutex<NovaInstant?>(nil)
+    /// F-13 §17 item 6 (T-032e): when the current preview was asked for and first seen playing, and whether its
+    /// failed/cut line was written (one per preview).
+    private struct Watch {
+        var startedAt: NovaInstant?
+        var playingAt: NovaInstant?
+        var reported = false
+    }
+    private let watch = Mutex(Watch())
 
     public init(transport: any HTTPTransport = UncachedTransport(), player: any PreviewPlayer, clock: any NovaClock,
                 country: @escaping @Sendable () -> MusicCountry, stopBundled: @escaping @Sendable () async -> Void,
-                log: @escaping @Sendable (String) -> Void = { _ in }, onCard: @escaping @Sendable (PreviewCard?) -> Void = { _ in }) {
+                log: @escaping @Sendable (String) -> Void = { _ in }, record: @escaping @Sendable (String) -> Void = { _ in },
+                onCard: @escaping @Sendable (PreviewCard?) -> Void = { _ in }) {
         self.transport = transport
         self.player = player
         self.clock = clock
         self.country = country
         self.stopBundled = stopBundled
         self.log = log
+        self.record = record
         self.onCard = onCard
     }
 
@@ -194,6 +205,7 @@ public final class ITunesPreviewMusic: NamedMusicPort, @unchecked Sendable {
         await player.stop()
         current.withLock { $0 = song }
         askedAt.withLock { $0 = start }
+        watch.withLock { $0 = Watch(startedAt: start) }
         await player.play(ITunesSearch.secure(preview))
         return NamedMusicStart(album: song.collectionName, previewSeconds: Self.previewSeconds, source: Self.source)
     }
@@ -211,20 +223,37 @@ public final class ITunesPreviewMusic: NamedMusicPort, @unchecked Sendable {
             guard (200..<300).contains(status) else { throw NamedMusicError.searchFailed }
             songs = try ITunesSearch.songs(body)
         } catch {
-            log(line(0, nil))
+            emit(line(0, nil))
             throw NamedMusicError.searchFailed
         }
         let picked = ITunesSearch.pick(songs, for: request)
-        log(line(songs.count, picked))
+        emit(line(songs.count, picked))
         return (songs, picked)
+    }
+
+    /// F-13 §17 item 6: every music line goes to `RuntimeLog` and to the record. Numbers and codes only.
+    private func emit(_ line: String) {
+        log(line)
+        record(line)
     }
 
     /// Item 5: the picked song, only while the player is actually playing it.
     public func nowPlaying() async -> NowPlaying? {
-        guard let song = current.withLock({ $0 }), await player.isPlaying else { return nil }
+        guard let song = current.withLock({ $0 }) else { return nil }
+        guard await player.isPlaying else {
+            await reportFailure()
+            return nil
+        }
         // Item 10 and 7: the first time it is seen playing, log the time and show the card.
         if let asked = askedAt.withLock({ a in defer { a = nil }; return a }) {
-            log("music preview playing ms=\(Int(clock.now.milliseconds - asked.milliseconds))")
+            let now = clock.now
+            watch.withLock { $0.playingAt = now }
+            // §17 item 6: the node start, as the player measured it.
+            let p = await player.progress
+            if let first = p.firstByteMs, let started = p.startMs, let layout = p.layout {
+                emit(PreviewLine.start(firstByteMs: first, startMs: started, layout: layout))
+            }
+            emit("music preview playing ms=\(Int(now.milliseconds - asked.milliseconds))")
             onCard(PreviewCard(title: song.trackName, artist: song.artistName, artworkURL: song.artworkURL,
                                storeURL: song.trackViewURL))
         }
@@ -237,17 +266,46 @@ public final class ITunesPreviewMusic: NamedMusicPort, @unchecked Sendable {
         return PreviewCard(title: song.trackName, artist: song.artistName, artworkURL: song.artworkURL, storeURL: song.trackViewURL)
     }
 
+    /// F-13 §17 items 5–6 (T-032e): the stage of the current preview's last failure; writes its line once.
+    public var lastFailure: PreviewFailure? {
+        get async {
+            await reportFailure()
+            return await player.lastFailure
+        }
+    }
+
+    /// §17 item 6: `music preview failed …` before it was seen playing, `music preview cut …` after; never for
+    /// `stopped`, once per preview.
+    private func reportFailure() async {
+        guard let failure = await player.lastFailure, failure != .stopped else { return }
+        let bytes = await player.progress.bytes
+        let now = clock.now
+        let line = watch.withLock { w -> String? in
+            guard !w.reported, let started = w.startedAt else { return nil }
+            w.reported = true
+            if let playing = w.playingAt {
+                return PreviewLine.cut(failure, playedMs: Int(now.milliseconds - playing.milliseconds))
+            }
+            return PreviewLine.failed(failure, ms: Int(now.milliseconds - started.milliseconds), bytes: bytes)
+        }
+        if let line { emit(line) }
+    }
+
     /// Item 6: the player says the preview ended (or was stopped): nothing plays next, the card goes.
-    public func ended() {
+    public func ended() async {
+        await reportFailure()
         askedAt.withLock { $0 = nil }
         guard current.withLock({ s in defer { s = nil }; return s != nil }) else { return }
-        log("music preview ended")
+        emit("music preview ended")
         onCard(nil)
     }
 
     public func stop() async {
+        // A real failure seen before the stop is written first (the stop makes the player report `stopped`
+        // only when nothing else failed).
+        await reportFailure()
         await player.stop()
-        ended()
+        await ended()
     }
 
     public var isPlaying: Bool { get async { await player.isPlaying } }

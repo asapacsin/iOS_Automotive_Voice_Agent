@@ -114,9 +114,11 @@ public struct MusicToolHandler: ToolExecutor {
         }
         // F-13 §14 item 8: a preview port never answers requested_unverified.
         // A preview that starts after she said it did not play would contradict her: stop it first.
+        // F-13 §17 item 7 (T-032e): the advice says why, from the stage the preview failed at (read before the stop).
         if started != nil {
+            let failure = await named.lastFailure
             await named.stop()
-            return ToolDispatcher.failure(.notPlaying)
+            return .failure(.notPlaying, advice: PreviewAdvice.text(for: failure))
         }
         return .success(["status": "requested_unverified",
                          "next": "只说一句：已经让音乐 app 去找了。不要说正在播放。"])

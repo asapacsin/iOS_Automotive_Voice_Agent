@@ -66,6 +66,8 @@ public enum RecordEvent: Sendable, Hashable {
     case sessionClosed(SessionClosedLine)
     /// F-07 §15 item 8 (T-020b): `claim-cut turn= played_ms=`.
     case claimCut(turn: Int, playedMs: Int)
+    /// F-13 §17 item 6 (T-032e): a `music …` line (search, preview start/playing/failed/cut/ended); numbers and codes.
+    case music(String)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -176,6 +178,9 @@ public struct ConversationRecorder: Sendable {
         case .voiceFailed(let v): return [line("voice-failed", v.fields)]
         case .voiceGemini(let v): return [line("voice", v.fields)]
         case .claimCut(let turn, let played): return [line("claim-cut", "turn=\(turn) played_ms=\(played)")]
+        case .music(let text):
+            let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
+            return [line("music", rest)]
         case .sessionClosed(let c): return add(.session("closed \(c.fields)"), atMs: ms)
         case .sessionGaveUp(let since, let attempts, let code):
             return add(.session("gave-up ms=\(since) attempts=\(attempts) code=\(code.rawValue)"), atMs: ms)

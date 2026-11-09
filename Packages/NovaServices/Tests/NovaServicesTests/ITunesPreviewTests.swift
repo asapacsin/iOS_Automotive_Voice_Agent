@@ -166,7 +166,7 @@ struct ITunesPreviewTests {
         // Ended by itself: the player stops, the port forgets the song.
         #expect(await tools.execute(Self.call(["title": "oblivious"])).ok)
         await player.stop()
-        port.ended()
+        await port.ended()
         #expect(await port.nowPlaying() == nil && cards.all.last == .some(nil))
     }
 
@@ -188,7 +188,7 @@ struct ITunesPreviewTests {
                                       log: { l in lines.withLock { $0.append(l) } })
         _ = try? await port.play(NamedMusicRequest(title: "oblivious", artist: "Kalafina"))
         _ = await port.nowPlaying()
-        port.ended()
+        await port.ended()
         let all = lines.withLock { $0 }
         #expect(all.count == 3)
         #expect(all[0].hasPrefix("music search ms=") && all[0].hasSuffix("results=3 picked=2 country=JP try=1 term=title+artist"))
@@ -245,5 +245,81 @@ struct ITunesRetryTests {
         let d = ToolCatalog.specs.first { $0.name == "play_music" }!.declaration.description
         #expect(d == "按歌名、歌手、作品或模糊描述放歌（播放 iTunes 30 秒试听），如「梶浦由记的、空之境界里很燃的那首片头曲」「来点开车提神的」。先用你的知识确定是哪首，填 title/artist/album_or_work；先用你的知识确定一首具体的歌：title 填发行时的歌名原文（如 oblivious），artist 填演唱者（如 Kalafina）；不要把用户的原话填进 query。实在确定不了才只填 query 或 mood。只按返回的 now_playing 说在放什么；ok=false 如实说没放成。「不是这首」时再调用并填 exclude_title。无描述的「放首歌」用 control_music。")
         #expect(ToolFailureAdvice.forCode(.musicNotFound) == "曲库里没找到。如果还没填 title，请先确定一首具体的歌，用歌名原文和演唱者再调用一次 play_music；已经填了 title 还是没有，就如实说没找到，不要说在放。")
+    }
+}
+
+/// A player that plays after `playsAfter` (nil: never) and reports `failure` once `failsAfter` passed (T-032e).
+final class StagedPreviewPlayer: PreviewPlayer, @unchecked Sendable {
+    let playsAfter: Duration?
+    let failure: PreviewFailure
+    let failsAfter: Duration
+    let startedAt = Mutex<ContinuousClock.Instant?>(nil)
+    init(playsAfter: Duration?, failure: PreviewFailure, failsAfter: Duration) {
+        self.playsAfter = playsAfter
+        self.failure = failure
+        self.failsAfter = failsAfter
+    }
+    private var elapsed: Duration? { startedAt.withLock { $0 }.map { ContinuousClock.now - $0 } }
+    private var failed: Bool { elapsed.map { $0 >= failsAfter } ?? false }
+    func play(_ url: URL) async { startedAt.withLock { $0 = .now } }
+    func stop() async {}
+    var isPlaying: Bool {
+        get async {
+            guard let playsAfter, let e = elapsed, !failed else { return false }
+            return e >= playsAfter
+        }
+    }
+    var lastFailure: PreviewFailure? { get async { failed ? failure : nil } }
+    var progress: PreviewProgress {
+        get async { PreviewProgress(firstByteMs: 120, startMs: 300, layout: .streamable, bytes: failed ? 0 : 35_000) }
+    }
+}
+
+/// Collected lines (T-032e).
+final class Lines: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+    func add(_ l: String) { lock.withLock { items.append(l) } }
+    var all: [String] { lock.withLock { items } }
+}
+
+@Suite("T-032e F-13 §17 preview lines in RuntimeLog and the record")
+struct PreviewLineTests {
+    static func port(_ player: StagedPreviewPlayer, log: Lines, record: Lines) -> ITunesPreviewMusic {
+        ITunesPreviewMusic(transport: ScriptedHTTP(body: ITunesPreviewTests.fixture), player: player, clock: SystemClock(),
+                           country: { .hk }, stopBundled: {},
+                           log: { l in log.add(l) }, record: { l in record.add(l) })
+    }
+
+    @Test("T-032e row 10: download_http_404 before playing is a failed line; download_network after playing is a cut line")
+    func failedAndCut() async throws {
+        let log = Lines(), record = Lines()
+        let failing = Self.port(StagedPreviewPlayer(playsAfter: nil, failure: .downloadHTTP(404), failsAfter: .zero),
+                                log: log, record: record)
+        let tuning: MusicToolHandler.Tuning = { var t = MusicToolHandler.Tuning(); t.timeout = .milliseconds(60); t.poll = .milliseconds(10); return t }()
+        let tools = MusicToolHandler(music: NoMusic(), named: failing, clock: SystemClock(), tuning: tuning)
+        let r = await tools.execute(ITunesPreviewTests.call(["title": "oblivious", "artist": "Kalafina"]))
+        #expect(!r.ok && r.code == ToolErrorCode.notPlaying && r.advice == PreviewAdvice.network)
+        let failed = log.all.filter { $0.hasPrefix("music preview failed") }
+        #expect(failed.count == 1)
+        #expect(failed.first.map { $0.hasPrefix("music preview failed stage=download_http_404 ms=") && $0.hasSuffix(" bytes=0") } == true)
+        #expect(log.all == record.all)
+
+        let log2 = Lines(), record2 = Lines()
+        let cutting = Self.port(StagedPreviewPlayer(playsAfter: .zero, failure: .downloadNetwork, failsAfter: .milliseconds(80)),
+                                log: log2, record: record2)
+        _ = try await cutting.play(NamedMusicRequest(title: "oblivious", artist: "Kalafina"))
+        #expect(await cutting.nowPlaying() != nil)
+        try await Task.sleep(for: .milliseconds(120))
+        await cutting.ended()   // the player ends the preview after the failure (§17 item 3)
+        let lines = log2.all
+        #expect(lines.contains("music preview start first_byte_ms=120 start_ms=300 layout=stream"))
+        let cut = lines.filter { $0.hasPrefix("music preview cut") }
+        #expect(cut.count == 1 && cut.first?.hasPrefix("music preview cut stage=download_network played_ms=") == true)
+        #expect(!lines.contains { $0.hasPrefix("music preview failed") })
+        #expect(lines.last == "music preview ended")
+        #expect(lines == record2.all)
+        // Numbers and codes only: no song name in any line.
+        #expect(!(lines + log.all).contains { $0.contains("oblivious") || $0.contains("Kalafina") })
     }
 }
