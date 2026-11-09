@@ -20,8 +20,8 @@ OWNERS = {
     # AIKit ships device-only frameworks (no simulator slice), so it links into the app's device build
     # only; App/NovaDrive/Wake/AIKitWakeEngine.swift is its single importer.
     "AIKIT": {"App"}, "ef7d69542_v1009_aee": {"App"},
-    "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"},
-    "AVFoundation": {"NovaPlatform", "NovaAudio"},
+    "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"}, "AudioToolbox": {"NovaAudio"},
+    "AVFoundation": {"NovaPlatform"},
     "CoreLocation": {"NovaPlatform"}, "Network": {"NovaPlatform"}, "Contacts": {"NovaPlatform"},
     "Security": {"NovaServices"},
     "UIKit": {"App", "NovaNavAmap"}, "SwiftUI": {"App", "NovaNavAmap"},

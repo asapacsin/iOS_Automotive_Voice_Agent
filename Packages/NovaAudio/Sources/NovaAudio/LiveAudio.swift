@@ -20,6 +20,14 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     /// reference; no playback events, so it is neither her reply nor guidance to the gate and the core.
     private let cue = AVAudioPlayerNode()
     private var mediaOn = false
+    /// F-13 §14 item 4 (T-032b): an iTunes preview on the media lane, through this engine, so voice processing
+    /// has it in the echo reference and it is ducked and stopped like the bundled track. 44.1 kHz stereo.
+    private let preview = AVAudioPlayerNode()
+    private let previewFormat = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
+    /// Which node the media lane is using while `mediaOn`.
+    private var previewOn = false
+    /// Raised by every media stop, so a stopped preview's completion is not taken as its end.
+    private var mediaGeneration = 0
     private let replyFormat = AVAudioFormat(standardFormatWithSampleRate: Double(PCMBuffer.replySampleRate), channels: 1)!
     private let captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(PCMFrame16k.sampleRate),
                                               channels: 1, interleaved: true)!
@@ -32,10 +40,6 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private var configObserver: NSObjectProtocol?
     private var running = false
     private var restarted: (@Sendable () -> Void)?
-    private var mediaStopped: (@Sendable () -> Void)?
-
-    /// F-13 §14 item 4 (T-032b): told when the engine stops (session end), so a streamed preview stops too.
-    public func onMediaStop(_ handler: @escaping @Sendable () -> Void) { lock.withLock { mediaStopped = handler } }
 
     /// F-08 §17 item 3: told each time the engine is restarted after a configuration change.
     public func onEngineRestart(_ handler: @escaping @Sendable () -> Void) { lock.withLock { restarted = handler } }
@@ -46,11 +50,13 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         engine.attach(guidance)
         engine.attach(media)
         engine.attach(cue)
+        engine.attach(preview)
         engine.connect(reply, to: engine.mainMixerNode, format: replyFormat)
         engine.connect(guidance, to: engine.mainMixerNode, format: replyFormat)
         // Music goes through the same voice-processing engine, so it is inside the echo reference.
         engine.connect(media, to: engine.mainMixerNode, format: replyFormat)
         engine.connect(cue, to: engine.mainMixerNode, format: replyFormat)
+        engine.connect(preview, to: engine.mainMixerNode, format: previewFormat)
     }
 
     // MARK: CaptureSource
@@ -88,7 +94,7 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             self.reply.play()
             self.guidance.play()
             self.cue.play()
-            if self.mediaPlaying { self.media.play() }
+            if self.mediaPlaying { (self.lock.withLock { self.previewOn } ? self.preview : self.media).play() }
             self.lock.withLock { self.restarted }?()
         }
         lock.withLock { running = true }
@@ -106,7 +112,6 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
 
     public func stop() {
         guard lock.withLock({ running }) else { return }
-        lock.withLock { mediaStopped }?()
         stopMedia()
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
         engine.inputNode.removeTap(onBus: 0)
@@ -204,6 +209,8 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     public func playMedia(_ track: BundledTrack) {
         // music.md lane contract: a new play request reports false, then true once it is playing, so a
         // repeated 放首歌 over the running loop is fresh evidence.
+        // A preview on the lane is replaced by the bundled loop.
+        if lock.withLock({ previewOn }) { stopMedia() }
         if lock.withLock({ mediaOn }), media.isPlaying {
             continuation.yield(.mediaPlaying(false))
             continuation.yield(.mediaPlaying(true))
@@ -222,17 +229,63 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     }
 
     public func stopMedia() {
-        guard lock.withLock({ mediaOn }) else { return }
-        media.stop()
-        lock.withLock { mediaOn = false }
+        let wasPreview = lock.withLock { () -> Bool? in
+            guard mediaOn else { return nil }
+            mediaGeneration += 1
+            defer { mediaOn = false; previewOn = false }
+            return previewOn
+        }
+        guard let wasPreview else { return }
+        (wasPreview ? preview : media).stop()
         continuation.yield(.mediaPlaying(false))
     }
 
-    public var mediaPlaying: Bool { lock.withLock { mediaOn } && media.isPlaying }
+    public var mediaPlaying: Bool {
+        let (on, isPreview) = lock.withLock { (mediaOn, previewOn) }
+        return on && (isPreview ? preview : media).isPlaying
+    }
 
-    /// F-13 §14 item 4 (T-032b): a streamed iTunes preview reports on the media lane's events, so the core's
-    /// music rules (self-echo, barge-in) see it like the bundled track.
-    public func reportStreamedMedia(_ playing: Bool) { continuation.yield(.mediaPlaying(playing)) }
+    /// F-13 §14 items 4–6 (T-032b): the decoded preview (`previewFormat`) on the media lane, once, replacing the
+    /// bundled loop or an earlier preview. `onEnd` runs when it played to the end (not when stopped). False when
+    /// the engine cannot play now.
+    @discardableResult
+    public func playPreview(_ buffer: AVAudioPCMBuffer, onEnd: @escaping @Sendable () -> Void) -> Bool {
+        stopMedia()
+        guard lock.withLock({ running }), engine.isRunning, buffer.format == previewFormat else { return false }
+        let generation = lock.withLock { mediaGeneration }
+        preview.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            guard let self else { return }
+            let ended = self.lock.withLock { () -> Bool in
+                guard self.mediaGeneration == generation, self.mediaOn, self.previewOn else { return false }
+                self.mediaGeneration += 1
+                self.mediaOn = false
+                self.previewOn = false
+                return true
+            }
+            guard ended else { return }
+            self.continuation.yield(.mediaPlaying(false))
+            onEnd()
+        }
+        preview.play()
+        let playing = preview.isPlaying
+        lock.withLock {
+            mediaOn = playing
+            previewOn = playing
+        }
+        if playing { continuation.yield(.mediaPlaying(true)) }
+        return playing
+    }
+
+    /// Stops the media lane only if a preview is on it (the bundled loop keeps playing).
+    public func stopPreview() {
+        if lock.withLock({ previewOn }) { stopMedia() }
+    }
+
+    /// True only while a preview is on the lane and its node plays.
+    public var previewPlaying: Bool { lock.withLock { previewOn } && mediaPlaying }
+
+    /// The format a preview must be decoded to.
+    public var previewPCMFormat: AVAudioFormat { previewFormat }
 
     static func bundledBuffer(_ track: BundledTrack, format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let url = ["m4a", "mp3", "wav", "caf"].lazy.compactMap {

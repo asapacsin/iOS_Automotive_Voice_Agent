@@ -116,3 +116,30 @@ when a new play request starts, then `true` only once that request is verified p
 | Task | Scope | Verify |
 |---|---|---|
 | T-032c | Items 1–6; rows 1–6 | unit, build, D |
+
+## 16. The preview plays through the app's audio engine (iOS, APPROVED 2026-11-09, owner)
+
+**Why.** T-032b (2a35f02) streamed the preview with `AVPlayer`, outside `LiveAudio`'s voice-processing engine. Apple voice processing cancels only what its own engine plays, so the song was not in the echo reference: lyrics could reach the microphone (heard as the driver, a false barge-in, transcript words), the song was not handled like the bundled track under her voice, and a stop of the media lane did not stop it. §14 item 4 was therefore not met.
+
+**Copied practice.** Developers of iOS voice apps route every playback through the same engine as the voice-processed microphone, because "voice processing only works correctly when input and output are being routed via the same engine" (Apple Developer Forums thread 97679; field report barock.dev 2026-04-22 "Why your iOS voice agent still hears itself"). Streaming players built on `AVAudioEngine` (AudioStreaming, audiostreamer) download the bytes, decode them to PCM in memory and schedule them on an `AVAudioPlayerNode`.
+
+1. **Path.** The preview is played by `EnginePreviewPlayer` (NovaAudio) on a preview node (44.1 kHz stereo) of `LiveAudio`'s engine, connected to the same mixer as her voice, guidance, the bundled track and the cue. It is the media lane: `mediaPlaying` events, `stopMedia()`, session end and the engine-restart replay treat it like the bundled track. `AVPlayer` is no longer used; `AVFoundation` is not imported by NovaAudio (`AudioToolbox` is, for decoding).
+2. **Download.** The whole preview file is fetched into memory (no `URLCache`, `reloadIgnoringLocalCacheData`, 5 s timeout, at most 8 MB, status 200), then played. Nothing is written to disk. Holding the decoded preview in memory while it plays is treated as streaming (owner risk, as in §14).
+3. **Decode.** `AudioFileOpenWithCallbacks` over the bytes plus `ExtAudioFile` decode the `.m4a` (AAC) to the node's PCM format in memory, whatever the file layout.
+4. **Timing.** `play` returns at once; download and decode run in the background, and §14's 6 s now-playing poll covers them. A failed or slow download is `NOT_PLAYING` (the preview is stopped first, §14 item 8).
+5. **One at a time.** A new preview, the bundled track, `control_music stop` and session end each stop the one on the lane; a stale download or a stopped preview's completion never starts or ends the next one. The end of the preview (played to the end) is §14 item 6.
+6. **Not changed:** search, pick, proof, card, failures, logs (§14, §15).
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Source tree | No `AVPlayer` in NovaAudio; `AudioToolbox` only in NovaAudio; gates green | unit (gate) |
+| 2 | App build | Builds with the preview node attached before voice processing is enabled | build |
+| 3 | Device: a preview plays at normal volume; the driver says nothing for 30 s | No barge-in, no `heard-gemini` lyrics, no wake | D |
+| 4 | Device: while a preview plays, ask 「现在几点」 | She answers; her voice is clear over the song; the answer is not about the lyrics | D |
+| 5 | Device: while a preview plays, 「你好小诺，别放了」; then end the session during another preview | Stops at once each time; card gone | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-032d | Items 1–6; rows 1–5 (completes T-032b item 4) | unit, build, D |

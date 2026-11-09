@@ -841,7 +841,7 @@ final class AgentRuntime {
         // song names reach the record through the tool result only, never RuntimeLog (I-8).
         let lane = LaneMusicPlayer(audio: audio)
         let previewBox = PreviewBox()
-        let previewPlayer = StreamingPreviewPlayer(audio: audio) { previewBox.music?.ended() }
+        let previewPlayer = EnginePreviewPlayer(audio: audio) { previewBox.music?.ended() }
         let preview = ITunesPreviewMusic(player: previewPlayer, clock: SystemClock(),
                                          country: { DriveSettings.musicCountry() },
                                          stopBundled: { await lane.stop() },
@@ -1405,6 +1405,8 @@ final class AgentRuntime {
         if let navigation = trip?.navigation { Task { await navigation.forgetConfirmations() } }
         // F-20a §5: session stop closes the camera.
         if model.cameraOpen { closeCamera() }
+        // F-13 §14 items 4, 7 (T-032b): the engine stops the preview with the session; its card goes too.
+        model.previewCard = nil
         speakLine = nil
         sessionRecord = nil
         lifecycle = nil
