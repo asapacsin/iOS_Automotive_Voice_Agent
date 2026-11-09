@@ -105,6 +105,8 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
         var started = false
         var refused = false
         var tooLong = false
+        var laneStopped = false
+        var refusal: PreviewFailure { laneStopped ? .stopped : .engine }
 
         // Writes one piece into the buffer; starts playing by the start rule.
         func schedule(_ pcm: AVAudioPCMBuffer, downloadEnded: Bool) {
@@ -117,7 +119,8 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
                 tooLong = true
                 scheduledFrames = AVAudioFramePosition(audio.previewFramesWritten)
             case .stale:
-                // The lane was stopped or replaced.
+                // The lane was stopped or replaced (a bundled play, 「别放了」): `stopped`, not an engine failure.
+                laneStopped = true
                 refused = true
                 return
             }
@@ -181,7 +184,7 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
                 feed(chunk)
                 chunk.removeAll(keepingCapacity: true)
                 guard wanted(mine) else { return }
-                if refused { return give(up: .engine) }
+                if refused { return give(up: refusal) }
                 if tooLong { return give(up: .tooLong) }
             }
             guard kept.count + chunk.count <= Self.maxBytes else { return give(up: .tooLarge) }
@@ -193,7 +196,7 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
             return give(up: Self.stage(for: error))
         }
         guard wanted(mine) else { return }
-        if refused { return give(up: .engine) }
+        if refused { return give(up: refusal) }
 
         // The download ended.
         if layout == .needMore {
@@ -210,7 +213,7 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
         }
         startIfDue(downloadEnded: true)
         guard wanted(mine) else { return }
-        if refused || !started { return give(up: .engine) }
+        if refused || !started { return give(up: refused ? refusal : .engine) }
         if tooLong { return give(up: .tooLong) }
         // The parser stopped partway: what was scheduled plays, then the preview is cut with stage `parse`.
         if layout == .streamable, streamer.failed { return give(up: .parse) }

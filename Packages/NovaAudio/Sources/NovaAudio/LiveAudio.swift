@@ -118,6 +118,8 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             guard let self else { return }
             // §18 item 6: on mediaQueue, never waited for here; the preview keeps its buffer and generation.
             self.laneAsync(.restart) {
+                // A change that came while the session stopped never starts the engine again.
+                guard self.lock.withLock({ self.running }) else { return }
                 try? self.engine.start()
                 self.reply.play()
                 self.guidance.play()
@@ -143,12 +145,14 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         guard lock.withLock({ running }) else { return }
         stopMedia()
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
         lock.withLock {
             running = false
             onFrame = nil
         }
+        // A restart queued before the observer went away runs (and sees `running` false) before the engine stops.
+        mediaQueue.sync {}
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -319,14 +323,17 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     public func playMedia(_ track: BundledTrack) {
         // music.md lane contract: a new play request reports false, then true once it is playing, so a
         // repeated 放首歌 over the running loop is fresh evidence. A preview on the lane is stopped first (§18 item 5).
+        // The file is read and converted before the queue, so no lane command waits for it.
+        let loop = Self.bundledBuffer(track, format: replyFormat) ?? BundledLoop.buffer(format: replyFormat)
         lane(.bundledPlay) {
+            // A loop the lane thinks is on but whose node is silent (an interruption) is played again.
+            if machine.state == .bundled, !media.isPlaying { apply(machine.stop()) }
             let effects = machine.playBundled()
             apply(effects)
             guard effects.contains(.playBundledNode) else { return }
             // An engine stopped by an interruption cannot play (AVAudioPlayerNode raises): report not playing.
             guard lock.withLock({ running }), engine.isRunning else { return }
-            let buffer = Self.bundledBuffer(track, format: replyFormat) ?? BundledLoop.buffer(format: replyFormat)
-            guard let buffer else { return }
+            guard let buffer = loop else { return }
             // The loop buffer has no completion handler (§18 item 5).
             media.scheduleBuffer(buffer, at: nil, options: .loops)
             media.play()

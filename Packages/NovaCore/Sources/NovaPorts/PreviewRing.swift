@@ -154,7 +154,9 @@ public final class PreviewRing: @unchecked Sendable {
                 left[i] = source[2 * i]
                 right[i] = source[2 * i + 1]
             }
-            // A reset during the copy may have refilled these frames for a newer generation: give zeros.
+            // A reset during the copy may have refilled these frames for a newer generation: give zeros. The fence keeps
+            // the copy's loads before the validation load.
+            atomicMemoryFence(ordering: .acquiring)
             if Self.generation(writeState.load(ordering: .acquiring)) == playing,
                active.load(ordering: .acquiring) == playing {
                 got = n

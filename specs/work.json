@@ -492,14 +492,26 @@
     {
       "id": "T-032f",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-13 §18 items 1-12: AVAudioSourceNode reading a pure PreviewRing (40 s, generations, drained flag; render block never blocks or allocates); serial mediaQueue for every media-lane command; stop = inactive + buffer reset, never AVAudioPlayerNode.stop/scheduleBuffer for the preview; 250 ms drained timer for the end; music lane slow line; gate against scheduleBuffer/preview stop; MediaLaneMachine; rows 15-25.",
       "depends_on": [
         "T-032e"
       ],
       "notes": "Owner 2026-11-09: she stopped responding. Build 52 records 20261109-221154 and 20261109-221421: a music command while a streamed preview played never returned, and her next reply never reported playback finished, so later utterances were never sent. Apple warns AVAudioPlayerNode.stop can deadlock with completion handlers; AudioStreaming plays from its own buffer in a render callback and stops by resetting it on one serial queue.",
-      "evidence": []
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green on a clean clone (NovaCore 714, NovaRealtime 42, NovaServices 71, imports 0 incl. the item 10 preview-lane gate, secrets 0, spec-trace 109 ids 0 missing); NovaAudio/App not compiled on Linux, row 21 build NOT_VERIFIED (Codemagic, owner)"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS; fixed after review: restart never restarts a stopped session's engine (running check, queue flushed in stop), a silent bundled loop is played again, acquire fence before the seqlock check, bundled file read before the queue, a lane stop during download is stage stopped not engine"
+        },
+        {
+          "device": "F-13 §18 rows 22-25 NOT_VERIFIED"
+        }
+      ]
     },
     {
       "id": "T-024",
