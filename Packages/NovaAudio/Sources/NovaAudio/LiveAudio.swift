@@ -262,6 +262,8 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     /// preview. Returns the token for the calls below, or nil when the engine cannot play now.
     public func beginPreviewStream() -> Int? {
         stopMedia()
+        // A piece that raced a stop onto the idle node must not play at the start of this preview.
+        preview.stop()
         guard lock.withLock({ running }), engine.isRunning else { return nil }
         return lock.withLock { () -> Int in
             mediaGeneration += 1

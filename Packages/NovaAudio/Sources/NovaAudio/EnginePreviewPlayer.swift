@@ -152,11 +152,11 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
 
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.downloadTimeout)
         request.httpMethod = "GET"
+        var chunk = Data()
         do {
             let (bytes, response) = try await session.bytes(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard status == 200 else { return give(up: .downloadHTTP(status)) }
-            var chunk = Data()
             chunk.reserveCapacity(Self.chunkBytes)
             for try await byte in bytes {
                 if kept.isEmpty, chunk.isEmpty {
@@ -174,6 +174,9 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
             guard kept.count + chunk.count <= Self.maxBytes else { return give(up: .tooLarge) }
             if !chunk.isEmpty { feed(chunk) }
         } catch {
+            // The failed line counts every byte that arrived, also the part of a chunk not yet fed.
+            let arrived = kept.count + chunk.count
+            update(mine) { $0.bytes = arrived }
             return give(up: Self.stage(for: error))
         }
         guard wanted(mine) else { return }
@@ -195,6 +198,8 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
         startIfDue(downloadEnded: true)
         guard wanted(mine) else { return }
         if refused || !started { return give(up: .engine) }
+        // The parser stopped partway: what was scheduled plays, then the preview is cut with stage `parse`.
+        if layout == .streamable, streamer.failed { return give(up: .parse) }
         audio.finishPreviewStream(token: token) { [weak self] in self?.endedIfMine(mine) }
     }
 
