@@ -2234,14 +2234,30 @@
     {
       "id": "T-046q",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "PASS",
       "priority": 1,
       "action": "F-18 §28 items 1-8 (day=now and new part argument; now = 高德 live with reporttime plus today's cast, or Open-Meteo current plus today; today = whole-day cast; part = Open-Meteo hourly hours; one Open-Meteo request with current, hourly, daily; texts incl. T-046p items 5-6; view in RuntimeLog); F-18 §28 rows 1-14.",
       "depends_on": [
         "T-046o"
       ],
       "notes": "Owner 2026-11-09: 现在天气 answered as the whole day. Record 20261109-180202 (212f52d): 高德 live labelled today, reporttime dropped, next asks for the date. T-046p (spec 6a4e38e, code 25127f9) is on 11-06-unbuilt-specs and never merged; cherry-pick allowed.",
-      "evidence": []
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh steps",
+          "result": "green (NovaCore 701, NovaRealtime 42, NovaServices 70, spec-trace 0 missing); secrets findings only in local untracked .claude/worktrees agent copies",
+          "commit": "036f845, f12318c"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS after fix (here named from regeo district, not 'here'; concurrency test)"
+        },
+        {
+          "device": "rows 11-14 NOT_VERIFIED"
+        },
+        {
+          "open_low": "part of a day still needs 高德 key / regeo first (pre-existing §26 path); noForecastAdvice points to web_search"
+        }
+      ]
     }
   ]
 }
