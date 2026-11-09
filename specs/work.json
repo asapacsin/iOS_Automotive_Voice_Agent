@@ -490,6 +490,18 @@
       ]
     },
     {
+      "id": "T-032f",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-13 §18 items 1-12: AVAudioSourceNode reading a pure PreviewRing (40 s, generations, drained flag; render block never blocks or allocates); serial mediaQueue for every media-lane command; stop = inactive + buffer reset, never AVAudioPlayerNode.stop/scheduleBuffer for the preview; 250 ms drained timer for the end; music lane slow line; gate against scheduleBuffer/preview stop; MediaLaneMachine; rows 15-25.",
+      "depends_on": [
+        "T-032e"
+      ],
+      "notes": "Owner 2026-11-09: she stopped responding. Build 52 records 20261109-221154 and 20261109-221421: a music command while a streamed preview played never returned, and her next reply never reported playback finished, so later utterances were never sent. Apple warns AVAudioPlayerNode.stop can deadlock with completion handlers; AudioStreaming plays from its own buffer in a render callback and stops by resetting it on one serial queue.",
+      "evidence": []
+    },
+    {
       "id": "T-024",
       "owner": "AUTONOMOUS",
       "status": "PASS",

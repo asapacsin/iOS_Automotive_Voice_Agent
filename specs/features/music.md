@@ -226,3 +226,93 @@ when a new play request starts, then `true` only once that request is verified p
 | T-032e | Items 1–9; rows 6–14 | unit, build, D |
 
 **Trace gate.** Add `T-032e: F-13` to `specs/trace-ids.txt` together with the first `@Test` that names T-032e.
+
+## 18. The preview plays from our own buffer; a stop never stops a player node (iOS, owner request 2026-11-09)
+
+**Why.** Device 2026-11-09, build 52 (39f8d76, T-032e). Streaming worked: record 20261109-220935 has `music preview start first_byte_ms=1239 start_ms=1443 layout=stream`. But each time music was started or stopped while a streamed preview was playing, the app stopped responding.
+- **Record 20261109-221154.**
+  - 「GOOD BYE 夏男」 was playing (`music preview playing` +32,256).
+  - `control_music {"action":"play"}` at +43,347 never got a `tool-result`.
+  - Her reply at +61,818 has `playback started` and never `playback finished`.
+  - The accepted utterance at +74,119 (`result=accepted`) has no `utterance id=` line after it, and nothing more happened until the session ended at +123,535.
+- **Record 20261109-221421.**
+  - 「Ⅱ quiet romance」 was playing (+24,347).
+  - `play_music {…,"exclude_title":"Ⅱ quiet romance"}` at +37,267 reached `music search … picked=1` at +37,780, then had no `music preview start`, no `failed` line and no `tool-result`, although the 6 s poll should have ended it.
+  - The weather reply at +64,921 has `playback started` and never `playback finished`.
+  - The accepted utterance at +88,170 was never sent.
+- **The common step.** Both new commands first stop the playing preview, and `LiveAudio.stopMedia()` calls `AVAudioPlayerNode.stop()` on the preview node. T-032e schedules the preview as many pieces of about 0.5 s, each with a `.dataPlayedBack` completion handler that takes `LiveAudio`'s lock (`piecePlayed`). Stops come from several tasks at once: the tool call, the download task (`give(up:)`, `finishPreviewStream`) and the next `beginPreviewStream`.
+- **What fits.** After the stop, the reply node's completion (`playback finished`) never came either. That fits the engine's completion delivery being blocked. Not proven: the phone's system log was not recording.
+
+**Sources (2026-11-09).**
+- **Apple's warning.** Apple's [AVAudioPlayerNode](https://developer.apple.com/documentation/avfaudio/avaudioplayernode) documentation advises against stopping the player from a completion callback, because the call can deadlock while it unschedules queued buffers. `stop()` unschedules every scheduled buffer, and the [`scheduleBuffer` completion handler](https://developer.apple.com/documentation/avfaudio/avaudioplayernode/schedulebuffer(_:at:options:completioncallbacktype:completionhandler:)) also runs when the player stops.
+- **What streaming players do instead.** [AudioStreaming](https://github.com/dimitris-c/AudioStreaming), the player §17 copied, does not schedule buffers on an `AVAudioPlayerNode`:
+  - its audio unit pulls PCM from the player's own buffer (`AudioRendererContext`) in a render callback (`AudioPlayerRenderProcessor`), and writes silence when the buffer is empty;
+  - `stop()` runs `stopEngine` on one serial `serializationQueue` and then `rendererContext.resetBuffers()`, which empties the buffer;
+  - every play, pause and stop goes through that queue.
+- **The same advice on Apple's forums.** An answer in [thread 132478](https://developer.apple.com/forums/thread/132478) (playing PCM from the network with `AVAudioEngine`) says a render callback reading a ring buffer works more reliably than scheduling buffers on a player node. Apple's [`AVAudioSourceNode`](https://developer.apple.com/documentation/avfaudio/avaudiosourcenode) is the `AVAudioEngine` node for such a render block.
+
+**Rule in plain words.** The preview's sound comes from a buffer the app owns. The engine pulls from it all the time, and gets silence when it is empty. Stopping or changing the song only empties the buffer and moves a counter. It never tells a player node to stop. All music commands go through one queue, one at a time. The song still goes through her engine, so echo cancelling and ducking stay as in §16.
+
+1. **Source node.**
+   - `LiveAudio`'s preview `AVAudioPlayerNode` is replaced by an `AVAudioSourceNode` (44.1 kHz stereo float, §16 item 1). It is attached and connected to the main mixer at init, before voice processing is enabled, where the preview node is today.
+   - Its render block copies frames from the preview buffer (item 2), and writes zeros when the buffer has none, when no preview is active, or when the render block cannot get the frames at once.
+   - The render block never blocks, never allocates or frees memory, never calls into Swift concurrency, logs nothing and calls nothing outside the buffer. Thread-safe state is exchanged through atomics (the Swift `Synchronization` `Atomic` type, or `os_unfair_lock_trylock`, never a lock that waits).
+   - The bundled loop (`media`), her voice (`reply`), guidance and the cue keep their `AVAudioPlayerNode`s. The preview's volume and dips follow the bundled track's rules, through the source node's `AVAudioMixing` volume.
+2. **Preview buffer.**
+   - `PreviewRing` is pure Swift, with no AVFoundation, so it can live in NovaCore and be unit-tested. It is one single-producer, single-consumer buffer of interleaved stereo float frames, allocated once when `LiveAudio` starts: 40 s at 44.1 kHz, about 14 MB, enough for a 30 s preview.
+   - The writer is the download task, through `PreviewStreamer` and the item 2 fallback of §17. The reader is the render block.
+   - The buffer holds a `generation`. A reset raises it and empties the buffer. A write carries the generation it was started under, and a write from an older generation is ignored.
+   - Frames beyond 40 s are dropped. The preview ends at 40 s, with `music preview cut stage=too_long played_ms=<n>` (a new `PreviewFailure` case, `too_long`).
+3. **One queue for the media lane.** A serial `DispatchQueue` (`mediaQueue`) in `LiveAudio` runs every media-lane command, one at a time, in the order asked:
+   - the bundled track's play and stop;
+   - the preview's begin, start, stop and finish;
+   - the engine-restart replay.
+
+   No command runs on the render thread or in a completion handler. A caller that is not on `mediaQueue` waits for its command to finish (`sync`), or uses an `async` wrapper. A command never waits for the render block.
+4. **Begin, start, stop, end.**
+   - **Begin** (a new preview): it stops whatever is on the lane (item 3 order), resets the buffer to a new generation and returns that generation as the token.
+   - **Start** (`PreviewStartRule` unchanged: 1.0 s written, or the download ended): it sets the preview active. The lane then reports `mediaPlaying(true)` once, and `previewPlaying` is true.
+   - **Stop** (`control_music stop`, a new preview, the bundled track, session end, a barge-in rule that stops media): it sets the preview inactive, resets the buffer to a new generation, and reports `mediaPlaying(false)` if it was playing. It never calls `stop()`, `reset()` or `scheduleBuffer` on any node for the preview.
+   - **End** (played to the end): the download task marks the buffer finished. When the render block has read the last frame of a finished buffer, it sets an atomic `drained` flag and touches nothing else. While a preview is active, a `DispatchSourceTimer` on `mediaQueue` checks `drained` every 250 ms. When it is set and the generation is still current, the timer stops the preview as above and runs `onEnd` (§14 item 6). A drained buffer whose download has not ended is a stall, not an end (§17 item 3).
+5. **The bundled track** keeps its `AVAudioPlayerNode` and its loop. Its `stop()` runs only on `mediaQueue`, never from a completion handler, and its loop buffer has no completion handler. A bundled track replacing a preview is a preview stop (item 4), then today's bundled play.
+6. **Engine restart** (`AVAudioEngineConfigurationChange`): the source node needs no replay. On `mediaQueue`, the restart handler restarts the engine and replays the bundled node if it was on. The preview keeps its buffer and generation. Its sound resumes when the engine runs again.
+7. **A command that takes too long is recorded.** Each `mediaQueue` command that waits for the queue or runs for over 200 ms writes `music lane slow cmd=<begin|start|stop|end|bundled_play|bundled_stop|restart> wait_ms=<n> run_ms=<n>` to `RuntimeLog` and the record, numbers only. A hang now leaves a line, even with no system log.
+8. **The reply lane is not touched.** Her voice keeps its node, epochs and completion handlers (F-07). Row 15 checks that a music command can no longer stop her `playback finished`.
+9. **Removed:**
+   - `LiveAudio.schedulePreview`, `piecePlayed`, the preview `AVAudioPlayerNode`, `PreviewStream.outstanding`, and the per-piece completion handlers;
+   - `EnginePreviewPlayer`'s calls to `preview.stop()`;
+   - the T-032d `playPreview(_:stillWanted:onEnd:)` path, if it is still compiled.
+
+   §17's streaming, layout fallback, failures, lines and advice stay. `PreviewStreamer` now writes into `PreviewRing` instead of `schedulePreview`.
+10. **Gate.** `scripts/gates/check_imports.py` (or a new small gate) fails when the NovaAudio sources contain `scheduleBuffer` or `.stop()` on a preview node, or an `AVAudioPlayerNode` used for the preview. The bundled, reply, guidance and cue nodes are listed as allowed.
+11. **Where the code goes.**
+    - NovaCore: `PreviewRing`, and a pure `MediaLaneMachine` (states idle, bundled, previewLoading, previewPlaying; commands begin, start, stop, playBundled, drained, restart; the `mediaPlaying` events each produces), so rows 15–19 run as unit tests on Linux.
+    - NovaAudio: the source node, `mediaQueue`, the timer and the slow-command line.
+    - NovaServices and NovaTools: no change, except `too_long` in the §17 item 7 advice (the network advice) and the item 6 lines.
+12. **Not changed:**
+    - search, pick, card and proof (§14, §15);
+    - streaming, the start rule, the failure stages, the lines and the advice (§17);
+    - the echo-cancelling path (§16);
+    - her voice.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 15 | `PreviewRing`: write 1.5 s; read in 512-frame blocks | Frames come back in order; after 1.5 s, zeros, not `drained` while the download runs; after `finish`, `drained` once, after the last frame | unit |
+| 16 | `PreviewRing`: a reset while a writer of the old generation keeps writing | The old writes are ignored; reads give zeros; the new generation's writes play | unit |
+| 17 | `PreviewRing`: 41 s written | 40 s kept; the overflow is reported once | unit |
+| 18 | `PreviewRing`: one writer thread and one reader thread, 10,000 rounds of random sizes, with resets | Finishes; every frame read is from the current generation or zero; no read waits | unit |
+| 19 | `MediaLaneMachine`: preview playing, then begin (a new preview); stop while loading; bundled play while a preview plays; drained with the download running; drained after finish; restart while playing | `mediaPlaying(false)` then loading; no later `mediaPlaying(true)`; preview stopped, then bundled `mediaPlaying(true)`; nothing; `mediaPlaying(false)` and `onEnd` once; still playing, no event | unit |
+| 20 | Source tree | Item 10 gate: no `scheduleBuffer` or preview-node `stop()` in NovaAudio's preview path; gates green | gate |
+| 21 | App build | Builds on Codemagic | build |
+| 22 | Device: a preview plays; while it plays: 「换一首」, then 「放周杰伦的晴天」, then 「放首歌」 (the bundled track), then 「别放了」; after each, 「现在几点」 | Every command gets a `tool-result` within 8 s; every reply has `playback started` and `playback finished`; every accepted utterance after it has an `utterance id=… sent=true` line; she answers each 「现在几点」; no `music lane slow` line over 1,000 ms | D |
+| 23 | Device: the record 20261109-221421 steps: a 空之境界 preview playing, then 「关闭音乐」, then 「现在天气怎么样」, then two more questions | Each is answered; no freeze | D |
+| 24 | Device: let a preview play to its end; then ask a question | `music preview ended` about 30 s after start; card gone; she answers | D |
+| 25 | Device: during a preview, plug in or unplug wired headphones (or connect Bluetooth) | The song continues after the route change, or stops cleanly; she still answers | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-032f | Items 1–12; rows 15–25 | unit, gate, build, D |
+
+**Trace gate.** Add `T-032f: F-13` to `specs/trace-ids.txt` together with the first `@Test` that names T-032f.
