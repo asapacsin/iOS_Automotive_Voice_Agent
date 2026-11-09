@@ -359,6 +359,18 @@
           "evidence": []
         },
         {
+          "id": "T-090",
+          "owner": "AUTONOMOUS",
+          "status": "TODO",
+          "priority": 2,
+          "action": "F-25 §14 items 1-5 (delete MusicKitPlayer and the CarPlay scene with their project, entitlement and gate entries; tab bar 驾驶/车辆/设置 with 音频测试 and 录制 under 设置 → 开发; STATUS T-072/T-080 REMOVED); F-25 §14 rows 1-4.",
+          "depends_on": [
+            "T-032b"
+          ],
+          "notes": "Owner 2026-11-09: clear built-but-unused code. Azure express-as is wired (SpeakingStyle.saved) and ComfortEval is used by tests, so both stay.",
+          "evidence": []
+        },
+        {
           "review": "independent read-only high effort",
           "result": "PASS"
         },

@@ -57,3 +57,30 @@ None beyond the contracts.
 
 ## iOS notes (PROPOSED unless labelled)
 SwiftUI over the Amap map view (B).
+
+## 14. Remove unused code; test screens out of the driver's tab bar (iOS, APPROVED 2026-11-09)
+
+**Why.** Owner 2026-11-09: clear the code that is built but not used. A check of `claude/t-020a-qwen-tts` at 2a35f02 found:
+- `MusicKitPlayer` (`Packages/NovaPlatform/Sources/NovaPlatform/Music/`): created by nothing since OQ-IOS-7; named music now uses `ITunesPreviewMusic` (F-13 §14).
+- The CarPlay scene (`App/NovaDrive/CarPlay/`): inert, CarPlay skipped (OQ-IOS-8, T-080 NOT_APPLICABLE).
+- 「音频测试」 (`AudioSpikeView`, `EchoSpike`) and 「录制」 (`RecorderView`, `GeminiRecorder`): measurement screens shown as tabs next to 驾驶. They are still named by F-08 (T-001a) and F-21, so they are kept and moved, not deleted.
+- Not debt, kept as they are: Azure and Qwen voices and the Azure `express-as` style (wired through `SpeakingStyle.saved`), `ComfortEvalRunner` and `ComfortEvalView` (comfort tests use them).
+
+1. **MusicKit.** Delete `MusicKitPlayer.swift` and anything that only it uses. Remove MusicKit from `App/project.yml` and the entitlements if it is listed there. The `NamedMusicPort` comment says 「iTunes previews (F-13 §14)」 instead of Apple Music.
+2. **CarPlay.** Delete `App/NovaDrive/CarPlay/`, its scene entry and its entitlement, if present. Remove `"CarPlay"` from `scripts/gates/check_imports.py`. The `DriveView` comment no longer mentions the CarPlay scene.
+3. **Tabs.** The tab bar is 驾驶, 车辆, 设置. `AppTab` loses `audio` and `recorder`. 设置 → 开发 gets two rows, 「音频测试」 and 「录制」, which open the same screens as before.
+4. **Records.** In `specs/STATUS.md`, T-072 and T-080 become REMOVED with the commit.
+5. **Not changed:** music (F-13 §14), voices, comfort tests, the recorder's and audio test's behaviour.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Source tree after the change | No `MusicKitPlayer`, no `import MusicKit`, no `import CarPlay`, no `CarPlaySceneDelegate`; `scripts/gates/run_all.sh` green | unit (gate) |
+| 2 | App build | Builds; tabs are 驾驶, 车辆, 设置 | build |
+| 3 | Device: open the app | Three tabs; 设置 → 开发 has 「音频测试」 and 「录制」, each opens and works as before | D |
+| 4 | Device: 「放 Kalafina 的 oblivious」 | Plays as F-13 §14 (named music unaffected) | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-090 | Items 1–5; rows 1–4 | unit, build, D |
