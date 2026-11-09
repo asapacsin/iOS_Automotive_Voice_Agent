@@ -33,11 +33,12 @@ public final class StreamingPreviewPlayer: PreviewPlayer, @unchecked Sendable {
         await MainActor.run {
             let item = AVPlayerItem(url: url)
             let player = AVPlayer(playerItem: item)
+            let itemID = ObjectIdentifier(item)
             state.endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime,
                                                                        object: item, queue: .main) { _ in
                 MainActor.assumeIsolated {
                     // Only the item still playing ends; a stale notification never stops the next preview.
-                    guard state.item === item else { return }
+                    guard state.item.map(ObjectIdentifier.init) == itemID else { return }
                     Self.tearDown(state)
                     audio.reportStreamedMedia(false)
                     onEnded()
