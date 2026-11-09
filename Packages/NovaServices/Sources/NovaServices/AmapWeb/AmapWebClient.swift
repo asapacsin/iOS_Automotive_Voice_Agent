@@ -123,8 +123,8 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, Place
     // MARK: WeatherService
 
     /// `adcode` may also be a city name; it is geocoded first.
-    /// F-18 §23 item 2: offset 0 is the live report; 1–3 is the `casts` entry whose `date` equals `day.date`
-    /// (the phone's date plus the offset), never picked by position. No such entry: `WeatherForecastMissing`.
+    /// F-18 §28 items 2-3: `day.live` is the live report (with `time` from `reporttime`); otherwise the `casts` entry
+    /// whose `date` equals `day.date` (today included), never picked by position. No such entry: `WeatherForecastMissing`.
     public func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
         var code = adcode
         if !adcode.allSatisfy(\.isNumber) {
@@ -134,7 +134,7 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, Place
             }
             code = found
         }
-        let forecast = day.offset > 0
+        let forecast = !day.live
         let body = try await get("/v3/weather/weatherInfo", ["city": code, "extensions": forecast ? "all" : "base"])
         if forecast {
             guard let entry = (body["forecasts"] as? [[String: Any]])?.first,
@@ -146,18 +146,26 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, Place
             return WeatherReport(adcode: code, summary: .object([
                 "city": .string(city), "day": .string(day.name), "date": .string(day.date),
                 "weather_day": .string(cast["dayweather"] as? String ?? ""),
+                "weather_night": .string(cast["nightweather"] as? String ?? ""),
                 "temp_high": .string(cast["daytemp"] as? String ?? ""),
                 "temp_low": .string(cast["nighttemp"] as? String ?? ""),
             ]))
         }
         guard let live = (body["lives"] as? [[String: Any]])?.first else { throw AmapWebError.failed }
         return WeatherReport(adcode: code, summary: .object([
-            "city": .string(live["city"] as? String ?? ""), "day": "today", "date": .string(day.date),
+            "city": .string(live["city"] as? String ?? ""), "day": "now", "date": .string(day.date),
+            "time": .string(Self.clock(live["reporttime"] as? String)),
             "weather": .string(live["weather"] as? String ?? ""),
             "temperature_c": .string(live["temperature"] as? String ?? ""),
             "wind": .string("\(live["winddirection"] as? String ?? "")风\(live["windpower"] as? String ?? "")级"),
             "humidity": .string(live["humidity"] as? String ?? ""),
         ]))
+    }
+
+    /// F-18 §28 item 2: `HH:mm` of 高德's `reporttime` (`yyyy-MM-dd HH:mm:ss`); empty when missing.
+    static func clock(_ reporttime: String?) -> String {
+        guard let t = reporttime?.split(separator: " ").last, t.count >= 5 else { return "" }
+        return String(t.prefix(5))
     }
 
     /// The cast for `date` (`yyyy-MM-dd`), wherever it sits in the list.

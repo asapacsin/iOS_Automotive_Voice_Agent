@@ -156,7 +156,7 @@ struct LiveInfoExecutorTests {
 
     @Test("weather here answers only from the returned data")
     func weatherHere() async {
-        let r = await ask(await executor(FakeWeather()))
+        let r = await ask(await executor(FakeWeather()), ["kind": "weather", "day": "today"])
         #expect(r.ok && r.data["weather"]?["text"] == "晴")
     }
 

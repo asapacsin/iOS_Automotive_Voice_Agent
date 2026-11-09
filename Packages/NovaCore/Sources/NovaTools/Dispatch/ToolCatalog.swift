@@ -40,13 +40,18 @@ public enum ToolCatalog {
                                                      parametersJSONSchema: schema))
     }
 
-    /// F-18 §23 item 2: `query_live_info.day` reaches 大后天, with search on and off.
-    public static let weatherDays = ["today", "tomorrow", "day_after", "day_after_next"]
+    /// F-18 §23 item 2: `query_live_info.day` reaches 大后天, with search on and off; §28 item 1 adds `now`.
+    public static let weatherDays = ["now", "today", "tomorrow", "day_after", "day_after_next"]
+    public static let dayDescription = "现在的天气、现在几度填 now；今天一整天填 today；明天 tomorrow，后天 day_after，大后天 day_after_next。"
+    public static let weatherParts = ["morning", "afternoon", "evening"]
+    public static let partDescription = "问上午、下午、晚上时填 morning、afternoon、evening，可以和 day 或 date 一起用。"
     static func longerDays(_ schema: JSONValue) -> JSONValue {
         guard case .object(var root) = schema, case .object(var props)? = root["properties"],
               case .object(var day)? = props["day"] else { preconditionFailure("query_live_info schema changed") }
         day["enum"] = .array(weatherDays.map { .string($0) })
+        day["description"] = .string(dayDescription)
         props["day"] = .object(day)
+        props["part"] = ["type": "string", "enum": .array(weatherParts.map { .string($0) }), "description": .string(partDescription)]
         root["properties"] = .object(props)
         return .object(root)
     }
@@ -70,7 +75,7 @@ public enum ToolCatalog {
 
     /// F-18 §26 item 8: the weather part of the `query_live_info` description.
     static let oldWeatherPart = "weather：「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；问明天加 day=tomorrow。"
-    public static let weatherPart = "weather：今后16天内任何地方、任何一天的天气预报。「今天天气怎么样」→where=here；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。"
+    public static let weatherPart = "weather：任何地方现在的天气，和今后16天内任何一天、上午下午晚上的天气预报。「现在天气怎么样」「外面几度」→where=here, day=now；「今天天气怎么样」→day=today；「下午会下雨吗」→part=afternoon；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。"
     static func forecastDescription(_ today: String) -> String {
         precondition(today.contains(oldWeatherPart), "query_live_info description changed")
         return today.replacingOccurrences(of: oldWeatherPart, with: weatherPart)
@@ -142,7 +147,7 @@ public enum ToolCatalog {
     /// F-18 §16 item 3: one general information tool; only declared with 「联网搜索（实验）」 on. §26 item 8: no forecasts.
     public static let webSearchSpec = ToolSpec(domain: "live_info", repeatSensitive: true, declaration: ToolDeclaration(
         name: "web_search",
-        description: "查网上的信息：新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。不用于查16天内的天气预报（用 query_live_info 的 weather）。",
+        description: "查网上的信息：新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。不用于查现在的气温或16天内的天气预报（用 query_live_info 的 weather）。",
         parametersJSONSchema: [
             "type": "object",
             "properties": ["query": ["type": "string", "minLength": .int(1), "maxLength": .int(200)]],
@@ -151,7 +156,7 @@ public enum ToolCatalog {
         ]))
 
     /// F-18 §23 item 1, §26 item 8: the sentence her search-on `query_live_info` text adds (a tool description, not the search prompt).
-    public static let officialFirst = "天气预报（今后16天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。"
+    public static let officialFirst = "现在的气温和天气预报（今后16天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。"
 
     /// F-18 §16 item 9 as changed by §23 item 1: with search on, `query_live_info` keeps every kind, argument and
     /// line; only the no-data-source sentence goes, and `officialFirst` is added.
@@ -274,7 +279,7 @@ public enum ToolCatalog {
         case "place_call":
             return nil  // PhoneDomain: no rules beyond the schema; the handler checks its own arguments.
         case "query_live_info":
-            if !keys.contains("kind") || !keys.isSubset(of: ["kind", "where", "day", "date", "country", "category", "target", "time_zone"]) {
+            if !keys.contains("kind") || !keys.isSubset(of: ["kind", "where", "day", "date", "country", "part", "category", "target", "time_zone"]) {
                 return .invalidFields
             }
             if keys.contains(where: { !isString($0) }) { return .invalidFieldType }

@@ -264,10 +264,14 @@ public struct WeatherDay: Sendable, Hashable {
     public static let names = ["today", "tomorrow", "day_after", "day_after_next"]
     public let offset: Int
     public let date: String
+    /// F-18 §28 item 2: true is 高德's live report (`extensions=base`); false is that date's `casts` entry,
+    /// today included (item 3).
+    public let live: Bool
 
-    public init(offset: Int, date: String) {
+    public init(offset: Int, date: String, live: Bool = false) {
         self.offset = offset
         self.date = date
+        self.live = live
     }
 
     public var name: String { Self.names[min(max(offset, 0), Self.names.count - 1)] }
@@ -305,10 +309,62 @@ public struct DailyForecastDay: Sendable, Hashable {
     }
 }
 
+/// F-18 §27 item 2: the weather now at the place. `time` is `yyyy-MM-ddTHH:mm` on the place's own clock.
+public struct CurrentWeather: Sendable, Hashable {
+    public let time: String
+    public let temperature: Double
+    public let feelsLike: Double?
+    public let humidity: Double?
+    public let weatherCode: Int?
+    public let windKmh: Double?
+
+    public init(time: String, temperature: Double, feelsLike: Double?, humidity: Double?, weatherCode: Int?,
+                windKmh: Double?) {
+        self.time = time
+        self.temperature = temperature
+        self.feelsLike = feelsLike
+        self.humidity = humidity
+        self.weatherCode = weatherCode
+        self.windKmh = windKmh
+    }
+}
+
+/// F-18 §28 item 4: one hour of the forecast. `time` is `yyyy-MM-ddTHH:mm` on the place's own clock.
+public struct HourlyForecast: Sendable, Hashable {
+    public let time: String
+    public let weatherCode: Int?
+    public let temperature: Double?
+    public let rainChance: Double?
+
+    public init(time: String, weatherCode: Int?, temperature: Double?, rainChance: Double?) {
+        self.time = time
+        self.weatherCode = weatherCode
+        self.temperature = temperature
+        self.rainChance = rainChance
+    }
+}
+
+/// F-18 §26 item 11, §28 item 5: the days, an optional current block and the hours (missing or unreadable: nil / []).
+public struct DailyForecast: Sendable, Hashable {
+    public let days: [DailyForecastDay]
+    public let current: CurrentWeather?
+    public let hours: [HourlyForecast]
+    /// The place's offset from UTC (`utc_offset_seconds`), for its own clock (§28 item 4).
+    public let utcOffsetSeconds: Int?
+
+    public init(days: [DailyForecastDay], current: CurrentWeather? = nil, hours: [HourlyForecast] = [],
+                utcOffsetSeconds: Int? = nil) {
+        self.days = days
+        self.current = current
+        self.hours = hours
+        self.utcOffsetSeconds = utcOffsetSeconds
+    }
+}
+
 /// F-18 §26 item 11: a daily forecast port (Open-Meteo in NovaServices). `days[0]` is the place's own today.
 public protocol DailyForecastService: Sendable {
     /// Coordinates are already rounded by the caller (§26 item 4).
-    func dailyForecast(latitude: Double, longitude: Double) async throws -> [DailyForecastDay]
+    func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast
 }
 
 /// F-18 §26 item 4: a forecast call that timed out or failed. No response text (I-8).

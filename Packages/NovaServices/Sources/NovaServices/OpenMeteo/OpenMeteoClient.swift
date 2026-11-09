@@ -10,6 +10,8 @@ import NovaPorts
 public struct OpenMeteoClient: DailyForecastService, PlaceLookup {
     public static let forecastHost = "https://api.open-meteo.com"
     public static let geocodingHost = "https://geocoding-api.open-meteo.com"
+    static let currentVariables = "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m"
+    static let hourly = "temperature_2m,weather_code,precipitation_probability"
     static let daily = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max"
 
     private let transport: any HTTPTransport
@@ -22,11 +24,34 @@ public struct OpenMeteoClient: DailyForecastService, PlaceLookup {
     }
 
     /// §26 item 4: the caller rounds the coordinates to 2 decimals; they are written with 2 decimals here too.
-    public func dailyForecast(latitude: Double, longitude: Double) async throws -> [DailyForecastDay] {
+    /// §27 item 1, §28 item 5: `current=`, then `hourly=`, then `daily=`, in one call.
+    public func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast {
         let url = Self.forecastHost + "/v1/forecast?latitude=\(String(format: "%.2f", latitude))&longitude=\(String(format: "%.2f", longitude))"
-            + "&daily=\(Self.daily)&timezone=auto&forecast_days=16"
+            + "&current=\(Self.currentVariables)&hourly=\(Self.hourly)&daily=\(Self.daily)&timezone=auto&forecast_days=16"
         let body = try await get(url)
-        return Self.days(body)
+        return DailyForecast(days: Self.days(body), current: Self.current(body), hours: Self.hours(body),
+                             utcOffsetSeconds: (body["utc_offset_seconds"] as? NSNumber)?.intValue)
+    }
+
+    /// §27 item 2: a missing or unreadable `current` (no `time` or no `temperature_2m`) is nil, never an error.
+    static func current(_ body: [String: Any]) -> CurrentWeather? {
+        guard let c = body["current"] as? [String: Any], let time = c["time"] as? String,
+              let temperature = (c["temperature_2m"] as? NSNumber)?.doubleValue else { return nil }
+        func number(_ key: String) -> Double? { (c[key] as? NSNumber)?.doubleValue }
+        return CurrentWeather(time: time, temperature: temperature, feelsLike: number("apparent_temperature"),
+                              humidity: number("relative_humidity_2m"), weatherCode: number("weather_code").map { Int($0) },
+                              windKmh: number("wind_speed_10m"))
+    }
+
+    /// §28 item 5: a missing or unreadable `hourly` block is `[]`, never an error.
+    static func hours(_ body: [String: Any]) -> [HourlyForecast] {
+        guard let hourly = body["hourly"] as? [String: Any], let times = hourly["time"] as? [String] else { return [] }
+        func column(_ key: String) -> [Double?] { ((hourly[key] as? [Any]) ?? []).map { ($0 as? NSNumber)?.doubleValue } }
+        let temp = column("temperature_2m"), code = column("weather_code"), chance = column("precipitation_probability")
+        func at(_ c: [Double?], _ i: Int) -> Double? { i < c.count ? c[i] : nil }
+        return times.indices.map { i in
+            HourlyForecast(time: times[i], weatherCode: at(code, i).map { Int($0) }, temperature: at(temp, i), rainChance: at(chance, i))
+        }
     }
 
     static func days(_ body: [String: Any]) -> [DailyForecastDay] {

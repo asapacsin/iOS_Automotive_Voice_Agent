@@ -21,7 +21,7 @@ final class CountingWeather: WeatherService, @unchecked Sendable {
 struct CastsWeather: WeatherService {
     let casts: [String]
     func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
-        guard day.offset == 0 || casts.contains(day.date) else { throw WeatherForecastMissing(date: day.date) }
+        guard day.live || casts.contains(day.date) else { throw WeatherForecastMissing(date: day.date) }
         return WeatherReport(adcode: adcode, summary: .object(["date": .string(day.date)]))
     }
 }
@@ -75,7 +75,7 @@ struct SearchOnLiveInfoTests {
             #expect(on.parametersJSONSchema == off.parametersJSONSchema)
             #expect(on.parametersJSONSchema["properties"]?["kind"]?["enum"] == .array(ToolCatalog.liveInfoKinds.map { .string($0) }))
             // §26 item 8 replaced the §23 sentence.
-            #expect(on.description.contains("天气预报（今后16天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。"))
+            #expect(on.description.contains("现在的气温和天气预报（今后16天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。"))
             #expect(on.description.contains("weather：") && on.description.contains("place_details："))
             #expect(!on.description.contains("新闻、股票、油价、汇率无数据源"))
         }
@@ -105,7 +105,7 @@ struct SearchOnLiveInfoTests {
         #expect(details.ok && details.data["opening_hours"] == nil)
         #expect(details.data["next"]?.stringValue?.contains("web_search") == false)
         let live = try #require(ToolCatalog.declarations.first { $0.name == "query_live_info" })
-        #expect(live.parametersJSONSchema["properties"]?["day"]?["enum"] == ["today", "tomorrow", "day_after", "day_after_next"])
+        #expect(live.parametersJSONSchema["properties"]?["day"]?["enum"] == ["now", "today", "tomorrow", "day_after", "day_after_next"])
         #expect(ToolCatalog.declarations(for: .table, webSearch: false) == ToolCatalog.declarations(for: .table))
     }
 }
