@@ -17,7 +17,7 @@ struct MultilingualSection: View {
             } else {
                 Text(state.label).foregroundStyle(.secondary)
             }
-            if on, state == .missing || state == .failed {
+            if on, store.offersCellular {
                 Button("用流量下载") { store.useCellular() }
             }
             if state == .ready || state == .loadFailed {

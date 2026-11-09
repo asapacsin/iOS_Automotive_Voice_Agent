@@ -19,6 +19,11 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
     private var machine: MultilingualDownload
     private var watchers: [UUID: @Sendable (MultilingualModelState) -> Void] = [:]
     private var session: URLSession!
+    /// Until the running tasks are adopted (after a relaunch), `start()` waits, so a download is never started twice.
+    private var adopted = false
+    private var startPending = false
+    /// iOS's completion handler for background session events (`handleEventsForBackgroundURLSession`).
+    private var backgroundDone: (() -> Void)?
 
     static var folder: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -51,12 +56,33 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
         session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         // A download still running from before a relaunch is adopted (`file|host|cellular`).
         session.getAllTasks { [self] tasks in
+            var kept = false
             for task in tasks {
                 let parts = (task.taskDescription ?? "").split(separator: "|").map(String.init)
-                guard parts.count == 3, let host = Int(parts[1]) else { task.cancel(); continue }
+                // One running task at most; anything else is cancelled.
+                guard !kept, parts.count == 3, let host = Int(parts[1]) else { task.cancel(); continue }
+                kept = true
                 update { $0.adopt(file: parts[0], host: host, cellular: parts[2] == "1"); return [] }
             }
+            let run = lock.withLock { () -> Bool in
+                adopted = true
+                return startPending
+            }
+            if run { start() }
         }
+    }
+
+    /// `application(_:handleEventsForBackgroundURLSession:completionHandler:)`.
+    func handleBackgroundEvents(_ completion: @escaping () -> Void) {
+        lock.withLock { backgroundDone = completion }
+    }
+
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        let done = lock.withLock { () -> (() -> Void)? in
+            defer { backgroundDone = nil }
+            return backgroundDone
+        }
+        if let done { Task { @MainActor in done() } }
     }
 
     var state: MultilingualModelState { lock.withLock { machine.state } }
@@ -78,12 +104,35 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
     /// do not use cellular or Low Data networks, so on cellular it waits). Then load it when ready.
     func start() {
         guard Self.switchOn else { return }
+        let wait = lock.withLock { () -> Bool in
+            if !adopted { startPending = true }
+            return !adopted
+        }
+        guard !wait else { return }
         update { $0.switchOn(onWiFi: true) }
         if state == .ready { LocalSpeechModels.shared.loadMultilingual() }
     }
 
     /// 「用流量下载」.
-    func useCellular() { update { $0.useCellular() } }
+    /// A Wi-Fi-only request still waiting is cancelled first, then the same file is fetched with cellular allowed.
+    func useCellular() {
+        guard !lock.withLock({ machine.allowsCellular && machine.currentFile != nil }) else { return }
+        session.getAllTasks { [self] tasks in
+            for task in tasks { task.taskDescription = "cancelled"; task.cancel() }
+            update { $0.useCellular() }
+        }
+    }
+
+    /// 「用流量下载」 shows while the model is missing, failed, or waiting for Wi-Fi.
+    var offersCellular: Bool {
+        lock.withLock {
+            switch machine.state {
+            case .missing, .failed: true
+            case .downloading: !machine.allowsCellular
+            case .ready, .loadFailed: false
+            }
+        }
+    }
 
     /// 「下载失败，点按重试」.
     func retry() { update { $0.retry(onWiFi: true) } }
@@ -94,7 +143,7 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
     /// 「删除多语言模型」.
     func delete() {
         LocalSpeechModels.shared.unloadMultilingual()
-        session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
+        session.getAllTasks { tasks in tasks.forEach { $0.taskDescription = "cancelled"; $0.cancel() } }
         update { $0.delete() }
     }
 
@@ -104,12 +153,16 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
     // MARK: machine
 
     private func update(_ step: (inout MultilingualDownload) -> [MultilingualDownload.Command]) {
-        let (commands, before, after, host) = lock.withLock { () -> ([MultilingualDownload.Command], MultilingualModelState, MultilingualModelState, Int) in
+        let (commands, before, host) = lock.withLock { () -> ([MultilingualDownload.Command], MultilingualModelState, Int) in
             let before = machine.state
             let commands = step(&machine)
-            return (commands, before, machine.state, machine.hostIndex)
+            return (commands, before, machine.hostIndex)
         }
-        for command in commands { run(command, host: host) }
+        // An install that fails resets the machine; the commands after it no longer apply.
+        for command in commands {
+            guard run(command, host: host) else { break }
+        }
+        let after = state
         guard after != before else { return }
         // Percent steps are not a state change for the record or the log.
         if case .downloading = before, case .downloading = after { notifyView(after); return }
@@ -124,11 +177,13 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
         Task { @MainActor in NotificationCenter.default.post(name: .multilingualModelState, object: nil) }
     }
 
-    private func run(_ command: MultilingualDownload.Command, host: Int) {
+    /// false: the install failed and the machine was reset.
+    @discardableResult
+    private func run(_ command: MultilingualDownload.Command, host: Int) -> Bool {
         let fm = FileManager.default
         switch command {
         case .fetch(let url, let file, let cellular):
-            guard let url = URL(string: url) else { return update { $0.failed() } }
+            guard let url = URL(string: url) else { return true }
             var request = URLRequest(url: url)
             request.allowsExpensiveNetworkAccess = cellular
             request.allowsConstrainedNetworkAccess = cellular
@@ -155,13 +210,17 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
                 // A file that cannot be moved into place counts as a failed download (nothing half-installed loads).
                 RuntimeLog.agent.error("asrMulti state=install_failed")
                 try? fm.removeItem(at: Self.folder.appendingPathComponent(Self.verifiedMarker))
-                lock.withLock { machine = MultilingualDownload(installed: false) }
-                notifyView(.missing)
+                lock.withLock {
+                    machine = MultilingualDownload(installed: false)
+                    _ = machine.markFailed()
+                }
+                return false
             }
         case .removeAll:
             try? fm.removeItem(at: Self.folder)
             try? fm.removeItem(at: Self.staging)
         }
+        return true
     }
 
     /// SHA-256 of a file in 1 MB pieces (lower-case hex).
@@ -184,6 +243,8 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
         let name = (downloadTask.taskDescription ?? "").split(separator: "|").first.map(String.init) ?? ""
+        // A cancelled or stale task (not the file the machine waits for) is not checked against it.
+        guard name == lock.withLock({ machine.currentFile }) else { return }
         let fm = FileManager.default
         let staged = Self.staging.appendingPathComponent(name)
         guard status == 200, !name.isEmpty,
@@ -200,7 +261,9 @@ final class MultilingualModelStore: NSObject, URLSessionDownloadDelegate, @unche
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error else { return }
         // A cancel from 「删除多语言模型」 is not a failure.
-        if (error as? URLError)?.code == .cancelled { return }
+        if (error as? URLError)?.code == .cancelled || task.taskDescription == "cancelled" { return }
+        let name = (task.taskDescription ?? "").split(separator: "|").first.map(String.init)
+        guard name == lock.withLock({ machine.currentFile }) else { return }
         update { $0.failed() }
     }
 }

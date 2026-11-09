@@ -34,7 +34,9 @@ public final class SherpaSenseVoice: @unchecked Sendable {
         config.model_config.provider = strings.make("cpu")
         config.model_config.debug = 0
         config.decoding_method = strings.make("greedy_search")
-        guard let recognizer = withUnsafePointer(to: &config, { SherpaOnnxCreateOfflineRecognizer($0) }) else {
+        // The config points into `strings`; keep them alive until the recognizer has copied what it needs.
+        let created = withExtendedLifetime(strings) { withUnsafePointer(to: &config) { SherpaOnnxCreateOfflineRecognizer($0) } }
+        guard let recognizer = created else {
             throw SherpaError.loadFailed("sensevoice")
         }
         self.recognizer = recognizer

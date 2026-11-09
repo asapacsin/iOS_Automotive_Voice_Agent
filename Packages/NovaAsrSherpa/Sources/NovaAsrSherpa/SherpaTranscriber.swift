@@ -27,6 +27,9 @@ public final class SherpaTranscriber: LocalTranscriber, @unchecked Sendable {
     private var multiHandler: (@Sendable (_ decodeMs: Int) -> Void)?
     // Queue-confined: F-05a §14 item 2, this utterance's samples for SenseVoice (nil: not kept).
     private var samples: [Float]?
+    /// Queue-confined: bumped at each `begin`; a SenseVoice final from before the newest `begin` is dropped, so a
+    /// late one never reaches the next utterance or the next session (whose ids start again at 1).
+    private var generation = 0
     /// §14 item 2: up to 30 s of 16 kHz samples.
     static let maxSamples = 30 * PCMFrame16k.sampleRate
 
@@ -60,7 +63,8 @@ public final class SherpaTranscriber: LocalTranscriber, @unchecked Sendable {
         config.decoding_method = strings.make("greedy_search")
         config.max_active_paths = 4
         config.enable_endpoint = 0
-        guard let recognizer = withUnsafePointer(to: &config, { SherpaOnnxCreateOnlineRecognizer($0) }) else {
+        let created = withExtendedLifetime(strings) { withUnsafePointer(to: &config) { SherpaOnnxCreateOnlineRecognizer($0) } }
+        guard let recognizer = created else {
             throw SherpaError.loadFailed(manifest.name)
         }
         self.recognizer = recognizer
@@ -82,6 +86,7 @@ public final class SherpaTranscriber: LocalTranscriber, @unchecked Sendable {
         let keep = multilingual != nil
         queue.async { [self] in
             samples = keep ? [] : nil
+            generation += 1
             // A superseded utterance is dropped without a final (§9).
             if let stream { SherpaOnnxDestroyOnlineStream(stream) }
             stream = SherpaOnnxCreateOnlineStream(recognizer)
@@ -124,10 +129,14 @@ public final class SherpaTranscriber: LocalTranscriber, @unchecked Sendable {
             onTiming?(metrics)
             // §14 item 2: SenseVoice once, on its own queue; the selector takes it only within its wait.
             if let kept = samples, !kept.isEmpty, let model = multilingual {
-                let continuation = continuation, report = onMultilingual
-                model.decode(kept) { text, language, ms in
-                    continuation.yield(.final(id, text, language: language))
+                let continuation = continuation, report = onMultilingual, mine = generation
+                model.decode(kept) { [weak self] text, language, ms in
                     report?(ms)
+                    guard let self else { return }
+                    self.queue.async { [self] in
+                        guard generation == mine else { return }
+                        continuation.yield(.final(id, text, language: language))
+                    }
                 }
             }
             samples = nil

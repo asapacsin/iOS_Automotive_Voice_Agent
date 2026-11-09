@@ -109,7 +109,8 @@ final class LocalSpeechModels: @unchecked Sendable {
         Task.detached(priority: .utility) {
             do {
                 let model = try SherpaSenseVoice(directory: MultilingualModelStore.folder)
-                guard MultilingualModelStore.switchOn else {
+                // Switched off or deleted while loading: not handed to the recognizer.
+                guard MultilingualModelStore.switchOn, MultilingualModelStore.shared.state == .ready else {
                     self.lock.withLock { self.senseVoiceLoading = false }
                     return
                 }

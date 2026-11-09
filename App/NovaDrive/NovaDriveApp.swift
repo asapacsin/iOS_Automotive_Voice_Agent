@@ -4,6 +4,7 @@ import NovaPorts
 import NovaServices
 import NovaTools
 import SwiftUI
+import UIKit
 
 /// The app's tabs; `open_app` (F-25) switches between them.
 enum AppTab: Hashable {
@@ -31,8 +32,18 @@ struct TabSurfaces: AppSurfacePort {
     }
 }
 
+/// F-05a §14 item 1 (T-016l): background download events for the multilingual model's session.
+final class NovaDriveAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard identifier == MultilingualModelStore.sessionID else { return completionHandler() }
+        MultilingualModelStore.shared.handleBackgroundEvents(completionHandler)
+    }
+}
+
 @main
 struct NovaDriveApp: App {
+    @UIApplicationDelegateAdaptor(NovaDriveAppDelegate.self) private var appDelegate
     @StateObject private var navigation = AppNavigation.shared
 
     init() {

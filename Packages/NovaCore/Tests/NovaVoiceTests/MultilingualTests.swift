@@ -46,6 +46,12 @@ struct MultilingualTests {
         #expect(d.switchOn(onWiFi: false).isEmpty && d.state == .missing)
         #expect(d.useCellular() == [.fetch(url: MultilingualModel.url(host: "https://huggingface.co", file: "model.int8.onnx"),
                                            file: "model.int8.onnx", cellular: true)])
+        var waiting = MultilingualDownload(installed: false)
+        _ = waiting.switchOn(onWiFi: true)
+        #expect(!waiting.allowsCellular && waiting.currentFile == "model.int8.onnx")
+        #expect(waiting.useCellular().first == .fetch(url: MultilingualModel.url(host: "https://huggingface.co", file: "model.int8.onnx"),
+                                                      file: "model.int8.onnx", cellular: true))
+        #expect(waiting.allowsCellular && waiting.useCellular().isEmpty)
         var adopted = MultilingualDownload(installed: false)
         adopted.adopt(file: "tokens.txt", host: 1, cellular: false)
         #expect(adopted.state == .downloading(percent: 99) && adopted.hostIndex == 1)

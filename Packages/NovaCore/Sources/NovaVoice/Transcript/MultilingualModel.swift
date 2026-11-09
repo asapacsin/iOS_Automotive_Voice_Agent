@@ -88,10 +88,18 @@ public struct MultilingualDownload: Sendable, Hashable {
     }
 
     /// 「用流量下载」, or 「下载失败，点按重试」 tapped: starts on any network (the retry keeps Wi-Fi only unless asked).
+    /// While a Wi-Fi-only request waits (on cellular it never starts), the tap replaces it: the App cancels the
+    /// waiting request first.
     public mutating func useCellular() -> [Command] {
-        guard !active, state != .ready else { return [] }
+        guard state != .ready, state != .loadFailed, !(active && cellular) else { return [] }
         return start(cellular: true)
     }
+
+    /// Whether the current request may use cellular (「用流量下载」 is shown while it may not).
+    public var allowsCellular: Bool { cellular }
+
+    /// The file the current request fetches; a finished download of any other file is not this one.
+    public var currentFile: String? { active ? MultilingualModel.files[file].name : nil }
 
     public mutating func retry(onWiFi: Bool) -> [Command] {
         guard state == .failed, onWiFi else { return [] }
@@ -163,6 +171,12 @@ public struct MultilingualDownload: Sendable, Hashable {
         }
         state = .failed
         return [.discard(file: name)]
+    }
+
+    /// A checked file could not be moved into the model folder: 「下载失败，点按重试」.
+    public mutating func markFailed() -> [Command] {
+        state = .failed
+        return []
     }
 
     /// The files are ready but the model did not load.
