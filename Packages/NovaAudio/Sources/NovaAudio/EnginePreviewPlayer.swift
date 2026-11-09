@@ -45,8 +45,9 @@ public final class EnginePreviewPlayer: PreviewPlayer, @unchecked Sendable {
             progressValue = PreviewProgress()
             return generation
         }
-        let work = Task.detached(priority: .userInitiated) { [weak self] in
-            await self?.run(url, mine: mine, asked: ContinuousClock.now)
+        let work = Task<Void, Never>.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            await self.run(url, mine: mine, asked: ContinuousClock.now)
         }
         lock.withLock { if generation == mine { task = work } else { work.cancel() } }
     }
