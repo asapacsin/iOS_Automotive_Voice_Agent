@@ -66,12 +66,24 @@ public struct LiveInfoExecutor: ToolExecutor {
     /// `part` and `country`. China (with 香港 and 澳门) keeps 高德 for now and today to 大后天; part of a day and
     /// everything else come from Open-Meteo.
     private func weatherReport(_ args: JSONValue) async -> ToolResult {
+        // §29 item 4: every weather line of this call carries how the place was found.
+        await Self.$trace.withValue(WeatherTrace()) { await weatherCall(args) }
+    }
+
+    /// F-18 §29 item 4 (T-046r): `lookup=` for the call's log lines.
+    final class WeatherTrace: @unchecked Sendable {
+        var lookup = "amap"
+    }
+    @TaskLocal static var trace: WeatherTrace?
+
+    private func weatherCall(_ args: JSONValue) async -> ToolResult {
         guard let parsed = ForecastWeather.arguments(args) else {
             return .failure(.invalidArgument, advice: ForecastWeather.argumentAdvice)
         }
         let view = parsed.view.rawValue
         let today = SearchDate.today(now(), zone: zone())
         if !ForecastWeather.usesAmap(country: parsed.country) {
+            Self.trace?.lookup = "open-meteo"
             return await foreignWeather(parsed)
         }
         // §26 item 3: a `date` 0–3 days after the phone's date is a 高德 day; any other date goes to Open-Meteo.
@@ -114,7 +126,34 @@ public struct LiveInfoExecutor: ToolExecutor {
                 coordinate = destination.coordinate
                 name = destination.name
             default:
-                if let amapLookup {
+                if !ForecastWeather.hasHan(parsed.where), let forecastLookup {
+                    // §29 item 3: a name with no Chinese characters: Open-Meteo geocoding first, no 高德 name check.
+                    Self.trace?.lookup = "open-meteo"
+                    let places: [LookedUpPlace]
+                    do {
+                        places = try await forecastLookup.lookUp(parsed.where, country: nil)
+                    } catch {
+                        report("open-meteo", ok: false, reason: Self.reason(error), view: view)
+                        return Self.failure(error)
+                    }
+                    guard let found = ForecastWeather.pick(places), let at = found.coordinate else {
+                        report("open-meteo", ok: false, reason: "not_found", view: view)
+                        return .failure(.liveInfoUnavailable, advice: ForecastWeather.notFoundAdvice)
+                    }
+                    if let hkmo = ForecastWeather.hongKongOrMacau(countryCode: found.countryCode) {
+                        return await openMeteo(at: at, place: found.name, country: hkmo, parsed, okReason: "hkmo")
+                    }
+                    guard found.countryCode == "CN" else {
+                        return await openMeteo(at: at, place: found.name, country: found.country ?? found.countryCode, parsed)
+                    }
+                    // China: 高德 regeo gives the adcode, then the 高德 path with Open-Meteo's name.
+                    guard let geocoder, let adcode = try? await geocoder.adcode(at: at) else {
+                        return await openMeteo(at: at, place: found.name, country: nil, parsed)
+                    }
+                    place = adcode
+                    coordinate = at
+                    name = found.name
+                } else if let amapLookup {
                     // §26 item 2: 高德 geocoding, then the name check; a mismatch calls nothing else.
                     let found = try await amapLookup.lookUp(parsed.where, country: nil).first
                     guard let found, let adcode = found.adcode,
@@ -129,12 +168,28 @@ public struct LiveInfoExecutor: ToolExecutor {
                     place = parsed.where
                 }
             }
+            // §29 item 1: 香港 and 澳门 are answered by Open-Meteo at 高德's coordinates, for every view.
+            if let hkmo = ForecastWeather.hongKongOrMacau(adcode: place) {
+                guard coordinate != nil else {
+                    report("open-meteo", ok: false, reason: "not_configured", view: view)
+                    return .failure(.liveInfoUnavailable, advice: Self.noForecastAdvice)
+                }
+                return await openMeteo(at: coordinate, place: await placeName(name, parsed, coordinate), country: hkmo, parsed,
+                                       okReason: "hkmo")
+            }
             // §28 item 4: part of a day is always Open-Meteo hourly, at 高德's coordinates.
             if parsed.view == .hours || amapOffset == nil {
                 return await openMeteo(at: coordinate, place: await placeName(name, parsed, coordinate), country: nil, parsed)
             }
             if parsed.view == .now {
-                return try await amapNow(weather, place: place, today: day, view: view)
+                do {
+                    return try await amapNow(weather, place: place, today: day, view: view)
+                } catch is WeatherNotCovered {
+                    // §29 item 2: an empty live report: Open-Meteo `now` and `today`.
+                    report("amap", ok: false, reason: "empty", view: view)
+                    guard let coordinate else { return .failure(.liveInfoUnavailable, advice: Self.noForecastAdvice) }
+                    return await openMeteo(at: coordinate, place: await placeName(name, parsed, coordinate), country: nil, parsed)
+                }
             }
             do {
                 let result = try await weather.weather(adcode: place, day: day)
@@ -146,6 +201,11 @@ public struct LiveInfoExecutor: ToolExecutor {
                     summary = .object(o)
                 }
                 return .success(["weather": summary, "date": .string(day.date), "next": .string(ForecastWeather.next)])
+            } catch is WeatherNotCovered {
+                // §29 item 2: an empty forecast answer falls back like a missing day.
+                report("amap", ok: false, reason: "empty", view: view)
+                guard let coordinate else { return .failure(.liveInfoUnavailable, advice: Self.noForecastAdvice) }
+                return await openMeteo(at: coordinate, place: await placeName(name, parsed, coordinate), country: nil, parsed)
             } catch is WeatherForecastMissing {
                 // §26 item 3: no `casts` entry for that date: Open-Meteo with 高德's coordinates.
                 report("amap", ok: false, reason: "no_cast", view: view)
@@ -205,6 +265,9 @@ public struct LiveInfoExecutor: ToolExecutor {
                 report("open-meteo", ok: false, reason: "not_found", view: parsed.view.rawValue)
                 return .failure(.liveInfoUnavailable, advice: ForecastWeather.notFoundAdvice)
             }
+            if let hkmo = ForecastWeather.hongKongOrMacau(countryCode: parsed.country) {
+                return await openMeteo(at: coordinate, place: found.name, country: hkmo, parsed, okReason: "hkmo")
+            }
             return await openMeteo(at: coordinate, place: found.name, country: found.country ?? parsed.country, parsed)
         } catch {
             report("open-meteo", ok: false, reason: Self.reason(error), view: parsed.view.rawValue)
@@ -214,7 +277,7 @@ public struct LiveInfoExecutor: ToolExecutor {
 
     /// §26 items 4-6, §28 items 2-4: one forecast call at coordinates rounded to 2 decimals, then the view.
     private func openMeteo(at coordinate: GeoCoordinate?, place: String, country: String?,
-                           _ parsed: ForecastWeather.Arguments) async -> ToolResult {
+                           _ parsed: ForecastWeather.Arguments, okReason: String = "ok") async -> ToolResult {
         let view = parsed.view.rawValue
         guard let forecast, let coordinate else {
             report("open-meteo", ok: false, reason: "not_configured", view: view)
@@ -230,12 +293,12 @@ public struct LiveInfoExecutor: ToolExecutor {
         }
         let days = result.days
         if parsed.view == .hours, let part = parsed.part {
-            return hoursResult(result, part: part, place: place, country: country, parsed)
+            return hoursResult(result, part: part, place: place, country: country, parsed, okReason: okReason)
         }
         let nowView = parsed.view == .now
         switch ForecastWeather.pick(days, day: nowView ? nil : parsed.day, date: parsed.date) {
         case .day(let entry):
-            report("open-meteo", ok: true, reason: "ok", view: view)
+            report("open-meteo", ok: true, reason: okReason, view: view)
             if nowView, let nowBlock = ForecastWeather.now(result.current) {
                 var w: [String: JSONValue] = [
                     "place": .string(place), "weekday": .string(ForecastWeather.weekday(entry.time) ?? ""),
@@ -260,7 +323,7 @@ public struct LiveInfoExecutor: ToolExecutor {
 
     /// §28 item 4: the hours of that part of that day on the place's clock.
     private func hoursResult(_ result: DailyForecast, part: String, place: String, country: String?,
-                             _ parsed: ForecastWeather.Arguments) -> ToolResult {
+                             _ parsed: ForecastWeather.Arguments, okReason: String = "ok") -> ToolResult {
         let placeNow = result.utcOffsetSeconds.map { ForecastWeather.placeClock(now(), utcOffsetSeconds: $0) } ?? result.current?.time
         guard let todayText = placeNow.map({ String($0.prefix(10)) }) ?? result.days.first?.time,
               let placeToday = ForecastWeather.isoDay(todayText) else {
@@ -270,7 +333,7 @@ public struct LiveInfoExecutor: ToolExecutor {
         let date = parsed.date ?? ForecastWeather.adding(WeatherDay.names.firstIndex(of: parsed.day ?? "today") ?? 0, to: placeToday)
         switch ForecastWeather.hours(result.hours, part: part, date: date, placeNow: placeNow) {
         case .hours(let hours):
-            report("open-meteo", ok: true, reason: "ok", view: "hours")
+            report("open-meteo", ok: true, reason: okReason, view: "hours")
             var w: [String: JSONValue] = [
                 "place": .string(place), "date": .string(date.iso), "weekday": .string(ForecastWeather.weekday(date.iso) ?? ""),
                 "part": .string(part), "source": "open-meteo", "hours": ForecastWeather.hoursJSON(hours),
@@ -293,7 +356,7 @@ public struct LiveInfoExecutor: ToolExecutor {
     }
 
     private func report(_ source: String, ok: Bool, reason: String, view: String) {
-        onWeather(WeatherSourceLog(source: source, ok: ok, reason: reason, view: view))
+        onWeather(WeatherSourceLog(source: source, ok: ok, reason: reason, view: view, lookup: Self.trace?.lookup ?? "amap"))
     }
 
     static func reason(_ error: any Error) -> String {

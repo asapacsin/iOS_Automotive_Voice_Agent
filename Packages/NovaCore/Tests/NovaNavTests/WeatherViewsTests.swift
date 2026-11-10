@@ -203,10 +203,10 @@ struct WeatherViewsTests {
         let (hours, _, _) = hoursSetup(log: log)
         _ = await hours.execute(weatherCall(["where": "Oslo", "country": "NO", "part": "afternoon"]))
         let lines = log.lines.withLock { $0.map(\.line) }
-        #expect(lines.contains("weather source=amap ok=yes reason=ok view=now"))
-        #expect(lines.contains("weather source=amap ok=yes reason=ok view=day"))
-        #expect(lines.contains("weather source=open-meteo ok=yes reason=ok view=now"))
-        #expect(lines.contains("weather source=open-meteo ok=yes reason=ok view=hours"))
+        #expect(lines.contains { $0.hasPrefix("weather source=amap ok=yes reason=ok view=now lookup=") })
+        #expect(lines.contains { $0.hasPrefix("weather source=amap ok=yes reason=ok view=day lookup=") })
+        #expect(lines.contains { $0.hasPrefix("weather source=open-meteo ok=yes reason=ok view=now lookup=") })
+        #expect(lines.contains { $0.hasPrefix("weather source=open-meteo ok=yes reason=ok view=hours lookup=") })
         for line in lines {
             #expect(!line.contains(where: \.isNumber) && !line.contains("Oslo") && !line.contains("珠海") && !line.contains(":"), "\(line)")
         }

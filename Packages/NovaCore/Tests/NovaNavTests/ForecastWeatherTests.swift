@@ -174,15 +174,15 @@ struct ForecastWeatherTests {
             #expect(foreign.asked.withLock { $0 } == ["Oslo|NO"] && forecast.asked.withLock { $0 } == [[59.91, 10.75]])
             #expect(weather.calls.withLock { $0 } == 0 && amap.asked.withLock { $0.isEmpty })
         }
-        // 澳门 MO: 高德.
+        // 澳门 MO: Open-Meteo since §29 item 1 (T-046r); no 高德 at all.
         do {
-            let macau = LookedUpPlace(name: "澳门特别行政区", coordinate: GeoCoordinate(latitude: 22.19, longitude: 113.54, datum: .gcj02),
-                                      formatted: "澳门特别行政区", adcode: "820000")
-            let (ex, weather, amap, foreign, forecast) = forecastSetup(amap: [macau])
+            let macau = LookedUpPlace(name: "澳门", country: "中国澳门", coordinate: GeoCoordinate(latitude: 22.16, longitude: 113.56, datum: .wgs84),
+                                      population: 680_000, countryCode: "MO")
+            let (ex, weather, amap, foreign, forecast) = forecastSetup(foreign: [macau])
             let r = await ex.execute(weatherCall(["where": "澳门", "country": "MO", "day": "today"]))
-            #expect(r.ok && r.data["weather"]?["source"] == "amap")
-            #expect(weather.calls.withLock { $0 } == 1 && amap.asked.withLock { $0.count } == 1)
-            #expect(foreign.asked.withLock { $0.isEmpty } && forecast.asked.withLock { $0.isEmpty })
+            #expect(r.ok && r.data["weather"]?["source"] == "open-meteo" && r.data["weather"]?["country"] == "澳门")
+            #expect(weather.calls.withLock { $0 } == 0 && amap.asked.withLock { $0.isEmpty })
+            #expect(foreign.asked.withLock { $0 } == ["澳门|MO"] && forecast.asked.withLock { $0.count } == 1)
         }
     }
 
@@ -272,7 +272,7 @@ struct ForecastWeatherTests {
         _ = await bad.execute(weatherCall(["where": "Sendai", "country": "JP"]))
         let lines = log.lines.withLock { $0.map(\.line) }
         #expect(lines.count == 7)
-        #expect(lines.contains("weather source=open-meteo ok=yes reason=ok view=day") && lines.contains("weather source=amap ok=yes reason=ok view=day"))
+        #expect(lines.contains { $0.hasPrefix("weather source=open-meteo ok=yes reason=ok view=day lookup=") } && lines.contains { $0.hasPrefix("weather source=amap ok=yes reason=ok view=day lookup=") })
         for line in lines {
             #expect(line.hasPrefix("weather source=") && !line.contains(where: \.isNumber), "\(line)")
             for word in ["Oslo", "奥斯陆", "珠海", "厦门", "湖里", "Sendai", "挪威", "11月"] { #expect(!line.contains(word)) }

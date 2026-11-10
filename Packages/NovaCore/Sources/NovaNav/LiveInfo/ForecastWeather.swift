@@ -105,8 +105,29 @@ public enum ForecastWeather {
 
     // MARK: Item 2: finding the place
 
-    /// `country` nil, CN, HK or MO: 高德.
-    public static func usesAmap(country: String?) -> Bool { country == nil || ["CN", "HK", "MO"].contains(country!) }
+    /// `country` nil or CN: 高德. §29 item 1 (T-046r): HK and MO go to Open-Meteo.
+    public static func usesAmap(country: String?) -> Bool { country == nil || country == "CN" }
+
+    /// §29 item 1: 香港 (adcode 81…) or 澳门 (82…), else nil.
+    public static func hongKongOrMacau(adcode: String?) -> String? {
+        guard let adcode else { return nil }
+        if adcode.hasPrefix("81") { return "香港" }
+        if adcode.hasPrefix("82") { return "澳门" }
+        return nil
+    }
+
+    /// §29 item 1: Open-Meteo `country_code` HK or MO as 香港 or 澳门, else nil.
+    public static func hongKongOrMacau(countryCode: String?) -> String? {
+        switch countryCode { case "HK": "香港"; case "MO": "澳门"; default: nil }
+    }
+
+    /// §29 item 3: true when the name has at least one Han character.
+    public static func hasHan(_ name: String) -> Bool {
+        name.unicodeScalars.contains { s in
+            (0x4E00...0x9FFF).contains(s.value) || (0x3400...0x4DBF).contains(s.value) || (0x20000...0x2A6DF).contains(s.value)
+                || (0xF900...0xFAFF).contains(s.value)
+        }
+    }
 
     public static let amapNotFoundAdvice = "高德没有找到这个地点。如果是国外的地方，用英文名并填 country 再调用一次，例如 where=Oslo, country=NO。"
     public static let notFoundAdvice = "没有找到这个地点。请用一句话如实说没找到，问一下是哪里。"
@@ -258,13 +279,18 @@ public struct WeatherSourceLog: Sendable, Hashable {
     public let reason: String
     /// §28 item 7: `now`, `day` or `hours`.
     public let view: String
+    /// §29 item 4: how the place was found, `amap` or `open-meteo`.
+    public let lookup: String
 
-    public init(source: String, ok: Bool, reason: String, view: String = "day") {
+    public init(source: String, ok: Bool, reason: String, view: String = "day", lookup: String = "amap") {
         self.source = source
         self.ok = ok
         self.reason = reason
         self.view = view
+        self.lookup = lookup
     }
 
-    public var line: String { "weather source=\(source) ok=\(ok ? "yes" : "no") reason=\(reason) view=\(view)" }
+    public var line: String {
+        "weather source=\(source) ok=\(ok ? "yes" : "no") reason=\(reason) view=\(view) lookup=\(lookup)"
+    }
 }

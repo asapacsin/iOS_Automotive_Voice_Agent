@@ -82,7 +82,8 @@ public struct OpenMeteoClient: DailyForecastService, PlaceLookup {
                   let lon = (r["longitude"] as? NSNumber)?.doubleValue else { return nil }
             return LookedUpPlace(name: name, country: r["country"] as? String,
                                  coordinate: GeoCoordinate(latitude: lat, longitude: lon, datum: .wgs84),
-                                 population: (r["population"] as? NSNumber)?.intValue)
+                                 population: (r["population"] as? NSNumber)?.intValue,
+                                 countryCode: r["country_code"] as? String)
         }
     }
 
