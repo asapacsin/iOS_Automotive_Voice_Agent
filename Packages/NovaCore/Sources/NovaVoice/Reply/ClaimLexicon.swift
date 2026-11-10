@@ -101,6 +101,8 @@ public enum ClaimLexicon {
         case "control_window": return topic == .windows
         case "control_climate": return topic == .climate || topic == .fan
         case "control_music", "play_music": return topic == .music
+        // F-13a §4 item 5 (T-032g): 「音乐音量已调到 6」 is proven by the media level read back from `set_volume`.
+        case "set_volume": return topic == .music && data["target"] == .string("media")
         case "run_scenario":
             // The table proves what its finished steps name (`done` labels: 打开空调, 车窗开到50%, …).
             guard case .array(let done)? = data["done"] else { return false }

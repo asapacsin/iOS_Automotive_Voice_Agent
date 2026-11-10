@@ -28,7 +28,8 @@ public enum ToolCatalog {
     public static let scenarios = ["mosquito", "mosquito_done", "stuffy", "drowsy"]
     public static let speakingStyles = ["default", "sweet", "tsundere", "gentle", "lively"]
 
-    /// All tools in Android domain order; iOS descriptions where the iOS flow differs (`iosDescriptions`).
+    /// All tools in Android domain order, then the iOS-only `set_volume` (F-13a); iOS descriptions where the iOS
+    /// flow differs (`iosDescriptions`).
     public static let specs: [ToolSpec] = generatedSpecs.map { spec in
         let live = spec.name == "query_live_info"
         let schema = live ? forecastArguments(longerDays(spec.declaration.parametersJSONSchema))
@@ -38,7 +39,27 @@ public enum ToolCatalog {
         return ToolSpec(domain: spec.domain, repeatSensitive: spec.repeatSensitive,
                         declaration: ToolDeclaration(name: spec.name, description: description,
                                                      parametersJSONSchema: schema))
-    }
+    } + [volumeSpec]
+
+    // MARK: Volume (F-13a §4, T-032g)
+
+    public static let volumeTargets = VolumeTarget.allCases.map(\.rawValue)
+    public static let volumeActions = ["up", "down", "set", "mute", "max"]
+    /// §4 items 1, 3, 7: the app's two volumes; the description says which target (the validator checks only the
+    /// fields). Not repeat-sensitive: two 「再大一点」 are two steps. Not a comfort tool (F-09a §3 item 2).
+    public static let volumeSpec = ToolSpec(domain: "media", repeatSensitive: false, declaration: ToolDeclaration(
+        name: "set_volume",
+        description: "调 app 自己的音量（0–10，不是手机音量）。target：media=音乐，voice=你说话的声音。「音乐/歌声音大一点」，或正在放音乐时「音量调大」「小声点」「静音」→media；「你说话大声点」「语音音量调小」「你声音太大了」→voice；没在放音乐时「音量调大」→voice。action：up/down 调一档，set 填 value，mute 静音，max 最大。只按返回的 announce 说一句。",
+        parametersJSONSchema: [
+            "type": "object",
+            "properties": [
+                "target": ["type": "string", "enum": .array(volumeTargets.map { .string($0) })],
+                "action": ["type": "string", "enum": .array(volumeActions.map { .string($0) })],
+                "value": ["type": "integer", "minimum": .int(0), "maximum": .int(Int64(VolumeLevels.maximum))],
+            ],
+            "required": ["target", "action"],
+            "additionalProperties": false,
+        ]))
 
     /// F-18 §23 item 2: `query_live_info.day` reaches 大后天, with search on and off; §28 item 1 adds `now`.
     public static let weatherDays = ["now", "today", "tomorrow", "day_after", "day_after_next"]
@@ -297,6 +318,21 @@ public enum ToolCatalog {
             if keys != ["mode"] { return .invalidFields }
             guard let mode = str("mode") else { return .invalidFieldType }
             if !["silent", "spoken"].contains(mode) { return .modeNotAllowed }
+        case "set_volume":
+            // F-13a §4 item 4.
+            if !keys.isSuperset(of: ["target", "action"]) || !keys.isSubset(of: ["target", "action", "value"]) {
+                return .invalidFields
+            }
+            guard let target = str("target"), let action = str("action") else { return .invalidFieldType }
+            if !volumeTargets.contains(target) { return .invalidFieldValue }
+            if !volumeActions.contains(action) { return .actionNotAllowed }
+            if keys.contains("value") {
+                guard let v = num("value") else { return .invalidFieldType }
+                if v.truncatingRemainder(dividingBy: 1) != 0 || !(0...Double(VolumeLevels.maximum)).contains(v) {
+                    return .invalidFieldValue
+                }
+            }
+            if action == "set" && !keys.contains("value") { return .missingValue }
         case "set_speaking_style":
             if keys != ["style"] { return .invalidFields }
             guard let style = str("style") else { return .invalidFieldType }

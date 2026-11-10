@@ -3,6 +3,7 @@ import NovaNav
 import NovaPlatform
 import NovaPorts
 import NovaServices
+import NovaTools
 import NovaVoice
 import SwiftUI
 
@@ -100,6 +101,11 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("声音") {
+                    // F-13a §6 (T-032g).
+                    VolumeSlider("音乐音量", target: .media)
+                    VolumeSlider("小诺说话音量", target: .voice)
+                    Text("只调这个 app 自己的声音，马上生效；手机侧面的音量键决定最大能有多响。")
+                        .font(.footnote).foregroundStyle(.secondary)
                     Toggle("抗噪", isOn: $noiseSuppression)
                     Text("开：只有人声才会打开麦克风或打断小诺，喇叭、音乐、路噪不会。切换后立即生效。")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -254,5 +260,34 @@ struct SettingsView: View {
         drafts = [:]
         message = failed.isEmpty ? "已清除所有密钥" : "以下 key 清除失败：\(failed.map(\.rawValue).joined(separator: ", "))"
         refresh()
+    }
+}
+
+/// F-13a §6 (T-032g): one app volume. A change runs the same executor as `set_volume` (I-6) and applies at once,
+/// with or without a session; the `volume set … by=settings` line comes from the executor.
+private struct VolumeSlider: View {
+    let title: String
+    let target: VolumeTarget
+    @State private var level: Double
+
+    init(_ title: String, target: VolumeTarget) {
+        self.title = title
+        self.target = target
+        _level = State(initialValue: Double(AppVolume.shared.controller.levels[target]))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            LabeledContent(title, value: "\(Int(level))")
+            Slider(value: $level, in: Double(target.minimum)...Double(VolumeLevels.maximum), step: 1)
+                .accessibilityLabel(title)
+        }
+        // A voice change made while 设置 was not shown is read back here.
+        .onAppear { level = Double(AppVolume.shared.controller.levels[target]) }
+        .onChange(of: level) {
+            let asked = Int(level.rounded())
+            guard asked != AppVolume.shared.controller.levels[target] else { return }
+            AppVolume.shared.controller.slider(target, to: asked)
+        }
     }
 }

@@ -282,7 +282,10 @@ struct RuntimeSink: AgentEffectSink {
         direct?.flushed(to: epoch)
         await revoicer?.cancel(newEpoch: epoch)
     }
-    func newReply() async { await revoicer?.newReply() }
+    func newReply() async {
+        audio.replyBegan()  // F-13a §7 (T-032h): the duck lines' ms count from here
+        await revoicer?.newReply()
+    }
     /// F-07 §15 items 3, 5: Gemini's judged audio to the reply lane, and the turn's timing line once.
     func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async {
         guard let direct, speechOutput.mode == .spoken else { return }
@@ -799,6 +802,8 @@ final class AgentRuntime {
 
         let model = model
         let audio = LiveAudio()
+        // F-13a §3 item 3 (T-032g): the saved media and voice levels are the engine's lane gains from the start.
+        AppVolume.shared.output.attach(audio)
         // F-24 §16 item 3 (T-020b): why each socket closed; the code and 80 characters of the reason only.
         let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
                                           connector: URLSessionWebSocketConnector(onDuplicate: { site in
@@ -876,6 +881,11 @@ final class AgentRuntime {
             RuntimeLog.agent.notice("\(line, privacy: .public)")
             voiceLines.record?.submit(.music(line))
         }
+        // F-13a §7 (T-032h): `duck on` / `duck off`; numbers only (I-8).
+        audio.onDuckLine { line in
+            RuntimeLog.agent.notice("\(line, privacy: .public)")
+            voiceLines.record?.submit(.volume(line))
+        }
         let previewPlayer = EnginePreviewPlayer(audio: audio) { Task { await previewBox.music?.ended() } }
         let preview = ITunesPreviewMusic(player: previewPlayer, clock: SystemClock(),
                                          country: { DriveSettings.musicCountry() },
@@ -905,6 +915,8 @@ final class AgentRuntime {
         executors[OpenAppExecutor.tool] = OpenAppExecutor(surfaces: TabSurfaces())
         let settings = DefaultsSettingsStore()
         executors[SpeakingStyleHandler.tool] = SpeakingStyleHandler(settings: settings)
+        // F-13a §4 (T-032g): the same executor as the 设置 sliders (I-6); not a comfort tool (F-09a §3 item 2).
+        executors[VolumeController.tool] = AppVolume.shared.controller
         // F-02: end_conversation sleeps the lifecycle; iOS has no wake word yet, so SLEEP ends the
         // session once the short goodbye has had time to play (PROPOSED 3 s).
         session += 1
@@ -958,6 +970,7 @@ final class AgentRuntime {
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         voiceLines.record = record
         sessionRecord = record
+        AppVolume.shared.records.record = record  // F-13a §7
         // F-01 §14 items 9-12 (T-060a): one watch per session; the line is written before the record closes.
         let wakeWatch = WakeSessionWatch(origin: origin, clock: navigationClock)
         wakeEnd = { if wakeWatch.end() { record?.submit(.wakeUnused) } }
@@ -1148,6 +1161,7 @@ final class AgentRuntime {
                         model.stopHint = hint
                     }
                     record?.submit(.playbackFinished)
+                    audio.replyIdle(epoch)  // F-13a §5 item 1 (T-032h): the song comes back up
                     await core.send(.playback(.replyIdle(epoch)))
                 }
             }
@@ -1462,6 +1476,8 @@ final class AgentRuntime {
         model.previewCard = nil
         speakLine = nil
         sessionRecord = nil
+        AppVolume.shared.records.record = nil
+        AppVolume.shared.output.attach(nil)
         lifecycle = nil
         guard let core else { return }
         let audio = audio
