@@ -395,3 +395,112 @@ Code can guarantee what is shown. It cannot guarantee what Gemini hears or write
 | Task | Scope | Verify |
 |---|---|---|
 | T-016l | Items 1–7; rows 1–11 | unit, build, D |
+
+## 15. Her reply is checked for its language in code before she says it (iOS, owner request 2026-11-10)
+
+**Why.** Device 2026-11-10, build 53 (a5a03f9), record 20261110-090143. The owner allowed Chinese, English and Japanese only (§14), but she answered in Portuguese twice.
+- **Utterance 7 (+53,474).**
+  - SenseVoice heard it correctly: `heard-local 不知道。 lang=zh asr=sensevoice`.
+  - Gemini heard `tudo bem` and answered 「Tudo bem, em que posso ajudar você?」, which was played in full.
+- **Utterance 9 (+81,656).** `heard-local 不. lang=en`; Gemini heard `Jardin` and answered 「Você gostaria de encontrar algum jardim?」.
+- **Utterance 11 (+136,515).**
+  - `heard-local 早安。 lang=zh`; Gemini heard 「당연하죠.早上。」.
+  - Her Korean reply played 14 ms (`claim-cut turn=8 played_ms=14`), then was voided with `NOT_MANDARIN`.
+  - Her next reply, 「早上好，请问有什么可以帮您的？」, was voided too (`reply-out turn=9 voided`), so the owner heard no answer.
+- **Short words, low voice match.** All three were one or two words, with speaker scores 1.96, 0.96 and 5.7 (the owner's usual score is about 8).
+- **The cause in code.** `ReplyLanguage.isNotAllowed` (§14 item 4) looks only at the script. Every Latin letter passes, so Portuguese, Spanish and French pass as English. `ScreenLanguage.replyLanguage` calls any Latin-only reply `en`.
+- **Owner:** 「isn't i said that only chinese, japanese and english available」, then asked for the community practice, then 「write this spec」.
+
+**Sources (2026-11-10).**
+- **The prompt alone does not hold the language.**
+  - Google's [Live API troubleshooting](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/live-api/troubleshooting) says the model may answer in another language when it decides the user spoke one. A language rule in the system instruction only lowers the chance.
+  - Native-audio models take no `languageCode` ([configure language and voice](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/live-api/configure-language-voice)); setting one fails with "Unsupported language code" ([forum](https://discuss.ai.google.dev/t/gemini-live-api-error-unsupported-language-code-es-es/114284)).
+  - Developers report Gemini Live answering or transcribing in a wrong language with explicit instructions in place ([forum](https://discuss.ai.google.dev/t/why-is-gemini-api-transcribing-english-into-other-languages/113934), [livekit/agents #3551](https://github.com/livekit/agents/issues/3551)).
+- **Check the output's language in code.**
+  - Guardrails AI's [CorrectLanguage validator](https://github.com/scb-10x/correct_language_validator) runs a language detector on every LLM output and fails it when it is not the expected language.
+  - [phantombot #580](https://github.com/phantomyard/phantombot/issues/580) found that more copies of the reply-language rule in the prompt made it worse, and chose a deterministic check on the output.
+- **On a failed check, ask again once, then fall back.**
+  - Guardrails AI's [on-fail actions](https://guardrailsai.com/docs/concepts/validator_on_fail_actions) include `reask`: the model is asked again with the reason it failed; the how-to sets `num_reasks=1`.
+  - Hugging Face [speech-to-speech](https://github.com/huggingface/speech-to-speech): a reply that cannot be spoken in the detected language uses the session's set language.
+- **The detector is in iOS.** Apple's [`NLLanguageRecognizer`](https://developer.apple.com/documentation/naturallanguage/nllanguagerecognizer) (Natural Language framework, on device, no download) gives the dominant language and `languageHypotheses(withMaximum:)` with probabilities.
+- **Not from a source.** Putting SenseVoice's words into the re-ask (item 4) is this app's addition, because here the wrong language comes from Gemini mishearing words that SenseVoice heard correctly.
+
+**Rule in plain words.** Before she says a reply, the app checks its language with Apple's detector. If it is not Chinese, English or Japanese, the reply is dropped. She is asked once more, with the words SenseVoice heard. If that reply is also wrong, or does not come, the app itself says 「没听清，请再说一遍」. It never relies on the prompt alone, and it never leaves the driver with silence.
+
+1. **The detector.**
+   - A port `LanguageIdentifier` in NovaPorts: `func hypotheses(_ text: String) -> [(language: String, probability: Double)]`, at most 3, BCP-47 codes.
+   - The adapter `AppleLanguageIdentifier` in NovaPlatform uses `NLLanguageRecognizer`: a new recognizer per call or `reset()` before each, `processString`, then `languageHypotheses(withMaximum: 3)`. No `languageConstraints`, so other languages are reported as themselves. `check_imports.py` gets `"NaturalLanguage": {"NovaPlatform"}`.
+   - The pipeline gets it injected, so NovaCore stays pure and the tests use a fake.
+2. **The verdict on her text so far** (pure `ReplyLanguageCheck` in NovaVoice, replacing the Latin pass of `isNotAllowed`), one of `allowed`, `blocked`, `undecided`:
+   - **Other scripts.** A letter of a script other than Han, Kana or Latin gives `blocked` at once, as today.
+   - **Chinese or Japanese.** Two or more Han or Kana letters give `allowed`. Latin words inside a Chinese or Japanese reply are allowed (「4S店」, 「OK，好的」).
+   - **Latin-only, 12 or more letters.**
+     - `blocked` when the detector's top hypothesis is not `en` with probability ≥ 0.5;
+     - `allowed` when it is `en` with probability ≥ 0.5;
+     - `undecided` otherwise.
+   - **Latin-only, under 12 letters, still coming:** `undecided`.
+   - **At the end of the reply** (`audioDone`), anything `undecided`:
+     - Latin-only under 12 letters is `blocked` only when the detector's top hypothesis is not `en` with probability ≥ 0.8, and is otherwise `allowed` (「OK」, 「Sure」);
+     - any other `undecided` text is `allowed`.
+   - Once `allowed` or `blocked`, a turn's verdict does not change, except that `allowed` text that later gains a letter of another script becomes `blocked`, as today.
+3. **Audio waits for the verdict.**
+   - In every turn, her first audio is held until the verdict is `allowed`, for at most 800 ms after the first audio arrives. Today's claim hold (`holdsWhole`) is unchanged and still applies on top.
+   - At 800 ms with no verdict, the audio is released and the check goes on. A later `blocked` cuts her as today (`claim-cut`).
+   - `blocked` drops all held audio and text and voids the turn (`.voided`). Nothing of it is shown or spoken.
+   - With a Qwen or Azure voice (F-07), the text is checked before it is sent to the voice. The same rules apply, with no audio to hold.
+4. **One re-ask** (Guardrails `reask`, `num_reasks=1`).
+   - On the first `blocked` reply of an utterance, the app sends one text turn. `CorrectionReason.notMandarin` is replaced by `.wrongLanguage` (`WRONG_LANGUAGE`), sent at once, not after the correction grace:
+     - when the utterance has a SenseVoice final with `lang` zh, en or ja: 「[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。司机刚才说的是「<SenseVoice 文字>」。请用<中文|英文|日语>回答这句话。」;
+     - otherwise: 「[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。」.
+   - The SenseVoice words go to the model only in this text turn. No tool reads them (§6 unchanged).
+   - The re-ask's reply goes through items 2–3 again.
+5. **The fallback line.**
+   - If the re-ask's reply is also `blocked`, or no reply audio or text comes within 6 s of the re-ask, the app says 「没听清，请再说一遍」 itself, with the system voice that F-14 guidance already uses (`SystemSpeechGuidanceVoice`, zh-CN), on the guidance lane.
+   - It is said at most once per utterance. A new driver utterance cancels it.
+   - The subtitle shows it as her line.
+6. **Screen.** `ScreenLanguage.replyLanguage` uses the item 2 verdict: a Latin-only reply is `en` only when `allowed`. A `blocked` reply is never shown.
+7. **Record and log** (no words, I-8):
+   - `lang-check turn=<n> verdict=<allowed|blocked|released> lang=<code|none> p=<0.00> held_ms=<n>`, once per turn when the verdict is reached, or `released` at the 800 ms limit;
+   - `correction WRONG_LANGUAGE heard=<sensevoice|none>`;
+   - `fallback-line turn=<n> reason=<blocked_again|no_reply>`.
+8. **Where the code goes.**
+   - NovaPorts: `LanguageIdentifier`.
+   - NovaVoice: `ReplyLanguageCheck`, the hold in `DriverTurnPipeline`, `.wrongLanguage`, and the fallback timer and output.
+   - NovaAgent: the record lines.
+   - NovaPlatform: `AppleLanguageIdentifier`.
+   - App: wiring the identifier and playing the fallback line with `SystemSpeechGuidanceVoice`.
+9. **Not changed.**
+   - The persona text (§14 item 4); phantombot #580 found more prompt copies made it worse.
+   - SenseVoice and the screen rules for the driver's line (§13, §14 item 3).
+   - No `languageCode`.
+   - The claim and evidence guards.
+   - The speaker check.
+
+**Not verified.**
+- `NLLanguageRecognizer`'s answers on the record's sentences and on short English replies. Rows 1–6 use a fake; row 11 checks the real one on the phone.
+- How much the 800 ms hold adds to the first sound in normal turns (row 12).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | `ReplyLanguageCheck` with a fake detector: 「现在是上午九点零一分。」; 「はい、22度です」; 「안녕하세요」; 「4S店」; 「OK，好的」 | allowed; allowed; blocked; allowed; allowed | unit |
+| 2 | Latin-only, fake detector: 「Tudo bem, em que posso ajudar você?」 → pt 0.9; 「Sure, it's 22 degrees now」 → en 0.9; 「Disculpa, no entendí」 → es 0.8; 12+ letters with en 0.4 | blocked; allowed; blocked; undecided | unit |
+| 3 | Final, under 12 letters: 「OK」 → en 0.3; 「Sure」 → en 0.9; 「Jardin」 → fr 0.85; 「Tudo bem」 → pt 0.6 | allowed; allowed; blocked; allowed | unit |
+| 4 | Pipeline: Portuguese text after 200 ms of audio | No audio released; `.voided`; one `WRONG_LANGUAGE` text turn with the SenseVoice words and 中文 | unit |
+| 5 | Pipeline: Chinese text arrives 300 ms after the first audio; no text for 800 ms | Audio released when allowed; released at 800 ms with `lang-check … verdict=released` | unit |
+| 6 | Pipeline: re-ask reply blocked again; re-ask with no reply for 6 s; a new utterance before 6 s | Fallback line once; fallback line once; no fallback line | unit |
+| 7 | Re-ask text: SenseVoice final 「不知道。」 lang zh; lang en 「What time is it」; no SenseVoice final | Item 4 texts exactly | unit |
+| 8 | Record lines | Exactly as item 7; no reply or driver words in them | unit |
+| 9 | Gates | `NaturalLanguage` only in NovaPlatform; gates green | gate |
+| 10 | App build | Builds on Codemagic | build |
+| 11 | Device: the owner says 「Tudo bem, obrigado」, then 「Hola, ¿cómo estás?」, then 「现在几点」, 「What time is it」, 「今何時ですか」 | No Portuguese or Spanish reply is heard or shown; each of the first two gets a Chinese answer or 「没听清，请再说一遍」; the last three are answered in their language; record has `lang-check` lines with the real `lang` and `p` | D |
+| 12 | Device: ten ordinary Chinese questions | Every one answered; `lang-check` `held_ms` under 800; no `fallback-line` | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-016m | Items 1–9; rows 1–12 | unit, gate, build, D |
+
+**Trace gate.** Add `T-016m: F-05a` to `specs/trace-ids.txt` together with the first `@Test` that names T-016m.
