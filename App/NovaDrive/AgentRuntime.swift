@@ -51,6 +51,35 @@ final class DriveModel: ObservableObject {
     @Published var speakerNotice: String?
     private var speakerNoticeID = 0
 
+    /// F-24 §17 (T-016o): the connection message, apart from `notice`. `connectionShow` is what the screen shows now.
+    @Published var connectionShow = ConnectionNotice.Show.none
+    private var connection = ConnectionNotice()
+    private var connectionTick: Task<Void, Never>?
+    private let connectionClock = SystemClock()
+
+    /// F-24 §17 items 1–4: a session event for the connection message; item 6 logs each change.
+    func connectionEvent(_ event: ConnectionNotice.Event) {
+        let now = connectionClock.now
+        if let line = connection.handle(event, at: now) { RuntimeLog.agent.notice("\(line, privacy: .public)") }
+        refreshConnection(at: now)
+    }
+
+    /// Publishes the show and wakes at its next change (after 1 s: 重新连接中…; after 3 s: nothing).
+    private func refreshConnection(at now: NovaInstant) {
+        connectionShow = connection.show(at: now)
+        connectionTick?.cancel()
+        connectionTick = nil
+        guard let next = connection.nextChange(at: now) else { return }
+        let clock = connectionClock
+        connectionTick = Task { @MainActor [weak self] in
+            do { try await clock.sleep(until: next) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            let now = clock.now
+            if let line = self.connection.tick(at: now) { RuntimeLog.agent.notice("\(line, privacy: .public)") }
+            self.refreshConnection(at: now)
+        }
+    }
+
     /// A new notice restarts the 3 s and replaces the old one; it never stacks.
     func showSpeakerNotice(_ text: String) {
         speakerNoticeID += 1
@@ -288,6 +317,10 @@ struct RuntimeSink: AgentEffectSink {
 
     func publish(_ view: AgentViewState) async {
         await MainActor.run {
+            // F-24 §17 item 2: §14's 等待网络… wins while waiting.
+            if model.view.waitingForNetwork != view.waitingForNetwork {
+                model.connectionEvent(.network(waiting: view.waitingForNetwork))
+            }
             model.view = view
             // F-05a §16 item 1: the driver's line comes from the core (Gemini's text, checked), never the local text.
             if model.driverLine != view.driverLine { model.driverLine = view.driverLine }
@@ -705,6 +738,7 @@ final class AgentRuntime {
         guard !model.running, !exclusiveCapture else { return }
         model.notice = nil
         model.networkEnded = false
+        model.connectionEvent(.stopped)  // F-24 §17 item 4: a start clears everything
         // F-23 (T-063): the microphone is asked at the first talk; a denial is explained.
         let mic: PermissionStatus = switch MicrophonePermission.current {
         case true?: .granted
@@ -1094,8 +1128,12 @@ final class AgentRuntime {
                     direct?.received(turn)  // F-07 §15 item 5: first audio received, before the claim gate
                 case .failed(let error):
                     RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
-                    await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
-                case .closed, .setupComplete, .goAway, .turnEnded:
+                    // F-24 §17 items 1, 5: the code stays in the log; the screen gets no code and no `notice`.
+                    await MainActor.run { model.connectionEvent(.failed(retryable: error.isRetryable)) }
+                case .setupComplete:
+                    RuntimeLog.agent.notice("provider \(String(describing: event.event), privacy: .public)")
+                    await MainActor.run { model.connectionEvent(.setupComplete) }  // F-24 §17 item 3
+                case .closed, .goAway, .turnEnded:
                     RuntimeLog.agent.notice("provider \(String(describing: event.event), privacy: .public)")
                 default:
                     break
@@ -1409,6 +1447,7 @@ final class AgentRuntime {
         stop()
         keptResumption = kept
         model.networkEnded = true
+        model.connectionEvent(.gaveUp)  // F-24 §17 item 4: `SessionEndedChip` owns the text
     }
 
     /// F-24 §15 item 4 (T-016j): the handle the last give-up or offline cap kept. Memory only (I-7).

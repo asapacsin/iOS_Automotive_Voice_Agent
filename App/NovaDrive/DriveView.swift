@@ -351,6 +351,12 @@ private struct DriveContent: View {
             (SessionEndedChip.text(wakeArmed: model.wakeArmed), .red)
         } else if model.view.waitingForNetwork && model.running {
             ("等待网络…", .orange)
+        } else if model.running, model.connectionShow == .reconnecting {
+            // F-24 §17 item 2 (T-016o): a retryable drop, after 1 s.
+            (ConnectionNotice.reconnectingText, .orange)
+        } else if model.running, model.connectionShow == .back {
+            // F-24 §17 item 3: for 3 s after the next setupComplete.
+            (ConnectionNotice.backText, .green)
         } else { nil }
         // F-04b §6 item 11 (T-013e): 声纹锁定 failed closed.
         let speaker: (String, Color)? = model.speakerUnavailable && model.running
@@ -520,7 +526,8 @@ private struct DriveContent: View {
                     }
                 }
                 .opacity(phase == .fading ? 0.4 : 1)
-                if let notice = model.notice {
+                // F-24 §17 items 1, 4: the other notice is unchanged; a non-retryable failure adds 连接失败，点按重试.
+                if let notice = model.notice ?? (model.connectionShow == .failed ? ConnectionNotice.failedText : nil) {
                     Text(notice).font(.footnote).foregroundStyle(.red)
                 }
             }
