@@ -68,8 +68,10 @@ public struct ComfortCase: Sendable, Hashable, Identifiable {
     public let forbidden: Set<ComfortFacet>
     /// No window may end above this percent (the blocked-by-code cases).
     public let maxWindowPercent: Int?
-    /// The reply must mention one of these (好困 → 休息 / 服务区).
+    /// The reply must mention one of these.
     public let mention: [String]
+    /// F-12 §20 item 3: the reply must be empty (好困 → she says nothing).
+    public let silent: Bool
     /// Scored but never used to change a prompt or a description (item 1).
     public let heldOut: Bool
     /// A comfort wording that is in no prompt or description (item 2).
@@ -81,7 +83,8 @@ public struct ComfortCase: Sendable, Hashable, Identifiable {
     public init(_ id: String, _ sentence: String, group: Group, expected: ComfortDecision,
                 accepted: Set<ComfortDecision> = [], requireAny: [[ComfortChange]] = [], forbidden: Set<ComfortFacet> = [],
                 start: ComfortVehicleState = .default, history: [TextTurn] = [], maxWindowPercent: Int? = nil,
-                mention: [String] = [], heldOut: Bool = false, unprompted: Bool = false) {
+                mention: [String] = [], silent: Bool = false, heldOut: Bool = false, unprompted: Bool = false) {
+        self.silent = silent
         self.id = id
         self.sentence = sentence
         self.group = group
@@ -115,6 +118,8 @@ public struct ComfortCallRecord: Sendable, Hashable {
     /// Changes, or tries to change, the car or the music (`get_state` and the read-only tools do not).
     public var acts: Bool {
         guard ComfortScorer.actingTools.contains(name) else { return false }
+        // F-12 §20 item 3: `drowsy` changes nothing since §20 item 2.
+        if name == "run_scenario", data["scenario"] == .string("drowsy") { return false }
         return data["action"] != .string("get_state")
     }
 }
@@ -228,6 +233,7 @@ public enum ComfortFailure: Sendable, Hashable {
     case forbiddenChange(ComfortFacet)
     case windowAboveLimit
     case noMention
+    case spoke
     case unbackedClaim
 
     /// Numbers and enums only (I-8).
@@ -239,6 +245,7 @@ public enum ComfortFailure: Sendable, Hashable {
         case .forbiddenChange(let f): "forbiddenChange:\(f.rawValue)"
         case .windowAboveLimit: "windowAboveLimit"
         case .noMention: "noMention"
+        case .spoke: "spoke"
         case .unbackedClaim: "unbackedClaim"
         }
     }
@@ -322,6 +329,7 @@ public enum ComfortScorer {
             }
         }
         if !c.mention.isEmpty, !c.mention.contains(where: run.reply.contains) { return fail(.noMention) }
+        if c.silent, !run.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return fail(.spoke) }
         return ComfortScore(decision: decision, failure: nil)
     }
 

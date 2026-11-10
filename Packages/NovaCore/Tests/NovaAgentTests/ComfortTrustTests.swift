@@ -107,6 +107,7 @@ func goodRun(_ c: ComfortCase) -> ComfortRun {
         reply = "抱歉，没能操作车窗。"
     }
     if !c.mention.isEmpty { reply += "找个服务区休息一下吧。" }
+    if c.silent { reply = "" }
     return ComfortRun(caseID: c.id, attempt: 1, end: end, calls: calls, reply: reply, firstAudioMs: 900)
 }
 

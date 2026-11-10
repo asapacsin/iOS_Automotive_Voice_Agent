@@ -112,6 +112,7 @@ NOT_VERIFIED until a device run is attached.
 | T-031f | Conversation record for testing: an off-by-default setting saves what she heard, said and did to a file on the phone | F-12 | T-031d | `Packages/NovaCore/`, `App/NovaDrive/` | F-12 §17 rows 1–7 | unit, build, D |
 | T-031g | Window and climate tool descriptions say what the tool is for, in model mode only | F-12 | T-031f | `Packages/NovaCore/` | F-12 §18 rows 1–3 | unit, build, D |
 | T-031h | Sleepy driver in model mode: no lower temperature in rule 5 | F-12 | T-031g | `Packages/NovaCore/` | F-12 §19 row 1 | unit, build |
+| T-031i | Sleepy driver: no action and no reply (both modes) | F-12 | T-031h | `Packages/NovaCore/` | F-12 §20 rows 1-4 | unit, build, D |
 | T-031c | Make model-chosen actions the only path and remove the table. Starts only after owner approval of the numbers | F-12, F-09 | T-031b | `Packages/NovaCore/`, `App/NovaDrive/`, `specs/` | F-12 §14 items 14–15 | unit, build, D |
 | T-032 | Bundled music on the media lane; `control_music` | F-13 | T-021 | `Core/NovaTools/Media/`, `Packages/NovaAudio/Sources/MediaLane/` | F-13 §10 row 1 offline; no self barge-in during music (D) | unit, D |
 | T-032b | Named music as 30 s iTunes Search API previews streamed inside the app: `ITunesPreviewMusic` as `NamedMusicPort`, pick by title and artist, media lane, now-playing proof, card with iTunes attribution and Apple Music link | F-13 §14 | T-032, T-020c | `Packages/NovaServices/`, `Packages/NovaAudio/`, `Packages/NovaCore/`, `App/NovaDrive/` | F-13 §14 rows 1–11 | unit, build, D |

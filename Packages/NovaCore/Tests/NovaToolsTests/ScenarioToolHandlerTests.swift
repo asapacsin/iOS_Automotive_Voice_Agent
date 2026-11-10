@@ -143,19 +143,20 @@ struct ScenarioToolHandlerTests {
         #expect(result.data["announce"]?.stringValue == "空调打开了，风量调到了3档，前排车窗开到了20%")
     }
 
-    @Test("好困 → AC on, temp −2, front windows 20, music, rest-stop suggestion")
+    @Test("F-12 §20 row 2: 好困 changes nothing and tells her to stay silent")
     func drowsy() async {
         let car = FakeVehicle()
         let music = FakeMusic()
+        let before = (await car.climateState(), await car.cabinState())
         let result = await ScenarioToolHandler(port: car, music: music).execute(scenario("drowsy"))
         #expect(result.ok)
-        let climate = await car.climateState()
-        #expect(climate.powerOn && climate.targetTemperatureCelsius == 22)
-        #expect(windows(await car.cabinState()) == [20, 20, 0, 0])
-        #expect(await music.isPlaying)
-        #expect(result.data["suggest_rest_stop"] == .bool(true))
-        #expect(result.data["announce"]?.stringValue?.contains("音乐放起来了") == true)
-        #expect(result.data["announce"]?.stringValue?.contains("服务区") == true)
+        #expect(await car.climateState() == before.0)
+        #expect(await car.cabinState() == before.1)
+        #expect(!(await music.isPlaying))
+        #expect(result.data["done"] == .array([]))
+        #expect(result.data["announce"] == nil)
+        #expect(result.data["suggest_rest_stop"] == nil)
+        #expect(result.data["instruction"]?.stringValue == "不要说话，不回应。")
     }
 
     @Test("a failed step → ok=false, partial, instruction names done and not done; no claim of the failed step")
@@ -174,12 +175,11 @@ struct ScenarioToolHandlerTests {
         #expect(windows(await car.cabinState()) == [0, 0, 0, 0])
     }
 
-    @Test("drowsy without a music player is partial, music not claimed")
+    @Test("drowsy without a music player is still ok: it needs none")
     func drowsyNoMusic() async {
         let result = await ScenarioToolHandler(port: FakeVehicle()).execute(scenario("drowsy"))
-        #expect(!result.ok)
-        #expect(result.data["not_done"] == .array([.string("播放音乐")]))
-        #expect(result.data["announce"]?.stringValue?.contains("音乐") == false)
+        #expect(result.ok)
+        #expect(result.data["not_done"] == .array([]))
     }
 
     @Test("a failed mosquito window step does not arm mosquito_done")

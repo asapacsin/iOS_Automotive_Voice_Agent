@@ -138,7 +138,7 @@ enum ToolPromptCoverage: Sendable {
         "control_climate": .phrase("空调"),
         "control_window": .phrase("车窗"),
         "control_seat": .phrase("座椅"),
-        "run_scenario": .phrase("车内场景（有蚊子、闷、困）"),
+        "run_scenario": .phrase("车内场景（有蚊子、闷）"),
         "navigate_to": .phrase("navigate_to"),
         "choose_navigation_option": .phrase("choose_navigation_option"),
         "exit_navigation_mode": .phrase("exit_navigation_mode"),

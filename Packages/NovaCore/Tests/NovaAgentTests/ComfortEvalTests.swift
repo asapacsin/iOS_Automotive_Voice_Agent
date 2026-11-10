@@ -62,11 +62,17 @@ struct ComfortEvalTests {
         for w in WindowID.allCases { wide.cabin.windows[w] = 50 }
         #expect(ComfortScorer.score(fast, run(fast, end: wide, calls: [ok("control_window")], reply: "好")).failure
                 == .windowAboveLimit)
+        // F-12 §20 row 3: a sleepy driver passes only with no action and no words.
         let drowsy = comfortCase("drowsy")
+        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, reply: "")).pass)
+        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, reply: "累了的话找个服务区休息一下吧")).failure
+                == .spoke)
+        let scenario = ComfortCallRecord(name: "run_scenario", ok: true, code: nil, data: ["scenario": "drowsy"])
+        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, calls: [scenario], reply: "")).pass)
         var awake = drowsy.start
         awake.musicPlaying = true
-        let quiet = run(drowsy, end: awake, calls: [ok("control_music", ["status": "playing"])], reply: "给你放点音乐")
-        #expect(ComfortScorer.score(drowsy, quiet).failure == .noMention)
+        let music = run(drowsy, end: awake, calls: [ok("control_music", ["status": "playing"])], reply: "")
+        #expect(ComfortScorer.score(drowsy, music).failure == .wrongDecision(.act))
     }
 
     @Test("F-12 row 2 the set: 55+ cases, every decision, 15+ held out, 10+ unprompted, unique ids")
@@ -113,12 +119,12 @@ struct ComfortEvalTests {
         #expect(PersonaInstruction.base(for: .table) == PersonaInstruction.base)
         let on = PersonaInstruction.base(for: .model)
         #expect(on != PersonaInstruction.base)
-        #expect(!on.contains("车内场景（有蚊子、闷、困）"))
+        #expect(!on.contains("车内场景（有蚊子、闷）"))
         #expect(!on.contains("有点热、太热了：调低一度温度"))
         #expect(on.contains(PersonaInstruction.modelComfortRule))
         #expect(on.contains("get_vehicle_state"))
         #expect(on.contains("我朋友车里有蚊子"))
-        #expect(on.contains("服务区"))
+        #expect(on.contains(PersonaInstruction.sleepySentence))
         #expect(on.count <= PersonaInstruction.maxBaseCharacters)
     }
 }

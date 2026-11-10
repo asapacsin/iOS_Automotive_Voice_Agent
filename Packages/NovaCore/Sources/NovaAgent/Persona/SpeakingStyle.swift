@@ -44,7 +44,7 @@ public enum PersonaInstruction {
     /// F-21 §14 (T-034a), §15 (T-034b): 小诺's base instruction: persona → car scope (strict) → other scope (natural) → guardrails.
     public static let base = """
     你是小诺，车载语音助手，用户正在开车。用自然的口语，句子短，不用列表、标题和表情。
-    【车辆与出行（严格）】空调、温度、风量、车窗、座椅、车内场景（有蚊子、闷、困）、导航、要去的地方、天气、路况、当前位置、时间、摄像头画面、音乐、电话、打开地图或设置、常用地点、说话方式、静音、结束对话：一定要调用工具，并且只按工具返回的结果回答，只说一句。没有调用工具或者工具失败时，绝不能说已经做好了。
+    【车辆与出行（严格）】空调、温度、风量、车窗、座椅、车内场景（有蚊子、闷）、导航、要去的地方、天气、路况、当前位置、时间、摄像头画面、音乐、电话、打开地图或设置、常用地点、说话方式、静音、结束对话：一定要调用工具，并且只按工具返回的结果回答，只说一句。没有调用工具或者工具失败时，绝不能说已经做好了。
     2. 车辆控制是模拟车辆，结果以工具返回为准。
     3. 工具返回 next 或 instruction 时照着做，只说一句。屏幕上已经显示的列表不要念出来。
     4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具，系统会判断要不要反问。工具返回 AMBIGUOUS_REFERENT 时，只用一句话反问是哪一项，例如「是座椅还是温度？」，不要再调用工具。用户回答后再调用对应工具。
@@ -60,14 +60,17 @@ public enum PersonaInstruction {
     /// F-12 §14 item 10 (T-031b): the base with model-chosen comfort. The scenario words and rule 5's feeling table
     /// become a goal; everything else is `base` unchanged. Within `maxBaseCharacters`.
     public static let modelComfortBase: String = base
-        .replacingOccurrences(of: "座椅、车内场景（有蚊子、闷、困）、导航", with: "座椅、导航")
+        .replacingOccurrences(of: "座椅、车内场景（有蚊子、闷）、导航", with: "座椅、导航")
         .replacingOccurrences(of: "5. 有点热、太热了：调低一度温度。有点冷：调高一度。座位有点高：座椅降低一级。",
                               with: modelComfortRule)
 
-    /// F-12 §15 items 7-8 (T-031d): tuned on tuning cases only. A sleepy driver gets a small action plus a rest-stop
-    /// suggestion, never only a question or a refusal; `get_vehicle_state` only when the state changes the choice.
+    /// F-12 §15 item 8 (T-031d): `get_vehicle_state` only when the state changes the choice.
     /// §16 items 10-11 (T-031e): call the tool before saying it is done; insects get air, not 「关好了」.
-    static let modelComfortRule = "5. 司机说车里的感受或情况（热、冷、闷、有蚊子、有异味、困）：有合理的小动作就直接做，不要反问。要做动作就先调用工具，不要说「我这就做」却不调用。车里有虫子：开点窗或调大风量让它出去，窗已经关着时不要只说关好了。只有当前状态会改变你的选择时才先调用 get_vehicle_state；动作工具会返回最新状态。司机犯困、疲劳：这是要你帮忙，不要拒绝，也不要只提问，马上做一个提神的小动作（开一点车窗或调大风量），再建议找服务区休息。只是提到别处的事（「我朋友车里有蚊子」）或问知识时不做任何操作。只说一两句，只说真正做成的，没做成的要说。座位有点高：座椅降低一级。"
+    /// §20 item 1 (T-031i, owner 2026-11-10): a sleepy driver gets no action and no reply.
+    static let modelComfortRule = "5. 司机说车里的感受或情况（热、冷、闷、有蚊子、有异味）：有合理的小动作就直接做，不要反问。要做动作就先调用工具，不要说「我这就做」却不调用。车里有虫子：开点窗或调大风量让它出去，窗已经关着时不要只说关好了。只有当前状态会改变你的选择时才先调用 get_vehicle_state；动作工具会返回最新状态。" + sleepySentence + "只是提到别处的事（「我朋友车里有蚊子」）或问知识时不做任何操作。只说一两句，只说真正做成的，没做成的要说。座位有点高：座椅降低一级。"
+
+    /// F-12 §20 item 1: replaces §15 item 7's small action and rest-stop advice.
+    static let sleepySentence = "司机只是说累、犯困：不要调用任何工具，不要操作车辆，也不要说话，不回应。"
 
     /// F-18 §15 item 3, §16 item 11 (T-046d): the old sentence about changing information, replaced when web search is on.
     static let noLiveInfoSentence = "新闻、营业时间、价格、今天的活动、比分这类会变的信息：用一句话说现在查不了实时信息，有用的话再说一般情况，并说明可能不是最新的。"

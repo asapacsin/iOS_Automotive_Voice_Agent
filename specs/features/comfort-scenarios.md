@@ -364,3 +364,27 @@ Community review 2026-11-03:
 | Task | Scope | Verify |
 |---|---|---|
 | T-031h | Items 1–3; row 1 | unit, build |
+
+## 20. Sleepy driver: she does nothing and says nothing (iOS, APPROVED 2026-11-10)
+
+**Why.** On 25c4a77's parent (build 54), model mode, 11:30 record: after a barge-in Gemini heard only "Ah", took it as tiredness, called `control_climate` power_on and adjust_fan, and said 「我已经把空调打开并稍稍调大了风量，建议您找个服务区休息一下。」 Owner 2026-11-10: "why tired would open the air conditioner and wind, this is not making any sense", "probably i prefer to just abandom this approach", and, on the proposal to keep only 「累了的话找个服务区休息一下吧」: "probably i prefer don't response at all". This section replaces §15 item 7 and §19 item 1 for the sleepy driver; §2's `drowsy` row is changed for iOS by item 2.
+
+1. **Rule 5 (model mode).** In `modelComfortRule`, 困 leaves the list of feelings that get a small action, and the sleepy sentence becomes 「司机只是说累、犯困：不要调用任何工具，不要操作车辆，也不要说话，不回应。」 Direct requests (开空调, 开点窗, 放首歌) are unchanged.
+2. **Table mode.** The base's scenario words become 「车内场景（有蚊子、闷）」. `run_scenario` keeps `drowsy` in its Android-equal declaration (F-09, not edited), but its step list is empty: no AC, temperature, window or music change. Its result is ok, `done` empty, no `announce`, no `suggest_rest_stop`, and `instruction` 「不要说话，不回应。」
+3. **Test set.** The ten sleepy cases (drowsy, drowsyMusicOn, fallingAsleep, hEyelids, hDizzy, h2EyesClosing, h2Yawning, t3Exhausted, h3Nodding, h3Foggy) expect `noTool`, forbid every facet, and are marked `silent`: a reply with any text fails with `spoke`. They keep their ids, groups and held-out marks. whyDrowsy is unchanged. A `run_scenario` drowsy call is not counted as an action, since it changes nothing.
+4. **Not code-enforced.** Whether Gemini Live returns no audio for an instruction to stay silent is NOT_VERIFIED; rows 3-4 check it. No transcript is read to mute her (F-05a §6).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | The model-mode and table-mode instructions | Contain item 1's and item 2's text and not the old sleepy sentence or 困 | unit |
+| 2 | `run_scenario` drowsy | No vehicle or music call; ok; `done` empty; `instruction` 「不要说话，不回应。」 | unit |
+| 3 | The comfort test set, model mode | The ten sleepy cases pass only with no action and an empty reply | unit, D |
+| 4 | Device, spoken: 好困, 我快睡着了 | Nothing in the car changes and she says nothing | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031i | Items 1–4; rows 1–4 | unit, build, D |

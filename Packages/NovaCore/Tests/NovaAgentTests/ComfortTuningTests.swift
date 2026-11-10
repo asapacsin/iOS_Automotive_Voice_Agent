@@ -191,6 +191,6 @@ struct ComfortTuningTests {
         #expect(ToolCatalog.declarations(for: .table) == ToolCatalog.declarations)
         #expect(PersonaInstruction.base(for: .table) == PersonaInstruction.base)
         #expect(PersonaInstruction.modelComfortBase.count <= PersonaInstruction.maxBaseCharacters)
-        #expect(PersonaInstruction.modelComfortRule.contains("服务区"))
+        #expect(PersonaInstruction.modelComfortRule.contains(PersonaInstruction.sleepySentence))
     }
 }

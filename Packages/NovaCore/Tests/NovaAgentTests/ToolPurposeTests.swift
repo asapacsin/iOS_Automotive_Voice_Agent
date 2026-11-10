@@ -38,13 +38,16 @@ struct ToolPurposeTests {
         }
     }
 
-    @Test("§19 row 1: sleepy rule has no lower temperature; table instruction unchanged")
+    @Test("F-12 §20 row 1: sleepy driver gets no action and no reply in both modes")
     func sleepyRule() {
         let rule = PersonaInstruction.modelComfortRule
-        #expect(rule.contains("马上做一个提神的小动作（开一点车窗或调大风量）"))
-        #expect(!rule.contains("调低一度温度、开一点车窗"))
-        #expect(PersonaInstruction.base(for: .model).contains("（开一点车窗或调大风量）"))
+        #expect(rule.contains("司机只是说累、犯困：不要调用任何工具，不要操作车辆，也不要说话，不回应。"))
+        #expect(!rule.contains("提神"))
+        #expect(!rule.contains("服务区"))
+        #expect(!rule.contains("有异味、困"))
         #expect(PersonaInstruction.base(for: .table) == PersonaInstruction.base)
+        #expect(PersonaInstruction.base.contains("车内场景（有蚊子、闷）"))
+        #expect(!PersonaInstruction.base.contains("闷、困"))
         #expect(PersonaInstruction.base.contains("5. 有点热、太热了：调低一度温度。"))
     }
 }

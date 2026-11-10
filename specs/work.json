@@ -1956,6 +1956,17 @@
       "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\" and \"the current test case is ok don't add extra stuff\"."
     },
     {
+      "id": "T-031i",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 3,
+      "action": "F-12 §20 items 1-4: sleepy driver gets no action and no reply (model rule 5, table base, run_scenario drowsy empty, ten eval cases silent); rows 1-3 unit, row 4 device",
+      "depends_on": [
+        "T-031h"
+      ],
+      "notes": "Owner 2026-11-10: \"why tired would open the air conditioner and wind, this is not making any sense\" and \"probably i prefer don't response at all\"."
+    },
+    {
       "id": "T-046c",
       "owner": "AUTONOMOUS",
       "status": "PASS",

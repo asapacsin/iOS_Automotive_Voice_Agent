@@ -35,6 +35,8 @@ public enum ScenarioStep: Sendable, Hashable {
 public final class ScenarioToolHandler: ToolExecutor {
     public static let tool = "run_scenario"
     static let front: Set<WindowID> = [.frontLeft, .frontRight]
+    /// F-12 §20 item 2: `drowsy` changes nothing and she stays silent.
+    static let drowsyInstruction = "不要说话，不回应。"
     static let all = Set(WindowID.allCases)
 
     let port: any VehicleControlPort
@@ -56,7 +58,8 @@ public final class ScenarioToolHandler: ToolExecutor {
             mosquitoActive ? [.acOn, .fanUp] : [.windows(all, percent: 50)]
         case "mosquito_done": [.windows(all, percent: CabinLimits.windowMin)]
         case "stuffy": [.acOn, .fanUp, .windows(front, percent: 20)]
-        case "drowsy": [.acOn, .temperatureDown2, .windows(front, percent: 20), .musicPlay]
+        // F-12 §20 item 2 (owner 2026-11-10): a sleepy driver gets no action and no reply.
+        case "drowsy": []
         default: nil
         }
     }
@@ -122,9 +125,7 @@ public final class ScenarioToolHandler: ToolExecutor {
         let climate = await port.climateState()
         let cabin = await port.cabinState()
         let playing = await music?.isPlaying ?? false
-        var sentences = done.compactMap { Self.announce($0, climate, cabin, playing) }
-        if name == "drowsy" { sentences.append("累了的话找个服务区休息一下吧") }
-        let announce = sentences.joined(separator: "，")
+        let announce = done.compactMap { Self.announce($0, climate, cabin, playing) }.joined(separator: "，")
         var data: [String: JSONValue] = [
             "scenario": .string(name),
             "done": .array(done.map { .string($0.label) }),
@@ -135,13 +136,16 @@ public final class ScenarioToolHandler: ToolExecutor {
                 ($0.rawValue, JSONValue.int(Int64(cabin.windows[$0] ?? 0)))
             })),
         ]
-        if name == "drowsy" { data["suggest_rest_stop"] = .bool(true) }
         guard let first = failed.first else {
             data["status"] = .string("done")
-            data["announce"] = .string(announce)
-            data["instruction"] = .string(VehicleArgs.announceInstruction)
+            if name == "drowsy" {
+                data["instruction"] = .string(Self.drowsyInstruction)
+            } else {
+                data["announce"] = .string(announce)
+                data["instruction"] = .string(VehicleArgs.announceInstruction)
+            }
             let chip = ClimateToolHandler.chip(climate) + " · " + String(WindowToolHandler.chip(cabin).dropFirst(2))
-            return VehicleToolOutcome(result: .success(data), chip: chip)
+            return VehicleToolOutcome(result: .success(data), chip: name == "drowsy" ? nil : chip)
         }
         data["status"] = .string(done.isEmpty ? "failed" : "partial")
         data["detail"] = .string(failed.map { "\($0.0.label): \($0.2)" }.joined(separator: "; "))
