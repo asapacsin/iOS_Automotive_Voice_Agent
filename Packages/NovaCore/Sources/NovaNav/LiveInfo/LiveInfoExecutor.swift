@@ -100,6 +100,8 @@ public struct LiveInfoExecutor: ToolExecutor {
             let place: String
             var coordinate: GeoCoordinate?
             var name: String?
+            /// §29 item 3: Open-Meteo's name for a no-Han place answered by 高德; it is the answer's `place`.
+            var shownName: String?
             switch parsed.where {
             case "here", "":
                 if await location.authorization() == .denied { return Self.permissionDenied }
@@ -126,7 +128,7 @@ public struct LiveInfoExecutor: ToolExecutor {
                 coordinate = destination.coordinate
                 name = destination.name
             default:
-                if !ForecastWeather.hasHan(parsed.where), let forecastLookup {
+                if !ForecastWeather.hasHan(parsed.where), parsed.country == nil, let forecastLookup {
                     // §29 item 3: a name with no Chinese characters: Open-Meteo geocoding first, no 高德 name check.
                     Self.trace?.lookup = "open-meteo"
                     let places: [LookedUpPlace]
@@ -147,12 +149,14 @@ public struct LiveInfoExecutor: ToolExecutor {
                         return await openMeteo(at: at, place: found.name, country: found.country ?? found.countryCode, parsed)
                     }
                     // China: 高德 regeo gives the adcode, then the 高德 path with Open-Meteo's name.
-                    guard let geocoder, let adcode = try? await geocoder.adcode(at: at) else {
+                    // 高德 takes GCJ-02; Open-Meteo's point is WGS-84 (kept for the Open-Meteo fallbacks).
+                    guard let geocoder, let adcode = try? await geocoder.adcode(at: CoordinateConverter.gcj02(at)) else {
                         return await openMeteo(at: at, place: found.name, country: nil, parsed)
                     }
                     place = adcode
                     coordinate = at
                     name = found.name
+                    shownName = found.name
                 } else if let amapLookup {
                     // §26 item 2: 高德 geocoding, then the name check; a mismatch calls nothing else.
                     let found = try await amapLookup.lookUp(parsed.where, country: nil).first
@@ -183,7 +187,7 @@ public struct LiveInfoExecutor: ToolExecutor {
             }
             if parsed.view == .now {
                 do {
-                    return try await amapNow(weather, place: place, today: day, view: view)
+                    return try await amapNow(weather, place: place, today: day, view: view, shownName: shownName)
                 } catch is WeatherNotCovered {
                     // §29 item 2: an empty live report: Open-Meteo `now` and `today`.
                     report("amap", ok: false, reason: "empty", view: view)
@@ -198,6 +202,7 @@ public struct LiveInfoExecutor: ToolExecutor {
                 if case .object(var o) = summary {
                     o["weekday"] = .string(ForecastWeather.weekday(day.date) ?? "")
                     o["source"] = "amap"
+                    if let shownName { o["place"] = .string(shownName); o["city"] = .string(shownName) }
                     summary = .object(o)
                 }
                 return .success(["weather": summary, "date": .string(day.date), "next": .string(ForecastWeather.next)])
@@ -232,7 +237,8 @@ public struct LiveInfoExecutor: ToolExecutor {
 
     /// §28 item 2: 高德's live report and today's cast, requested at once. A failed live report fails the call; a
     /// failed or missing cast leaves `today` out.
-    private func amapNow(_ weather: any WeatherService, place: String, today: WeatherDay, view: String) async throws -> ToolResult {
+    private func amapNow(_ weather: any WeatherService, place: String, today: WeatherDay, view: String,
+                         shownName: String? = nil) async throws -> ToolResult {
         let liveDay = WeatherDay(offset: 0, date: today.date, live: true)
         let castDay = WeatherDay(offset: 0, date: today.date, live: false)
         async let liveReport = weather.weather(adcode: place, day: liveDay)
@@ -245,7 +251,7 @@ public struct LiveInfoExecutor: ToolExecutor {
             for key in ["weather", "temperature_c", "humidity", "wind", "time"] { nowBlock[key] = o[key] ?? .null }
         }
         var w: [String: JSONValue] = [
-            "place": live.summary["city"] ?? .string(""), "weekday": .string(ForecastWeather.weekday(today.date) ?? ""),
+            "place": shownName.map { .string($0) } ?? live.summary["city"] ?? .string(""), "weekday": .string(ForecastWeather.weekday(today.date) ?? ""),
             "source": "amap", "day": "now", "now": .object(nowBlock),
         ]
         if let cast, case .object(let o) = cast.summary {

@@ -156,6 +156,13 @@ struct HongKongMacauWeatherTests {
         #expect(s.amapLookup.asked.withLock { $0.isEmpty } && s.omLookup.asked.withLock { $0 } == ["Shanghai|"])
         #expect(s.geocoder.calls.withLock { $0 } == 1 && s.forecast.asked.withLock { $0.isEmpty })
         #expect(amap.adcodes.withLock { $0 } == ["310000"])
+        #expect(r.data["weather"]?["place"] == "上海")
+        // Now: 高德's live report, still named by Open-Meteo.
+        let now = await s.ex.execute(weatherCall(["where": "Shanghai"]))
+        #expect(now.ok && now.data["weather"]?["source"] == "amap" && now.data["weather"]?["place"] == "上海")
+        // With country=CN the §26 高德 path runs (item 3 needs an empty country).
+        let cn = await s.ex.execute(weatherCall(["where": "Shanghai", "country": "CN"]))
+        #expect(s.amapLookup.asked.withLock { $0 } == ["Shanghai|"] && cn.code == .liveInfoUnavailable)
         // A day 高德 has no cast for: Open-Meteo, with Open-Meteo's name as place.
         let late = await s.ex.execute(weatherCall(["where": "Shanghai", "date": "2026-11-15"]))
         #expect(late.ok && late.data["weather"]?["place"] == "上海")
