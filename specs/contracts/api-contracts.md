@@ -8,7 +8,7 @@ Google's docs on 2026-10-23 and is current (OQ-IOS-5); production should use eph
 - Transport: WebSocket `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`
   (`GeminiAppSettings.DEFAULT_ENDPOINT`), header `x-goog-api-key`. Connect timeout 10 s, ping 20 s,
   `setupComplete` within 10 s.
-- Setup: `responseModalities=[AUDIO]`, speech `languageCode=zh-CN`, prebuilt voice (default "Leda"),
+- Setup: `responseModalities=[AUDIO]`, speech `languageCode=zh-CN`, prebuilt voice (default "Aoede"; owner 2026-11-10, Leda sounded awkward in Mandarin),
   optional `thinkingLevel` (LOW default; MINIMAL rejected), `systemInstruction` (persona + call-first
   hint), `tools.functionDeclarations` with `parametersJsonSchema`, `realtimeInputConfig.
   automaticActivityDetection` (start sensitivity LOW, end HIGH, optional `silenceDurationMs` 100–3000),

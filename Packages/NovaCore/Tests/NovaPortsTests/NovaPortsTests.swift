@@ -34,7 +34,7 @@ struct PortsTests {
     @Test("session config defaults follow the Gemini contract")
     func sessionDefaults() {
         let config = SessionConfig(systemInstruction: "", tools: [])
-        #expect(config.model == "gemini-3.8-live" && config.voiceName == "Leda" && config.languageCode == nil)
+        #expect(config.model == "gemini-3.8-live" && config.voiceName == "Aoede" && config.languageCode == nil)
         #expect(config.activityDetection.startSensitivity == .low && config.activityDetection.endSensitivity == .high)
         #expect(SessionConfig.maxInstructionCharacters == 4000)
     }

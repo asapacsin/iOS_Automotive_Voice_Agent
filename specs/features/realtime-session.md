@@ -15,7 +15,7 @@ Gemini API key, consent accepted, network.
 ## 4. Inputs and outputs
 - Transport: WebSocket `BidiGenerateContent` (v1beta), header `x-goog-api-key`; connect timeout 10 s,
   ping 20 s, `setupComplete` within 10 s.
-- Setup: `responseModalities=[AUDIO]`, `languageCode=zh-CN`, prebuilt voice (default Leda),
+- Setup: `responseModalities=[AUDIO]`, `languageCode=zh-CN`, prebuilt voice (default Aoede; owner 2026-11-10, Leda sounded awkward in Mandarin; Aoede (owner choice after listening; recommended with Kore and Charon) per [Towards AI test of all 30 voices](https://pub.towardsai.net/i-tested-all-30-voices-in-googles-new-gemini-3-1-af7ae23e4202)),
   `systemInstruction` (persona + style, F-21), `tools.functionDeclarations` (`parametersJsonSchema`),
   automatic activity detection (start LOW, end HIGH), input/output transcription, sliding-window context
   compression, `sessionResumption{handle}`. **iOS: no `thinkingLevel`** — the live model closes 1007

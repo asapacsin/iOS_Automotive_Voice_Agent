@@ -2,7 +2,7 @@ import NovaKit
 import NovaPorts
 
 /// F-07 §14 items 2, 5 (T-020a): where her voice comes from. F-07 §15 item 1 (T-020b): Gemini Live's own voice
-/// (the live session's `Leda`), first and the default.
+/// (the live session's `Aoede`), first and the default.
 public enum VoiceSourceKind: String, Sendable, Hashable, CaseIterable {
     case gemini
     case qwen
