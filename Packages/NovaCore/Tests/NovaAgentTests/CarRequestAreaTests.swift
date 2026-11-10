@@ -170,6 +170,23 @@ struct CarRequestAreaTests {
         #expect(e.state.view.subtitle == "好的，有一只小猫。")
     }
 
+    @Test("F-09a row 5: a held reply whose turn closed is dropped when the driver speaks again")
+    func row5BargeIn() {
+        var d = Self.drive(revoicing: false)
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.driverWords(.partial("讲个笑话")))
+        d.send(.speechStopped)
+        let t1 = TurnID(1)
+        d.realtime(.responseStarted(t1))
+        d.realtime(.replyText(t1, "好的，有一只小猫。"))
+        d.realtime(.replyAudio(t1, GeminiVoiceTests.pcm))
+        d.realtime(.responseDone(t1, outcome: .completed))
+        let next = Self.say(&d, .final("有点热"))
+        #expect(GeminiVoiceTests.played(next).isEmpty)
+        #expect(Self.areas(next) == [.unknown, .car])
+        #expect(d.state.view.subtitle.isEmpty)
+    }
+
     @Test("F-09a row 6: 有点热 (climate ok), 再低一点, 好困 are car, follow-up, tired")
     func row6() {
         var d = Self.drive()

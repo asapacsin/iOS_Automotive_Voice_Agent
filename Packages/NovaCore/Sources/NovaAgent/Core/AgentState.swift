@@ -401,6 +401,10 @@ public struct AgentState: Sendable {
             driverSpeaking = true
             arbiter.driverSpeech(true)
             speechOnsets += 1
+            // F-09a: a reply still waiting for its area is not played over the driver's new words (like a barge-in).
+            areaHeldReply = []
+            areaHeldUntil = nil
+            areaHeldClosed = nil
             transcript = ""
             // F-08 §15 item 4: the transcript stop's give-up never reaches the answer to this new question.
             var cleared: [AgentEffect] = []
