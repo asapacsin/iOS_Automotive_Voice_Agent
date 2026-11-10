@@ -504,3 +504,82 @@ Code can guarantee what is shown. It cannot guarantee what Gemini hears or write
 | T-016m | Items 1–9; rows 1–12 | unit, gate, build, D |
 
 **Trace gate.** Add `T-016m: F-05a` to `specs/trace-ids.txt` together with the first `@Test` that names T-016m.
+
+## 16. The driver's line on screen comes from Gemini's text only, filtered to Chinese, English and Japanese (iOS, owner choice 2026-11-10)
+
+**Why.** Owner 2026-11-10, after §15:
+- **The ask.** Show only Chinese, English and Japanese on screen.
+- **SenseVoice has two more.** It also recognises Korean and Cantonese (`sense-voice-zh-en-ja-ko-yue`), and no recogniser takes a list of allowed languages. VRCC [#57](https://github.com/dljr-github/VRCC/pull/57) found that forcing SenseVoice's language does not always hold, and drops out-of-set results. voicebox [#16](https://github.com/mosa-99/voicebox/pull/16) decodes once per allowed language, which on this phone (114–292 ms per SenseVoice decode, syslog 20261110-091600) would take up to about 880 ms.
+- **The owner's choice.** Asked whether Gemini's own text could be used instead, the owner chose 「Gemini text only + filter」, knowing the costs below.
+
+**Rule in plain words.** The driver's line on screen is Gemini's input transcript, checked for its language. Chinese, English and Japanese show; anything else shows 「（没听清）」. SenseVoice is removed, with its download. The phone's streaming Chinese model stays, but only for the stop phrase and the other internal uses it had before §14. Its text is never shown.
+
+**Known costs (accepted by the owner).**
+- **Later on screen.** The line appears when Gemini's text arrives. In record 20261110-090143 that was 1.3–3.6 s after the utterance ended, against 0.1–0.6 s for the local text.
+- **More 「（没听清）」.** When Gemini mishears into another language, the line is hidden. Today the local text would have shown, as in 「不知道」 versus `tudo bem`.
+- **The §15 re-ask loses the heard words.** §15 item 4's first text needs SenseVoice's words, so only the second text is left (item 5).
+
+1. **Source of the driver's line.**
+   - `driverLine` partials and final come from Gemini's `inputTranscription` only, for every utterance.
+   - `TranscriptSelector` S1–S3 no longer pick the screen text. The local text is never published to `driverLine`.
+   - An utterance with no Gemini text shows no line, as S5 does today for empty text.
+2. **The filter** (`ScreenLanguage`, §13 and §14 item 3), on the whole text so far:
+   - **Han and Kana.** Han that passes `isChinese` or the short-token rule, and text with Kana when final, show as today.
+   - **Other scripts.** Any letter of another script hides the line, as today.
+   - **Latin-only, final.** It is shown when:
+     - the §15 detector (`LanguageIdentifier`) gives `en` as the top hypothesis with probability ≥ 0.5; or
+     - it is a short token of at most 5 `A-Z`/`0-9` characters (`OK`, `4S`), as today.
+
+     Otherwise it is hidden.
+   - **Latin-only, not final:** `wait`.
+   - A hidden final shows 「（没听清）」 and writes the existing `screen-hidden kind=driver` line.
+   - The `language` argument from SenseVoice is removed; the detector replaces it.
+3. **SenseVoice removed.**
+   - Remove:
+     - the 「多语言识别」 switch, its states, 「用流量下载」 and 「删除多语言模型」;
+     - the background downloader (`MultilingualModelStore` and its background-session handler);
+     - the SenseVoice `OfflineRecognizer` and its sample buffer in NovaAsrSherpa;
+     - the `asrMulti` log lines and the `asr-model` record line.
+   - On the first launch of this version, delete `Application Support/SpeechModels/sensevoice-2024-07-17/` and any partial download, to free about 240 MB. Do this once, in the background, and write `asr-model removed bytes=<n>` to the next record.
+   - `LocalTranscript.language` and the `lang` mapping are removed. The record's `heard-local` line keeps the words, with `asr=stream` and no `lang`.
+4. **The local streaming model stays, for internal use only.** It is `zipformer-small-ctc-zh-int8`, bundled, unchanged. These read its text as before §14:
+   - the stop-phrase backup (F-08 §14 item 5);
+   - the echo filter (F-14 §8);
+   - `DriverTurnPipeline.driverUtterance` (its request words and `phantomMinTranscript`).
+
+   The keyword spotter and the speaker check are unchanged. §6 is unchanged: no tool reads any transcript.
+5. **§15 item 4, the re-ask.** It always uses the second text: 「[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。」. The record line is `correction WRONG_LANGUAGE heard=none`. §15 row 7 becomes: any utterance → that text exactly. The rest of §15 is unchanged.
+6. **Her reply.** Unchanged: §15 checks it. The persona's language rule (§14 item 4) stays.
+7. **Where the code goes.**
+   - NovaVoice: the `ScreenLanguage` Latin rule with the detector, and the driver-line source.
+   - NovaAgent: `AgentState` publishes `driverLine` from Gemini's text only; the record lines.
+   - NovaAsrSherpa: the SenseVoice removal.
+   - App: the 设置 rows, the downloader and the one-time file removal.
+8. **Not changed.**
+   - Gemini setup: no `languageCode`.
+   - The stop phrase, the echo filter, the speaker check and the keyword spotter.
+   - §13 for her reply, guidance and the camera answer.
+   - §15 except item 4.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | An utterance with local final 「不知道。」 and Gemini text `tudo bem` (detector pt 0.9) | `driverLine` shows 「（没听清）」; never 「不知道。」; one `screen-hidden kind=driver` | unit |
+| 2 | Gemini text 「现在几点?」; 「今何時ですか」; `What time is it now` (en 0.9); `OK` (en 0.3); 「당연하죠.早上。」 | show; show; show; show; 「（没听清）」 | unit |
+| 3 | Gemini partials `Wha`, `What time` then final (en 0.9) | Nothing shown for the partials; the final shows | unit |
+| 4 | An utterance with local text and no Gemini text | No driver line; the stop phrase and `driverUtterance` still get the local text | unit |
+| 5 | The local text 「别说了」 while Gemini's text is hidden | Her reply stops as today | unit |
+| 6 | §15 re-ask after a blocked reply, local final present | The second text exactly; `heard=none` | unit |
+| 7 | Source tree | No `OfflineSenseVoice`, `MultilingualModelStore` or 「多语言识别」; gates green | gate |
+| 8 | App build | Builds on Codemagic | build |
+| 9 | Device: install over build 53 (SenseVoice ready) | Next record has `asr-model removed bytes=` about 239,500,000; 设置 has no 多语言 row; the app's storage in iOS 设置 drops by about 240 MB | D |
+| 10 | Device: 「现在几点」, 「What time is it」, 「今何時ですか」, 「Tudo bem, obrigado」 | First three shown in their language; the fourth shows 「（没听清）」 or a Chinese mishearing, never Portuguese; 「别说了」 still stops her at once | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-016n | Items 1–8; rows 1–10 | unit, gate, build, D |
+
+**Trace gate.** Add `T-016n: F-05a` to `specs/trace-ids.txt` together with the first `@Test` that names T-016n.

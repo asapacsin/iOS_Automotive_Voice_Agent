@@ -2122,6 +2122,18 @@
       "evidence": []
     },
     {
+      "id": "T-016n",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-05a §16 items 1-8: driverLine from Gemini inputTranscription only; ScreenLanguage Latin-only final shown only when the §15 detector says en >= 0.5 or a <=5-char A-Z/0-9 token; SenseVoice, its downloader, settings rows and log lines removed, model files deleted once on launch (asr-model removed bytes=); streaming Chinese model kept for stop phrase, echo filter and driverUtterance; §15 re-ask always without heard words; rows 1-10.",
+      "depends_on": [
+        "T-016m"
+      ],
+      "notes": "Owner 2026-11-10: only Chinese, English and Japanese on screen; chose Gemini text only + filter over keeping SenseVoice, accepting a later line (1.3-3.6 s), more （没听清） and a re-ask without heard words. SenseVoice also outputs Korean and Cantonese; VRCC #57 drops out-of-set results, voicebox #16 decodes per language (too slow here: 114-292 ms per decode).",
+      "evidence": []
+    },
+    {
       "id": "T-013e",
       "owner": "AUTONOMOUS",
       "status": "PASS",
