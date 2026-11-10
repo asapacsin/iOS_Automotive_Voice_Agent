@@ -963,7 +963,14 @@ public struct AgentState: Sendable {
             // guidance reading heard back (F-14 §8 echo) is not the driver's line either.
             var probe = relay
             let echo = isFinal && probe.isEcho(text, at: now)
-            let line = echo ? [] : driverLine(text, isFinal: isFinal)
+            var line: [AgentEffect] = []
+            if echo {
+                // Her reading's partials may already show: the echo final clears them.
+                geminiHeard = ""
+                if !view.driverLine.isEmpty { view.driverLine = ""; line = [.publish(view)] }
+            } else {
+                line = driverLine(text, isFinal: isFinal)
+            }
             guard !selectorOwnsWords else { return line }
             // Gemini's partials are deltas. A stop's flush goes before the screen update.
             return heard(isFinal ? text : transcript + text, isFinal: isFinal, at: now) + line

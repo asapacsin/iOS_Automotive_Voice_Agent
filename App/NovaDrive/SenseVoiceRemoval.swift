@@ -21,7 +21,6 @@ enum SenseVoiceRemoval {
     static func runOnce() {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: doneKey) else { return }
-        defaults.set(true, forKey: doneKey)
         DispatchQueue.global(qos: .utility).async {
             // A download still queued in the old background session is cancelled, so nothing lands afterwards.
             URLSession(configuration: .background(withIdentifier: oldSessionID)).invalidateAndCancel()
@@ -39,6 +38,8 @@ enum SenseVoiceRemoval {
             }
             UserDefaults.standard.removeObject(forKey: oldSwitchKey)
             UserDefaults.standard.set(NSNumber(value: bytes), forKey: pendingKey)
+            // Marked done only after the deletion, so an app killed half-way tries again next launch.
+            UserDefaults.standard.set(true, forKey: doneKey)
             RuntimeLog.agent.notice("asr-model removed bytes=\(bytes, privacy: .public)")
         }
     }

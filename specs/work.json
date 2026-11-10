@@ -2142,14 +2142,32 @@
     {
       "id": "T-016n",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-05a §16 items 1-8: driverLine from Gemini inputTranscription only; ScreenLanguage Latin-only final shown only when the §15 detector says en >= 0.5 or a <=5-char A-Z/0-9 token; SenseVoice, its downloader, settings rows and log lines removed, model files deleted once on launch (asr-model removed bytes=); streaming Chinese model kept for stop phrase, echo filter and driverUtterance; §15 re-ask always without heard words; rows 1-10.",
       "depends_on": [
         "T-016m"
       ],
       "notes": "Owner 2026-11-10: only Chinese, English and Japanese on screen; chose Gemini text only + filter over keeping SenseVoice, accepting a later line (1.3-3.6 s), more （没听清） and a re-ask without heard words. SenseVoice also outputs Korean and Cantonese; VRCC #57 drops out-of-set results, voicebox #16 decodes per language (too slow here: 114-292 ms per decode).",
-      "evidence": []
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh PASS (NovaCore 721 tests, 1 known issue; NovaRealtime 42; NovaServices 71; imports 285 files 0 violations incl. the SenseVoice-removed check; spec-trace 111 ids 0 missing)",
+          "commit": "8bffb36 + review fixes"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS, no blocking findings; fixed after: an echo final of her guidance clears a driver line its partials showed; the one-time removal is marked done only after the deletion. Kept: a fresh install writes asr-model removed bytes=0 once"
+        },
+        {
+          "interpretation": "driverLine lives in AgentViewState (the core publishes it, the app copies it); it is cleared when a new sent utterance starts; `asr-model removed bytes=` is written once to the next record even when 0 bytes were found; the old background download session is cancelled and the multilingualASR setting removed"
+        },
+        {
+          "build": "row 8 NOT_VERIFIED until the owner runs Codemagic"
+        },
+        {
+          "device": "rows 9-10 NOT_VERIFIED"
+        }
+      ]
     },
     {
       "id": "T-013e",
