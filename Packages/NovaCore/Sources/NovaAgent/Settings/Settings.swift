@@ -93,7 +93,7 @@ public struct SettingsReadiness: Sendable, Hashable {
     public var revoicing: Bool { source != .gemini && voice }
 }
 
-/// F-07 §15 item 2 (T-020b): on the first launch of this build, an install with no saved choice or with 千问 saved
+/// F-07 §15 item 2 (T-020b): on the first launch of this build, an install with any saved choice (none, 千问, or a removed source, F-07 §17)
 /// moves to Gemini 原声, once; the move is remembered, so any choice saved after it is kept.
 public enum VoiceSourceMigration {
     public static func run(_ settings: any SettingsStore) {

@@ -23,7 +23,7 @@ Google's docs on 2026-10-23 and is current (OQ-IOS-5); production should use eph
 - Close codes: 1007 on a resumed setup → clear handle, `RESUME_UNAVAILABLE` (retryable); 1008 not about
   auth/quota → `CONNECTION_CLOSED` (retryable).
 
-## Azure Speech TTS (ACTIVE when configured) — `A/voice/AzureSpeechVoice.kt`
+## Azure Speech TTS (Android: ACTIVE when configured) — `A/voice/AzureSpeechVoice.kt`
 
 **Android only; removed from iOS, F-07 §17.** The iOS 千问 path keeps the same timing numbers as `SpeechTuning`.
 

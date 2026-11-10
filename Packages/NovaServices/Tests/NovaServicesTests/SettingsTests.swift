@@ -160,9 +160,13 @@ struct RetiredVoiceTests {
         #expect(settings.string(region) == nil && settings.string(voice) == nil)
         #expect(settings.bool(done) == true)
         // Second launch: nothing is touched.
-        settings.set("gemini", for: SettingsKey.voiceSource)
+        settings.set(Self.vendor, for: SettingsKey.voiceSource)
+        settings.set("eastasia", for: region)
+        settings.set("zh-CN-XiaoxiaoNeural", for: voice)
         #expect(RetiredVoiceCleanup.run(credentials: secrets, settings: settings))
         #expect(secrets.attempts == 1 && secrets.accounts == ["other"])
+        #expect(settings.string(SettingsKey.voiceSource) == Self.vendor)
+        #expect(settings.string(region) == "eastasia" && settings.string(voice) == "zh-CN-XiaoxiaoNeural")
 
         // A first launch whose Keychain delete fails: the flag is not set, the delete is tried again next launch.
         let failing = InMemoryRetiredSecrets([account])
