@@ -24,14 +24,18 @@ public protocol AgentEffectSink: Sendable {
     /// F-05a §13 item 5: the record line `screen-hidden`; the text stays local (I-8).
     func screenHidden(_ kind: ScreenTextKind, text: String)
     /// F-24 §15 item 4: keep this handle in memory for the next start (never logged or persisted, I-7).
-    func keepResumption(_ handle: String?) async
+    /// F-21 §16 item 5: `instruction` is the one its resumption chain began with, kept beside it.
+    func keepResumption(_ handle: String?, instruction: String?) async
     /// F-05a §15 item 7: a `lang-check`, `correction WRONG_LANGUAGE` or `fallback-line` line; codes and numbers only.
     func languageLine(_ line: ReplyLanguageLine)
+    /// F-21 §16 item 8 (T-034c): a `style-update` line; codes and numbers only, the same in the log and the record.
+    func styleUpdateLine(_ line: StyleUpdateLine)
 }
 
 extension AgentEffectSink {
     public func screenHidden(_ kind: ScreenTextKind, text: String) {}
-    public func keepResumption(_ handle: String?) async {}
+    public func keepResumption(_ handle: String?, instruction: String?) async {}
+    public func styleUpdateLine(_ line: StyleUpdateLine) {}
     public func languageLine(_ line: ReplyLanguageLine) {}
     public func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async {}
 }
@@ -143,8 +147,9 @@ public actor AgentCore {
         case .screenHidden(let kind, let text):
             sink.diagnostic(.screenHidden(kind: kind))
             sink.screenHidden(kind, text: ScreenLanguage.recordText(text))
-        case .keepResumption(let handle): await sink.keepResumption(handle)
+        case .keepResumption(let handle, let instruction): await sink.keepResumption(handle, instruction: instruction)
         case .languageLine(let line): sink.languageLine(line)
+        case .styleUpdateLine(let line): sink.styleUpdateLine(line)
         }
     }
 }

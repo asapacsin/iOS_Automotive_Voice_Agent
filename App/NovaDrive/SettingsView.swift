@@ -6,6 +6,22 @@ import NovaServices
 import NovaVoice
 import SwiftUI
 
+/// F-21 §16 item 4 (T-034c): the 设置 tone picker. Posted only for a pick, so a running session gets `.speakingStyle`.
+enum TonePicker {
+    static let picked = Notification.Name("TonePicker.picked")
+
+    /// The names of F-21 §2.
+    static func label(_ style: SpeakingStyle) -> String {
+        switch style {
+        case .default: "正常"
+        case .sweet: "嗲"
+        case .tsundere: "傲娇"
+        case .gentle: "温柔"
+        case .lively: "元气"
+        }
+    }
+}
+
 /// Keys are write-only: entered here, kept in the Keychain, never shown again (H-keys).
 struct SettingsView: View {
     private let store = KeychainCredentialStore()
@@ -39,6 +55,7 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.conversationRecord) private var conversationRecord = false
     @AppStorage(ReplyAudioKeeper.settingKey) private var keepReplyAudio = false
     @AppStorage(DriveSettings.wakeWord) private var wakeWord = true
+    @AppStorage(SettingsKey.personaStyle) private var personaStyle = SpeakingStyle.default.rawValue
     @State private var confirmDeleteRecords = false
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
     @StateObject private var locationPermission = LocationPermission()
@@ -69,6 +86,17 @@ struct SettingsView: View {
                 Section("唤醒词") {
                     Toggle("唤醒词", isOn: $wakeWord)
                     Text("开：应用在前台时用手机麦克风等「你好小诺」，声音只在手机上处理。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                // F-21 §4, §16 item 4 (T-034c): only a pick here posts `TonePicker.picked`; the tool's own write does not.
+                Section("说话语气") {
+                    Picker("语气", selection: Binding(get: { personaStyle }, set: { picked in
+                        personaStyle = picked
+                        NotificationCenter.default.post(name: TonePicker.picked, object: nil)
+                    })) {
+                        ForEach(SpeakingStyle.allCases, id: \.rawValue) { Text(TonePicker.label($0)).tag($0.rawValue) }
+                    }
+                    Text("对话中改了也会生效：她说完当前这句后，从下一句开始换语气。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("声音") {

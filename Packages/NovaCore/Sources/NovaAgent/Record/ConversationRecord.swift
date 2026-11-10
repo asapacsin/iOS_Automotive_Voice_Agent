@@ -76,6 +76,8 @@ public enum RecordEvent: Sendable, Hashable {
     case area(utterance: Int, area: CarRequestArea)
     /// F-09a §5: `tired-silenced turn=<n>`.
     case tiredSilenced(turn: Int)
+    /// F-21 §16 item 8 (T-034c): `style-update sent|skipped|rejected …`; codes and numbers only.
+    case styleUpdate(StyleUpdateLine)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -194,6 +196,7 @@ public struct ConversationRecorder: Sendable {
         case .claimCut(let turn, let played): return [line("claim-cut", "turn=\(turn) played_ms=\(played)")]
         case .area(let utterance, let area): return [line("area", "utterance=\(utterance) area=\(area.rawValue)")]
         case .tiredSilenced(let turn): return [line("tired-silenced", "turn=\(turn)")]
+        case .styleUpdate(let update): return [line(StyleUpdateLine.kind, update.fields)]
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]

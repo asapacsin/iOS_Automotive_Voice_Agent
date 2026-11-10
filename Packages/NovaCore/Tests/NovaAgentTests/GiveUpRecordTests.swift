@@ -41,7 +41,7 @@ struct GiveUpRecordTests {
 
         var next = AgentState(truthfulness: TruthfulnessTuning(), resume: SessionResume(handle: "h1"))
         let connects = next.handle(.start, at: now).compactMap {
-            if case .provider(.connect(_, let resume)) = $0 { resume } else { nil }
+            if case .provider(.connect(_, let resume, _, _)) = $0 { resume } else { nil }
         }
         #expect(connects == ["h1"])
     }
