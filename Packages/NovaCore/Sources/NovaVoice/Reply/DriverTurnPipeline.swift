@@ -59,6 +59,9 @@ public enum PipelineInput: Sendable, Hashable {
     case timerFired(PipelineTimer)
     /// F-08 §15 item 3: a stop phrase ended her reply; the no-answer clock of that utterance stops.
     case stopped
+    /// F-05a §15 item 5 (T-016m review M2, M3): a sent driver utterance began. It cancels the fallback line at once
+    /// and marks the next `driverUtterance` as a new utterance (a later final of the same onset is not).
+    case speechStarted
 }
 
 public struct PipelineTimer: Sendable, Hashable {
@@ -125,6 +128,8 @@ public struct DriverTurnPipeline: Sendable {
         var holdSince: NovaInstant?
         var languageLogged = false
         var replied = false
+        /// A block of this turn voids it without a re-ask or fallback line.
+        var silentBlock = false
         /// No real driver utterance led to this turn: hold it until it proves to be more than a blip.
         var phantomSuspect: Bool
     }
@@ -144,6 +149,11 @@ public struct DriverTurnPipeline: Sendable {
     public private(set) var replyLanguageAllowed = false
     /// A reply turn opened since the last driver utterance (a repeat of the same words is then a new utterance).
     private var turnSinceUtterance = false
+    /// Review M2: once onsets are reported, only an onset makes a new utterance for the re-ask budget.
+    private var onsetsReported = false
+    private var newOnset = false
+    /// Review M1: a stop phrase ended her reply in this utterance; a blocked reply is then voided silently.
+    private var stoppedThisUtterance = false
     /// F-07 §15 item 7 (T-020b, Gemini 原声 only): a clean chat turn releases its audio as it comes, like its text.
     /// Proven and pending turns keep their holds; a claim found later is cut by the void (item 8).
     private let streamsCleanAudio: Bool
@@ -190,7 +200,10 @@ public struct DriverTurnPipeline: Sendable {
                 senseVoice = nil
             }
             // The same words reported again before any reply are the same utterance (end of speech, then the final).
-            if text != lastUtterance || turnSinceUtterance {
+            let isNew = onsetsReported ? newOnset : (text != lastUtterance || turnSinceUtterance)
+            newOnset = false
+            if isNew {
+                stoppedThisUtterance = false
                 languageReasked = false
                 awaitingReaskReply = false
                 fallbackSaid = false
@@ -274,7 +287,11 @@ public struct DriverTurnPipeline: Sendable {
             return judge(at: now)
         case .audioDone(let id), .turnClosed(let id, _):
             guard var t = current(id) else { return [] }
-            if case .turnClosed = input { t.closed = true }
+            if case .turnClosed(_, let outcome) = input {
+                t.closed = true
+                // Review M1: a cut reply (stop, barge-in) re-asks nothing and gets no fallback line.
+                if outcome == .cancelled { t.silentBlock = true }
+            }
             turn = t
             return checkLanguage(at: now, final: true) + settle(at: now)
         case .navigationPhase(let phase):
@@ -292,9 +309,15 @@ public struct DriverTurnPipeline: Sendable {
             guard timers[timer.kind] == timer.epoch else { return [] }
             timers[timer.kind] = nil
             return fire(timer.kind, at: now)
+        case .speechStarted:
+            onsetsReported = true
+            newOnset = true
+            awaitingReaskReply = false
+            return cancel(.fallback)
         case .stopped:
             pendingCorrection = nil
             awaitingReaskReply = false
+            stoppedThisUtterance = true
             let cancelled = cancel(.reask) + cancel(.giveUp) + cancel(.correction) + cancel(.fallback)
             return cancelled.isEmpty ? [] : cancelled + [.diagnostic(.reaskSuppressed)]
         }
@@ -618,6 +641,8 @@ public struct DriverTurnPipeline: Sendable {
         pendingCorrection = nil
         nudgedThisUtterance = true
         out += cancel(.correction)
+        // Review M1, L3: after a stop or a cut, or in a turn no real utterance led to, the block is silent.
+        if stoppedThisUtterance || t.silentBlock || t.phantomSuspect { return out }
         guard !languageReasked else { return out + fallback(.blockedAgain) }
         languageReasked = true
         awaitingReaskReply = true

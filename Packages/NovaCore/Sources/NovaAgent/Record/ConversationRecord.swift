@@ -71,7 +71,8 @@ public enum RecordEvent: Sendable, Hashable {
     case claimCut(turn: Int, playedMs: Int)
     /// F-05a §15 item 7 (T-016m): `lang-check turn= verdict= lang= p= held_ms=`; codes and numbers only.
     case langCheck(turn: Int, verdict: LangCheckVerdict, lang: LanguageTag?, percent: Int, heldMs: Int)
-    /// F-05a §15 item 7: `correction WRONG_LANGUAGE heard=<sensevoice|none>`; the voided turn's reason is WRONG_LANGUAGE.
+    /// F-05a §15 item 7: `correction WRONG_LANGUAGE heard=<sensevoice|none>`. It is sent while the blocked turn is still
+    /// open, so that turn's own `reply-out` does not carry the reason (it settles a turn already ended, if any).
     case wrongLanguage(heard: Bool)
     /// F-05a §15 item 7: `fallback-line turn= reason=`.
     case fallbackLine(turn: Int, reason: FallbackLineReason)

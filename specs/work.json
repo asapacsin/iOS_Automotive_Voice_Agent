@@ -2112,14 +2112,26 @@
     {
       "id": "T-016m",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-05a §15 items 1-9: LanguageIdentifier port + AppleLanguageIdentifier (NLLanguageRecognizer, NovaPlatform); ReplyLanguageCheck (other script blocked, Han/Kana allowed, Latin 12+ letters by detector en>=0.5, short final blocked only when non-en>=0.8); first audio held up to 800 ms for the verdict; blocked reply voided; one WRONG_LANGUAGE re-ask with SenseVoice words; app's own fallback line via SystemSpeechGuidanceVoice after a second block or 6 s; lang-check, correction and fallback-line record lines; rows 1-12.",
       "depends_on": [
         "T-016l"
       ],
       "notes": "Owner 2026-11-10: only Chinese, English and Japanese, yet she answered in Portuguese. Record 20261110-090143 (build 53): SenseVoice heard 不知道 (zh), Gemini heard tudo bem and replied in Portuguese; isNotAllowed passes every Latin letter. Community: Guardrails AI CorrectLanguage validator and reask (num_reasks=1), phantombot #580 (check in code, not more prompt), Hugging Face speech-to-speech fallback to the session language.",
-      "evidence": []
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green on a clean clone (gate tests 57 OK incl. NaturalLanguage-only-in-NovaPlatform, runners 0, imports 0, secrets 0, NovaCore 728 with the known T-013d issue, NovaRealtime 42, NovaServices 71, spec-trace 110 ids 0 missing); unit rows 1-8 and gate row 9 pass; App/NovaPlatform not compiled on Linux, row 10 build NOT_VERIFIED (Codemagic, owner)"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS; fixed after review: a reply cut by a stop or barge-in (or a phantom turn) is voided with no re-ask or fallback; utterance identity by speech onset so a late SenseVoice final keeps num_reasks=1; a new onset cancels the fallback line at once; the arbiter holds her clauses while the line sounds. Left as is: camera answers are not language-checked (outside §15); the blocked turn's reply-out carries no reason (documented)"
+        },
+        {
+          "device": "F-05a §15 rows 11-12 NOT_VERIFIED"
+        }
+      ]
     },
     {
       "id": "T-013e",

@@ -234,4 +234,44 @@ struct ReplyLanguageCheckTests {
         h.send(.replyText(h.turn, " bem, em que posso ajudar você?"))
         #expect(h.spoken.isEmpty && h.out.contains(.voided(h.turn)))
     }
+
+    @Test("T-016m review M1: a reply cut by a stop or a barge-in is voided with no re-ask and no fallback line")
+    func cutReplyIsSilent() {
+        var h = Self.harness(["Jardin": ("fr", 0.85)])
+        Self.asked(&h)
+        h.send(.replyText(h.turn, "Jardin"))
+        h.send(.stopped)
+        h.send(.turnClosed(h.turn, .cancelled))
+        h.advance(by: .seconds(7))
+        #expect(Self.reasks(h.out).isEmpty && Self.fallbacks(h.out) == 0 && h.out.contains(.voided(h.turn)))
+        var b = Self.harness(["Jardin": ("fr", 0.85)])
+        Self.asked(&b)
+        b.send(.replyText(b.turn, "Jardin"))
+        b.send(.turnClosed(b.turn, .cancelled))
+        #expect(Self.reasks(b.out).isEmpty)
+    }
+
+    @Test("T-016m review M2, M3: a late final of the same onset keeps the one re-ask; a new onset cancels the fallback line at once")
+    func onsets() {
+        var h = Self.harness()
+        h.send(.speechStarted)
+        h.send(.driverUtterance("不知道"))
+        h.turn = h.turn.next()
+        h.send(.turnOpened(h.turn))
+        h.send(.replyText(h.turn, "안녕"))
+        h.send(.driverUtterance("不知道。", language: .zh))  // the SenseVoice final, late
+        h.turn = h.turn.next()
+        h.send(.turnOpened(h.turn))
+        h.send(.replyText(h.turn, "안녕"))
+        #expect(Self.reasks(h.out).count == 1 && Self.fallbacks(h.out) == 1)
+
+        var g = Self.harness()
+        g.send(.speechStarted)
+        Self.asked(&g)
+        g.send(.replyText(g.turn, "안녕"))
+        g.advance(by: .seconds(5))
+        g.send(.speechStarted)  // the driver repeats before 6 s
+        g.advance(by: .seconds(5))
+        #expect(Self.fallbacks(g.out) == 0)
+    }
 }

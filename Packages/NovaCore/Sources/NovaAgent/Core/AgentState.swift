@@ -367,6 +367,7 @@ public struct AgentState: Sendable {
             // The driver speaks to her: a reply may claim focus again after a permanent loss (R4).
             if recentSpeech { arbiter.regainFocus() }
             let effects = cleared + bargeIn(.speechStarted(recentSpeech: recentSpeech), at: now)
+                + pipeline(.speechStarted, at: now)  // F-05a §15 item 5: a new utterance cancels the fallback line
             return effects + session(.speechStarted, at: now) + arbiterChanged(at: now)
         case .speechStopped:
             utteranceOpen = false
@@ -1155,6 +1156,8 @@ public struct AgentState: Sendable {
                 // F-05a §15 item 5: the app's own line, with the guidance voice on the guidance lane; her line on screen.
                 answerOwed = false
                 fallbackLines = fallbackLines.next()
+                // Review L1: her clauses wait while the line sounds, as for a guidance sentence.
+                arbiter.guidance(true, at: now)
                 resetSubtitle()
                 effects += subtitle(adding: text, .reply)
                 effects.append(.publish(view))
