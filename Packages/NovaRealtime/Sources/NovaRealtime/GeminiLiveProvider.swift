@@ -179,6 +179,12 @@ public final class GeminiLiveProvider: RealtimeProvider {
         if let setup = try? GeminiCodec.encode(GeminiCodec.setup(config, resume: handle)) {
             socket.enqueue(String(decoding: setup, as: UTF8.self))
         }
+        // F-21 §16 item 5 (T-034c): a resumed session keeps its chain's original instruction; the current one goes
+        // right after the setup, before any audio or text (the server applies messages in order).
+        if handle != nil, let instruction = config.resumeInstructionUpdate,
+           let update = try? GeminiCodec.encode(GeminiCodec.contextUpdate(systemInstruction: instruction)) {
+            socket.enqueue(String(decoding: update, as: UTF8.self))
+        }
         let installed = state.withLock { s -> Bool in
             guard s.attempt == attempt else { return false }
             if s.activityOpen, let start = try? GeminiCodec.encode(GeminiCodec.activityStart) {
@@ -289,6 +295,11 @@ public final class GeminiLiveProvider: RealtimeProvider {
 
     public func sendText(_ turns: [TextTurn], turnComplete: Bool) async {
         send(GeminiCodec.text(turns, turnComplete: turnComplete))
+    }
+
+    /// F-21 §16 item 1 (T-034c).
+    public func sendContextUpdate(systemInstruction: String) async {
+        send(GeminiCodec.contextUpdate(systemInstruction: systemInstruction))
     }
 
     public func close() async {

@@ -47,6 +47,7 @@ final class QueuedProvider: RealtimeProvider, @unchecked Sendable {
     }
     func sendAudio(_ frame: PCMFrame16k) {}
     func sendAudioStreamEnd() async {}
+    func sendContextUpdate(systemInstruction: String) async {}
     func sendText(_ turns: [TextTurn], turnComplete: Bool) async {
         let (c, script) = current
         switch script {

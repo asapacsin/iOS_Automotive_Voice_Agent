@@ -94,6 +94,9 @@ public struct SessionConfig: Sendable, Hashable {
     public var activityDetection: ActivityDetectionConfig
     public var inputTranscription: Bool
     public var outputTranscription: Bool
+    /// F-21 §16 item 5 (T-034c): a system instruction sent as `contextUpdate` right after a setup that resumes with a
+    /// handle (the server keeps the chain's original instruction). Not part of the setup itself.
+    public var resumeInstructionUpdate: String?
 
     public init(model: String = "gemini-3.8-live", systemInstruction: String, tools: [ToolDeclaration],
                 voiceName: String = "Aoede", languageCode: String? = nil, thinkingLevel: String? = "LOW",
@@ -226,6 +229,8 @@ public protocol RealtimeProvider: Sendable {
     func sendAudioStreamEnd() async
     func sendToolResponses(_ responses: [ToolResponse]) async
     func sendText(_ turns: [TextTurn], turnComplete: Bool) async
+    /// F-21 §16 item 1 (T-034c): `contextUpdate{systemInstruction}`; no acknowledgement.
+    func sendContextUpdate(systemInstruction: String) async
     func close() async
 }
 

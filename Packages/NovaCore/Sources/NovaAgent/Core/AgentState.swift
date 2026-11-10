@@ -43,6 +43,8 @@ public enum AgentEvent: Sendable, Hashable {
     case network(available: Bool)
     /// F-18 §21 item 1 (T-046i): the current destination's cleaned name, or nil when there is none.
     case destination(String?)
+    /// F-21 §16 item 4 (T-034c): a tone picked in 设置 while the session runs (already saved).
+    case styleChanged(SpeakingStyle)
 }
 
 /// Screen actions (ios-architecture §11.1). Each becomes the tool call the voice path would make.
@@ -79,8 +81,13 @@ public enum AgentTimer: Sendable, Hashable {
 
 public enum ProviderCommand: Sendable, Hashable {
     /// Open socket `connection`; its events come back tagged with it.
-    case connect(connection: Generation, resume: String?)
+    /// F-21 §16 items 1, 5 (T-034c): `instruction` replaces the setup's system instruction (a setup without a handle
+    /// carries the current tone); `update` is a `contextUpdate` sent right after a setup with a handle, before any
+    /// audio or text. Both nil without tone updates.
+    case connect(connection: Generation, resume: String?, instruction: String? = nil, update: String? = nil)
     case close
+    /// F-21 §16 item 1: `contextUpdate{systemInstruction}` on the open connection.
+    case contextUpdate(String)
     case toolResponses([ToolResponse])
     case text([TextTurn], turnComplete: Bool)
     /// F-08 §15 item 1: `activityStart` then `activityEnd` with no audio between, so Gemini cancels its reply.
@@ -136,6 +143,10 @@ public enum AgentEffect: Sendable, Hashable {
     case keepResumption(String?)
     /// F-05a §15 item 7 (T-016m): the language check's record and log line; no words (I-8).
     case languageLine(ReplyLanguageLine)
+    /// F-21 §16 item 8 (T-034c): a `style-update` record and log line; codes and numbers only.
+    case styleLine(StyleUpdateLine)
+    /// F-21 §16 item 5: the tone of the setup that began the kept handle's chain (always right after `keepResumption`).
+    case keepToneChain(SpeakingStyle)
 }
 
 /// The single serialisation point (Android's session mutex), as a pure value: `VoiceSession`,
@@ -289,6 +300,8 @@ public struct AgentState: Sendable {
     private var areaEarlyTurns: Set<TurnID> = []
     /// Comfort calls running, by the utterance they belong to (for `comfortOk`).
     private var comfortCalls: [CallID: Int] = [:]
+    /// F-21 §16 (T-034c): nil keeps today's behaviour (the tone applies at the next session).
+    private var tone: ToneUpdater?
 
     public init() {}
 
@@ -301,8 +314,9 @@ public struct AgentState: Sendable {
     /// turns it on because it feeds the phone recognizer's words.
     public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
                 revoicing: Bool = true, languageIdentifier: any LanguageIdentifier = NoLanguageIdentifier(),
-                carRequestAreas: Bool = false) {
+                carRequestAreas: Bool = false, tone: ToneUpdateSetup? = nil) {
         carAreas = carRequestAreas
+        self.tone = tone.map(ToneUpdater.init)
         pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing, detector: languageIdentifier)
         detector = languageIdentifier
         self.revoicing = revoicing
@@ -317,7 +331,12 @@ public struct AgentState: Sendable {
     }
 
     public mutating func handle(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
-        let effects = dispatch(event, at: now)
+        var live = false
+        if case .realtime(_, let connection) = event {
+            live = connection == session.connection && session.state != .disconnected && session.state != .error
+        }
+        var effects = dispatch(event, at: now)
+        if tone != nil { effects += toneEffects(event, live: live, at: now) }
         guard destinationNotes else { return effects }
         noteTriggers(event)
         return effects + flushNote()
@@ -369,7 +388,7 @@ public struct AgentState: Sendable {
 
     private mutating func dispatch(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
         switch event {
-        case .destination:
+        case .destination, .styleChanged:
             return []
         case .start:
             return session(.start, at: now)
@@ -789,6 +808,50 @@ public struct AgentState: Sendable {
         return effects
     }
 
+    // MARK: Tone (F-21 §16, T-034c)
+
+    /// Runs after the event's own effects, so an update follows the tool result and the end of her reply.
+    private mutating func toneEffects(_ event: AgentEvent, live: Bool, at now: NovaInstant) -> [AgentEffect] {
+        guard var t = tone else { return [] }
+        defer { tone = t }
+        switch event {
+        case .styleChanged(let style):
+            // Item 4: with no connection the next setup reads the saved tone.
+            guard session.state != .disconnected, session.state != .error, session.state != .connecting,
+                  session.state != .reconnecting else { return [] }
+            return Self.toneOutputs(t.changed(to: style, reason: .settings, replying: openTurn != nil, at: now))
+        case .toolFinished(_, let call, let result):
+            // Item 3: only a saved change; STYLE_NOT_ALLOWED or a failed call sends nothing.
+            guard call.name == SpeakingStyleHandler.tool, result.ok,
+                  let style = result.data["style"]?.stringValue.flatMap(SpeakingStyle.init(rawValue:)) else { return [] }
+            return Self.toneOutputs(t.changed(to: style, reason: .tool, replying: true, at: now))
+        case .realtime(let realtime, _):
+            guard live else { return [] }
+            switch realtime {
+            case .replyText, .replyAudio:
+                t.replyOutput()
+                return []
+            case .interrupted, .responseDone:
+                return Self.toneOutputs(t.turnEnded(at: now))
+            case .failed(let error):
+                return Self.toneOutputs(t.failed(error.code, at: now))
+            default:
+                return []
+            }
+        default:
+            return []
+        }
+    }
+
+    private static func toneOutputs(_ outputs: [ToneUpdater.Output]) -> [AgentEffect] {
+        outputs.map { output in
+            switch output {
+            case .send(let text): .provider(.contextUpdate(text))
+            case .line(let line): .styleLine(line)
+            }
+        }
+    }
+
     // MARK: Session
 
     private mutating func session(_ input: SessionInput, at now: NovaInstant) -> [AgentEffect] {
@@ -805,10 +868,20 @@ public struct AgentState: Sendable {
                 view.offlineEnded = true
             case .keepHandle(let handle):
                 effects.append(.keepResumption(handle))
+                if let tone { effects.append(.keepToneChain(tone.keptStyle)) }
             case .connect(let connection, let resume):
                 effects += newSocket(at: now)
-                effects.append(.provider(.connect(connection: connection, resume: resume)))
+                if var t = tone {
+                    let (instruction, update, lines) = t.connect(resume: resume != nil, at: now)
+                    tone = t
+                    effects.append(.provider(.connect(connection: connection, resume: resume, instruction: instruction,
+                                                      update: update)))
+                    effects += Self.toneOutputs(lines)
+                } else {
+                    effects.append(.provider(.connect(connection: connection, resume: resume)))
+                }
             case .close:
+                tone?.socketClosed()
                 // The turn in progress dies with its socket (contracts §5: Error/Closed drop the reply).
                 effects += endTurn(at: now)
                 effects += dropAsyncCalls()

@@ -217,12 +217,30 @@ struct RuntimeSink: AgentEffectSink {
     let wakeWatch: WakeSessionWatch
     /// F-24 §15 item 4 (T-016j): the runtime keeps the handle in memory; never logged or written (I-7).
     let keepHandle: @Sendable (String?) async -> Void
+    /// F-21 §16 items 5, 7 (T-034c): the chain's original tone kept with the handle; an update was rejected.
+    let keepTone: @Sendable (SpeakingStyle) async -> Void
+    let toneRejected: @Sendable () async -> Void
 
     func keepResumption(_ handle: String?) async { await keepHandle(handle) }
+    func keepToneChain(_ style: SpeakingStyle) async { await keepTone(style) }
+
+    /// F-21 §16 item 8 (T-034c): codes and numbers only, so the same line goes to the log and the record (I-8).
+    func styleLine(_ line: StyleUpdateLine) {
+        RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+        record?.submit(.styleUpdate(line))
+        if case .rejected = line { Task { await toneRejected() } }
+    }
 
     func provider(_ command: ProviderCommand) async {
         switch command {
-        case .connect(let connection, let resume): await realtime.connect(config, resume: resume, connection: connection)
+        case .connect(let connection, let resume, let instruction, let update):
+            // F-21 §16 items 1, 5 (T-034c): a setup without a handle carries the current tone; a resumed one is followed
+            // by the update when the tone changed since the chain began.
+            var setup = config
+            if let instruction { setup.systemInstruction = instruction }
+            setup.resumeInstructionUpdate = update
+            await realtime.connect(setup, resume: resume, connection: connection)
+        case .contextUpdate(let instruction): await realtime.sendContextUpdate(systemInstruction: instruction)
         case .close: await realtime.close()
         case .toolResponses(let responses):
             for r in responses {
@@ -896,10 +914,9 @@ final class AgentRuntime {
         executors[EndConversationHandler.tool] = EndConversationHandler(lifecycle: lifecycle)
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
-        // F-21: the saved tone is read once here, at session start.
-        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(PersonaInstruction.base(for: comfortMode),
-                                                                                 webSearch: webSearch),
-                                                   style: SpeakingStyle.saved(in: settings))
+        // F-21: the saved tone at session start; F-21 §16 (T-034c) sends a later change on the same connection.
+        let personaBase = PersonaInstruction.base(PersonaInstruction.base(for: comfortMode), webSearch: webSearch)
+        let instruction = PersonaInstruction.build(base: personaBase, style: SpeakingStyle.saved(in: settings))
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
         let sessionStart = Date()
@@ -965,15 +982,22 @@ final class AgentRuntime {
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch,
-                               keepHandle: { [weak self, session] handle in await self?.keepResumption(handle, session: session) })
+                               keepHandle: { [weak self, session] handle in await self?.keepResumption(handle, session: session) },
+                               keepTone: { [weak self, session] style in await self?.keepToneChain(style, session: session) },
+                               toneRejected: { [weak self] in await self?.rejectToneUpdates() })
         // F-24 §15 item 5 (T-016j): a handle kept by the last give-up is sent once, then forgotten.
+        let toneChain = keptToneChain
+        keptToneChain = nil
         let resume = keptResumption.take(at: navigationClock.now)
+        let tone = ToneUpdateSetup(base: personaBase, model: config.model, style: SpeakingStyle.saved(in: settings),
+                                   resumeStyle: resume?.handle == nil ? nil : toneChain, disabled: toneUpdatesRejected)
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
                                                resume: resume, revoicing: decision.revoicing,
                                                languageIdentifier: AppleLanguageIdentifier(),
-                                               carRequestAreas: true))  // F-09a (T-017a)
+                                               carRequestAreas: true,  // F-09a (T-017a)
+                                               tone: tone))  // F-21 §16 (T-034c)
         ended.core = core
         self.core = core
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.
@@ -1383,6 +1407,18 @@ final class AgentRuntime {
         guard session == self.session, model.running else { return }
         keptResumption.keep(handle, at: navigationClock.now)
     }
+
+    /// F-21 §16 item 5 (T-034c): the tone of the setup that began the kept handle's chain; memory only, like the handle.
+    private var keptToneChain: SpeakingStyle?
+    /// F-21 §16 item 7: an update was rejected; no more updates for the rest of the app run.
+    private var toneUpdatesRejected = false
+
+    private func keepToneChain(_ style: SpeakingStyle, session: Int) {
+        guard session == self.session, model.running else { return }
+        keptToneChain = style
+    }
+
+    private func rejectToneUpdates() { toneUpdatesRejected = true }
 
     func stop() {
         // F-24 §15 item 4: the driver stopped a running session: a kept handle is not sent next time.

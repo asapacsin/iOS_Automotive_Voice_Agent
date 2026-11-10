@@ -99,7 +99,7 @@ public enum PersonaInstruction {
 }
 
 /// `set_speaking_style` (`A/tools/SpeechDomain.kt:13`): saves the tone, which the next session start
-/// reads into the system instruction. Lives in NovaAgent because `SettingsKey` does.
+/// reads into the system instruction; F-21 §16 (T-034c) also sends it on the open connection after her confirmation. Lives in NovaAgent because `SettingsKey` does.
 public struct SpeakingStyleHandler: ToolExecutor {
     public static let tool = "set_speaking_style"
     private let settings: any SettingsStore

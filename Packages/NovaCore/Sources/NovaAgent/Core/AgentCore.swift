@@ -27,12 +27,18 @@ public protocol AgentEffectSink: Sendable {
     func keepResumption(_ handle: String?) async
     /// F-05a §15 item 7: a `lang-check`, `correction WRONG_LANGUAGE` or `fallback-line` line; codes and numbers only.
     func languageLine(_ line: ReplyLanguageLine)
+    /// F-21 §16 item 8 (T-034c): a `style-update` line; codes and numbers only.
+    func styleLine(_ line: StyleUpdateLine)
+    /// F-21 §16 item 5: keep the chain's original tone with the handle, in memory only.
+    func keepToneChain(_ style: SpeakingStyle) async
 }
 
 extension AgentEffectSink {
     public func screenHidden(_ kind: ScreenTextKind, text: String) {}
     public func keepResumption(_ handle: String?) async {}
     public func languageLine(_ line: ReplyLanguageLine) {}
+    public func styleLine(_ line: StyleUpdateLine) {}
+    public func keepToneChain(_ style: SpeakingStyle) async {}
     public func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async {}
 }
 
@@ -145,6 +151,8 @@ public actor AgentCore {
             sink.screenHidden(kind, text: ScreenLanguage.recordText(text))
         case .keepResumption(let handle): await sink.keepResumption(handle)
         case .languageLine(let line): sink.languageLine(line)
+        case .styleLine(let line): sink.styleLine(line)
+        case .keepToneChain(let style): await sink.keepToneChain(style)
         }
     }
 }

@@ -39,6 +39,7 @@ final class StepProvider: RealtimeProvider, @unchecked Sendable {
     }
     func sendAudio(_ frame: PCMFrame16k) {}
     func sendAudioStreamEnd() async {}
+    func sendContextUpdate(systemInstruction: String) async {}
     func sendText(_ turns: [TextTurn], turnComplete: Bool) async {
         let (step, count) = state.withLock { s -> (Step, Int) in
             s.sent.append(turns.last!.text)
