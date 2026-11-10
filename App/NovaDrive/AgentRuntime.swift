@@ -235,7 +235,8 @@ struct RuntimeSink: AgentEffectSink {
             await realtime.sendToolResponses(responses)
         case .text(let turns, let complete):
             if let record, let text = turns.last?.text,
-               let reason = CorrectionReason.allCases.first(where: { $0.instruction == text }) {
+               // F-05a §15 item 7: WRONG_LANGUAGE writes its own line through `languageLine`.
+               let reason = CorrectionReason.allCases.first(where: { $0 != .wrongLanguage && $0.instruction == text }) {
                 record.submit(.correction(reason.rawValue))
             }
             // F-18 §21 item 7: a destination note (the only text sent with turnComplete false).
@@ -311,6 +312,12 @@ struct RuntimeSink: AgentEffectSink {
 
     func screenHidden(_ kind: ScreenTextKind, text: String) {
         record?.submit(.screenHidden(kind: kind, text: text))
+    }
+
+    /// F-05a §15 item 7 (T-016m): codes and numbers only, so the same line goes to the log and the record (I-8).
+    func languageLine(_ line: ReplyLanguageLine) {
+        RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
+        record?.submit(.languageLine(line))
     }
 
     /// F-14 fallback voice: rendered off the core, played on the guidance lane. A sentence that cannot
@@ -980,7 +987,8 @@ final class AgentRuntime {
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
-                                               resume: resume, revoicing: decision.revoicing))
+                                               resume: resume, revoicing: decision.revoicing,
+                                               languageIdentifier: AppleLanguageIdentifier()))
         ended.core = core
         self.core = core
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.

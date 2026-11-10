@@ -129,6 +129,8 @@ public enum AgentEffect: Sendable, Hashable {
     /// F-24 §15 item 4 (T-016j): the session gave up or hit the offline cap; the shell keeps this handle in
     /// memory for the next start. Never logged or persisted (I-7).
     case keepResumption(String?)
+    /// F-05a §15 item 7 (T-016m): the language check's record and log line; no words (I-8).
+    case languageLine(ReplyLanguageLine)
 }
 
 /// The single serialisation point (Android's session mutex), as a pure value: `VoiceSession`,
@@ -236,6 +238,8 @@ public struct AgentState: Sendable {
     /// The turn the stop cut; only its `interrupted` closes the stop sync.
     private var stopSyncTurn: TurnID?
     private var pipelineTimers: [PipelineTimer.Kind: PipelineTimer] = [:]
+    /// F-05a §15 item 5: fallback lines said; their guidance ids count down from the top, clear of Amap's.
+    private var fallbackLines: UInt64 = 0
 
     /// F-18 §21 item 2 (T-046i): silent destination notes (on with the search setting; off sends none).
     private var destinationNotes = false
@@ -254,9 +258,10 @@ public struct AgentState: Sendable {
     /// F-18 §21 item 2: `destinationNotes` sends the destination notes.
     /// `resume`: F-24 §15 item 5, what the last give-up kept for this session's first connect.
     /// `revoicing`: F-07 §15 item 3, false when her voice is Gemini's own audio.
+    /// `languageIdentifier`: F-05a §15 item 1, the detector her reply's language is checked with.
     public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
-                revoicing: Bool = true) {
-        pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing)
+                revoicing: Bool = true, languageIdentifier: any LanguageIdentifier = NoLanguageIdentifier()) {
+        pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing, detector: languageIdentifier)
         self.revoicing = revoicing
         if let resume { session = VoiceSession(resume: resume) }
         self.destinationNotes = destinationNotes
@@ -388,7 +393,7 @@ public struct AgentState: Sendable {
             guard session.state != .disconnected, session.state != .error else { return [] }
             switch words {
             case .partial(let text): return heard(text, isFinal: false, at: now)
-            case .final(let text, _): return heard(text, isFinal: true, at: now)
+            case .final(let text, let language): return heard(text, isFinal: true, language: language, at: now)
             case .unclear:
                 // S4: shown as 「（没听清）」 only; no stop-phrase check. Tool calls never read words (F-05a §6).
                 transcriptEpoch = speechOnsets
@@ -619,7 +624,10 @@ public struct AgentState: Sendable {
 
     private mutating func applySubtitle(final: Bool) -> [AgentEffect] {
         guard !subtitleHidden else { return [] }
-        switch ScreenLanguage.check(subtitleRaw, final: final, language: ScreenLanguage.replyLanguage(subtitleRaw)) {
+        // F-05a §15 item 6: a Latin-only reply counts as English only when the language check allowed it.
+        var language = ScreenLanguage.replyLanguage(subtitleRaw)
+        if subtitleKind == .reply, language == .en, !pipeline.replyLanguageAllowed { language = nil }
+        switch ScreenLanguage.check(subtitleRaw, final: final, language: language) {
         case .show: view.subtitle = subtitleRaw
         case .wait: view.subtitle = ""
         case .hide:
@@ -882,7 +890,8 @@ public struct AgentState: Sendable {
     // MARK: Reply
 
     /// The driver's words so far (`text` is the whole utterance), from Gemini or from `TranscriptSelector`.
-    private mutating func heard(_ text: String, isFinal: Bool, at now: NovaInstant) -> [AgentEffect] {
+    private mutating func heard(_ text: String, isFinal: Bool, language: SpokenLanguage? = nil,
+                                at now: NovaInstant) -> [AgentEffect] {
         // Her own guidance reading heard back through the microphone is not the driver (F-14 §8).
         if isFinal, relay.isEcho(text, at: now) { return [] }
         transcriptEpoch = speechOnsets
@@ -905,7 +914,7 @@ public struct AgentState: Sendable {
         // The flushed transcript of an utterance already given up on does not revive it; words of a not-sent
         // utterance never reach the tool path (F-04 §14 item 1).
         guard isFinal, !abandonNextTurn, utteranceSent else { return [] }
-        return pipeline(.driverUtterance(text), at: now)
+        return pipeline(.driverUtterance(text, language: language), at: now)
     }
 
     private mutating func reply(_ event: RealtimeEvent, at now: NovaInstant) -> [AgentEffect] {
@@ -1137,6 +1146,20 @@ public struct AgentState: Sendable {
             case .sendCorrection(let reason):
                 answerOwed = true
                 effects.append(.provider(.text([TextTurn(role: .user, text: reason.instruction)], turnComplete: true)))
+            case .languageReask(let text):
+                // F-05a §15 item 4: sent at once, not after the correction grace.
+                answerOwed = true
+                effects.append(.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)))
+            case .fallbackLine:
+                // F-05a §15 item 5: the app's own line, in the system voice on the guidance lane, shown as hers.
+                answerOwed = false
+                fallbackLines += 1
+                resetSubtitle()
+                effects += subtitle(adding: DriverTurnPipeline.fallbackLineText, .reply)
+                effects.append(.publish(view))
+                effects.append(.speakGuidance(DriverTurnPipeline.fallbackLineText, GuidanceID(UInt64.max - fallbackLines)))
+            case .languageLine(let line):
+                effects.append(.languageLine(line))
             case .reask(let text):
                 answerOwed = true
                 effects.append(.diagnostic(.turnUnanswered(turn: closedTurns)))  // F-04 §14 item 7

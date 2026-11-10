@@ -71,6 +71,8 @@ public enum RecordEvent: Sendable, Hashable {
     case claimCut(turn: Int, playedMs: Int)
     /// F-13 §17 item 6 (T-032e): a `music …` line (search, preview start/playing/failed/cut/ended); numbers and codes.
     case music(String)
+    /// F-05a §15 item 7 (T-016m): `lang-check …`, `correction WRONG_LANGUAGE heard=…`, `fallback-line …`.
+    case languageLine(ReplyLanguageLine)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -164,6 +166,10 @@ public struct ConversationRecorder: Sendable {
             let timing = elapsed.map { " scheduling=\(AsyncTool.scheduling) ms=\($0)" } ?? ""
             return [line("tool-result", "\(name)\(timing) ok=\(ok) code=\(code ?? "none") \(Self.json(data))")]
         case .correction(let reason): return settle(ms, reason: reason) + [line("correction", reason)]
+        case .languageLine(let l):
+            // The re-ask settles the voided reply like any correction.
+            if case .correction = l { return settle(ms, reason: CorrectionReason.wrongLanguage.rawValue) + [line(l.kind, l.fields)] }
+            return [line(l.kind, l.fields)]
         case .playbackStarted: return [line("playback", "started")]
         case .playbackFinished: return [line("playback", "finished")]
         case .generationComplete(let t): return [line("turn-end", "generationComplete turn=\(t)")]

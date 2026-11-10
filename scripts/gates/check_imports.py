@@ -22,6 +22,7 @@ OWNERS = {
     "AIKIT": {"App"}, "ef7d69542_v1009_aee": {"App"},
     "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"}, "AudioToolbox": {"NovaAudio"},
     "AVFoundation": {"NovaPlatform"},
+    "NaturalLanguage": {"NovaPlatform"},  # F-05a §15 item 1 (T-016m)
     "CoreLocation": {"NovaPlatform"}, "Network": {"NovaPlatform"}, "Contacts": {"NovaPlatform"},
     "Security": {"NovaServices"},
     "UIKit": {"App", "NovaNavAmap"}, "SwiftUI": {"App", "NovaNavAmap"},

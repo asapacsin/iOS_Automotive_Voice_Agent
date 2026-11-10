@@ -29,8 +29,9 @@ struct GeminiVoiceTests {
         let t1 = TurnID(1)
         d.realtime(.userTranscript("讲个笑话", isFinal: true))
         d.realtime(.responseStarted(t1))
-        #expect(Self.played(d.realtime(.replyAudio(t1, Self.pcm))) == [t1])
-        d.realtime(.replyText(t1, "好的，有一只小猫。"))
+        // F-05a §15 item 3: the first audio waits for the language verdict; Chinese text releases it.
+        #expect(Self.played(d.realtime(.replyAudio(t1, Self.pcm))).isEmpty)
+        #expect(Self.played(d.realtime(.replyText(t1, "好的，有一只小猫。"))) == [t1])
         #expect(Self.played(d.realtime(.replyAudio(t1, Self.pcm))) == [t1])
         #expect(Self.played(d.realtime(.audioDone(t1)) + d.realtime(.responseDone(t1, outcome: .completed))).isEmpty)
         #expect(spoken(d.effects).isEmpty)   // no Revoicer clause at all

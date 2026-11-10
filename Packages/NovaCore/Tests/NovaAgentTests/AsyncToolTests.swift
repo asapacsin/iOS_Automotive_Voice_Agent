@@ -38,10 +38,19 @@ struct AsyncToolTests {
         #expect(started.contains(.startTool(TurnID(1), call)))
         // While it runs: Gemini's 「我查一下」 audio is played, nothing waits on the tool.
         let pcm = PCMBuffer(sampleRate: 24_000, samples: [1, 2, 3])
-        for _ in 0..<3 {
-            d.now = d.now + .seconds(1)
-            #expect(GeminiVoiceTests.played(d.realtime(.replyAudio(TurnID(1), pcm))) == [TurnID(1)])
+        let start = d.now
+        for second in 1...3 {
+            d.now = start + .seconds(Int64(second))
+            let played = GeminiVoiceTests.played(d.realtime(.replyAudio(TurnID(1), pcm)))
+            if second == 1 {
+                // F-05a §15 item 3: no text yet, so the first audio waits at most 800 ms for the language verdict.
+                #expect(played.isEmpty)
+                #expect(GeminiVoiceTests.played(d.fire(.language)) == [TurnID(1)])
+            } else {
+                #expect(played == [TurnID(1)])
+            }
         }
+        d.now = start + .seconds(3)
         let done = d.send(.toolFinished(TurnID(1), call, .success(["temperature_c": 12])))
         let r = try #require(Self.responses(done).first)
         #expect(r.scheduling == "WHEN_IDLE" && r.elapsedMs == 3_000)

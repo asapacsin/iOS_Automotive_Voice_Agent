@@ -10,7 +10,7 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case musicNotConfirmed = "MUSIC_NOT_CONFIRMED"
     case clarifyReferent = "CLARIFY_REFERENT"
     case unverifiedClaim = "UNVERIFIED_CLAIM"
-    case notMandarin = "NOT_MANDARIN"
+    case wrongLanguage = "WRONG_LANGUAGE"
 
     /// Sent to the model as a text turn. Code decides when; the sentence only explains (I-11).
     public var instruction: String {
@@ -22,14 +22,32 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         case .musicNotConfirmed: "[系统] MUSIC_NOT_CONFIRMED：没有确认音乐正在播放，不要说正在播放。"
         case .clarifyReferent: "[系统] 指代不明确。请用一句简短的话问司机具体指哪一项。"
         case .unverifiedClaim: "[系统] 你声称已完成操作，但没有成功的工具结果。请先调用工具，或如实说明。"
-        case .notMandarin: "[系统] NOT_MANDARIN：只能用普通话回答，不能用其他语言。没听清就用中文说「没听清，请再说一遍」。"
+        case .wrongLanguage: Self.wrongLanguageText(heard: nil, language: nil)
         }
+    }
+
+    static let wrongLanguageLead = "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。"
+
+    /// F-05a §15 item 4: the re-ask after a blocked reply. With a SenseVoice final in zh, en or ja it names the words
+    /// heard and the language to answer in; otherwise it asks her to have the driver say it again, in Chinese.
+    public static func wrongLanguageText(heard: String?, language: SpokenLanguage?) -> String {
+        let name: String? = switch language {
+        case .zh: "中文"
+        case .en: "英文"
+        case .ja: "日语"
+        case .other, nil: nil
+        }
+        if let heard, let name, !heard.allSatisfy(\.isWhitespace) {
+            return wrongLanguageLead + "司机刚才说的是「\(heard)」。请用\(name)回答这句话。"
+        }
+        return wrongLanguageLead + "请用中文简短地请司机再说一遍。"
     }
 }
 
 public enum PipelineInput: Sendable, Hashable {
-    /// A final driver transcript: a new utterance (resets the one-nudge and one-re-ask budgets).
-    case driverUtterance(String)
+    /// A final driver transcript: a new utterance (resets the one-nudge and one-re-ask budgets). `language` is
+    /// SenseVoice's (F-05a §14), nil for the streaming model; the §15 re-ask names the words only with it.
+    case driverUtterance(String, language: SpokenLanguage? = nil)
     case turnOpened(TurnID)
     case replyText(TurnID, String)
     case replyAudio(TurnID, PCMBuffer)
@@ -47,7 +65,9 @@ public enum PipelineInput: Sendable, Hashable {
 }
 
 public struct PipelineTimer: Sendable, Hashable {
-    public enum Kind: Sendable, Hashable { case correction, reask, giveUp }
+    /// `language`: the 800 ms hold on her first audio (F-05a §15 item 3); `fallback`: 6 s after the
+    /// WRONG_LANGUAGE re-ask with no reply (item 5).
+    public enum Kind: Sendable, Hashable { case correction, reask, giveUp, language, fallback }
     public let kind: Kind
     public let epoch: Epoch
 }
@@ -66,6 +86,12 @@ public enum PipelineOutput: Sendable, Hashable {
     case gaveUp
     case schedule(PipelineTimer, at: NovaInstant)
     case cancelTimer(PipelineTimer.Kind)
+    /// F-05a §15 item 4: the one WRONG_LANGUAGE text turn of an utterance, sent at once.
+    case languageReask(String)
+    /// F-05a §15 item 5: the app itself says 「没听清，请再说一遍」 with the system voice, as her line.
+    case fallbackLine
+    /// F-05a §15 item 7: a record and log line, codes and numbers only.
+    case languageLine(ReplyLanguageLine)
     case diagnostic(DiagnosticEvent)
 }
 
@@ -74,6 +100,12 @@ public enum PipelineOutput: Sendable, Hashable {
 /// `ok=true` result proves them, and dropped otherwise. I-11: all of it is code, not prompt.
 public struct DriverTurnPipeline: Sendable {
     public static let reaskText = "请回应我刚才说的话。"
+    /// F-05a §15 item 5: said by the app with the system voice when the re-ask fails.
+    public static let fallbackLineText = "没听清，请再说一遍"
+    /// F-05a §15 item 3: her first audio waits at most this long for the language verdict.
+    public static let languageHold = NovaDuration.milliseconds(800)
+    /// F-05a §15 item 5: no reply this long after the WRONG_LANGUAGE re-ask says the fallback line.
+    public static let fallbackAfter = NovaDuration.seconds(6)
     /// F-08 §15 item 3: the re-ask names the driver's newest words, so the model never returns to an old topic.
     public static func reaskText(newest: String) -> String {
         newest.allSatisfy(\.isWhitespace) ? reaskText : "请回答我最新的这句话：「\(newest)」"
@@ -98,6 +130,12 @@ public struct DriverTurnPipeline: Sendable {
         var closed = false
         /// No real driver utterance led to this turn: hold it until it proves to be more than a blip.
         var phantomSuspect: Bool
+        /// F-05a §15 items 2-3: the language verdict, sticky once reached, and whether 800 ms released the hold.
+        var language = ReplyLanguageCheck.Verdict.undecided
+        var languageReleased = false
+        var languageLogged = false
+        var firstAudioAt: NovaInstant?
+        var languageOpen: Bool { language == .allowed || languageReleased }
     }
 
     private let tuning: TruthfulnessTuning
@@ -127,18 +165,34 @@ public struct DriverTurnPipeline: Sendable {
     private var nudgedThisUtterance = false
     private var reaskedThisUtterance = false
     private var pendingCorrection: CorrectionReason?
+    /// F-05a §15: the detector, the utterance's SenseVoice final, and the one re-ask and one fallback line.
+    private let detector: any LanguageIdentifier
+    private var lastHeard: (text: String, language: SpokenLanguage)?
+    private var wrongLanguageAsked = false
+    private var awaitingReaskReply = false
+    private var fallbackSaid = false
+    private var lastBlockedTurn = 0
+    /// §15 item 6: the open (or last) reply's verdict is `allowed`, so Latin-only text counts as English on screen.
+    public private(set) var replyLanguageAllowed = false
     private var timerEpoch = Epoch.initial
     private var timers: [PipelineTimer.Kind: Epoch] = [:]
 
-    public init(tuning: TruthfulnessTuning = TruthfulnessTuning(), streamsCleanAudio: Bool = false) {
+    public init(tuning: TruthfulnessTuning = TruthfulnessTuning(), streamsCleanAudio: Bool = false,
+                detector: any LanguageIdentifier = NoLanguageIdentifier()) {
         self.tuning = tuning
         self.streamsCleanAudio = streamsCleanAudio
+        self.detector = detector
     }
 
     public mutating func handle(_ input: PipelineInput, at now: NovaInstant) -> [PipelineOutput] {
         switch input {
-        case .driverUtterance(let text):
+        case .driverUtterance(let text, let language):
             lastUtterance = text
+            if let language { lastHeard = (text, language) } else if lastHeard?.text != text { lastHeard = nil }
+            // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
+            wrongLanguageAsked = false
+            awaitingReaskReply = false
+            fallbackSaid = false
             utteranceAsksAction = ClaimLexicon.asksForAction(text)
             // A request for music or navigation makes the current state stale even if no tool is called.
             // Scoped to this utterance, and a question (「导航还要多久到」) is not a request.
@@ -156,7 +210,8 @@ public struct DriverTurnPipeline: Sendable {
             utteranceBackground = []
             utteranceResults = []
             // A new driver turn cancels a pending correction and starts the no-answer clock.
-            return cancel(.correction) + cancel(.giveUp) + schedule(.reask, at: now + tuning.emptyResponseReask)
+            return cancel(.correction) + cancel(.giveUp) + cancel(.fallback)
+                + schedule(.reask, at: now + tuning.emptyResponseReask)
         case .turnOpened(let id):
             var opened = Turn(id: id, phantomSuspect: !freshUtterance)
             // A later turn of the same utterance inherits its calls and results.
@@ -167,19 +222,29 @@ public struct DriverTurnPipeline: Sendable {
             opened.hadBlockingCall = !utteranceCalls.subtracting(utteranceBackground).isEmpty
             turn = opened
             freshUtterance = false
-            return modelResponded()
+            replyLanguageAllowed = false
+            return modelResponded() + cancel(.language)
         case .replyText(let id, let text):
             guard var t = current(id) else { return [] }
             t.text += text
             // Re-judged on the whole text each time: a later sentence may make a stronger claim.
             t.claims.formUnion(ClaimLexicon.claims(in: t.text))
             turn = t
-            // Mandarin only (owner rule 2026-10-28): a reply in another language is voided, not spoken on.
-            if ReplyLanguage.isNotAllowed(t.text) { return modelResponded() + void(.notMandarin, at: now) }
-            return modelResponded() + route(.speechText(id, text), at: now)
+            var out = modelResponded() + (t.voided ? [] : replyArrived())
+            // F-05a §15 item 2: Chinese, English or Japanese only, checked in code before she says it.
+            out += updateLanguage(final: false, at: now)
+            if turn?.voided == true { return out }
+            return out + route(.speechText(id, text), at: now)
         case .replyAudio(let id, let pcm):
-            guard current(id) != nil else { return [] }
-            return modelResponded() + route(.speechAudio(id, pcm), at: now)
+            guard var t = current(id) else { return [] }
+            var out = modelResponded() + (t.voided ? [] : replyArrived())
+            if t.firstAudioAt == nil {
+                t.firstAudioAt = now
+                turn = t
+                // §15 item 3: the first audio waits for the verdict, at most 800 ms.
+                if !t.voided, !t.languageOpen { out += schedule(.language, at: now + Self.languageHold) }
+            }
+            return out + route(.speechAudio(id, pcm), at: now)
         case .toolCalls(let id, let calls):
             for call in calls {
                 switch call.name {
@@ -366,6 +431,8 @@ public struct DriverTurnPipeline: Sendable {
         t.held.append(output)
         t.heldEvents += 1
         turn = t
+        // F-05a §15 item 3: nothing of a turn goes out before its language is allowed or the 800 ms ran out.
+        guard t.languageOpen else { return [] }
         if t.heldEvents > tuning.holdBudgetEvents {
             // Hold budget spent: an unproven claim is dropped. In a turn held whole with nothing to
             // judge yet the held audio is dropped (never released unjudged); a chat turn goes through.
@@ -379,7 +446,7 @@ public struct DriverTurnPipeline: Sendable {
 
     /// Re-evaluates the open turn: release, keep holding, or void.
     private mutating func judge(at now: NovaInstant, final: Bool = false) -> [PipelineOutput] {
-        guard let t = turn, !t.voided else { return [] }
+        guard let t = turn, !t.voided, t.languageOpen else { return [] }
         if t.phantomSuspect {
             if !Self.isShort(t.text, tuning) || t.hadToolCall || !t.claims.isEmpty {
                 turn?.phantomSuspect = false  // more than a blip: judge it like any turn
@@ -407,7 +474,9 @@ public struct DriverTurnPipeline: Sendable {
 
     /// generationComplete / turnComplete: nothing more will come, so a pending claim is decided now.
     private mutating func settle(at now: NovaInstant) -> [PipelineOutput] {
-        var out = judge(at: now, final: true)
+        // §15 item 2: at the end of the reply an undecided verdict is decided.
+        var out = updateLanguage(final: true, at: now)
+        out += judge(at: now, final: true)
         // The driver asked for an action, the turn ended, and no tool was called (no claim either).
         if let t = turn, t.closed, !t.voided, !t.hadToolCall, t.claims.isEmpty, utteranceAsksAction,
            !t.text.isEmpty {
@@ -494,7 +563,93 @@ public struct DriverTurnPipeline: Sendable {
             return [.reask(Self.reaskText(newest: lastUtterance)), .diagnostic(.emptyResponseReask)] + schedule(.giveUp, at: now + giveUpAfter)
         case .giveUp:
             return [.gaveUp]
+        case .language:
+            // §15 item 3: no verdict in 800 ms: the audio goes out and the check goes on.
+            guard var t = turn, !t.voided, t.language == .undecided, !t.languageReleased else { return [] }
+            t.languageReleased = true
+            t.languageLogged = true
+            turn = t
+            return [.languageLine(checkLine(t, .released, at: now))] + judge(at: now)
+        case .fallback:
+            guard awaitingReaskReply, !fallbackSaid else { return [] }
+            return fallback(.noReply, turn: lastBlockedTurn)
         }
+    }
+
+    // MARK: F-05a §15 (T-016m): the reply's language
+
+    /// Re-judges the open turn's language on its whole text. Sticky: `blocked` stays; `allowed` turns `blocked`
+    /// only for a letter of another script. Reaching a verdict writes the turn's one `lang-check` line.
+    private mutating func updateLanguage(final: Bool, at now: NovaInstant) -> [PipelineOutput] {
+        guard var t = turn, !t.voided else { return [] }
+        switch t.language {
+        case .blocked:
+            return []
+        case .allowed:
+            guard ReplyLanguage.isNotAllowed(t.text) else { return [] }
+            t.language = .blocked
+        case .undecided:
+            if final, t.text.isEmpty, t.firstAudioAt == nil {
+                // A turn with no words or audio (a tool call only) has nothing to judge.
+                t.language = .allowed
+                turn = t
+                replyLanguageAllowed = true
+                return cancel(.language)
+            }
+            t.language = ReplyLanguageCheck.verdict(t.text, final: final, detector: detector)
+            guard t.language != .undecided else { return [] }
+        }
+        var out = cancel(.language)
+        if !t.languageLogged {
+            t.languageLogged = true
+            out.append(.languageLine(checkLine(t, t.language == .allowed ? .allowed : .blocked, at: now)))
+        }
+        turn = t
+        replyLanguageAllowed = t.language == .allowed
+        return t.language == .blocked ? out + blockedLanguage(at: now) : out
+    }
+
+    private func checkLine(_ t: Turn, _ verdict: ReplyLanguageLine.Reached, at now: NovaInstant) -> ReplyLanguageLine {
+        let top = t.text.isEmpty ? nil : detector.hypotheses(t.text).first
+        let held = t.firstAudioAt.map { max(0, Int((now - $0).milliseconds)) } ?? 0
+        return .check(turn: Int(t.id.value), verdict: verdict, language: top?.language,
+                      probability: top?.probability ?? 0, heldMs: held)
+    }
+
+    /// §15 items 3-5: a blocked reply is voided whole (nothing of it shown or spoken); the first of an utterance gets
+    /// the one WRONG_LANGUAGE re-ask at once, a second one the fallback line.
+    private mutating func blockedLanguage(at now: NovaInstant) -> [PipelineOutput] {
+        guard var t = turn else { return [] }
+        t.voided = true
+        t.held.removeAll()
+        turn = t
+        lastBlockedTurn = Int(t.id.value)
+        var out: [PipelineOutput] = [.voided(t.id)]
+        if !wrongLanguageAsked {
+            wrongLanguageAsked = true
+            awaitingReaskReply = true
+            freshUtterance = true  // the model's next turn answers the re-ask, not a phantom
+            let heard = lastHeard.flatMap { $0.language == .other ? nil : $0 }
+            out += [.languageReask(CorrectionReason.wrongLanguageText(heard: heard?.text, language: heard?.language)),
+                    .languageLine(.correction(heard: heard != nil))]
+            out += schedule(.fallback, at: now + Self.fallbackAfter)
+        } else if !fallbackSaid {
+            out += fallback(.blockedAgain, turn: lastBlockedTurn)
+        }
+        return out
+    }
+
+    /// Reply audio or text came: the re-ask was answered (its verdict still decides).
+    private mutating func replyArrived() -> [PipelineOutput] {
+        guard awaitingReaskReply else { return [] }
+        awaitingReaskReply = false
+        return cancel(.fallback)
+    }
+
+    private mutating func fallback(_ reason: ReplyLanguageLine.FallbackReason, turn number: Int) -> [PipelineOutput] {
+        fallbackSaid = true
+        awaitingReaskReply = false
+        return cancel(.fallback) + [.fallbackLine, .languageLine(.fallback(turn: number, reason: reason))]
     }
 
     // MARK: Helpers
