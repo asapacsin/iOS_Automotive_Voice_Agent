@@ -308,6 +308,36 @@ struct CarRequestAreaTests {
         #expect(d.state.runningTools == 0)
     }
 
+    @Test("F-09a row 5 early call: a held comfort call that Gemini cancels never runs")
+    func row5EarlyCallCancelled() {
+        var d = Self.drive()
+        Self.say(&d, .final("讲个笑话"))
+        d.realtime(.responseStarted(TurnID(1)))
+        d.realtime(.responseDone(TurnID(1), outcome: .completed))
+        d.send(.speechStarted(recentSpeech: true))
+        let t2 = TurnID(2)
+        var out = d.realtime(.responseStarted(t2))
+        out += d.realtime(.toolCalls(t2, [climateOn()]))
+        out += d.realtime(.toolCallCancellation([climateOn().id]))
+        out += d.send(.speechStopped)
+        out += d.send(.driverWords(.final("有点热")))
+        #expect(Self.started(out).isEmpty)
+        #expect(Self.refusedCodes(out).isEmpty)
+        #expect(d.state.runningTools == 0)
+    }
+
+    @Test("F-09a row 5: a late call of the closed utterance's turn keeps that utterance's area")
+    func row5LateCallOfClosedTurn() {
+        var d = Self.drive()
+        Self.say(&d, .final("有点热"))
+        let t1 = TurnID(1)
+        d.realtime(.responseStarted(t1))
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.driverWords(.partial("讲个")))
+        let out = d.realtime(.toolCalls(t1, [climateOn()]))
+        #expect(Self.started(out) == ["control_climate"])
+    }
+
     @Test("F-09a row 5 early call: after 讲个笑话, an early comfort call for 有点热 runs once the area is car")
     func row5EarlyCallAfterChat() {
         var d = Self.drive()

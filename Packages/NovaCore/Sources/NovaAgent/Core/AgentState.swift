@@ -1183,7 +1183,9 @@ public struct AgentState: Sendable {
                 case .execute(let running) where CarRequestRouter.comfortTools.contains(running.name):
                     // F-09a §3: a comfort call runs only for a car request; it waits for the area at most 800 ms.
                     // An early turn's call (or one while a sent utterance is open) belongs to that open utterance.
-                    if carAreas, areaEarlyTurns.contains(turn) || (driverSpeaking && utteranceSent) {
+                    // A turn already attached to the closed utterance keeps that utterance's area (below).
+                    let ofCurrent = areaCurrent?.turns.contains(turn) ?? false
+                    if carAreas, areaEarlyTurns.contains(turn) || (driverSpeaking && utteranceSent && !ofCurrent) {
                         runningTools += 1
                         areaHeldCalls.append((turn, running, closedTurns + 1, nil))
                         continue
@@ -1215,7 +1217,10 @@ public struct AgentState: Sendable {
             for id in ids {
                 let search = searchCalls.removeValue(forKey: id) != nil
                 let background = asyncCalls.removeValue(forKey: id) != nil
-                if search || background { runningTools = max(runningTools - 1, 0) }
+                // F-09a: a comfort call held for its area that Gemini cancels never runs.
+                let held = areaHeldCalls.contains { $0.call.id == id }
+                areaHeldCalls.removeAll { $0.call.id == id }
+                if search || background || held { runningTools = max(runningTools - 1, 0) }
             }
             return ids.map { .cancelTool($0) }
         case .audioDone(let turn):
