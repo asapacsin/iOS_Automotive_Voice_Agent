@@ -96,7 +96,7 @@ struct GeminiVoiceTests {
         #expect(d.effects.contains(.flushPlayback(Epoch(1))))
     }
 
-    @Test("T-020b row 13: with revoicing (Qwen, Azure) Gemini's audio is never played, as before")
+    @Test("T-020b row 13: with revoicing (Qwen) Gemini's audio is never played, as before")
     func revoicingUnchanged() {
         var d = Drive()
         d.connect()

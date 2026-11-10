@@ -25,7 +25,7 @@ current style → new style; takes effect from the next turn (instruction update
 `set_speaking_style` tool call; settings change.
 
 ## 7. Dependencies and external services
-Gemini Live system instruction (F-05); Azure voice for revoicing when configured (F-07).
+Gemini Live system instruction (F-05). On iOS the style reaches her wording through the system instruction only, for every voice source; no style is sent to synthesis (F-07 §17 item 5).
 
 ## 8. Error handling and recovery
 Unknown style → `STYLE_NOT_ALLOWED`, style unchanged. A style never overrides a safety rule or skips a

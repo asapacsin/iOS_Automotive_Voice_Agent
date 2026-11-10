@@ -28,7 +28,7 @@ struct PortsTests {
 
     @Test("F-22 credential list covers every secret named in the spec")
     func credentialKeys() {
-        #expect(CredentialKey.allCases.count == 10)
+        #expect(CredentialKey.allCases.count == 9)  // F-07 §17 (T-020d): the TTS vendor key removed
     }
 
     @Test("session config defaults follow the Gemini contract")

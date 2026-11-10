@@ -25,6 +25,8 @@ Google's docs on 2026-10-23 and is current (OQ-IOS-5); production should use eph
 
 ## Azure Speech TTS (ACTIVE when configured) — `A/voice/AzureSpeechVoice.kt`
 
+**Android only; removed from iOS, F-07 §17.** The iOS 千问 path keeps the same timing numbers as `SpeechTuning`.
+
 REST SSML, output `raw-24khz-16bit-mono-pcm`; connect timeout 5 s; clause deadline 4 000 + 400 ms ×
 chars; warm-up request ("嗯") every 15 s; at most 2 clause requests in flight, played in order.
 

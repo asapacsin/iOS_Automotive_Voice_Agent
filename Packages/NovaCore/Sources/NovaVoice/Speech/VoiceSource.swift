@@ -6,7 +6,6 @@ import NovaPorts
 public enum VoiceSourceKind: String, Sendable, Hashable, CaseIterable {
     case gemini
     case qwen
-    case azure
 }
 
 /// F-07 §14 item 2: the API Host field accepts a bare host name only (no scheme, path or spaces).
@@ -24,14 +23,12 @@ public enum VoiceHostCheck {
 
 /// F-07 §14 item 5, §15 item 3: the session-start decision. Pure.
 public enum VoiceSourceDecision: Sendable, Hashable {
-    /// Gemini Live's own audio through the judged path: no revoicer, no TTS warm-up, no Qwen or Azure connection.
+    /// Gemini Live's own audio through the judged path: no revoicer, no TTS warm-up, no Qwen connection.
     case gemini
     case qwen(key: String, host: String)
-    /// Today's Azure check and region probe run in the app.
-    case azure
     case blocked(String)
 
-    /// F-07 §15 item 3: replies are revoiced only by Qwen or Azure.
+    /// F-07 §15 item 3: replies are revoiced only by Qwen.
     public var revoicing: Bool { self != .gemini }
 }
 
@@ -43,18 +40,16 @@ public enum VoiceSource {
     /// F-07 §15 item 2: remembered once this build has moved the saved choice.
     public static let migrationKey = "voice_source_gemini_default_done"
 
-    /// The source the picker shows and the session uses: a saved choice is kept; no saved choice is Gemini 原声.
+    /// The source the picker shows and the session uses: a saved choice is kept; no saved choice, or one that no
+    /// longer parses (a removed source, F-07 §17 item 2), is Gemini 原声.
     public static func effectiveChoice(_ choice: VoiceSourceKind?) -> VoiceSourceKind { choice ?? .gemini }
 
     /// F-07 §15 item 2, run once on the first launch of this build: no saved choice, or 千问 saved by 1f05a54,
-    /// becomes Gemini 原声; Azure is kept. Returns the choice to save, or nil when the migration already ran
+    /// becomes Gemini 原声 (F-07 §17 item 2: so does any other saved value). Returns the choice to save, or nil when the migration already ran
     /// (anything saved after that launch is kept).
     public static func migrated(saved: String?, done: Bool) -> VoiceSourceKind? {
         guard !done else { return nil }
-        switch saved.flatMap(VoiceSourceKind.init(rawValue:)) {
-        case .azure?: return .azure
-        case .gemini?, .qwen?, nil: return .gemini
-        }
+        return .gemini
     }
 
     /// The Qwen message for what is missing, or nil when both are there.
@@ -72,8 +67,6 @@ public enum VoiceSource {
         case .qwen:
             if let message = qwenMissing(key: qwenKey, host: qwenHost) { return .blocked(message) }
             return .qwen(key: qwenKey ?? "", host: qwenHost ?? "")
-        case .azure:
-            return .azure
         }
     }
 }
@@ -179,19 +172,18 @@ public struct RetryingSpeechSynthesizer: SpeechSynthesizer {
 
     public static func isRetryable(_ code: String) -> Bool {
         if code.hasSuffix("_TIMEOUT") || code.hasSuffix("_NETWORK") { return true }
-        if code == "QWEN_TTS_RATE" || code == "AZURE_TTS_THROTTLED" { return true }
-        for prefix in ["QWEN_TTS_HTTP_", "AZURE_TTS_HTTP_"] where code.hasPrefix(prefix) {
-            if let status = Int(code.dropFirst(prefix.count)), (500..<600).contains(status) { return true }
-        }
+        if code == "QWEN_TTS_RATE" { return true }
+        let prefix = "QWEN_TTS_HTTP_"
+        if code.hasPrefix(prefix), let status = Int(code.dropFirst(prefix.count)), (500..<600).contains(status) { return true }
         return false
     }
 
-    public func synthesize(_ text: String, style: SpeakingStyle, deadline: NovaDuration) async throws -> PCMBuffer {
+    public func synthesize(_ text: String, deadline: NovaDuration) async throws -> PCMBuffer {
         var attempt = 1
         while true {
             let start = clock.now
             do {
-                let (pcm, firstMs) = try await once(text, style: style, deadline: deadline)
+                let (pcm, firstMs) = try await once(text, deadline: deadline)
                 let ms = Int((clock.now - start).milliseconds)
                 onClause(VoiceClauseLine(source: source, chars: text.count, firstMs: firstMs ?? ms, ms: ms, attempt: attempt))
                 return pcm
@@ -204,11 +196,11 @@ public struct RetryingSpeechSynthesizer: SpeechSynthesizer {
 
     public func warmUp() async { await inner.warmUp() }
 
-    private func once(_ text: String, style: SpeakingStyle, deadline: NovaDuration) async throws -> (PCMBuffer, Int?) {
+    private func once(_ text: String, deadline: NovaDuration) async throws -> (PCMBuffer, Int?) {
         if let timed = inner as? any FirstAudioTimedSynthesizer {
-            let r = try await timed.synthesizeTimed(text, style: style, deadline: deadline)
+            let r = try await timed.synthesizeTimed(text, deadline: deadline)
             return (r.pcm, r.firstMs)
         }
-        return (try await inner.synthesize(text, style: style, deadline: deadline), nil)
+        return (try await inner.synthesize(text, deadline: deadline), nil)
     }
 }

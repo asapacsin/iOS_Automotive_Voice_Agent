@@ -8,7 +8,7 @@
 | Software AEC | WebRTC AEC3 (JNI), render fed right before playback write; render 16 or 24 kHz; delay from capture timestamps | `A/voice/WebRtcAcousticEcho.kt` |
 | Gain | max 3.0, target peak 12 000, noise floor 250, rise ×1.15, instant fall, hard limit | `A/voice/MicInputGain.kt:23` |
 | Uplink to Gemini | `audio/pcm;rate=16000` | `GeminiLiveProtocol.kt` |
-| Reply audio | 24 kHz mono PCM16 (Gemini and Azure `raw-24khz-16bit-mono-pcm`) | `RealtimeProviderFactory.kt:29`, `AzureSpeechVoice.kt:70` |
+| Reply audio | 24 kHz mono PCM16 (Gemini and, on iOS, 千问 Qwen-Audio TTS; Android also Azure `raw-24khz-16bit-mono-pcm`) | `RealtimeProviderFactory.kt:29`, `AzureSpeechVoice.kt:70` |
 | Playback usage | assistant / speech; transient focus gain; duck/pause/stop/resume actions | `AudioFocusController.kt:24-51` |
 | Playback epochs | `flush(epoch)`, `beginReply`, `complete`; stale-epoch audio discarded | `PcmAudioPlayer.kt` |
 | Guidance lane | separate playout lane for relayed guidance | `PcmAudioPlayer.kt:684-767` |

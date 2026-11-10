@@ -7,7 +7,8 @@ import NovaServices
 import NovaVoice
 import SwiftUI
 
-/// F-07 §14 item 2 (T-020a): 「她的声音」 — source, 千问 API Host and voice with 试听, or the Azure fields.
+/// F-07 §14 item 2 (T-020a): 「她的声音」 — source, 千问 API Host and voice with 试听.
+/// F-07 §17 item 2 (T-020d): two sources only, Gemini 原声 and 千问.
 /// F-07 §15 item 1 (T-020b): 「Gemini 原声（最快）」 first and the default; no fields and no 试听 (her voice only
 /// exists inside a session). A change applies from the next session start.
 struct VoiceSettingsSection: View {
@@ -16,8 +17,6 @@ struct VoiceSettingsSection: View {
     @AppStorage(SettingsKey.voiceSource) private var savedSource = ""
     @AppStorage(SettingsKey.qwenTTSHost) private var qwenHost = ""
     @AppStorage(SettingsKey.qwenVoice) private var qwenVoice = QwenVoiceOption.defaultID
-    @AppStorage(DriveSettings.azureRegion) private var azureRegion = ""
-    @AppStorage(DriveSettings.azureVoice) private var azureVoice = DriveSettings.defaultVoice
     @State private var hostDraft = ""
     @State private var hostMessage: String?
     @State private var previewMessage: String?
@@ -39,7 +38,6 @@ struct VoiceSettingsSection: View {
             Picker("来源", selection: source) {
                 Text("Gemini 原声（最快）").tag(VoiceSourceKind.gemini)
                 Text("千问（阿里云）").tag(VoiceSourceKind.qwen)
-                Text("Azure").tag(VoiceSourceKind.azure)
             }
             switch source.wrappedValue {
             case .gemini:
@@ -57,13 +55,6 @@ struct VoiceSettingsSection: View {
                 }
                 Button(previewing ? "试听中…" : "试听") { preview() }.disabled(previewing)
                 if let previewMessage { Text(previewMessage).font(.footnote) }
-            case .azure:
-                TextField("区域（留空自动识别）", text: $azureRegion)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("声音", text: $azureVoice)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
             }
         }
     }
@@ -94,8 +85,8 @@ struct VoiceSettingsSection: View {
         Task { @MainActor in
             defer { previewing = false }
             do {
-                let pcm = try await client.synthesize(text, style: .default,
-                                                      deadline: AzureSpeechTuning().clauseDeadline(characters: text.count))
+                let pcm = try await client.synthesize(text,
+                                                      deadline: SpeechTuning().clauseDeadline(characters: text.count))
                 try player.play(pcm)
             } catch let error as SpeechSynthesisError {
                 previewMessage = "试听失败：\(error.code)"

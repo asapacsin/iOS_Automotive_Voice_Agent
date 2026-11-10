@@ -1,7 +1,7 @@
-# F-07 Assistant voice (Azure TTS) and playback
+# F-07 Assistant voice and playback
 
-**Android status:** ACTIVE when an Azure voice is configured (ADR-016). iOS: Qwen-Audio TTS by default, Azure as an option (§14, owner 2026-11-06).
-**Depends on:** contracts/audio.md, contracts/api-contracts.md (Azure)
+**Android status:** ACTIVE when an Azure voice is configured (ADR-016). iOS: Gemini 原声 by default (§15), 千问 Qwen-Audio TTS as the option (§14); Azure removed from iOS (§17, owner 2026-11-10).
+**Depends on:** contracts/audio.md, contracts/api-contracts.md (Azure: Android only)
 
 ## 1. Purpose
 Speak judged reply text in one consistent Chinese voice with low latency, in clause order.

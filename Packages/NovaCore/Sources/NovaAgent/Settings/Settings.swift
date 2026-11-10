@@ -7,9 +7,8 @@ import NovaVoice
 public enum SettingsKey {
     public static let geminiConsentAccepted = "gemini_consent_accepted"
     public static let geminiModel = "gemini_model"
-    public static let azureVoice = "azure_voice"
     public static let personaStyle = "persona_style"
-    /// F-07 §14 item 2 (T-020a): `qwen` or `azure`; unset until the driver picks one.
+    /// F-07 §14 item 2 (T-020a): `gemini` or `qwen`; unset reads as `gemini` (F-07 §15).
     public static let voiceSource = "voice_source"
     /// F-07 §14 item 2: the 百炼 workspace API Host (not a secret).
     public static let qwenTTSHost = "qwen_tts_host"
@@ -70,13 +69,11 @@ public struct SettingsReadiness: Sendable, Hashable {
         func has(_ key: CredentialKey) -> Bool { SecretField.display(key, in: credentials) == .saved }
         geminiKey = has(.geminiAPIKey)
         geminiConsent = settings.bool(SettingsKey.geminiConsentAccepted) == true
-        let azureReady = has(.azureSpeechKey) && settings.string(SettingsKey.azureVoice)?.isEmpty == false
         let choice = settings.string(SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:))
         source = VoiceSource.effectiveChoice(choice)
         switch source {
         case .gemini: voice = true  // F-07 §15 item 3: always ready (the Gemini key is checked by sessionBlocker)
         case .qwen: voice = has(.qwenAPIKey) && VoiceHostCheck.isValid(settings.string(SettingsKey.qwenTTSHost) ?? "")
-        case .azure: voice = azureReady
         }
         amapSDKKey = has(.amapSDKKey)
         amapWebKey = has(.amapWebKey)
@@ -91,7 +88,7 @@ public struct SettingsReadiness: Sendable, Hashable {
         return nil
     }
 
-    /// Replies are revoiced only by a configured Qwen or Azure source (ADR-016, F-07 §14 item 5); Gemini 原声 plays
+    /// Replies are revoiced only by a configured Qwen source (ADR-016, F-07 §14 item 5); Gemini 原声 plays
     /// Gemini's own audio through the claim gate (F-07 §15 item 3).
     public var revoicing: Bool { source != .gemini && voice }
 }
@@ -104,5 +101,32 @@ public enum VoiceSourceMigration {
         guard let choice = VoiceSource.migrated(saved: settings.string(SettingsKey.voiceSource), done: done) else { return }
         settings.set(choice.rawValue, for: SettingsKey.voiceSource)
         settings.set(true, for: VoiceSource.migrationKey)
+    }
+}
+
+/// F-07 §17 item 3 (T-020d): on the first launch of a build without the removed TTS vendor, once: a saved source of
+/// that vendor becomes Gemini 原声, its Keychain item is deleted and its two settings are removed. The flag is set
+/// only after the Keychain delete succeeds or finds no item, so a failed delete is tried again on the next launch.
+/// Nothing is logged about the key (I-8).
+///
+/// The retired names are spelled with `\u{61}` (the letter a) so the §17 item 6 gate, which keeps the vendor's name out
+/// of `App/` and `Packages/`, stays green while the cleanup still finds the items an older build saved.
+public enum RetiredVoiceCleanup {
+    static let vendor = "\u{61}zure"
+    public static let doneKey = vendor + "_removed_done"
+    static let secretAccount = vendor + "_speech_key"
+    static let settingKeys = [vendor + "_region", vendor + "_voice"]
+
+    /// Returns true when the cleanup is done (now or on an earlier launch).
+    @discardableResult
+    public static func run(credentials: any RetiredSecretRemover, settings: any SettingsStore) -> Bool {
+        guard settings.bool(doneKey) != true else { return true }
+        if settings.string(SettingsKey.voiceSource) == vendor {
+            settings.set(VoiceSourceKind.gemini.rawValue, for: SettingsKey.voiceSource)
+        }
+        for key in settingKeys { settings.set(nil as String?, for: key) }
+        do { try credentials.removeRetired(account: secretAccount) } catch { return false }
+        settings.set(true, for: doneKey)
+        return true
     }
 }

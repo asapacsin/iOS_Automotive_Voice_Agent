@@ -274,7 +274,6 @@ extension VisionPort {
 /// Every secret the app stores. `CredentialWipe` removes all of them.
 public enum CredentialKey: String, Sendable, Hashable, CaseIterable {
     case geminiAPIKey = "gemini_api_key"
-    case azureSpeechKey = "azure_speech_key"
     case amapSDKKey = "amap_sdk_key"
     case amapWebKey = "amap_web_key"
     case iflytekAppID = "iflytek_app_id"
@@ -293,6 +292,12 @@ public protocol CredentialStore: Sendable {
     func value(for key: CredentialKey) throws -> String?
     func set(_ value: String, for key: CredentialKey) throws
     func remove(_ key: CredentialKey) throws
+}
+
+/// F-07 §17 item 3: deletes a Keychain item of a removed feature, named by its account, which no
+/// `CredentialKey` names any more. Succeeds when there is no such item.
+public protocol RetiredSecretRemover: Sendable {
+    func removeRetired(account: String) throws
 }
 
 /// UserDefaults for non-secret settings.

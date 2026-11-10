@@ -6,17 +6,19 @@ import Security
 
 /// Keychain generic passwords, `kSecAttrAccessibleAfterFirstUnlock` (F-22, `AndroidKeystoreCredentialStore`).
 /// Values are never logged; errors carry the OSStatus only.
-public struct KeychainCredentialStore: CredentialStore {
+public struct KeychainCredentialStore: CredentialStore, RetiredSecretRemover {
     public struct KeychainError: Error, Sendable, Hashable { public let status: Int32 }
 
     private let service: String
 
     public init(service: String = "com.novadrive.credentials") { self.service = service }
 
-    private func query(_ key: CredentialKey) -> [String: Any] {
+    private func query(_ key: CredentialKey) -> [String: Any] { query(account: key.rawValue) }
+
+    private func query(account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
-         kSecAttrAccount as String: key.rawValue]
+         kSecAttrAccount as String: account]
     }
 
     public func value(for key: CredentialKey) throws -> String? {
@@ -43,8 +45,11 @@ public struct KeychainCredentialStore: CredentialStore {
         guard status == errSecSuccess else { throw KeychainError(status: status) }
     }
 
-    public func remove(_ key: CredentialKey) throws {
-        let status = SecItemDelete(query(key) as CFDictionary)
+    public func remove(_ key: CredentialKey) throws { try removeRetired(account: key.rawValue) }
+
+    /// F-07 §17 item 3: an item no `CredentialKey` names any more; no item counts as success.
+    public func removeRetired(account: String) throws {
+        let status = SecItemDelete(query(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
     }
 }

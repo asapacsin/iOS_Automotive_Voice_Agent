@@ -40,6 +40,8 @@ struct NovaDriveApp: App {
         SpeakerModelLocator.shared.refresh()
         // F-04b §16 item 6 (T-013j): the old calibration draft is deleted on first launch (no 校准 any more).
         SpeakerLockService.removeCalibrationDraft()
+        // F-07 §17 item 3 (T-020d): once, the removed TTS source, key and settings go (retried if the key delete fails).
+        RetiredVoiceCleanup.run(credentials: KeychainCredentialStore(), settings: DefaultsSettingsStore())
         // F-07 §15 item 2 (T-020b): once, no saved choice or 千问 moves to Gemini 原声.
         VoiceSourceMigration.run(DefaultsSettingsStore())
         _ = DriveSettings.musicCountry()  // F-13 §15 item 1 (T-032c): a saved 中国大陆 becomes 香港 at first launch
