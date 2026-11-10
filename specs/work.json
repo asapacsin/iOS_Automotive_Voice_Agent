@@ -1991,13 +1991,13 @@
     {
       "id": "T-017a",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 3,
       "action": "F-09a §2-§5: area per closed utterance from the phone recognizer's final text; control_climate/window/seat and run_scenario refused outside car with NOT_A_CAR_REQUEST; tired utterances silenced in code; record area lines; rows 1-8, 10 unit, row 9 device",
       "depends_on": [
         "T-031i"
       ],
-      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\". | 2026-11-10: Fixes 0211b31 (early-turn calls held for their own utterance, re-armed area wait, per-turn held closes) and d4861a1 (cancelled held call never runs; late call of closed utterance's turn keeps its area) after review FAILs; gates PASS on d4861a1; third re-review pending. OPEN: S3 Gemini-text fallback as local final (needs source flag); not-sent onset edge; comfortOk timing; no tap path; row 8 router-only; row 9 device NOT_VERIFIED; App not compiled.",
+      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\". | 2026-11-10: Fixes 0211b31 (early-turn calls held for their own utterance, re-armed area wait, per-turn held closes) and d4861a1 (cancelled held call never runs; late call of closed utterance's turn keeps its area) after review FAILs; gates PASS on d4861a1; third independent read-only high-effort review PASS (20/20 area tests + 4 probes). OPEN: S3 Gemini-text fallback as local final (needs source flag); not-sent onset edge; comfortOk timing; no tap path; row 8 router-only; row 9 device NOT_VERIFIED; App not compiled.",
       "evidence": [
         {
           "gate": "scripts/gates/run_all.sh on d13d900's parent: green except a spec-trace test-name miss, fixed in ad2c9a7; CarRequestAreaTests 13 pass after review fixes",
