@@ -298,6 +298,8 @@ struct RuntimeSink: AgentEffectSink {
         case .claimHeld: record?.submit(.held)
         case .claimCut(let turn, let ms): record?.submit(.claimCut(turn: turn, playedMs: ms))  // F-07 §15 item 8
         case .asyncToolDropped(let tool): record?.submit(.toolDropped(tool))  // F-18 §27 item 4
+        case .carArea(let utterance, let area): record?.submit(.area(utterance: utterance, area: area))  // F-09a §5
+        case .tiredSilenced(let turn): record?.submit(.tiredSilenced(turn: turn))  // F-09a §5
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
@@ -992,7 +994,8 @@ final class AgentRuntime {
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
                                                resume: resume, revoicing: decision.revoicing,
-                                               languageIdentifier: AppleLanguageIdentifier()))
+                                               languageIdentifier: AppleLanguageIdentifier(),
+                                               carRequestAreas: true))  // F-09a (T-017a)
         ended.core = core
         self.core = core
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.

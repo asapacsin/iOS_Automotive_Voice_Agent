@@ -65,6 +65,19 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case claimCut(turn: Int, playedMs: Int)
     /// F-18 §27 item 4 (T-020c): a background tool's result was not sent because the socket was replaced.
     case asyncToolDropped(tool: AsyncTool)
+    /// F-09a §5 (T-017a): the area of closed utterance `utterance` (1 for the first sent one). Codes only.
+    case carArea(utterance: Int, area: CarRequestArea)
+    /// F-09a §4-§5: a model turn opened for a tired utterance was silenced.
+    case tiredSilenced(turn: Int)
+}
+
+/// F-09a §2 (T-017a): what kind of request a closed utterance is, from the phone recognizer's final text.
+public enum CarRequestArea: String, Sendable, Hashable, CaseIterable {
+    case car
+    case followUp = "follow-up"
+    case tired
+    case chat
+    case unknown
 }
 
 /// F-18 §27 item 1 (T-020c): the functions declared to Gemini Live as `NON_BLOCKING`; every other one blocks.
@@ -130,6 +143,8 @@ extension DiagnosticEvent {
         case sessionResume
         case claimCut
         case asyncToolDropped
+        case carArea
+        case tiredSilenced
     }
 
     public var kind: Kind {
@@ -174,6 +189,8 @@ extension DiagnosticEvent {
         case .sessionResume: .sessionResume
         case .claimCut: .claimCut
         case .asyncToolDropped: .asyncToolDropped
+        case .carArea: .carArea
+        case .tiredSilenced: .tiredSilenced
         }
     }
 }
@@ -205,6 +222,8 @@ extension DiagnosticEvent {
         case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
         case .claimCut(let turn, let ms): "claim-cut turn=\(turn) played_ms=\(ms)"
         case .asyncToolDropped(let tool): "tool-result \(tool.rawValue) dropped reason=reconnect"
+        case .carArea(let utterance, let area): "area utterance=\(utterance) area=\(area.rawValue)"
+        case .tiredSilenced(let turn): "tired-silenced turn=\(turn)"
         default: "diagnostic \(self)"
         }
     }

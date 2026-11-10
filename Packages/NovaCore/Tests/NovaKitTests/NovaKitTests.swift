@@ -170,6 +170,7 @@ struct StateTests {
 @Suite("T-010 typed diagnostics (I-7, I-8)")
 struct DiagnosticsTests {
     static let samples: [DiagnosticEvent] = [
+        .carArea(utterance: 1, area: .tired), .tiredSilenced(turn: 2),
         .sessionState(.listening), .listeningState(.sleep), .navigationPhase(.navigating),
         .reconnectAttempt(attempt: 1, delay: .milliseconds(200)), .providerEventsDropped(count: 1),
         .setupTimeout, .toolRefused(code: .ambiguousReferent), .toolFailed(code: .vehicleExecutionFailed),

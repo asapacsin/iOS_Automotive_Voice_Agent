@@ -1991,13 +1991,18 @@
     {
       "id": "T-017a",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 3,
       "action": "F-09a §2-§5: area per closed utterance from the phone recognizer's final text; control_climate/window/seat and run_scenario refused outside car with NOT_A_CAR_REQUEST; tired utterances silenced in code; record area lines; rows 1-8, 10 unit, row 9 device",
       "depends_on": [
         "T-031i"
       ],
-      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\"."
+      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\"."  ,
+      "evidence": [
+        {"gate": "scripts/gates/run_all.sh on d13d900's parent: green except a spec-trace test-name miss, fixed in ad2c9a7; CarRequestAreaTests 13 pass after review fixes", "commit": "3d8b1be, ad2c9a7, d13d900 + review fixes"},
+        {"review": "independent read-only high-effort review", "verdict": "FAIL: blocking, dropping a held reply at a new onset could cut her reply (fixed: kept, released whole); medium, a turn Gemini opens before the phone closes the utterance joined the previous area (fixed: attached at close); medium OPEN, the area reads DriverWords.final, which is Gemini's text when the phone has none (selector S3), needs a source flag through DriverTranscript and AgentRuntime; low OPEN: a not-sent onset before the sent utterance's final makes it unknown; no end-to-end comfort tap path exists (row 8 is the router rule only)"},
+        {"device": "row 9 NOT_VERIFIED"}
+      ]
     },
     {
       "id": "T-034c",

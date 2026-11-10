@@ -72,6 +72,10 @@ public enum RecordEvent: Sendable, Hashable {
     case music(String)
     /// F-05a §15 item 7 (T-016m): `lang-check …`, `correction WRONG_LANGUAGE heard=…`, `fallback-line …`.
     case languageLine(ReplyLanguageLine)
+    /// F-09a §5 (T-017a): `area utterance=<n> area=<area>`; codes and numbers only.
+    case area(utterance: Int, area: CarRequestArea)
+    /// F-09a §5: `tired-silenced turn=<n>`.
+    case tiredSilenced(turn: Int)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -188,6 +192,8 @@ public struct ConversationRecorder: Sendable {
         case .voiceFailed(let v): return [line("voice-failed", v.fields)]
         case .voiceGemini(let v): return [line("voice", v.fields)]
         case .claimCut(let turn, let played): return [line("claim-cut", "turn=\(turn) played_ms=\(played)")]
+        case .area(let utterance, let area): return [line("area", "utterance=\(utterance) area=\(area.rawValue)")]
+        case .tiredSilenced(let turn): return [line("tired-silenced", "turn=\(turn)")]
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]
