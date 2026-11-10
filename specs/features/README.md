@@ -21,6 +21,7 @@ One file per feature. Load one file plus the contracts it lists under "Depends o
 | F-11 | [Vehicle controls (simulated)](vehicle-controls.md) | IMPLEMENTED, SIMULATED ONLY (no VHAL/CarPropertyManager) |
 | F-12 | [Comfort scenarios](comfort-scenarios.md) | IMPLEMENTED (JVM + LIVE text) |
 | F-13 | [Music](music.md) | IMPLEMENTED: bundled track play/stop; media-session search + read-back (SPEC-017, play_music path not exercised in demo run 315) |
+| F-13a | [Volume: the music and her voice (音量)](volume.md) | iOS only, APPROVED (2026-11-10); tasks T-032g–h |
 | F-14 | [Navigation guidance voice (relay)](guidance-voice.md) | IMPLEMENTED (JVM; EMU with real Gemini) |
 | F-15 | [Navigation flow (search → pick → route → navigate → cancel)](navigation-flow.md) | IMPLEMENTED (JVM + EMU, Amap Navi SDK 11 |
 | F-15a | [Real navigation by default, simulation as a separate mode (真实导航 / 模拟导航)](navigation-modes.md) | iOS only, APPROVED (2026-10-29); tasks T-040a–d |

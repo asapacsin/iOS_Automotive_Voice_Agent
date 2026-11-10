@@ -514,6 +514,28 @@
       ]
     },
     {
+      "id": "T-032g",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-13a §3, §4, §6, §7: media 0-10 and voice 2-10 levels saved in UserDefaults and applied as LiveAudio lane gains; set_volume tool (catalog, validator, executor, code-built announce, limit_reached, side-button hint); barge-in dip multiplies the voice gain; 设置 sliders through the same executor; volume set record lines; rows 1-5, 8 unit, 10-12 device",
+      "depends_on": [
+        "T-032f"
+      ],
+      "notes": "Owner 2026-11-10: \"currently the agent unable to change the sound level\"; asked how two sounds (her voice and music) are handled; then \"just write the spec\". iOS cannot set the system volume (Apple); cars keep one volume per group and duck media relative to it (AOSP)."
+    },
+    {
+      "id": "T-032h",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-13a §5, §7: media ducked to mediaGain x 0.3 while her reply or guidance plays, 150 ms down / 400 ms up on mediaQueue, duck on/off lines; rows 6, 7 unit, 9 device",
+      "depends_on": [
+        "T-032g"
+      ],
+      "notes": "The code has no ducking today (only the barge-in dip of her own reply); music.md §14 item 4 corrected."
+    },
+    {
       "id": "T-024",
       "owner": "AUTONOMOUS",
       "status": "PASS",
