@@ -17,6 +17,7 @@ sys.path.insert(0, str(GATES))
 
 import check_imports  # noqa: E402
 import check_kws_tokens  # noqa: E402
+import check_no_azure  # noqa: E402
 import check_secrets  # noqa: E402
 import spec_trace  # noqa: E402
 
@@ -104,6 +105,7 @@ class SecretsGateTests(unittest.TestCase):
     def test_credential_key_names_are_scanned(self) -> None:
         self.assertIn("qianfan_key", check_secrets.NAME)
         self.assertIn("iflytek_app_id", check_secrets.NAME)
+        self.assertIn("azure_speech_key", check_secrets.NAME)  # retired (F-07 §17), still scanned for
 
     def test_repository_is_clean(self) -> None:
         self.assertEqual(check_secrets.scan(REPO), [])
@@ -271,6 +273,37 @@ class KwsTokensGateTests(unittest.TestCase):
 
     def test_missing_wake_lines_fail(self) -> None:
         self.assertEqual(self.check("public enum WakePhrase {}\n"), 1)
+
+
+class NoAzureGateTests(unittest.TestCase):
+    """F-07 §17 row 19: no "azure" (any case) in a file under App/ or Packages/."""
+
+    def check(self, rel: str | None = None, text: str = "") -> int:
+        tree = Tree()
+        try:
+            if rel is not None:
+                tree.write(rel, text)
+            return run(check_no_azure.main, "--root", str(tree.root))
+        finally:
+            tree.close()
+
+    def test_repository_is_clean(self) -> None:
+        self.assertEqual(run(check_no_azure.main, "--root", str(REPO)), 0)
+
+    def test_clean_tree_passes(self) -> None:
+        self.assertEqual(self.check("App/NovaDrive/A.swift", "let source = \"qwen\"\n"), 0)
+
+    def test_any_case_in_app_or_packages_fails(self) -> None:
+        for rel, text in (("App/NovaDrive/A.swift", "// AZURE speech\n"),
+                          ("Packages/NovaCore/Sources/X.swift", "case azureSpeechKey\n"),
+                          ("App/NovaDrive/Info.plist", "<string>Azure</string>\n")):
+            self.assertEqual(self.check(rel, text), 1, rel)
+
+    def test_file_name_fails(self) -> None:
+        self.assertEqual(self.check("Packages/NovaServices/Sources/Azure/Client.swift", "x\n"), 1)
+
+    def test_outside_the_trees_passes(self) -> None:
+        self.assertEqual(self.check("scripts/gates/tests/fixture.txt", "AZURE_SPEECH_KEY\n"), 0)
 
 
 if __name__ == "__main__":

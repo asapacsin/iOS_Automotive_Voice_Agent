@@ -12,7 +12,7 @@ final class ScriptedSynth: SpeechSynthesizer {
 
     init(_ script: [Result<PCMBuffer, SpeechSynthesisError>]) { self.script = Mutex(script) }
 
-    func synthesize(_ text: String, style: SpeakingStyle, deadline: NovaDuration) async throws -> PCMBuffer {
+    func synthesize(_ text: String, deadline: NovaDuration) async throws -> PCMBuffer {
         calls.withLock { $0 += 1 }
         let next = script.withLock { $0.isEmpty ? .failure(SpeechSynthesisError("SCRIPT_EMPTY")) : $0.removeFirst() }
         return try next.get()
@@ -64,14 +64,36 @@ struct VoiceSourceTests {
         let auth = await run([.failure(SpeechSynthesisError("QWEN_TTS_AUTH")), .success(pcm)])
         #expect(auth.played.isEmpty && auth.failures == ["QWEN_TTS_AUTH"] && auth.calls == 1)
 
-        for code in ["QWEN_TTS_NETWORK", "QWEN_TTS_RATE", "QWEN_TTS_HTTP_500", "QWEN_TTS_HTTP_503", "AZURE_TTS_TIMEOUT",
-                     "AZURE_TTS_NETWORK", "AZURE_TTS_THROTTLED", "AZURE_TTS_HTTP_502"] {
+        for code in ["QWEN_TTS_NETWORK", "QWEN_TTS_RATE", "QWEN_TTS_HTTP_500", "QWEN_TTS_HTTP_503", "QWEN_TTS_TIMEOUT"] {
             #expect(RetryingSpeechSynthesizer.isRetryable(code), "\(code)")
         }
         for code in ["QWEN_TTS_AUTH", "QWEN_TTS_VOICE", "QWEN_TTS_EMPTY", "QWEN_TTS_BAD_STREAM", "QWEN_TTS_HTTP_404",
-                     "AZURE_TTS_AUTH", "AZURE_TTS_EMPTY", "AZURE_TTS_BAD_REQUEST"] {
+                     "QWEN_TTS_HTTP_400", "QWEN_TTS_HTTP_"] {
             #expect(!RetryingSpeechSynthesizer.isRetryable(code), "\(code)")
         }
+    }
+
+    @Test("T-020d row 22: 千问 revoices a 3-clause reply with SpeechTuning: same deadlines, 2 in flight, in order, RATE retried once")
+    func speechTuning() async {
+        let tuning = SpeechTuning()
+        #expect(tuning.connectTimeout == .seconds(5) && tuning.warmUpInterval == .seconds(15) && tuning.maxInFlight == 2)
+        #expect(tuning.clauseDeadline(characters: 10) == .milliseconds(8000))
+        var q = RevoicerQueue(tuning: tuning)
+        let e = q.epoch
+        let ten = "现在是下午五点了好吗"
+        let out = q.handle(.clause(ten)) + q.handle(.clause("二。")) + q.handle(.clause("三。"))
+        #expect(out == [.synthesize(epoch: e, sequence: 0, text: ten, deadline: .milliseconds(8000)),
+                        .synthesize(epoch: e, sequence: 1, text: "二。", deadline: .milliseconds(4800))])
+        #expect(q.handle(.synthesized(epoch: e, sequence: 1, .success(pcm)))
+                == [.synthesize(epoch: e, sequence: 2, text: "三。", deadline: .milliseconds(4800))])
+        #expect(q.handle(.synthesized(epoch: e, sequence: 0, .success(pcm)))
+                == [.play(epoch: e, sequence: 0, pcm), .play(epoch: e, sequence: 1, pcm)])
+        #expect(q.handle(.synthesized(epoch: e, sequence: 2, .success(pcm))) == [.play(epoch: e, sequence: 2, pcm)])
+        // QWEN_TTS_RATE: one more request, then played with attempt=2.
+        let rate = await run([.failure(SpeechSynthesisError("QWEN_TTS_RATE")), .success(pcm)])
+        #expect(rate.played == [0] && rate.calls == 2 && rate.lines.first?.attempt == 2)
+        let twice = await run([.failure(SpeechSynthesisError("QWEN_TTS_RATE")), .failure(SpeechSynthesisError("QWEN_TTS_RATE"))])
+        #expect(twice.played.isEmpty && twice.calls == 2 && twice.failures == ["QWEN_TTS_RATE"])
     }
 
     @Test("T-020a row 7: VoiceSource.resolve and the API Host check")
@@ -80,7 +102,6 @@ struct VoiceSourceTests {
         #expect(VoiceSource.resolve(choice: .qwen, qwenKey: "k", qwenHost: host) == .qwen(key: "k", host: host))
         #expect(VoiceSource.resolve(choice: .qwen, qwenKey: "k", qwenHost: nil) == .blocked("请先在设置里保存千问 API Host"))
         #expect(VoiceSource.resolve(choice: .qwen, qwenKey: nil, qwenHost: host) == .blocked("请先在设置里保存千问 key"))
-        #expect(VoiceSource.resolve(choice: .azure, qwenKey: "k", qwenHost: host) == .azure)
         #expect(VoiceHostCheck.isValid(host))
         #expect(!VoiceHostCheck.isValid("https://ws-x.ap-southeast-1.maas.aliyuncs.com/"))
         #expect(!VoiceHostCheck.isValid("a b"))
@@ -99,14 +120,11 @@ struct VoiceSourceTests {
         // Saved 千问 after that launch: kept.
         #expect(VoiceSource.migrated(saved: "qwen", done: true) == nil)
         #expect(VoiceSource.effectiveChoice(.qwen) == .qwen)
-        // Saved Azure: kept.
-        #expect(VoiceSource.migrated(saved: "azure", done: false) == .azure)
-        #expect(VoiceSource.effectiveChoice(.azure) == .azure)
         // 千问 with a key but no host.
         #expect(VoiceSource.resolve(choice: .qwen, qwenKey: "k", qwenHost: nil) == .blocked("请先在设置里保存千问 API Host"))
         // Item 3: only Gemini 原声 turns revoicing off.
         #expect(!VoiceSourceDecision.gemini.revoicing)
-        #expect(VoiceSourceDecision.azure.revoicing && VoiceSourceDecision.qwen(key: "k", host: "h.x").revoicing)
+        #expect(VoiceSourceDecision.qwen(key: "k", host: "h.x").revoicing)
     }
 
     @Test("T-020b row 13: voice source=gemini turn= held_ms= first_ms=, once per played turn")

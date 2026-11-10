@@ -28,7 +28,7 @@ public enum RevoicerOutput: Sendable, Hashable {
 /// the provider's own audio (ADR-016 §6). Pure.
 public struct RevoicerQueue: Sendable {
     public private(set) var epoch: Epoch
-    private let tuning: AzureSpeechTuning
+    private let tuning: SpeechTuning
     private var waiting: [(sequence: Int, text: String)] = []
     private var inFlight: Set<Int> = []
     private var ready: [Int: PCMBuffer] = [:]
@@ -36,7 +36,7 @@ public struct RevoicerQueue: Sendable {
     private var nextToPlay = 0
     private var failed = false
 
-    public init(epoch: Epoch = .initial, tuning: AzureSpeechTuning = AzureSpeechTuning()) {
+    public init(epoch: Epoch = .initial, tuning: SpeechTuning = SpeechTuning()) {
         self.epoch = epoch
         self.tuning = tuning
     }

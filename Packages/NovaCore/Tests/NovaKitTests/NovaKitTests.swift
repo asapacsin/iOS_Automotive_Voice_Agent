@@ -162,7 +162,7 @@ struct StateTests {
         let gate = UplinkGateTuning()
         #expect(gate.onset == .milliseconds(200) && gate.preRoll == .milliseconds(300) && gate.hangover == .milliseconds(1200))
         #expect(ReconnectTuning().retryWindow == .seconds(60))
-        #expect(AzureSpeechTuning().clauseDeadline(characters: 10) == .milliseconds(8000))
+        #expect(SpeechTuning().clauseDeadline(characters: 10) == .milliseconds(8000))
         #expect(ListeningLifecycleTuning().sleepToDeepIdle == .minutes(5))
     }
 }

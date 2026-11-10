@@ -9,11 +9,11 @@ struct VoiceRecordTests {
     func lines() {
         var r = ConversationRecorder()
         let failed = VoiceFailedLine(turn: 3, source: .qwen, code: "QWEN_TTS_TIMEOUT")
-        let clause = VoiceClauseLine(source: .azure, chars: 12, firstMs: 310, ms: 820, attempt: 2)
+        let clause = VoiceClauseLine(source: .qwen, chars: 12, firstMs: 310, ms: 820, attempt: 2)
         #expect(r.add(.voiceFailed(failed), atMs: 7) == ["7 voice-failed turn=3 source=qwen code=QWEN_TTS_TIMEOUT"])
-        #expect(r.add(.voiceClause(clause), atMs: 9) == ["9 voice source=azure chars=12 first_ms=310 ms=820 attempt=2"])
+        #expect(r.add(.voiceClause(clause), atMs: 9) == ["9 voice source=qwen chars=12 first_ms=310 ms=820 attempt=2"])
         #expect(failed.logLine == "voice-failed turn=3 source=qwen code=QWEN_TTS_TIMEOUT")
-        #expect(clause.logLine == "voice source=azure chars=12 first_ms=310 ms=820 attempt=2")
+        #expect(clause.logLine == "voice source=qwen chars=12 first_ms=310 ms=820 attempt=2")
     }
 
     @Test("T-020b row 13 / F-24 row 4: the gemini timing line and session closed code= reason= in the record")

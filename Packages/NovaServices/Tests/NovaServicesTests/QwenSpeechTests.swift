@@ -54,7 +54,7 @@ struct QwenSpeechTests {
     func gentle() async throws {
         let t = StubStream()
         t.responses = [(200, [Data(synthesis([1, 0]).utf8)])]
-        _ = try await QwenSpeechClient(config: config, transport: t).synthesize("现在是下午五点。", style: .gentle, deadline: .seconds(5))
+        _ = try await QwenSpeechClient(config: config, transport: t).synthesize("现在是下午五点。", deadline: .seconds(5))
         #expect(!String(decoding: t.requests[0].httpBody!, as: UTF8.self).contains("instruction"))
     }
 
@@ -70,7 +70,7 @@ struct QwenSpeechTests {
             Data((synthesis([5, 0]) + event(#"{"output":{"type":"sentence-end"}}"#)).utf8),
             Data(event(#"{"output":{"finish_reason":"stop","audio":{"url":"https://example.invalid/a.wav"}}}"#).utf8),
         ])]
-        let pcm = try await QwenSpeechClient(config: config, transport: t).synthesize("好", style: .default, deadline: .seconds(5))
+        let pcm = try await QwenSpeechClient(config: config, transport: t).synthesize("好", deadline: .seconds(5))
         #expect(pcm.sampleRate == 24_000 && pcm.samples == [1, 2, 3, 4, 5])
         #expect(t.requests.count == 1)
     }
@@ -87,7 +87,7 @@ struct QwenSpeechTests {
         let t = StubStream()
         t.responses = [(status, chunks.map { Data($0.utf8) })]
         do {
-            _ = try await QwenSpeechClient(config: config, transport: t).synthesize("好", style: .default, deadline: .seconds(5))
+            _ = try await QwenSpeechClient(config: config, transport: t).synthesize("好", deadline: .seconds(5))
             return nil
         } catch let e as SpeechSynthesisError { return e.code } catch { return "other" }
     }
@@ -111,7 +111,7 @@ struct QwenSpeechTests {
         t.hang = true
         let clock = ManualClock()
         let client = QwenSpeechClient(config: config, transport: t, clock: clock)
-        let task = Task { try await client.synthesize("好", style: .default, deadline: .milliseconds(4400)) }
+        let task = Task { try await client.synthesize("好", deadline: .milliseconds(4400)) }
         while clock.pendingSleepers == 0 { await Task.yield() }
         clock.advance(by: .milliseconds(4400))
         await #expect(throws: SpeechSynthesisError("QWEN_TTS_TIMEOUT")) { try await task.value }
@@ -132,7 +132,7 @@ struct QwenSpeechTests {
                        (200, [Data(synthesis([3, 0]).utf8)])]
         let client = QwenSpeechClient(config: QwenSpeechConfig(key: "k", host: host, voice: "longanhuan_v3.1", pieceLimit: limit),
                                       transport: t)
-        let pcm = try await client.synthesize(text, style: .default, deadline: .seconds(5))
+        let pcm = try await client.synthesize(text, deadline: .seconds(5))
         #expect(pcm.samples == [1, 2, 3] && t.requests.count == 3)
         let sent = t.requests.map { r -> String in
             let o = try! JSONSerialization.jsonObject(with: r.httpBody!) as! [String: Any]

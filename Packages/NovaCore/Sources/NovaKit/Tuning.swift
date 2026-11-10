@@ -137,8 +137,8 @@ public struct PlaybackBufferTuning: Sendable, Hashable {
     public init() {}
 }
 
-/// contracts/api-contracts.md (Azure).
-public struct AzureSpeechTuning: Sendable, Hashable {
+/// The revoicing TTS (千问, F-07 §14): connect, clause deadline, warm-up, requests in flight (F-07 §17 item 4).
+public struct SpeechTuning: Sendable, Hashable {
     public var connectTimeout = NovaDuration.seconds(5)
     public var clauseDeadlineBase = NovaDuration.milliseconds(4000)
     public var clauseDeadlinePerChar = NovaDuration.milliseconds(400)

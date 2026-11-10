@@ -41,7 +41,9 @@ struct NovaDriveApp: App {
         SpeakerModelLocator.shared.refresh()
         // F-04b §16 item 6 (T-013j): the old calibration draft is deleted on first launch (no 校准 any more).
         SpeakerLockService.removeCalibrationDraft()
-        // F-07 §15 item 2 (T-020b): once, no saved choice or 千问 moves to Gemini 原声.
+        // F-07 §17 item 3 (T-020d): once, the removed TTS source, key and settings go (retried if the key delete fails).
+        RetiredVoiceCleanup.run(credentials: KeychainCredentialStore(), settings: DefaultsSettingsStore())
+        // F-07 §15 item 2 (T-020b): once, any saved choice moves to Gemini 原声.
         VoiceSourceMigration.run(DefaultsSettingsStore())
         // F-05a §16 item 3 (T-016n): SenseVoice is gone; its files are deleted once, in the background.
         SenseVoiceRemoval.runOnce()

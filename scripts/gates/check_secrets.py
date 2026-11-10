@@ -6,13 +6,18 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CREDENTIAL_KEYS = ROOT / "Packages" / "NovaCore" / "Sources" / "NovaPorts" / "Services.swift"
+# Secrets the app no longer stores (F-07 §17, T-020d removed Azure): still scanned for, so an old key pasted
+# into a file is caught.
+RETIRED_NAMES = ["azure_speech_key"]
 
 
 def credential_names() -> list[str]:
-    """Raw values of `CredentialKey` (gemini_api_key, ...), so a new stored secret is scanned for at once."""
+    """Raw values of `CredentialKey` (gemini_api_key, ...), so a new stored secret is scanned for at once, plus
+    `RETIRED_NAMES`."""
     text = CREDENTIAL_KEYS.read_text(encoding="utf-8") if CREDENTIAL_KEYS.exists() else ""
     body = re.search(r"enum CredentialKey\b[^{]*\{(.*?)\n\}", text, re.S)
     raw = re.findall(r'case\s+\w+\s*=\s*"([^"]+)"', body.group(1)) if body else []
+    raw += RETIRED_NAMES
     # Match both spellings: gemini_api_key and geminiApiKey / GEMINI_API_KEY (case-insensitive below).
     return sorted({re.escape(name) for name in raw} | {re.escape(name.replace("_", "")) for name in raw})
 

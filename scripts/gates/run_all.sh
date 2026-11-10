@@ -8,6 +8,7 @@ python3 "$root/scripts/gates/check_runners.py"
 python3 "$root/scripts/gates/check_imports.py"
 python3 "$root/scripts/gates/check_secrets.py"
 python3 "$root/scripts/gates/check_kws_tokens.py"
+python3 "$root/scripts/gates/check_no_azure.py"
 for pkg in NovaCore NovaRealtime NovaServices; do
   echo "== build + unit: $pkg"
   swift build --package-path "$root/Packages/$pkg" -Xswiftc -warnings-as-errors

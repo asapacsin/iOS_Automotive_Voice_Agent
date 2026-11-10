@@ -245,7 +245,7 @@ struct GuidanceWalkthroughTests {
         d.send(.guidanceRelay(enabled: false))
         var out = d.send(.guidancePrompt("前方右转", GuidanceID(1)))
         #expect(guidance(out).isEmpty)  // her sentence is still sounding
-        // Between clauses the lane may drain while the next clause is at Azure: not yet.
+        // Between clauses the lane may drain while the next clause is at TTS: not yet.
         out = d.send(.playback(.replyFinished(epoch)))
         #expect(guidance(out).isEmpty)
         out = d.send(.playback(.replyIdle(epoch)))

@@ -90,11 +90,11 @@ public final class QwenSpeechClient: FirstAudioTimedSynthesizer {
         self.clock = clock
     }
 
-    public func synthesize(_ text: String, style: SpeakingStyle, deadline: NovaDuration) async throws -> PCMBuffer {
-        try await synthesizeTimed(text, style: style, deadline: deadline).pcm
+    public func synthesize(_ text: String, deadline: NovaDuration) async throws -> PCMBuffer {
+        try await synthesizeTimed(text, deadline: deadline).pcm
     }
 
-    public func synthesizeTimed(_ text: String, style: SpeakingStyle, deadline: NovaDuration) async throws
+    public func synthesizeTimed(_ text: String, deadline: NovaDuration) async throws
         -> (pcm: PCMBuffer, firstMs: Int) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return (PCMBuffer(sampleRate: PCMBuffer.replySampleRate, samples: []), 0)

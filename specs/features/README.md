@@ -13,7 +13,7 @@ One file per feature. Load one file plus the contracts it lists under "Depends o
 | F-05 | [Realtime session (Gemini Live)](realtime-session.md) | ACTIVE provider |
 | F-05a | [Mandarin input transcript on the phone (普通话识别，不再被当成葡萄牙语)](mandarin-transcript.md) | iOS only, APPROVED (2026-10-29); tasks T-016a–c |
 | F-06 | [Reply pipeline and truthfulness gates](reply-truthfulness.md) | ACTIVE (JVM + LIVE suites) |
-| F-07 | [Assistant voice (Azure TTS) and playback](tts-playback.md) | ACTIVE when an Azure voice is configured (ADR-016) |
+| F-07 | [Assistant voice and playback](tts-playback.md) | iOS: Gemini 原声 by default, 千问 as an option; Azure removed from iOS (§17). Android: ACTIVE when an Azure voice is configured (ADR-016) |
 | F-08 | [Barge-in and speech arbitration](barge-in-arbitration.md) | ACTIVE (JVM; EMU; device latency HUMAN) |
 | F-09 | [Tool catalog, dispatch and guards](tool-dispatch-guards.md) | ACTIVE (JVM + LIVE) |
 | F-09a | [Car tools only for car requests (落域)](car-request-areas.md) | iOS only, APPROVED (2026-11-10); task T-017a |

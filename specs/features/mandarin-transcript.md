@@ -285,7 +285,7 @@ Code can guarantee what is shown. It cannot guarantee what Gemini hears or write
 5. **Seeing what happened.** Record line `screen-hidden kind=<driver|reply|guidance|camera> text=<first 80 characters>`, so the next case can be traced. `RuntimeLog` gets only `screenHidden kind=<...>`, with no words (I-8).
 6. **What this does not cover.**
    - Map labels drawn by the map SDK, and iOS system alerts and permission text.
-   - Fixed labels and product names: `Nova Drive`, `Gemini`, `Azure`, `AGC`, and error codes in 「连接错误：…」.
+   - Fixed labels and product names: `Nova Drive`, `Gemini`, `AGC`, and error codes in 「连接错误：…」.
    - Place names and addresses from Amap in the lists, which are shown as Amap returns them.
    - Developer pages: recorder, audio test and comfort evaluation.
    - Mishearing. A wrong Chinese sentence still shows, because it is Chinese.
