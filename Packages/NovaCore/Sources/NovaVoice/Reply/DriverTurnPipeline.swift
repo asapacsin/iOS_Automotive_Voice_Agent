@@ -22,32 +22,15 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         case .musicNotConfirmed: "[系统] MUSIC_NOT_CONFIRMED：没有确认音乐正在播放，不要说正在播放。"
         case .clarifyReferent: "[系统] 指代不明确。请用一句简短的话问司机具体指哪一项。"
         case .unverifiedClaim: "[系统] 你声称已完成操作，但没有成功的工具结果。请先调用工具，或如实说明。"
-        case .wrongLanguage: Self.wrongLanguageText(heard: nil, language: nil)
+        // F-05a §15 item 4 as changed by §16 item 5 (T-016n): never with the driver's words.
+        case .wrongLanguage: "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
         }
-    }
-
-    static let wrongLanguageLead = "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。"
-
-    /// F-05a §15 item 4: the re-ask after a blocked reply. With a SenseVoice final in zh, en or ja it names the words
-    /// heard and the language to answer in; otherwise it asks her to have the driver say it again, in Chinese.
-    public static func wrongLanguageText(heard: String?, language: SpokenLanguage?) -> String {
-        let name: String? = switch language {
-        case .zh: "中文"
-        case .en: "英文"
-        case .ja: "日语"
-        case .other, nil: nil
-        }
-        if let heard, let name, !heard.allSatisfy(\.isWhitespace) {
-            return wrongLanguageLead + "司机刚才说的是「\(heard)」。请用\(name)回答这句话。"
-        }
-        return wrongLanguageLead + "请用中文简短地请司机再说一遍。"
     }
 }
 
 public enum PipelineInput: Sendable, Hashable {
-    /// A final driver transcript: a new utterance (resets the one-nudge and one-re-ask budgets). `language` is
-    /// SenseVoice's (F-05a §14), nil for the streaming model; the §15 re-ask names the words only with it.
-    case driverUtterance(String, language: SpokenLanguage? = nil)
+    /// A final driver transcript: a new utterance (resets the one-nudge and one-re-ask budgets).
+    case driverUtterance(String)
     case turnOpened(TurnID)
     case replyText(TurnID, String)
     case replyAudio(TurnID, PCMBuffer)
@@ -87,7 +70,7 @@ public enum PipelineOutput: Sendable, Hashable {
     case schedule(PipelineTimer, at: NovaInstant)
     case cancelTimer(PipelineTimer.Kind)
     /// F-05a §15 item 4: the one WRONG_LANGUAGE text turn of an utterance, sent at once.
-    case languageReask(String)
+    case languageReask
     /// F-05a §15 item 5: the app itself says 「没听清，请再说一遍」 with the system voice, as her line.
     case fallbackLine
     /// F-05a §15 item 7: a record and log line, codes and numbers only.
@@ -165,9 +148,8 @@ public struct DriverTurnPipeline: Sendable {
     private var nudgedThisUtterance = false
     private var reaskedThisUtterance = false
     private var pendingCorrection: CorrectionReason?
-    /// F-05a §15: the detector, the utterance's SenseVoice final, and the one re-ask and one fallback line.
+    /// F-05a §15: the detector, and the one re-ask and one fallback line of an utterance.
     private let detector: any LanguageIdentifier
-    private var lastHeard: (text: String, language: SpokenLanguage)?
     private var wrongLanguageAsked = false
     private var awaitingReaskReply = false
     private var fallbackSaid = false
@@ -186,9 +168,8 @@ public struct DriverTurnPipeline: Sendable {
 
     public mutating func handle(_ input: PipelineInput, at now: NovaInstant) -> [PipelineOutput] {
         switch input {
-        case .driverUtterance(let text, let language):
+        case .driverUtterance(let text):
             lastUtterance = text
-            if let language { lastHeard = (text, language) } else if lastHeard?.text != text { lastHeard = nil }
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
             wrongLanguageAsked = false
             awaitingReaskReply = false
@@ -629,9 +610,10 @@ public struct DriverTurnPipeline: Sendable {
             wrongLanguageAsked = true
             awaitingReaskReply = true
             freshUtterance = true  // the model's next turn answers the re-ask, not a phantom
-            let heard = lastHeard.flatMap { $0.language == .other ? nil : $0 }
-            out += [.languageReask(CorrectionReason.wrongLanguageText(heard: heard?.text, language: heard?.language)),
-                    .languageLine(.correction(heard: heard != nil))]
+            // One text turn only: a correction still in its grace period is dropped for the re-ask.
+            pendingCorrection = nil
+            out += cancel(.correction)
+            out += [.languageReask, .languageLine(.correction)]
             out += schedule(.fallback, at: now + Self.fallbackAfter)
         } else if !fallbackSaid {
             out += fallback(.blockedAgain, turn: lastBlockedTurn)

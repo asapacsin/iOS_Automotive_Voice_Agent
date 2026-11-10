@@ -57,8 +57,8 @@ public enum ReplyLanguageLine: Sendable, Hashable {
 
     /// `lang-check turn= verdict= lang= p= held_ms=`; `language` nil writes `none`.
     case check(turn: Int, verdict: Reached, language: String?, probability: Double, heldMs: Int)
-    /// `correction WRONG_LANGUAGE heard=<sensevoice|none>`.
-    case correction(heard: Bool)
+    /// `correction WRONG_LANGUAGE heard=none` (F-05a §16 item 5: the re-ask never carries heard words).
+    case correction
     /// `fallback-line turn= reason=`.
     case fallback(turn: Int, reason: FallbackReason)
 
@@ -74,7 +74,7 @@ public enum ReplyLanguageLine: Sendable, Hashable {
         switch self {
         case .check(let turn, let verdict, let language, let p, let ms):
             "turn=\(turn) verdict=\(verdict.rawValue) lang=\(language.map(Self.code) ?? "none") p=\(Self.twoDecimals(p)) held_ms=\(ms)"
-        case .correction(let heard): "WRONG_LANGUAGE heard=\(heard ? "sensevoice" : "none")"
+        case .correction: "WRONG_LANGUAGE heard=none"
         case .fallback(let turn, let reason): "turn=\(turn) reason=\(reason.rawValue)"
         }
     }

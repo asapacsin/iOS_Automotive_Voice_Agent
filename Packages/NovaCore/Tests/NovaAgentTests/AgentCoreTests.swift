@@ -124,7 +124,9 @@ struct AgentWalkthroughTests {
         #expect(sound.contains(.diagnostic(.bargeIn(qualified: false))))
         // The stop phrase does, already from the partial transcript.
         let barge = d.realtime(.userTranscript("别说", isFinal: false)) + d.realtime(.userTranscript("了", isFinal: false))
-        #expect(Array(barge.prefix(2)) == [.flushPlayback(Epoch(1)), .cancelRevoicing(Epoch(1))])
+        // F-05a §16: the partial 「别说」 alone already updates the driver's line (a publish); the stop comes with 了.
+        let stops = barge.filter { if case .publish = $0 { false } else { true } }
+        #expect(Array(stops.prefix(2)) == [.flushPlayback(Epoch(1)), .cancelRevoicing(Epoch(1))])
         #expect(barge.contains(.diagnostic(.bargeIn(qualified: true))))
         let late = d.realtime(.replyText(t1, "庙里有个老和尚。"))
         let after = d.realtime(.replyText(t1, "老和尚在讲故事。"))
@@ -394,7 +396,9 @@ struct DriverWordsTests {
         d.send(.speechStarted(recentSpeech: true))
         #expect(d.send(.driverWords(.partial("别说"))).isEmpty)
         let barge = d.send(.driverWords(.partial("别说了")))
-        #expect(Array(barge.prefix(2)) == [.flushPlayback(Epoch(1)), .cancelRevoicing(Epoch(1))])
+        // F-05a §16: the partial 「别说」 alone already updates the driver's line (a publish); the stop comes with 了.
+        let stops = barge.filter { if case .publish = $0 { false } else { true } }
+        #expect(Array(stops.prefix(2)) == [.flushPlayback(Epoch(1)), .cancelRevoicing(Epoch(1))])
     }
 
     @Test("F-05a: once the selector feeds the words, Gemini's own transcript is ignored")

@@ -32,18 +32,8 @@ struct TabSurfaces: AppSurfacePort {
     }
 }
 
-/// F-05a §14 item 1 (T-016l): background download events for the multilingual model's session.
-final class NovaDriveAppDelegate: NSObject, UIApplicationDelegate {
-    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
-                     completionHandler: @escaping () -> Void) {
-        guard identifier == MultilingualModelStore.sessionID else { return completionHandler() }
-        MultilingualModelStore.shared.handleBackgroundEvents(completionHandler)
-    }
-}
-
 @main
 struct NovaDriveApp: App {
-    @UIApplicationDelegateAdaptor(NovaDriveAppDelegate.self) private var appDelegate
     @StateObject private var navigation = AppNavigation.shared
 
     init() {
@@ -53,8 +43,8 @@ struct NovaDriveApp: App {
         SpeakerLockService.removeCalibrationDraft()
         // F-07 §15 item 2 (T-020b): once, no saved choice or 千问 moves to Gemini 原声.
         VoiceSourceMigration.run(DefaultsSettingsStore())
-        // F-05a §14 item 1 (T-016l): with the switch on and the model missing, download on Wi-Fi; else load it.
-        MultilingualModelStore.shared.start()
+        // F-05a §16 item 3 (T-016n): SenseVoice is gone; its files are deleted once, in the background.
+        SenseVoiceRemoval.runOnce()
         _ = DriveSettings.musicCountry()  // F-13 §15 item 1 (T-032c): a saved 中国大陆 becomes 香港 at first launch
     }
 

@@ -90,6 +90,9 @@ public struct AgentViewState: Sendable, Hashable {
     public var chip: AssistantChip = .idle
     /// The judged reply text of the current turn (小诺's bubble).
     public var subtitle = ""
+    /// F-05a §16 item 1 (T-016n): the driver's line, from Gemini's input transcript only, checked by `ScreenLanguage`
+    /// (「（没听清）」 when hidden, empty while waiting or with no Gemini text). The local text never reaches it.
+    public var driverLine = ""
     /// Terminal error: the settings message for this code.
     public var configError: RealtimeErrorCode?
     /// F-24 §14 item 3: no network; the chip reads 等待网络… instead of PROCESSING.
@@ -240,6 +243,10 @@ public struct AgentState: Sendable {
     private var pipelineTimers: [PipelineTimer.Kind: PipelineTimer] = [:]
     /// F-05a §15 item 5: fallback lines said; their guidance ids count down from the top, clear of Amap's.
     private var fallbackLines: UInt64 = 0
+    /// F-05a §15 item 1 and §16 item 2: the detector, also for a Latin-only driver line.
+    private var detector: any LanguageIdentifier = NoLanguageIdentifier()
+    /// F-05a §16 item 1: Gemini's input transcript of the current utterance (partials are deltas).
+    private var geminiHeard = ""
 
     /// F-18 §21 item 2 (T-046i): silent destination notes (on with the search setting; off sends none).
     private var destinationNotes = false
@@ -262,6 +269,7 @@ public struct AgentState: Sendable {
     public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
                 revoicing: Bool = true, languageIdentifier: any LanguageIdentifier = NoLanguageIdentifier()) {
         pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing, detector: languageIdentifier)
+        detector = languageIdentifier
         self.revoicing = revoicing
         if let resume { session = VoiceSession(resume: resume) }
         self.destinationNotes = destinationNotes
@@ -366,6 +374,12 @@ public struct AgentState: Sendable {
             if abandonNextTurn { cleared = [.diagnostic(.abandonCleared)] }
             abandonNextTurn = false
             noUtteranceSinceStop = false
+            // F-05a §16 item 1: a new utterance's line starts empty and stays empty without Gemini text.
+            geminiHeard = ""
+            if !view.driverLine.isEmpty {
+                view.driverLine = ""
+                cleared.append(.publish(view))
+            }
             // The driver speaks to her: a reply may claim focus again after a permanent loss (R4).
             if recentSpeech { arbiter.regainFocus() }
             let effects = cleared + bargeIn(.speechStarted(recentSpeech: recentSpeech), at: now)
@@ -393,7 +407,7 @@ public struct AgentState: Sendable {
             guard session.state != .disconnected, session.state != .error else { return [] }
             switch words {
             case .partial(let text): return heard(text, isFinal: false, at: now)
-            case .final(let text, let language): return heard(text, isFinal: true, language: language, at: now)
+            case .final(let text): return heard(text, isFinal: true, at: now)
             case .unclear:
                 // S4: shown as 「（没听清）」 only; no stop-phrase check. Tool calls never read words (F-05a §6).
                 transcriptEpoch = speechOnsets
@@ -587,6 +601,23 @@ public struct AgentState: Sendable {
         return GuidanceConditions(enabled: relayEnabled, connected: connected, capable: revoicing,
                                   driverSpeaking: driverSpeaking, responseOpen: openTurn != nil || answerOwed,
                                   workPending: runningTools > 0, focusHeld: arbiter.focus == .held)
+    }
+
+    // MARK: F-05a §16 (T-016n): the driver's line
+
+    /// Item 2: the whole Gemini text so far through `ScreenLanguage`; a hidden final shows 「（没听清）」 and writes one
+    /// `screen-hidden kind=driver`. Display only: the stop phrase, the echo filter and the guards never read it.
+    private mutating func driverLine(_ text: String, isFinal: Bool) -> [AgentEffect] {
+        if isFinal { geminiHeard = text } else { geminiHeard += text }
+        let shown = ScreenLanguage.driverDisplay(geminiHeard, final: isFinal, detector: detector)
+        var effects: [AgentEffect] = []
+        if shown.hidden, isFinal { effects.append(.screenHidden(.driver, geminiHeard)) }
+        let line = shown.line ?? ""
+        if line != view.driverLine {
+            view.driverLine = line
+            effects.append(.publish(view))
+        }
+        return effects
     }
 
     // MARK: F-05a §13 (T-016i): the screen check on her bubble
@@ -890,8 +921,7 @@ public struct AgentState: Sendable {
     // MARK: Reply
 
     /// The driver's words so far (`text` is the whole utterance), from Gemini or from `TranscriptSelector`.
-    private mutating func heard(_ text: String, isFinal: Bool, language: SpokenLanguage? = nil,
-                                at now: NovaInstant) -> [AgentEffect] {
+    private mutating func heard(_ text: String, isFinal: Bool, at now: NovaInstant) -> [AgentEffect] {
         // Her own guidance reading heard back through the microphone is not the driver (F-14 §8).
         if isFinal, relay.isEcho(text, at: now) { return [] }
         transcriptEpoch = speechOnsets
@@ -914,7 +944,7 @@ public struct AgentState: Sendable {
         // The flushed transcript of an utterance already given up on does not revive it; words of a not-sent
         // utterance never reach the tool path (F-04 §14 item 1).
         guard isFinal, !abandonNextTurn, utteranceSent else { return [] }
-        return pipeline(.driverUtterance(text, language: language), at: now)
+        return pipeline(.driverUtterance(text), at: now)
     }
 
     private mutating func reply(_ event: RealtimeEvent, at now: NovaInstant) -> [AgentEffect] {
@@ -929,9 +959,14 @@ public struct AgentState: Sendable {
         }
         switch event {
         case .userTranscript(let text, let isFinal):
-            guard !selectorOwnsWords else { return [] }
-            // Gemini's partials are deltas.
-            return heard(isFinal ? text : transcript + text, isFinal: isFinal, at: now)
+            // F-05a §16 item 1: the driver's line is Gemini's text alone, whoever feeds the core's words. Her own
+            // guidance reading heard back (F-14 §8 echo) is not the driver's line either.
+            var probe = relay
+            let echo = isFinal && probe.isEcho(text, at: now)
+            let line = echo ? [] : driverLine(text, isFinal: isFinal)
+            guard !selectorOwnsWords else { return line }
+            // Gemini's partials are deltas. A stop's flush goes before the screen update.
+            return heard(isFinal ? text : transcript + text, isFinal: isFinal, at: now) + line
         case .responseStarted(let turn):
             if abandonNextTurn {
                 abandonNextTurn = false
@@ -1146,10 +1181,11 @@ public struct AgentState: Sendable {
             case .sendCorrection(let reason):
                 answerOwed = true
                 effects.append(.provider(.text([TextTurn(role: .user, text: reason.instruction)], turnComplete: true)))
-            case .languageReask(let text):
-                // F-05a §15 item 4: sent at once, not after the correction grace.
+            case .languageReask:
+                // F-05a §15 item 4: sent at once, not after the correction grace; §16 item 5: no heard words.
                 answerOwed = true
-                effects.append(.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)))
+                effects.append(.provider(.text([TextTurn(role: .user, text: CorrectionReason.wrongLanguage.instruction)],
+                                               turnComplete: true)))
             case .fallbackLine:
                 // F-05a §15 item 5: the app's own line, in the system voice on the guidance lane, shown as hers.
                 answerOwed = false

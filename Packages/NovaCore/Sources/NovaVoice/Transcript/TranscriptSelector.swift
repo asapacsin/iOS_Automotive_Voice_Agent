@@ -5,13 +5,14 @@ import NovaPorts
 public enum DriverWords: Sendable, Hashable {
     /// Words still coming (subtitle, stop phrase).
     case partial(String)
-    /// The utterance's words; the guards may read them. `language` is SenseVoice's (F-05a §14), nil otherwise.
-    case final(String, language: SpokenLanguage? = nil)
+    /// The utterance's words; the stop phrase, the echo filter and `driverUtterance` read them.
+    case final(String)
     /// S4: what came back is not Chinese. The subtitle shows 「（没听清）」 and nothing counts as the driver's words.
     case unclear
 }
 
-/// F-05a §5 (T-016a): picks the one transcript AgentCore sees. The phone's on-device `zh-CN` recognizer wins and
+/// F-05a §5 (T-016a): picks the one transcript AgentCore sees. F-05a §16 (T-016n): only for the core's internal
+/// uses; the driver's line on screen is Gemini's text alone (`DriverLine`), never these words. The phone's on-device `zh-CN` recognizer wins and
 /// Gemini's input transcript is dropped (S1); Gemini is the fallback only when the phone has no text for the
 /// utterance, and only Chinese text passes (S3, S4). Pure: time comes in as `now`, waits go out as `.schedule`.
 public struct TranscriptSelector: Sendable {
@@ -38,9 +39,6 @@ public struct TranscriptSelector: Sendable {
         /// Gemini's text for this utterance, kept while local runs in case it is needed (S3).
         var gemini = ""
         var geminiFinal: String?
-        /// F-05a §14 item 2: SenseVoice runs for this utterance; the streaming final waits for it until the deadline.
-        var multi = false
-        var streamFinal: String?
     }
 
     public let tuning: Tuning
@@ -49,10 +47,8 @@ public struct TranscriptSelector: Sendable {
     public init(tuning: Tuning = Tuning()) { self.tuning = tuning }
 
     /// The uplink gate opened a new utterance. An older one still waiting is superseded: its events are dropped.
-    /// `multiReady`: the SenseVoice model is loaded (F-05a §14 item 2).
-    public mutating func begin(_ id: UtteranceID, localReady: Bool, multiReady: Bool = false) -> [Output] {
+    public mutating func begin(_ id: UtteranceID, localReady: Bool) -> [Output] {
         current = Utterance(id: id, local: localReady)
-        current?.multi = localReady && multiReady
         return []
     }
 
@@ -63,17 +59,7 @@ public struct TranscriptSelector: Sendable {
         case .partial(_, let text):
             u.lastPartial = text
             return text.isEmpty ? [] : [.words(.partial(text))]
-        case .final(_, let text, let language?):
-            // §14 item 2: SenseVoice's final wins when it comes before the deadline. An empty one leaves the
-            // streaming final to the deadline.
-            guard !text.isEmpty else { return [] }
-            u.done = true
-            return [.words(.final(text, language: language))]
-        case .final(_, let text, nil) where u.multi:
-            // §14 item 2: kept until SenseVoice answers or `localFinalWait` after the end runs out.
-            u.streamFinal = text
-            return []
-        case .final(_, let text, nil):
+        case .final(_, let text):
             u.done = true
             // S5: silence or noise passed the gate; nothing was said.
             return text.isEmpty ? [] : [.words(.final(text))]
@@ -111,11 +97,6 @@ public struct TranscriptSelector: Sendable {
     public mutating func deadline(_ id: UtteranceID, at now: NovaInstant) -> [Output] {
         guard var u = current, u.id == id, !u.done, u.local else { return [] }
         defer { current = u }
-        if let text = u.streamFinal {
-            // §14 item 2: SenseVoice was late; the streaming final is used and a late one is dropped.
-            u.done = true
-            return text.isEmpty ? [] : [.words(.final(text))]
-        }
         return resolve(&u)
     }
 

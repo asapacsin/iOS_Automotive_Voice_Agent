@@ -66,19 +66,19 @@ struct ReplyLanguageCheckTests {
         #expect(ReplyLanguageCheck.verdict("Tudo bem", final: true, detector: d) == .allowed)
     }
 
-    /// Gemini 原声, connected, the driver said 「不知道。」 and SenseVoice heard it in Chinese.
+    /// Gemini 原声, connected, the local recognizer heard the driver say 「不知道。」.
     static func asked(_ detector: FakeDetector = FakeDetector([portuguese: ("pt", 0.9)]),
-                      heard: String = "不知道。", language: SpokenLanguage? = .zh) -> Drive {
+                      heard: String = "不知道。") -> Drive {
         var d = Drive()
         d.state = AgentState(truthfulness: TruthfulnessTuning(), revoicing: false, languageIdentifier: detector)
         d.connect()
         d.send(.speechStarted(recentSpeech: true))
         d.send(.speechStopped)
-        d.send(.driverWords(.final(heard, language: language)))
+        d.send(.driverWords(.final(heard)))
         return d
     }
 
-    @Test("T-016m F-05a §15 row 4: Portuguese after 200 ms of audio: nothing released, voided, one re-ask in Chinese")
+    @Test("T-016m F-05a §15 row 4: Portuguese after 200 ms of audio: nothing released, voided, one re-ask without heard words")
     func portugueseVoided() {
         var d = Self.asked()
         let t = TurnID(1)
@@ -88,8 +88,9 @@ struct ReplyLanguageCheckTests {
         let out = d.realtime(.replyText(t, Self.portuguese))
         #expect(played(out) == 0 && d.state.view.subtitle.isEmpty)
         #expect(out.contains { if case .flushPlayback = $0 { true } else { false } })  // the void
-        #expect(texts(out) == ["[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。司机刚才说的是「不知道。」。请用中文回答这句话。"])
-        #expect(lines(out).contains(.correction(heard: true)))
+        // F-05a §16 item 5 (T-016n): the re-ask never carries the heard words.
+        #expect(texts(out) == ["[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"])
+        #expect(lines(out).contains(.correction))
         #expect(lines(out).contains(.check(turn: 1, verdict: .blocked, language: "pt", probability: 0.9, heldMs: 200)))
         // Nothing of the voided turn plays later.
         #expect(played(d.realtime(.replyAudio(t, Self.pcm)) + d.realtime(.audioDone(t))) == 0)
@@ -149,25 +150,19 @@ struct ReplyLanguageCheckTests {
         f.realtime(.responseDone(TurnID(1), outcome: .completed))
         f.send(.speechStarted(recentSpeech: true))
         f.send(.speechStopped)
-        f.send(.driverWords(.final("现在几点", language: .zh)))
+        f.send(.driverWords(.final("现在几点")))
         #expect(fallbacks(f.fire(.fallback)).isEmpty)
     }
 
-    @Test("T-016m F-05a §15 row 7: the re-ask texts exactly")
+    @Test("T-016n F-05a §16 row 6 (§15 row 7): any utterance gets the second re-ask text exactly, heard=none")
     func reaskTexts() {
-        #expect(CorrectionReason.wrongLanguageText(heard: "不知道。", language: .zh)
-            == "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。司机刚才说的是「不知道。」。请用中文回答这句话。")
-        #expect(CorrectionReason.wrongLanguageText(heard: "What time is it", language: .en)
-            == "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。司机刚才说的是「What time is it」。请用英文回答这句话。")
         let none = "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
-        #expect(CorrectionReason.wrongLanguageText(heard: nil, language: nil) == none)
-        #expect(CorrectionReason.wrongLanguageText(heard: "안녕", language: .other) == none)
         #expect(CorrectionReason.wrongLanguage.instruction == none)
-        // No SenseVoice final (the streaming model's words): the second text, heard=none.
-        var d = Self.asked(heard: "不知道", language: nil)
+        var d = Self.asked()
         d.realtime(.responseStarted(TurnID(1)))
         let out = d.realtime(.replyText(TurnID(1), Self.portuguese))
-        #expect(texts(out) == [none] && lines(out).contains(.correction(heard: false)))
+        #expect(texts(out) == [none] && lines(out).contains(.correction))
+        #expect(!texts(out)[0].contains("不知道"))
     }
 
     @Test("T-016m F-05a §15 row 8: record lines exactly as item 7, with no reply or driver words")
@@ -178,8 +173,7 @@ struct ReplyLanguageCheckTests {
             == "lang-check turn=1 verdict=released lang=none p=0.00 held_ms=800")
         #expect(ReplyLanguageLine.check(turn: 2, verdict: .allowed, language: "zh-Hans", probability: 1, heldMs: 0).logLine
             == "lang-check turn=2 verdict=allowed lang=zh-Hans p=1.00 held_ms=0")
-        #expect(ReplyLanguageLine.correction(heard: true).logLine == "correction WRONG_LANGUAGE heard=sensevoice")
-        #expect(ReplyLanguageLine.correction(heard: false).logLine == "correction WRONG_LANGUAGE heard=none")
+        #expect(ReplyLanguageLine.correction.logLine == "correction WRONG_LANGUAGE heard=none")
         #expect(ReplyLanguageLine.fallback(turn: 3, reason: .blockedAgain).logLine == "fallback-line turn=3 reason=blocked_again")
         #expect(ReplyLanguageLine.fallback(turn: 3, reason: .noReply).logLine == "fallback-line turn=3 reason=no_reply")
         var r = ConversationRecorder()

@@ -32,6 +32,9 @@ OWNERS = {
 # Symbols (not modules) with one owner package.
 # `session.webSocketTask(with:)` (or a reference to it) makes one without naming the type.
 SYMBOL_OWNERS = {r"\bURLSessionWebSocketTask\b": {"NovaRealtime"}, r"\.\s*`?webSocketTask\b|\bwebSocketTask\s*\(": {"NovaRealtime"}}
+# F-05a §16 row 7 (T-016n): SenseVoice and its download are removed; none of them may come back in the Swift sources.
+# Matched on the raw text, so the 设置 label in a string counts too.
+REMOVED = ("OfflineSenseVoice", "MultilingualModelStore", "多语言识别")
 CORE_ALLOWED = {"Foundation", "Synchronization", "NovaKit", "NovaPorts", "NovaVoice", "NovaTools",
                 "NovaNav", "NovaAgent", "Testing", "XCTest"}
 
@@ -118,8 +121,10 @@ def main(argv: list[str]) -> int:
              if ".build" not in p.parts and p.name != "Package.swift"]
     for path in files:
         owner = owner_of(path, root)
-        code = code_of(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        code = code_of(text)
         rel = path.relative_to(root)
+        failures += [f"{rel}: {name} was removed (F-05a §16)" for name in REMOVED if name in text]
         for symbol, owners in SYMBOL_OWNERS.items():
             if re.search(symbol, code) and owner not in owners:
                 failures.append(f"{rel}: {symbol} is owned by {sorted(owners)}, not {owner}")

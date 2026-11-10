@@ -13,9 +13,11 @@ public enum ScreenLanguage {
     /// Final Latin-only text up to this many `A-Z` / `0-9` characters shows (`OK`, `4S`).
     static let shortTokenLimit = 5
 
-    /// `text` is the whole text so far; `final` is true once no more of it will come. `language` is the utterance's
-    /// (SenseVoice's for the driver, `replyLanguage` for her reply; F-05a §14 item 3).
-    public static func check(_ text: String, final: Bool, language: SpokenLanguage? = nil) -> Verdict {
+    /// `text` is the whole text so far; `final` is true once no more of it will come. `language` is her reply's
+    /// (`replyLanguage`, F-05a §14 item 3, §15 item 6). F-05a §16 item 2 (T-016n): for the driver's line `detector`
+    /// decides a final Latin-only line instead (SenseVoice's language is gone).
+    public static func check(_ text: String, final: Bool, language: SpokenLanguage? = nil,
+                             detector: any LanguageIdentifier = NoLanguageIdentifier()) -> Verdict {
         var han = false
         var latin = false
         var kana = false
@@ -35,8 +37,13 @@ public enum ScreenLanguage {
         if han { return TranscriptLanguage.isChinese(text) || shortTokensOnly(text) ? .show : (final ? .hide : .wait) }
         if !latin { return .show }
         guard final else { return .wait }
-        // §14 item 3: a final Latin-only line of an English utterance shows at any length.
+        // §14 item 3: a final Latin-only reply in English shows at any length.
         if language == .en { return .show }
+        // §16 item 2: a final Latin-only driver line shows when the §15 detector says English at 0.5 or more.
+        if let top = detector.hypotheses(text).first, ReplyLanguageCheck.isEnglish(top),
+           top.probability >= ReplyLanguageCheck.streamingProbability {
+            return .show
+        }
         let kept = text.unicodeScalars.filter { !$0.properties.isWhitespace }
         return kept.count <= shortTokenLimit && kept.allSatisfy(isToken) ? .show : .hide
     }
@@ -80,13 +87,15 @@ public enum ScreenLanguage {
     }
 
     /// The driver's line for final text: itself, or 「（没听清）」 when hidden.
-    public static func driverLine(_ text: String, language: SpokenLanguage? = nil) -> (line: String, hidden: Bool) {
-        check(text, final: true, language: language) == .hide ? (unclearDriverLine, true) : (text, false)
+    public static func driverLine(_ text: String, detector: any LanguageIdentifier = NoLanguageIdentifier())
+        -> (line: String, hidden: Bool) {
+        check(text, final: true, detector: detector) == .hide ? (unclearDriverLine, true) : (text, false)
     }
 
     /// The driver's line for the whole text so far; `wait` shows nothing yet.
-    public static func driverDisplay(_ text: String, final: Bool, language: SpokenLanguage? = nil) -> (line: String?, hidden: Bool) {
-        switch check(text, final: final, language: language) {
+    public static func driverDisplay(_ text: String, final: Bool, detector: any LanguageIdentifier = NoLanguageIdentifier())
+        -> (line: String?, hidden: Bool) {
+        switch check(text, final: final, detector: detector) {
         case .show: (text, false)
         case .wait: ("", false)
         case .hide: (unclearDriverLine, true)

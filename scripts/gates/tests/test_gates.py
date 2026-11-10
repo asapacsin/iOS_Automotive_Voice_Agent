@@ -151,6 +151,26 @@ class ImportsGateTests(unittest.TestCase):
                 self.assertEqual(self.check(code), 0, name)
 
 
+class SenseVoiceRemovedGateTests(unittest.TestCase):
+    """F-05a §16 row 7 (T-016n): no OfflineSenseVoice, MultilingualModelStore or 多语言识别 in Swift sources."""
+    def check(self, code: str) -> int:
+        tree = Tree()
+        try:
+            tree.write("App/NovaDrive/X.swift", code)
+            return run(check_imports.main, str(tree.root))
+        finally:
+            tree.close()
+
+    def test_each_planted_fails(self) -> None:
+        for code in ("var c = SherpaOnnxOfflineSenseVoiceModelConfig()", "MultilingualModelStore.shared.start()",
+                     'Toggle("多语言识别（中文 / English / 日本語）", isOn: $on)'):
+            with self.subTest(code=code):
+                self.assertEqual(self.check(code), 1, code)
+
+    def test_removal_code_passes(self) -> None:
+        self.assertEqual(self.check('enum SenseVoiceRemoval { static let folder = "sensevoice-2024-07-17" }'), 0)
+
+
 class PreviewLaneGateTests(unittest.TestCase):
     """F-13 §18 item 10 (T-032f): no scheduleBuffer, player node or node stop for the preview in NovaAudio."""
     PLANTED = {

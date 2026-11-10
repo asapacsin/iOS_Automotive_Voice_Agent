@@ -12,47 +12,21 @@ public enum TranscriberAvailability: Sendable, Hashable {
     case unavailable(reason: String)
 }
 
-/// F-05a §14 item 2 (T-016l): the language of an utterance's final, from SenseVoice's `lang`.
+/// The language of her reply as the screen check sees it (F-05a §14 item 3: Kana → ja, Latin with no Han → en).
+/// F-05a §16 item 3 (T-016n): the driver's utterances no longer carry one (SenseVoice removed).
 public enum SpokenLanguage: String, Sendable, Hashable {
     case zh, en, ja, other
-
-    /// `zh` and `yue` → zh, `en` → en, `ja` → ja, anything else (`ko`, empty) → other. SenseVoice may write the
-    /// tag form (`<|en|>`); the brackets are removed first.
-    public init(senseVoice lang: String) {
-        let code = lang.replacingOccurrences(of: "<|", with: "").replacingOccurrences(of: "|>", with: "")
-            .trimmingCharacters(in: .whitespaces).lowercased()
-        switch code {
-        case "zh", "yue": self = .zh
-        case "en": self = .en
-        case "ja": self = .ja
-        default: self = .other
-        }
-    }
-
-    /// SenseVoice's tags (`<|en|>`, emotion and event tags) never reach the text.
-    public static func senseVoiceText(_ text: String) -> String {
-        var out = ""
-        var rest = Substring(text)
-        while let open = rest.range(of: "<|") {
-            out += rest[..<open.lowerBound]
-            guard let close = rest[open.upperBound...].range(of: "|>") else { rest = rest[open.lowerBound...]; break }
-            rest = rest[close.upperBound...]
-        }
-        out += rest
-        return out.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
 /// What the phone's own recognizer heard. Partial and final texts are the whole utterance so far, not deltas.
-/// A final's `language` is SenseVoice's (§14 item 2); nil is the streaming model's final.
 public enum LocalTranscript: Sendable, Hashable {
     case partial(UtteranceID, String)
-    case final(UtteranceID, String, language: SpokenLanguage? = nil)
+    case final(UtteranceID, String)
     case failed(UtteranceID, reason: String)
 
     public var utterance: UtteranceID {
         switch self {
-        case .partial(let id, _), .final(let id, _, _), .failed(let id, _): id
+        case .partial(let id, _), .final(let id, _), .failed(let id, _): id
         }
     }
 }

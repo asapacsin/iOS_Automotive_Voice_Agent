@@ -9,11 +9,10 @@ import Synchronization
 /// F-12 §17 (T-031f): one thing that happened in a conversation, as the test record sees it. Off by default; the
 /// record is a local file, never a log (I-8, product-spec I-7/I-8 note). Pure.
 public enum RecordEvent: Sendable, Hashable {
-    /// The bundled recognizer's final words; nil = （没听清）. F-05a §14 item 5: `language` set means SenseVoice
-    /// gave the final (`asr=sensevoice lang=<…>`); nil is the streaming model (`asr=stream lang=stream`).
-    case heardLocal(String?, language: SpokenLanguage? = nil)
-    /// F-05a §14 item 5: the multilingual model's state changed (`asr-model state=<…>`).
-    case asrModel(MultilingualModelState)
+    /// The bundled streaming recognizer's final words; nil = （没听清）. F-05a §16 item 3: `asr=stream`, no `lang`.
+    case heardLocal(String?)
+    /// F-05a §16 item 3 (T-016n): the SenseVoice files were deleted once on launch (`asr-model removed bytes=<n>`).
+    case asrModelRemoved(bytes: Int64)
     case heardGemini(String)
     case utterance(id: Int, sent: Bool, mute: String)
     case turnStarted(TurnID)
@@ -136,10 +135,9 @@ public struct ConversationRecorder: Sendable {
     public mutating func add(_ event: RecordEvent, atMs ms: Int64) -> [String] {
         func line(_ kind: String, _ content: String) -> String { "\(ms) \(kind) \(content)" }
         switch event {
-        case .heardLocal(let words, let language):
-            let tags = language.map { " lang=\($0.rawValue) asr=sensevoice" } ?? " lang=stream asr=stream"
-            return settle(ms, reason: nil) + [line("heard-local", (words ?? "（没听清）") + tags)]
-        case .asrModel(let state): return [line("asr-model", "state=\(state.code)")]
+        case .heardLocal(let words):
+            return settle(ms, reason: nil) + [line("heard-local", (words ?? "（没听清）") + " asr=stream")]
+        case .asrModelRemoved(let bytes): return [line("asr-model", "removed bytes=\(bytes)")]
         case .heardGemini(let text): return [line("heard-gemini", text)]
         case .utterance(let id, let sent, let mute): return [line("utterance", "id=\(id) sent=\(sent) mute=\(mute)")]
         case .turnStarted(let t):

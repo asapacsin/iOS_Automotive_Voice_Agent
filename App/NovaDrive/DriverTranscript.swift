@@ -7,7 +7,7 @@ import NovaVoice
 
 /// F-05a (T-016c): the driver's words for AgentCore. The uplink's utterance marks and frames reach the phone's
 /// recognizer in capture order; `TranscriptSelector` picks local text over Gemini's guess and sends the result
-/// to the core as `.driverWords`.
+/// to the core as `.driverWords`, for its internal uses only (F-05a §16 item 4: never shown).
 actor DriverTranscript {
     enum Input: Sendable {
         case begin
@@ -51,7 +51,7 @@ actor DriverTranscript {
             case .ready: ready = true
             case .unavailable: ready = false
             }
-            await route(selector.begin(id, localReady: ready, multiReady: ready && LocalSpeechModels.shared.multilingualReady))
+            await route(selector.begin(id, localReady: ready))
             if ready { await transcriber.begin(utterance: id) }
         case .frame(let frame):
             if open != nil { await transcriber.append(frame) }
