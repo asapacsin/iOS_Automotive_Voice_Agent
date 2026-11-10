@@ -110,13 +110,13 @@ struct DispatchTests {
         #expect(ToolErrorCode.validationError.rawValue == "_validation_error")
     }
 
-    @Test("F-09 the catalog has the 17 Android tools in domain order")
+    @Test("F-09 the catalog has the 17 Android tools in domain order, then the iOS set_volume (F-13a)")
     func catalog() {
         #expect(ToolCatalog.specs.map(\.name) == [
             "navigate_to", "choose_navigation_option", "exit_navigation_mode", "save_place", "open_app",
             "control_music", "play_music", "control_climate", "control_window", "control_seat", "run_scenario",
             "describe_camera_view", "place_call", "query_live_info", "end_conversation", "set_speech_output",
-            "set_speaking_style"])
+            "set_speaking_style", "set_volume"])
         #expect(ToolCatalog.spec("describe_camera_view")?.repeatSensitive == false)
         #expect(ToolCatalog.spec("set_speaking_style")?.repeatSensitive == true)
         #expect(ToolCatalog.spec("play_music")?.declaration.parametersJSONSchema["required"] == nil)

@@ -70,6 +70,8 @@ public enum RecordEvent: Sendable, Hashable {
     case claimCut(turn: Int, playedMs: Int)
     /// F-13 §17 item 6 (T-032e): a `music …` line (search, preview start/playing/failed/cut/ended); numbers and codes.
     case music(String)
+    /// F-13a §7 (T-032g, T-032h): a `volume set …` or `duck on|off …` line, written as it is; numbers and codes only.
+    case volume(String)
     /// F-05a §15 item 7 (T-016m): `lang-check …`, `correction WRONG_LANGUAGE heard=…`, `fallback-line …`.
     case languageLine(ReplyLanguageLine)
     /// F-09a §5 (T-017a): `area utterance=<n> area=<area>`; codes and numbers only.
@@ -194,6 +196,7 @@ public struct ConversationRecorder: Sendable {
         case .claimCut(let turn, let played): return [line("claim-cut", "turn=\(turn) played_ms=\(played)")]
         case .area(let utterance, let area): return [line("area", "utterance=\(utterance) area=\(area.rawValue)")]
         case .tiredSilenced(let turn): return [line("tired-silenced", "turn=\(turn)")]
+        case .volume(let text): return ["\(ms) \(text)"]
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]

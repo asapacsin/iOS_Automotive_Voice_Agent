@@ -50,6 +50,10 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private var configObserver: NSObjectProtocol?
     private var running = false
     private var restarted: (@Sendable () -> Void)?
+    /// F-13a §3 items 1, 3 (T-032g): the lane gains of the two app volumes, and the F-08 dip now on the reply (`lock`).
+    private var voiceGain = 1.0
+    private var mediaGain = 1.0
+    private var replyDipDb: Double?
 
     /// F-08 §17 item 3: told each time the engine is restarted after a configuration change.
     public func onEngineRestart(_ handler: @escaping @Sendable () -> Void) { lock.withLock { restarted = handler } }
@@ -181,13 +185,38 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
 
     // MARK: PlaybackPort
 
+    /// F-13a §3 item 3 (T-032g): `media` on the bundled loop node and the preview source node; `voice` on the reply,
+    /// guidance and cue nodes. Gains of the app's own nodes only; the phone's volume is never touched.
+    public func setLaneGains(media: Double, voice: Double) {
+        let replyGain = lock.withLock { () -> Double in
+            mediaGain = media
+            voiceGain = voice
+            return ReplyGain.value(voiceGain: voice, dipDb: replyDipDb)
+        }
+        reply.volume = Float(replyGain)
+        guidance.volume = Float(voice)
+        cue.volume = Float(voice)
+        self.media.volume = Float(media)
+        preview.volume = Float(media)
+    }
+
     /// F-08 §17 item 11 (T-022e): her reply lowered by `db` while a possible interruption is checked; it keeps playing.
+    /// F-13a §3 item 3: the dip multiplies the voice gain; restored, the reply is at the voice gain.
     public func setReplyDipped(_ dipped: Bool, byDb db: Double) {
-        reply.volume = dipped ? Float(pow(10, -db / 20)) : 1
+        let gain = lock.withLock { () -> Double in
+            replyDipDb = dipped ? db : nil
+            return ReplyGain.value(voiceGain: voiceGain, dipDb: replyDipDb)
+        }
+        reply.volume = Float(gain)
     }
 
     public func flush(to newEpoch: Epoch) {
-        reply.volume = 1  // F-08 §17 item 11: a dip never outlives the reply it lowered
+        // F-08 §17 item 11: a dip never outlives the reply it lowered; F-13a §3 item 3: back to the voice gain, not 1.
+        let restored = lock.withLock { () -> Double in
+            replyDipDb = nil
+            return voiceGain
+        }
+        reply.volume = Float(restored)
         let finished: Epoch? = lock.withLock {
             let had = outstanding > 0 ? epoch : nil
             epoch = max(newEpoch, epoch)
