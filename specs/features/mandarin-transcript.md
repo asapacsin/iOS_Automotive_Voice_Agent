@@ -87,6 +87,7 @@ Owner rule 2026-10-29, after device run 9f48c45 (「最快的」 refused three t
 off the word list): "abandon the transcript that serve the tool calling, and the transcript only use for display the
 text on the screen". This matches common practice: Gemini Live's input transcript is a separate output from what the
 model acts on and is known to come back in the wrong language while the model understood correctly.
+- **Revised 2026-11-10 (F-09a, owner "Yes, build it"):** the comfort tools (`control_climate`, `control_window`, `control_seat`, `run_scenario`) run only when the phone recognizer's final text of the utterance falls in the car area (F-09a §2); a tired utterance is silenced in code. Gemini's transcript is still never read by a guard, and every other tool keeps the rule below.
 - **No tool guard reads the driver's transcript.** Gemini hears the audio and its tool call (name + arguments) is the
   decision. Guards check only the call's arguments, app state and timing (driver turns counted by the uplink gate,
   F-04a). `wordsReliable` and `.wordsUnclear` are withdrawn.

@@ -16,6 +16,7 @@ One file per feature. Load one file plus the contracts it lists under "Depends o
 | F-07 | [Assistant voice (Azure TTS) and playback](tts-playback.md) | ACTIVE when an Azure voice is configured (ADR-016) |
 | F-08 | [Barge-in and speech arbitration](barge-in-arbitration.md) | ACTIVE (JVM; EMU; device latency HUMAN) |
 | F-09 | [Tool catalog, dispatch and guards](tool-dispatch-guards.md) | ACTIVE (JVM + LIVE) |
+| F-09a | [Car tools only for car requests (落域)](car-request-areas.md) | iOS only, APPROVED (2026-11-10); task T-017a |
 | F-10 | [Driver context and ambiguity resolution](ambiguity-context.md) | IMPLEMENTED (JVM); FZ-14 clarification not yet proven in a recording (runs 298, 317, 319) |
 | F-11 | [Vehicle controls (simulated)](vehicle-controls.md) | IMPLEMENTED, SIMULATED ONLY (no VHAL/CarPropertyManager) |
 | F-12 | [Comfort scenarios](comfort-scenarios.md) | IMPLEMENTED (JVM + LIVE text) |

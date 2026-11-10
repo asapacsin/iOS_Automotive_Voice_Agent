@@ -1967,6 +1967,17 @@
       "notes": "Owner 2026-11-10: \"why tired would open the air conditioner and wind, this is not making any sense\" and \"probably i prefer don't response at all\"."
     },
     {
+      "id": "T-017a",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-09a §2-§5: area per closed utterance from the phone recognizer's final text; control_climate/window/seat and run_scenario refused outside car with NOT_A_CAR_REQUEST; tired utterances silenced in code; record area lines; rows 1-8, 10 unit, row 9 device",
+      "depends_on": [
+        "T-031i"
+      ],
+      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\"."
+    },
+    {
       "id": "T-046c",
       "owner": "AUTONOMOUS",
       "status": "PASS",
