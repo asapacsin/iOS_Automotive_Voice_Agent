@@ -1978,6 +1978,15 @@
       "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\"."
     },
     {
+      "id": "T-034c",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 4,
+      "action": "F-21 §16: after the turn answering set_speaking_style ends, send contextUpdate{systemInstruction} (session base + new style block) on gemini-3.8-live only, when it differs from what the server holds; same path for a 设置 change; re-send after a resumed setupComplete when it differs from the chain's original; stop after a rejection within 2 s; style-update record lines; rows 1-8 unit, rows 9-11 device",
+      "depends_on": [],
+      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone."
+    },
+    {
       "id": "T-046c",
       "owner": "AUTONOMOUS",
       "status": "PASS",

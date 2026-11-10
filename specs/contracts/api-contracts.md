@@ -16,7 +16,8 @@ Google's docs on 2026-10-23 and is current (OQ-IOS-5); production should use eph
 - Models: default `gemini-3.8-live`; alternatives `gemini-3.8-live-extended-thinking`,
   `gemini-3.1-flash-live-preview` (`I/VoiceCatalog.kt:127-141`).
 - Client → server: `realtimeInput.audio` (16 kHz PCM base64), `realtimeInput.audioStreamEnd`,
-  `clientContent{turns, turnComplete}`, `toolResponse.functionResponses`.
+  `clientContent{turns, turnComplete}`, `toolResponse.functionResponses`,
+  `contextUpdate{systemInstruction}` (`gemini-3.8-live` only, no server acknowledgement; F-21 §16).
 - Server → client: `setupComplete`, `goAway`, `sessionResumptionUpdate`, `serverContent{
   inputTranscription, outputTranscription, modelTurn audio, interrupted, generationComplete,
   turnComplete}`, `toolCall.functionCalls`, `toolCallCancellation.ids`.

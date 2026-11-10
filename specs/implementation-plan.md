@@ -126,6 +126,7 @@ NOT_VERIFIED until a device run is attached.
 | T-034 | Persona and speaking style | F-21 | T-017 | `Core/NovaTools/Persona/` | F-21 §10 (3 rows) | unit |
 | T-034a | Base instruction scope: strict for car/navigation/weather/location, natural 3–5 sentence answers for general questions | F-21 | T-034 | `App/NovaDrive/` | F-21 §14 rows 1–8 | unit, S, D |
 | T-034b | Camera questions in the strict scope: camera topic + rule 8 (`describe_camera_view`), exclusion in the other scope, `toolCall` diagnostic, catalog-coverage guard test | F-21, F-20a | T-034a | `Packages/NovaCore/Sources/NovaAgent/Persona/` | F-21 §15 rows 1–8 | unit, S, D |
+| T-034c | A new tone applies at once in the same conversation: `contextUpdate` after the confirmation turn, re-sent after a resumed setup | F-21, F-05, F-24 | T-034b | `Packages/NovaCore/`, `Packages/NovaRealtime/`, `App/NovaDrive/` | F-21 §16 rows 1–11 | unit, build, D |
 | T-035 | M2 device run | — | T-030..T-034 | `specs/STATUS.md` | W6 on a device | D |
 
 ### M3: navigation core
