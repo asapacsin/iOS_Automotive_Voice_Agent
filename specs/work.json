@@ -2112,14 +2112,32 @@
     {
       "id": "T-016m",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-05a §15 items 1-9: LanguageIdentifier port + AppleLanguageIdentifier (NLLanguageRecognizer, NovaPlatform); ReplyLanguageCheck (other script blocked, Han/Kana allowed, Latin 12+ letters by detector en>=0.5, short final blocked only when non-en>=0.8); first audio held up to 800 ms for the verdict; blocked reply voided; one WRONG_LANGUAGE re-ask with SenseVoice words; app's own fallback line via SystemSpeechGuidanceVoice after a second block or 6 s; lang-check, correction and fallback-line record lines; rows 1-12.",
       "depends_on": [
         "T-016l"
       ],
       "notes": "Owner 2026-11-10: only Chinese, English and Japanese, yet she answered in Portuguese. Record 20261110-090143 (build 53): SenseVoice heard 不知道 (zh), Gemini heard tudo bem and replied in Portuguese; isNotAllowed passes every Latin letter. Community: Guardrails AI CorrectLanguage validator and reask (num_reasks=1), phantombot #580 (check in code, not more prompt), Hugging Face speech-to-speech fallback to the session language.",
-      "evidence": []
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh PASS (NovaCore 716 tests, 1 known issue; NovaRealtime 42; NovaServices 71; imports 0 violations; spec-trace 0 missing)",
+          "commit": "3f1cf83"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS, no blocking findings; non-blocking: a pending correction plus the re-ask could send two text turns (fixed in 8bffb36), fallback render failure clears the arbiter's guidance flag (shared with F-14 fallbacks), a tool-only answer to the re-ask does not stop the 6 s fallback (literal item 5), language-hold events count toward the hold budget"
+        },
+        {
+          "interpretation": "verdict 'allowed' needs 2+ Han/Kana letters, so 「4S店」 (one Han) is allowed at the end of the reply, undecided while it comes; the 800 ms clock starts at the first audio and holds text too; one lang-check line per turn (released, or the verdict); the fallback line uses guidance ids counted down from UInt64.max"
+        },
+        {
+          "build": "row 10 NOT_VERIFIED until the owner runs Codemagic (App and NovaPlatform not compiled on Linux)"
+        },
+        {
+          "device": "rows 11-12 NOT_VERIFIED"
+        }
+      ]
     },
     {
       "id": "T-016n",
