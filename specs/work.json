@@ -2145,6 +2145,18 @@
       "notes": "Owner 2026-11-05: once disconnected it does not connect back; let the wake word connect again. The 3 drops in the records recovered, so the owner's failure is not captured yet."
     },
     {
+      "id": "T-016o",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "action": "F-24 §17 items 1-7 (ConnectionNotice in NovaKit; provider failures stop writing model.notice; 重新连接中… after 1 s, 已重新连接 3 s on setupComplete, 连接失败，点按重试 for non-retryable codes; no codes on screen; connNotice log); F-24 §17 rows 1-9.",
+      "depends_on": [
+        "T-016j"
+      ],
+      "notes": "Owner 2026-11-10 build 58 (3108ed0): 连接错误：RESUME_UNAVAILABLE stayed on screen after the 17:31:30 reconnect. model.notice is cleared only by start(by:). The 1007 after a stop phrase is not part of this task.",
+      "evidence": []
+    },
+    {
       "id": "T-016l",
       "owner": "AUTONOMOUS",
       "status": "PASS",

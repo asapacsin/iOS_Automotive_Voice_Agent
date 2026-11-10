@@ -186,3 +186,76 @@ This section changes the online retry budget in §5, §9 and §14 item 2 ("5 att
 | Task | Scope | Verify |
 |---|---|---|
 | T-020b | Items 1–3; rows 1–5 (with F-07 §15) | unit, build, D |
+
+## 17. A connection message goes away when she is connected again (iOS, APPROVED 2026-11-10)
+
+**Why.** Owner 2026-11-10, build 58 (3108ed0), syslog-20261110-172217:
+- 17:31:25 Gemini closed with 1007, and the resume at 17:31:27 got 1008 (`RESUME_UNAVAILABLE`).
+- A new session was ready at 17:31:30 (`setupComplete`, `resumed handle=no`), and another at 17:38:09.
+- The screen kept showing 「连接错误：RESUME_UNAVAILABLE」 the whole time.
+
+The cause is in the code at 3108ed0:
+- `AgentRuntime` writes `model.notice = "连接错误：<code>"` on every `.failed` event (`AgentRuntime.swift:1122`).
+- `model.notice` is cleared only by a tap on start (`start(by:)`, line 723) and by the Azure check (line 793).
+- An automatic reconnect never clears it.
+
+**Sources (2026-11-10).** Apps tie a connection message to the connection state:
+- **Ovida and SwipedOn:** a "back online" or "Connected" banner shows for a few seconds after the connection returns and then goes away by itself. Ovida also ignores very short drops so the banner doesn't flicker ([Ovida](https://ovida-knowledge-base.help.usepylon.com/articles/2079671532-what-do-the-offline-and-back-online-banners-mean), [SwipedOn](https://swipedon.com/support/lost-connection-banner)).
+- **SAP Fiori for iOS:** an offline banner is either dismissed automatically after a few seconds or kept while the state lasts ([SAP Fiori iOS offline](https://www.sap.com/design-system/fiori-design-ios/v26-4/components/feedback/offline/usage)).
+- **Material snackbar:** a status message is polite (`role="status"`) and offers at most one action, Retry ([Material snackbar](https://cdn.jsdelivr.net/npm/@material/snackbar@14.0.0/README.md)).
+- **Persistent banners:** a loud, persistent offline banner is called a common mistake ([VP0](https://vp0.com/blogs/offline-mode-mobile-app-empty-state-ui)).
+- **Already in this file:** §14 item 3 says no network is not an error, and she says nothing about the gap.
+
+**Rule in plain words.** A dropped connection that the app fixes by itself is not an error on screen:
+- While it reconnects, the chip says so.
+- When she's back, 「已重新连接」 shows for 3 seconds, then nothing.
+- Only a failure the app can't fix by itself keeps a message.
+- Error codes go to the log, never to the screen.
+
+1. **The connection message is separate.**
+   - `model.notice` stays for the camera, microphone, key and Azure messages, unchanged.
+   - Provider failures no longer write `model.notice`; line 1122 is removed.
+   - A new pure `ConnectionNotice` in NovaCore (NovaKit) owns the connection message. It takes the session's events (failed with code, reconnecting, `setupComplete`, given up, stopped) and a clock as input, and outputs nil or a chip text.
+2. **Reconnecting.**
+   - After a failure with a retryable code (`RealtimeErrorCode.isRetryable`, e.g. `CONNECTION_CLOSED`, `RESUME_UNAVAILABLE`) and while the session is reconnecting with the network up, the chip shows 「重新连接中…」 in orange.
+   - It shows only after 1 s (`ConnectionNotice.showAfter`), so a reconnect that is done within 1 s shows nothing.
+   - §14's 「等待网络…」 still wins while `waitingForNetwork`.
+   - No error sound and no spoken message (§14 item 3).
+3. **Connected again.**
+   - On the next `setupComplete`, the connection message is cleared.
+   - If 「重新连接中…」 was shown, 「已重新连接」 shows in green for 3 s (`ConnectionNotice.backFor`), then nothing.
+   - This is the same whether the handle resumed or a new session started (`RESUME_UNAVAILABLE`). §14 item 3 and §8 still apply: she doesn't claim to remember a lost turn.
+4. **Can't recover by itself.**
+   - Giving up (§15) and the offline cap (§14 item 4) keep today's `SessionEndedChip` text. That text stays until a tap or 你好小诺.
+   - A non-retryable code (`AUTH`, `CREDENTIAL`, `QUOTA`, `RATE_LIMITED`, `MALFORMED`, `INVALID_MODEL`) keeps today's error path. The text under the chip becomes 「连接失败，点按重试」, with no code.
+   - A tap on start clears everything, as now.
+5. **No codes on screen.**
+   - Codes stay in `RuntimeLog` (`provider failed <code>`) and the record (`session failed code=…`).
+   - F-05a's rule that error codes in 「连接错误：…」 are fixed labels no longer has a case on screen. The 「出错 <configError>」 chip is unchanged.
+6. **Log.** `RuntimeLog`: `connNotice show=<reconnecting|back|failed|none> ms=<ms since failure>`. No words from the conversation.
+7. **Not changed.**
+   - Retry timing, the 60 s window and the offline cap (§14, §15).
+   - `ConnectionHandle` handling.
+   - The 1007 close after a stop phrase at 17:31:25. Its cause is not part of this task.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Failed `CONNECTION_CLOSED` then `setupComplete` 600 ms later (fake clock) | No connection text at any time | unit |
+| 2 | Failed `CONNECTION_CLOSED`, failed `RESUME_UNAVAILABLE`, `setupComplete` at 4.4 s | 「重新连接中…」 from 1 s to 4.4 s; 「已重新连接」 from 4.4 s to 7.4 s; nothing after | unit |
+| 3 | Same as row 2 with `waitingForNetwork` true from 0.5 s to 3 s | 「等待网络…」 while waiting, 「重新连接中…」 otherwise; row 2's end | unit |
+| 4 | Retries give up (§15) | `SessionEndedChip` text, kept; no 「重新连接中…」 | unit |
+| 5 | Failed `AUTH` | 「连接失败，点按重试」, kept until start; no code in any screen text | unit |
+| 6 | Camera notice set, then a failure and reconnect | Camera notice unchanged by rows 1–2 | unit |
+| 7 | `RuntimeLog` lines for rows 1–5 | `connNotice show=…` values; codes only in `provider failed` | unit |
+| 8 | Device: airplane mode on for 5 s mid-conversation, then off | 「等待网络…」 or 「重新连接中…」, then 「已重新连接」 for about 3 s, then nothing; no 「连接错误」 | D |
+| 9 | Device: a session that hits `RESUME_UNAVAILABLE` (as 17:31:25) | Same as row 8; screen clean after 3 s | D |
+
+**Trace gate.** Add `T-016o: F-24` to `specs/trace-ids.txt` together with the first `@Test` that names T-016o.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-016o | Items 1–7; rows 1–9 | unit, build, D |
