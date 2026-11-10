@@ -170,7 +170,7 @@ struct CarRequestAreaTests {
         #expect(e.state.view.subtitle == "好的，有一只小猫。")
     }
 
-    @Test("F-09a row 5: a held reply whose turn closed is dropped when the driver speaks again")
+    @Test("F-09a row 5: a held reply is kept while the driver speaks again, and plays once its area is known")
     func row5BargeIn() {
         var d = Self.drive(revoicing: false)
         d.send(.speechStarted(recentSpeech: true))
@@ -180,10 +180,31 @@ struct CarRequestAreaTests {
         d.realtime(.responseStarted(t1))
         d.realtime(.replyText(t1, "好的，有一只小猫。"))
         d.realtime(.replyAudio(t1, GeminiVoiceTests.pcm))
+        d.send(.speechStarted(recentSpeech: true))
+        d.realtime(.replyAudio(t1, GeminiVoiceTests.pcm))
         d.realtime(.responseDone(t1, outcome: .completed))
-        let next = Self.say(&d, .final("有点热"))
-        #expect(GeminiVoiceTests.played(next).isEmpty)
-        #expect(Self.areas(next) == [.unknown, .car])
+        let next = d.send(.speechStopped)
+        #expect(Self.areas(next) == [.unknown])
+        #expect(GeminiVoiceTests.played(next) == [t1, t1])   // whole reply, head first
+        #expect(d.state.view.subtitle == "好的，有一只小猫。")
+    }
+
+    @Test("F-09a row 5: a turn Gemini opens before the phone closes 好困 is silenced")
+    func row5EarlyTurn() {
+        var d = Self.drive(revoicing: false)
+        Self.say(&d, .final("讲个笑话"))
+        d.realtime(.responseStarted(TurnID(1)))
+        d.realtime(.responseDone(TurnID(1), outcome: .completed))
+        d.send(.speechStarted(recentSpeech: true))
+        let t2 = TurnID(2)
+        var out = d.realtime(.responseStarted(t2))
+        out += d.realtime(.replyText(t2, "好的，开空调。"))
+        out += d.realtime(.replyAudio(t2, GeminiVoiceTests.pcm))
+        out += d.send(.speechStopped)
+        out += d.send(.driverWords(.final("好困")))
+        out += d.realtime(.replyAudio(t2, GeminiVoiceTests.pcm))
+        #expect(GeminiVoiceTests.played(out).isEmpty)
+        #expect(out.contains(.diagnostic(.tiredSilenced(turn: 2))))
         #expect(d.state.view.subtitle.isEmpty)
     }
 

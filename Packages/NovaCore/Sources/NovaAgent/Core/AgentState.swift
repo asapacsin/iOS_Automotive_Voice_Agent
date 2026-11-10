@@ -285,6 +285,8 @@ public struct AgentState: Sendable {
     private var areaHeldUntil: NovaInstant?
     /// A turn whose reply was held closed meanwhile: whether it completed.
     private var areaHeldClosed: (turn: TurnID, completed: Bool)?
+    /// Turns Gemini opened while a sent utterance was still open: they answer that utterance (attached at its close).
+    private var areaEarlyTurns: Set<TurnID> = []
     /// Comfort calls running, by the utterance they belong to (for `comfortOk`).
     private var comfortCalls: [CallID: Int] = [:]
 
@@ -401,10 +403,6 @@ public struct AgentState: Sendable {
             driverSpeaking = true
             arbiter.driverSpeech(true)
             speechOnsets += 1
-            // F-09a: a reply still waiting for its area is not played over the driver's new words (like a barge-in).
-            areaHeldReply = []
-            areaHeldUntil = nil
-            areaHeldClosed = nil
             transcript = ""
             // F-08 §15 item 4: the transcript stop's give-up never reaches the answer to this new question.
             var cleared: [AgentEffect] = []
@@ -846,6 +844,7 @@ public struct AgentState: Sendable {
         areaHeldReply = []
         areaHeldUntil = nil
         areaHeldClosed = nil
+        areaEarlyTurns = []
         comfortCalls = [:]
         areaCurrent?.turns = []
         unclassified = nil
@@ -1325,6 +1324,7 @@ public struct AgentState: Sendable {
 
     /// Her reply of `turn` waits: the turn answers the newest closed utterance, whose area is not known yet.
     private func areaHolds(_ turn: TurnID) -> Bool {
+        if areaEarlyTurns.contains(turn) { return !silenced.contains(turn) }
         guard let current = areaCurrent, current.area == nil, current.turns.contains(turn) else { return false }
         return !silenced.contains(turn)
     }
@@ -1335,7 +1335,8 @@ public struct AgentState: Sendable {
         var effects: [AgentEffect] = []
         if areaCurrent != nil, areaCurrent?.area == nil { effects += decideArea(nil, at: now) }
         areaPrevious = areaCurrent
-        areaCurrent = AreaUtterance(index: closedTurns)
+        areaCurrent = AreaUtterance(index: closedTurns, turns: areaEarlyTurns)
+        areaEarlyTurns = []
         if let early = areaEarlyFinal, early.onset == speechOnsets { effects += decideArea(early.text, at: now) }
         areaEarlyFinal = nil
         return effects
@@ -1368,11 +1369,11 @@ public struct AgentState: Sendable {
             runningTools = max(runningTools - 1, 0)
             if connected { effects += comfortCall(held.turn, held.call, area: area, at: now) }
         }
-        let reply = areaHeldReply
-        let closed = areaHeldClosed
-        areaHeldReply = []
-        areaHeldUntil = nil
-        areaHeldClosed = nil
+        let reply = areaHeldReply.filter { $0.turn.map(current.turns.contains) ?? true }
+        areaHeldReply.removeAll { $0.turn.map(current.turns.contains) ?? true }
+        let closed = areaHeldClosed.flatMap { current.turns.contains($0.turn) ? $0 : nil }
+        if closed != nil { areaHeldClosed = nil }
+        if areaHeldReply.isEmpty { areaHeldUntil = nil }
         if area == .tired {
             // §4 item 1: every turn opened for it is silent; what of it was held is dropped.
             for turn in current.turns.sorted(by: { $0.value < $1.value }) where !silenced.contains(turn) {
@@ -1409,6 +1410,12 @@ public struct AgentState: Sendable {
 
     /// A model turn opened for the newest closed utterance (not a guidance reading).
     private mutating func areaTurnOpened(_ turn: TurnID) -> [AgentEffect] {
+        guard carAreas else { return [] }
+        // Gemini's VAD may open the answer before the phone closes the utterance: it belongs to that one.
+        if driverSpeaking, utteranceSent {
+            areaEarlyTurns.insert(turn)
+            return []
+        }
         guard areaCurrent != nil else { return [] }
         areaCurrent?.turns.insert(turn)
         return areaTired ? silenceTired(turn) : []
