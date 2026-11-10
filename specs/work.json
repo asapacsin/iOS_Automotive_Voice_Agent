@@ -2158,13 +2158,13 @@
     {
       "id": "T-016o",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "PASS",
       "priority": 1,
       "action": "F-24 §17 items 1-7 (ConnectionNotice in NovaKit; provider failures stop writing model.notice; 重新连接中… after 1 s, 已重新连接 3 s on setupComplete, 连接失败，点按重试 for non-retryable codes; no codes on screen; connNotice log); F-24 §17 rows 1-9.",
       "depends_on": [
         "T-016j"
       ],
-      "notes": "Owner 2026-11-10 build 58 (3108ed0): 连接错误：RESUME_UNAVAILABLE stayed on screen after the 17:31:30 reconnect. model.notice is cleared only by start(by:). The 1007 after a stop phrase is not part of this task.",
+      "notes": "Owner 2026-11-10 build 58 (3108ed0): 连接错误：RESUME_UNAVAILABLE stayed on screen after the 17:31:30 reconnect. model.notice is cleared only by start(by:). The 1007 after a stop phrase is not part of this task. | 2026-11-10: built bfc3e70 (ConnectionNotice in NovaKit, AgentRuntime/DriveView wiring). Gates PASS on 7c10a51: python 58 OK, runners 0, imports 300/0, NovaCore 776 passed (1 known NoiseCorpus issue), NovaRealtime 42, NovaServices 74, spec-trace 119/0. Independent read-only high-effort review PASS; Low open: a connection event landing after stop() can show 连接失败 on the idle screen until next start; waiting flag not cleared on gaveUp. App not compiled; device rows 8-9 NOT_VERIFIED.",
       "evidence": []
     },
     {
