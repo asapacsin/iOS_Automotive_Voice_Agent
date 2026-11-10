@@ -516,24 +516,24 @@
     {
       "id": "T-032g",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-13a §3, §4, §6, §7: media 0-10 and voice 2-10 levels saved in UserDefaults and applied as LiveAudio lane gains; set_volume tool (catalog, validator, executor, code-built announce, limit_reached, side-button hint); barge-in dip multiplies the voice gain; 设置 sliders through the same executor; volume set record lines; rows 1-5, 8 unit, 10-12 device",
       "depends_on": [
         "T-032f"
       ],
-      "notes": "Owner 2026-11-10: \"currently the agent unable to change the sound level\"; asked how two sounds (her voice and music) are handled; then \"just write the spec\". iOS cannot set the system volume (Apple); cars keep one volume per group and duck media relative to it (AOSP)."
+      "notes": "Owner 2026-11-10: \"currently the agent unable to change the sound level\"; asked how two sounds (her voice and music) are handled; then \"just write the spec\". iOS cannot set the system volume (Apple); cars keep one volume per group and duck media relative to it (AOSP). | 2026-11-10: Built bf18f6c (merge 2026-11-10). Gates PASS on d4861a1: python 58 OK, runners 0, imports 299/0, secrets 0, NovaCore 779 passed (1 known NoiseCorpus issue), NovaRealtime 45, NovaServices 74, spec-trace 117/0. Independent read-only high-effort review PASS; Low open: set to current end level gives no limit_reached; two announce lines (voice mute / below 2) are builder wording not yet in volume.md §4; setLaneGains waits on mediaQueue (must never wait on main). App/NovaAudio not compiled; device rows 10-12 NOT_VERIFIED."
     },
     {
       "id": "T-032h",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 3,
       "action": "F-13a §5, §7: media ducked to mediaGain x 0.3 while her reply or guidance plays, 150 ms down / 400 ms up on mediaQueue, duck on/off lines; rows 6, 7 unit, 9 device",
       "depends_on": [
         "T-032g"
       ],
-      "notes": "The code has no ducking today (only the barge-in dip of her own reply); music.md §14 item 4 corrected."
+      "notes": "The code has no ducking today (only the barge-in dip of her own reply); music.md §14 item 4 corrected. | 2026-11-10: Built 54e73ff. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: duck on/off lines written on every reply even with no music. App/NovaAudio not compiled; device row 9 NOT_VERIFIED."
     },
     {
       "id": "T-024",
@@ -1997,21 +1997,29 @@
       "depends_on": [
         "T-031i"
       ],
-      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\"."  ,
+      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\". | 2026-11-10: Fixes 0211b31 (early-turn calls held for their own utterance, re-armed area wait, per-turn held closes) and d4861a1 (cancelled held call never runs; late call of closed utterance's turn keeps its area) after review FAILs; gates PASS on d4861a1; third re-review pending. OPEN: S3 Gemini-text fallback as local final (needs source flag); not-sent onset edge; comfortOk timing; no tap path; row 8 router-only; row 9 device NOT_VERIFIED; App not compiled.",
       "evidence": [
-        {"gate": "scripts/gates/run_all.sh on d13d900's parent: green except a spec-trace test-name miss, fixed in ad2c9a7; CarRequestAreaTests 13 pass after review fixes", "commit": "3d8b1be, ad2c9a7, d13d900 + review fixes"},
-        {"review": "independent read-only high-effort review", "verdict": "FAIL: blocking, dropping a held reply at a new onset could cut her reply (fixed: kept, released whole); medium, a turn Gemini opens before the phone closes the utterance joined the previous area (fixed: attached at close); medium OPEN, the area reads DriverWords.final, which is Gemini's text when the phone has none (selector S3), needs a source flag through DriverTranscript and AgentRuntime; low OPEN: a not-sent onset before the sent utterance's final makes it unknown; no end-to-end comfort tap path exists (row 8 is the router rule only)"},
-        {"device": "row 9 NOT_VERIFIED"}
+        {
+          "gate": "scripts/gates/run_all.sh on d13d900's parent: green except a spec-trace test-name miss, fixed in ad2c9a7; CarRequestAreaTests 13 pass after review fixes",
+          "commit": "3d8b1be, ad2c9a7, d13d900 + review fixes"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "FAIL: blocking, dropping a held reply at a new onset could cut her reply (fixed: kept, released whole); medium, a turn Gemini opens before the phone closes the utterance joined the previous area (fixed: attached at close); medium OPEN, the area reads DriverWords.final, which is Gemini's text when the phone has none (selector S3), needs a source flag through DriverTranscript and AgentRuntime; low OPEN: a not-sent onset before the sent utterance's final makes it unknown; no end-to-end comfort tap path exists (row 8 is the router rule only)"
+        },
+        {
+          "device": "row 9 NOT_VERIFIED"
+        }
       ]
     },
     {
       "id": "T-034c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 4,
       "action": "F-21 §16: after the turn answering set_speaking_style ends, send contextUpdate{systemInstruction} (session base + new style block) on gemini-3.8-live only, when it differs from what the server holds; same path for a 设置 change; re-send after a resumed setupComplete when it differs from the chain's original; stop after a rejection within 2 s; style-update record lines; rows 1-8 unit, rows 9-11 device",
       "depends_on": [],
-      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone."
+      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone. | 2026-11-10: Built 46c618b. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: goAway clears held so a change before reconnect goes via resume; skipped reason=model repeats per resumed reconnect on other models; held messages during slow resumed setup count toward pendingLimit; styleUpdatesStopped set via Task{}. 设置 tone picker added. App not compiled; device rows 9-11 NOT_VERIFIED."
     },
     {
       "id": "T-046c",
