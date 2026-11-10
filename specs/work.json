@@ -1997,11 +1997,16 @@
     {
       "id": "T-034c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 4,
       "action": "F-21 §16: after the turn answering set_speaking_style ends, send contextUpdate{systemInstruction} (session base + new style block) on gemini-3.8-live only, when it differs from what the server holds; same path for a 设置 change; re-send after a resumed setupComplete when it differs from the chain's original; stop after a rejection within 2 s; style-update record lines; rows 1-8 unit, rows 9-11 device",
       "depends_on": [],
-      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone."
+      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone.",
+      "evidence": [
+        {"gate": "scripts/gates/run_all.sh", "result": "gates: PASS on a clean clone (NovaCore 755 + 4 after review fixes, 1 known issue T-013d; NovaRealtime 45; NovaServices 72; imports 0; secrets 0; no-azure 0; spec-trace 116 ids 0 missing); App not compiled on Linux"},
+        {"review": "independent read-only high-effort review", "verdict": "PASS; medium fixed: resume update's 2 s window and line start at setupComplete (a close before it counts), the answering turn's interrupted sends before any words, a 设置 change while not connected is kept for the next setup or sent at setupComplete; low fixed: settings waits while an answer is owed; low left: setup in the tool-save-to-result window carries the old tone, give-up compares tone only"},
+        {"device": "F-21 §16 rows 9-11 NOT_VERIFIED; build NOT_VERIFIED until the owner runs Codemagic"}
+      ]
     },
     {
       "id": "T-046c",

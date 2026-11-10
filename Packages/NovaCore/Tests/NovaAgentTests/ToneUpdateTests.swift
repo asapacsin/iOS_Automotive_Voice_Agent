@@ -139,7 +139,11 @@ struct ToneUpdateTests {
         #expect(c?.resume == "h1")
         #expect(c?.instruction == nil)
         #expect(c?.update == PersonaInstruction.build(base: Self.base, style: .sweet))
-        #expect(lines(resumed).contains { $0.hasSuffix("reason=resume") && $0.contains("style=sweet") })
+        // The line is written when that setup completes, not per attempt.
+        #expect(lines(resumed).isEmpty)
+        let complete = realtime(&state, .setupComplete, at: .zero + .seconds(12))
+        #expect(lines(complete).contains { $0.hasSuffix("reason=resume") && $0.contains("style=sweet") })
+        #expect(updates(complete).isEmpty)
 
         // Current = original: nothing.
         var (same, _) = connected()
@@ -165,6 +169,69 @@ struct ToneUpdateTests {
         #expect(connect(start)?.update == PersonaInstruction.build(base: Self.base, style: .sweet))
         let (_, kept) = connected(style: .sweet, resume: SessionResume(handle: "h9"), resumeStyle: .sweet)
         #expect(connect(kept)?.update == nil)
+    }
+
+    @Test("F-21 §16 item 7: a slow resumed setup counts the 2 s from setupComplete; a close before it counts too")
+    func slowResume() {
+        var (state, _) = connected()
+        _ = realtime(&state, .resumptionHandle("h1"))
+        _ = state.handle(.styleChanged(.sweet), at: .zero)
+        _ = reconnect(&state, at: .zero + .seconds(10))
+        _ = realtime(&state, .setupComplete, at: .zero + .seconds(16))
+        #expect(lines(realtime(&state, .failed(RealtimeError(.connectionClosed)), at: .zero + .seconds(17)))
+                == ["style-update rejected code=CONNECTION_CLOSED"])
+
+        var (early, _) = connected()
+        _ = realtime(&early, .resumptionHandle("h1"))
+        _ = early.handle(.styleChanged(.sweet), at: .zero)
+        _ = reconnect(&early, at: .zero + .seconds(10))
+        #expect(lines(realtime(&early, .failed(RealtimeError(.connectionClosed)), at: .zero + .seconds(20)))
+                == ["style-update rejected code=CONNECTION_CLOSED"])
+    }
+
+    @Test("F-21 §16 row 4: the answering turn interrupted before any words still sends the update")
+    func interruptedBeforeWords() {
+        var (state, _) = connected()
+        _ = toolTurn(&state, result: sweetResult())
+        #expect(updates(realtime(&state, .interrupted(t1, reason: .bargeIn))).count == 1)
+    }
+
+    @Test("F-21 §16 item 4: a 设置 change while reconnecting goes in the next setup; while connecting, at setupComplete")
+    func settingsWhileNotConnected() {
+        var (state, _) = connected()
+        let closed = realtime(&state, .closed, at: .zero + .seconds(1))
+        #expect(state.handle(.styleChanged(.gentle), at: .zero + .seconds(1)).isEmpty)
+        let timer = closed.compactMap { effect -> AgentTimer? in
+            if case .schedule(let t, _) = effect, case .session(let s) = t, s.kind == .reconnectDelay { t } else { nil }
+        }.first!
+        let next = state.handle(.timer(timer), at: .zero + .seconds(2))
+        #expect(connect(next)?.instruction == PersonaInstruction.build(base: Self.base, style: .gentle))
+        #expect(updates(realtime(&state, .setupComplete, at: .zero + .seconds(3))).isEmpty)
+
+        var connecting = AgentState(truthfulness: TruthfulnessTuning(),
+                                    tone: ToneUpdateSetup(base: Self.base, model: ToneUpdateSetup.supportedModel, style: .default))
+        _ = connecting.handle(.start, at: .zero)
+        #expect(connecting.handle(.styleChanged(.lively), at: .zero).isEmpty)
+        let done = realtime(&connecting, .setupComplete)
+        #expect(updates(done) == [PersonaInstruction.build(base: Self.base, style: .lively)])
+    }
+
+    @Test("F-21 §16 item 5: the core keeps the chain's tone right after the handle at a give-up")
+    func keepsChainTone() {
+        var (state, _) = connected()
+        _ = realtime(&state, .resumptionHandle("h1"))
+        var effects: [AgentEffect] = []
+        var now = NovaInstant.zero
+        effects += realtime(&state, .closed, at: now)
+        var n = 0
+        while state.session.state == .reconnecting, n < 100 {
+            n += 1
+            now = now + .seconds(8)
+            effects += realtime(&state, .failed(RealtimeError(.connection)), at: now)
+        }
+        let keep = effects.firstIndex(of: .keepResumption("h1"))
+        #expect(keep != nil)
+        #expect(keep.map { effects[$0 + 1] } == .keepToneChain(.default))
     }
 
     @Test("F-21 §16 row 6: on another model nothing is sent (skipped model)")

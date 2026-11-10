@@ -816,23 +816,36 @@ public struct AgentState: Sendable {
         defer { tone = t }
         switch event {
         case .styleChanged(let style):
-            // Item 4: with no connection the next setup reads the saved tone.
-            guard session.state != .disconnected, session.state != .error, session.state != .connecting,
-                  session.state != .reconnecting else { return [] }
-            return Self.toneOutputs(t.changed(to: style, reason: .settings, replying: openTurn != nil, at: now))
+            // Item 4: not connected, only the tone is noted: the next setup carries it, or setupComplete sends it.
+            let connected = session.state != .disconnected && session.state != .error && session.state != .connecting
+                && session.state != .reconnecting
+            guard connected else {
+                _ = t.changed(to: style, reason: .settings, replying: true, at: now)
+                t.socketClosed()
+                return []
+            }
+            return Self.toneOutputs(t.changed(to: style, reason: .settings, replying: openTurn != nil || answerOwed,
+                                              at: now))
         case .toolFinished(_, let call, let result):
             // Item 3: only a saved change; STYLE_NOT_ALLOWED or a failed call sends nothing.
             guard call.name == SpeakingStyleHandler.tool, result.ok,
                   let style = result.data["style"]?.stringValue.flatMap(SpeakingStyle.init(rawValue:)) else { return [] }
-            return Self.toneOutputs(t.changed(to: style, reason: .tool, replying: true, at: now))
+            return Self.toneOutputs(t.changed(to: style, reason: .tool, replying: true, openTurn: openTurn, at: now))
         case .realtime(let realtime, _):
             guard live else { return [] }
             switch realtime {
             case .replyText, .replyAudio:
                 t.replyOutput()
                 return []
-            case .interrupted, .responseDone:
-                return Self.toneOutputs(t.turnEnded(at: now))
+            case .responseStarted(let turn):
+                t.turnStarted(turn)
+                return []
+            case .interrupted(let turn, _):
+                return Self.toneOutputs(t.turnEnded(turn, interrupted: true, at: now))
+            case .responseDone(let turn, let outcome):
+                return Self.toneOutputs(t.turnEnded(turn, interrupted: outcome == .cancelled, at: now))
+            case .setupComplete:
+                return Self.toneOutputs(t.setupComplete(at: now))
             case .failed(let error):
                 return Self.toneOutputs(t.failed(error.code, at: now))
             default:

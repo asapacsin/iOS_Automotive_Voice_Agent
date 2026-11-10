@@ -70,8 +70,12 @@ struct ToneUpdater: Sendable {
     private(set) var chainOriginal: SpeakingStyle
     private(set) var disabled: Bool
     /// An update waiting for the reply to end; `answer`: the tool path waits for her confirmation's words first.
-    private var pending: (reason: StyleUpdateLine.Reason, needsAnswer: Bool, answered: Bool)?
+    /// `turn`: the turn answering a tool result (open when the result went out, or the first opened after it); its
+    /// `interrupted` ends the wait even before any words.
+    private var pending: (reason: StyleUpdateLine.Reason, needsAnswer: Bool, answered: Bool, turn: TurnID?)?
     private var sentAt: NovaInstant?
+    /// Item 5: an update queued right after a resumed setup; its line and its 2 s window start at setupComplete.
+    private var resumeInFlight: String?
 
     init(_ setup: ToneUpdateSetup) {
         self.setup = setup
@@ -85,7 +89,7 @@ struct ToneUpdater: Sendable {
 
     /// Items 2-4: a new tone was saved. `replying`: her reply is open now (only the 设置 path sends at once).
     mutating func changed(to style: SpeakingStyle, reason: StyleUpdateLine.Reason, replying: Bool,
-                          at now: NovaInstant) -> [Output] {
+                          openTurn: TurnID? = nil, at now: NovaInstant) -> [Output] {
         current = style
         if !setup.supported { pending = nil; return [.line(.skipped(.model))] }
         if disabled { pending = nil; return [.line(.skipped(.disabled))] }
@@ -96,8 +100,13 @@ struct ToneUpdater: Sendable {
         if reason == .settings, !replying, pending == nil { return send(reason, at: now) }
         // A tool change waits for the turn that says the confirmation; a 设置 change for the reply that is open.
         let tool = reason == .tool || pending?.needsAnswer == true
-        pending = (pending?.reason ?? reason, tool, false)
+        pending = (pending?.reason ?? reason, tool, false, pending?.turn ?? (reason == .tool ? openTurn : nil))
         return []
+    }
+
+    /// A turn opened: the first one after a tool result answers it.
+    mutating func turnStarted(_ turn: TurnID) {
+        if pending?.needsAnswer == true, pending?.turn == nil { pending?.turn = turn }
     }
 
     /// Her confirmation's words or audio arrived.
@@ -105,9 +114,11 @@ struct ToneUpdater: Sendable {
         if pending?.needsAnswer == true { pending?.answered = true }
     }
 
-    /// Item 2: a turn ended (`turnComplete` or `interrupted`).
-    mutating func turnEnded(at now: NovaInstant) -> [Output] {
-        guard let p = pending, !p.needsAnswer || p.answered else { return [] }
+    /// Item 2: a turn ended (`turnComplete`, or `interrupted` = true). The answering turn's interruption ends the wait
+    /// even before her words; a completed turn needs them (a call turn may close before the result).
+    mutating func turnEnded(_ turn: TurnID, interrupted: Bool, at now: NovaInstant) -> [Output] {
+        guard let p = pending,
+              !p.needsAnswer || p.answered || (interrupted && p.turn == turn) else { return [] }
         pending = nil
         guard current != held else { return [] }
         return send(p.reason, at: now)
@@ -116,10 +127,22 @@ struct ToneUpdater: Sendable {
     /// Item 2: the connection closed first; nothing is sent, the next setup reads the saved tone.
     mutating func socketClosed() { pending = nil }
 
+    /// Item 5's line and window start here; a tone changed while connecting (设置) goes now (item 4).
+    mutating func setupComplete(at now: NovaInstant) -> [Output] {
+        if let text = resumeInFlight {
+            resumeInFlight = nil
+            sentAt = now
+            return [.line(.sent(style: held, chars: text.count, reason: .resume))]
+        }
+        guard current != held, setup.supported, !disabled else { return [] }
+        return send(.settings, at: now)
+    }
+
     /// Items 1, 5: a connect. Without a handle the setup carries the current tone (the chain starts again); with one,
     /// the server keeps the chain's original, so a different current tone goes right after the setup.
     mutating func connect(resume: Bool, at now: NovaInstant) -> (instruction: String?, update: String?, lines: [Output]) {
         pending = nil
+        resumeInFlight = nil
         guard resume else {
             held = current
             chainOriginal = current
@@ -130,18 +153,20 @@ struct ToneUpdater: Sendable {
         if !setup.supported { return (nil, nil, [.line(.skipped(.model))]) }
         if disabled { return (nil, nil, [.line(.skipped(.disabled))]) }
         held = current
-        sentAt = now
         let text = instruction(current)
-        return (nil, text, [.line(.sent(style: current, chars: text.count, reason: .resume))])
+        resumeInFlight = text
+        return (nil, text, [])
     }
 
     /// Item 7: a non-retryable close within 2 s of an update stops updates for the app run. `GeminiLiveProvider` reports
     /// a 1007 after setupComplete, and a 1008 not about the key, quota, model or a resumption, as `CONNECTION_CLOSED`.
     mutating func failed(_ code: RealtimeErrorCode, at now: NovaInstant) -> [Output] {
-        guard let at = sentAt, now < at + Self.rejectionWindow, !disabled,
-              code == .malformed || code == .connectionClosed else { return [] }
+        // A close before setupComplete of a resumed setup that carried an update counts as well.
+        let inWindow = resumeInFlight != nil || sentAt.map { now < $0 + Self.rejectionWindow } == true
+        guard inWindow, !disabled, code == .malformed || code == .connectionClosed else { return [] }
         disabled = true
         sentAt = nil
+        resumeInFlight = nil
         return [.line(.rejected(code: code))]
     }
 
