@@ -235,7 +235,8 @@ struct RuntimeSink: AgentEffectSink {
             await realtime.sendToolResponses(responses)
         case .text(let turns, let complete):
             if let record, let text = turns.last?.text,
-               let reason = CorrectionReason.allCases.first(where: { $0.instruction == text }) {
+               // F-05a §15 item 7: WRONG_LANGUAGE has its own line (with heard=) from the pipeline's diagnostic.
+               let reason = CorrectionReason.allCases.first(where: { $0 != .wrongLanguage && $0.instruction == text }) {
                 record.submit(.correction(reason.rawValue))
             }
             // F-18 §21 item 7: a destination note (the only text sent with turnComplete false).
@@ -292,6 +293,11 @@ struct RuntimeSink: AgentEffectSink {
         switch event {
         case .claimHeld: record?.submit(.held)
         case .claimCut(let turn, let ms): record?.submit(.claimCut(turn: turn, playedMs: ms))  // F-07 §15 item 8
+        // F-05a §15 item 7 (T-016m): codes and numbers only, no words (I-8).
+        case .langCheck(let turn, let verdict, let lang, let percent, let held):
+            record?.submit(.langCheck(turn: turn, verdict: verdict, lang: lang, percent: percent, heldMs: held))
+        case .wrongLanguage(let heard): record?.submit(.wrongLanguage(heard: heard))
+        case .fallbackLine(let turn, let reason): record?.submit(.fallbackLine(turn: turn, reason: reason))
         case .asyncToolDropped(let tool): record?.submit(.toolDropped(tool))  // F-18 §27 item 4
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
@@ -980,7 +986,8 @@ final class AgentRuntime {
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
-                                               resume: resume, revoicing: decision.revoicing))
+                                               resume: resume, revoicing: decision.revoicing,
+                                               languageIdentifier: AppleLanguageIdentifier()))
         ended.core = core
         self.core = core
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.

@@ -66,3 +66,27 @@ public protocol LocalTranscriber: Sendable {
     func end(utterance: UtteranceID) async
     var events: AsyncStream<LocalTranscript> { get }
 }
+
+/// F-05a §15 item 1 (T-016m): one hypothesis of a text's language. `language` is a BCP-47 code (`en`, `pt`, `zh-Hans`).
+public struct LanguageHypothesis: Sendable, Hashable {
+    public let language: String
+    public let probability: Double
+
+    public init(language: String, probability: Double) {
+        self.language = language
+        self.probability = probability
+    }
+}
+
+/// F-05a §15 item 1: the language detector her reply is checked with. Production: `AppleLanguageIdentifier`
+/// (NovaPlatform, `NLLanguageRecognizer`, no language constraints); tests use a fake.
+public protocol LanguageIdentifier: Sendable {
+    /// At most 3 hypotheses, most likely first.
+    func hypotheses(_ text: String) -> [LanguageHypothesis]
+}
+
+/// No detector: no hypotheses, so Latin-only text is decided by the end-of-reply rule only.
+public struct NoLanguageIdentifier: LanguageIdentifier {
+    public init() {}
+    public func hypotheses(_ text: String) -> [LanguageHypothesis] { [] }
+}

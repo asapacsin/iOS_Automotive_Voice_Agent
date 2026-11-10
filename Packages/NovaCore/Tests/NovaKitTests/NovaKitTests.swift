@@ -181,7 +181,9 @@ struct DiagnosticsTests {
         .resumed(handle: true), .offlineCapReached, .stopSyncSent, .stopSyncInterrupted(ms: 300), .stopSyncNoInterrupt,
         .reaskSuppressed, .abandonCleared, .postStopTurnDropped, .bargeInStopped, .webSearchAsFunction, .destinationNote, .screenHidden(kind: .reply),
         .wakeDetected,
-        .sessionGaveUp(ms: 52_600, attempts: 11, code: .connection), .sessionResume(handle: true, result: .resumed), .claimCut(turn: 1, playedMs: 800), .asyncToolDropped(tool: .queryLiveInfo),
+        .sessionGaveUp(ms: 52_600, attempts: 11, code: .connection), .sessionResume(handle: true, result: .resumed), .claimCut(turn: 1, playedMs: 800),
+        .langCheck(turn: 1, verdict: .blocked, lang: LanguageTag("pt"), percent: 90, heldMs: 200), .wrongLanguage(heard: true),
+        .fallbackLine(turn: 2, reason: .noReply), .asyncToolDropped(tool: .queryLiveInfo),
     ]
 
     /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").

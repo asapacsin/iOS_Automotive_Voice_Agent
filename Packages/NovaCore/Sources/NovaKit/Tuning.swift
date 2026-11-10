@@ -104,6 +104,10 @@ public struct TruthfulnessTuning: Sendable, Hashable {
     public var correctionGraceChat = NovaDuration.milliseconds(1500)
     public var emptyResponseReask = NovaDuration.seconds(6)
     public var emptyResponseGiveUp = NovaDuration.seconds(10)
+    /// F-05a §15 item 3 (T-016m): her first audio waits at most this long for the language verdict.
+    public var languageHold = NovaDuration.milliseconds(800)
+    /// F-05a §15 item 5: no reply this long after the WRONG_LANGUAGE re-ask gives the fallback line.
+    public var languageFallback = NovaDuration.seconds(6)
     public var phantomMaxCJK = 12
     public var phantomMaxLatin = 40
     public var phantomMinTranscript = 2

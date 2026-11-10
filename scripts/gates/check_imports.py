@@ -23,6 +23,8 @@ OWNERS = {
     "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"}, "AudioToolbox": {"NovaAudio"},
     "AVFoundation": {"NovaPlatform"},
     "CoreLocation": {"NovaPlatform"}, "Network": {"NovaPlatform"}, "Contacts": {"NovaPlatform"},
+    # F-05a §15 item 1 (T-016m): `NLLanguageRecognizer` for her reply's language; NovaPlatform only.
+    "NaturalLanguage": {"NovaPlatform"},
     "Security": {"NovaServices"},
     "UIKit": {"App", "NovaNavAmap"}, "SwiftUI": {"App", "NovaNavAmap"},
     # F-04b §12 (T-013f): the speaker model asset pack; the app and its downloader extension only.

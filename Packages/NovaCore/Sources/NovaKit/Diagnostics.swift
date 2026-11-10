@@ -63,6 +63,12 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case sessionResume(handle: Bool, result: SessionResumeResult)
     /// F-07 §15 item 8 (T-020b): a disproven claim cut Gemini audio already playing; `playedMs` of it was heard.
     case claimCut(turn: Int, playedMs: Int)
+    /// F-05a §15 item 7 (T-016m): `lang-check turn= verdict= lang= p= held_ms=`; `percent` is p × 100.
+    case langCheck(turn: Int, verdict: LangCheckVerdict, lang: LanguageTag?, percent: Int, heldMs: Int)
+    /// F-05a §15 item 7: `correction WRONG_LANGUAGE heard=<sensevoice|none>`.
+    case wrongLanguage(heard: Bool)
+    /// F-05a §15 item 7: `fallback-line turn= reason=`.
+    case fallbackLine(turn: Int, reason: FallbackLineReason)
     /// F-18 §27 item 4 (T-020c): a background tool's result was not sent because the socket was replaced.
     case asyncToolDropped(tool: AsyncTool)
 }
@@ -130,6 +136,9 @@ extension DiagnosticEvent {
         case sessionResume
         case claimCut
         case asyncToolDropped
+        case langCheck
+        case wrongLanguage
+        case fallbackLine
     }
 
     public var kind: Kind {
@@ -174,6 +183,9 @@ extension DiagnosticEvent {
         case .sessionResume: .sessionResume
         case .claimCut: .claimCut
         case .asyncToolDropped: .asyncToolDropped
+        case .langCheck: .langCheck
+        case .wrongLanguage: .wrongLanguage
+        case .fallbackLine: .fallbackLine
         }
     }
 }
@@ -205,6 +217,10 @@ extension DiagnosticEvent {
         case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
         case .claimCut(let turn, let ms): "claim-cut turn=\(turn) played_ms=\(ms)"
         case .asyncToolDropped(let tool): "tool-result \(tool.rawValue) dropped reason=reconnect"
+        case .langCheck(let turn, let verdict, let lang, let percent, let held):
+            "lang-check turn=\(turn) verdict=\(verdict.rawValue) lang=\(lang?.code ?? "none") p=\(LanguageTag.probability(percent)) held_ms=\(held)"
+        case .wrongLanguage(let heard): "correction WRONG_LANGUAGE heard=\(heard ? "sensevoice" : "none")"
+        case .fallbackLine(let turn, let reason): "fallback-line turn=\(turn) reason=\(reason.rawValue)"
         default: "diagnostic \(self)"
         }
     }
@@ -213,4 +229,42 @@ extension DiagnosticEvent {
 /// Destination for diagnostic events (os.Logger in production, recording sink in tests).
 public protocol DiagnosticsSink: Sendable {
     func record(_ event: DiagnosticEvent)
+}
+
+/// F-05a §15 item 7: the verdict a `lang-check` line reports (`released`: the 800 ms hold ran out first).
+public enum LangCheckVerdict: String, Sendable, Hashable {
+    case allowed, blocked, released
+}
+
+/// F-05a §15 item 7: why the app said its own fallback line.
+public enum FallbackLineReason: String, Sendable, Hashable {
+    case blockedAgain = "blocked_again"
+    case noReply = "no_reply"
+}
+
+/// F-05a §15 item 7: a detector's language code as a code, not a `String` (diagnostics carry no text). Only
+/// BCP-47 characters (`a-z`, `A-Z`, `0-9`, `-`), at most 8 of them; anything else is not a code.
+public struct LanguageTag: Sendable, Hashable {
+    private let packed: UInt64
+
+    public init?(_ code: String) {
+        let bytes = Array(code.utf8)
+        guard (1...8).contains(bytes.count),
+              bytes.allSatisfy({ (0x30...0x39).contains($0) || (0x41...0x5A).contains($0) || (0x61...0x7A).contains($0) || $0 == 0x2D })
+        else { return nil }
+        packed = bytes.reduce(0) { $0 << 8 | UInt64($1) }
+    }
+
+    public var code: String {
+        var bytes: [UInt8] = []
+        var rest = packed
+        while rest != 0 { bytes.insert(UInt8(rest & 0xFF), at: 0); rest >>= 8 }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// `p=0.85` from 85.
+    public static func probability(_ percent: Int) -> String {
+        let p = max(0, min(100, percent))
+        return "\(p / 100).\(p % 100 < 10 ? "0" : "")\(p % 100)"
+    }
 }

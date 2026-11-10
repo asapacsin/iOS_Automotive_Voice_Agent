@@ -150,6 +150,20 @@ class ImportsGateTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(self.check(code), 0, name)
 
+    def test_natural_language_only_in_nova_platform(self) -> None:
+        """T-016m F-05a §15 row 9: NaturalLanguage is owned by NovaPlatform."""
+        for path, expected in [("Packages/NovaPlatform/Sources/NovaPlatform/L.swift", 0),
+                               ("Packages/NovaCore/Sources/NovaVoice/L.swift", 1),
+                               ("Packages/NovaAudio/Sources/NovaAudio/L.swift", 1),
+                               ("App/NovaDrive/L.swift", 1)]:
+            tree = Tree()
+            try:
+                tree.write(path, "import NaturalLanguage")
+                with self.subTest(path=path):
+                    self.assertEqual(run(check_imports.main, str(tree.root)), expected, path)
+            finally:
+                tree.close()
+
 
 class PreviewLaneGateTests(unittest.TestCase):
     """F-13 §18 item 10 (T-032f): no scheduleBuffer, player node or node stop for the preview in NovaAudio."""

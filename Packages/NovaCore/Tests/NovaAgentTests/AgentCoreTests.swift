@@ -145,7 +145,7 @@ struct AgentWalkthroughTests {
         #expect(!out.contains { if case .flushPlayback = $0 { true } else { false } })
     }
 
-    @Test("F-05a §14 item 4: a reply in another script (Russian) is voided and corrected with NOT_MANDARIN")
+    @Test("F-05a §14 item 4, §15 item 4: a reply in another script (Russian) is voided and re-asked with WRONG_LANGUAGE at once")
     func notMandarin() {
         var d = Drive()
         d.connect()
@@ -156,9 +156,8 @@ struct AgentWalkthroughTests {
         d.realtime(.responseStarted(t1))
         let out = d.realtime(.replyText(t1, "Привет, я нашла 5 мест."))
         #expect(spoken(out).isEmpty)
-        let correction = d.fire(.correction)
-        #expect(correction.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.notMandarin.instruction)],
-                                                     turnComplete: true))))
+        #expect(out.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.wrongLanguage.instruction)],
+                                              turnComplete: true))))
     }
 
     @Test("W3 timeout: one re-ask at 6 s, silent give-up at 10 s, and a late tool call of that turn is dropped")

@@ -56,7 +56,7 @@ struct ScreenLanguageTests {
         #expect(subtitles(second).last == "OK，好的")
     }
 
-    @Test("Row 5: 안녕 is voided with NOT_MANDARIN at the first Hangul letter; nothing shown or spoken")
+    @Test("Row 5: 안녕 is voided (WRONG_LANGUAGE since F-05a §15) at the first Hangul letter; nothing shown or spoken")
     func hangulVoided() {
         #expect(ReplyLanguage.isNotAllowed("안"))
         #expect(ReplyLanguage.isNotAllowed("好的안"))
@@ -64,8 +64,8 @@ struct ScreenLanguageTests {
         var (d, t) = replying()
         let out = d.realtime(.replyText(t, "안녕"))
         #expect(spoken(out).isEmpty && subtitles(out).allSatisfy { $0.isEmpty })
-        #expect(d.fire(.correction).contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.notMandarin.instruction)],
-                                                             turnComplete: true))))
+        #expect(out.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.wrongLanguage.instruction)],
+                                              turnComplete: true))))
     }
 
     @Test("Row 6: a Latin reply piece by piece shows nothing until final; F-05a §14 item 4: Latin is no longer voided")

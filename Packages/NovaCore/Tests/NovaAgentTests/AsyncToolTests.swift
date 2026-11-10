@@ -38,6 +38,7 @@ struct AsyncToolTests {
         #expect(started.contains(.startTool(TurnID(1), call)))
         // While it runs: Gemini's 「我查一下」 audio is played, nothing waits on the tool.
         let pcm = PCMBuffer(sampleRate: 24_000, samples: [1, 2, 3])
+        d.realtime(.replyText(TurnID(1), "我查一下。"))  // F-05a §15: the language verdict lets her audio out
         for _ in 0..<3 {
             d.now = d.now + .seconds(1)
             #expect(GeminiVoiceTests.played(d.realtime(.replyAudio(TurnID(1), pcm))) == [TurnID(1)])

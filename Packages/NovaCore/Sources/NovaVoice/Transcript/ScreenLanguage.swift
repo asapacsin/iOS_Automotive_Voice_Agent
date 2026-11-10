@@ -70,13 +70,14 @@ public enum ScreenLanguage {
     }
 
     /// §14 item 3: her reply's language from its text: Kana → ja; Latin letters with no Han → en; else nil.
-    public static func replyLanguage(_ text: String) -> SpokenLanguage? {
+    /// §15 item 6 (T-016m): Latin-only text is `en` only when `latinAllowed` (the reply's language verdict is allowed).
+    public static func replyLanguage(_ text: String, latinAllowed: Bool = true) -> SpokenLanguage? {
         var han = false, latin = false
         for scalar in text.unicodeScalars {
             if ReplyLanguage.isKana(scalar) { return .ja }
             if ReplyLanguage.isHan(scalar) { han = true } else if scalar.properties.isAlphabetic && ReplyLanguage.isLatin(scalar) { latin = true }
         }
-        return latin && !han ? .en : nil
+        return latin && !han && latinAllowed ? .en : nil
     }
 
     /// The driver's line for final text: itself, or 「（没听清）」 when hidden.
