@@ -58,7 +58,7 @@ struct CarRequestAreaTests {
         return d.send(.timer(.area(at)))
     }
 
-    @Test("Row 1: every comfort case that acts or refuses is car; the three music cases are chat")
+    @Test("F-09a row 1: every comfort case that acts or refuses is car; the three music cases are chat")
     func row1() {
         let cases = ComfortCases.all.filter { $0.expected == .act || $0.expected == .refuse }
         #expect(cases.count > 50)
@@ -67,7 +67,7 @@ struct CarRequestAreaTests {
         }
     }
 
-    @Test("Row 2: the ten sleepy cases are tired")
+    @Test("F-09a row 2: the ten sleepy cases are tired")
     func row2() {
         for id in Self.sleepy {
             let c = ComfortCases.all.first { $0.id == id }
@@ -76,7 +76,7 @@ struct CarRequestAreaTests {
         }
     }
 
-    @Test("Row 3: jokes, questions, a bare 帮我调一下, 困难 and a sleepy line asking for music are chat")
+    @Test("F-09a row 3: jokes, questions, a bare 帮我调一下, 困难 and a sleepy line asking for music are chat")
     func row3() {
         for text in ["讲个笑话", "讲个小故事", "明天会下雨吗", "为什么开车容易犯困", "帮我调一下", "有点困难", "好困，放首歌"] {
             #expect(Self.area(text) == .chat, "\(text)")
@@ -86,7 +86,7 @@ struct CarRequestAreaTests {
         #expect(Self.area("温度调到二十二度") == .car)
     }
 
-    @Test("Row 4: a chat utterance's control_climate is refused with NOT_A_CAR_REQUEST; query_live_info runs")
+    @Test("F-09a row 4: a chat utterance's control_climate is refused with NOT_A_CAR_REQUEST; query_live_info runs")
     func row4() {
         var d = Self.drive()
         Self.say(&d, .final("讲个笑话"))
@@ -103,7 +103,7 @@ struct CarRequestAreaTests {
         #expect(out.contains(.diagnostic(.toolRefused(code: .notACarRequest))))
     }
 
-    @Test("Row 5: tired: two turns of text and audio are neither played nor shown, no re-ask; 有点热 next is answered")
+    @Test("F-09a row 5: tired: two turns of text and audio are neither played nor shown, no re-ask; 有点热 next is answered")
     func row5() {
         var d = Self.drive(revoicing: false)
         Self.say(&d, .final("好困"))
@@ -139,7 +139,7 @@ struct CarRequestAreaTests {
         #expect(GeminiVoiceTests.played(reply) == [t3])
     }
 
-    @Test("Row 5: a turn that opens before the final waits; 好困 then drops it, 讲个笑话 releases it")
+    @Test("F-09a row 5: a turn that opens before the final waits; 好困 then drops it, 讲个笑话 releases it")
     func row5Order() {
         var d = Self.drive(revoicing: false)
         Self.say(&d, nil)
@@ -170,7 +170,7 @@ struct CarRequestAreaTests {
         #expect(e.state.view.subtitle == "好的，有一只小猫。")
     }
 
-    @Test("Row 6: 有点热 (climate ok), 再低一点, 好困 are car, follow-up, tired")
+    @Test("F-09a row 6: 有点热 (climate ok), 再低一点, 好困 are car, follow-up, tired")
     func row6() {
         var d = Self.drive()
         Self.say(&d, .final("有点热"))
@@ -198,7 +198,7 @@ struct CarRequestAreaTests {
         #expect(r.add(.area(utterance: 2, area: .followUp), atMs: 5) == ["5 area utterance=2 area=follow-up"])
     }
 
-    @Test("Row 7: unclear, or no final within 800 ms of a comfort call: unknown, and the call runs")
+    @Test("F-09a row 7: unclear, or no final within 800 ms of a comfort call: unknown, and the call runs")
     func row7() {
         var d = Self.drive()
         Self.say(&d, .unclear)
@@ -219,7 +219,7 @@ struct CarRequestAreaTests {
         #expect(Self.areas(e.send(.driverWords(.final("讲个笑话")))).isEmpty)
     }
 
-    @Test("Row 7: a call that waits is refused when the final then says chat")
+    @Test("F-09a row 7: a call that waits is refused when the final then says chat")
     func row7Late() {
         var d = Self.drive()
         Self.say(&d, nil)
@@ -231,7 +231,7 @@ struct CarRequestAreaTests {
         #expect(d.state.runningTools == 0)
     }
 
-    @Test("Row 8: a tap is never refused by the area")
+    @Test("F-09a row 8: a tap is never refused by the area")
     func row8() {
         #expect(CarRequestRouter.allows(.chat, fromTap: true))
         #expect(CarRequestRouter.allows(.tired, fromTap: true))
