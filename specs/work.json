@@ -2385,6 +2385,31 @@
           "open_low": "part of a day still needs 高德 key / regeo first (pre-existing §26 path); noForecastAdvice points to web_search"
         }
       ]
+    },
+    {
+      "id": "T-046r",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §29 items 1-5 (HK/MO adcode 81/82 or country HK/MO -> Open-Meteo for every view; WeatherNotCovered on an empty 高德 answer falls back to Open-Meteo; a name with no Han and no country -> Open-Meteo geocoding first, CN results continue on 高德 via regeo; lookup= and reason= in RuntimeLog); F-18 §29 rows 1-10.",
+      "depends_on": [
+        "T-046q"
+      ],
+      "notes": "Device 2026-11-10 a5a03f9 record 20261110-090437: 澳门 weather LIVE_INFO_UNAVAILABLE x3 (geocode passed, weather failed), Macau x1 (name check). 2026-11-09 212f52d: Shanghai name check. Recorder was off, 高德's answer for 澳门 not captured.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green (NovaCore 714, NovaRealtime 42, NovaServices 74, imports 0, runners 0, spec-trace 109 ids 0 missing); App not compiled on Linux (build NOT_VERIFIED until Codemagic)",
+          "commit": "0336ba4"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "FAIL on ac2853e (place for a no-Han name answered by 高德; WGS-84 to regeo; country=CN); PASS on 0336ba4 after fixes"
+        },
+        {
+          "device": "F-18 §29 rows 9-10 NOT_VERIFIED"
+        }
+      ]
     }
   ]
 }

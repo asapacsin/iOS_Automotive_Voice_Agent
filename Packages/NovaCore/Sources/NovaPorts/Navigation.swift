@@ -283,6 +283,12 @@ public struct WeatherForecastMissing: Error, Sendable, Hashable {
     public init(date: String) { self.date = date }
 }
 
+/// F-18 §29 item 2 (T-046r): 高德 answered (`status` 1) with no live report or no forecast for the place.
+public struct WeatherNotCovered: Error, Sendable, Hashable {
+    public let adcode: String
+    public init(adcode: String) { self.adcode = adcode }
+}
+
 public protocol WeatherService: Sendable {
     func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport
 }
@@ -386,9 +392,12 @@ public struct LookedUpPlace: Sendable, Hashable {
     public let adcode: String?
     /// Open-Meteo's `population`.
     public let population: Int?
+    /// F-18 §29 item 3: Open-Meteo's `country_code` (two capital letters).
+    public let countryCode: String?
 
     public init(name: String, country: String? = nil, coordinate: GeoCoordinate?, formatted: String? = nil,
-                adcode: String? = nil, population: Int? = nil) {
+                adcode: String? = nil, population: Int? = nil, countryCode: String? = nil) {
+        self.countryCode = countryCode
         self.name = name
         self.country = country
         self.coordinate = coordinate

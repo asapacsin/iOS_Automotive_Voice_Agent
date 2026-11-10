@@ -137,11 +137,12 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, Place
         let forecast = !day.live
         let body = try await get("/v3/weather/weatherInfo", ["city": code, "extensions": forecast ? "all" : "base"])
         if forecast {
+            // F-18 §29 item 2: an answer with no forecast (or no casts) is not covered, not a failure.
             guard let entry = (body["forecasts"] as? [[String: Any]])?.first,
-                  let casts = entry["casts"] as? [[String: Any]],
-                  let city = entry["city"] as? String else {
-                throw AmapWebError.failed
+                  let casts = entry["casts"] as? [[String: Any]], !casts.isEmpty else {
+                throw WeatherNotCovered(adcode: code)
             }
+            guard let city = entry["city"] as? String else { throw AmapWebError.failed }
             guard let cast = Self.cast(casts, date: day.date) else { throw WeatherForecastMissing(date: day.date) }
             return WeatherReport(adcode: code, summary: .object([
                 "city": .string(city), "day": .string(day.name), "date": .string(day.date),
@@ -151,7 +152,7 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, Place
                 "temp_low": .string(cast["nighttemp"] as? String ?? ""),
             ]))
         }
-        guard let live = (body["lives"] as? [[String: Any]])?.first else { throw AmapWebError.failed }
+        guard let live = (body["lives"] as? [[String: Any]])?.first else { throw WeatherNotCovered(adcode: code) }
         return WeatherReport(adcode: code, summary: .object([
             "city": .string(live["city"] as? String ?? ""), "day": "now", "date": .string(day.date),
             "time": .string(Self.clock(live["reporttime"] as? String)),
