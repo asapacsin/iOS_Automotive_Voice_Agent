@@ -43,8 +43,6 @@ public enum AgentEvent: Sendable, Hashable {
     case network(available: Bool)
     /// F-18 §21 item 1 (T-046i): the current destination's cleaned name, or nil when there is none.
     case destination(String?)
-    /// F-21 §16 item 4 (T-034c): a tone picked in 设置 while the session runs (the tool's own write is ignored).
-    case speakingStyle(SpeakingStyle)
 }
 
 /// Screen actions (ios-architecture §11.1). Each becomes the tool call the voice path would make.
@@ -81,16 +79,12 @@ public enum AgentTimer: Sendable, Hashable {
 
 public enum ProviderCommand: Sendable, Hashable {
     /// Open socket `connection`; its events come back tagged with it.
-    /// F-21 §16 (T-034c): `instruction` is the setup's system instruction (nil: the shell's session config);
-    /// `updateAtSetup` goes out as `contextUpdate` at `setupComplete`, before any audio or text (item 5).
-    case connect(connection: Generation, resume: String?, instruction: String? = nil, updateAtSetup: String? = nil)
+    case connect(connection: Generation, resume: String?)
     case close
     case toolResponses([ToolResponse])
     case text([TextTurn], turnComplete: Bool)
     /// F-08 §15 item 1: `activityStart` then `activityEnd` with no audio between, so Gemini cancels its reply.
     case interruptReply
-    /// F-21 §16 item 1 (T-034c): her whole new system instruction on the open socket.
-    case contextUpdate(String)
 }
 
 /// What the UI shows (contracts/voice-agent.md §1). A snapshot, not product state.
@@ -138,13 +132,10 @@ public enum AgentEffect: Sendable, Hashable {
     /// F-05a §13 item 5: text that failed the screen check (once per text). The sink logs only the kind.
     case screenHidden(ScreenTextKind, String)
     /// F-24 §15 item 4 (T-016j): the session gave up or hit the offline cap; the shell keeps this handle in
-    /// memory for the next start. Never logged or persisted (I-7). F-21 §16 item 5 (T-034c): `instruction` is the
-    /// one the handle's chain began with, kept beside it in memory.
-    case keepResumption(String?, instruction: String? = nil)
+    /// memory for the next start. Never logged or persisted (I-7).
+    case keepResumption(String?)
     /// F-05a §15 item 7 (T-016m): the language check's record and log line; no words (I-8).
     case languageLine(ReplyLanguageLine)
-    /// F-21 §16 item 8 (T-034c): `style-update …` record and log line; codes and numbers only (I-8).
-    case styleUpdateLine(StyleUpdateLine)
 }
 
 /// The single serialisation point (Android's session mutex), as a pure value: `VoiceSession`,
@@ -300,9 +291,6 @@ public struct AgentState: Sendable {
     /// Comfort calls running, by the utterance they belong to (for `comfortOk`).
     private var comfortCalls: [CallID: Int] = [:]
 
-    /// F-21 §16 (T-034c): when her new tone goes to Gemini; nil when the shell did not turn it on.
-    public private(set) var tones: StyleUpdates?
-
     public init() {}
 
     /// F-18 §15 item 5: the session's no-answer times (web search on waits longer before the re-ask).
@@ -312,16 +300,9 @@ public struct AgentState: Sendable {
     /// `languageIdentifier`: F-05a §15 item 1, the detector her reply's language is checked with.
     /// `carRequestAreas`: F-09a (T-017a), comfort tools only for car requests and tired utterances silenced; the shell
     /// turns it on because it feeds the phone recognizer's words.
-    /// `styleUpdates`: F-21 §16 (T-034c), the session's base, tone and model; with it a new tone reaches Gemini on the
-    /// open connection, and every setup carries the current tone. Nil: the tone applies at the next session (as before).
     public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
                 revoicing: Bool = true, languageIdentifier: any LanguageIdentifier = NoLanguageIdentifier(),
-                carRequestAreas: Bool = false, styleUpdates: StyleUpdates? = nil) {
-        if var tone = styleUpdates {
-            // F-21 §16 item 5: a give-up handle's chain began with the instruction kept beside it.
-            if let resume, resume.handle != nil { tone.resumeChain(original: resume.instruction) }
-            tones = tone
-        }
+                carRequestAreas: Bool = false) {
         carAreas = carRequestAreas
         pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing, detector: languageIdentifier)
         detector = languageIdentifier
@@ -391,12 +372,6 @@ public struct AgentState: Sendable {
         switch event {
         case .destination:
             return []
-        case .speakingStyle(let style):
-            // F-21 §16 item 4: at once when she is not replying, else when her reply ends.
-            guard var tone = tones else { return [] }
-            let step = tone.settingsChanged(style, replying: openTurn != nil, at: now)
-            tones = tone
-            return Self.effects(step)
         case .start:
             return session(.start, at: now)
         case .stop:
@@ -412,13 +387,11 @@ public struct AgentState: Sendable {
             guard connection == session.connection, session.state != .disconnected, session.state != .error else {
                 return []
             }
-            // F-21 §16 item 7: whether the socket's end rejected an update is read before the session closes it.
-            let rejected = toneSocketEnded(realtime, at: now)
             // Session first (a terminal event closes the socket and the turn), then the reply side,
             // unless that event ended the session.
-            let effects = rejected + session(.realtime(realtime, connection: connection), at: now)
+            let effects = session(.realtime(realtime, connection: connection), at: now)
             guard session.state != .disconnected, session.state != .error else { return effects }
-            return effects + reply(realtime, at: now) + toneMoment(realtime, at: now)
+            return effects + reply(realtime, at: now)
         case .speechStarted(let recentSpeech, let sentToModel):
             utterances += 1
             utteranceOpen = true
@@ -512,11 +485,6 @@ public struct AgentState: Sendable {
             // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
             // The model answers a tool result with a new turn: guidance waits for it (F-14 RESPONSE_OPEN).
             answerOwed = true
-            // F-21 §16 item 2: an ok tone change is sent when the turn answering this result ends.
-            if call.name == SpeakingStyleHandler.tool, finished.ok,
-               let style = finished.data["style"]?.stringValue.flatMap(SpeakingStyle.init(rawValue:)) {
-                tones?.toolResult(style)
-            }
             return [.provider(.toolResponses([response]))] + pipeline(.toolResult(turn, response), at: now)
         case .playback(let playback):
             switch playback {
@@ -837,22 +805,11 @@ public struct AgentState: Sendable {
             case .offlineEnded:
                 view.offlineEnded = true
             case .keepHandle(let handle):
-                // F-21 §16 item 5: the chain's original instruction stays beside the handle (memory only).
-                effects.append(.keepResumption(handle, instruction: handle == nil ? nil : tones?.original))
+                effects.append(.keepResumption(handle))
             case .connect(let connection, let resume):
                 effects += newSocket(at: now)
-                if var tone = tones {
-                    // F-21 §16 items 1, 5: the setup carries the current tone; a resumed one sends it first if needed.
-                    let setup = tone.connect(resume: resume)
-                    tones = tone
-                    effects.append(.provider(.connect(connection: connection, resume: resume, instruction: setup.instruction,
-                                                      updateAtSetup: setup.updateAtSetup)))
-                } else {
-                    effects.append(.provider(.connect(connection: connection, resume: resume)))
-                }
+                effects.append(.provider(.connect(connection: connection, resume: resume)))
             case .close:
-                // F-21 §16 item 2: nothing waits for a turn of a closed socket.
-                tones?.closed()
                 // The turn in progress dies with its socket (contracts §5: Error/Closed drop the reply).
                 effects += endTurn(at: now)
                 effects += dropAsyncCalls()
@@ -869,43 +826,6 @@ public struct AgentState: Sendable {
             }
         }
         return effects
-    }
-
-    // MARK: F-21 §16 (T-034c): her new tone on the open connection
-
-    /// A step of `StyleUpdates` as effects: the update first, then its line.
-    private static func effects(_ step: StyleUpdates.Step) -> [AgentEffect] {
-        (step.send.map { [.provider(.contextUpdate($0))] } ?? []) + (step.line.map { [.styleUpdateLine($0)] } ?? [])
-    }
-
-    /// Item 7: the socket's terminal events, before the session closes it.
-    private mutating func toneSocketEnded(_ event: RealtimeEvent, at now: NovaInstant) -> [AgentEffect] {
-        guard var tone = tones else { return [] }
-        let code: RealtimeErrorCode?
-        switch event {
-        case .failed(let error): code = error.code
-        case .closed, .goAway: code = nil
-        default: return []
-        }
-        let step = tone.socketEnded(code, at: now)
-        tones = tone
-        return Self.effects(step)
-    }
-
-    /// Items 2, 4, 5: `setupComplete`, a turn opening or speaking, and its end (`turnComplete` or `interrupted`).
-    private mutating func toneMoment(_ event: RealtimeEvent, at now: NovaInstant) -> [AgentEffect] {
-        guard var tone = tones else { return [] }
-        let steps: [StyleUpdates.Step]
-        switch event {
-        case .setupComplete: steps = tone.setupComplete(at: now)
-        case .responseStarted(let turn), .replyText(let turn, _), .replyAudio(let turn, _):
-            tone.turnActive(turn)
-            steps = []
-        case .responseDone(let turn, _), .interrupted(let turn, _): steps = [tone.turnEnded(turn, at: now)]
-        default: return []
-        }
-        tones = tone
-        return steps.flatMap(Self.effects)
     }
 
     private mutating func newSocket(at now: NovaInstant) -> [AgentEffect] {

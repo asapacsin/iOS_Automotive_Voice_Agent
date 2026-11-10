@@ -28,8 +28,7 @@ final class QueuedProvider: RealtimeProvider, @unchecked Sendable {
     private func emit(_ e: RealtimeEvent, on c: Generation) { continuation.yield(ProviderEvent(connection: c, event: e)) }
     private var current: (Generation, SessionScript) { state.withLock { ($0.connection, $0.current) } }
 
-    func sendContextUpdate(systemInstruction: String) async {}
-    func connect(_ config: SessionConfig, resume handle: String?, connection: Generation, updateAtSetup: String?) async {
+    func connect(_ config: SessionConfig, resume handle: String?, connection: Generation) async {
         let script = state.withLock { s -> SessionScript in
             s.connection = connection
             s.connects += 1

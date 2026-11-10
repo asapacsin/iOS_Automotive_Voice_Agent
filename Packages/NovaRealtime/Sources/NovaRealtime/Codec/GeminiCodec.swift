@@ -73,11 +73,6 @@ public enum GeminiCodec {
         ]]
     }
 
-    /// F-21 §16 item 1 (T-034c): the whole new instruction mid-session. `tools` is never sent (the list does not change).
-    public static func contextUpdate(systemInstruction: String) -> JSONValue {
-        ["contextUpdate": ["systemInstruction": ["parts": [["text": .string(systemInstruction)]]]]]
-    }
-
     public static func toolResponses(_ responses: [ToolResponse]) -> JSONValue {
         ["toolResponse": ["functionResponses": .array(responses.map { r in
             var response = payload(r.result)

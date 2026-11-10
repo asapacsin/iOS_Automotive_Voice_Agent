@@ -7,10 +7,8 @@ import NovaTools
 import NovaVoice
 import SwiftUI
 
-/// F-21 §16 item 4 (T-034c): the 设置 tone picker. Posted only for a pick, so a running session gets `.speakingStyle`.
+/// F-21 §17 item 4 (T-034d): the 设置 tone picker only saves; the tone starts with the next conversation.
 enum TonePicker {
-    static let picked = Notification.Name("TonePicker.picked")
-
     /// The names of F-21 §2.
     static func label(_ style: SpeakingStyle) -> String {
         switch style {
@@ -89,15 +87,12 @@ struct SettingsView: View {
                     Text("开：应用在前台时用手机麦克风等「你好小诺」，声音只在手机上处理。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                // F-21 §4, §16 item 4 (T-034c): only a pick here posts `TonePicker.picked`; the tool's own write does not.
+                // F-21 §4, §17 item 4 (T-034d): a pick only saves; a running session is sent nothing.
                 Section("说话语气") {
-                    Picker("语气", selection: Binding(get: { personaStyle }, set: { picked in
-                        personaStyle = picked
-                        NotificationCenter.default.post(name: TonePicker.picked, object: nil)
-                    })) {
+                    Picker("语气", selection: $personaStyle) {
                         ForEach(SpeakingStyle.allCases, id: \.rawValue) { Text(TonePicker.label($0)).tag($0.rawValue) }
                     }
-                    Text("对话中改了也会生效：她说完当前这句后，从下一句开始换语气。")
+                    Text("下次对话开始生效。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("声音") {

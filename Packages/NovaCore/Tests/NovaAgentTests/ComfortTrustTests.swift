@@ -33,8 +33,7 @@ final class StepProvider: RealtimeProvider, @unchecked Sendable {
     private func emit(_ e: RealtimeEvent) { continuation.yield(ProviderEvent(connection: state.withLock { $0.connection }, event: e)) }
     private func nextTurn() -> TurnID { TurnID(UInt64(state.withLock { $0.turn += 1; return $0.turn })) }
 
-    func sendContextUpdate(systemInstruction: String) async {}
-    func connect(_ config: SessionConfig, resume handle: String?, connection: Generation, updateAtSetup: String?) async {
+    func connect(_ config: SessionConfig, resume handle: String?, connection: Generation) async {
         state.withLock { $0.connection = connection }
         emit(.setupComplete)
     }

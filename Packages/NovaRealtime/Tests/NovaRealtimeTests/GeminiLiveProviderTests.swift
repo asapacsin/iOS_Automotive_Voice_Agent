@@ -81,9 +81,6 @@ final class FakeSocket: WebSocketConnection, @unchecked Sendable {
         if let closeAfter = script.closeAfter { await inbox.push(.failure(closeAfter)) }
     }
 
-    /// A server frame sent later than the script (e.g. a delayed `setupComplete`).
-    func deliver(_ frame: Data) async { await inbox.push(.success(frame)) }
-
     func receive() async throws -> Data {
         switch await inbox.next() {
         case .success(let data): return data
@@ -267,53 +264,6 @@ struct GeminiLiveProviderTests {
         // F-24 §16 item 1: the held frame was not yet a 100 ms piece; it goes to the new socket, after its activityStart.
         #expect(kinds(sockets[0]) == ["setup", "activityStart"])
         #expect(kinds(second) == ["setup", "activityStart", "audio", "activityEnd"])
-        await provider.close()
-    }
-
-    @Test("F-21 §16 row 5 (T-034c): a resumed setup with an update holds audio and text until setupComplete; the update goes first")
-    func updateBeforeAudio() async throws {
-        let ready = Data(#"{"setupComplete":{}}"#.utf8)
-        // The second socket's setupComplete is delivered by hand, after the client queued audio and text.
-        let server = FakeGeminiServer([.init(frames: [ready], closeAfter: nil), .init(frames: [], closeAfter: nil)])
-        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server)
-        let config = SessionConfig(systemInstruction: "p", tools: [])
-        await provider.connect(config, resume: nil, connection: Generation(1))
-        var it = provider.events.makeAsyncIterator()
-        #expect(await it.next()?.event == .setupComplete)
-        provider.sendActivityStart()   // the drop comes mid-utterance
-        await provider.connect(config, resume: "h", connection: Generation(2), updateAtSetup: "new tone")
-        for _ in 0..<10 { provider.sendAudio(.silence) }   // one 100 ms piece
-        await provider.sendText([TextTurn(role: .user, text: "你好")], turnComplete: true)
-        let second = try #require(server.opened.withLock { $0 }.last)
-        let kinds = { second.sent.withLock { $0 }.map { text -> String in
-            ["setup", "contextUpdate", "activityStart", "audio", "clientContent"].first { text.contains("\"\($0)\"") } ?? "?"
-        } }
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(kinds() == ["setup"])   // nothing goes out before setupComplete
-        await second.deliver(ready)
-        #expect(await it.next() == ProviderEvent(connection: Generation(2), event: .setupComplete))
-        for _ in 0..<100 where second.sent.withLock({ $0.count }) < 5 { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(kinds() == ["setup", "contextUpdate", "activityStart", "audio", "clientContent"])
-        let update = try GeminiCodec.encode(GeminiCodec.contextUpdate(systemInstruction: "new tone"))
-        #expect(second.sent.withLock { $0[1] } == String(decoding: update, as: UTF8.self))
-        // After setupComplete an update is an ordinary message, in order with the rest.
-        await provider.sendContextUpdate(systemInstruction: "later")
-        await provider.sendText([TextTurn(role: .user, text: "再见")], turnComplete: true)
-        for _ in 0..<100 where second.sent.withLock({ $0.count }) < 7 { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(kinds().suffix(2) == ["contextUpdate", "clientContent"])
-        await provider.close()
-    }
-
-    @Test("F-21 §16 row 5 (T-034c): a resumed setup with no update holds nothing")
-    func noUpdateNoHold() async throws {
-        let server = FakeGeminiServer([.init(frames: [], closeAfter: nil)])
-        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server)
-        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: "h", connection: Generation(1))
-        await provider.sendText([TextTurn(role: .user, text: "你好")], turnComplete: true)
-        let socket = try #require(server.opened.withLock { $0 }.first)
-        for _ in 0..<100 where socket.sent.withLock({ $0.count }) < 2 { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(socket.sent.withLock { $0.count } == 2)
-        #expect(!socket.sent.withLock { $0 }.contains { $0.contains("contextUpdate") })
         await provider.close()
     }
 

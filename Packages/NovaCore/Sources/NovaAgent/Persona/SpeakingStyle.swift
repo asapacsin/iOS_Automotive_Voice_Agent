@@ -22,14 +22,15 @@ extension SpeakingStyle {
         }
     }
 
-    /// One-sentence confirmation in the new tone; claims nothing beyond the tone change.
-    var confirmation: String {
+    /// F-21 §17 item 3 (T-034d): the one line she says; the tone starts with the next conversation, and no line
+    /// promises a different voice or sound.
+    public var confirmation: String {
         switch self {
-        case .default: "好的，我恢复正常的语气了。"
-        case .sweet: "好呀，人家以后就甜甜地跟你说话啦。"
-        case .tsundere: "哼，换就换，才不是因为你想听呢。"
-        case .gentle: "好的，我会温柔地跟你说话。"
-        case .lively: "好嘞，元气满满模式开启啦！"
+        case .default: "好的，下次对话开始我恢复正常的说法。"
+        case .sweet: "好呀，下次对话开始我说话甜一点。"
+        case .tsundere: "哼，下次对话开始就换傲娇的说法。"
+        case .gentle: "好的，下次对话开始我说话温柔一点。"
+        case .lively: "好嘞，下次对话开始我说话元气一点！"
         }
     }
 }
@@ -112,7 +113,8 @@ public struct SpeakingStyleHandler: ToolExecutor {
         }
         settings.set(style.rawValue, for: SettingsKey.personaStyle)
         // The catalog description tells the model to answer from `instruction`; `next` matches the other tools.
-        let reply = "用新语气简短回应，例如：" + style.confirmation
+        // F-21 §17 item 3: nothing is sent to Gemini mid-session, so the line says the tone starts next time.
+        let reply = "只说这一句：" + style.confirmation
         return .success(["style": .string(style.rawValue), "instruction": .string(reply), "next": .string(reply)])
     }
 }

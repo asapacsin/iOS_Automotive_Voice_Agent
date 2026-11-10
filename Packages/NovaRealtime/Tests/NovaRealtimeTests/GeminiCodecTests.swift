@@ -293,18 +293,3 @@ struct AsyncToolCodecTests {
         #expect(rs[2]["response"] == ["ok": true])
     }
 }
-
-@Suite("T-034c F-21 §16 instruction update")
-struct ContextUpdateCodecTests {
-    @Test("F-21 §16 row 1: the update is exactly contextUpdate.systemInstruction.parts[text], with no tools key")
-    func exactJSON() throws {
-        let instruction = "你是小诺。\n语气：温柔。"
-        let data = try GeminiCodec.encode(GeminiCodec.contextUpdate(systemInstruction: instruction))
-        let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        #expect(decoded == ["contextUpdate": ["systemInstruction": ["parts": [["text": .string(instruction)]]]]])
-        let text = String(decoding: data, as: UTF8.self)
-        #expect(!text.contains("tools"))
-        #expect(text.hasPrefix(#"{"contextUpdate":{"systemInstruction":{"parts":[{"text":""#))
-        #expect(text.hasSuffix(#""}]}}}"#))
-    }
-}

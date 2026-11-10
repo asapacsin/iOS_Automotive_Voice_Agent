@@ -83,8 +83,6 @@ public struct ActivityDetectionConfig: Sendable, Hashable {
 /// Provider-neutral session setup; NovaRealtime encodes it as Gemini `setup`.
 public struct SessionConfig: Sendable, Hashable {
     public static let maxInstructionCharacters = 4000
-    /// F-21 §16 item 6 (T-034c): the only model the instruction update is sent to.
-    public static let contextUpdateModel = "gemini-3.8-live"
 
     public var model: String
     public var systemInstruction: String
@@ -110,11 +108,6 @@ public struct SessionConfig: Sendable, Hashable {
         self.activityDetection = activityDetection
         self.inputTranscription = inputTranscription
         self.outputTranscription = outputTranscription
-    }
-
-    /// F-21 §16 item 6: `contextUpdate` is sent only on `gemini-3.8-live` (with or without the `models/` prefix).
-    public static func supportsContextUpdate(model: String) -> Bool {
-        (model.hasPrefix("models/") ? String(model.dropFirst("models/".count)) : model) == contextUpdateModel
     }
 }
 
@@ -227,24 +220,13 @@ public protocol RealtimeProvider: Sendable {
     var capabilities: RealtimeCapabilities { get }
     var events: AsyncStream<ProviderEvent> { get }
     /// Opens socket `connection` (the session's generation); its events carry that generation.
-    /// F-21 §16 item 5 (T-034c): with `updateAtSetup`, every client message after the setup waits for `setupComplete`;
-    /// then that instruction goes out first as `contextUpdate`, before any audio or text.
-    func connect(_ config: SessionConfig, resume handle: String?, connection: Generation, updateAtSetup: String?) async
+    func connect(_ config: SessionConfig, resume handle: String?, connection: Generation) async
     /// Data plane: non-blocking enqueue from the capture queue.
     func sendAudio(_ frame: PCMFrame16k)
     func sendAudioStreamEnd() async
     func sendToolResponses(_ responses: [ToolResponse]) async
     func sendText(_ turns: [TextTurn], turnComplete: Bool) async
-    /// F-21 §16 item 1 (T-034c): the whole new system instruction on the open socket (`contextUpdate`); no tools.
-    func sendContextUpdate(systemInstruction: String) async
     func close() async
-}
-
-extension RealtimeProvider {
-    /// A connect that sends nothing extra at setup.
-    public func connect(_ config: SessionConfig, resume handle: String?, connection: Generation) async {
-        await connect(config, resume: handle, connection: connection, updateAtSetup: nil)
-    }
 }
 
 /// Never printed: `description`, `debugDescription` and reflection all redact the secret (I-7).

@@ -147,8 +147,7 @@ final class ScriptedProvider: RealtimeProvider, @unchecked Sendable {
 
     private func emit(_ e: RealtimeEvent) { continuation.yield(ProviderEvent(connection: state.withLock { $0.connection }, event: e)) }
 
-    func sendContextUpdate(systemInstruction: String) async {}
-    func connect(_ config: SessionConfig, resume handle: String?, connection: Generation, updateAtSetup: String?) async {
+    func connect(_ config: SessionConfig, resume handle: String?, connection: Generation) async {
         state.withLock { $0.connection = connection; $0.configs += 1 }
         emit(.setupComplete)
     }

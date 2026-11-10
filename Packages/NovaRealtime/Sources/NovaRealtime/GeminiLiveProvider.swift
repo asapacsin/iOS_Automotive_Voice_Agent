@@ -46,9 +46,6 @@ public final class GeminiLiveProvider: RealtimeProvider {
         private let onClose: (@Sendable (SessionClosedLine) -> Void)?
         private let ended = Mutex(false)
         private let setupDone = Mutex(false)
-        /// F-21 §16 item 5 (T-034c): the `contextUpdate` a resumed setup sends first at `setupComplete`, and the client
-        /// messages queued meanwhile. Nil when nothing waits.
-        private let held = Mutex<(update: String, messages: [String])?>(nil)
         private let tasks = Mutex<[Task<Void, Never>]>([])
 
         init(connection: any WebSocketConnection, generation: Generation, resumed: Bool, pendingLimit: Int,
@@ -76,35 +73,13 @@ public final class GeminiLiveProvider: RealtimeProvider {
                 end(.failed(RealtimeError(.wsFailed)))
                 return
             }
-            // Checked and yielded under one lock, so a message never overtakes the held ones.
-            held.withLock { waiting in
-                if waiting == nil { outbox.yield(text) } else { waiting?.messages.append(text) }
-            }
-        }
-
-        /// Until `setupComplete`, later client messages wait behind `update`. Called after the setup is queued.
-        func hold(behind update: String) {
-            pending.withLock { $0 += 1 }
-            held.withLock { $0 = (update, []) }
-        }
-
-        /// `setupComplete`: the update first, then what waited, in order.
-        private func release() {
-            held.withLock { waiting in
-                guard let queued = waiting else { return }
-                outbox.yield(queued.update)
-                queued.messages.forEach { outbox.yield($0) }
-                waiting = nil
-            }
+            outbox.yield(text)
         }
 
         func written() { pending.withLock { $0 -= 1 } }
 
         func emit(_ event: RealtimeEvent) {
-            if event == .setupComplete {
-                setupDone.withLock { $0 = true }
-                release()
-            }
+            if event == .setupComplete { setupDone.withLock { $0 = true } }
             ended.withLock { done in
                 guard !done else { return }
                 sink.yield(ProviderEvent(connection: generation, event: event))
@@ -174,8 +149,7 @@ public final class GeminiLiveProvider: RealtimeProvider {
                                                         bufferingPolicy: .bufferingNewest(tuning.eventBufferLimit))
     }
 
-    public func connect(_ config: SessionConfig, resume handle: String?, connection generation: Generation,
-                        updateAtSetup: String?) async {
+    public func connect(_ config: SessionConfig, resume handle: String?, connection generation: Generation) async {
         let attempt = state.withLock { s -> UInt64 in
             s.socket?.stop()
             s.socket = nil
@@ -204,11 +178,6 @@ public final class GeminiLiveProvider: RealtimeProvider {
         // Setup is queued before the socket becomes reachable, so no client message can precede it.
         if let setup = try? GeminiCodec.encode(GeminiCodec.setup(config, resume: handle)) {
             socket.enqueue(String(decoding: setup, as: UTF8.self))
-        }
-        // F-21 §16 item 5: a resumed setup's instruction update goes before any audio or text on this socket.
-        if let updateAtSetup,
-           let update = try? GeminiCodec.encode(GeminiCodec.contextUpdate(systemInstruction: updateAtSetup)) {
-            socket.hold(behind: String(decoding: update, as: UTF8.self))
         }
         let installed = state.withLock { s -> Bool in
             guard s.attempt == attempt else { return false }
@@ -320,11 +289,6 @@ public final class GeminiLiveProvider: RealtimeProvider {
 
     public func sendText(_ turns: [TextTurn], turnComplete: Bool) async {
         send(GeminiCodec.text(turns, turnComplete: turnComplete))
-    }
-
-    /// F-21 §16 item 1: queued in order with the audio and the other client messages.
-    public func sendContextUpdate(systemInstruction: String) async {
-        send(GeminiCodec.contextUpdate(systemInstruction: systemInstruction))
     }
 
     public func close() async {

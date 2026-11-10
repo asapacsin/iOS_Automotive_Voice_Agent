@@ -219,28 +219,13 @@ struct RuntimeSink: AgentEffectSink {
     /// F-01 §14 items 9-12 (T-060a): the sound and `wake-to-listening` when a woken session first listens.
     let wakeWatch: WakeSessionWatch
     /// F-24 §15 item 4 (T-016j): the runtime keeps the handle in memory; never logged or written (I-7).
-    /// F-21 §16 item 5 (T-034c): with the instruction its resumption chain began with, also in memory only.
-    let keepHandle: @Sendable (String?, String?) async -> Void
-    /// F-21 §16 item 7: an update was rejected; updates stop for the rest of the app run.
-    let styleUpdatesRejected: @Sendable () async -> Void
+    let keepHandle: @Sendable (String?) async -> Void
 
-    func keepResumption(_ handle: String?, instruction: String?) async { await keepHandle(handle, instruction) }
-
-    /// F-21 §16 item 8 (T-034c): codes and numbers only, so the same line goes to the log and the record (I-8).
-    func styleUpdateLine(_ line: StyleUpdateLine) {
-        RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
-        record?.submit(.styleUpdate(line))
-        if case .rejected = line { Task { await styleUpdatesRejected() } }
-    }
+    func keepResumption(_ handle: String?) async { await keepHandle(handle) }
 
     func provider(_ command: ProviderCommand) async {
         switch command {
-        case .connect(let connection, let resume, let instruction, let updateAtSetup):
-            // F-21 §16: the core gives the setup the current tone, and a resumed setup's update to send first.
-            var setup = config
-            if let instruction { setup.systemInstruction = instruction }
-            await realtime.connect(setup, resume: resume, connection: connection, updateAtSetup: updateAtSetup)
-        case .contextUpdate(let instruction): await realtime.sendContextUpdate(systemInstruction: instruction)
+        case .connect(let connection, let resume): await realtime.connect(config, resume: resume, connection: connection)
         case .close: await realtime.close()
         case .toolResponses(let responses):
             for r in responses {
@@ -481,8 +466,6 @@ final class AgentRuntime {
     /// F-04a: re-reads the 抗噪 switch when UserDefaults change during a session.
     private var defaultsObserver: NSObjectProtocol?
     private var speakerModelObserver: NSObjectProtocol?
-    /// F-21 §16 item 4 (T-034c): the 设置 tone picker, while a session runs.
-    private var toneObserver: NSObjectProtocol?
     private var network: NetworkPathWatcher?
     private var tasks: [Task<Void, Never>] = []
     private let vehicle = SimulatedVehicle()
@@ -947,11 +930,10 @@ final class AgentRuntime {
         executors[EndConversationHandler.tool] = EndConversationHandler(lifecycle: lifecycle)
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
-        // F-21: the saved tone is read here at session start; F-21 §16 (T-034c): a later change reaches Gemini on the
-        // same connection (the core's `StyleUpdates`, built below from this base and tone).
-        let personaBase = PersonaInstruction.base(PersonaInstruction.base(for: comfortMode), webSearch: webSearch)
-        let startStyle = SpeakingStyle.saved(in: settings)
-        let instruction = PersonaInstruction.build(base: personaBase, style: startStyle)
+        // F-21: the saved tone is read once here, at session start.
+        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(PersonaInstruction.base(for: comfortMode),
+                                                                                 webSearch: webSearch),
+                                                   style: SpeakingStyle.saved(in: settings))
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
         let sessionStart = Date()
@@ -1018,22 +1000,15 @@ final class AgentRuntime {
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch,
-                               keepHandle: { [weak self, session] handle, instruction in
-                                   await self?.keepResumption(handle, instruction: instruction, session: session)
-                               },
-                               styleUpdatesRejected: { [weak self] in await self?.stopStyleUpdates() })
+                               keepHandle: { [weak self, session] handle in await self?.keepResumption(handle, session: session) })
         // F-24 §15 item 5 (T-016j): a handle kept by the last give-up is sent once, then forgotten.
         let resume = keptResumption.take(at: navigationClock.now)
-        // F-21 §16 (T-034c): the session's base and tone; the model check and a rejection earlier in this app run.
-        let styleUpdates = StyleUpdates(base: personaBase, style: startStyle, model: config.model,
-                                        disabled: styleUpdatesStopped)
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
                                                resume: resume, revoicing: decision.revoicing,
                                                languageIdentifier: AppleLanguageIdentifier(),
-                                               carRequestAreas: true,  // F-09a (T-017a)
-                                               styleUpdates: styleUpdates))
+                                               carRequestAreas: true))  // F-09a (T-017a)
         ended.core = core
         self.core = core
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.
@@ -1289,13 +1264,6 @@ final class AgentRuntime {
                                                                       object: nil, queue: nil) { _ in
             gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
         }
-        // F-21 §16 item 4 (T-034c): a tone picked in 设置 reaches the running session (only the picker posts this, so
-        // the tool's own write of the setting never comes back as a settings change).
-        if let toneObserver { NotificationCenter.default.removeObserver(toneObserver) }
-        toneObserver = NotificationCenter.default.addObserver(forName: TonePicker.picked, object: nil, queue: nil) { _ in
-            let style = SpeakingStyle.saved(in: DefaultsSettingsStore())
-            Task { await core.send(.speakingStyle(style)) }
-        }
         let classifier = SoundAnalysisSpeechClassifier()
         do {
             try classifier.start { result in gate.classified(result) }
@@ -1447,16 +1415,10 @@ final class AgentRuntime {
     private var keptResumption = KeptResumption()
 
     /// Only for the session still running: a driver stop in between means nothing is kept (item 4).
-    /// F-21 §16 item 5: the chain's original instruction is kept beside the handle, in memory only.
-    private func keepResumption(_ handle: String?, instruction: String?, session: Int) {
+    private func keepResumption(_ handle: String?, session: Int) {
         guard session == self.session, model.running else { return }
-        keptResumption.keep(handle, instruction: instruction, at: navigationClock.now)
+        keptResumption.keep(handle, at: navigationClock.now)
     }
-
-    /// F-21 §16 item 7 (T-034c): after a rejected update, no session of this app run sends one again.
-    private var styleUpdatesStopped = false
-
-    private func stopStyleUpdates() { styleUpdatesStopped = true }
 
     func stop() {
         // F-24 §15 item 4: the driver stopped a running session: a kept handle is not sent next time.
@@ -1487,8 +1449,6 @@ final class AgentRuntime {
         defaultsObserver = nil
         if let speakerModelObserver { NotificationCenter.default.removeObserver(speakerModelObserver) }
         speakerModelObserver = nil
-        if let toneObserver { NotificationCenter.default.removeObserver(toneObserver) }
-        toneObserver = nil
         let wake = UITestDrive.enabled ? nil : wake
         Task { [model] in
             await core.send(.stop)
