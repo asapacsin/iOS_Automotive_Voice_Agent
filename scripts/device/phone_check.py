@@ -26,7 +26,7 @@ BASE = "http://127.0.0.1:8100"
 
 # Coordinates for iPhone 17 (WDA element lookup returns HTTP 500 on this device, so taps go by position).
 DRIVE_TAB, SETTINGS_TAB, AUDIO_TAB = (40, 830), (362, 816), (201, 816)
-CAMERA_ICON = (161, 85)
+CAMERA_ICON = (200, 90)  # moved right when the idle pill gained the 你好小诺 hint (F-01 §14)
 
 
 def call(method, path, body=None, timeout=60):
@@ -95,6 +95,11 @@ class Run:
              {"fromX": 200, "fromY": 650, "toX": 200, "toY": 250, "duration": 0.2})
         time.sleep(1)
 
+    def swipe_down(self):
+        call("POST", f"/session/{self.sid}/wda/dragfromtoforduration",
+             {"fromX": 200, "fromY": 250, "toX": 200, "toY": 650, "duration": 0.2})
+        time.sleep(1)
+
     def labels(self):
         # The accessibility snapshot can take long while the mic or camera is live; retry once.
         try:
@@ -135,8 +140,10 @@ def walk(run):
 
     run.tap(SETTINGS_TAB, 3)
     run.tap(SETTINGS_TAB, 2)
+    for _ in range(10):  # 设置 keeps its scroll position between runs; start from the top
+        run.swipe_down()
     seen = set()
-    for _ in range(8):
+    for _ in range(12):
         seen.update(run.labels())
         run.swipe_up()
     run.expect("settings: 位置来源 + 抗噪 (F-16a, F-04a)", seen, ["位置来源", "手机定位", "演示起点", "定位权限", "抗噪"])

@@ -20,6 +20,7 @@ None; the default style is 正常.
 
 ## 5. State transitions
 current style → new style; takes effect from the next turn (instruction update) or the next session setup.
+iOS: the mid-session instruction update is §16 (T-034c); until it is built, a change applies at the next session.
 
 ## 6. Events and triggers
 `set_speaking_style` tool call; settings change.
@@ -179,3 +180,89 @@ first and answers only from what the camera answer says. She never describes a s
 | Task | Scope | Verify |
 |---|---|---|
 | T-034b | §15 items 1–6: camera topic and rule 8 in the strict scope, exclusion in the other scope, ≤ 1 500 characters, `toolCall` diagnostic, catalog-coverage guard test; string tests rows 1, 7, 8; device rows 2–6 | unit, S, D (rows 2–6) |
+
+## 16. A new tone applies at once, in the same conversation (iOS, APPROVED 2026-11-10)
+
+**Status:** APPROVED (owner 2026-11-10: "write the spec"; order A chosen: "probably i prefer a").
+**Depends on:** §1–§10, F-05 (session setup and resumption), F-24 §15 (handle kept after a give-up),
+contracts/api-contracts.md (Gemini).
+
+**Why.** The saved tone is read only when a session starts (`PersonaInstruction.build` in
+App/NovaDrive/AgentRuntime.swift, comment 「the saved tone is read once here, at session start」). After 「说话嗲一点」
+only her confirmation is sweet, because the tool result hands her a sample line. The instruction for the rest of the
+conversation still carries the old style block. §5 ("from the next turn (instruction update)") was never built on iOS.
+Owner 2026-11-10 asked how 豆包 does it and whether the community sets this up. Azure revoicing is out of scope: the
+owner said it is already removed on another branch (2026-11-10).
+
+**Sources (community review 2026-11-10).**
+- 豆包's realtime voice API sets the tone with `speaking_style`, plain persona text such as 「你口吻拽拽的。」, and
+  replaces it during a call with the `UpdateConfig` event. It has no emotion parameter
+  ([Volcano Engine](https://www.volcengine.com/docs/6561/1594356)).
+- Google's SDK google-genai v2.33.0 (2026-10-22) adds `send_context_update(system_instruction=, tools=)`. It sends the
+  client message `contextUpdate`, and the Gemini API gets the same message as Vertex. Updates "are guaranteed to be
+  processed *in order* with the rest of the inputs". Updating the instruction "invalidates the prefix cache"
+  ([python-genai live.py](https://github.com/googleapis/python-genai/blob/main/google/genai/live.py),
+  `types.LiveClientContextUpdate`). The ai.google.dev Live reference does not list it yet (checked 2026-11-10).
+- Pipecat ([#6476](https://github.com/pipecat-ai/pipecat/pull/6476), open) uses this update on `gemini-3.8-live` to
+  change the instruction without a reconnect. After a resumed reconnect it sends the instruction again when it differs
+  from the session's original setup, because a resumption handle is not documented to carry later updates.
+- LiveKit ([#7944](https://github.com/livekit/agents/pull/7944), merged 2026-11-03) found that on `gemini-3.8-live` a
+  session resumed from a handle keeps its original instruction and tools and ignores the new setup. So a reconnect
+  with the handle cannot change her tone.
+- No source publishes how much the update delays the next reply (Pipecat, LiveKit, Google SDK; checked 2026-11-10).
+
+**Rule in plain words.** When the tone changes during a conversation, the app gives Gemini her new instruction on the
+same connection, right after she has said the confirmation. From her next reply on she speaks in the new tone. Nothing
+reconnects, and the conversation is kept. The first reply after the change may start a little later, once.
+
+1. **What is sent.** The whole instruction, rebuilt as `PersonaInstruction.build(base:style:)`. The base is the one
+   the session was set up with, so comfort mode and web search stay as they were; only the style block differs. The
+   wire message is `{"contextUpdate": {"systemInstruction": {"parts": [{"text": "<instruction>"}]}}}`. `tools` is
+   never sent, because the tool list does not change.
+2. **When: after her confirmation (order A).** The update goes out when the turn that answers the
+   `set_speaking_style` result ends, at its `turnComplete` or `interrupted`. It is not sent before the tool result, and
+   not while she is still generating the confirmation. The confirmation stays as today: the tool's sample line, already
+   in the new tone. If the connection closes first, nothing is sent; the next setup reads the saved style as today.
+3. **Only when something changed.** The app tracks the instruction the server holds: the setup's, then each update it
+   sent. An update is sent only when the new instruction differs from that. The same tone again (「嗲一点」 while
+   already sweet), `STYLE_NOT_ALLOWED` or a failed tool call sends nothing, because every update costs one slower reply.
+4. **Settings screen.** A tone picked in 设置 while a session is running takes the same path. It is sent at once when
+   she is not replying, or else when her current reply ends.
+5. **After a reconnect with a handle (copied from Pipecat).** The app keeps the instruction of the setup that began
+   the resumption chain: the first setup sent without a handle, or for a give-up resume (F-24 §15) the one kept with
+   that handle. It is in memory only, like the handle. When a connection set up with a handle reaches `setupComplete`
+   and the current instruction differs from that original, the update of item 1 goes out before any audio or text. A
+   connection set up without a handle needs nothing, since its setup already holds the current tone.
+6. **Only on a model that has it.** The update is sent only when `SessionConfig.model` is `gemini-3.8-live`. On any
+   other model the tone applies at the next session as today.
+7. **No acknowledgement.** The API documents none. If the server closes the connection within 2 s of an update with a
+   non-retryable error (`MALFORMED`, 1007 or 1008 not about resumption), updates stop for the rest of the app run and
+   the normal reconnect follows. This keeps item 5 from looping.
+8. **Record and log.** `style-update sent style=<raw> chars=<n> reason=tool|settings|resume`;
+   `style-update skipped reason=same|model|disabled`; `style-update rejected code=<code>`. Codes and numbers only;
+   RuntimeLog the same (I-8). The delay is read from lines the record already has: `utterance` to the next
+   `playback started`.
+9. **Nothing else changes.** The tool schema, the sample confirmation lines, the style block wording, the
+   4 000-character cap, the base size and the voice name stay as they are.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Encode an update | Exactly the item 1 JSON; no `tools` key | unit |
+| 2 | Scripted provider: `set_speaking_style` sweet ok, then the reply turn | No update before that turn's `turnComplete`; one update after it, with the session's base unchanged and the sweet block | unit |
+| 3 | Same tone again; `STYLE_NOT_ALLOWED` | Nothing sent; `style-update skipped reason=same` for the first | unit |
+| 4 | The confirmation turn ends with `interrupted` | Update sent at `interrupted` | unit |
+| 5 | `setupComplete` on a connection set up with a handle, current ≠ original; current = original; set up without a handle | Update before the first audio frame; nothing; nothing | unit |
+| 6 | Model `gemini-3.1-flash-live-preview` | Nothing sent; `style-update skipped reason=model` | unit |
+| 7 | Server closes with `MALFORMED` 1 s after an update, then another tone change | `style-update rejected`; the later change is `skipped reason=disabled`; no repeated updates after the reconnect | unit |
+| 8 | Tone changed in 设置 while listening; while she replies | Sent at once; sent when that reply ends | unit |
+| 9 | Device: 「说话嗲一点」, then 「今天天气怎么样」, 「开空调」, 「讲个笑话」, then 「正常一点」, 「讲个笑话」 | The three replies after 嗲 are sweet; the AC turns on; the last reply is normal; the record has two `style-update sent` | D |
+| 10 | Device, row 9's record | `utterance` → `playback started` ms of the first reply after each update, and the median of the other replies, written to STATUS. No pass threshold: the owner judges whether it is noticeable | D |
+| 11 | Device: after 嗲, airplane mode for 5 s, then 「讲个笑话」 | Still sweet; the record has `style-update sent reason=resume` | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-034c | §16 items 1–9: `contextUpdate` in the codec and the realtime port, update after the confirmation turn, server-held instruction tracking, settings path, re-send after a resumed setup, model check, rejection stop, record lines; rows 1–11 | unit, build, D (rows 9–11) |
