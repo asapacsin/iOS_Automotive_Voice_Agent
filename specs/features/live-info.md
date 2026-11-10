@@ -908,3 +908,60 @@ Also from the §25 record: 高德's geocoder answered 仙台 with 弋阳县 and 
 | Task | Scope | Verify |
 |---|---|---|
 | T-046q | Items 1–8; rows 1–14 (takes in T-046p from `11-06-unbuilt-specs`) | unit, build, D |
+
+## 29. 香港, 澳门 and English names of Chinese places get weather (iOS, APPROVED 2026-11-10)
+
+**Why.** Two device records:
+- **20261110-090437 (a5a03f9).** 「澳门明天天气」 and 「澳门今天天气」, four calls, all `LIVE_INFO_UNAVAILABLE`:
+  - `where:"Macau"` failed in 125 ms: one 高德 request (the geocode), then the §26 item 2 name check failed, because Latin letters never appear in 「澳门」.
+  - `where:"澳门"` failed three times in 247–290 ms: two 高德 requests, so the geocode and name check passed and the weather request failed.
+  - 「今天天气」 for here worked in the same session.
+  - No earlier record has a 香港 or 澳门 weather call. §26 put 香港 and 澳门 on 高德 without testing them.
+- **20261109-180202 (212f52d).** `where:"Shanghai"`, no `country`: `LIVE_INFO_UNAVAILABLE` in 118 ms, the same name-check failure.
+
+In the code at 39f8d76, `AmapWebClient.weather` throws `AmapWebError.failed` when the answer has no `lives` or `forecasts` entry. Only `WeatherForecastMissing` (a missing date in `casts`) falls back to Open-Meteo, so an empty answer ends the call.
+
+**Sources (2026-11-10).**
+- **Measured on the PC.** Open-Meteo geocoding (`count=10&language=zh`, no `countryCode`, largest `population`): Shanghai → 上海 CN (31.22, 121.46); Macau → 澳门 MO (22.16, 113.56); Hong Kong → 香港 HK (22.25, 114.17); Beijing → 北京 CN; Zhuhai → 珠海 CN; Tokyo → 東京 JP. §26 Sources: 澳门, 香港 and 横琴 also work as Chinese names.
+- **Not verified.** What 高德's weather request returned for 澳门. The phone log recorder was off during the test, so the `weather source=amap … reason=` line was not captured.
+
+**Rule in plain words.** 香港 and 澳门 always take their weather from Open-Meteo. An empty 高德 weather answer falls back to Open-Meteo, as a missing day already does. A place name with no Chinese characters is looked up on Open-Meteo first, so 「Shanghai」 and 「Macau」 work too.
+
+1. **香港 and 澳门 use Open-Meteo.**
+   - `ForecastWeather.usesAmap(country:)` becomes `country == nil || country == "CN"`. `country` HK or MO goes to §26's foreign path (Open-Meteo geocoding with `countryCode`, then its forecast).
+   - Without `country`: when the place found through 高德 (a name, `here` or `destination`) has an adcode starting with `81` (香港) or `82` (澳门), every view (§28 now, day and hours) is answered by Open-Meteo at 高德's coordinates. `place` is 高德's name, or the regeo district for `here`. `country` is 香港 or 澳门.
+   - `whereDescription` and `countryDescription` stay. The model is still told to use Chinese names for 香港 and 澳门 and to leave `country` empty.
+2. **An empty 高德 answer falls back.**
+   - `AmapWebClient.weather` throws a new `WeatherNotCovered(adcode:)`, instead of `AmapWebError.failed`, when the request succeeded (`status` 1) but `lives` (live) or `forecasts`/`casts` (forecast) is missing or empty.
+   - `LiveInfoExecutor` treats it like `WeatherForecastMissing`: Open-Meteo at the coordinates, with `reason=empty`. That covers the whole-day path and §28's `amapNow` (an empty live report → Open-Meteo `now` and `today`). With no coordinates: §26's `noForecastAdvice`.
+   - Network failures, timeouts and key errors are unchanged.
+3. **A name with no Chinese characters.**
+   - When `where` is a name (not `here` or `destination`), has no Han character, and `country` is empty: Open-Meteo geocoding `name=<where>&count=10&language=zh&format=json` without `countryCode`. Take the largest `population` (§26 item 2). No 高德 geocode or name check is made.
+   - Result `country_code` CN: 高德 regeo at its coordinates (`geocoder.adcode(at:)`) gives the adcode, and the call goes on as a 高德 place with Open-Meteo's `name` as `place`. If regeo fails or there is no geocoder, Open-Meteo at the coordinates.
+   - HK or MO: item 1. Any other country: §26's Open-Meteo forecast with that country.
+   - No result: `LIVE_INFO_UNAVAILABLE` with §26's `notFoundAdvice`.
+4. **Logs.** §26 item 11's `weather` line gains `lookup=<amap|open-meteo>` and the reasons `empty` and `hkmo`. Still no place names, dates or numbers (I-8).
+5. **Not changed.** §28's three views and texts, §26's name check for Chinese names, the 16-day window and its advice, foreign places with `country`, and the search block.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | 高德 geocode fixture 澳门 → adcode 820000; `where=澳门` with no `day`, with `day=tomorrow`, and with `part=afternoon` | No 高德 weather request; Open-Meteo at 高德's coordinates for now, day and hours; `country` 澳门; `reason=hkmo` | unit |
+| 2 | `where=香港, country=HK`; `here` with regeo adcode 810000 | Open-Meteo (geocoding with `countryCode=HK` for the first; current position for the second); no 高德 weather request | unit |
+| 3 | 高德 weather fixture `{"status":"1","count":"0","lives":[]}` for 珠海, no `day`; `{"status":"1","forecasts":[]}` with `day=tomorrow` | Open-Meteo `now` and `today`; Open-Meteo tomorrow; `reason=empty` | unit |
+| 4 | 高德 weather request times out | Fails as before (no Open-Meteo call) | unit |
+| 5 | `where=Shanghai`, no `country`; Open-Meteo geocoding fixture → 上海 CN; regeo → 310000 | No 高德 geocode; 高德 weather for 310000; `place` 上海 | unit |
+| 6 | `where=Macau`; `where=Tokyo` with no `country`; `where=Xyzzy` with no result | Item 1 Open-Meteo, `country` 澳门; Open-Meteo forecast, `country` 日本; `notFoundAdvice` | unit |
+| 7 | `where=珠海` (Han) | §26 path unchanged: 高德 geocode and name check | unit |
+| 8 | `RuntimeLog` after rows 1–6 | `lookup=` and `reason=` values; no place names, dates or numbers | unit |
+| 9 | Device: 「澳门今天天气怎么样」, 「澳门明天会下雨吗」, 「香港现在几度」 | Each answered with the place and data from `source` open-meteo; no `LIVE_INFO_UNAVAILABLE` | D |
+| 10 | Device: 「上海后天天气」, 「珠海现在天气」 | Answered as before (上海 by 高德 whether Gemini sends 上海 or Shanghai) | D |
+
+**Trace gate.** Add `T-046r: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046r.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046r | Items 1–5; rows 1–10 | unit, build, D |
