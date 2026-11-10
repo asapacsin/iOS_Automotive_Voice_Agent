@@ -466,6 +466,18 @@
       ]
     },
     {
+      "id": "T-020d",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 2,
+      "action": "F-07 §17 items 1-8: delete AzureSpeechClient, AzureRegionProbe and every Azure setting, key and option; one-time cleanup (azure source -> Gemini 原声, delete azure_speech_key, remove azure_region/azure_voice, flag azure_removed_done); AzureSpeechTuning -> SpeechTuning unchanged values; SpeechSynthesizer loses style; gate test: no 'azure' under App/ or Packages/; update current-behaviour specs; rows 19-25.",
+      "depends_on": [
+        "T-020b"
+      ],
+      "notes": "Owner 2026-11-10: remove Azure completely (T-090 had kept it as a selectable source). Qwen and Gemini 原声 stay. Secrets-gate fixtures keep AZURE_SPEECH_KEY as a sample key name.",
+      "evidence": []
+    },
+    {
       "id": "T-024",
       "owner": "AUTONOMOUS",
       "status": "PASS",

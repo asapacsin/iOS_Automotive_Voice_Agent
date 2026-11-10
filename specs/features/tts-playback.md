@@ -211,3 +211,46 @@ One rule changes, by owner decision (2026-11-07, see the next paragraph): a clea
 |---|---|---|---|
 | 17 | Switch on, a 2-turn reply fixture | Two WAV files, 24 kHz mono 16-bit, bytes equal to the received audio; switch off: none | unit |
 | 18 | Device: switch on, 5 replies | The WAV files pulled to the PC; the owner compares them with the phone's sound and with Leda in AI Studio; `playback format` line noted | D |
+
+## 17. Azure removed from the iOS app (owner decision 2026-11-10, APPROVED)
+
+**Why.** Owner 2026-11-10: remove Azure completely. The owner had already judged Azure unreliable (2026-11-06: japaneast requests timed out through the VPN, T-020a), and Gemini 原声 has been the default since T-020b. T-090 kept Azure only because it was still selectable in 设置 (F-25 §14). After this change her voice comes from 「Gemini 原声（最快）」 (the default) or 「千问（阿里云）」.
+
+1. **Delete the client.** Delete `Packages/NovaServices/Sources/NovaServices/Azure/` (`AzureSpeechClient`, `AzureSpeechConfig`, the SSML builder and the `express-as` style table) and `AzureSpeechTests`. In `App/NovaDrive/AgentRuntime.swift`, delete `AzureRegionProbe` and the `.azure` branch of the session-start voice choice, with its notices 「请先在设置里保存 Azure Speech key」, 「正在识别 Azure 区域…」 and 「Azure key 在常用区域都无效，请在设置里填写区域」.
+2. **Settings.** 她的声音 来源 lists Gemini 原声 and 千问 only. The Azure 区域 and 声音 fields go, and the 「Azure Speech key」 row leaves the keys list. Removed: `VoiceSourceKind.azure`, `VoiceSourceDecision.azure`, `CredentialKey.azureSpeechKey`, `SettingsKey.azureVoice`, `DriveSettings.azureRegion`, `DriveSettings.azureVoice`, `DriveSettings.defaultVoice`, the default-voice seeding in `SettingsView` and the Azure branch of `SettingsReadiness`. `VoiceSource.migrated` (§15 item 2) loses its Azure case. A saved source that no longer parses reads as Gemini 原声, as `effectiveChoice` already does.
+3. **Installed phones, once.** On the first launch of this build, once, remembered under `azure_removed_done`:
+   - a saved source `azure` becomes Gemini 原声;
+   - the Keychain item `azure_speech_key` is deleted, so no unused secret stays on the phone;
+   - UserDefaults `azure_region` and `azure_voice` are removed.
+
+   Nothing is logged about the key (I-8). A failed Keychain delete does not block launch and is tried again on the next launch: the flag is set only after the delete succeeds or finds no item.
+4. **Shared voice parts renamed, not changed.** `AzureSpeechTuning` is also used by `RevoicerQueue`, the 千问 path and 试听. It becomes `SpeechTuning` with the same values: connect 5 s, clause deadline 4000 ms + 400 ms per character, warm-up every 15 s, 2 requests in flight. `RetryingSpeechSynthesizer` drops the `AZURE_TTS_*` codes; the `QWEN_TTS_*` codes and the one-retry rule are unchanged. Comments that name Azure (`Revoicer`, `RevoicerQueue`, `AgentState`, NovaPorts `Audio.swift`) say 「TTS」 or 「千问」 instead.
+5. **Speaking style goes to the prompt only.** Azure `express-as` was the only place the style reached synthesis; 千问 sends no style (§14: an instruction delays first audio). `SpeechSynthesizer.synthesize` and `synthesizeTimed` lose their `style:` parameter, and `Revoicer` loses its `style` closure. `SpeakingStyle` stays: 「说话嗲一点」 and the other styles change her wording through the system instruction, for every source (F-21, unchanged).
+6. **Guard.** A gate test fails if `azure` (any case) appears in a file under `App/` or `Packages/`. The secrets-gate fixtures in `scripts/gates/tests/test_gates.py` keep `AZURE_SPEECH_KEY` and `azure_speech_key` as sample key names, because they test that the secrets scanner catches such names; they are not app code.
+7. **Specs.** Text describing current iOS behaviour stops naming Azure as an option:
+   - the F-07 title and status lines here, and the F-07 row in `features/README.md`;
+   - F-22 `settings-credentials.md` (the secrets and non-secrets lists, §7 and §11);
+   - F-21 `persona-style.md` §7;
+   - F-20a `camera-view.md` (the voice line);
+   - `mandarin-transcript.md` (the fixed-label list);
+   - `contracts/api-contracts.md` (the Azure section is marked 「Android only; removed from iOS, F-07 §17」) and `contracts/audio.md` (the reply-audio row);
+   - `ios-architecture.md` (the NovaServices list, the `SpeechSynthesizer` port, Revoicer, reply lane, Keychain, TTS failure, F-07 mapping and M1 rows).
+
+   History stays as written: `STATUS.md`, `progress/`, `work.json` notes, ADR-016 (the Android decision), and §14–§15 here, which describe Azure as the option it was then. §15 row 12's case 「saved Azure → Azure」 now expects Gemini 原声 (row 20).
+8. **Not changed:** Gemini 原声, its streaming and the claim cut (§15); 千问 and 试听 (§14); the revoicer queue, epochs and barge-in; F-21 styles and their confirmations; the T-032d preview path.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 19 | Source tree after the change | No `azure` (any case) in `App/` or `Packages/` (gate test); `scripts/gates/run_all.sh` green | unit (gate) |
+| 20 | Voice choice: saved `azure` on the first launch of this build; saved `qwen` with key and host; nothing saved; §15 migration with saved `azure` | Gemini 原声; 千问; Gemini 原声; Gemini 原声 | unit |
+| 21 | First launch with `azure_speech_key` in the store and `azure_region`, `azure_voice` saved; a second launch; a first launch whose Keychain delete fails | Key deleted, both values removed, `azure_removed_done` set; the second launch changes nothing; flag not set, the delete is tried again on the next launch | unit |
+| 22 | 千问 revoices a 3-clause reply using `SpeechTuning` | Same deadlines as before (10 characters → 8000 ms), at most 2 in flight, played in order; `QWEN_TTS_RATE` retried once | unit |
+| 23 | App build | Builds; 她的声音 来源 has two options | build |
+| 24 | Device: a phone with Azure saved as the source and an Azure key stored; install this build | 设置 → 她的声音 shows Gemini 原声 selected and only two options, with no Azure key row; a session speaks in the Gemini voice; 「说话嗲一点」 changes her wording and she still does what is asked | D |
+| 25 | Device: switch to 千问; one session | She speaks as before (§14) | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-020d | Items 1–8; rows 19–25 | unit, build, D |
