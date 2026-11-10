@@ -54,6 +54,11 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private var voiceGain = 1.0
     private var mediaGain = 1.0
     private var replyDipDb: Double?
+    /// F-13a §5 (T-032h): the song ducked under her voice and guidance. `duckMachine`, `ramp`, `rampTimer`: mediaQueue only.
+    private var duckMachine = DuckMachine()
+    private var ramp = DuckRamp()
+    private var rampTimer: DispatchSourceTimer?
+    private var duckLine: (@Sendable (String) -> Void)?
 
     /// F-08 §17 item 3: told each time the engine is restarted after a configuration change.
     public func onEngineRestart(_ handler: @escaping @Sendable () -> Void) { lock.withLock { restarted = handler } }
@@ -154,7 +159,10 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             onFrame = nil
         }
         // A restart queued before the observer went away runs (and sees `running` false) before the engine stops.
-        mediaQueue.sync {}
+        mediaQueue.sync {
+            rampTimer?.cancel()
+            rampTimer = nil
+        }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -196,8 +204,63 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         reply.volume = Float(replyGain)
         guidance.volume = Float(voice)
         cue.volume = Float(voice)
-        self.media.volume = Float(media)
-        preview.volume = Float(media)
+        // §5 item 4: the media gain carries the duck factor now on the nodes (mediaQueue), applied before returning.
+        syncOnMediaQueue { applyMediaGain() }
+    }
+
+    /// Runs `body` on `mediaQueue` and waits; inline when already on it. Never waits for the render block.
+    private func syncOnMediaQueue(_ body: () -> Void) {
+        if DispatchQueue.getSpecific(key: onMediaQueue) == true { body() } else { mediaQueue.sync(execute: body) }
+    }
+
+    /// On mediaQueue: `mediaGain × factor` on the bundled loop node and the preview source node (F-13a §5 item 4).
+    private func applyMediaGain() {
+        let gain = Float(DuckRamp.gain(media: lock.withLock { mediaGain }, factor: ramp.current))
+        media.volume = gain
+        preview.volume = gain
+    }
+
+    // MARK: Ducking (F-13a §5, T-032h)
+
+    /// §7: told each `duck on` / `duck off` line (RuntimeLog and the record).
+    public func onDuckLine(_ handler: @escaping @Sendable (String) -> Void) { lock.withLock { duckLine = handler } }
+
+    /// Her reply turn opened (the core's `newReply`): the duck's `ms` is measured from here.
+    public func replyBegan() { duck(.replyBegan) }
+
+    /// The shell's `replyIdle`: nothing of the reply of `epoch` is left to sound, so the song comes back.
+    public func replyIdle(_ epoch: Epoch) { duck(.replyIdle(epoch)) }
+
+    /// Stamps the event now and hands it to mediaQueue, in call order; a change plans the ramp.
+    private func duck(_ event: DuckMachine.Event) {
+        let now = NovaInstant(milliseconds: Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000))
+        mediaQueue.async { [self] in
+            guard let change = duckMachine.handle(event, at: now) else { return }
+            lock.withLock { duckLine }?(change.line)
+            ramp.target(ducked: change.ducked)
+            startRamp()
+        }
+    }
+
+    /// §5 item 3: one step every 25 ms on mediaQueue (150 ms down, 400 ms up); never from the render thread.
+    private func startRamp() {
+        rampTimer?.cancel()
+        rampTimer = nil
+        guard ramp.running else { return }
+        let timer = DispatchSource.makeTimerSource(queue: mediaQueue)
+        let step = DispatchTimeInterval.milliseconds(DuckRamp.stepMs)
+        timer.schedule(deadline: .now() + step, repeating: step)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.ramp.tick() != nil else {
+                self.rampTimer?.cancel()
+                self.rampTimer = nil
+                return
+            }
+            self.applyMediaGain()
+        }
+        rampTimer = timer
+        timer.resume()
     }
 
     /// F-08 §17 item 11 (T-022e): her reply lowered by `db` while a possible interruption is checked; it keeps playing.
@@ -217,6 +280,7 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             return voiceGain
         }
         reply.volume = Float(restored)
+        duck(.flushed)  // F-13a §5 item 1: a flushed reply no longer holds the song down
         let finished: Epoch? = lock.withLock {
             let had = outstanding > 0 ? epoch : nil
             epoch = max(newEpoch, epoch)
@@ -236,7 +300,10 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             return outstanding == 1
         }
         guard let first else { return }
-        if first { continuation.yield(.replyStarted(replyEpoch)) }
+        if first {
+            continuation.yield(.replyStarted(replyEpoch))
+            duck(.replyAudio(replyEpoch))  // F-13a §5 item 1: from the first buffer of her reply
+        }
         reply.scheduleBuffer(buffer) { [weak self] in self?.replyBufferDone(replyEpoch) }
     }
 
@@ -259,10 +326,12 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         }
         lock.withLock { guidanceOutstanding += 1 }
         continuation.yield(.guidanceStarted(id))
+        duck(.guidanceStarted(id))  // F-13a §5 item 1: guidance ducks the song the same way
         guidance.scheduleBuffer(buffer) { [weak self] in
             guard let self else { return }
             self.lock.withLock { self.guidanceOutstanding -= 1 }
             self.continuation.yield(.guidanceEnded(id))
+            self.duck(.guidanceEnded(id))
         }
     }
 
