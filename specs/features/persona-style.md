@@ -20,7 +20,8 @@ None; the default style is 正常.
 
 ## 5. State transitions
 current style → new style; takes effect from the next turn (instruction update) or the next session setup.
-iOS: the mid-session instruction update is §16 (T-034c); until it is built, a change applies at the next session.
+iOS: a change applies at the next session set up without a resumption handle (§17, T-034d). The mid-session
+instruction update of §16 (T-034c) is withdrawn.
 
 ## 6. Events and triggers
 `set_speaking_style` tool call; settings change.
@@ -183,7 +184,9 @@ first and answers only from what the camera answer says. She never describes a s
 
 ## 16. A new tone applies at once, in the same conversation (iOS, APPROVED 2026-11-10)
 
-**Status:** APPROVED (owner 2026-11-10: "write the spec"; order A chosen: "probably i prefer a").
+**Status:** WITHDRAWN 2026-11-10 by §17 (owner: "just write spec to remove this feature"). Kept for the record;
+nothing in §16 is built any more. Was APPROVED (owner 2026-11-10: "write the spec"; order A chosen: "probably i
+prefer a").
 **Depends on:** §1–§10, F-05 (session setup and resumption), F-24 §15 (handle kept after a give-up),
 contracts/api-contracts.md (Gemini).
 
@@ -266,3 +269,72 @@ reconnects, and the conversation is kept. The first reply after the change may s
 | Task | Scope | Verify |
 |---|---|---|
 | T-034c | §16 items 1–9: `contextUpdate` in the codec and the realtime port, update after the confirmation turn, server-held instruction tracking, settings path, re-send after a resumed setup, model check, rejection stop, record lines; rows 1–11 | unit, build, D (rows 9–11) |
+
+## 17. Remove the mid-conversation tone update; the tone starts with the next conversation (iOS, APPROVED 2026-11-10)
+
+**Status:** APPROVED (owner 2026-11-10: "just write spec to remove this feature that fix this big"). Withdraws §16.
+**Depends on:** §1–§10, F-05 (session setup), F-24 §15 (handle kept after a give-up).
+
+**Why.** §16 (T-034c) was built and recorded PASS without a device run. Device records 2026-11-10 (app 0.1.0(1)):
+- 175100: 「说温一点」 → `set_speaking_style gentle`, her confirmation, `style-update sent reason=tool` at 20084 ms,
+  then `session closed code=1006` at 24544 ms, a reconnect, `style-update sent reason=resume`, and no further reply.
+- 175232: `set_speaking_style sweet`, `style-update sent reason=tool` at 14989 ms; the next utterance (43002 ms, a
+  32 s garbled transcript) got no reply and the record ends.
+- In both, the update went out only after the confirmation, so the confirmation was spoken under the old instruction,
+  and no reply after any update was heard. The owner heard no difference.
+- §16 item 7 stops updates only on `MALFORMED`/1007/1008 within 2 s, so neither failure stopped it.
+
+**Sources (community review 2026-11-10).**
+- Google's Live capabilities guide documents no client message that replaces the system instruction mid-session; it
+  documents `send_client_content` for text turns ([Live API capabilities](https://ai.google.dev/gemini-api/docs/live-guide)).
+  `contextUpdate` comes only from the python-genai SDK (§16 sources).
+- Google: tone is guided "using system instructions", set at setup
+  ([Vertex: configure language and voice](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/live-api/configure-language-voice)).
+  Affective dialog is "Removed in Gemini 3.8 Live" (capabilities guide).
+- Forum thread 184558 (2026-09 to 2026-11): on `gemini-3.8-live` a voice-style instruction (accent) is often not
+  followed once the prompt is production-sized (1 500–13 000 characters, 5–13 tools); a 400-character persona with no
+  tools kept it. No Google fix ([thread](https://discuss.ai.google.dev/t/gemini-live-3-8-follows-british-english-accent-instructions-less-consistently-than-3-1-flash-live/184558)).
+  Our setup is about 1 740 characters and about 20 tools, so the tone changes her wording at most, not her voice.
+
+**Rule in plain words.** A tone change is saved and starts with the next conversation. Nothing is sent to Gemini
+during the conversation. Her confirmation says that, and does not promise a different voice.
+
+1. **No mid-session update.** The app never sends `contextUpdate`. Removed from code: the `contextUpdate` encoder in
+   `GeminiCodec`, the instruction-update call of the realtime port and its `GeminiLiveProvider` implementation,
+   `StyleUpdates` and `StyleUpdateLine` (NovaAgent/Persona/StyleUpdate.swift), the `styleUpdates` wiring in
+   `AgentState`, and `styleUpdatesStopped` / `styleUpdatesRejected` in App/NovaDrive/AgentRuntime.swift. Their tests go
+   with them. `SessionConfig.contextUpdateModel` and `supportsContextUpdate` are removed when nothing else uses them.
+2. **When the tone applies.** `SpeakingStyle.saved(in:)` is read when a session is set up without a resumption handle,
+   as before §16. A reconnect with a handle (in-session, or a F-24 §15 give-up handle) keeps the server's original
+   instruction (LiveKit #7944, §16 sources), so the old tone lasts until a session starts without a handle. Nothing is
+   done to change that.
+3. **The tool result (I-14).** `set_speaking_style` still saves the tone and returns `ok=true` with `style`. Its
+   `instruction` and `next` become 「只说这一句：<line>」 with the line built in code:
+   - `default`: 「好的，下次对话开始我恢复正常的说法。」
+   - `sweet`: 「好呀，下次对话开始我说话甜一点。」
+   - `tsundere`: 「哼，下次对话开始就换傲娇的说法。」
+   - `gentle`: 「好的，下次对话开始我说话温柔一点。」
+   - `lively`: 「好嘞，下次对话开始我说话元气一点！」
+   No line says her voice or sound changes. The catalog description stays byte-for-byte (F-09 iOS notes).
+4. **设置.** The tone picker stays and only saves. Its note becomes 「下次对话开始生效。」 A pick while a session runs
+   sends nothing.
+5. **Record and log.** No `style-update` lines. The existing `tool-call` / `tool-result` lines stay.
+6. **Nothing else changes.** The style block wording, the 4 000-character cap, the base instruction, the voice name and
+   the tool schema stay as they are.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Scripted provider: `set_speaking_style` gentle ok, the reply turn ends; then a tone picked in 设置 | Nothing but the tool response is sent; no `style-update` line | unit |
+| 2 | `set_speaking_style` with each of the five styles | Tone saved; `next` is the item 3 line; no line mentions 声音 | unit |
+| 3 | Tone gentle saved, a new session set up without a handle | The setup instruction carries the gentle block | unit |
+| 4 | Tone changed, then a reconnect with a handle | The setup is sent as today; no extra message after `setupComplete` | unit |
+| 5 | Search the sources | No `contextUpdate` encoder or `StyleUpdates` type is left | unit / grep |
+| 6 | Device: 「温柔一点」, then 「介绍一下珠海」, then end the session; start again and 「介绍一下珠海」 | She says the item 3 line; the first session keeps going with no 1006 and no lost reply; the second session's record shows `speakingStyle gentle`; the owner judges the wording | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-034d | §17 items 1–6: remove the §16 code and tests, new confirmation lines, 设置 note; rows 1–6 | unit, build, D (row 6) |
