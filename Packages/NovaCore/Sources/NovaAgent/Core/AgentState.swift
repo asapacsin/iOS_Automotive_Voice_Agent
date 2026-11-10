@@ -279,12 +279,13 @@ public struct AgentState: Sendable {
     /// A local final that came while its utterance was still open: (speech onset, text; nil = unclear).
     private var areaEarlyFinal: (onset: Int, text: String?)?
     /// Comfort calls waiting for the area, already validated by the dispatcher.
-    private var areaHeldCalls: [(turn: TurnID, call: ToolCall, until: NovaInstant)] = []
+    /// `utterance`: the closed-utterance index the call belongs to; `until` is nil while that utterance is still open.
+    private var areaHeldCalls: [(turn: TurnID, call: ToolCall, utterance: Int, until: NovaInstant?)] = []
     /// Her judged reply waiting for the area (her turn's text and audio), and when that wait ends.
     private var areaHeldReply: [PipelineOutput] = []
     private var areaHeldUntil: NovaInstant?
     /// A turn whose reply was held closed meanwhile: whether it completed.
-    private var areaHeldClosed: (turn: TurnID, completed: Bool)?
+    private var areaHeldClosed: [TurnID: Bool] = [:]
     /// Turns Gemini opened while a sent utterance was still open: they answer that utterance (attached at its close).
     private var areaEarlyTurns: Set<TurnID> = []
     /// Comfort calls running, by the utterance they belong to (for `comfortOk`).
@@ -544,7 +545,7 @@ public struct AgentState: Sendable {
             return arbiterChanged(at: now)
         case .timer(.area):
             // F-09a §3 item 3: no local final within the wait: the area is unknown and what waited goes on.
-            let due = areaHeldCalls.contains { $0.until <= now } || areaHeldUntil.map { $0 <= now } == true
+            let due = areaHeldCalls.contains { $0.until.map { $0 <= now } == true } || areaHeldUntil.map { $0 <= now } == true
             guard due, areaCurrent != nil, areaCurrent?.area == nil else { return [] }
             return decideArea(nil, at: now)
         case .timer(.stopSync(let sent)):
@@ -843,7 +844,7 @@ public struct AgentState: Sendable {
         areaHeldCalls = []
         areaHeldReply = []
         areaHeldUntil = nil
-        areaHeldClosed = nil
+        areaHeldClosed = [:]
         areaEarlyTurns = []
         comfortCalls = [:]
         areaCurrent?.turns = []
@@ -1101,17 +1102,23 @@ public struct AgentState: Sendable {
                 switch dispatcher.decide(call, context: guardContext) {
                 case .execute(let running) where CarRequestRouter.comfortTools.contains(running.name):
                     // F-09a §3: a comfort call runs only for a car request; it waits for the area at most 800 ms.
+                    // An early turn's call (or one while a sent utterance is open) belongs to that open utterance.
+                    if carAreas, areaEarlyTurns.contains(turn) || (driverSpeaking && utteranceSent) {
+                        runningTools += 1
+                        areaHeldCalls.append((turn, running, closedTurns + 1, nil))
+                        continue
+                    }
                     guard let current = areaCurrent else {
                         runningTools += 1
                         effects.append(.startTool(turn, running))
                         continue
                     }
                     if let area = current.area {
-                        effects += comfortCall(turn, running, area: area, at: now)
+                        effects += comfortCall(turn, running, area: area, utterance: current.index, at: now)
                     } else {
                         runningTools += 1
                         let until = now + TranscriptSelector.Tuning().localFinalWait
-                        areaHeldCalls.append((turn, running, until))
+                        areaHeldCalls.append((turn, running, current.index, until))
                         effects.append(.schedule(.area(until), at: until))
                     }
                 case .execute(let running):
@@ -1161,13 +1168,13 @@ public struct AgentState: Sendable {
             let open = openTurn == turn
             if openTurn == turn { openTurn = nil }
             let closed = pipeline(.turnClosed(turn, .cancelled), at: now)
-            if areaHolds(turn) { areaHeldClosed = (turn, false) }
+            if areaHolds(turn) { areaHeldClosed[turn] = false }
             return synced + stops + closed + (open ? finalSubtitle() : [])
         case .responseDone(let turn, let outcome):
             let open = openTurn == turn
             if openTurn == turn { openTurn = nil }
             var effects = pipeline(.turnClosed(turn, outcome), at: now)
-            if areaHolds(turn) { areaHeldClosed = (turn, outcome == .completed) }
+            if areaHolds(turn) { areaHeldClosed[turn] = outcome == .completed }
             // F-05a §13: the reply is complete once the pipeline has released what it held.
             if open { effects += finalSubtitle() }
             // The last half clause is spoken only for a reply that completed and still may be heard.
@@ -1337,6 +1344,17 @@ public struct AgentState: Sendable {
         areaPrevious = areaCurrent
         areaCurrent = AreaUtterance(index: closedTurns, turns: areaEarlyTurns)
         areaEarlyTurns = []
+        // What already waits for the new utterance (early turns' replies and calls) waits at most 800 ms from now.
+        let index = closedTurns
+        let turns = areaCurrent?.turns ?? []
+        let heldReply = areaHeldReply.contains { $0.turn.map(turns.contains) ?? false }
+        let heldCalls = areaHeldCalls.contains { $0.utterance == index }
+        if heldReply || heldCalls {
+            let until = now + TranscriptSelector.Tuning().localFinalWait
+            for i in areaHeldCalls.indices where areaHeldCalls[i].utterance == index { areaHeldCalls[i].until = until }
+            if heldReply { areaHeldUntil = until }
+            effects.append(.schedule(.area(until), at: until))
+        }
         if let early = areaEarlyFinal, early.onset == speechOnsets { effects += decideArea(early.text, at: now) }
         areaEarlyFinal = nil
         return effects
@@ -1362,17 +1380,17 @@ public struct AgentState: Sendable {
         current.area = area
         areaCurrent = current
         var effects: [AgentEffect] = [.diagnostic(.carArea(utterance: current.index, area: area))]
-        let calls = areaHeldCalls
-        areaHeldCalls = []
+        let calls = areaHeldCalls.filter { $0.utterance == current.index }
+        areaHeldCalls.removeAll { $0.utterance == current.index }
         let connected = session.state != .disconnected && session.state != .error
         for held in calls {
             runningTools = max(runningTools - 1, 0)
-            if connected { effects += comfortCall(held.turn, held.call, area: area, at: now) }
+            if connected { effects += comfortCall(held.turn, held.call, area: area, utterance: current.index, at: now) }
         }
         let reply = areaHeldReply.filter { $0.turn.map(current.turns.contains) ?? true }
         areaHeldReply.removeAll { $0.turn.map(current.turns.contains) ?? true }
-        let closed = areaHeldClosed.flatMap { current.turns.contains($0.turn) ? $0 : nil }
-        if closed != nil { areaHeldClosed = nil }
+        let closed = areaHeldClosed.filter { current.turns.contains($0.key) }.sorted { $0.key.value < $1.key.value }
+        for entry in closed { areaHeldClosed[entry.key] = nil }
         if areaHeldReply.isEmpty { areaHeldUntil = nil }
         if area == .tired {
             // §4 item 1: every turn opened for it is silent; what of it was held is dropped.
@@ -1383,21 +1401,21 @@ public struct AgentState: Sendable {
         }
         for output in reply { effects += pipelineOutput(output, at: now) }
         // A held turn that closed meanwhile: its subtitle is final and its last half clause may be spoken.
-        if let closed, openTurn == nil || openTurn == closed.turn {
+        for (turn, completed) in closed where openTurn == nil || openTurn == turn {
             effects += finalSubtitle()
-            if closed.completed, !silenced.contains(closed.turn), let rest = segmenter.flush() { effects += speak([rest], at: now) }
+            if completed, !silenced.contains(turn), let rest = segmenter.flush() { effects += speak([rest], at: now) }
         }
         return effects + arbiterChanged(at: now)
     }
 
     /// §3 item 1: run the comfort call, or refuse it with `NOT_A_CAR_REQUEST`.
-    private mutating func comfortCall(_ turn: TurnID, _ call: ToolCall, area: CarRequestArea,
+    private mutating func comfortCall(_ turn: TurnID, _ call: ToolCall, area: CarRequestArea, utterance: Int,
                                       at now: NovaInstant) -> [AgentEffect] {
         guard CarRequestRouter.allows(area) else {
             return refuse(turn, call, ToolDispatcher.failure(.notACarRequest), at: now)
         }
         runningTools += 1
-        if let index = areaCurrent?.index { comfortCalls[call.id] = index }
+        comfortCalls[call.id] = utterance
         return [.startTool(turn, call)]
     }
 
