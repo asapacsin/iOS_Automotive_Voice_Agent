@@ -323,6 +323,8 @@ public enum ToolFailureAdvice {
         .navigationNotRequested: "司机还没有选路线，所以没有开始导航。不要说已经开始或已经选好；请只问一句：有几条路线（按屏幕上的条数说），要走哪一条？",
         .confirmRequired: "导航还在继续，没有结束。不要说已经结束。",
         .vehicleBlocked: "这个操作被安全规则拦下了，没有执行。请用一句话如实告诉用户没有做和原因（看 detail），不要说已经做了。",
+        // F-09a §3 item 1 (T-017a), exact text.
+        .notACarRequest: "司机这句话不是车辆操作请求，没有执行。不要提这个操作，正常回应司机。",
         .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }
