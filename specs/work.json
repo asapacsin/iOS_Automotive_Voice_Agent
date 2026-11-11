@@ -61,13 +61,13 @@
     {
       "id": "T-000c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 5,
       "action": "specs/ci-linux.md §3 items 1-7: run_static.sh split; ci.yml static + swift (swift:6.1.2-noble, cache, timeouts) on ubuntu-24.04; push/pull_request triggers with public-only guard and concurrency; permissions contents: read, no secrets; check_runners.py extended; ai-native.yml folded into static; AGENTS.md rule text. Rows 1-7 unit/review, 8-9 owner.",
       "depends_on": [
         "T-000"
       ],
-      "notes": "Owner 2026-11-11: CI was turned off because it used more than the GitHub free allowance; asked for CI that does not need an iOS build. Owner 2026-11-11 chose §4 option A (automatic Linux runs while public): \"a then\". Do not start a run while building it.",
+      "notes": "Owner 2026-11-11: CI was turned off because it used more than the GitHub free allowance; asked for CI that does not need an iOS build. Owner 2026-11-11 chose §4 option A (automatic Linux runs while public): \"a then\". Do not start a run while building it. | 2026-11-11: built ad8f4c9, gates PASS (NovaCore 776 with 1 known issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0); independent review in progress.",
       "evidence": []
     },
     {
