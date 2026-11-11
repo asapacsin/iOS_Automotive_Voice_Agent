@@ -68,6 +68,8 @@ def triggers(lines: list[str]) -> set[str] | None:
             continue
         inline = m.group(1).strip()
         if inline:
+            if inline.count("[") != inline.count("]") or inline.count("{") != inline.count("}"):
+                return {"<unbalanced inline on:>"}
             inline = inline.strip("[]{}")
             return {_unquote(w.split(":", 1)[0]) for w in inline.split(",") if w.strip()}
         names: set[str] = set()
@@ -93,13 +95,17 @@ def check_text(name: str, text: str) -> list[str]:
     bad: list[str] = []
     lines = text.splitlines()
     for n, raw in enumerate(lines, 1):
-        code = _code(raw)
+        code = raw  # deny checks read the raw line: a `#` inside a string must not hide anything
         if re.search(r"runs-on:.*macos", code, re.I):
             bad.append(f"{name}:{n}: macOS runner is forbidden")
         if re.match(r"\s*(schedule|pull_request_target)\s*:", code):
             bad.append(f"{name}:{n}: {code.strip()} trigger is forbidden")
         if re.search(r"\bsecrets\b", code):
             bad.append(f"{name}:{n}: secrets are not used in CI")
+    if sum(1 for l in lines if _ON.match(_code(l))) > 1:
+        bad.append(f"{name}: more than one top-level on:")
+    if any(l.strip() == "---" for l in lines):
+        bad.append(f"{name}: one YAML document per workflow")
     trig = triggers(lines)
     if trig is None:
         bad.append(f"{name}: no `on:` triggers found")

@@ -326,6 +326,9 @@ class RunnersGateTests(unittest.TestCase):
             self.assertTrue(self.fails(text), on)
             self.assertTrue(self.fails(windows.replace("on:\n  workflow_dispatch:", on)), on)
         self.assertTrue(self.fails(DISPATCH_LINUX.replace("on:\n  workflow_dispatch:\n", "")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("on:\n  workflow_dispatch:", "on: [workflow_dispatch,\n  push]")))
+        self.assertTrue(self.fails(DISPATCH_LINUX + "on: push\n"))
+        self.assertTrue(self.fails(DISPATCH_LINUX + "---\non: push\n"))
 
     def test_runner_must_be_plain_ubuntu_everywhere(self) -> None:
         for runner in ("${{ vars.R }}", "[self-hosted]", "windows-latest"):
@@ -334,6 +337,7 @@ class RunnersGateTests(unittest.TestCase):
     def test_any_secrets_reference_fails(self) -> None:
         self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", "run: echo ${{ secrets['T'] }}")))
         self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", "run: echo ${{ toJSON(secrets) }}")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", 'run: echo "#${{ secrets.T }}"')))
 
     def test_ci_and_dispatch_linux_pass(self) -> None:
         self.assertEqual(check_runners.check_text("ci.yml", GOOD_CI), [])

@@ -1,7 +1,7 @@
 name: ci
 # Owner rule 2026-11-11 (specs/ci-linux.md, option A): no macOS GitHub Actions runners; automatic triggers only for
 # Linux jobs that pass scripts/gates/check_runners.py (public repository only, time limit); everything else is
-# workflow_dispatch only. No app build, no simulator, no secrets. Start by hand: gh workflow run ci.yml --ref <branch>
+# workflow_dispatch only. No app build, no simulator, no credentials. Start by hand: gh workflow run ci.yml --ref <branch>
 on:
   workflow_dispatch:
   push:
