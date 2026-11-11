@@ -53,7 +53,7 @@ Codemagic or a device build started by the owner, unchanged.
 3. **Triggers.**
    - `workflow_dispatch` (as today).
    - `push` on `main` and `claude/**`, and `pull_request` to `main`, both with `paths-ignore` for `**/*.xlsx`
-     and `progress/**` only (spec edits still run: `spec-trace` and `ios-spec-check` read the specs).
+     and `specs/progress/**` only (spec edits still run: `spec-trace` and `ios-spec-check` read the specs).
    - `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }`, so a new push to a branch stops
      the run for the previous push.
    - Never `schedule`, never `pull_request_target`.
