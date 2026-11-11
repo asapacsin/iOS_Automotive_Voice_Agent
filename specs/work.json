@@ -59,6 +59,18 @@
       ]
     },
     {
+      "id": "T-000c",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 5,
+      "action": "specs/ci-linux.md §3 items 1-7: run_static.sh split; ci.yml static + swift (swift:6.1.2-noble, cache, timeouts) on ubuntu-24.04; push/pull_request triggers with public-only guard and concurrency; permissions contents: read, no secrets; check_runners.py extended; ai-native.yml folded into static; AGENTS.md rule text. Rows 1-7 unit/review, 8-9 owner.",
+      "depends_on": [
+        "T-000"
+      ],
+      "notes": "Owner 2026-11-11: CI was turned off because it used more than the GitHub free allowance; asked for CI that does not need an iOS build. Blocked on the owner's §4 decision (automatic Linux runs vs manual only). Do not start a run while building it.",
+      "evidence": []
+    },
+    {
       "id": "T-000x",
       "owner": "AUTONOMOUS",
       "status": "PASS",
@@ -522,7 +534,11 @@
       "depends_on": [
         "T-032f"
       ],
-      "notes": "Owner 2026-11-10: \"currently the agent unable to change the sound level\"; asked how two sounds (her voice and music) are handled; then \"just write the spec\". iOS cannot set the system volume (Apple); cars keep one volume per group and duck media relative to it (AOSP). | 2026-11-10: Built bf18f6c (merge 2026-11-10). Gates PASS on d4861a1: python 58 OK, runners 0, imports 299/0, secrets 0, NovaCore 779 passed (1 known NoiseCorpus issue), NovaRealtime 45, NovaServices 74, spec-trace 117/0. Independent read-only high-effort review PASS; Low open: set to current end level gives no limit_reached; two announce lines (voice mute / below 2) are builder wording not yet in volume.md §4; setLaneGains waits on mediaQueue (must never wait on main). App/NovaAudio not compiled; device rows 10-12 NOT_VERIFIED."
+      "notes": "Owner 2026-11-10: \"currently the agent unable to change the sound level\"; asked how two sounds (her voice and music) are handled; then \"just write the spec\". iOS cannot set the system volume (Apple); cars keep one volume per group and duck media relative to it (AOSP). | 2026-11-10: Built bf18f6c (merge 2026-11-10). Gates PASS on d4861a1: python 58 OK, runners 0, imports 299/0, secrets 0, NovaCore 779 passed (1 known NoiseCorpus issue), NovaRealtime 45, NovaServices 74, spec-trace 117/0. Independent read-only high-effort review PASS; Low open: set to current end level gives no limit_reached; two announce lines (voice mute / below 2) are builder wording not yet in volume.md §4; setLaneGains waits on mediaQueue (must never wait on main). App/NovaAudio not compiled; device rows 10-12 NOT_VERIFIED.",
+      "evidence": [
+        "bf18f6c; scripts/gates/run_all.sh PASS on d4861a1 (python 58 OK, runners 0, imports 299/0, secrets 0, NovaCore 779 passed with 1 known NoiseCorpus issue, NovaRealtime 45, NovaServices 74, spec-trace 117/0)",
+        "Independent read-only review (high effort) 2026-11-10: PASS, 4 Low open"
+      ]
     },
     {
       "id": "T-032h",
@@ -533,7 +549,11 @@
       "depends_on": [
         "T-032g"
       ],
-      "notes": "The code has no ducking today (only the barge-in dip of her own reply); music.md §14 item 4 corrected. | 2026-11-10: Built 54e73ff. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: duck on/off lines written on every reply even with no music. App/NovaAudio not compiled; device row 9 NOT_VERIFIED."
+      "notes": "The code has no ducking today (only the barge-in dip of her own reply); music.md §14 item 4 corrected. | 2026-11-10: Built 54e73ff. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: duck on/off lines written on every reply even with no music. App/NovaAudio not compiled; device row 9 NOT_VERIFIED.",
+      "evidence": [
+        "54e73ff; scripts/gates/run_all.sh PASS on d4861a1 (as T-032g)",
+        "Independent read-only review (high effort) 2026-11-10: PASS"
+      ]
     },
     {
       "id": "T-024",
@@ -2019,7 +2039,11 @@
       "priority": 4,
       "action": "F-21 §16: after the turn answering set_speaking_style ends, send contextUpdate{systemInstruction} (session base + new style block) on gemini-3.8-live only, when it differs from what the server holds; same path for a 设置 change; re-send after a resumed setupComplete when it differs from the chain's original; stop after a rejection within 2 s; style-update record lines; rows 1-8 unit, rows 9-11 device",
       "depends_on": [],
-      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone. | 2026-11-10: Built 46c618b. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: goAway clears held so a change before reconnect goes via resume; skipped reason=model repeats per resumed reconnect on other models; held messages during slow resumed setup count toward pendingLimit; styleUpdatesStopped set via Task{}. 设置 tone picker added. App not compiled; device rows 9-11 NOT_VERIFIED. | 2026-11-10: WITHDRAWN by F-21 §17 (T-034d). Device records 175100 (1006 drop 4.5 s after the update) and 175232 (no reply after the update); owner: \"just write spec to remove this feature\". | 2026-11-10: removed by T-034d (aa734df) per F-21 §17."
+      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone. | 2026-11-10: Built 46c618b. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: goAway clears held so a change before reconnect goes via resume; skipped reason=model repeats per resumed reconnect on other models; held messages during slow resumed setup count toward pendingLimit; styleUpdatesStopped set via Task{}. 设置 tone picker added. App not compiled; device rows 9-11 NOT_VERIFIED. | 2026-11-10: WITHDRAWN by F-21 §17 (T-034d). Device records 175100 (1006 drop 4.5 s after the update) and 175232 (no reply after the update); owner: \"just write spec to remove this feature\". | 2026-11-10: removed by T-034d (aa734df) per F-21 §17.",
+      "evidence": [
+        "46c618b; scripts/gates/run_all.sh PASS on d4861a1",
+        "Independent read-only review (high effort) 2026-11-10: PASS, 4 Low open; later removed by T-034d"
+      ]
     },
     {
       "id": "T-034d",
@@ -2030,7 +2054,11 @@
       "depends_on": [
         "T-034c"
       ],
-      "notes": "Owner 2026-11-10: said 溫柔一點 and heard no difference; community review: no documented mid-session instruction update, affective dialog removed in 3.8, 3.8 style instructions weak with production-sized prompts (forum 184558); owner \"just write spec to remove this feature that fix this big\". | 2026-11-10: built aa734df (revert of 46c618b, new confirmation lines, 设置 picker note 下次对话开始生效). Gates PASS on 360ba48 (NovaCore 776, 1 known issue; NovaRealtime 42; NovaServices 74; spec-trace 119/0). Independent read-only high-effort review PASS: nothing from later commits lost. App not compiled; device row 6 NOT_VERIFIED."
+      "notes": "Owner 2026-11-10: said 溫柔一點 and heard no difference; community review: no documented mid-session instruction update, affective dialog removed in 3.8, 3.8 style instructions weak with production-sized prompts (forum 184558); owner \"just write spec to remove this feature that fix this big\". | 2026-11-10: built aa734df (revert of 46c618b, new confirmation lines, 设置 picker note 下次对话开始生效). Gates PASS on 360ba48 (NovaCore 776, 1 known issue; NovaRealtime 42; NovaServices 74; spec-trace 119/0). Independent read-only high-effort review PASS: nothing from later commits lost. App not compiled; device row 6 NOT_VERIFIED.",
+      "evidence": [
+        "aa734df; scripts/gates/run_all.sh PASS on 360ba48 (NovaCore 776 with 1 known issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0)",
+        "Independent read-only review (high effort) 2026-11-10: PASS, no later work lost"
+      ]
     },
     {
       "id": "T-046c",
@@ -2165,7 +2193,10 @@
         "T-016j"
       ],
       "notes": "Owner 2026-11-10 build 58 (3108ed0): 连接错误：RESUME_UNAVAILABLE stayed on screen after the 17:31:30 reconnect. model.notice is cleared only by start(by:). The 1007 after a stop phrase is not part of this task. | 2026-11-10: built bfc3e70 (ConnectionNotice in NovaKit, AgentRuntime/DriveView wiring). Gates PASS on 7c10a51: python 58 OK, runners 0, imports 300/0, NovaCore 776 passed (1 known NoiseCorpus issue), NovaRealtime 42, NovaServices 74, spec-trace 119/0. Independent read-only high-effort review PASS; Low open: a connection event landing after stop() can show 连接失败 on the idle screen until next start; waiting flag not cleared on gaveUp. App not compiled; device rows 8-9 NOT_VERIFIED.",
-      "evidence": []
+      "evidence": [
+        "bfc3e70; scripts/gates/run_all.sh PASS on 360ba48 (python 58 OK, runners 0, imports 300/0, NovaCore 776 with 1 known issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0)",
+        "Independent read-only review (high effort) 2026-11-10: PASS, 2 Low open"
+      ]
     },
     {
       "id": "T-016l",
