@@ -17,6 +17,7 @@ sys.path.insert(0, str(GATES))
 
 import check_imports  # noqa: E402
 import check_kws_tokens  # noqa: E402
+import check_runners  # noqa: E402
 import check_secrets  # noqa: E402
 import spec_trace  # noqa: E402
 
@@ -275,3 +276,63 @@ class KwsTokensGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+GOOD_CI = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+DISPATCH_LINUX = """name: x
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: true
+"""
+
+
+class RunnersGateTests(unittest.TestCase):
+    """specs/ci-linux.md §6 rows 2-5."""
+
+    def fails(self, text: str) -> bool:
+        return bool(check_runners.check_text("w.yml", text))
+
+    def test_macos_fails_dispatch_and_push(self) -> None:
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("ubuntu-24.04", "macos-15")))
+        self.assertTrue(self.fails(GOOD_CI.replace("runs-on: ubuntu-24.04", "runs-on: macos-15", 1)))
+
+    def test_push_job_rules(self) -> None:
+        cases = {
+            "no timeout": GOOD_CI.replace("    timeout-minutes: 5\n", "", 1),
+            "timeout 45": GOOD_CI.replace("timeout-minutes: 25", "timeout-minutes: 45"),
+            "larger runner": GOOD_CI.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest-4-cores", 1),
+            "no guard": GOOD_CI.replace("    if: github.event_name == 'workflow_dispatch' || github.event.repository.private == false\n", "", 1),
+            "matrix": GOOD_CI.replace("    timeout-minutes: 5\n", "    timeout-minutes: 5\n    strategy:\n      matrix:\n        os: [a]\n", 1),
+        }
+        for name, text in cases.items():
+            self.assertNotEqual(text, GOOD_CI, name)
+            self.assertTrue(self.fails(text), name)
+
+    def test_forbidden_everywhere(self) -> None:
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("  workflow_dispatch:", "  schedule:\n    - cron: '0 0 * * *'")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("  workflow_dispatch:", "  pull_request_target:")))
+        self.assertTrue(self.fails(GOOD_CI.replace("permissions:\n  contents: read\n", "")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", "run: echo ${{ secrets.X }}")))
+
+    def test_ci_and_dispatch_linux_pass(self) -> None:
+        self.assertEqual(check_runners.check_text("ci.yml", GOOD_CI), [])
+        self.assertEqual(check_runners.check_text("w.yml", DISPATCH_LINUX), [])
+        self.assertEqual(check_runners.check(REPO), [])
+
+
+class RunStaticTests(unittest.TestCase):
+    """specs/ci-linux.md §6 row 1: run_static.sh holds the Python gates and run_all.sh calls it first."""
+
+    def test_split(self) -> None:
+        static = (GATES / "run_static.sh").read_text(encoding="utf-8")
+        for gate in ("unittest discover", "check_runners.py", "check_imports.py", "check_secrets.py",
+                     "check_kws_tokens.py", "ios_spec_check.py", "spec_trace.py"):
+            self.assertIn(gate, static)
+        self.assertNotIn("swift ", static)
+        run_all = (GATES / "run_all.sh").read_text(encoding="utf-8")
+        self.assertIn("run_static.sh", run_all)
+        self.assertTrue(run_all.rstrip().endswith('echo "gates: PASS"'))

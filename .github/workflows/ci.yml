@@ -1,14 +1,48 @@
 name: ci
-# Manual only (owner rule 2026-10-27: no automatic CI, it used up the Actions minutes).
-# Start with: gh workflow run ci.yml --ref <branch>
-# Owner rule 2026-10-27: no macOS runners (billed 10x). scripts/gates/check_runners.py enforces it.
+# Owner rule 2026-11-11 (specs/ci-linux.md, option A): no macOS GitHub Actions runners; automatic triggers only for
+# Linux jobs that pass scripts/gates/check_runners.py (public repository only, time limit); everything else is
+# workflow_dispatch only. No app build, no simulator, no secrets. Start by hand: gh workflow run ci.yml --ref <branch>
 on:
   workflow_dispatch:
+  push:
+    branches: [main, "claude/**"]
+    paths-ignore: ["**/*.xlsx", "specs/progress/**"]
+  pull_request:
+    branches: [main]
+    paths-ignore: ["**/*.xlsx", "specs/progress/**"]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  core-linux:
+  static:
+    # Python gates + ai-native registry checks; no Swift.
     runs-on: ubuntu-24.04
-    container: swift:6.0.3-noble
+    if: github.event_name == 'workflow_dispatch' || github.event.repository.private == false
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/gates/run_static.sh
+      - name: Controller tests (copied toolkit)
+        working-directory: tools/ai-native
+        run: python3 -m unittest discover -s tests -v
+      - name: Validate iOS work registry and contract
+        run: |
+          python3 tools/ai-native/scripts/frontier.py check --registry specs/work.json
+          python3 tools/ai-native/scripts/ai_native.py validate --contract tools/ai-native/adapters/ios.json
+  swift:
+    # Build and unit tests of NovaCore, NovaRealtime, NovaServices on Linux (run_all.sh).
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'workflow_dispatch' || github.event.repository.private == false
+    timeout-minutes: 25
+    container: swift:6.1.2-noble
     steps:
       - uses: actions/checkout@v4
       - run: apt-get update && apt-get install -y python3
+      - uses: actions/cache@v4
+        with:
+          path: Packages/*/.build
+          key: swift-6.1.2-${{ hashFiles('Packages/*/Package.swift', 'Packages/*/Package.resolved') }}
+          restore-keys: swift-6.1.2-
       - run: scripts/gates/run_all.sh
