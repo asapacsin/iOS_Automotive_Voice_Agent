@@ -14,6 +14,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 GUARD = "github.event_name == 'workflow_dispatch' || github.event.repository.private == false"
 RUNNERS = {"ubuntu-24.04", "ubuntu-latest"}
+TRIGGERS = {"workflow_dispatch", "push", "pull_request"}
+_ON = re.compile(r"""^(?:on|'on'|"on")\s*:\s*(.*)$""")
 MAX_MINUTES = 30
 
 
@@ -54,26 +56,56 @@ def _value(body: list[str], key: str) -> str | None:
     return None
 
 
+def _unquote(word: str) -> str:
+    return word.strip().strip("'\"")
+
+
+def triggers(lines: list[str]) -> set[str] | None:
+    """The workflow's trigger names (inline scalar, flow list, block list or block map); None when `on` is missing."""
+    for i, raw in enumerate(lines):
+        m = _ON.match(_code(raw))
+        if not m:
+            continue
+        inline = m.group(1).strip()
+        if inline:
+            inline = inline.strip("[]{}")
+            return {_unquote(w.split(":", 1)[0]) for w in inline.split(",") if w.strip()}
+        names: set[str] = set()
+        indent = None
+        for nxt in lines[i + 1:]:
+            line = _code(nxt)
+            if not line.strip():
+                continue
+            ind = len(line) - len(line.lstrip())
+            if ind == 0:
+                break
+            indent = ind if indent is None else indent
+            if ind != indent:
+                continue
+            item = line.strip()
+            item = item[1:].strip() if item.startswith("-") else item
+            names.add(_unquote(item.split(":", 1)[0]))
+        return names
+    return None
+
+
 def check_text(name: str, text: str) -> list[str]:
     bad: list[str] = []
     lines = text.splitlines()
-    automatic = False
     for n, raw in enumerate(lines, 1):
         code = _code(raw)
         if re.search(r"runs-on:.*macos", code, re.I):
             bad.append(f"{name}:{n}: macOS runner is forbidden")
         if re.match(r"\s*(schedule|pull_request_target)\s*:", code):
             bad.append(f"{name}:{n}: {code.strip()} trigger is forbidden")
-        if re.match(r"\s*(push|pull_request)\s*:", code):
-            automatic = True
-        if "secrets." in code:
+        if re.search(r"\bsecrets\b", code):
             bad.append(f"{name}:{n}: secrets are not used in CI")
-    if not automatic:
+    trig = triggers(lines)
+    if trig is None:
+        bad.append(f"{name}: no `on:` triggers found")
         return bad
-    top = [_code(l) for l in lines]
-    has_perm = any(l == "permissions:" for l in top) and any(re.fullmatch(r"\s{2}contents:\s*read", l) for l in top)
-    if not has_perm and "permissions: { contents: read }" not in top and "permissions: {contents: read}" not in top:
-        bad.append(f"{name}: an automatic workflow needs permissions: contents: read")
+    for t in sorted(trig - TRIGGERS):
+        bad.append(f"{name}: trigger {t} is not allowed (only {sorted(TRIGGERS)})")
     jobs = _jobs(lines)
     if not jobs:
         bad.append(f"{name}: no jobs found")
@@ -81,6 +113,14 @@ def check_text(name: str, text: str) -> list[str]:
         runner = _value(body, "runs-on")
         if runner not in RUNNERS:
             bad.append(f"{name}: job {job}: runs-on must be one of {sorted(RUNNERS)} (got {runner})")
+    automatic = bool(trig - {"workflow_dispatch"})
+    if not automatic:
+        return bad
+    top = [_code(l) for l in lines]
+    has_perm = any(l == "permissions:" for l in top) and any(re.fullmatch(r"\s{2}contents:\s*read", l) for l in top)
+    if not has_perm and "permissions: { contents: read }" not in top and "permissions: {contents: read}" not in top:
+        bad.append(f"{name}: an automatic workflow needs permissions: contents: read")
+    for job, body in jobs.items():
         if any(re.match(r"\s*matrix:", l) for l in body):
             bad.append(f"{name}: job {job}: no matrix in an automatic workflow")
         minutes = _value(body, "timeout-minutes")

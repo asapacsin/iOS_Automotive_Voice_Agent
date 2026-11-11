@@ -1958,7 +1958,7 @@
       ],
       "notes": "Owner 2026-11-02 \"Yes, write it\" after scores on ace916f: model 27/27 no wrongful action but behind on unprompted wordings and worst time. Stop after this round; T-031c stays an owner decision.",
       "evidence": [
-        "specs/STATUS.md 2026-11-02 T-031d F-12 §15 items 1-8 comfort tuning round (code part): Runner: sessionFailed (any .failed/.closed, retried once, then infrastructure, not scored), noAnswer (incl. empty turn), stuckAfterTool, slowAnswer; connect limit 10 s, answer timer from sendText; new `turnEnded(TurnEndReason)` from Gemini turnCompleteReason and for a turn ending with nothing open (likely hNoAir cause: before, that reached nobody and the run waited 20 s); stage times firstEvent/fi"
+        "specs/STATUS.md:112 (2026-11-02, T-031d, result PASS): Runner: sessionFailed (any .failed/.closed, retried once, then infrastructure, not scored), noAnswer (incl. empty turn), stuckAfterTool, slowAnswer; connect limit 10 s, answer timer from sendText; new `turnEnded(TurnEndReason)` from Gemini turnCompleteReason and for a turn ending with nothing open …"
       ]
     },
     {
@@ -1972,7 +1972,7 @@
       ],
       "notes": "Owner 2026-11-03 \"what ever you just take those approach and write that on spec\". Bars in item 14 are PROPOSED. Item 4 verdicts come from the owner and mentor before the full run. T-031c stays an owner decision.",
       "evidence": [
-        "specs/STATUS.md 2026-11-03 T-031e F-12 §16 items 1-12 trustworthy comfort test + small : Run ends at audioDone or responseDone (stage answerDone, first reply only); decision from last sentence (ask) / first or last (refuse), real c4fa669 replies as fixtures; known good and bad outcome for all 100 cases; 34 new cases (20 held out h3*, 12 noTool/ask, 14 unprompted); 「试跑」 12 cases once, every reply shown; disputed set (empty) and the 5 item 4 cases listed as 待定; pass^3 overall and per de"
+        "specs/STATUS.md:114 (2026-11-03, T-031e, result PASS): Run ends at audioDone or responseDone (stage answerDone, first reply only); decision from last sentence (ask) / first or last (refuse), real c4fa669 replies as fixtures; known good and bad outcome for all 100 cases; 34 new cases (20 held out h3*, 12 noTool/ask, 14 unprompted); 「试跑」 12 cases once, …"
       ]
     },
     {
@@ -1986,7 +1986,7 @@
       ],
       "notes": "Owner 2026-11-03 \"you should build that for testing\" and \"you jsut wrie a spec and push to cloud\". Needed to diagnose the repeated reply reported that day.",
       "evidence": [
-        "specs/STATUS.md 2026-11-03 T-031f F-12 §17 items 1-7 conversation record for testing: 「保存对话记录（测试用）」 default off, read at session start (off: no object, no file); Documents/conversations/<yyyyMMdd-HHmmss>.txt, newest 50 kept, 「删除全部对话记录」 with confirmation; header: app version, comfort mode, 可以打断她, style; lines heard-local/heard-gemini/utterance/reply (merged per turn)/reply-out (released, held-released, voided with the following correction's reason, stopped)/tool-call/tool-result/cor"
+        "specs/STATUS.md:115 (2026-11-03, T-031f, result PASS): 「保存对话记录（测试用）」 default off, read at session start (off: no object, no file); Documents/conversations/<yyyyMMdd-HHmmss>.txt, newest 50 kept, 「删除全部对话记录」 with confirmation; header: app version, comfort mode, 可以打断她, style; lines heard-local/heard-gemini/utterance/reply (merged per turn)/reply-out …"
       ]
     },
     {
@@ -2000,7 +2000,7 @@
       ],
       "notes": "Owner 2026-11-03 \"this make sense then write the spec\" after a community review. Keep-or-revert rule in item 5 is PROPOSED.",
       "evidence": [
-        "specs/STATUS.md 2026-11-03 T-031h F-12 §19 items 1-3 sleepy driver: no lower temperatur: 「（调低一度温度、开一点车窗或调大风量）」 → 「（开一点车窗或调大风量）」; advice to rest kept; table instruction unchanged; test cases unchanged. Row 1 unit; same build as T-031g; gates PASS; review PASS."
+        "specs/STATUS.md:116 (2026-11-03, T-031g, result PASS): `control_window` model-mode text = 「控制车窗（模拟）。开窗能换入车外空气、散掉车内异味；关窗能隔绝噪音和车外空气。」 + today's rest (built from the table text); `modelClimateDescription` begins 「空调主要调节温度，风量让车内空气流动。」; table mode and other tools unchanged; no test case changed. Rows 1-2 unit (ToolPurposeTests); gates PASS (515 tests, 1 …"
       ]
     },
     {
@@ -2014,7 +2014,7 @@
       ],
       "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\" and \"the current test case is ok don't add extra stuff\".",
       "evidence": [
-        "specs/STATUS.md 2026-11-03 T-031h F-12 §19 items 1-3 sleepy driver: no lower temperatur: 「（调低一度温度、开一点车窗或调大风量）」 → 「（开一点车窗或调大风量）」; advice to rest kept; table instruction unchanged; test cases unchanged. Row 1 unit; same build as T-031g; gates PASS; review PASS."
+        "specs/STATUS.md:117 (2026-11-03, T-031h, result PASS): 「（调低一度温度、开一点车窗或调大风量）」 → 「（开一点车窗或调大风量）」; advice to rest kept; table instruction unchanged; test cases unchanged. Row 1 unit; same build as T-031g; gates PASS; review PASS."
       ]
     },
     {
@@ -2091,7 +2091,7 @@
       ],
       "notes": "Owner 2026-11-03: the LLM should find the data itself; fixed tools are only for car functions. Mentor complaint: 后天 weather.",
       "evidence": [
-        "specs/STATUS.md 2026-11-03 T-046d F-18 §16 items 1-15 two models: `web_search` through : Live setup never sends googleSearch (§15 search reporting removed). On: `web_search` declared (live_info, repeat-sensitive, query ≤200), client POSTs generateContent with google_search, key in x-goog-api-key, phone date/weekday/zone in its instruction; ok only with text + webSearchQueries + groundingChunks, one retry, 429 no retry, 10 s overall; result = answer ≤600, ≤3 hosts, next; failures LIVE_"
+        "specs/STATUS.md:119 (2026-11-03, T-046c, result PASS): Default off, read at session start; off: setup, instruction and timing equal today's in both comfort modes. On: `tools` = functionDeclarations + `googleSearch`; instruction drops 「天气、」 from the strict list and uses the item 3 sentence (table 1191, model 1420 chars ≤ 1500); re-ask 12 s, give-up …"
       ]
     },
     {
@@ -2105,7 +2105,7 @@
       ],
       "notes": "Device 2026-11-03, c161c9d: googleSearch in the live setup closes UNAVAILABLE on the free key; 后天 weather hit the today/tomorrow tool. Owner chose two models with 2.5 Flash-Lite. Replaces §15 items 2, 3, 4, 6, 7, 8, 10.",
       "evidence": [
-        "specs/STATUS.md 2026-11-03 T-046d F-18 §16 items 1-15 two models: `web_search` through : Live setup never sends googleSearch (§15 search reporting removed). On: `web_search` declared (live_info, repeat-sensitive, query ≤200), client POSTs generateContent with google_search, key in x-goog-api-key, phone date/weekday/zone in its instruction; ok only with text + webSearchQueries + groundingChunks, one retry, 429 no retry, 10 s overall; result = answer ≤600, ≤3 hosts, next; failures LIVE_"
+        "specs/STATUS.md:120 (2026-11-03, T-046d, result PASS): Live setup never sends googleSearch (§15 search reporting removed). On: `web_search` declared (live_info, repeat-sensitive, query ≤200), client POSTs generateContent with google_search, key in x-goog-api-key, phone date/weekday/zone in its instruction; ok only with text + webSearchQueries + …"
       ]
     },
     {
@@ -2119,7 +2119,7 @@
       ],
       "notes": "Device 2026-11-03, e87affb: web_search failed with http_404, likely gemini-2.5-flash-lite closed to new users. Owner chose to test Qwen on the free quota. Wire format not yet run against the model. Replaces §16 items 4, 5, 8.",
       "evidence": [
-        "specs/STATUS.md 2026-11-03 T-046e F-18 §17 items 1-11 search model becomes qwen3.7-flas: `QwenWebSearchClient` replaces the Gemini client: streamed POST to the dashscope-intl multimodal endpoint, key only in `Authorization: Bearer`, X-DashScope-SSE, item 3 body and system text with phone date; parser joins string/list content, skips reasoning_content and non-JSON lines, last non-empty search_results → hosts. ok needs text + sources; only 5xx and no_sources retry; reasons timeout/netwo"
+        "specs/STATUS.md:121 (2026-11-03, T-046e, result PASS): `QwenWebSearchClient` replaces the Gemini client: streamed POST to the dashscope-intl multimodal endpoint, key only in `Authorization: Bearer`, X-DashScope-SSE, item 3 body and system text with phone date; parser joins string/list content, skips reasoning_content and non-JSON lines, last non-empty …"
       ]
     },
     {
@@ -2133,7 +2133,7 @@
       ],
       "notes": "Device 2026-11-04, e01f464: PC call to qwen3.7-flash found 18 sources; on the phone one query failed no_sources after 3572 ms and 上海明天天气 failed in 2 ms with no system log. Owner asked to record Qwen input and response.",
       "evidence": [
-        "specs/STATUS.md 2026-11-04 T-046i F-18 §21 items 1-10 she knows the destination and ask: `NavigationFlowState.currentDestination` (navigating incl. a list over guidance, arrived; cleaned, ≤60). 目的地/终点 → name in one pass before `SearchDate`; hint (destination, name absent, hours word) adds `current_destination` + next / advice texts. `AgentState(destinationNotes:)` (on with search, `DriveSettings.destinationNotes` constant): `clientContent` user `turnComplete:false` notes on destinatio"
+        "specs/STATUS.md:122 (2026-11-04, T-046f, result PASS): `WebSearchExchange` (NovaPorts) via `onExchange` on `QwenWebSearchClient`, nil with the record off. Record: `search-request attempt body`, `search-response attempt status ms bytes chunks answerChars sources searchCount body` (over 32,000 chars: first 8,000 + … + last 24,000; counts from the whole …"
       ]
     },
     {
@@ -2147,7 +2147,7 @@
       ],
       "notes": "Device 2026-11-04, e01f464: 上海后天天气 answered with 11月5日, the 明天 forecast, and she dropped the date. Owner approved a code date fix.",
       "evidence": [
-        "specs/STATUS.md 2026-11-04 T-046g F-18 §19 items 1-9 the app works out the date of a se: `SearchDate` (NovaTools): 今天/今日/明天/明日/后天/大后天 (longest first), `[YYYY年]M月D日/号` with year rollover; one day = target; bracket `（2026年11月6日）` after the relative word unless a written date is there; future targets only: answer dates incl. ranges → match/no_date/mismatch, mismatch retries once then `wrong_date`; same rewritten query on retry; `dateNext` + `target_date` for future targets; `search-date`"
+        "specs/STATUS.md:123 (2026-11-04, T-046g, result PASS): `SearchDate` (NovaTools): 今天/今日/明天/明日/后天/大后天 (longest first), `[YYYY年]M月D日/号` with year rollover; one day = target; bracket `（2026年11月6日）` after the relative word unless a written date is there; future targets only: answer dates incl. ranges → match/no_date/mismatch, mismatch retries once then …"
       ]
     },
     {
@@ -2161,7 +2161,7 @@
       ],
       "notes": "PC test 2026-11-04: the same oil price query searched 1 time in 3 with the §17 settings. Owner: the app only calls Qwen to search, so force it. Not yet tested on qwen3.7-flash multimodal streaming.",
       "evidence": [
-        "specs/STATUS.md 2026-11-04 T-046h F-18 §20 items 1-5 every call to Qwen must search (co: `search_options` adds `forced_search: true` (each option one constant); sources still required; a refusal is one request with its code, no resend without it. Rows 1-3 unit; gates and review as T-046f. Rows 4-5 NOT_VERIFIED (device)."
+        "specs/STATUS.md:124 (2026-11-04, T-046h, result PASS): `search_options` adds `forced_search: true` (each option one constant); sources still required; a refusal is one request with its code, no resend without it. Rows 1-3 unit; gates and review as T-046f. Rows 4-5 NOT_VERIFIED (device)."
       ]
     },
     {
@@ -2175,7 +2175,7 @@
       ],
       "notes": "Device 2026-11-04, e01f464: while navigating to 横琴文化艺术中心 she searched ODD几点关门 and said she could not find ODD. Owner approved the two-part fix after a community review. turnComplete false has never been sent by this app, so row 8 comes first.",
       "evidence": [
-        "specs/STATUS.md 2026-11-04 T-046i F-18 §21 items 1-10 she knows the destination and ask: `NavigationFlowState.currentDestination` (navigating incl. a list over guidance, arrived; cleaned, ≤60). 目的地/终点 → name in one pass before `SearchDate`; hint (destination, name absent, hours word) adds `current_destination` + next / advice texts. `AgentState(destinationNotes:)` (on with search, `DriveSettings.destinationNotes` constant): `clientContent` user `turnComplete:false` notes on destinatio"
+        "specs/STATUS.md:125 (2026-11-04, T-046i, result PASS): `NavigationFlowState.currentDestination` (navigating incl. a list over guidance, arrived; cleaned, ≤60). 目的地/终点 → name in one pass before `SearchDate`; hint (destination, name absent, hours word) adds `current_destination` + next / advice texts. `AgentState(destinationNotes:)` (on with search, …"
       ]
     },
     {
@@ -2189,7 +2189,7 @@
       ],
       "notes": "Device 2026-11-05, 21f4478: Qwen searched in 1 of 10 calls. PC test 2026-11-05, same question 5 times each: agent 0 of 10, turbo 10 of 10, max 10 of 10, no strategy 5 of 5. One question only, so row 3 tests the others.",
       "evidence": [
-        "specs/STATUS.md 2026-11-05 T-046j F-18 §22 items 1-6 Qwen searches in turbo mode (code : `searchStrategy` constant `agent` → `turbo`; `enable_source` and `forced_search` unchanged; system text unchanged; sources rule unchanged; a refusal is one request with its code, no resend with another strategy. Rows 1-2 unit (client: both attempts carry turbo, 400 throws with code; executor: http_400 one call). Gates 552 + 35 + 41 green; independent high-effort review PASS. Rows 3-4 NOT_VERIFIED "
+        "specs/STATUS.md:126 (2026-11-05, T-046j, result PASS): `searchStrategy` constant `agent` → `turbo`; `enable_source` and `forced_search` unchanged; system text unchanged; sources rule unchanged; a refusal is one request with its code, no resend with another strategy. Rows 1-2 unit (client: both attempts carry turbo, 400 throws with code; executor: …"
       ]
     },
     {
@@ -2203,7 +2203,7 @@
       ],
       "notes": "Owner 2026-11-05: the screen sometimes shows Korean or other languages. No Korean in the 8 records read, so the case itself is not traced; the code shows four unchecked paths. Row 10 is the device check.",
       "evidence": [
-        "specs/STATUS.md 2026-11-05 T-016i F-05a §13 items 1-7 only Chinese reaches the conversa: `ScreenLanguage` (NovaVoice/Transcript) show/wait/hide on the whole text so far: other scripts hide; Han passes `isChinese`, or short uppercase/digit tokens only (deviation: row 1 lists 「4S店」 as show but `isChinese` fails it, so `shortTokensOnly` allows Han plus at most as many A-Z/0-9 runs of ≤5 as Han characters); Latin-only final shows only ≤5 uppercase/digits. Applied to her bubble (wait then "
+        "specs/STATUS.md:127 (2026-11-05, T-016i, result PASS): `ScreenLanguage` (NovaVoice/Transcript) show/wait/hide on the whole text so far: other scripts hide; Han passes `isChinese`, or short uppercase/digit tokens only (deviation: row 1 lists 「4S店」 as show but `isChinese` fails it, so `shortTokensOnly` allows Han plus at most as many A-Z/0-9 runs of ≤5 …"
       ]
     },
     {
@@ -2218,7 +2218,7 @@
       ],
       "notes": "Owner 2026-11-05: the wake word is not set up. The iFlytek path needs three keys and was never verified on a phone. No public false-wake numbers for this model, so rows 9-12 decide.",
       "evidence": [
-        "specs/STATUS.md 2026-11-05 T-060a F-01 §14 items 1-14 你好小诺 on the bundled sherpa keywor: `SherpaWakeEngine` on the bundled KWS model with the two `WakePhrase` token lines (gate `check_kws_tokens.py` covers them); `WakeEngineKind.selected = .sherpa`, iFlytek code kept unused; 唤醒词 setting default on; screen on while listening; hint 「说“你好小诺”唤醒」; ready sound on its own node (two tones under the 200 ms onset, cannot open an utterance); record `wake-to-listening ms=`, `wake-unused`; log `wa"
+        "specs/STATUS.md:128 (2026-11-05, T-060a, result PASS): `SherpaWakeEngine` on the bundled KWS model with the two `WakePhrase` token lines (gate `check_kws_tokens.py` covers them); `WakeEngineKind.selected = .sherpa`, iFlytek code kept unused; 唤醒词 setting default on; screen on while listening; hint 「说“你好小诺”唤醒」; ready sound on its own node (two tones …"
       ]
     },
     {
@@ -2233,7 +2233,7 @@
       ],
       "notes": "Owner 2026-11-05: once disconnected it does not connect back; let the wake word connect again. The 3 drops in the records recovered, so the owner's failure is not captured yet.",
       "evidence": [
-        "specs/STATUS.md 2026-11-05 T-016j F-24 §15 items 1-10 retry 60 s, then close and reconn: `ReconnectTuning.retryWindow` 60 s (no attempt limit, network up; a retry starts only inside the window) replaces `maxAttempts`; §14 tests rewritten; give-up closes through the offline-end path; `KeptResumption` holds the handle in memory only, 2 h from its first save (kept again by a resumed session that gives up: same first save), taken once by the next start, dropped on a driver stop, not kept "
+        "specs/STATUS.md:129 (2026-11-05, T-016j, result PASS): `ReconnectTuning.retryWindow` 60 s (no attempt limit, network up; a retry starts only inside the window) replaces `maxAttempts`; §14 tests rewritten; give-up closes through the offline-end path; `KeptResumption` holds the handle in memory only, 2 h from its first save (kept again by a resumed …"
       ]
     },
     {
@@ -2354,7 +2354,7 @@
       ],
       "notes": "Owner request 2026-11-05. No built-in threshold: the lock cannot turn on until calibrated on the phone. Accuracy and delay are unmeasured until rows 12-18 run. Code PASS 2026-11-05 (gates 611+35+41, review PASS after 2 FAIL rounds). Licence: primary ModelScope card Apache-2.0. Eval on AISHELL-1/HI-MIA clips (studio, not car). Rows 11-18 NOT_VERIFIED (device).",
       "evidence": [
-        "specs/STATUS.md 2026-11-05 T-013e F-04b 声纹锁定 Speaker Lock, default off (code part): Licence: primary ModelScope card `iic/speech_campplus_sv_zh_en_16k-common_advanced` says Apache-2.0; pinned `csukuangfj/speaker-embedding-models@0743f301`, sha256 `aa3cfc16…ceba2` (`fetch_sherpa_models.sh`, `speaker/`). `SpeakerVerifier` port; `SherpaSpeakerVerifier` (NovaAsrSherpa, typechecked against c-api.h, iOS build not run); pure `SpeakerHold` before `PostStopHold` (held from start, scored o"
+        "specs/STATUS.md:130 (2026-11-05, T-013e, result PASS): Licence: primary ModelScope card `iic/speech_campplus_sv_zh_en_16k-common_advanced` says Apache-2.0; pinned `csukuangfj/speaker-embedding-models@0743f301`, sha256 `aa3cfc16…ceba2` (`fetch_sherpa_models.sh`, `speaker/`). `SpeakerVerifier` port; `SherpaSpeakerVerifier` (NovaAsrSherpa, typechecked …"
       ]
     },
     {
@@ -2368,7 +2368,7 @@
       ],
       "notes": "Owner request 2026-11-05. Code PASS 2026-11-05 (gates 616+35+41, py 30; review FAIL then PASS, fixes f3449a4). App and extension not built (no Xcode here). Rows 23-26 NOT_VERIFIED (device). Deferred: v2 pack folder reuse; retry after checksum mismatch.",
       "evidence": [
-        "specs/STATUS.md 2026-11-05 T-013f F-04b §12 speaker model downloaded at install (Apple-: Pure `SpeakerModelAvailability` (bundle first, then pack with pinned sha256; downloading/failed/iOS<26 texts; 重试 after failure) rows 19–21; a calibrated lock stays on and fails closed while the pack is not ready, re-applied mid-session. `SpeakerModelLocator` (App, iOS 26, only with `BAHasManagedAssetPacks`); ExtensionKit downloader `NovaDriveAssets` (StoreKit `StoreDownloaderExtension`); App Group"
+        "specs/STATUS.md:131 (2026-11-05, T-013f, result PASS): Pure `SpeakerModelAvailability` (bundle first, then pack with pinned sha256; downloading/failed/iOS<26 texts; 重试 after failure) rows 19–21; a calibrated lock stays on and fails closed while the pack is not ready, re-applied mid-session. `SpeakerModelLocator` (App, iOS 26, only with …"
       ]
     },
     {
@@ -2454,7 +2454,7 @@
       ],
       "notes": "Gates PASS on stack 1ff2f9f (NovaCore 632, Realtime 36, Services 42, py 42; spec-trace 91/0). Review FAIL (navigate_to while navigating bypassed §14; turn read before search; tool name in spoken text) fixed, re-review PASS. App not built. Rows 1 (PC) and 8 (device) NOT_VERIFIED.",
       "evidence": [
-        "specs/STATUS.md 2026-11-05 T-042c F-16 §14 near-first destination search: Near-first (around 50 km → city citylimit → type word; nationwide only after them when they're empty or another province/city is named, merged ranking); pinyin port (Foundation transform, NovaServices) + toneless syllable score + distance prior; sure/ask/none tiers, far_only > 300 km; CONFIRM_FIRST until a later uplink-gate-counted driver turn (turn read after the search), incl. navigate_to while "
+        "specs/STATUS.md:132 (2026-11-05, T-042c, result PASS): Near-first (around 50 km → city citylimit → type word; nationwide only after them when they're empty or another province/city is named, merged ranking); pinyin port (Foundation transform, NovaServices) + toneless syllable score + distance prior; sure/ask/none tiers, far_only > 300 km; CONFIRM_FIRST …"
       ]
     },
     {
@@ -2468,7 +2468,7 @@
       ],
       "notes": "Gates PASS (same stack). Review PASS first round. Open: §16 item 11 persona/web_search text still sends weather/hours to web_search (spec gap, owner). Row 1 (PC) NOT_VERIFIED.",
       "evidence": [
-        "specs/STATUS.md 2026-11-05 T-046k F-18 §23 items 1–4 official data first: Weather and place_details stay in query_live_info with search on (exact tool sentence); day today..day_after_next; casts picked by date (phone zone), `date` in result, missing day → LIVE_INFO_UNAVAILABLE with search advice; place without hours → web_search advice. Gates green; review PASS. Open (owner): §16 item 11 persona and web_search text still name weather/hours for web_search. Row 1 (PC) NOT"
+        "specs/STATUS.md:133 (2026-11-05, T-046k, result PASS): Weather and place_details stay in query_live_info with search on (exact tool sentence); day today..day_after_next; casts picked by date (phone zone), `date` in result, missing day → LIVE_INFO_UNAVAILABLE with search advice; place without hours → web_search advice. Gates green; review PASS. Open …"
       ]
     },
     {

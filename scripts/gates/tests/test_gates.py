@@ -318,6 +318,23 @@ class RunnersGateTests(unittest.TestCase):
         self.assertTrue(self.fails(GOOD_CI.replace("permissions:\n  contents: read\n", "")))
         self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", "run: echo ${{ secrets.X }}")))
 
+    def test_trigger_forms_cannot_hide_a_push(self) -> None:
+        windows = DISPATCH_LINUX.replace("ubuntu-24.04", "windows-latest")
+        for on in ("on: push", "on: [push]", "on:\n  - pull_request", "'on':\n  'push':", "on: workflow_run",
+                   "on:\n  issues:"):
+            text = DISPATCH_LINUX.replace("on:\n  workflow_dispatch:", on)
+            self.assertTrue(self.fails(text), on)
+            self.assertTrue(self.fails(windows.replace("on:\n  workflow_dispatch:", on)), on)
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("on:\n  workflow_dispatch:\n", "")))
+
+    def test_runner_must_be_plain_ubuntu_everywhere(self) -> None:
+        for runner in ("${{ vars.R }}", "[self-hosted]", "windows-latest"):
+            self.assertTrue(self.fails(DISPATCH_LINUX.replace("ubuntu-24.04", runner)), runner)
+
+    def test_any_secrets_reference_fails(self) -> None:
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", "run: echo ${{ secrets['T'] }}")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", "run: echo ${{ toJSON(secrets) }}")))
+
     def test_ci_and_dispatch_linux_pass(self) -> None:
         self.assertEqual(check_runners.check_text("ci.yml", GOOD_CI), [])
         self.assertEqual(check_runners.check_text("w.yml", DISPATCH_LINUX), [])
