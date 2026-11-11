@@ -1,7 +1,7 @@
 # CI without an iOS build (Linux gates on GitHub Actions)
 
-**Status:** PROPOSED (2026-11-11). Needs the owner's yes on §4 before it is built: it changes the owner rule of
-2026-10-27 for Linux jobs only. Task T-000c.
+**Status:** APPROVED (owner 2026-11-11, option A of §4: automatic Linux runs while the repository is public). It
+changes the owner rule of 2026-10-27 for Linux jobs only. Task T-000c.
 **Depends on:** ios-architecture.md §13 (gates), implementation-plan.md §2, AGENTS.md owner rules,
 `scripts/gates/run_all.sh`, `scripts/gates/check_runners.py`.
 
@@ -74,7 +74,7 @@ Codemagic or a device build started by the owner, unchanged.
    The comments at the top of `ci.yml` say the same. Done is unchanged: gates green (local, cloud session or CI)
    plus reviewer PASS; a CI run is extra evidence, not required.
 
-## 4. Owner decision needed
+## 4. Owner decision (answered 2026-11-11: automatic, as below)
 
 The 2026-10-27 rule forbids every automatic trigger. This spec keeps the macOS ban and allows automatic runs
 for Linux jobs while the repository is public. If the owner prefers to keep everything manual, build §3 items

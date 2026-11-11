@@ -67,7 +67,7 @@
       "depends_on": [
         "T-000"
       ],
-      "notes": "Owner 2026-11-11: CI was turned off because it used more than the GitHub free allowance; asked for CI that does not need an iOS build. Blocked on the owner's §4 decision (automatic Linux runs vs manual only). Do not start a run while building it.",
+      "notes": "Owner 2026-11-11: CI was turned off because it used more than the GitHub free allowance; asked for CI that does not need an iOS build. Owner 2026-11-11 chose §4 option A (automatic Linux runs while public): \"a then\". Do not start a run while building it.",
       "evidence": []
     },
     {
