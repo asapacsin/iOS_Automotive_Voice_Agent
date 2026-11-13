@@ -118,3 +118,47 @@ the tool (I-6) and applies at once, while a session runs or not.
 |---|---|---|
 | T-032g | §3, §4, §6, §7 (volume lines): the two levels, `set_volume` (catalog, validator, executor, announce), lane gains in `LiveAudio`, dip × voice gain, 设置 sliders; rows 1–5, 8, 10–12 | unit, build, D |
 | T-032h | §5 and §7 (duck lines): ducking under her voice and guidance; rows 6, 7, 9. Corrects music.md §14 item 4 | unit, build, D |
+
+## 10. Volume on the phone: which build, and making her call the tool (T-032i)
+
+**Status:** APPROVED (owner 2026-11-13, "just write the spec"). iOS only.
+
+**Why.** Owner 2026-11-13: on the installed build she says 「無法調節音樂的音量」. Findings:
+- 设置 →「声音」 on that phone has **no volume sliders**, which every build since T-032g (merged 2026-11-10) shows
+  unconditionally. So the installed build predates T-032g, and `set_volume` is not declared to Gemini there. Her
+  refusal was true.
+- Nobody could tell this from the phone: every build reads `0.1.0(1)` (`App/project.yml` `MARKETING_VERSION`,
+  `CURRENT_PROJECT_VERSION`), and the record header line `app 0.1.0(1)` is the same for every build.
+- T-032g rows 10–12 were never run on a device. Unit tests fake Gemini's tool call, so they do not show that Gemini
+  calls `set_volume`. The base prompt's strict tool list names 音乐 and 静音 but not 音量, and the claim checker's
+  request words lack 音量/大声/小声/调大/调小, so a refusal without a tool call gets no correction.
+- Google's Live API guidance: be specific in tool definitions and say under what conditions a call should be made
+  ([Live API best practices](https://ai.google.dev/gemini-api/docs/live-api/best-practices)). No local command path is
+  added: the community intercept pattern (Pipecat processors, LiveKit `llm_node`) needs a text step that a native-audio
+  session does not have.
+
+**Items.**
+1. **Build stamp.** The Codemagic build writes the short commit (`CM_COMMIT`, first 7 characters; `git rev-parse
+   --short HEAD` when unset) into Info.plist key `NovaGitCommit`. 设置 shows 「版本 0.1.0 · <commit>」 as the last row of
+   「状态」. The record header line becomes `app 0.1.0(1) <commit>` (`unknown` when the key is missing). `ComfortSummaryStore.build`
+   uses the same commit instead of the binary's modification time.
+2. **Declared tools in the record.** At each setup the record writes `tools declared=<n> set_volume=<yes|no>` (names
+   and counts only, I-8), so a record shows whether the tool was offered.
+3. **Base prompt.** The strict list in the 【车辆与出行（严格）】 sentence gets 「音量」 right after 「音乐」. If the base goes
+   over `maxBaseCharacters`, the cap rises by exactly the added characters and the cap test is updated with it.
+4. **Tool description.** `set_volume`'s description starts with the trigger, not with what it is not:
+   「司机说音量、声音大小、大声、小声、静音、最大声时一定调用。」 followed by the current target and action text, with
+   「（0–10，不是手机音量）」 replaced by 「（app 里的 0–10 档）」. Validator, schema and announce are unchanged.
+5. **Claim checker.** `ClaimLexicon.request` gains 音量, 大声, 小声, 调大, 调小. A volume request answered with no tool
+   call then gets the existing `actionAskedNoToolCall` correction (one per utterance, as today).
+6. **Device check closes T-032g.** T-032i's device run is rows 10–11 plus row 17 on a build whose 设置 shows the stamp.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 13 | Header with commit `b305c60`; with no `NovaGitCommit` | `app 0.1.0(1) b305c60`; `app 0.1.0(1) unknown` | unit |
+| 14 | Setup with the comfort and non-comfort catalogs | `tools declared=<n> set_volume=yes` in both | unit |
+| 15 | Base prompt, both comfort modes | Contains 「音乐、音量」; length within `maxBaseCharacters` | unit |
+| 16 | 「音量调小一点」「你说话大声点」, reply 「我调不了」, no tool call | One `actionAskedNoToolCall` correction each | unit |
+| 17 | Device: 设置 shows 「版本 0.1.0 · <commit>」 matching the installed build; then rows 10–11 | Sliders present; the song and her voice change; `volume set … by=tool` lines; header shows the commit | D |
+
+Task: T-032i | items 1–6; rows 13–17 | unit, build, D.

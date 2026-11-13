@@ -559,6 +559,18 @@
       ]
     },
     {
+      "id": "T-032i",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 3,
+      "action": "F-13a §10 items 1-6: NovaGitCommit build stamp in 设置 and the record header; tools declared line; 音量 in the base prompt strict list; set_volume description starts with its trigger; ClaimLexicon request gains 音量/大声/小声/调大/调小; rows 13-16 unit, 17 device (also closes T-032g rows 10-11).",
+      "depends_on": [
+        "T-032g"
+      ],
+      "notes": "Owner 2026-11-13: she says 無法調節音樂的音量; the phone shows no volume sliders, so the installed build predates T-032g, and every build reads 0.1.0(1).",
+      "evidence": []
+    },
+    {
       "id": "T-020d",
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
