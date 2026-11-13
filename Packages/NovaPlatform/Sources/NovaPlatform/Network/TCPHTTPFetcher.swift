@@ -1,6 +1,5 @@
 import Foundation
 import Network
-import NovaKit
 
 /// F-18 §30 item 1 (T-046s): one request over a connection the app opens itself, `NWParameters(tls:tcp:)`, so it is
 /// TCP plus TLS and QUIC cannot be chosen. TLS uses the system trust and SNI for `host`; routing (VPN included) is

@@ -55,6 +55,8 @@ struct OpenMeteoTCPTests {
         #expect(r("HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\n{\"a\":1}") == nil)
         #expect(r("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n{\"a\"") == nil)
         #expect(r("garbage\r\n\r\n") == nil)
+        // A chunk size near Int.max is nil, not an overflow crash.
+        #expect(r("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n7fffffffffffffff\r\n{}\r\n0\r\n\r\n") == nil)
     }
 
     @Test("T-046s F-18 §30 row 03: a timeout then 200 returns the forecast after 2 sends; attempts=2")

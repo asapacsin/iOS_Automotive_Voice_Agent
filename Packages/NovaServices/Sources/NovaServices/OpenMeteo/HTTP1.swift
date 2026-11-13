@@ -59,7 +59,7 @@ public enum HTTP1Response {
             guard let size = Int(hex, radix: 16), size >= 0 else { return nil }
             i = lineEnd + 2
             if size == 0 { return out }
-            guard bytes.count >= i + size + 2, bytes[i + size] == 13, bytes[i + size + 1] == 10 else { return nil }
+            guard i <= bytes.count, size <= bytes.count - i - 2, bytes[i + size] == 13, bytes[i + size + 1] == 10 else { return nil }
             out.append(contentsOf: bytes[i..<(i + size)])
             i += size + 2
         }

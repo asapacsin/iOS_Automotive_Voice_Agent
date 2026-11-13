@@ -1035,6 +1035,8 @@ The code already uses an ephemeral `URLSession` (`URLSessionTransport`), and QUI
 | 8 | Device: 「东京天气」 with the live log on | Connections to Open-Meteo are `tcp, tls`; no `quic-connection` to either Open-Meteo host; answered with Tokyo's weather | D |
 | 9 | Device: 「东京明天天气」, 「澳门现在几度」, 「上海后天天气」 | All answered; record `weather` lines `ok=yes`; 上海 `source=amap` | D |
 
+**Implementation note (T-046s, 2026-11-13, pending owner sign-off).** `scripts/gates/check_imports.py` lets only NovaPlatform import Network, so the NWConnection part of item 1 is `TCPHTTPFetcher` in NovaPlatform; NovaServices has the pure `HTTP1Request`, `HTTP1Response` and `RawHTTPTransport`. `AgentRuntime` passes `RawHTTPTransport { TCPHTTPFetcher.fetch … }` into `OpenMeteoClient` (items 3 and row 7 read as this injected transport); `OpenMeteoClient()`'s default stays `URLSessionTransport` for Linux tests.
+
 **Trace gate.** Add `T-046s: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046s.
 
 **Tasks.**
