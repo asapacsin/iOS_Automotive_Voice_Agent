@@ -112,9 +112,6 @@ final class KeptReplyAudio: @unchecked Sendable {
 }
 
 enum DriveSettings {
-    static let azureRegion = "azure_region"
-    static let azureVoice = "azure_voice"
-    static let defaultVoice = "zh-CN-XiaoxiaoNeural"
     /// Qianfan model for the optional vision backend; the Android name is still an EVIDENCE_REQUEST.
     static let qianfanVisionModel = "ernie-4.5-turbo-vl"
     /// Demo start point (珠海市人民政府, GCJ-02), so no personal location is shown or used (REC-003).
@@ -771,7 +768,6 @@ final class AgentRuntime {
         let defaults = UserDefaults.standard
         let voiceSource: VoiceSourceKind
         let baseSynthesizer: (any SpeechSynthesizer)?
-        let azureKey = (try? store.value(for: .azureSpeechKey)) ?? nil
         let decision = VoiceSource.resolve(choice: defaults.string(forKey: SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:)),
                                            qwenKey: (try? store.value(for: .qwenAPIKey)) ?? nil,
                                            qwenHost: defaults.string(forKey: SettingsKey.qwenTTSHost))
@@ -780,7 +776,7 @@ final class AgentRuntime {
             model.notice = message
             return
         case .gemini:
-            // Gemini Live's own voice: no Revoicer, no TTS warm-up, no Qwen or Azure connection.
+            // Gemini Live's own voice: no Revoicer, no TTS warm-up, no Qwen connection.
             voiceSource = .gemini
             baseSynthesizer = nil
         case .qwen(let key, let host):
@@ -788,27 +784,9 @@ final class AgentRuntime {
             voiceSource = .qwen
             // Item 3 "One connection": this client and its URLSession live for this session.
             baseSynthesizer = QwenSpeechClient(config: QwenSpeechConfig(key: key, host: host, voice: voice))
-        case .azure:
-            guard let azureKey, !azureKey.isEmpty else {
-                model.notice = "请先在设置里保存 Azure Speech key"
-                return
-            }
-            var region = defaults.string(forKey: DriveSettings.azureRegion) ?? ""
-            if region.isEmpty {
-                model.notice = "正在识别 Azure 区域…"
-                guard let found = await AzureRegionProbe.find(key: azureKey) else {
-                    model.notice = "Azure key 在常用区域都无效，请在设置里填写区域"
-                    return
-                }
-                region = found
-                defaults.set(found, forKey: DriveSettings.azureRegion)
-            }
-            let voice = defaults.string(forKey: DriveSettings.azureVoice) ?? DriveSettings.defaultVoice
-            voiceSource = .azure
-            baseSynthesizer = AzureSpeechClient(config: AzureSpeechConfig(key: azureKey, region: region, voice: voice))
         }
         model.notice = nil
-        // F-07 §14 items 6-8: one retry for both TTS sources; timing and failure lines (numbers and codes only, I-8).
+        // F-07 §14 items 6-8: one retry for the TTS source; timing and failure lines (numbers and codes only, I-8).
         let voiceLines = VoiceLineSink()
         let synthesizer = baseSynthesizer.map { base in
             RetryingSpeechSynthesizer(base, source: voiceSource, onClause: { line in
@@ -1102,7 +1080,7 @@ final class AgentRuntime {
         })
         self.audio = audio
         speakLine = { line in
-            if let pcm = try? await baseSynthesizer?.synthesize(line, style: .default, deadline: .seconds(6)) {
+            if let pcm = try? await baseSynthesizer?.synthesize(line, deadline: .seconds(6)) {
                 audio.playGuidance(pcm, id: GuidanceID(UInt64(abs(line.hashValue % 1_000_000))))
             }
         }
@@ -1911,36 +1889,6 @@ final class VoiceLineSink: @unchecked Sendable {
     var turn: Int {
         get { lock.withLock { _turn } }
         set { lock.withLock { _turn = newValue } }
-    }
-}
-
-/// Finds the Azure Speech region a key belongs to: the token endpoint answers 200 only there.
-enum AzureRegionProbe {
-    static let regions = ["eastasia", "southeastasia", "eastus", "westus2", "westeurope", "japaneast", "eastus2",
-                          "westus", "northeurope", "centralus", "koreacentral", "australiaeast", "uksouth",
-                          "francecentral", "centralindia", "canadacentral", "chinaeast2", "chinanorth2"]
-
-    static func find(key: String) async -> String? {
-        await withTaskGroup(of: String?.self) { group in
-            for region in regions {
-                group.addTask {
-                    let host = region.hasPrefix("china") ? "\(region).api.cognitive.azure.cn" : "\(region).api.cognitive.microsoft.com"
-                    var request = URLRequest(url: URL(string: "https://\(host)/sts/v1.0/issueToken")!)
-                    request.httpMethod = "POST"
-                    request.timeoutInterval = 8
-                    request.setValue(key, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
-                    request.setValue("0", forHTTPHeaderField: "Content-Length")
-                    guard let (_, response) = try? await URLSession.shared.data(for: request),
-                          (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-                    return region
-                }
-            }
-            for await found in group where found != nil {
-                group.cancelAll()
-                return found
-            }
-            return nil
-        }
     }
 }
 

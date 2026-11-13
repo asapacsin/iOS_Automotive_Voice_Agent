@@ -6,23 +6,20 @@ import NovaPorts
 public actor Revoicer {
     private let synthesizer: any SpeechSynthesizer
     private let playback: any PlaybackPort
-    private let style: @Sendable () -> SpeakingStyle
     private let onFailure: @Sendable (String) -> Void
     private var queue: RevoicerQueue
     private var tasks: [Int: Task<Void, Never>] = [:]
 
     public init(synthesizer: any SpeechSynthesizer, playback: any PlaybackPort, epoch: Epoch = .initial,
-                style: @escaping @Sendable () -> SpeakingStyle = { .default },
                 onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
         self.synthesizer = synthesizer
         self.playback = playback
-        self.style = style
         self.onFailure = onFailure
         queue = RevoicerQueue(epoch: epoch)
     }
 
     public var epoch: Epoch { queue.epoch }
-    /// Clauses not yet played (waiting, at Azure, or ready out of order).
+    /// Clauses not yet played (waiting, at the TTS service, or ready out of order).
     public var pendingClauses: Int { queue.pendingClauses }
 
     public func newReply() { apply(queue.handle(.newReply)) }
@@ -45,11 +42,10 @@ public actor Revoicer {
             switch output {
             case .synthesize(let epoch, let sequence, let text, let deadline):
                 let synthesizer = synthesizer
-                let style = style()
                 tasks[sequence] = Task {
                     let result: Result<PCMBuffer, SpeechSynthesisError>
                     do {
-                        result = .success(try await synthesizer.synthesize(text, style: style, deadline: deadline))
+                        result = .success(try await synthesizer.synthesize(text, deadline: deadline))
                     } catch let error as SpeechSynthesisError {
                         result = .failure(error)
                     } catch {

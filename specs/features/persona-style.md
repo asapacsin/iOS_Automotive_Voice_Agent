@@ -27,7 +27,7 @@ instruction update of §16 (T-034c) is withdrawn.
 `set_speaking_style` tool call; settings change.
 
 ## 7. Dependencies and external services
-Gemini Live system instruction (F-05); Azure voice for revoicing when configured (F-07).
+Gemini Live system instruction (F-05), for every voice source; no style reaches synthesis (F-07 §17 item 5).
 
 ## 8. Error handling and recovery
 Unknown style → `STYLE_NOT_ALLOWED`, style unchanged. A style never overrides a safety rule or skips a

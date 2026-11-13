@@ -1,7 +1,7 @@
-# F-07 Assistant voice (Azure TTS) and playback
+# F-07 Assistant voice (TTS) and playback
 
-**Android status:** ACTIVE when an Azure voice is configured (ADR-016). iOS: Qwen-Audio TTS by default, Azure as an option (§14, owner 2026-11-06).
-**Depends on:** contracts/audio.md, contracts/api-contracts.md (Azure)
+**Android status:** ACTIVE when an Azure voice is configured (ADR-016). iOS: Gemini 原声 by default (§15), 千问 (Qwen-Audio TTS) as the option (§14); Azure removed (§17, owner 2026-11-10).
+**Depends on:** contracts/audio.md, contracts/api-contracts.md (Qwen-Audio TTS; the Azure section is Android only)
 
 ## 1. Purpose
 Speak judged reply text in one consistent Chinese voice with low latency, in clause order.
@@ -226,7 +226,7 @@ One rule changes, by owner decision (2026-11-07, see the next paragraph): a clea
    Nothing is logged about the key (I-8). A failed Keychain delete does not block launch and is tried again on the next launch: the flag is set only after the delete succeeds or finds no item.
 4. **Shared voice parts renamed, not changed.** `AzureSpeechTuning` is also used by `RevoicerQueue`, the 千问 path and 试听. It becomes `SpeechTuning` with the same values: connect 5 s, clause deadline 4000 ms + 400 ms per character, warm-up every 15 s, 2 requests in flight. `RetryingSpeechSynthesizer` drops the `AZURE_TTS_*` codes; the `QWEN_TTS_*` codes and the one-retry rule are unchanged. Comments that name Azure (`Revoicer`, `RevoicerQueue`, `AgentState`, NovaPorts `Audio.swift`) say 「TTS」 or 「千问」 instead.
 5. **Speaking style goes to the prompt only.** Azure `express-as` was the only place the style reached synthesis; 千问 sends no style (§14: an instruction delays first audio). `SpeechSynthesizer.synthesize` and `synthesizeTimed` lose their `style:` parameter, and `Revoicer` loses its `style` closure. `SpeakingStyle` stays: 「说话嗲一点」 and the other styles change her wording through the system instruction, for every source (F-21, unchanged).
-6. **Guard.** A gate test fails if `azure` (any case) appears in a file under `App/` or `Packages/`. The secrets-gate fixtures in `scripts/gates/tests/test_gates.py` keep `AZURE_SPEECH_KEY` and `azure_speech_key` as sample key names, because they test that the secrets scanner catches such names; they are not app code.
+6. **Guard.** A gate test fails if `azure` (any case) appears in a file under `App/` or `Packages/`, in its text or its path. Build note (T-020d): the item 3 cleanup must name the retired keys, so `RetiredVoiceSettings.swift` and its test `RetiredVoiceSettingsTests.swift` are the only files the gate (`check_imports.py`) allows to name them. The secrets-gate fixtures in `scripts/gates/tests/test_gates.py` keep `AZURE_SPEECH_KEY` and `azure_speech_key` as sample key names, because they test that the secrets scanner catches such names; they are not app code.
 7. **Specs.** Text describing current iOS behaviour stops naming Azure as an option:
    - the F-07 title and status lines here, and the F-07 row in `features/README.md`;
    - F-22 `settings-credentials.md` (the secrets and non-secrets lists, §7 and §11);

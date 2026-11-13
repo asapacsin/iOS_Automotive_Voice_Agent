@@ -13,10 +13,12 @@ public struct KeychainCredentialStore: CredentialStore {
 
     public init(service: String = "com.novadrive.credentials") { self.service = service }
 
-    private func query(_ key: CredentialKey) -> [String: Any] {
+    private func query(_ key: CredentialKey) -> [String: Any] { query(account: key.rawValue) }
+
+    private func query(account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
-         kSecAttrAccount as String: key.rawValue]
+         kSecAttrAccount as String: account]
     }
 
     public func value(for key: CredentialKey) throws -> String? {
@@ -43,8 +45,10 @@ public struct KeychainCredentialStore: CredentialStore {
         guard status == errSecSuccess else { throw KeychainError(status: status) }
     }
 
-    public func remove(_ key: CredentialKey) throws {
-        let status = SecItemDelete(query(key) as CFDictionary)
+    public func remove(_ key: CredentialKey) throws { try removeRetired(account: key.rawValue) }
+
+    public func removeRetired(account: String) throws {
+        let status = SecItemDelete(query(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
     }
 }

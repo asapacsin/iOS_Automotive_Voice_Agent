@@ -1,4 +1,4 @@
-/// F-24 §17 (T-016o): the connection message, separate from the camera, microphone, key and Azure notice.
+/// F-24 §17 (T-016o): the connection message, separate from the camera, microphone and key notice.
 /// Pure: the session's events and a clock in, nil or a chip text out. A retryable drop shows 「重新连接中…」 only
 /// after `showAfter`; the next `setupComplete` clears it and, if it was shown, 「已重新连接」 shows for `backFor`.
 /// A non-retryable failure keeps 「连接失败，点按重试」 until a start. No error code is ever part of a text (item 5).
@@ -60,7 +60,7 @@ public struct ConnectionNotice: Sendable {
         }
     }
 
-    /// Item 1: the line under the chip. The other notice (camera, microphone, key, Azure) is kept as is.
+    /// Item 1: the line under the chip. The other notice (camera, microphone, key) is kept as is.
     public func line(notice: String?, at now: NovaInstant) -> String? {
         notice ?? (show(at: now) == .failed ? Self.failedText : nil)
     }

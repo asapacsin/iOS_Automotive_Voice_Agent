@@ -285,7 +285,7 @@ Code can guarantee what is shown. It cannot guarantee what Gemini hears or write
 5. **Seeing what happened.** Record line `screen-hidden kind=<driver|reply|guidance|camera> text=<first 80 characters>`, so the next case can be traced. `RuntimeLog` gets only `screenHidden kind=<...>`, with no words (I-8).
 6. **What this does not cover.**
    - Map labels drawn by the map SDK, and iOS system alerts and permission text.
-   - Fixed labels and product names: `Nova Drive`, `Gemini`, `Azure`, `AGC`, and error codes in 「连接错误：…」.
+   - Fixed labels and product names: `Nova Drive`, `Gemini`, `AGC`, and error codes in 「连接错误：…」.
    - Place names and addresses from Amap in the lists, which are shown as Amap returns them.
    - Developer pages: recorder, audio test and comfort evaluation.
    - Mishearing. A wrong Chinese sentence still shows, because it is Chinese.
@@ -365,7 +365,7 @@ Code can guarantee what is shown. It cannot guarantee what Gemini hears or write
    - The streaming Chinese model, the keyword spotter (stop phrases stay Chinese) and the speaker lock.
    - §6 (no tool reads the transcript).
    - Gemini's input transcript as the S3 fallback.
-   - Navigation guidance stays Chinese (F-14). Azure and Qwen voices, when chosen, read whatever language she answers in.
+   - Navigation guidance stays Chinese (F-14). The Qwen voice, when chosen, read whatever language she answers in.
 
 **Not verified.**
 - SenseVoice's decode time on the test phone; it must fit the 800 ms wait (row 9).
@@ -448,7 +448,7 @@ Code can guarantee what is shown. It cannot guarantee what Gemini hears or write
    - In every turn, her first audio is held until the verdict is `allowed`, for at most 800 ms after the first audio arrives. Today's claim hold (`holdsWhole`) is unchanged and still applies on top.
    - At 800 ms with no verdict, the audio is released and the check goes on. A later `blocked` cuts her as today (`claim-cut`).
    - `blocked` drops all held audio and text and voids the turn (`.voided`). Nothing of it is shown or spoken.
-   - With a Qwen or Azure voice (F-07), the text is checked before it is sent to the voice. The same rules apply, with no audio to hold.
+   - With the Qwen voice (F-07), the text is checked before it is sent to the voice. The same rules apply, with no audio to hold.
 4. **One re-ask** (Guardrails `reask`, `num_reasks=1`).
    - On the first `blocked` reply of an utterance, the app sends one text turn. `CorrectionReason.notMandarin` is replaced by `.wrongLanguage` (`WRONG_LANGUAGE`), sent at once, not after the correction grace:
      - when the utterance has a SenseVoice final with `lang` zh, en or ja: 「[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。司机刚才说的是「<SenseVoice 文字>」。请用<中文|英文|日语>回答这句话。」;

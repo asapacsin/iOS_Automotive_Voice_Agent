@@ -220,7 +220,7 @@ public struct AgentState: Sendable {
     /// The sentence of the prompt in flight, kept after the relay let it go (deadline fallback), so a
     /// late reading is still recognised.
     private var awaitingText: String?
-    /// A fallback sentence waiting for her reply audio to drain (never cut a sentence just sent to Azure).
+    /// A fallback sentence waiting for her reply audio to drain (never cut a sentence just sent to TTS).
     private var waitingFallback: (text: String, id: GuidanceID, since: NovaInstant)?
     /// How long a fallback waits for trailing reply audio before cutting it (PROPOSED).
     static let fallbackWaitMax = NovaDuration.milliseconds(4000)
@@ -732,7 +732,7 @@ public struct AgentState: Sendable {
             case .speakFallback(let id, let text, _):
                 // Guidance never overlaps her reply (F-14 §10). R1 holds from now, not from when the voice
                 // is rendered, so no clause is released in between. A reply that already released clauses
-                // (they may be at Azure or sounding) is cut whole (PROPOSED: guidance is the safety-relevant
+                // (they may be at TTS or sounding) is cut whole (PROPOSED: guidance is the safety-relevant
                 // voice; a reply not yet started is only held).
                 arbiter.guidance(true, at: now)
                 if let turn = openTurn, relayTurns[turn] == nil, !silenced.contains(turn),
@@ -740,7 +740,7 @@ public struct AgentState: Sendable {
                     // An answer still being generated is cut (it could run long).
                     effects += stopReply(turn)
                 } else if arbiter.replyStarted || arbiter.replyPlaying {
-                    // The turn has closed (or is a reading) but its audio may still be at Azure or sounding:
+                    // The turn has closed (or is a reading) but its audio may still be at TTS or sounding:
                     // wait until it drains, at most 4 s, then cut what is left.
                     waitingFallback = (text, id, now)
                     let at = now + Self.fallbackWaitMax

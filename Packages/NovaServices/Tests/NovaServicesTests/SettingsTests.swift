@@ -85,14 +85,14 @@ struct SettingsTests {
         #expect(SettingsReadiness(credentials: store, settings: settings).sessionBlocker == .geminiKeyMissing)
     }
 
-    @Test("F-22 revoicing needs both the Azure key and a voice (source Azure)")
+    @Test("F-22 revoicing needs the 千问 key and API Host (source 千问)")
     func revoicing() throws {
-        let store = InMemoryCredentialStore([.azureSpeechKey: "k"])
+        let store = InMemoryCredentialStore([.qwenAPIKey: "k"])
         let settings = defaults()
         #expect(!SettingsReadiness(credentials: store, settings: settings).revoicing)  // F-07 §15: no choice is Gemini 原声
-        settings.set("azure", for: SettingsKey.voiceSource)
+        settings.set("qwen", for: SettingsKey.voiceSource)
         #expect(!SettingsReadiness(credentials: store, settings: settings).revoicing)
-        settings.set("zh-CN-XiaoxiaoNeural", for: SettingsKey.azureVoice)
+        settings.set("ws-x.ap-southeast-1.maas.aliyuncs.com", for: SettingsKey.qwenTTSHost)
         #expect(SettingsReadiness(credentials: store, settings: settings).revoicing)
     }
 }

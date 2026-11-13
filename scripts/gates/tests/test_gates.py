@@ -74,7 +74,7 @@ class SecretsGateTests(unittest.TestCase):
         "App/L.xcodeproj/xcshareddata/xcschemes/L.xcscheme":
             f'<EnvironmentVariable key = "AZURE_SPEECH_KEY" value = "{FAKE}">',
         "fixtures/long.har": '{"name": "azure_speech_key", "value": "' + FAKE + '"}',
-        "App/Info.plist": f"<key>AzureSpeechKey</key>\n<string>{FAKE}</string>",
+        "App/Info.plist": f"<key>ZhipuKey</key>\n<string>{FAKE}</string>",
     }
     CLEAN = {
         "App/Keys.swift": 'enum K: String { case amapWebKey = "amap_web_key"; case gemini = "GEMINI_API_KEY_MISSING" }',
@@ -170,6 +170,36 @@ class SenseVoiceRemovedGateTests(unittest.TestCase):
 
     def test_removal_code_passes(self) -> None:
         self.assertEqual(self.check('enum SenseVoiceRemoval { static let folder = "sensevoice-2024-07-17" }'), 0)
+
+
+class AzureRemovedGateTests(unittest.TestCase):
+    """F-07 §17 row 19 (T-020d): no `azure` in any case under App/ or Packages/, except the cleanup file and its test."""
+    def check(self, path: str, text: str) -> int:
+        tree = Tree()
+        try:
+            tree.write(path, text)
+            return run(check_imports.main, str(tree.root))
+        finally:
+            tree.close()
+
+    def test_each_planted_fails(self) -> None:
+        for path, text in (("App/NovaDrive/X.swift", "let c = AzureSpeechClient()"),
+                           ("Packages/NovaCore/Sources/NovaKit/X.swift", 'let k = "AZURE_TTS_AUTH"'),
+                           ("App/NovaDrive/X.swift", "// in a comment: azure"),
+                           ("App/project.yml", "AZURE_REGION: japaneast"),
+                           ("Packages/NovaServices/Sources/NovaServices/Azure/Client.swift", "struct Client {}")):
+            with self.subTest(path=path, text=text):
+                self.assertEqual(self.check(path, text), 1)
+
+    def test_cleanup_and_clean_files_pass(self) -> None:
+        self.assertEqual(self.check("Packages/NovaCore/Sources/NovaAgent/Settings/RetiredVoiceSettings.swift",
+                                    'enum RetiredVoiceSettings { static let doneKey = "azure_removed_done" }'), 0)
+        self.assertEqual(self.check("Packages/NovaServices/Tests/NovaServicesTests/RetiredVoiceSettingsTests.swift",
+                                    'let a = "azure_speech_key"'), 0)
+        self.assertEqual(self.check("App/NovaDrive/X.swift", 'let q = QwenSpeechClient()'), 0)
+
+    def test_build_output_is_skipped(self) -> None:
+        self.assertEqual(self.check("Packages/NovaCore/.build/debug/x.swiftdeps", "AzureSpeechTuning"), 0)
 
 
 class PreviewLaneGateTests(unittest.TestCase):

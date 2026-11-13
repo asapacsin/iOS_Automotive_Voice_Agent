@@ -7,9 +7,8 @@ import NovaVoice
 public enum SettingsKey {
     public static let geminiConsentAccepted = "gemini_consent_accepted"
     public static let geminiModel = "gemini_model"
-    public static let azureVoice = "azure_voice"
     public static let personaStyle = "persona_style"
-    /// F-07 §14 item 2 (T-020a): `qwen` or `azure`; unset until the driver picks one.
+    /// F-07 §14 item 2 (T-020a): `gemini` or `qwen`; unset reads as Gemini 原声.
     public static let voiceSource = "voice_source"
     /// F-07 §14 item 2: the 百炼 workspace API Host (not a secret).
     public static let qwenTTSHost = "qwen_tts_host"
@@ -70,13 +69,11 @@ public struct SettingsReadiness: Sendable, Hashable {
         func has(_ key: CredentialKey) -> Bool { SecretField.display(key, in: credentials) == .saved }
         geminiKey = has(.geminiAPIKey)
         geminiConsent = settings.bool(SettingsKey.geminiConsentAccepted) == true
-        let azureReady = has(.azureSpeechKey) && settings.string(SettingsKey.azureVoice)?.isEmpty == false
         let choice = settings.string(SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:))
         source = VoiceSource.effectiveChoice(choice)
         switch source {
         case .gemini: voice = true  // F-07 §15 item 3: always ready (the Gemini key is checked by sessionBlocker)
         case .qwen: voice = has(.qwenAPIKey) && VoiceHostCheck.isValid(settings.string(SettingsKey.qwenTTSHost) ?? "")
-        case .azure: voice = azureReady
         }
         amapSDKKey = has(.amapSDKKey)
         amapWebKey = has(.amapWebKey)
@@ -91,7 +88,7 @@ public struct SettingsReadiness: Sendable, Hashable {
         return nil
     }
 
-    /// Replies are revoiced only by a configured Qwen or Azure source (ADR-016, F-07 §14 item 5); Gemini 原声 plays
+    /// Replies are revoiced only by a configured Qwen source (ADR-016, F-07 §14 item 5); Gemini 原声 plays
     /// Gemini's own audio through the claim gate (F-07 §15 item 3).
     public var revoicing: Bool { source != .gemini && voice }
 }

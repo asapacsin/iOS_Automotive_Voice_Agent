@@ -26,7 +26,6 @@ struct SettingsView: View {
     private let store = KeychainCredentialStore()
     private static let allKeys: [(CredentialKey, String)] = [
         (.geminiAPIKey, "Gemini API key"),
-        (.azureSpeechKey, "Azure Speech key"),
         (.amapSDKKey, "高德 iOS SDK key"),
         (.amapWebKey, "高德 Web 服务 key"),
         (.zhipuKey, "智谱 key（视觉，推荐）"),
@@ -226,10 +225,6 @@ struct SettingsView: View {
     }
 
     private func refresh() {
-        // Sessions use the default voice when none was typed; store it so readiness says so too.
-        if settings.string(SettingsKey.azureVoice)?.isEmpty != false {
-            settings.set(DriveSettings.defaultVoice, for: SettingsKey.azureVoice)
-        }
         saved = Set(keys.map(\.0).filter { SecretField.display($0, in: store) == .saved })
         readiness = SettingsReadiness(credentials: store, settings: settings)
     }

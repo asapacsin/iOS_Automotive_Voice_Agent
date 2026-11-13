@@ -74,13 +74,13 @@ struct RevoicerQueueTests {
         #expect(q.pendingClauses == 0 && q.epoch == e.next())
     }
 
-    @Test("F-07 Azure 401: the reply goes quiet once, nothing else plays, no fallback audio")
+    @Test("F-07 TTS 401: the reply goes quiet once, nothing else plays, no fallback audio")
     func authFailure() {
         var q = RevoicerQueue()
         let e = q.epoch
         _ = q.handle(.clause("一。")); _ = q.handle(.clause("二。")); _ = q.handle(.clause("三。"))
-        let out = q.handle(.synthesized(epoch: e, sequence: 0, .failure(SpeechSynthesisError("AZURE_TTS_AUTH"))))
-        #expect(out == [.cancelSynthesis(epoch: e, sequence: 1), .failed(code: "AZURE_TTS_AUTH")])
+        let out = q.handle(.synthesized(epoch: e, sequence: 0, .failure(SpeechSynthesisError("QWEN_TTS_AUTH"))))
+        #expect(out == [.cancelSynthesis(epoch: e, sequence: 1), .failed(code: "QWEN_TTS_AUTH")])
         #expect(q.handle(.clause("四。")).isEmpty)
         #expect(!out.contains { if case .play = $0 { true } else { false } })
     }
@@ -90,7 +90,7 @@ struct RevoicerQueueTests {
         var q = RevoicerQueue()
         let e = q.epoch
         _ = q.handle(.clause("一。"))
-        _ = q.handle(.synthesized(epoch: e, sequence: 0, .failure(SpeechSynthesisError("AZURE_TTS_TIMEOUT"))))
+        _ = q.handle(.synthesized(epoch: e, sequence: 0, .failure(SpeechSynthesisError("QWEN_TTS_TIMEOUT"))))
         #expect(q.handle(.clause("二。")).isEmpty)
         _ = q.handle(.newReply)
         #expect(q.handle(.clause("三。")).count == 1)

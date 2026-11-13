@@ -13,9 +13,10 @@ Developer settings cards: status, Gemini (consent, key, model), persona, Amap, w
 None; the 设置 tab is always reachable.
 
 ## 4. Inputs and outputs
-- Secrets (Keychain, `KeychainCredentialStore`): Gemini API key, Azure Speech key, Amap SDK key, Amap Web key,
-  iFlytek app id, iFlytek APIKey and APISecret (AIKit wake word, T-060), Qianfan key.
-- Non-secrets (UserDefaults): `gemini_consent_accepted`, `gemini_model`, `azure_voice`, `persona_style`.
+- Secrets (Keychain, `KeychainCredentialStore`): Gemini API key, Amap SDK key, Amap Web key,
+  iFlytek app id, iFlytek APIKey and APISecret (AIKit wake word, T-060), Qianfan key, Zhipu key, 阿里云百炼 (Qwen) key.
+  The Azure Speech key was removed (F-07 §17); the first launch of that build deletes it from the Keychain.
+- Non-secrets (UserDefaults): `gemini_consent_accepted`, `gemini_model`, `persona_style`, `voice_source`, `qwen_tts_host`, `qwen_voice`.
 - Out: `SettingsReadiness` (status card: which items are set) and `sessionBlocker`.
 
 ## 5. State transitions
@@ -25,7 +26,7 @@ Per secret: notSet ↔ saved (「已保存」). Consent: not accepted → accept
 Save per card, consent toggle, 清除所有密钥 (with a confirmation dialog).
 
 ## 7. Dependencies and external services
-iOS Keychain (this-device-only accessibility, PROPOSED), UserDefaults. The Azure region is detected from the key.
+iOS Keychain (this-device-only accessibility, PROPOSED), UserDefaults.
 
 ## 8. Error handling and recovery
 - A blank field on save keeps the stored value; values are never displayed after save (`SecretField`).
@@ -42,7 +43,7 @@ Settings are read when a session starts; a change while a session runs applies a
 - Session cannot start without consent (GEMINI_CONSENT_MISSING).
 
 ## 11. Existing Android tests
-`T/DeveloperSettingsStatusTest`, `GeminiSettingsTest`, `QwenSettingsTest`, `AzureSpeechSettingsTest`.
+`T/DeveloperSettingsStatusTest`, `GeminiSettingsTest`, `QwenSettingsTest`, `AzureSpeechSettingsTest` (Android only; Azure is removed from iOS, F-07 §17).
 
 ## 12. Source references (Android)
 `A/DeveloperSettingsActivity.kt`; `A/DeveloperSettingsStatus.kt`; `A/GeminiSettings.kt`; `A/AndroidKeystoreCredentialStore.kt:26`; `A/CredentialWipe.kt:12-22`.
