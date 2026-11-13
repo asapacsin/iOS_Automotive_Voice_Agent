@@ -205,7 +205,7 @@ struct HongKongMacauWeatherTests {
             .ex.execute(weatherCall(["where": "Shanghai", "day": "today"]))
         _ = await hkmoSetup(om: [macauOM], log: log).ex.execute(weatherCall(["where": "Macau"]))
         _ = await hkmoSetup(om: [], log: log).ex.execute(weatherCall(["where": "Xyzzy"]))
-        let lines = log.lines.withLock { $0.map(\.line) }
+        let lines = log.lines.withLock { $0.map { $0.line.components(separatedBy: " attempts=")[0] } }
         #expect(lines.contains("weather source=open-meteo ok=yes reason=hkmo view=now lookup=amap"))
         #expect(lines.contains("weather source=open-meteo ok=yes reason=hkmo view=now lookup=open-meteo"))
         #expect(lines.contains("weather source=amap ok=no reason=empty view=now lookup=amap"))

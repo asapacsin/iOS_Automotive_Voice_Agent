@@ -1,3 +1,4 @@
+import Foundation
 import NovaKit
 
 public enum CoordinateDatum: String, Sendable, Hashable {
@@ -377,6 +378,17 @@ public protocol DailyForecastService: Sendable {
 public enum ForecastError: Error, Sendable, Hashable {
     case timeout
     case failed
+}
+
+/// F-18 §30 item 4 (T-046s): how many attempts the last Open-Meteo request of a weather call took (1 or 2). The
+/// weather call sets one with `$current.withValue`; the client writes it. Numbers only (I-8).
+public final class ForecastAttempts: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    public init() {}
+    public var last: Int { lock.withLock { value } }
+    public func set(_ n: Int) { lock.withLock { value = n } }
+    @TaskLocal public static var current: ForecastAttempts?
 }
 
 /// F-18 §26 item 2: one place a name lookup found.

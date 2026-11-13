@@ -78,6 +78,8 @@ public enum RecordEvent: Sendable, Hashable {
     case area(utterance: Int, area: CarRequestArea)
     /// F-09a §5: `tired-silenced turn=<n>`.
     case tiredSilenced(turn: Int)
+    /// F-18 §30 item 5 (T-046s): `weather source= ok= reason= view= lookup= attempts= ms=`; codes and numbers only.
+    case weather(String)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -197,6 +199,7 @@ public struct ConversationRecorder: Sendable {
         case .area(let utterance, let area): return [line("area", "utterance=\(utterance) area=\(area.rawValue)")]
         case .tiredSilenced(let turn): return [line("tired-silenced", "turn=\(turn)")]
         case .volume(let text): return ["\(ms) \(text)"]
+        case .weather(let text): return ["\(ms) \(text)"]
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]

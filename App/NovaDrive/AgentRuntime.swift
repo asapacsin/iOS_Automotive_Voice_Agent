@@ -881,10 +881,15 @@ final class AgentRuntime {
         RuntimeLog.agent.notice("webSearch \(webSearch ? "on" : "off", privacy: .public)")
         // F-18 §26 (T-046o): 高德 geocoding with the name check, Open-Meteo for foreign places and later days. The log
         // gets the source, ok and reason only (I-8).
-        let openMeteo = OpenMeteoClient()
+        // F-18 §30 (T-046s): both Open-Meteo hosts go over the app's own TCP+TLS connection, never URLSession, so
+        // QUIC cannot be chosen. The weather line also goes to the record.
+        let openMeteo = OpenMeteoClient(transport: RawHTTPTransport { host, port, request, timeout in
+            try await TCPHTTPFetcher.fetch(host: host, port: port, request: request, timeout: timeout)
+        })
         let liveInfo = LiveInfoExecutor(webSearch: webSearch, navigation: navigation, weather: cache, geocoder: cache, location: location,
                                         amapLookup: web, forecastLookup: openMeteo, forecast: openMeteo, onWeather: { log in
             RuntimeLog.agent.notice("\(log.line, privacy: .public)")
+            voiceLines.record?.submit(.weather(log.line))
         })
         var executors: [String: any ToolExecutor] = [:]
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
