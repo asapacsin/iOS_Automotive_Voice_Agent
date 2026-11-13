@@ -573,14 +573,17 @@
     {
       "id": "T-020d",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 2,
       "action": "F-07 §17 items 1-8: delete AzureSpeechClient, AzureRegionProbe and every Azure setting, key and option; one-time cleanup (azure source -> Gemini 原声, delete azure_speech_key, remove azure_region/azure_voice, flag azure_removed_done); AzureSpeechTuning -> SpeechTuning unchanged values; SpeechSynthesizer loses style; gate test: no 'azure' under App/ or Packages/; update current-behaviour specs; rows 19-25.",
       "depends_on": [
         "T-020b"
       ],
-      "notes": "Owner 2026-11-10: remove Azure completely (T-090 had kept it as a selectable source). Qwen and Gemini 原声 stay. Secrets-gate fixtures keep AZURE_SPEECH_KEY as a sample key name.",
-      "evidence": []
+      "notes": "Owner 2026-11-10: remove Azure completely (T-090 had kept it as a selectable source). Qwen and Gemini 原声 stay. Secrets-gate fixtures keep AZURE_SPEECH_KEY as a sample key name. | 2026-11-13: Built 6b68e53 + review fixes 9d3787b. Item 6 contract edit: the cleanup must name the retired keys (item 3), so RetiredVoiceSettings.swift and its test are the gate's only allowed paths; the secrets-gate fixture App/Info.plist planted key AzureSpeechKey -> ZhipuKey (the gate derives names from CredentialKey). HTTPTransport and the test StubTransport moved out of the deleted Azure files unchanged. CredentialWipe also removes the retired key. App/NovaAudio not compiled on Linux; row 23 build and rows 24-25 device NOT_VERIFIED.",
+      "evidence": [
+        "9d3787b; scripts/gates/run_all.sh PASS on Linux with Swift 6.2 (python gate tests OK, imports 302/0, NovaCore 776 passed with 1 known NoiseCorpus issue, NovaRealtime 42, NovaServices 74, spec-trace 121/0); baseline main b305c60 also green",
+        "Independent read-only review (high effort) 2026-11-13: REWORK (Medium: gate allowlist by file name), fixed in 9d3787b; re-review PASS"
+      ]
     },
     {
       "id": "T-024",
