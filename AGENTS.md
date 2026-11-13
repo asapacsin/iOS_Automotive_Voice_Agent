@@ -24,3 +24,7 @@
   reviewer CLI is configured.
 - A task moves to PASS in specs/work.json only with gate evidence plus an independent read-only review
   at high effort; the reviewer's verdict never overrides a failed gate.
+- Owner rule (2026-11-13): preparing a phone test is Claude's job end to end: trigger the Codemagic build of the
+  branch under test, get the IPA, and install it on the owner's iPhone as an **update** of the installed NovaDrive
+  (same bundle id, keep its data and keys), never a delete-and-reinstall. Then hand over the checklist. Only ask the
+  owner for what Claude cannot reach (a credential, or a computer connected to the phone).
