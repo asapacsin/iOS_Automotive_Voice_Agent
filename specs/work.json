@@ -2654,14 +2654,19 @@
     {
       "id": "T-046t",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-18 §31 items 1-10: QWeatherClient (GeoAPI city lookup, /weather/v1 current, daily days=10, hourly hours=240, X-QW-Api-Key, localTime=true, lang=zh); qweather_host/qweather_key in 设置; 和风 lookup for HK, MO, foreign and non-Han names, 高德 geocode/regeo kept for Chinese names, here and destination; 高德 weather removed; Open-Meteo fallback on no key, timeout, 401/403/429/5xx or parse failure; 10-day window in all texts and forecast_days=10; record line source=qweather; F-18 §31 rows 1-12.",
       "depends_on": [
         "T-046s"
       ],
       "notes": "Device 2026-11-13 (f84b538): over TCP, Tokyo still failed 8 of 8; Open-Meteo (Germany) connect+TLS 1.0-2.2 s, sometimes over 4 s. Owner: \"you just write the spec that use 和風\". Needs the owner's 和风 API host and key; PC check of speed, free coverage and lookup order before the device test.",
-      "evidence": []
+      "evidence": [
+        "gates: scripts/gates/run_all.sh PASS at 5898e56 (clean worktree; spec-trace 123, 0 missing; NovaServices 84 tests; NovaCore 779 passed, 1 known issue)",
+        "review: independent read-only high-effort reviewer FAIL at 57482d4 (M1-M3), fixed in 5898e56, re-review PASS",
+        "NOT_VERIFIED: row 10 Codemagic build/设置 check; rows 11-12 device runs with 和风 key; range=hk/mo device check",
+        "non-blocking follow-ups: L1 executor tests (adcode 81/82 hkmo, concurrent now requests, destination weather); L3 record line on regeo key error; L4 regeo address alongside 和风; L5 place date when daily fails; L7 dead code"
+      ]
     }
   ]
 }
