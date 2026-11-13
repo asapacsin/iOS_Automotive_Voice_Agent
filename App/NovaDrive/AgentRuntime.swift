@@ -852,8 +852,8 @@ final class AgentRuntime {
         let comfortMode = DriveSettings.comfortMode()
         RuntimeLog.agent.notice("comfortMode \(comfortMode.rawValue, privacy: .public)")
         let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: port), vehicle: vehicle, model: model)
-        // F-18: weather cached 10 min, adcodes 30 min (T-033).
-        let cache = LiveInfoCache(weather: web, geocoder: web, clock: SystemClock())
+        // F-18: adcodes cached 30 min (T-033); 和风 weather answers 10 min inside QWeatherClient (§31).
+        let cache = LiveInfoCache(geocoder: web, clock: SystemClock())
         // F-18 §15 item 1, §16: 「联网搜索（实验）」 is read once here, at session start.
         let webSearch = DriveSettings.searchesWeb()
         RuntimeLog.agent.notice("webSearch \(webSearch ? "on" : "off", privacy: .public)")
@@ -864,8 +864,13 @@ final class AgentRuntime {
         let openMeteo = OpenMeteoClient(transport: RawHTTPTransport { host, port, request, timeout in
             try await TCPHTTPFetcher.fetch(host: host, port: port, request: request, timeout: timeout)
         })
-        let liveInfo = LiveInfoExecutor(webSearch: webSearch, navigation: navigation, weather: cache, geocoder: cache, location: location,
-                                        amapLookup: web, forecastLookup: openMeteo, forecast: openMeteo, onWeather: { log in
+        // F-18 §31 (T-046t): 和风天气 first for every weather answer, over URLSession with 高德's time limit; the
+        // keys are read at each request, so a key saved in 设置 counts at once.
+        let qweather = QWeatherClient(host: { try? KeychainCredentialStore().value(for: .qweatherHost) },
+                                      key: { try? KeychainCredentialStore().value(for: .qweatherKey) })
+        let liveInfo = LiveInfoExecutor(webSearch: webSearch, navigation: navigation, geocoder: cache, location: location,
+                                        amapLookup: web, forecastLookup: openMeteo, forecast: openMeteo, qweather: qweather,
+                                        onWeather: { log in
             RuntimeLog.agent.notice("\(log.line, privacy: .public)")
             voiceLines.record?.submit(.weather(log.line))
         })

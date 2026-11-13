@@ -29,10 +29,10 @@ final class ScriptedTransport: HTTPTransport, @unchecked Sendable {
 struct OpenMeteoTCPTests {
     @Test("T-046s F-18 §30 row 01: request bytes are GET path?query HTTP/1.1 with Host, identity and close")
     func requestBytes() throws {
-        let url = "https://api.open-meteo.com/v1/forecast?latitude=35.69&longitude=139.69&current=temperature_2m,weather_code&timezone=auto&forecast_days=16"
+        let url = "https://api.open-meteo.com/v1/forecast?latitude=35.69&longitude=139.69&current=temperature_2m,weather_code&timezone=auto&forecast_days=10"
         let text = String(decoding: try #require(HTTP1Request.bytes(for: URL(string: url)!)), as: UTF8.self)
         let lines = text.components(separatedBy: "\r\n")
-        #expect(lines[0] == "GET /v1/forecast?latitude=35.69&longitude=139.69&current=temperature_2m,weather_code&timezone=auto&forecast_days=16 HTTP/1.1")
+        #expect(lines[0] == "GET /v1/forecast?latitude=35.69&longitude=139.69&current=temperature_2m,weather_code&timezone=auto&forecast_days=10 HTTP/1.1")
         #expect(Set(lines[1...5]) == ["Host: api.open-meteo.com", "Accept: application/json", "Accept-Encoding: identity",
                                       "Connection: close", "User-Agent: NovaDrive"])
         #expect(text.hasSuffix("\r\n\r\n") && lines.count == 8)

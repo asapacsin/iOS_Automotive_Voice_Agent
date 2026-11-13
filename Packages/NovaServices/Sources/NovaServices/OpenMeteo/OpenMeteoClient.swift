@@ -27,7 +27,7 @@ public struct OpenMeteoClient: DailyForecastService, PlaceLookup {
     /// §27 item 1, §28 item 5: `current=`, then `hourly=`, then `daily=`, in one call.
     public func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast {
         let url = Self.forecastHost + "/v1/forecast?latitude=\(String(format: "%.2f", latitude))&longitude=\(String(format: "%.2f", longitude))"
-            + "&current=\(Self.currentVariables)&hourly=\(Self.hourly)&daily=\(Self.daily)&timezone=auto&forecast_days=16"
+            + "&current=\(Self.currentVariables)&hourly=\(Self.hourly)&daily=\(Self.daily)&timezone=auto&forecast_days=10"
         let body = try await get(url)
         return DailyForecast(days: Self.days(body), current: Self.current(body), hours: Self.hours(body),
                              utcOffsetSeconds: (body["utc_offset_seconds"] as? NSNumber)?.intValue)

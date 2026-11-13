@@ -60,21 +60,22 @@ let zhuhaiCity = LookedUpPlace(name: "珠海市", coordinate: GeoCoordinate(lati
 
 final class LogBox: @unchecked Sendable { let lines = Mutex<[WeatherSourceLog]>([]) }
 
+/// The Open-Meteo path (§26-§30). Without `qweather` every call logs `source=qweather ok=no reason=nokey` first and
+/// falls back to Open-Meteo (§31 item 5).
 func forecastSetup(amap: [LookedUpPlace] = [zhuhaiCity], foreign: [LookedUpPlace] = [oslo], days: [DailyForecastDay] = forecastDays(),
-                   weather: (any WeatherService)? = nil, log: LogBox = LogBox(), forecastError: ForecastError? = nil,
+                   qweather: RecordingQWeather? = nil, log: LogBox = LogBox(), forecastError: ForecastError? = nil,
                    current: CurrentWeather? = nil, hours: [HourlyForecast] = [], utcOffset: Int? = nil,
-                   now: Date = phoneNov6)
-    -> (LiveInfoExecutor, CountingWeather, RecordingLookup, RecordingLookup, RecordingForecast) {
+                   now: Date = phoneNov6, geocoder: any ReverseGeocoder = FakeGeocoder())
+    -> (LiveInfoExecutor, RecordingQWeather?, RecordingLookup, RecordingLookup, RecordingForecast) {
     let location = FixedLocation()
     let nav = NavigationController(search: FixedSearch(places: []), engine: ScriptedNaviEngine(routes: []), location: location,
                                    clock: ManualClock())
-    let counting = CountingWeather()
     let amapLookup = RecordingLookup(amap), foreignLookup = RecordingLookup(foreign)
     let forecast = RecordingForecast(days, current: current, error: forecastError, hours: hours, utcOffset: utcOffset)
-    let executor = LiveInfoExecutor(navigation: nav, weather: weather ?? counting, geocoder: FakeGeocoder(), location: location,
+    let executor = LiveInfoExecutor(navigation: nav, geocoder: geocoder, location: location,
                                     now: { now }, zone: { shanghai }, amapLookup: amapLookup, forecastLookup: foreignLookup,
-                                    forecast: forecast, onWeather: { l in log.lines.withLock { $0.append(l) } })
-    return (executor, counting, amapLookup, foreignLookup, forecast)
+                                    forecast: forecast, qweather: qweather, onWeather: { l in log.lines.withLock { $0.append(l) } })
+    return (executor, qweather, amapLookup, foreignLookup, forecast)
 }
 
 func weatherCall(_ args: [String: JSONValue]) -> ToolCall { liveCall(args.merging(["kind": "weather"]) { a, _ in a }) }
@@ -118,7 +119,7 @@ struct ForecastWeatherTests {
 
     @Test("F-18 §26 row 03: day+date, bad dates, bad country, country with here: INVALID_ARGUMENT with the item 1 advice")
     func row03() async {
-        let (ex, weather, amap, foreign, forecast) = forecastSetup()
+        let (ex, _, amap, foreign, forecast) = forecastSetup()
         let bad: [[String: JSONValue]] = [
             ["where": "珠海", "day": "tomorrow", "date": "2026-11-07"],
             ["where": "珠海", "date": "11/12"], ["where": "珠海", "date": "2026-02-30"],
@@ -130,7 +131,7 @@ struct ForecastWeatherTests {
             #expect(r.code == .invalidArgument, "\(args)")
             #expect(r.advice == "日期用 yyyy-MM-dd（只填 day 或 date 其中一个）；国外地点 country 填两个大写字母，例如 NO。part 只能是 morning、afternoon、evening，不能和 day=now 一起用。")
         }
-        #expect(weather.calls.withLock { $0 } == 0 && amap.asked.withLock { $0.isEmpty } && foreign.asked.withLock { $0.isEmpty })
+        #expect(amap.asked.withLock { $0.isEmpty } && foreign.asked.withLock { $0.isEmpty })
         #expect(forecast.asked.withLock { $0.isEmpty })
         // The catalog lets date and country through to these checks; `where` may be 40 long.
         #expect(ToolCatalog.validate(weatherCall(["where": "Oslo", "country": "NO", "date": "2026-11-12"])) == nil)
@@ -138,50 +139,33 @@ struct ForecastWeatherTests {
         #expect(ToolCatalog.validate(weatherCall(["where": .string(String(repeating: "a", count: 41))])) == .invalidArgument)
     }
 
-    @Test("F-18 §26 row 04: which source answers, phone date 2026-11-06")
+    @Test("F-18 §26 row 04 (§31 fallback): with no 和风, Open-Meteo answers at 高德's or its own coordinates")
     func row04() async {
-        // 珠海 day_after: 高德 only.
+        // 珠海 date 2026-11-12: 高德 geocode, then (no 和风) Open-Meteo at coordinates rounded to 2 decimals.
         do {
-            let (ex, weather, amap, foreign, forecast) = forecastSetup()
-            let r = await ex.execute(weatherCall(["where": "珠海", "day": "day_after"]))
-            #expect(r.ok && r.data["weather"]?["source"] == "amap" && r.data["weather"]?["weekday"] == "星期日")
-            #expect(r.data["date"] == "2026-11-08" && r.data["next"] == .string(ForecastWeather.next))
-            #expect(weather.days.withLock { $0 } == [WeatherDay(offset: 2, date: "2026-11-08")])
-            #expect(weather.calls.withLock { $0 } == 1 && amap.asked.withLock { $0 } == ["珠海|"])
-            #expect(foreign.asked.withLock { $0.isEmpty } && forecast.asked.withLock { $0.isEmpty })
-        }
-        // 珠海 date 2026-11-12: 高德 geocode, then Open-Meteo at coordinates rounded to 2 decimals.
-        do {
-            let (ex, weather, amap, foreign, forecast) = forecastSetup()
+            let (ex, _, amap, foreign, forecast) = forecastSetup()
             let r = await ex.execute(weatherCall(["where": "珠海", "date": "2026-11-12"]))
             #expect(r.ok && r.data["weather"]?["source"] == "open-meteo" && r.data["weather"]?["place"] == "珠海市")
             #expect(r.data["weather"]?["country"] == nil)
-            #expect(weather.calls.withLock { $0 } == 0 && amap.asked.withLock { $0.count } == 1 && foreign.asked.withLock { $0.isEmpty })
+            #expect(amap.asked.withLock { $0.count } == 1 && foreign.asked.withLock { $0.isEmpty })
             #expect(forecast.asked.withLock { $0 } == [[22.27, 113.58]])
-        }
-        // 珠海 day_after_next with no 高德 cast: Open-Meteo.
-        do {
-            let (ex, _, _, _, forecast) = forecastSetup(weather: CastsWeather(casts: ["2026-11-07"]))
-            let r = await ex.execute(weatherCall(["where": "珠海", "day": "day_after_next"]))
-            #expect(r.ok && r.data["weather"]?["source"] == "open-meteo" && r.data["weather"]?["date"] == "2026-11-09")
-            #expect(forecast.asked.withLock { $0.count } == 1)
         }
         // Oslo NO: Open-Meteo geocoding and forecast, no 高德.
         do {
-            let (ex, weather, amap, foreign, forecast) = forecastSetup()
+            let (ex, _, amap, foreign, forecast) = forecastSetup()
             let r = await ex.execute(weatherCall(["where": "Oslo", "country": "NO"]))
             #expect(r.ok && r.data["weather"]?["date"] == "2026-11-06")
             #expect(foreign.asked.withLock { $0 } == ["Oslo|NO"] && forecast.asked.withLock { $0 } == [[59.91, 10.75]])
-            #expect(weather.calls.withLock { $0 } == 0 && amap.asked.withLock { $0.isEmpty })
+            #expect(amap.asked.withLock { $0.isEmpty })
         }
         // 澳门 MO: Open-Meteo since §29 item 1 (T-046r); no 高德 at all.
         do {
             let macau = LookedUpPlace(name: "澳门", country: "中国澳门", coordinate: GeoCoordinate(latitude: 22.16, longitude: 113.56, datum: .wgs84),
                                       population: 680_000, countryCode: "MO")
-            let (ex, weather, amap, foreign, forecast) = forecastSetup(foreign: [macau])
+            let (ex, _, amap, foreign, forecast) = forecastSetup(foreign: [macau])
             let r = await ex.execute(weatherCall(["where": "澳门", "country": "MO", "day": "today"]))
             #expect(r.ok && r.data["weather"]?["source"] == "open-meteo" && r.data["weather"]?["country"] == "澳门")
-            #expect(weather.calls.withLock { $0 } == 0 && amap.asked.withLock { $0.isEmpty })
+            #expect(amap.asked.withLock { $0.isEmpty })
             #expect(foreign.asked.withLock { $0 } == ["澳门|MO"] && forecast.asked.withLock { $0.count } == 1)
         }
     }
@@ -190,16 +174,16 @@ struct ForecastWeatherTests {
     func row05() async {
         let huli = LookedUpPlace(name: "厦门市", coordinate: GeoCoordinate(latitude: 24.5, longitude: 118.1, datum: .gcj02),
                                  formatted: "福建省厦门市湖里区", adcode: "350206")
-        let (ex, weather, _, _, forecast) = forecastSetup(amap: [huli])
+        let (ex, _, _, _, forecast) = forecastSetup(amap: [huli])
         let r = await ex.execute(weatherCall(["where": "奥斯陆", "date": "2026-11-12"]))
         #expect(r.code == .liveInfoUnavailable)
         #expect(r.advice == "高德没有找到这个地点。如果是国外的地方，用英文名并填 country 再调用一次，例如 where=Oslo, country=NO。")
-        #expect(weather.calls.withLock { $0 } == 0 && forecast.asked.withLock { $0.isEmpty })
+        #expect(forecast.asked.withLock { $0.isEmpty })
         let hengqin = LookedUpPlace(name: "珠海市", coordinate: GeoCoordinate(latitude: 22.13, longitude: 113.52, datum: .gcj02),
                                     formatted: "广东省珠海市香洲区横琴镇", adcode: "440404")
-        let (ok, w2, _, _, _) = forecastSetup(amap: [hengqin])
+        let (ok, _, _, _, f2) = forecastSetup(amap: [hengqin])
         let passed = await ok.execute(weatherCall(["where": "珠海横琴", "day": "tomorrow"]))
-        #expect(passed.ok && w2.calls.withLock { $0 } == 1)
+        #expect(passed.ok && f2.asked.withLock { $0.count } == 1)
         #expect(ForecastWeather.nameMatches("珠海市横琴镇", formatted: "广东省珠海市香洲区横琴镇"))
         #expect(!ForecastWeather.nameMatches("奥斯陆", formatted: "福建省厦门市湖里区"))
     }
@@ -250,9 +234,9 @@ struct ForecastWeatherTests {
         #expect(props?["day"]?["enum"] == ["now", "today", "tomorrow", "day_after", "day_after_next"])
         #expect(props?["date"] == ["type": "string", "description": "说几号或星期几时填，yyyy-MM-dd。"])
         #expect(props?["country"] == ["type": "string", "description": "国外地点的国家代码，例如 NO、JP、US。中国、香港、澳门不填。"])
-        #expect(d.description.contains("weather：任何地方现在的天气，和今后16天内任何一天、上午下午晚上的天气预报。「现在天气怎么样」「外面几度」→where=here, day=now；「今天天气怎么样」→day=today；「下午会下雨吗」→part=afternoon；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。"))
+        #expect(d.description.contains("weather：任何地方现在的天气，和今后10天内任何一天、上午下午晚上的天气预报。「现在天气怎么样」「外面几度」→where=here, day=now；「今天天气怎么样」→day=today；「下午会下雨吗」→part=afternoon；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。"))
         #expect(!d.description.contains("问明天加 day=tomorrow"))
-        #expect(ForecastWeather.credit == "天气数据：Open-Meteo.com（CC BY 4.0）")
+        #expect(ForecastWeather.credit == "天气数据：和风天气；备用：Open-Meteo.com（CC BY 4.0）")
     }
 
     @Test("F-18 §26 row 10: RuntimeLog lines after rows 1-6 have no place names, dates or coordinates")
@@ -271,8 +255,11 @@ struct ForecastWeatherTests {
         _ = await bad.execute(weatherCall(["where": "奥斯陆"]))
         _ = await bad.execute(weatherCall(["where": "Sendai", "country": "JP"]))
         let lines = log.lines.withLock { $0.map(\.line) }
-        #expect(lines.count == 7)
-        #expect(lines.contains { $0.hasPrefix("weather source=open-meteo ok=yes reason=ok view=day lookup=") } && lines.contains { $0.hasPrefix("weather source=amap ok=yes reason=ok view=day lookup=") })
+        // §31 item 5: with no 和风 each forecast call logs qweather nokey first, then Open-Meteo.
+        #expect(lines.count == 13)
+        #expect(lines.contains { $0.hasPrefix("weather source=open-meteo ok=yes reason=ok view=day lookup=") })
+        #expect(lines.contains { $0.hasPrefix("weather source=qweather ok=no reason=nokey view=day lookup=") })
+        #expect(lines.contains { $0.hasPrefix("weather source=amap ok=no reason=not_found view=now lookup=amap") })
         for line in lines {
             // §30 item 5: only `attempts=` and `ms=` carry numbers.
             let codes = line.components(separatedBy: " attempts=")[0]

@@ -3,11 +3,11 @@ import NovaKit
 import NovaPorts
 import NovaTools
 
-/// F-18 §26 (T-046o): weather for any place and any day in the next 16 days. Pure: argument checks, the 高德 name
+/// F-18 §26 (T-046o): weather for any place and any day in the next 10 days (§31 item 4). Pure: argument checks, the 高德 name
 /// check, the source and day choice, the WMO words and the result. The network sits behind NovaPorts.
 public enum ForecastWeather {
-    /// Item 10: the credit 设置 shows (Open-Meteo's data is CC BY 4.0).
-    public static let credit = "天气数据：Open-Meteo.com（CC BY 4.0）"
+    /// Item 10, §31 item 8: the credit 设置 shows (Open-Meteo's data is CC BY 4.0).
+    public static let credit = "天气数据：和风天气；备用：Open-Meteo.com（CC BY 4.0）"
 
     // MARK: Item 1: arguments
 
@@ -195,14 +195,14 @@ public enum ForecastWeather {
         let clock = c.time.split(separator: "T").last.map(String.init) ?? c.time
         return .object([
             "temperature_c": whole(c.temperature), "feels_like_c": whole(c.feelsLike), "humidity": whole(c.humidity),
-            "weather": .string(words(c.weatherCode)), "wind_kmh": number(c.windKmh), "time": .string(clock),
-        ])
+            "weather": .string(c.text ?? words(c.weatherCode)), "wind_kmh": number(c.windKmh),
+        ].merging(clock.isEmpty ? [:] : ["time": .string(clock)]) { a, _ in a })
     }
 
     /// §28 item 2: Open-Meteo's `daily.time[0]` as `weather.today`.
     public static func today(_ d: DailyForecastDay) -> JSONValue {
         func whole(_ v: Double?) -> JSONValue { v.map { .int(Int64($0.rounded())) } ?? .null }
-        return .object(["weather": .string(words(d.weatherCode)), "temp_high": whole(d.tempMax), "temp_low": whole(d.tempMin)])
+        return .object(["weather": .string(d.dayText ?? words(d.weatherCode)), "temp_high": whole(d.tempMax), "temp_low": whole(d.tempMin)])
     }
 
     /// §28 item 4: the hours of `part` on `date`; for the place's today, from its current hour on.
@@ -233,7 +233,7 @@ public enum ForecastWeather {
     public static func hoursJSON(_ hours: [HourlyForecast]) -> JSONValue {
         .array(hours.map { h in
             .object([
-                "time": .string(String(h.time.dropFirst(11).prefix(5))), "weather": .string(words(h.weatherCode)),
+                "time": .string(String(h.time.dropFirst(11).prefix(5))), "weather": .string(h.text ?? words(h.weatherCode)),
                 "temp_c": h.temperature.map { .int(Int64($0.rounded())) } ?? .null,
                 "rain_chance": h.rainChance.map { .int(Int64($0.rounded())) } ?? .null,
             ])
@@ -246,15 +246,19 @@ public enum ForecastWeather {
         return String(format: "%04d-%02d-%02dT%02d:%02d", c.year!, c.month!, c.day!, c.hour!, c.minute!)
     }
 
-    public static func summary(_ d: DailyForecastDay, place: String, country: String?, now: JSONValue? = nil) -> JSONValue {
+    public static func summary(_ d: DailyForecastDay, place: String, country: String?, now: JSONValue? = nil,
+                               source: String = "open-meteo") -> JSONValue {
         func whole(_ v: Double?) -> JSONValue { v.map { .int(Int64($0.rounded())) } ?? .null }
         func number(_ v: Double?) -> JSONValue { v.map { $0 == $0.rounded() ? .int(Int64($0)) : .double($0) } ?? .null }
         var o: [String: JSONValue] = [
             "place": .string(place), "date": .string(d.time), "weekday": .string(weekday(d.time) ?? ""),
-            "weather": .string(words(d.weatherCode)), "temp_high": whole(d.tempMax), "temp_low": whole(d.tempMin),
+            "weather": .string(d.dayText ?? words(d.weatherCode)), "temp_high": whole(d.tempMax), "temp_low": whole(d.tempMin),
             "rain_chance": number(d.rainChance), "rain_mm": number(d.rainMm), "wind_max_kmh": number(d.windMaxKmh),
-            "source": "open-meteo",
+            "source": .string(source),
         ]
+        // §31 item 3: 和风 gives day and night words.
+        if let day = d.dayText { o["weather_day"] = .string(day) }
+        if let night = d.nightText { o["weather_night"] = .string(night) }
         if let country { o["country"] = .string(country) }
         if let now { o["now"] = now }
         return .object(o)

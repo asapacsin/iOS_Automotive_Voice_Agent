@@ -28,6 +28,9 @@ struct SettingsView: View {
         (.geminiAPIKey, "Gemini API key"),
         (.amapSDKKey, "高德 iOS SDK key"),
         (.amapWebKey, "高德 Web 服务 key"),
+        // F-18 §31 item 1 (T-046t).
+        (.qweatherHost, "和风天气 API Host"),
+        (.qweatherKey, "和风天气 API KEY"),
         (.zhipuKey, "智谱 key（视觉，推荐）"),
         (.qwenAPIKey, "阿里云百炼 key（她的声音、联网搜索）"),
         (.qianfanKey, "千帆 key（可选，视觉备用）"),
@@ -188,7 +191,7 @@ struct SettingsView: View {
                     Button("清除所有密钥", role: .destructive) { confirmWipe = true }
                 }
                 if let message { Section { Text(message) } }
-                // F-18 §26 item 10: no about or data-source area, so the Open-Meteo credit is at the bottom.
+                // F-18 §26 item 10, §31 item 8: no about or data-source area, so the weather credit is at the bottom.
                 Section {
                     Text(ForecastWeather.credit).font(.footnote).foregroundStyle(.secondary)
                         .accessibilityIdentifier("weather-credit")
@@ -212,6 +215,7 @@ struct SettingsView: View {
             statusRow("Gemini 同意", ready.geminiConsent)
             statusRow("她的声音", ready.voice)
             statusRow("高德 Web key", ready.amapWebKey)
+            statusRow("和风天气", ready.qweather)
             statusRow("视觉 key", ready.vision)
             // F-13a §10 item 1 (T-032i): which build is installed.
             let info = Bundle.main.infoDictionary

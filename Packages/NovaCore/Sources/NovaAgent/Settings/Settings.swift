@@ -31,7 +31,9 @@ public enum SecretField {
     /// Applies the field's content on save. Returns true when the store changed.
     @discardableResult
     public static func save(_ input: String, for key: CredentialKey, in store: any CredentialStore) throws -> Bool {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        // F-18 §31 item 1: the 和风 host is saved without `https://` and without a trailing `/`.
+        if key == .qweatherHost { trimmed = QWeatherHost.normalized(trimmed) }
         guard !trimmed.isEmpty else { return false }
         try store.set(trimmed, for: key)
         return true
@@ -64,6 +66,8 @@ public struct SettingsReadiness: Sendable, Hashable {
     public var source: VoiceSourceKind
     public var amapSDKKey: Bool
     public var amapWebKey: Bool
+    /// F-18 §31 item 1: 和风天气 host and key both saved.
+    public var qweather: Bool
     public var wakeAppID: Bool
     public var vision: Bool
 
@@ -79,6 +83,7 @@ public struct SettingsReadiness: Sendable, Hashable {
         }
         amapSDKKey = has(.amapSDKKey)
         amapWebKey = has(.amapWebKey)
+        qweather = has(.qweatherHost) && has(.qweatherKey)
         wakeAppID = has(.iflytekAppID) && has(.iflytekAPIKey) && has(.iflytekAPISecret)
         vision = has(.zhipuKey) || has(.geminiAPIKey) || has(.qianfanKey)
     }
@@ -103,5 +108,15 @@ public enum VoiceSourceMigration {
         guard let choice = VoiceSource.migrated(saved: settings.string(SettingsKey.voiceSource), done: done) else { return }
         settings.set(choice.rawValue, for: SettingsKey.voiceSource)
         settings.set(true, for: VoiceSource.migrationKey)
+    }
+}
+
+/// F-18 §31 item 1 (T-046t): `https://abc.qweatherapi.com/` → `abc.qweatherapi.com`.
+public enum QWeatherHost {
+    public static func normalized(_ input: String) -> String {
+        var h = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        for scheme in ["https://", "http://"] where h.lowercased().hasPrefix(scheme) { h = String(h.dropFirst(scheme.count)) }
+        while h.hasSuffix("/") { h.removeLast() }
+        return h
     }
 }

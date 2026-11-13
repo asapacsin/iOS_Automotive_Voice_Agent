@@ -1,30 +1,20 @@
 import NovaKit
 import NovaPorts
 
-/// T-033 / F-18 caches: weather for 10 min per (adcode, day), adcodes for 30 min per ~1 km cell.
+/// T-033 / F-18 caches: adcodes for 30 min per ~1 km cell. (F-18 §31: 高德 weather is gone; 和风's answers are cached
+/// 10 min in `QWeatherClient`.)
 /// Only successful answers are cached; a failure is never remembered as an answer (I-3).
-public actor LiveInfoCache: WeatherService, ReverseGeocoder {
-    private let weather: any WeatherService
+public actor LiveInfoCache: ReverseGeocoder {
     private let geocoder: any ReverseGeocoder
     private let clock: any NovaClock
     private let tuning: AmapWebTuning
-    private var reports: [String: (WeatherReport, NovaInstant)] = [:]
     private var adcodes: [String: (String, NovaInstant)] = [:]
 
-    public init(weather: any WeatherService, geocoder: any ReverseGeocoder, clock: any NovaClock,
+    public init(geocoder: any ReverseGeocoder, clock: any NovaClock,
                 tuning: AmapWebTuning = AmapWebTuning()) {
-        self.weather = weather
         self.geocoder = geocoder
         self.clock = clock
         self.tuning = tuning
-    }
-
-    public func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
-        let key = "\(adcode)|\(day.offset)|\(day.date)|\(day.live)"
-        if let (report, at) = reports[key], clock.now - at < tuning.weatherTTL { return report }
-        let report = try await weather.weather(adcode: adcode, day: day)
-        reports[key] = (report, clock.now)
-        return report
     }
 
     public func adcode(at coordinate: GeoCoordinate) async throws -> String? {

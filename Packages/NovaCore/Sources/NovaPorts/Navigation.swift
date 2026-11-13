@@ -249,16 +249,6 @@ public extension PlaceSearch {
     }
 }
 
-public struct WeatherReport: Sendable, Hashable {
-    public let adcode: String
-    public let summary: JSONValue
-
-    public init(adcode: String, summary: JSONValue) {
-        self.adcode = adcode
-        self.summary = summary
-    }
-}
-
 /// F-18 §23 item 2: which day a weather call means. `offset` 0–3 from the phone's date; `date` is that day as
 /// `yyyy-MM-dd` on the phone clock, the value Amap's `casts[].date` must equal.
 public struct WeatherDay: Sendable, Hashable {
@@ -278,21 +268,6 @@ public struct WeatherDay: Sendable, Hashable {
     public var name: String { Self.names[min(max(offset, 0), Self.names.count - 1)] }
 }
 
-/// F-18 §23 item 2: Amap's forecast has no entry with the asked date.
-public struct WeatherForecastMissing: Error, Sendable, Hashable {
-    public let date: String
-    public init(date: String) { self.date = date }
-}
-
-/// F-18 §29 item 2 (T-046r): 高德 answered (`status` 1) with no live report or no forecast for the place.
-public struct WeatherNotCovered: Error, Sendable, Hashable {
-    public let adcode: String
-    public init(adcode: String) { self.adcode = adcode }
-}
-
-public protocol WeatherService: Sendable {
-    func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport
-}
 
 /// F-18 §26 item 11: one day of a provider-neutral daily forecast. `time` is `yyyy-MM-dd` in the place's own zone.
 public struct DailyForecastDay: Sendable, Hashable {
@@ -303,9 +278,14 @@ public struct DailyForecastDay: Sendable, Hashable {
     public let rainChance: Double?
     public let rainMm: Double?
     public let windMaxKmh: Double?
+    /// F-18 §31 item 3: 和风's own words (`daytime`/`nighttime.condition.text`); nil for Open-Meteo (WMO code).
+    public let dayText: String?
+    public let nightText: String?
 
     public init(time: String, weatherCode: Int?, tempMax: Double?, tempMin: Double?, rainChance: Double?,
-                rainMm: Double?, windMaxKmh: Double?) {
+                rainMm: Double?, windMaxKmh: Double?, dayText: String? = nil, nightText: String? = nil) {
+        self.dayText = dayText
+        self.nightText = nightText
         self.time = time
         self.weatherCode = weatherCode
         self.tempMax = tempMax
@@ -324,9 +304,12 @@ public struct CurrentWeather: Sendable, Hashable {
     public let humidity: Double?
     public let weatherCode: Int?
     public let windKmh: Double?
+    /// F-18 §31 item 3: 和风's `condition.text`. `time` may be "" (和风's current has no update time).
+    public let text: String?
 
     public init(time: String, temperature: Double, feelsLike: Double?, humidity: Double?, weatherCode: Int?,
-                windKmh: Double?) {
+                windKmh: Double?, text: String? = nil) {
+        self.text = text
         self.time = time
         self.temperature = temperature
         self.feelsLike = feelsLike
@@ -342,8 +325,11 @@ public struct HourlyForecast: Sendable, Hashable {
     public let weatherCode: Int?
     public let temperature: Double?
     public let rainChance: Double?
+    /// F-18 §31 item 3: 和风's `condition.text`.
+    public let text: String?
 
-    public init(time: String, weatherCode: Int?, temperature: Double?, rainChance: Double?) {
+    public init(time: String, weatherCode: Int?, temperature: Double?, rainChance: Double?, text: String? = nil) {
+        self.text = text
         self.time = time
         self.weatherCode = weatherCode
         self.temperature = temperature
@@ -372,6 +358,32 @@ public struct DailyForecast: Sendable, Hashable {
 public protocol DailyForecastService: Sendable {
     /// Coordinates are already rounded by the caller (§26 item 4).
     func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast
+}
+
+/// F-18 §31 item 3 (T-046t): what one view asks of 和风: `now` (current + daily?days=1), `day` (daily?days=10),
+/// `hours` (hourly?hours=240).
+public enum ForecastRequest: String, Sendable, Hashable { case now, day, hours }
+
+/// F-18 §31 (T-046t): 和风天气, the first weather source. Lookup failures are `QWeatherError`.
+public protocol ViewForecastService: PlaceLookup {
+    func forecast(latitude: Double, longitude: Double, request: ForecastRequest) async throws -> DailyForecast
+}
+
+/// F-18 §31 items 5, 7: why 和风 did not answer. `notFound` (no `location`, or 400) never falls back.
+public enum QWeatherError: Error, Sendable, Hashable {
+    case noKey, timeout, failed, notFound, parse
+    case http(Int)
+
+    public var reason: String {
+        switch self {
+        case .noKey: "nokey"
+        case .timeout: "timeout"
+        case .failed: "failed"
+        case .notFound: "not_found"
+        case .parse: "parse"
+        case .http(let s): "http\(s)"
+        }
+    }
 }
 
 /// F-18 §26 item 4: a forecast call that timed out or failed. No response text (I-8).

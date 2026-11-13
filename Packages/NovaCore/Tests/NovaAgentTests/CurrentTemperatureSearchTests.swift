@@ -22,7 +22,7 @@ struct CurrentTemperatureSearchTests {
                                        now: { Self.now }, zone: { Self.zone })
             let r = await ex.execute(searchCall(q))
             #expect(r.code == .invalidArgument, "\(q)")
-            #expect(r.advice == "16天内的天气预报不用搜索：调用 query_live_info（kind=weather），国外地点用英文名并填 country。")
+            #expect(r.advice == "10天内的天气预报不用搜索：调用 query_live_info（kind=weather），国外地点用英文名并填 country。")
             #expect(service.calls.withLock { $0 } == 0)
             #expect(outcomes.withLock { $0 } == [.blocked(reason: "weather")])
         }
@@ -35,11 +35,11 @@ struct CurrentTemperatureSearchTests {
 
     @Test("F-18 §27 row 6: catalog, officialFirst, web_search description and persona are exactly item 5; base within the limit")
     func row6() {
-        #expect(ToolCatalog.weatherPart == "weather：任何地方现在的天气，和今后16天内任何一天、上午下午晚上的天气预报。「现在天气怎么样」「外面几度」→where=here, day=now；「今天天气怎么样」→day=today；「下午会下雨吗」→part=afternoon；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。")
-        #expect(ToolCatalog.officialFirst == "现在的气温和天气预报（今后16天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。")
-        #expect(ToolCatalog.webSearchSpec.declaration.description.hasSuffix("不用于查现在的气温或16天内的天气预报（用 query_live_info 的 weather）。"))
+        #expect(ToolCatalog.weatherPart == "weather：任何地方现在的天气，和今后10天内任何一天、上午下午晚上的天气预报。「现在天气怎么样」「外面几度」→where=here, day=now；「今天天气怎么样」→day=today；「下午会下雨吗」→part=afternoon；「目的地会下雨吗」→destination；「珠海天气」→珠海；明天、后天、大后天用 day；说几号或星期几用 date（yyyy-MM-dd），不知道今天几号先调用 current_time；国外地点用英文名并填 country：「奥斯陆11月12日天气」→where=Oslo, country=NO, date=2026-11-12。")
+        #expect(ToolCatalog.officialFirst == "现在的气温和天气预报（今后10天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。")
+        #expect(ToolCatalog.webSearchSpec.declaration.description.hasSuffix("不用于查现在的气温或10天内的天气预报（用 query_live_info 的 weather）。"))
         let s = PersonaInstruction.webSearchSentence
-        #expect(s.contains("用返回的 answer 回答，一两句话。现在的气温和天气预报用 query_live_info（今后16天内，国外地点用英文名并填 country）。问很久以后的天气时"))
+        #expect(s.contains("用返回的 answer 回答，一两句话。现在的气温和天气预报用 query_live_info（今后10天内，国外地点用英文名并填 country）。问很久以后的天气时"))
         for mode in [ToolCatalog.ComfortMode.table, .model] {
             let d = ToolCatalog.declarations(for: mode, webSearch: true).first { $0.name == "query_live_info" }!
             #expect(d.description.contains(ToolCatalog.weatherPart) && d.description.contains(ToolCatalog.officialFirst))
