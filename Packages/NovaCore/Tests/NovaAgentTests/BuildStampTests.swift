@@ -39,6 +39,7 @@ struct BuildStampTests {
             }
         }
         #expect(ToolCatalog.volumeSpec.declaration.description.hasPrefix("司机说音量、声音大小、大声、小声、静音、最大声时一定调用。"))
+        #expect(ToolCatalog.volumeSpec.declaration.description.contains("。调 app 自己的音量（app 里的 0–10 档）。target："))
         #expect(!ToolCatalog.volumeSpec.declaration.description.contains("不是手机音量"))
     }
 }
