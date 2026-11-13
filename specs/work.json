@@ -2650,6 +2650,18 @@
           "result": "round 1 FAIL (chunk-size overflow crash; deviation unrecorded) fixed in 48cffc6; round 2 PASS. Deviation: NWConnection code in NovaPlatform (check_imports allows Network only there), injected by AgentRuntime; owner sign-off on §30 wording pending"
         }
       ]
+    },
+    {
+      "id": "T-046t",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-18 §31 items 1-10: QWeatherClient (GeoAPI city lookup, /weather/v1 current, daily days=10, hourly hours=240, X-QW-Api-Key, localTime=true, lang=zh); qweather_host/qweather_key in 设置; 和风 lookup for HK, MO, foreign and non-Han names, 高德 geocode/regeo kept for Chinese names, here and destination; 高德 weather removed; Open-Meteo fallback on no key, timeout, 401/403/429/5xx or parse failure; 10-day window in all texts and forecast_days=10; record line source=qweather; F-18 §31 rows 1-12.",
+      "depends_on": [
+        "T-046s"
+      ],
+      "notes": "Device 2026-11-13 (f84b538): over TCP, Tokyo still failed 8 of 8; Open-Meteo (Germany) connect+TLS 1.0-2.2 s, sometimes over 4 s. Owner: \"you just write the spec that use 和風\". Needs the owner's 和风 API host and key; PC check of speed, free coverage and lookup order before the device test.",
+      "evidence": []
     }
   ]
 }

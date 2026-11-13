@@ -1044,3 +1044,119 @@ The code already uses an ephemeral `URLSession` (`URLSessionTransport`), and QUI
 | Task | Scope | Verify |
 |---|---|---|
 | T-046s | Items 1–6; rows 1–9 | unit, build, D |
+
+## 31. All weather comes from 和风天气; Open-Meteo is the fallback (iOS, APPROVED 2026-11-13)
+
+**Why.** Device 2026-11-13 (f84b538, T-046s over TCP): connections to Open-Meteo were `tcp, tls`, but foreign weather still failed:
+- Tokyo failed all 8 tries.
+- 澳门 answered in 2.9 s, Taipei in 3.99 s, 香港 only on its retry.
+- On the phone, connect plus TLS to `api.open-meteo.com` (Germany) took 1.0–2.2 s, sometimes more than 4 s, and the answer another 1.4–3 s.
+- A foreign place needs 2 Open-Meteo hosts (`geocoding-api`, then `api`), each with its own connect and TLS.
+
+高德 weather takes Chinese adcodes only, so 香港, 澳门 and foreign places cannot use it (§29). Owner 2026-11-13: 「you just write the spec that use 和風」, replacing 高德 for weather, not only abroad.
+
+**Sources (2026-11-13, dev.qweather.com).**
+- **City lookup:** [GeoAPI](https://dev.qweather.com/docs/api/geoapi/city-lookup/).
+  - `GET /geo/v2/city/lookup?location=<name>&range=<ISO 3166 alpha-2>&number=<1–20>&lang=`.
+  - Answer: `code` "200", then `location[]` with `name`, `id`, `lat`, `lon` (strings), `adm1`, `adm2`, `country`, `tz`, `rank`.
+- **Weather (v1, coordinates in the path, latitude first, at most 2 decimals; the v7 pages say v7 will be deprecated):**
+  - [current](https://dev.qweather.com/docs/api/weather/weather-current/): `GET /weather/v1/current/{lat}/{lon}`.
+  - [daily](https://dev.qweather.com/docs/api/weather/weather-daily-forecast/): `GET /weather/v1/daily/{lat}/{lon}?days=1–10`. Each `days[]` has `forecastStartTime`, `temperatureMax`, `temperatureMin`, `daytime`, `nighttime` (each with `condition.text`, `precipitation.amount`, `precipitation.probability`, `wind`).
+  - [hourly](https://dev.qweather.com/docs/api/weather/weather-hourly-forecast/): `GET /weather/v1/hourly/{lat}/{lon}?hours=1–240`. Each `hours[]` has `forecastTime`, `condition.text`, `temperature.value`, `precipitation.probability`.
+  - All three take `localTime=true` (times on the place's clock) and `lang`. Humidity and probabilities are 0–1.
+- **Host and key:**
+  - Each account has its own host, `xxx.qweatherapi.com` ([api-host](https://dev.qweather.com/docs/configuration/api-host/)). The public hosts are being phased out from 2026.
+  - Key in the `X-QW-Api-Key` header, or a JWT (Ed25519) ([authentication](https://dev.qweather.com/docs/configuration/authentication/)). The docs say API KEY gets a daily request limit from 2027-01-01.
+- **Errors:** HTTP status, not a body code ([error-code](https://dev.qweather.com/docs/resource/error-code/)). 400 (including NO SUCH LOCATION), 401, 403 (NO CREDIT, OVERDUE …), 404, 429 (QPM or monthly limit), 500.
+- **Coordinates:** mainland China in GCJ-02, elsewhere WGS-84 ([glossary](https://dev.qweather.com/docs/resource/glossary/)). Every app coordinate (`here`, `destination`, 高德 geocode) is already GCJ-02 (`NavigationController.currentPosition`).
+- **Price:** weather and GeoAPI share 0–50,000 requests a month at ¥0, then ¥0.0007 each ([pricing](https://dev.qweather.com/docs/finance/pricing/)). The weather overview says it covers any place in the world.
+- **Gzip:** answers are gzip by default ([gzip](https://dev.qweather.com/docs/best-practices/gzip/)). `URLSession` decompresses them.
+
+**Rule in plain words.** Every weather answer (China, 香港, 澳门 and abroad; now, a day, part of a day) comes from 和风天气. 和风's city lookup finds 香港, 澳门 and foreign places. 高德 still finds Chinese place names, `here` and `destination`, as it does for the map. If 和风 has no key or fails, the call falls back to today's Open-Meteo path. The forecast reaches 10 days, not 16.
+
+1. **Keys.**
+   - `CredentialKey` gains `qweatherHost = "qweather_host"` and `qweatherKey = "qweather_key"`.
+   - 设置 gets two fields, 「和风天气 API Host」 and 「和风天气 API KEY」, and a readiness row 「和风天气」, beside 高德's.
+   - The host is saved without `https://` and without a trailing `/`.
+   - API KEY only for now. JWT is a later task, before 2027-01-01.
+2. **Finding the place.**
+
+   | `where` / `country` | Lookup | Coordinates sent to 和风 |
+   |---|---|---|
+   | `here`, `destination` | as now (高德 regeo for the adcode) | the app's GCJ-02 coordinates |
+   | Chinese name, no `country` or `country` CN | 高德 geocode and the §26 name check, as now | 高德's GCJ-02 coordinates |
+   | the above with adcode `81`/`82` (香港, 澳门) | 高德, as §29 item 1 | 高德's coordinates |
+   | `country` HK, MO or foreign | 和风 lookup `location=<where>&range=<country, lower case>&number=1&lang=zh` | 和风's `lat`, `lon` |
+   | name with no Chinese characters, no `country` (§29 item 3) | 和风 lookup `location=<where>&number=1&lang=zh` | 和风's `lat`, `lon` |
+
+   - No 高德 regeo after a 和风 lookup: the CN branch of §29 item 3 goes away.
+   - 和风 lookup with no `location` entry, or HTTP 400 NO SUCH LOCATION: `LIVE_INFO_UNAVAILABLE` with §26's `notFoundAdvice`, with no fallback.
+   - `place` is 和风's `name` (or 高德's, as now). `country` is 和风's `country`, for places outside the mainland only.
+   - The 和风 lookup result is kept in memory by `where`+`country` until the app quits, so a repeat ask sends no lookup.
+3. **The weather requests.** Coordinates are rounded to 2 decimals (§26 item 4), latitude first. Every request has `localTime=true&lang=zh` and the `X-QW-Api-Key` header, and goes over the same `URLSessionTransport` as `AmapWebClient`, with 高德's time limit.
+
+   | View (§28) | Requests | Result |
+   |---|---|---|
+   | now | `current` and `daily?days=1`, sent at the same time | `now`: `weather` (`condition.text`), `temperature_c`, `feels_like_c`, `humidity` (×100), `wind_kmh`, `time` (`HH:mm`, if the answer carries an update time; otherwise left out). `today` from the daily entry. A failed daily request leaves `today` out, as §28 item 2 |
+   | a day (`today` … `day_after_next`, or `date`) | `daily?days=10` | the entry whose `forecastStartTime` date equals the asked date: `weather_day`, `weather_night` (`daytime`/`nighttime.condition.text`), `temp_high`, `temp_low`, `rain_chance` (larger of day and night probability, ×100), `rain_mm` (day + night), `wind_max_kmh` |
+   | part of a day | `hourly?hours=240` | §28 item 4's `hours` window, from `forecastTime`, `condition.text`, `temperature.value`, `precipitation.probability` ×100 |
+
+   - The place's today is the date of `days[0].forecastStartTime`, as §26 item 5 used `time[0]`. `day` offsets count from it.
+   - Temperatures are rounded to whole degrees. Any `unit` other than °C or km/h is a parse failure (item 5).
+   - Weather words are 和风's own `condition.text` in Chinese. The §26 item 7 WMO table stays for the Open-Meteo fallback only.
+   - `source` is `qweather`. All other result fields, and every `next` and advice text of §26 and §28, are unchanged.
+4. **10 days, not 16.**
+   - A date after the last `days[]` entry gets §26 item 5's not-out advice with that last date.
+   - Texts: every 「今后16天内」 and 「16天内」 becomes 「今后10天内」 and 「10天内」. That covers `ToolCatalog.weatherPart`, `officialFirst`, the `web_search` description, the persona `webSearchSentence` and the `CurrentTime` advice.
+   - §26 item 9's search block uses "between the phone's today and 9 days later".
+   - The Open-Meteo fallback is asked for `forecast_days=10`, so both sources give the same window.
+5. **Falling back to Open-Meteo.** The call goes to today's Open-Meteo path (§26–§30, unchanged) when:
+   - the 和风 host or key is missing;
+   - a 和风 request times out, cannot connect, or returns 401, 403, 429 or 5xx;
+   - the answer cannot be read.
+
+   A 和风 weather failure falls back at the coordinates already found, with no new geocoding. A 和风 lookup failure other than "not found" uses Open-Meteo geocoding, as now. Before the fallback, the `weather` line is logged with `source=qweather ok=no reason=<…>`.
+6. **高德 weather is no longer called.**
+   - `AmapWebClient.weather`, `WeatherNotCovered` and the 高德 weather branches of `LiveInfoExecutor` are removed.
+   - 高德 geocode and regeo stay for finding places (item 2).
+   - `source=amap` disappears from the weather line.
+7. **Record line.** §30 item 5's line, with `source=<qweather|open-meteo>` and `lookup=<amap|qweather|open-meteo|here>`. A fallback gives two lines (和风 `ok=no`, then Open-Meteo). New reasons: `nokey`, `http<status>`, `parse`. Still no place names, dates, coordinates or numbers (I-8).
+8. **Credit.** 设置's data-source line becomes 「天气数据：和风天气；备用：Open-Meteo.com（CC BY 4.0）」.
+9. **Where the code goes.**
+   - NovaServices: new `QWeatherClient` (lookup, current, daily, hourly; parsing).
+   - NovaPorts: the forecast port and place-lookup port, unchanged in shape.
+   - NovaCore (`LiveInfoExecutor`, `ForecastWeather`): items 2–7.
+   - App: keys, 设置 fields and credit, wiring in `AgentRuntime` next to `OpenMeteoClient`.
+10. **Not changed:** the §28 three views and their texts, the §26 name check for Chinese names, the 10-minute weather cache, §30's TCP transport and retry for Open-Meteo, and weather with search off.
+
+**Not verified (check on the PC with the owner's key before the device test).**
+- How fast 和风 answers from the phone's network.
+- Whether the free 50,000 covers foreign places, `days=10` and `hours=240`. The pricing page does not say.
+- Whether `current` carries an update time.
+- Whether 和风's lookup puts Tokyo and Macau first with `number=1`.
+- What 和风 gives for GCJ-02 coordinates sent for 香港 and 澳门 (a shift of a few hundred metres, under the 2-decimal rounding).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Keys set; 珠海 (高德 geocode fixture), no `day` | 高德 geocode only; 和风 `current` and `daily?days=1` at 高德's coordinates rounded to 2 decimals, latitude first, `localTime=true&lang=zh`, header `X-QW-Api-Key`; no 高德 weather request; `source` qweather | unit |
+| 2 | 和风 daily fixture (10 days from 2026-11-13): `day=tomorrow`; `date=2026-11-20`; `date=2026-11-25` | 2026-11-14 values with `weather_day`, `weather_night`, high, low, rain ×100; the 11-20 entry; not-out advice with 11月22日 | unit |
+| 3 | 和风 hourly fixture, place clock 14:20, `part=afternoon` | hours 14:00–17:00 with words, whole degrees, rain % | unit |
+| 4 | `where=Tokyo, country=JP`; the same again; `where=Macau` with no `country` | lookup `location=Tokyo&range=jp&number=1&lang=zh`, then weather at its `lat`/`lon`; the repeat sends no lookup; lookup without `range` | unit |
+| 5 | Lookup with empty `location`; HTTP 400 | `notFoundAdvice`; no Open-Meteo call | unit |
+| 6 | No 和风 key; 和风 times out; 401; 429; 503; unreadable body | Open-Meteo at the same coordinates; `weather` lines `source=qweather ok=no reason=` `nokey`, `timeout`, `http401`, `http429`, `http503`, `parse`, then `source=open-meteo` | unit |
+| 7 | Catalog, `officialFirst`, `web_search`, persona, `CurrentTime` advice; search block with the phone's today 2026-11-13 for 2026-11-22 and 2026-11-23 | 10-day texts, no 「16天」 left; base within `maxBaseCharacters`; 11-22 blocked, 11-23 goes to Qwen | unit |
+| 8 | Open-Meteo URL | `forecast_days=10` | unit |
+| 9 | `RuntimeLog` and record after rows 1–6 | no place names, dates, coordinates or numbers | unit |
+| 10 | App build | compiles; 设置 shows the two fields, the readiness row and the credit | build |
+| 11 | Device with key: 「现在天气怎么样」, 「上海后天天气」, 「澳门明天会下雨吗」, 「香港现在几度」, 「东京天气」, 「东京明天晚上冷不冷」 | all answered; record lines `source=qweather ok=yes`; numbers match the 和风 app or website | D |
+| 12 | Device with the 和风 key removed: 「东京天气」 | `source=qweather ok=no reason=nokey`, then Open-Meteo | D |
+
+**Trace gate.** Add `T-046t: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046t.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046t | Items 1–10; rows 1–12 | unit, build, D |
