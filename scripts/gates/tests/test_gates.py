@@ -200,6 +200,14 @@ class AzureRemovedGateTests(unittest.TestCase):
 
     def test_build_output_is_skipped(self) -> None:
         self.assertEqual(self.check("Packages/NovaCore/.build/debug/x.swiftdeps", "AzureSpeechTuning"), 0)
+        self.assertEqual(self.check("App/NovaDrive/SherpaModels/tokens.txt", "azure"), 0)
+
+    def test_allowed_name_elsewhere_fails(self) -> None:
+        for path in ("App/NovaDrive/RetiredVoiceSettings.swift",
+                     "Packages/NovaServices/Sources/NovaServices/X/RetiredVoiceSettings.swift",
+                     "Packages/NovaCore/Tests/NovaAgentTests/RetiredVoiceSettingsTests.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.check(path, "let c = AzureSpeechClient()"), 1)
 
 
 class PreviewLaneGateTests(unittest.TestCase):

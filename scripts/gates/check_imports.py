@@ -38,7 +38,11 @@ REMOVED = ("OfflineSenseVoice", "MultilingualModelStore", "多语言识别")
 # F-07 §17 item 6 (T-020d): Azure is removed. No file under App/ or Packages/ may name it (any case), except the
 # one-time cleanup that must name the retired keys (item 3) and its test.
 RETIRED_NAME = "azure"
-RETIRED_ALLOWED = {"RetiredVoiceSettings.swift", "RetiredVoiceSettingsTests.swift"}
+RETIRED_ALLOWED = {"Packages/NovaCore/Sources/NovaAgent/Settings/RetiredVoiceSettings.swift",
+                   "Packages/NovaServices/Tests/NovaServicesTests/RetiredVoiceSettingsTests.swift"}
+# Build output, generated projects and fetched model packs are not source; files over 2 MB are model data.
+RETIRED_SKIP_DIRS = {".build", ".swiftpm", "DerivedData", "xcuserdata", "SherpaModels"}
+RETIRED_MAX_BYTES = 2_000_000
 CORE_ALLOWED = {"Foundation", "Synchronization", "NovaKit", "NovaPorts", "NovaVoice", "NovaTools",
                 "NovaNav", "NovaAgent", "Testing", "XCTest"}
 
@@ -119,15 +123,19 @@ def imports_in(code: str) -> list[str]:
 
 
 def retired_name_failures(root: pathlib.Path) -> list[str]:
-    """Every file under App/ and Packages/ (not only Swift), build output skipped; file names count too."""
+    """Every file under App/ and Packages/ (not only Swift), build output and models skipped; paths count too.
+    The two allowed files are matched by their full path, so a file of the same name elsewhere still fails."""
     failures = []
     for d in ("App", "Packages"):
         for path in sorted((root / d).rglob("*")):
-            if ".build" in path.parts or not path.is_file() or path.name in RETIRED_ALLOWED:
-                continue
             rel = path.relative_to(root)
+            if (RETIRED_SKIP_DIRS & set(rel.parts) or any(p.endswith(".xcodeproj") for p in rel.parts)
+                    or not path.is_file() or rel.as_posix() in RETIRED_ALLOWED):
+                continue
             if RETIRED_NAME in str(rel).lower():
                 failures.append(f"{rel}: names Azure, which was removed (F-07 §17)")
+                continue
+            if path.stat().st_size > RETIRED_MAX_BYTES:
                 continue
             try:
                 text = path.read_bytes().decode("utf-8")

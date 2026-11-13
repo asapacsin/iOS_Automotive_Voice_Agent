@@ -365,7 +365,7 @@ Code can guarantee what is shown. It cannot guarantee what Gemini hears or write
    - The streaming Chinese model, the keyword spotter (stop phrases stay Chinese) and the speaker lock.
    - §6 (no tool reads the transcript).
    - Gemini's input transcript as the S3 fallback.
-   - Navigation guidance stays Chinese (F-14). The Qwen voice, when chosen, read whatever language she answers in.
+   - Navigation guidance stays Chinese (F-14). The Qwen voice, when chosen, reads whatever language she answers in.
 
 **Not verified.**
 - SenseVoice's decode time on the test phone; it must fit the 800 ms wait (row 9).

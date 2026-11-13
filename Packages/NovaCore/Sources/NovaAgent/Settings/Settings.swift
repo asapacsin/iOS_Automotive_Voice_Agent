@@ -47,6 +47,8 @@ public enum CredentialWipe {
         for key in CredentialKey.allCases {
             do { try credentials.remove(key) } catch { failed.append(key) }
         }
+        // F-07 §17 item 3: the removed TTS key too, in case the launch cleanup has not deleted it yet.
+        try? credentials.removeRetired(account: RetiredVoiceSettings.keychainAccount)
         settings.set(false, for: SettingsKey.geminiConsentAccepted)
         return failed
     }

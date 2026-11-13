@@ -77,4 +77,11 @@ struct RetiredVoiceSettingsTests {
         VoiceSourceMigration.run(moved)
         #expect(moved.string(SettingsKey.voiceSource) == "gemini")
     }
+
+    @Test("清除所有密钥 also deletes the removed TTS key")
+    func wipeRemovesRetired() {
+        let store = InMemoryCredentialStore([.geminiAPIKey: "g"], retiredAccounts: ["azure_speech_key"])
+        #expect(CredentialWipe.wipe(store, settings: defaults()).isEmpty)
+        #expect(store.retiredAccounts.isEmpty && store.storedKeys.isEmpty)
+    }
 }

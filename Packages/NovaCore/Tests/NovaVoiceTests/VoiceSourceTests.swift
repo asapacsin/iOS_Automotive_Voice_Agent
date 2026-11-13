@@ -58,6 +58,10 @@ struct VoiceSourceTests {
         #expect(ok.played == [0] && ok.failures.isEmpty && ok.calls == 2)
         #expect(ok.lines.count == 1 && ok.lines[0].attempt == 2 && ok.lines[0].source == .qwen && ok.lines[0].chars == 8)
 
+        // F-07 §17 row 22: a 千问 rate limit is retried once, as before.
+        let rate = await run([.failure(SpeechSynthesisError("QWEN_TTS_RATE")), .success(pcm)])
+        #expect(rate.played == [0] && rate.failures.isEmpty && rate.calls == 2)
+
         let both = await run([.failure(timeout), .failure(timeout), .success(pcm)])
         #expect(both.played.isEmpty && both.failures == ["QWEN_TTS_TIMEOUT"] && both.calls == 2 && both.lines.isEmpty)
 
