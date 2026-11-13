@@ -142,7 +142,7 @@ the tool (I-6) and applies at once, while a session runs or not.
    --short HEAD` when unset) into Info.plist key `NovaGitCommit`. 设置 shows 「版本 0.1.0 · <commit>」 as the last row of
    「状态」. The record header line becomes `app 0.1.0(1) <commit>` (`unknown` when the key is missing). `ComfortSummaryStore.build`
    uses the same commit instead of the binary's modification time.
-2. **Declared tools in the record.** At each setup the record writes `tools declared=<n> set_volume=<yes|no>` (names
+2. **Declared tools in the record.** The record header (once per session; the list does not change on reconnect) writes `tools declared=<n> set_volume=<yes|no>` (names
    and counts only, I-8), so a record shows whether the tool was offered.
 3. **Base prompt.** The strict list in the 【车辆与出行（严格）】 sentence gets 「音量」 right after 「音乐」. If the base goes
    over `maxBaseCharacters`, the cap rises by exactly the added characters and the cap test is updated with it.

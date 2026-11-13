@@ -36,6 +36,8 @@ targets:
       path: NovaDrive/Info.plist
       properties:
         UIFileSharingEnabled: true
+        # F-13a §10 item 1 (T-032i): the short commit, passed by codemagic.yaml; unset → 「unknown」 in 设置 and the record.
+        NovaGitCommit: $(NOVA_GIT_COMMIT)
         # F-23 / OQ-IOS-4: used only while a voice session or route guidance is active (review notes).
         # `location` is added with the CoreLocation provider; the demo route needs no background fix.
         UIBackgroundModes: [audio]

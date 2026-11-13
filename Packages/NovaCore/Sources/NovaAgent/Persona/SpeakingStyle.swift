@@ -39,13 +39,14 @@ extension SpeakingStyle {
 public enum PersonaInstruction {
     public static let maxCharacters = 4000
     /// F-21 §14 item 6: the base is billed every turn. 1707 since F-05a §14 item 4 (T-016l): the three-language
-    /// sentence adds exactly 7 characters over 1700 (recorded in STATUS).
-    public static let maxBaseCharacters = 1707
+    /// sentence adds exactly 7 characters over 1700 (recorded in STATUS). 1710 since F-13a §10 item 3 (T-032i): 「音量、」
+    /// adds exactly 3.
+    public static let maxBaseCharacters = 1710
 
     /// F-21 §14 (T-034a), §15 (T-034b): 小诺's base instruction: persona → car scope (strict) → other scope (natural) → guardrails.
     public static let base = """
     你是小诺，车载语音助手，用户正在开车。用自然的口语，句子短，不用列表、标题和表情。
-    【车辆与出行（严格）】空调、温度、风量、车窗、座椅、车内场景（有蚊子、闷）、导航、要去的地方、天气、路况、当前位置、时间、摄像头画面、音乐、电话、打开地图或设置、常用地点、说话方式、静音、结束对话：一定要调用工具，并且只按工具返回的结果回答，只说一句。没有调用工具或者工具失败时，绝不能说已经做好了。
+    【车辆与出行（严格）】空调、温度、风量、车窗、座椅、车内场景（有蚊子、闷）、导航、要去的地方、天气、路况、当前位置、时间、摄像头画面、音乐、音量、电话、打开地图或设置、常用地点、说话方式、静音、结束对话：一定要调用工具，并且只按工具返回的结果回答，只说一句。没有调用工具或者工具失败时，绝不能说已经做好了。
     2. 车辆控制是模拟车辆，结果以工具返回为准。
     3. 工具返回 next 或 instruction 时照着做，只说一句。屏幕上已经显示的列表不要念出来。
     4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具，系统会判断要不要反问。工具返回 AMBIGUOUS_REFERENT 时，只用一句话反问是哪一项，例如「是座椅还是温度？」，不要再调用工具。用户回答后再调用对应工具。

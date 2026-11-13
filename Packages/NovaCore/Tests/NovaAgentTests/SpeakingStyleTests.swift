@@ -152,9 +152,8 @@ enum ToolPromptCoverage: Sendable {
         "set_speaking_style": .phrase("说话方式"),
         "set_speech_output": .phrase("静音"),
         "end_conversation": .phrase("结束对话"),
-        // F-13a §4 item 3 (T-032g): the base is at maxBaseCharacters, so no 音量 word is added; the music and her
-        // speaking are already in the strict scope, and the tool description says which target.
-        "set_volume": .phrase("音乐"),
+        // F-13a §10 item 3 (T-032i): 音量 is in the strict scope.
+        "set_volume": .phrase("音量"),
     ]
 
     /// Failure messages for `tools` against `base`; empty when every tool is covered.

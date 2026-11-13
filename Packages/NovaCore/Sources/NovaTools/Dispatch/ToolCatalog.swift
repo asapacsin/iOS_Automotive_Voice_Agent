@@ -49,7 +49,7 @@ public enum ToolCatalog {
     /// fields). Not repeat-sensitive: two 「再大一点」 are two steps. Not a comfort tool (F-09a §3 item 2).
     public static let volumeSpec = ToolSpec(domain: "media", repeatSensitive: false, declaration: ToolDeclaration(
         name: "set_volume",
-        description: "调 app 自己的音量（0–10，不是手机音量）。target：media=音乐，voice=你说话的声音。「音乐/歌声音大一点」，或正在放音乐时「音量调大」「小声点」「静音」→media；「你说话大声点」「语音音量调小」「你声音太大了」→voice；没在放音乐时「音量调大」→voice。action：up/down 调一档，set 填 value，mute 静音，max 最大。只按返回的 announce 说一句。",
+        description: "司机说音量、声音大小、大声、小声、静音、最大声时一定调用。调 app 里的音量（app 里的 0–10 档）。target：media=音乐，voice=你说话的声音。「音乐/歌声音大一点」，或正在放音乐时「音量调大」「小声点」「静音」→media；「你说话大声点」「语音音量调小」「你声音太大了」→voice；没在放音乐时「音量调大」→voice。action：up/down 调一档，set 填 value，mute 静音，max 最大。只按返回的 announce 说一句。",
         parametersJSONSchema: [
             "type": "object",
             "properties": [

@@ -136,10 +136,15 @@ final class ComfortEvalModel: ObservableObject {
 enum ComfortSummaryStore {
     static var build: String {
         let info = Bundle.main.infoDictionary
-        // Dev builds keep the version numbers, so the binary's build time tells code changes apart.
+        // F-13a §10 item 1 (T-032i): the build's commit tells code changes apart (every build reads 0.1.0(1)).
+        let raw = info?[BuildStamp.infoKey] as? String
+        let stamp = BuildStamp.appVersion(short: info?["CFBundleShortVersionString"] as? String,
+                                          build: info?["CFBundleVersion"] as? String, commit: raw)
+        guard BuildStamp.commit(raw) == "unknown" else { return stamp }
+        // No commit (a local build): the binary's build time still tells code changes apart, as before.
         let built = (Bundle.main.executablePath.flatMap { try? FileManager.default.attributesOfItem(atPath: $0)[.modificationDate] }
                      as? Date).map { Int($0.timeIntervalSince1970) } ?? 0
-        return "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))-\(built)"
+        return "\(stamp)-\(built)"
     }
 
     private static func url(_ mode: ToolCatalog.ComfortMode) -> URL? {

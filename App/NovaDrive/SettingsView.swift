@@ -213,6 +213,11 @@ struct SettingsView: View {
             statusRow("她的声音", ready.voice)
             statusRow("高德 Web key", ready.amapWebKey)
             statusRow("视觉 key", ready.vision)
+            // F-13a §10 item 1 (T-032i): which build is installed.
+            let info = Bundle.main.infoDictionary
+            Text(BuildStamp.settingsLabel(short: info?["CFBundleShortVersionString"] as? String,
+                                          commit: info?[BuildStamp.infoKey] as? String))
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 

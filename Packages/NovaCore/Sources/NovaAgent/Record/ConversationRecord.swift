@@ -92,10 +92,13 @@ public struct RecordHeader: Sendable, Hashable {
     public let searchKey: Bool?
     /// F-01 §14 item 12 (T-060a): `wake` or `tap`; nil writes no line.
     public let startedBy: String?
+    /// F-13a §10 item 2 (T-032i): the tool names declared to Gemini; nil writes no line. Names and counts only (I-8).
+    public let declaredTools: [String]?
 
     public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false,
-                searchKey: Bool? = nil, startedBy: String? = nil) {
+                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil) {
         self.startedBy = startedBy
+        self.declaredTools = declaredTools
         self.webSearch = webSearch
         self.searchKey = searchKey
         self.appVersion = appVersion
@@ -109,6 +112,30 @@ public struct RecordHeader: Sendable, Hashable {
          "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
             + (searchKey.map { ["searchKey \($0 ? "saved" : "missing")"] } ?? [])
             + (startedBy.map { ["startedBy \($0)"] } ?? [])
+            + (declaredTools.map { ["tools declared=\($0.count) set_volume=\($0.contains("set_volume") ? "yes" : "no")"] } ?? [])
+    }
+}
+
+/// F-13a §10 item 1 (T-032i): which build is installed. Every build reads `0.1.0(1)`, so the commit tells them apart.
+public enum BuildStamp {
+    /// The Info.plist key the build writes the short commit into.
+    public static let infoKey = "NovaGitCommit"
+
+    /// The first 7 characters of the commit; `unknown` when missing, empty or an unexpanded build setting.
+    public static func commit(_ raw: String?) -> String {
+        let value = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.allSatisfy({ $0.isHexDigit }) else { return "unknown" }
+        return String(value.prefix(7)).lowercased()
+    }
+
+    /// The record header's `app` value: `0.1.0(1) b305c60`.
+    public static func appVersion(short: String?, build: String?, commit raw: String?) -> String {
+        "\(short ?? "?")(\(build ?? "?")) \(commit(raw))"
+    }
+
+    /// 设置's last 状态 row: 「版本 0.1.0 · b305c60」.
+    public static func settingsLabel(short: String?, commit raw: String?) -> String {
+        "版本 \(short ?? "?") · \(commit(raw))"
     }
 }
 

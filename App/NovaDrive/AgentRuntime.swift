@@ -957,10 +957,14 @@ final class AgentRuntime {
         let searchKeySaved = ((try? KeychainCredentialStore().value(for: .qwenAPIKey)) ?? nil)?.isEmpty == false
         if webSearch { RuntimeLog.agent.notice("webSearch on key=\(searchKeySaved ? "saved" : "missing", privacy: .public)") }
         let record = recordFile == nil ? nil : ConversationRecord.make(enabled: true, header: RecordHeader(
-            appVersion: "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))",
+            // F-13a §10 items 1-2 (T-032i): the build's commit, and the tools this session declares to Gemini.
+            appVersion: BuildStamp.appVersion(short: info?["CFBundleShortVersionString"] as? String,
+                                              build: info?["CFBundleVersion"] as? String,
+                                              commit: info?[BuildStamp.infoKey] as? String),
             comfortMode: comfortMode.rawValue, interruptible: DriveSettings.isInterruptible(),
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
-            searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy))
+            searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy,
+            declaredTools: ToolCatalog.declarations(for: comfortMode, webSearch: webSearch).map(\.name)))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         voiceLines.record = record
         sessionRecord = record
