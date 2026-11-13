@@ -2629,6 +2629,27 @@
           "device": "F-18 §29 rows 9-10 NOT_VERIFIED"
         }
       ]
+    },
+    {
+      "id": "T-046s",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §30 items 1-6: TCPHTTPTransport (NWConnection TCP+TLS, HTTP/1.1 GET, Connection: close, read to close) as OpenMeteoClient's default for geocoding and forecast; HTTP1Response.parse (Content-Length, chunked, to close); one retry on timeout or connection failure, not on non-200; WeatherSourceLog attempts= ms=; ConversationRecord .weather line from onWeather; F-18 §30 rows 1-9.",
+      "depends_on": [
+        "T-046r"
+      ],
+      "notes": "Device 2026-11-13: every Open-Meteo weather call failed (records 125926, 130250, 131201, 131842; Tokyo x6, Macau x1). Live log 13:25: forecast C42/C43 quic-connection, stalled at read_server_hello, -1001 after 4001 ms with 0 bytes; geocoding C41 over QUIC ok in 1.8 s; PC over TCP ok. URLSessionTransport is already ephemeral. Apple DTS (forum 796780): no good way to disable QUIC for one URLSession. Owner: \"well then write the spec\".",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green at 48cffc6 in a clean worktree (spec-trace 120 ids 0 missing; imports, runners PASS); NovaServices 80 tests incl. OpenMeteoTCPTests rows 1-5; NovaNav WeatherAttemptsTests + NovaAgent WeatherRecordTests row 6. TCPHTTPFetcher (NovaPlatform) and App not compiled on Linux: row 7 NOT_VERIFIED until Codemagic; rows 8-9 device NOT_VERIFIED"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "round 1 FAIL (chunk-size overflow crash; deviation unrecorded) fixed in 48cffc6; round 2 PASS. Deviation: NWConnection code in NovaPlatform (check_imports allows Network only there), injected by AgentRuntime; owner sign-off on §30 wording pending"
+        }
+      ]
     }
   ]
 }

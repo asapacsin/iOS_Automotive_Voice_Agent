@@ -67,12 +67,16 @@ public struct LiveInfoExecutor: ToolExecutor {
     /// everything else come from Open-Meteo.
     private func weatherReport(_ args: JSONValue) async -> ToolResult {
         // §29 item 4: every weather line of this call carries how the place was found.
-        await Self.$trace.withValue(WeatherTrace()) { await weatherCall(args) }
+        // §30 item 5: the attempts of the last Open-Meteo request and the call's total time go on the line too.
+        await Self.$trace.withValue(WeatherTrace()) {
+            await ForecastAttempts.$current.withValue(ForecastAttempts()) { await weatherCall(args) }
+        }
     }
 
     /// F-18 §29 item 4 (T-046r): `lookup=` for the call's log lines.
     final class WeatherTrace: @unchecked Sendable {
         var lookup = "amap"
+        let started = ContinuousClock.now
     }
     @TaskLocal static var trace: WeatherTrace?
 
@@ -362,7 +366,11 @@ public struct LiveInfoExecutor: ToolExecutor {
     }
 
     private func report(_ source: String, ok: Bool, reason: String, view: String) {
-        onWeather(WeatherSourceLog(source: source, ok: ok, reason: reason, view: view, lookup: Self.trace?.lookup ?? "amap"))
+        let elapsed = Self.trace.map { ContinuousClock.now - $0.started }
+        let ms = elapsed.map { Int($0.components.seconds) * 1000 + Int($0.components.attoseconds / 1_000_000_000_000_000) } ?? 0
+        let tried = source == "open-meteo" ? max(1, ForecastAttempts.current?.last ?? 1) : 1
+        onWeather(WeatherSourceLog(source: source, ok: ok, reason: reason, view: view, lookup: Self.trace?.lookup ?? "amap",
+                                   attempts: tried, ms: ms))
     }
 
     static func reason(_ error: any Error) -> String {

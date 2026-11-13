@@ -274,7 +274,9 @@ struct ForecastWeatherTests {
         #expect(lines.count == 7)
         #expect(lines.contains { $0.hasPrefix("weather source=open-meteo ok=yes reason=ok view=day lookup=") } && lines.contains { $0.hasPrefix("weather source=amap ok=yes reason=ok view=day lookup=") })
         for line in lines {
-            #expect(line.hasPrefix("weather source=") && !line.contains(where: \.isNumber), "\(line)")
+            // §30 item 5: only `attempts=` and `ms=` carry numbers.
+            let codes = line.components(separatedBy: " attempts=")[0]
+            #expect(line.hasPrefix("weather source=") && !codes.contains(where: \.isNumber), "\(line)")
             for word in ["Oslo", "奥斯陆", "珠海", "厦门", "湖里", "Sendai", "挪威", "11月"] { #expect(!line.contains(word)) }
         }
     }

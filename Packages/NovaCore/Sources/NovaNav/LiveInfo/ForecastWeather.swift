@@ -271,8 +271,9 @@ public enum ForecastWeather {
     public static func words(_ code: Int?) -> String { code.flatMap { wmo[$0] } ?? "未知" }
 }
 
-/// F-18 §26 item 11: what `RuntimeLog` gets: `weather source=<amap|open-meteo> ok=<yes|no> reason=<…>`. No place
-/// names, dates or coordinates (I-8).
+/// F-18 §26 item 11, §30 item 5: what `RuntimeLog` and the record get:
+/// `weather source=<amap|open-meteo> ok=<yes|no> reason=<…> view= lookup= attempts= ms=`. No place names, dates,
+/// coordinates or weather numbers (I-8).
 public struct WeatherSourceLog: Sendable, Hashable {
     public let source: String
     public let ok: Bool
@@ -281,8 +282,14 @@ public struct WeatherSourceLog: Sendable, Hashable {
     public let view: String
     /// §29 item 4: how the place was found, `amap` or `open-meteo`.
     public let lookup: String
+    /// §30 item 5: attempts of the last request (Open-Meteo 1 or 2, 高德 1) and the weather call's total ms.
+    public let attempts: Int
+    public let ms: Int
 
-    public init(source: String, ok: Bool, reason: String, view: String = "day", lookup: String = "amap") {
+    public init(source: String, ok: Bool, reason: String, view: String = "day", lookup: String = "amap",
+                attempts: Int = 1, ms: Int = 0) {
+        self.attempts = attempts
+        self.ms = ms
         self.source = source
         self.ok = ok
         self.reason = reason
@@ -291,6 +298,6 @@ public struct WeatherSourceLog: Sendable, Hashable {
     }
 
     public var line: String {
-        "weather source=\(source) ok=\(ok ? "yes" : "no") reason=\(reason) view=\(view) lookup=\(lookup)"
+        "weather source=\(source) ok=\(ok ? "yes" : "no") reason=\(reason) view=\(view) lookup=\(lookup) attempts=\(attempts) ms=\(ms)"
     }
 }

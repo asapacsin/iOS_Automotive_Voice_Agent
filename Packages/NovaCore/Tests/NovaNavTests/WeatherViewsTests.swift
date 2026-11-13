@@ -202,7 +202,8 @@ struct WeatherViewsTests {
         _ = await ex.execute(weatherCall(["where": "Oslo", "country": "NO"]))
         let (hours, _, _) = hoursSetup(log: log)
         _ = await hours.execute(weatherCall(["where": "Oslo", "country": "NO", "part": "afternoon"]))
-        let lines = log.lines.withLock { $0.map(\.line) }
+        // §30 item 5: only `attempts=` and `ms=` carry numbers, so the check reads the codes before them.
+        let lines = log.lines.withLock { $0.map { $0.line.components(separatedBy: " attempts=")[0] } }
         #expect(lines.contains { $0.hasPrefix("weather source=amap ok=yes reason=ok view=now lookup=") })
         #expect(lines.contains { $0.hasPrefix("weather source=amap ok=yes reason=ok view=day lookup=") })
         #expect(lines.contains { $0.hasPrefix("weather source=open-meteo ok=yes reason=ok view=now lookup=") })
