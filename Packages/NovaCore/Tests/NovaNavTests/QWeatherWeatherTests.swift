@@ -9,7 +9,7 @@ import NovaTools
 /// 2026-11-13 14:20 UTC.
 let placeNov13 = Date(timeIntervalSince1970: 1_794_579_600)
 let tokyoQW = LookedUpPlace(name: "东京", country: "日本", coordinate: GeoCoordinate(latitude: 35.6895, longitude: 139.6917, datum: .wgs84))
-let macauQW = LookedUpPlace(name: "澳门", country: "中国", coordinate: GeoCoordinate(latitude: 22.1987, longitude: 113.5439, datum: .wgs84))
+let macauQW = LookedUpPlace(name: "澳门", country: "澳门", coordinate: GeoCoordinate(latitude: 22.1987, longitude: 113.5439, datum: .wgs84))
 
 /// Hourly 和风 entries from `first` 00:00 for 2 days; hour h: 小雨 after 15:00 else 多云, 10.4+h °C, rain 10·(h % 10) %.
 func qweatherHours(from first: String = "2026-11-13") -> [HourlyForecast] {
@@ -89,7 +89,7 @@ struct QWeatherWeatherTests {
         #expect(amap.asked.withLock { $0.isEmpty } && foreign.asked.withLock { $0.isEmpty } && forecast.asked.withLock { $0.isEmpty })
         qw.places = [macauQW]
         let m = await ex.execute(weatherCall(["where": "Macau"]))
-        #expect(m.ok && m.data["weather"]?["place"] == "澳门" && m.data["weather"]?["country"] == nil)
+        #expect(m.ok && m.data["weather"]?["place"] == "澳门" && m.data["weather"]?["country"] == "澳门")
         #expect(qw.lookups.withLock { $0.last } == "Macau|")
         // 澳门 with country MO: named 澳门, reason hkmo.
         let mo = await ex.execute(weatherCall(["where": "澳门", "country": "MO"]))

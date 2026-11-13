@@ -45,12 +45,22 @@ public final class QWeatherClient: ViewForecastService, @unchecked Sendable {
         let body = try Self.json(await get("/geo/v2/city/lookup", items, lookup: true), lookup: true)
         let found: [LookedUpPlace] = ((body["location"] as? [[String: Any]]) ?? []).compactMap { r in
             guard let name = r["name"] as? String, let lat = Self.number(r["lat"]), let lon = Self.number(r["lon"]) else { return nil }
-            return LookedUpPlace(name: name, country: r["country"] as? String,
+            return LookedUpPlace(name: name, country: Self.country(r),
                                  coordinate: GeoCoordinate(latitude: lat, longitude: lon, datum: .wgs84))
         }
         guard !found.isEmpty else { throw QWeatherError.notFound }
         lock.withLock { places[cacheKey] = found }
         return found
+    }
+
+    /// 和风 lists 香港 and 澳门 under country 中国; `adm1` (or the id prefix 10132/10133) names them (§29 item 1).
+    static func country(_ r: [String: Any]) -> String? {
+        let country = r["country"] as? String
+        guard country == "中国" else { return country }
+        let adm1 = r["adm1"] as? String ?? "", id = r["id"] as? String ?? ""
+        if adm1.hasPrefix("香港") || id.hasPrefix("10132") { return "香港" }
+        if adm1.hasPrefix("澳门") || id.hasPrefix("10133") { return "澳门" }
+        return country
     }
 
     // MARK: Weather (§31 item 3)
@@ -61,18 +71,27 @@ public final class QWeatherClient: ViewForecastService, @unchecked Sendable {
         switch request {
         case .now:
             // §28 item 2: sent at the same time; a failed daily request leaves `today` out.
+            let dailyItems = [URLQueryItem(name: "days", value: "1")] + common
             async let current = get("/weather/v1/current" + at, common)
-            async let daily = get("/weather/v1/daily" + at, [URLQueryItem(name: "days", value: "1")] + common)
+            async let daily = get("/weather/v1/daily" + at, dailyItems)
             let today = try? await daily
-            let reading = try Self.current(Self.json(await current))
+            let currentBody = try await current
+            let reading = try Self.current(Self.json(currentBody))
+            keep("/weather/v1/current" + at, common, currentBody)
             let days = today.flatMap { try? Self.days(Self.json($0)) } ?? []
+            if let today, !days.isEmpty { keep("/weather/v1/daily" + at, dailyItems, today) }
             return DailyForecast(days: days, current: reading)
         case .day:
-            let body = try Self.json(await get("/weather/v1/daily" + at, [URLQueryItem(name: "days", value: "10")] + common))
-            return DailyForecast(days: try Self.days(body))
+            let items = [URLQueryItem(name: "days", value: "10")] + common
+            let data = try await get("/weather/v1/daily" + at, items)
+            let days = try Self.days(Self.json(data))
+            keep("/weather/v1/daily" + at, items, data)
+            return DailyForecast(days: days)
         case .hours:
-            let body = try Self.json(await get("/weather/v1/hourly" + at, [URLQueryItem(name: "hours", value: "240")] + common))
-            let (hours, offset) = try Self.hours(body)
+            let items = [URLQueryItem(name: "hours", value: "240")] + common
+            let data = try await get("/weather/v1/hourly" + at, items)
+            let (hours, offset) = try Self.hours(Self.json(data))
+            keep("/weather/v1/hourly" + at, items, data)
             return DailyForecast(days: [], hours: hours, utcOffsetSeconds: offset)
         }
     }
@@ -110,7 +129,7 @@ public final class QWeatherClient: ViewForecastService, @unchecked Sendable {
     }
 
     static func days(_ body: [String: Any]) throws -> [DailyForecastDay] {
-        guard let days = body["days"] as? [[String: Any]] else { throw QWeatherError.parse }
+        guard let days = body["days"] as? [[String: Any]], !days.isEmpty else { throw QWeatherError.parse }
         return try days.map { d in
             guard let start = d["forecastStartTime"] as? String, start.count >= 10 else { throw QWeatherError.parse }
             let day = d["daytime"] as? [String: Any], night = d["nighttime"] as? [String: Any]
@@ -126,7 +145,7 @@ public final class QWeatherClient: ViewForecastService, @unchecked Sendable {
     }
 
     static func hours(_ body: [String: Any]) throws -> ([HourlyForecast], Int?) {
-        guard let hours = body["hours"] as? [[String: Any]] else { throw QWeatherError.parse }
+        guard let hours = body["hours"] as? [[String: Any]], !hours.isEmpty else { throw QWeatherError.parse }
         var offset: Int?
         let list = try hours.map { h in
             guard let time = h["forecastTime"] as? String, time.count >= 16 else { throw QWeatherError.parse }
@@ -178,8 +197,28 @@ public final class QWeatherClient: ViewForecastService, @unchecked Sendable {
         if lookup && response.status == 400 { throw QWeatherError.notFound }
         guard response.status == 200 else { throw QWeatherError.http(response.status) }
         _ = try Self.json(response.body, lookup: lookup)
-        if !lookup { lock.withLock { answers[cacheKey] = (now(), response.body) } }
         return response.body
+    }
+
+    /// I-3: only an answer whose content parsed is kept; expired entries are dropped.
+    private func keep(_ path: String, _ items: [URLQueryItem], _ body: Data) {
+        guard let url = url(path, items) else { return }
+        let at = now()
+        lock.withLock {
+            answers = answers.filter { at.timeIntervalSince($0.value.at) < Self.weatherTTL }
+            // A reused answer keeps its first time, so it still expires 10 minutes after it was fetched.
+            if answers[url.absoluteString] == nil { answers[url.absoluteString] = (at, body) }
+        }
+    }
+
+    private func url(_ path: String, _ items: [URLQueryItem]) -> URL? {
+        guard let host = host().map(QWeatherHostName.normalized), !host.isEmpty else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = host
+        components.path = path
+        components.queryItems = items
+        return components.url
     }
 
     /// The answer as a JSON object; a lookup `code` other than "200" is not-found (400/404) or `http`.

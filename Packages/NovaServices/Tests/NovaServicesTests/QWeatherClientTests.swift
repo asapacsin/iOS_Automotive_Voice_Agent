@@ -147,4 +147,21 @@ struct QWeatherClientTests {
         _ = try await c.forecast(latitude: 1, longitude: 2, request: .day)
         #expect(t.urls.withLock { $0.count } == 2)
     }
+
+    @Test("T-046t F-18 §31 review: 澳门/香港 under country 中国 are named from adm1 or id; empty days are a parse failure, not cached")
+    func hkmoAndEmpty() async throws {
+        let mo = #"{"code":"200","location":[{"name":"澳门","id":"101330101","lat":"22.19","lon":"113.54","adm1":"澳门","country":"中国"}]}"#
+        let hk = #"{"code":"200","location":[{"name":"香港","id":"101320101","lat":"22.28","lon":"114.17","adm1":"香港特别行政区","country":"中国"}]}"#
+        let zh = #"{"code":"200","location":[{"name":"珠海","id":"101280701","lat":"22.27","lon":"113.58","adm1":"广东省","country":"中国"}]}"#
+        for (body, want) in [(mo, "澳门"), (hk, "香港"), (zh, "中国")] {
+            let found = try await client(QWeatherTransport(["/lookup": (200, body)])).lookUp("x", country: nil)
+            #expect(found.first?.country == want)
+        }
+        let t = QWeatherTransport(["/daily/": (200, #"{"days":[]}"#)])
+        let c = client(t)
+        for _ in 0..<2 {
+            await #expect(throws: QWeatherError.parse) { try await c.forecast(latitude: 1, longitude: 2, request: .day) }
+        }
+        #expect(t.urls.withLock { $0.count } == 2)
+    }
 }

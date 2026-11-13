@@ -112,9 +112,14 @@ public struct LiveInfoExecutor: ToolExecutor {
             guard let destination = await navigation.current.destination else {
                 return .failure(.noDestination, advice: "现在没有导航目的地。请如实说明。")
             }
-            let adcode = try? await geocoder?.adcode(at: destination.coordinate)
+            // As before §31: a regeo key error is a key failure; no adcode is "the destination was not found".
+            let noDestination = ToolResult.failure(.noLocation, advice: "目的地的位置没有查到。请如实说明。")
+            guard let geocoder else { return noDestination }
+            let adcode: String?
+            do { adcode = try await geocoder.adcode(at: destination.coordinate) } catch { return Self.failure(error) }
+            guard let adcode else { return noDestination }
             coordinate = destination.coordinate
-            country = ForecastWeather.hongKongOrMacau(adcode: adcode ?? nil)
+            country = ForecastWeather.hongKongOrMacau(adcode: adcode)
             place = destination.name
         default:
             let abroad = parsed.country.map { $0 != "CN" } ?? !ForecastWeather.hasHan(parsed.where)
@@ -131,6 +136,7 @@ public struct LiveInfoExecutor: ToolExecutor {
                           let at = found.coordinate else { throw QWeatherError.notFound }
                     coordinate = at
                     place = found.name
+                    // The client names 香港/澳门 from adm1 (§29 item 1); other places in 中国 carry no country.
                     country = ForecastWeather.hongKongOrMacau(countryCode: parsed.country)
                         ?? (found.country == "中国" ? nil : found.country ?? parsed.country)
                 } catch QWeatherError.notFound {

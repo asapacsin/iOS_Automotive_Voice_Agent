@@ -549,6 +549,7 @@ This section changes §16 item 9, §17 item 3 (model and system text), §19 item
    - `AmapWebClient.weather` takes a day offset of 0–3 and picks the `casts` entry whose `date` equals the phone's date plus that offset, not by position.
    - The result carries `date` as `yyyy-MM-dd`, so she can say the date.
    - No matching cast: `LIVE_INFO_UNAVAILABLE` with the advice 「高德没有这一天的预报，请用 web_search 查。」
+     *Superseded by §31 (T-046t):* the advice is now 「天气没有查到。请如实说明，不要编造。」.
 3. **Place details fall back to search.** When 高德 returns no opening hours, the failure advice says to use `web_search` with the place name.
 4. **Not changed.** `current_time`, `current_location`, `route_traffic`, `along_route`, and everything with search off. Search off keeps today's behaviour, apart from the longer `day` list.
 
@@ -1103,6 +1104,7 @@ The code already uses an ephemeral `URLSession` (`URLSessionTransport`), and QUI
 
    - The place's today is the date of `days[0].forecastStartTime`, as §26 item 5 used `time[0]`. `day` offsets count from it.
    - Temperatures are rounded to whole degrees. Any `unit` other than °C or km/h is a parse failure (item 5).
+     *Implementation note (T-046t, 2026-11-13):* 和风's v1 pages give wind in m/s, so m/s is accepted and converted ×3.6 to km/h; precipitation must be mm. An answer with an empty `days`/`hours` list is a parse failure. Only answers whose content parsed are cached (I-3). The current answer has no update time, so `now.time` is left out. 和风 lists 香港/澳门 under country 中国; the client names them from `adm1` (or id prefix 10132/10133). Device check: whether `range=hk`/`mo` is accepted.
    - Weather words are 和风's own `condition.text` in Chinese. The §26 item 7 WMO table stays for the Open-Meteo fallback only.
    - `source` is `qweather`. All other result fields, and every `next` and advice text of §26 and §28, are unchanged.
 4. **10 days, not 16.**
