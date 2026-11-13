@@ -965,3 +965,80 @@ In the code at 39f8d76, `AmapWebClient.weather` throws `AmapWebError.failed` whe
 | Task | Scope | Verify |
 |---|---|---|
 | T-046r | Items 1–5; rows 1–10 | unit, build, D |
+
+## 30. Open-Meteo requests go over TCP, never QUIC (iOS, APPROVED 2026-11-13)
+
+**Why.** All Open-Meteo weather on 2026-11-13 failed. Records 20261113-125926, -130250, -131201 and -131842 show 6 Tokyo calls and 1 Macau call, all `LIVE_INFO_UNAVAILABLE` after 4.0–7.7 s. 高德 calls in the same sessions all worked.
+
+The phone's live log during the owner's 「东京天气」 test (13:25) shows:
+- **Geocoding works over QUIC.** C41 to `geocoding-api.open-meteo.com` is `quic-connection` and answered in 1.8 s.
+- **The forecast fails over QUIC, twice.**
+  - C42 to `api.open-meteo.com` is `quic-connection`. TLS stalls at `read_server_hello`, then `-1001` (timed out) after 4001 ms with 0 bytes, then `weather source=open-meteo ok=no reason=timeout`.
+  - The second ask, C43, fails the same way.
+- **No TCP fallback.** In the same log, the TCP connections are labelled `tcp, tls`. The phone never tried TCP to Open-Meteo.
+
+The same forecast URL works from the PC over TCP (HTTP/1.1), with rate limit 599/600 left.
+
+So the forecast request is sent over HTTP/3 (QUIC, UDP 443), and UDP from the phone's network to Open-Meteo's server (157.90.83.168) gets no answer. Not proven:
+- why iOS chose QUIC for this host;
+- where the UDP is lost (the phone's VPN app, its direct rule, or the network);
+- why it started on this date.
+
+The code already uses an ephemeral `URLSession` (`URLSessionTransport`), and QUIC was still chosen.
+
+**Sources (2026-11-13).**
+- **Apple DTS, Developer Forums thread 796780:** "There's not a good way to disable QUIC for a specific `URLSession`." Thread 808311, about QUIC broken by ISPs and routers, has no Apple workaround.
+- **Apple Developer Forums thread 748420:** CFNetwork learns that a server supports HTTP/3 and then uses it.
+- **No public setting.** There is no `URLSessionConfiguration` or `URLRequest` setting that turns HTTP/3 off. `assumesHTTP3Capable` only turns it on.
+- **Network framework.** An `NWConnection` made with `NWParameters(tls:tcp:)` is TCP plus TLS, so QUIC is not possible on it.
+
+**Rule in plain words.** Open-Meteo is reached over a plain TCP and TLS connection that the app opens itself, never through `URLSession`, so QUIC cannot be chosen. A timeout or connection failure is tried once more on a new connection. The weather line (source, ok, reason, attempts, time) goes into the record, not only the phone log.
+
+1. **A TCP-only transport.**
+   - New `TCPHTTPTransport: HTTPTransport` in `Packages/NovaServices` (`#if canImport(Network)`; elsewhere `OpenMeteoClient` keeps `URLSessionTransport`).
+   - Each request opens one `NWConnection(host:port: 443, using: NWParameters(tls: NWProtocolTLS.Options(), tcp: NWProtocolTCP.Options()))`. TLS uses the system trust and SNI for the host. The connection follows the phone's normal routing, VPN included.
+   - It sends one HTTP/1.1 `GET <path>?<query>` with these headers:
+     - `Host`
+     - `Accept: application/json`
+     - `Accept-Encoding: identity`
+     - `Connection: close`
+     - `User-Agent: NovaDrive`
+   - It reads until the server closes the connection, then cancels the connection.
+   - `request.timeoutInterval` covers connect, TLS, send and the whole read. When it runs out, the connection is cancelled and `URLError(.timedOut)` is thrown. A connection or TLS failure throws `URLError(.cannotConnectToHost)`.
+2. **Reading the answer.**
+   - A pure function `HTTP1Response.parse(Data) -> (status: Int, body: Data)?` lives in NovaServices with no Network import, so it can be unit-tested on Linux.
+   - It reads the status line and headers. The body comes from `Content-Length`, or from `Transfer-Encoding: chunked`, or else is everything up to the close.
+   - Malformed data returns nil, and nil becomes `ForecastError.failed`.
+3. **Both Open-Meteo hosts.** `OpenMeteoClient`'s default transport becomes `TCPHTTPTransport` for geocoding and for the forecast. 高德, Qwen, Gemini and every other client are unchanged.
+4. **One retry.**
+   - In `OpenMeteoClient.get`, a timeout or connection failure is tried once more on a new connection, with the same 4 s limit. That makes at most 2 attempts and about 8 s.
+   - An HTTP status other than 200, or a body that can't be read, is not retried.
+   - The result reports how many attempts were made (1 or 2) and the total milliseconds.
+5. **The record gets the weather line.**
+   - `WeatherSourceLog` gains `attempts` and `ms`. Its line becomes `weather source= ok= reason= view= lookup= attempts= ms=`.
+   - `ConversationRecord` gains `case weather(String)`. `AgentRuntime`'s `onWeather` sends the line to `RuntimeLog` (as now) and to the record.
+   - For 高德, `attempts=1` and `ms` is the 高德 time.
+   - Still no place names, dates, coordinates or weather numbers (I-8).
+6. **Not changed:** §26–§29 paths, views, texts and advice, the 16-day window, the 10-minute weather cache, and §26 item 4's 4 s limit per attempt.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | `TCPHTTPTransport` request bytes for a forecast URL | `GET /v1/forecast?… HTTP/1.1`, `Host: api.open-meteo.com`, `Accept-Encoding: identity`, `Connection: close`; nothing else from the URL is lost | unit |
+| 2 | `HTTP1Response.parse` with `Content-Length`; with `chunked`; with neither (read to close); status 503; truncated headers | Body and 200; body and 200; body and 200; 503; nil | unit |
+| 3 | Fake transport: 1st `URLError(.timedOut)`, 2nd 200 | Forecast returned; 2 sends; `attempts=2` | unit |
+| 4 | Fake transport: 2 timeouts | `ForecastError.timeout`; exactly 2 sends | unit |
+| 5 | Fake transport: `cannotConnectToHost` then 200; status 500 | Success after 2 sends; `ForecastError.failed` after 1 send | unit |
+| 6 | Weather call that ends in Open-Meteo; one that ends in 高德 | Record has a `weather` line with `source ok reason view lookup attempts ms`; no place name, date, coordinate or temperature | unit |
+| 7 | App build with `TCPHTTPTransport` as `OpenMeteoClient`'s default | Compiles (Codemagic) | build |
+| 8 | Device: 「东京天气」 with the live log on | Connections to Open-Meteo are `tcp, tls`; no `quic-connection` to either Open-Meteo host; answered with Tokyo's weather | D |
+| 9 | Device: 「东京明天天气」, 「澳门现在几度」, 「上海后天天气」 | All answered; record `weather` lines `ok=yes`; 上海 `source=amap` | D |
+
+**Trace gate.** Add `T-046s: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046s.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046s | Items 1–6; rows 1–9 | unit, build, D |
