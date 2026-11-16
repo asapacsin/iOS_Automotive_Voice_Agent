@@ -59,3 +59,46 @@ struct EarlyBargeInAmendmentTests {
         #expect(hold.earlyThreshold == 0.5)
     }
 }
+
+@Suite("T-013l F-04b §17 amendment: a closed stop step waits for the whole verdict")
+struct EarlyBargeInClosedStopTests {
+    static let closed: [UplinkGateOutput] = [.speechStarted(sentToModel: true), .audio(PCMFrame16k(samples: [Int16(7)] + Array(repeating: 0, count: 159))!),
+                                             .speechStopped(.normal), .streamEnd]
+
+    @Test("T-013l review: early rejected, empty queue, then the stop decided after the gate closed: nothing goes up until the whole verdict; rejected → not sent")
+    func rejectedClosedStop() {
+        var actions = SpeakerActionHold()
+        _ = actions.step(live([.dip(true)]), verdict: .pending, utterance: 1)
+        _ = actions.early(.rejected, utterance: 1)
+        var stop = live([.stop], Self.closed)
+        stop.adopt = false
+        let now = actions.step(stop, verdict: .pending, utterance: 1)
+        #expect(now.outputs.isEmpty && !now.actions.contains(.stop))
+        let final = actions.decided([.rejected], utterances: [1])
+        #expect(audio(final.outputs).isEmpty && final.outputs.contains(.speechStarted(sentToModel: false)))
+    }
+
+    @Test("T-013l review: early accepted, empty queue, then a closed stop step: the stop acts now, its words wait for the whole verdict (row 62)")
+    func acceptedClosedStop() {
+        var actions = SpeakerActionHold()
+        _ = actions.step(live([.dip(true)]), verdict: .pending, utterance: 1)
+        _ = actions.early(.accepted, utterance: 1)
+        let now = actions.step(live([.stop], Self.closed), verdict: .pending, utterance: 1)
+        #expect(now.actions == [.stop] && now.outputs.isEmpty)
+        let final = actions.decided([.accepted], utterances: [1])
+        #expect(audio(final.outputs) == [7])
+    }
+
+    @Test("T-013l review: the open utterance's verdict does not release an older utterance's waiting steps")
+    func olderUtteranceKept() {
+        var actions = SpeakerActionHold()
+        _ = actions.step(live([.stop], [.audio(PCMFrame16k(samples: [Int16(1)] + Array(repeating: 0, count: 159))!)], adopt: true),
+                         verdict: .pending, utterance: 1)
+        let open = actions.step(live([], [.audio(PCMFrame16k(samples: [Int16(2)] + Array(repeating: 0, count: 159))!)]),
+                                verdict: .accepted, utterance: 2)
+        #expect(audio(open.outputs) == [2])
+        #expect(actions.holding)
+        let older = actions.decided([.rejected], utterances: [1])
+        #expect(audio(older.outputs).isEmpty && !older.adopt)
+    }
+}

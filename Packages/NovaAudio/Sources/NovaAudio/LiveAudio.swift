@@ -157,7 +157,7 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
 
     /// The engine and the player nodes running again after a configuration change or an interruption.
     private func startEngine() {
-        try? engine.start()
+        do { try engine.start() } catch { audioLine("audio engine-start-failed") }
         reply.play()
         guidance.play()
         cue.play()
@@ -170,14 +170,18 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
               let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
         switch type {
         case .began:
-            guard let line = lock.withLock({ running ? mic.began() : nil }) else { return }
+            let reason = (note.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt)
+                .flatMap(AVAudioSession.InterruptionReason.init(rawValue:))
+            let suspended = reason == .appWasSuspended
+            guard let line = lock.withLock({ running ? mic.began(appWasSuspended: suspended) : nil }) else { return }
             audioLine(line)
         case .ended:
             let opts = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt).map {
                 AVAudioSession.InterruptionOptions(rawValue: $0)
             } ?? []
-            guard let e = lock.withLock({ running ? mic.ended(shouldResume: opts.contains(.shouldResume)) : nil })
-            else { return }
+            guard let e = lock.withLock({ running ? mic.ended(shouldResume: opts.contains(.shouldResume)) : nil }) else {
+                return
+            }
             audioLine(e.line)
             if e.resume { laneAsync(.restart) { self.resumeAfterInterruption() } }
         @unknown default:
@@ -191,10 +195,11 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             // Still in use by the other app: wait for the next return to the app.
-            lock.withLock { _ = mic.began(); _ = mic.ended(shouldResume: false) }
+            lock.withLock { mic.resumeFailed() }
             audioLine("audio resume-failed")
             return
         }
+        lock.withLock { mic.resumed() }
         startEngine()
     }
 
@@ -357,7 +362,8 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             return had
         }
         reply.stop()
-        reply.play()
+        // An interruption stops the engine; play() on a stopped engine raises (F-03 §14).
+        if engine.isRunning { reply.play() }
         if let finished { continuation.yield(.replyFinished(finished)) }
     }
 

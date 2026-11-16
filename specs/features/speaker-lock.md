@@ -386,7 +386,8 @@ Owner 2026-11-16: only the driver may interrupt her; a passenger talking over he
 **Amendment (T-013l, owner 2026-11-16 "so why you just dont set that up first").** Device 10:14 record, faf209f, lock on: all 4 early checks were `result=unknown threshold=none` (no `threshold1s`), so she never stopped; and the unknown verdict sent the queued outputs up as not sent (`mute=speaker`) about 60 ms before the whole sentence accepted the driver (scores 8.1-8.5; another voice -1.6, -2.3).
 1. Until `threshold1s` is measured, the early check uses the cohort's measured whole-sentence `threshold` (item 6's "unknown" now applies only when neither is a finite number). The record's `threshold=` shows which value was used.
 2. Item 3 changes: an early rejected or unknown verdict drops only the queued **actions** (stop, dip) and sends `.dip(false)`. The utterance's outputs and adopt keep waiting for the whole-sentence verdict, which alone decides whether the words go up; later live steps of that utterance lose their stop and dip but not their outputs.
-3. Not verified: how a 1 s clip of the driver scores against the whole-sentence threshold. Row 68 measures it from the `kind=early` lines.
+3. Implementation note (T-013l review): a live step that carries a stop (decided after the gate closed) keeps its outputs waiting for the whole verdict whatever the early verdict, and the open utterance's verdict releases only its own waiting steps.
+4. Not verified: how a 1 s clip of the driver scores against the whole-sentence threshold. Row 68 measures it from the `kind=early` lines.
 
 | Task | Scope | Verify |
 |---|---|---|

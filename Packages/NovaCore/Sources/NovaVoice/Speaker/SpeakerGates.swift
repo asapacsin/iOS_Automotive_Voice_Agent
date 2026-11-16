@@ -39,11 +39,12 @@ public struct SpeakerActionHold: Sendable {
         case nil, .accepted?:
             rejected = false
             early = nil
-            return flush() + step
+            // Only this utterance's waiting steps; an older one still waiting keeps its own (§17 item 4).
+            return flush(utterance) + step
         case .rejected?:
             rejected = true
             early = nil
-            return Self.unsent(flush() + step)
+            return Self.unsent(flush(utterance) + step)
         case .pending?:
             rejected = false
             if let e = early, e.utterance != utterance { early = nil }
@@ -55,7 +56,8 @@ public struct SpeakerActionHold: Sendable {
                 var now = BargeInLive.Step()
                 now.actions = later.actions
                 later.actions = []
-                if queue.isEmpty, !later.adopt { now.outputs = step.outputs; return now }
+                // A stop step (stop removed here) still waits: its outputs are the closed utterance's sent start and audio.
+                if queue.isEmpty, !later.adopt, !step.actions.contains(.stop) { now.outputs = step.outputs; return now }
                 queue.append((utterance, later))
                 return now
             }
@@ -65,7 +67,11 @@ public struct SpeakerActionHold: Sendable {
             now.actions = step.actions.filter { accepted || Self.isDip($0) }
             var later = step
             later.actions = step.actions.filter { !(accepted || Self.isDip($0)) }
-            if queue.isEmpty, later.actions.isEmpty, !later.adopt { now.outputs = step.outputs; return now }
+            // Row 62: after an accepted early check the stop acts now, but a stop step's outputs wait for the whole verdict.
+            if queue.isEmpty, later.actions.isEmpty, !later.adopt, !step.actions.contains(.stop) {
+                now.outputs = step.outputs
+                return now
+            }
             queue.append((utterance, later))
             return now
         }
