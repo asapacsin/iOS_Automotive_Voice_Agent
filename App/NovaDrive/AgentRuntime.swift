@@ -24,6 +24,7 @@ final class DriveModel: ObservableObject {
     /// F-15b §11 item 6: the card whose details sheet is open, with the place detail once it arrived.
     @Published var tripDetail: TripCard?
     @Published var tripDetailPlace: Place?
+    @Published var tripDetailLoading = false
     /// F-15b §11 item 5, §16 item 6 (T-040l): the plan's days and the saved plans; the 「我的行程」 sheet.
     @Published var tripPlans: TripPlansSummary?
     @Published var tripPlansOpen = false
@@ -633,9 +634,11 @@ final class AgentRuntime {
         guard !model.tripMoving else { return }
         model.tripDetail = card
         model.tripDetailPlace = nil
-        let place = try? await trip?.web.detail(id: card.placeID)
+        model.tripDetailLoading = true
+        let place = card.placeID.hasPrefix("saved_") ? nil : try? await trip?.web.detail(id: card.placeID)
         guard model.tripDetail?.placeID == card.placeID else { return }
-        model.tripDetailPlace = place
+        model.tripDetailPlace = place ?? nil
+        model.tripDetailLoading = false
     }
 
     /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the

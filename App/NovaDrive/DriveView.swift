@@ -196,7 +196,7 @@ private struct DriveContent: View {
             if model.cameraOpen { CameraWindow(model: model, runtime: runtime) }
         }
         // F-15b §11 item 6: a card's details, not moving only.
-        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace) }
+        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading) }
         // T-044c: 我的位置 and the camera follow the policy (F-16b); the view only applies its commands.
         .onChange(of: model.geometry) { _, geometry in position.navigation(model.nav, geometry: geometry) }
         .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }

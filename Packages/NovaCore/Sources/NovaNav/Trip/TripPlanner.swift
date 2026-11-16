@@ -63,6 +63,10 @@ public actor TripPlanner: ToolExecutor {
     /// §12 item 5: photo lookups per place this launch; a failed one is tried again at most once.
     private var photoTries: [String: Int] = [:]
     private var photoFailed: Set<String> = []
+    /// The launch's answers: a found link is applied again when the place is resolved again (text search gives
+    /// none); a place known to have none is not asked again.
+    private var photoKnown: [String: URL] = [:]
+    private var photoNone: Set<String> = []
     private var photoTask: Task<Void, Never>?
 
     /// `origin`: the same as `navigate_to`'s (the usable fix, or the demo origin in 模拟导航), GCJ-02.
@@ -621,7 +625,10 @@ public actor TripPlanner: ToolExecutor {
         case .remove(let index): what = "去掉了第\(index)个：\(Self.removedName(result) ?? "")"
         case .move(let from, let to): what = "把第\(from)个移到了第\(to)个"
         case .route(let start): what = start ? "开始了导航" : "串成了路线"
-        case .add(let place): what = "加入了\(place.name)"
+        case .add(let place):
+            // An already listed place changed nothing: no note.
+            if result.data["changed"] == "none" { return (result, nil) }
+            what = "加入了\(place.name)"
         }
         return (result, "[系统] 司机在屏幕上\(what)，现在清单有\(list.count)个地点。这句不用回答。")
     }
@@ -645,14 +652,21 @@ public actor TripPlanner: ToolExecutor {
     /// After a change: one detail call per stop without a photo link, at most 4 at once, after the tool result,
     /// so it never delays her reply. A stop that already has a link (a saved plan) makes no call.
     private func photos() {
-        let wanted = plan.days.flatMap(\.stops).map(\.place).filter { place in
-            place.photoURL == nil && !place.id.hasPrefix("saved_")
-                && (photoTries[place.id] ?? 0) < (photoFailed.contains(place.id) ? 2 : 1)
+        for place in plan.days.flatMap(\.stops).map(\.place) where place.photoURL == nil {
+            if let known = photoKnown[place.id] { plan.setPhoto(placeID: place.id, url: known) }
         }
-        guard !wanted.isEmpty else { return }
-        for place in wanted { photoTries[place.id, default: 0] += 1 }
+        // §12 item 5: only failures count toward the one retry per launch.
+        let asked = plan.days.flatMap(\.stops).map(\.place).filter { place in
+            place.photoURL == nil && !place.id.hasPrefix("saved_") && !photoNone.contains(place.id)
+                && (photoTries[place.id] ?? 0) < 2
+        }
+        let unique = Dictionary(asked.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }).values.map { $0 }
+        guard !unique.isEmpty else { return }
+        let wanted2 = unique
+        for place in wanted2 { photoTries[place.id, default: 0] += 1 }
         let search = search, clock = clock, limit = tuning.parallelLookups
         let previous = photoTask
+        let wanted = wanted2
         photoTask = Task { [weak self] in
             await previous?.value
             let started = clock.now
@@ -691,10 +705,13 @@ public actor TripPlanner: ToolExecutor {
             } else if let url {
                 ok += 1
                 photoFailed.remove(id)
+                photoTries[id] = 0
+                photoKnown[id] = url
                 plan.setPhoto(placeID: id, url: url)
             } else {
                 none += 1
                 photoFailed.remove(id)
+                photoNone.insert(id)
             }
         }
         onLine("trip photo ok=\(ok) none=\(none) failed=\(failed) ms=\(ms(since: started))")

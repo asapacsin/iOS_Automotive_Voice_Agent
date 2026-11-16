@@ -191,3 +191,22 @@ extension TripList {
 extension PhotoRig {
     func order() async -> [String] { await planner.current.stops.map(\.place.name) }
 }
+
+@Suite("T-040j F-15b §12 photos on re-resolve")
+struct TripPhotoAgainTests {
+    @Test("F-15b §12 item 2: a place resolved again gets its photo back with no new call; a re-add of a listed place sends no note")
+    func again() async {
+        let photos: [String: URL?] = ["古文化街": URL(string: "https://a.cn/a.jpg"), "五大道": URL(string: "https://a.cn/b.jpg"),
+                                      "天津之眼": URL(string: "https://a.cn/c.jpg")]
+        let search = PhotoSearch(photos: photos)
+        let rig = await PhotoRig(search)
+        await rig.make(["古文化街", "五大道"])
+        await rig.make(["古文化街", "五大道", "天津之眼"])
+        let links = await rig.planner.current.stops.map { $0.place.photoURL?.absoluteString }
+        #expect(links == ["https://a.cn/a.jpg", "https://a.cn/b.jpg", "https://a.cn/c.jpg"])
+        #expect(search.details.withLock { $0 }.sorted() == ["五大道", "古文化街", "天津之眼"].sorted())
+        let listed = await rig.planner.current.stops[0].place
+        let again = await rig.planner.tap(.add(listed), moving: false)
+        #expect(again.result.ok && again.note == nil)
+    }
+}

@@ -316,6 +316,8 @@ actor TripPhotoStore {
 struct TripDetailSheet: View {
     let card: TripCard
     let place: Place?
+    /// False once the detail lookup ended without a place (failed, or a saved 家/公司 stop).
+    let loading: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -327,8 +329,10 @@ struct TripDetailSheet: View {
                 if let address = place.address { Label(address, systemImage: "mappin.and.ellipse") }
                 if let hours = place.openingHours { Label(hours, systemImage: "clock") }
                 if let phone = place.phone { Label(phone, systemImage: "phone") }
-            } else {
+            } else if loading {
                 ProgressView()
+            } else {
+                Text("没有查到详情").foregroundStyle(.secondary)
             }
             Spacer()
         }
