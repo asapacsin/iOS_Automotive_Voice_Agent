@@ -178,9 +178,13 @@ private struct DriveContent: View {
                 header
                 if model.nav.navigating { hud }
                 Spacer()
-                if model.nav.listOpen || model.nav.phase == .calculatingRoute || model.nav.phase == .resolvingDestination {
+                // F-15b §5.3: a kept trip route is not a route choice; the trip row offers 开始导航.
+                let keptTrip = model.nav.tripRoute && model.nav.phase == .awaitingRouteSelection
+                if !keptTrip, model.nav.listOpen || model.nav.phase == .calculatingRoute || model.nav.phase == .resolvingDestination {
                     choices
                 }
+                // F-15b §11 (T-040j): the trip list's cards, or the strip while moving.
+                TripCardsView(model: model, runtime: runtime)
                 if let card = model.previewCard { PreviewCardView(card: card) }
                 conversation
                 locateRow
@@ -191,6 +195,8 @@ private struct DriveContent: View {
             .padding(.bottom, 8)
             if model.cameraOpen { CameraWindow(model: model, runtime: runtime) }
         }
+        // F-15b §11 item 6: a card's details, not moving only.
+        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace) }
         // T-044c: 我的位置 and the camera follow the policy (F-16b); the view only applies its commands.
         .onChange(of: model.geometry) { _, geometry in position.navigation(model.nav, geometry: geometry) }
         .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }
@@ -252,6 +258,16 @@ private struct DriveContent: View {
             }
             ForEach(Array(presentation.markers.enumerated()), id: \.offset) { index, place in
                 Marker("\(index + 1) \(place.name)", coordinate: CLLocationCoordinate2D(place.coordinate)).tint(.orange)
+            }
+            // F-15b §13 item 5: numbered pins at the stops; 途经k and 终点 on a trip route; passed stops greyed.
+            ForEach(TripPin.pins(model.tripList, routed: model.nav.tripRoute, passed: model.nav.tripStopsPassed)) { pin in
+                Annotation(pin.label, coordinate: CLLocationCoordinate2D(pin.coordinate)) {
+                    Text("\(pin.index)")
+                        .font(.caption.weight(.heavy)).foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(pin.passed ? Color.gray : Color.purple, in: Circle())
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
+                }
             }
         }
         // A pan or zoom by the driver's finger stops following (C7). Touches are watched directly, so the
@@ -462,6 +478,12 @@ private struct DriveContent: View {
                         }
                         Spacer()
                         if let meters = place.distanceMeters { Text(Self.distance(meters)).font(.caption) }
+                        // F-15b §13 item 3: the already-found place joins the trip list, no new lookup.
+                        if !model.tripList.isEmpty && !model.tripMoving {
+                            Button("加入清单") { Task { await runtime.tripTap(.add(place)) } }
+                                .font(.caption).buttonStyle(.bordered)
+                                .accessibilityIdentifier("trip-add-\(index)")
+                        }
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { Task { await runtime.tapChoice(row: index) } }

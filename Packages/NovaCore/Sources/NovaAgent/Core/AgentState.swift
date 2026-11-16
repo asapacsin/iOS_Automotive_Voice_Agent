@@ -46,6 +46,9 @@ public enum AgentEvent: Sendable, Hashable {
     case destination(String?)
     /// F-09b §5 (T-031j): the car's state now (after any change, a tap included, and on speed updates).
     case vehicleState(CarStateSnapshot)
+    /// F-15b §13 item 4 (T-040j): a silent note about a screen edit (「[系统] 司机在屏幕上…」); dropped while no
+    /// session is connected.
+    case screenNote(String)
 }
 
 /// F-09b §5 item 1 (T-031j): what the car-state note says. The same values as `get_vehicle_state`; never a location.
@@ -329,6 +332,8 @@ public struct AgentState: Sendable {
     private var carState: CarStateSnapshot?
     private var carChanged = false
     private var pendingState: StateNoteReason?
+    /// F-15b §13 item 4: screen-edit notes waiting for an idle moment, in order.
+    private var pendingScreen: [String] = []
     private var stateSinceTurn = false
     /// F-09b §6 (T-016p): the summary for this session's first connect; sent once.
     private var summary: SessionSummary?
@@ -371,6 +376,8 @@ public struct AgentState: Sendable {
     /// speed crosses `VehicleActionPolicy.windowSpeedKmh`.
     private mutating func stateTriggers(_ event: AgentEvent) {
         switch event {
+        case .screenNote(let text):
+            if ![.disconnected, .connecting, .reconnecting, .error].contains(session.state) { pendingScreen.append(text) }
         case .vehicleState(let new):
             let old = carState
             carState = new
@@ -439,6 +446,10 @@ public struct AgentState: Sendable {
             texts.append(text)
             diagnostics.append(.diagnostic(.destinationNote))
         }
+        if !pendingScreen.isEmpty {
+            texts += pendingScreen
+            pendingScreen = []
+        }
         if let reason = pendingState, let state = carState, reason == .connect || !stateSinceTurn {
             pendingState = nil
             carChanged = false
@@ -467,7 +478,7 @@ public struct AgentState: Sendable {
 
     private mutating func dispatch(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
         switch event {
-        case .destination, .vehicleState:
+        case .destination, .vehicleState, .screenNote:
             return []
         case .start:
             return session(.start, at: now)

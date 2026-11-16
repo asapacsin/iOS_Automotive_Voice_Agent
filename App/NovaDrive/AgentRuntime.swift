@@ -18,6 +18,12 @@ final class DriveModel: ObservableObject {
     @Published var view = AgentViewState()
     @Published var nav = NavigationFlowState()
     @Published var geometry = RouteGeometry()
+    /// F-15b §11 (T-040j): the app's trip list, and whether the phone is moving (cards or the strip).
+    @Published var tripList = TripList()
+    @Published var tripMoving = false
+    /// F-15b §11 item 6: the card whose details sheet is open, with the place detail once it arrived.
+    @Published var tripDetail: TripCard?
+    @Published var tripDetailPlace: Place?
     @Published var climate = ClimateState.default
     @Published var cabin = CabinState.default
     @Published var driverLine = ""
@@ -599,6 +605,26 @@ final class AgentRuntime {
     private var navigation: NavigationController?
     /// The app-owned trip: its engine, location source, saved places and the session currently listening.
     private var trip: AppTrip?
+    /// F-15b §11 item 4: the moving rule, sampled once a second for the app's lifetime (not a session's).
+    private var tripMonitor: Task<Void, Never>?
+
+    /// F-15b §13 item 1 (I-6): a card tap becomes the voice path's tool call; refused while moving. With a session
+    /// connected, she gets the §13 item 4 silent note and says nothing.
+    func tripTap(_ tap: TripTap) async {
+        guard let planner = trip?.planner else { return }
+        let (_, note) = await planner.tap(tap, moving: model.tripMoving)
+        if let note, let core { await core.send(.screenNote(note)) }
+    }
+
+    /// F-15b §11 item 6: the details sheet of a card (photo, address, opening hours, phone); nothing is spoken.
+    func openTripDetail(_ card: TripCard) async {
+        guard !model.tripMoving else { return }
+        model.tripDetail = card
+        model.tripDetailPlace = nil
+        let place = try? await trip?.web.detail(id: card.placeID)
+        guard model.tripDetail?.placeID == card.placeID else { return }
+        model.tripDetailPlace = place
+    }
 
     /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the
     /// dispatcher and executor of the voice choice and she announces its read-back.
@@ -1427,7 +1453,26 @@ final class AgentRuntime {
         await navigation.start()
         // F-15b (T-040i): the app's one trip list, next to the navigation controller; it outlives voice sessions.
         let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock,
-                                  onLine: tripLine)
+                                  onLine: tripLine,
+                                  onChange: { list in Task { @MainActor in model.tripList = list } })
+        // F-15b §11 item 4: moving at ≥ 8 km/h or while 真实导航 runs; still after 3 s below 3 km/h; a stale fix's
+        // speed is unknown. `trip strip moving=<yes|no>` on each change.
+        tripMonitor?.cancel()
+        tripMonitor = Task { [model] in
+            var moving = TripMoving()
+            while !Task.isCancelled {
+                let fix = await location.latestFix()
+                let fresh = fix.flatMap { LocationQuality.of($0, at: navigationClock.now) == nil ? nil : $0 }
+                let kmh = fresh?.speedMetersPerSecond.map { $0 * 3.6 }
+                let gps = model.nav.navigating && model.nav.mode == .gps
+                if let changed = moving.update(speedKmh: kmh, gpsNavigating: gps, at: navigationClock.now) {
+                    tripLine(TripMoving.line(changed))
+                    model.tripMoving = changed
+                    if changed { model.tripDetail = nil }
+                }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
         let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners,
                            session: tripSession, planner: planner)
         self.trip = trip

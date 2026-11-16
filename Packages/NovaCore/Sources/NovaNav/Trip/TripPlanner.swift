@@ -1,6 +1,25 @@
+import Foundation
 import NovaKit
 import NovaPorts
 import NovaTools
+
+/// F-15b §13 item 1 (T-040j): a tap on the trip cards, the same tool call the voice path makes.
+public enum TripTap: Sendable, Hashable {
+    case remove(index: Int)
+    case move(from: Int, to: Int)
+    case route(start: Bool)
+    /// 「加入清单」 on a row of an open destination list: that already-found place, no new lookup.
+    case add(Place)
+
+    var action: String {
+        switch self {
+        case .remove: "remove"
+        case .move: "move"
+        case .route(let start): start ? "start" : "route"
+        case .add: "add"
+        }
+    }
+}
 
 public struct TripTuning: Sendable, Hashable {
     /// §4 item 4: lookups at once, and the limit of a whole `make_trip_list`.
@@ -23,6 +42,10 @@ public actor TripPlanner: ToolExecutor {
     private let onLine: @Sendable (String) -> Void
     private let onChange: @Sendable (TripList) -> Void
     private var list = TripList()
+    /// §12 item 5: photo lookups per place this launch; a failed one is tried again at most once.
+    private var photoTries: [String: Int] = [:]
+    private var photoFailed: Set<String> = []
+    private var photoTask: Task<Void, Never>?
 
     /// `origin`: the same as `navigate_to`'s (the usable fix, or the demo origin in 模拟导航), GCJ-02.
     public init(search: any PlaceSearch, navigation: NavigationController, origin: @escaping @Sendable () async -> GeoCoordinate?,
@@ -130,7 +153,8 @@ public actor TripPlanner: ToolExecutor {
             let removed = list.stops[target - 1].place.name
             list.remove(at: target)
             changed()
-            return listResult(changed: "removed", next: "只说一句：去掉了\(removed)，现在清单有\(list.count)个地点。")
+            return listResult(changed: "removed", next: "只说一句：去掉了\(removed)，现在清单有\(list.count)个地点。",
+                              extra: ["removed": .string(removed)])
         case "move":
             guard let index, let toIndex, (1...n).contains(index), (1...n).contains(toIndex) else { return outOfRange() }
             let moved = list.stops[index - 1].place.name
@@ -282,7 +306,8 @@ public actor TripPlanner: ToolExecutor {
 
     // MARK: Results
 
-    private func listResult(changed: String?, notFound: [String] = [], duplicates: [String] = [], next: String) -> ToolResult {
+    private func listResult(changed: String?, notFound: [String] = [], duplicates: [String] = [], next: String,
+                            extra: [String: JSONValue] = [:]) -> ToolResult {
         var data: [String: JSONValue] = [
             "status": "trip_list",
             "count": .int(Int64(list.count)),
@@ -297,6 +322,7 @@ public actor TripPlanner: ToolExecutor {
             "next": .string(next),
         ]
         if let changed { data["changed"] = .string(changed) }
+        data.merge(extra) { _, new in new }
         return .success(data)
     }
 
@@ -331,7 +357,122 @@ public actor TripPlanner: ToolExecutor {
         here.map { Int(SelfPosition.distanceMeters($0, place.coordinate).rounded()) }
     }
 
-    private func changed() { onChange(list) }
+    private func changed() {
+        onChange(list)
+        photos()
+    }
+
+    // MARK: Screen taps (§13)
+
+    /// §13 item 1 (I-6): the tap becomes the tool call of the voice path, through the same validation and executor.
+    /// While moving it is refused with `NOT_WHILE_MOVING` and changes nothing. `note` is the §13 item 4 silent note
+    /// for a connected session, nil when nothing changed.
+    public func tap(_ tap: TripTap, moving: Bool) async -> (result: ToolResult, note: String?) {
+        let result: ToolResult
+        if moving {
+            result = failure(.notWhileMoving)
+        } else {
+            switch tap {
+            case .remove(let index):
+                result = await execute(ToolCall(id: CallID("ui-trip")!, name: "edit_trip_list",
+                                                arguments: ["action": "remove", "index": .int(Int64(index))]))
+            case .move(let from, let to):
+                result = await execute(ToolCall(id: CallID("ui-trip")!, name: "edit_trip_list",
+                                                arguments: ["action": "move", "index": .int(Int64(from)), "to_index": .int(Int64(to))]))
+            case .route(let start):
+                result = await execute(ToolCall(id: CallID("ui-trip")!, name: "route_trip", arguments: ["start": .bool(start)]))
+            case .add(let place):
+                result = add(place)
+            }
+        }
+        onLine("trip tap action=\(tap.action) ok=\(result.ok ? "yes" : "no")")
+        guard result.ok else { return (result, nil) }
+        let what: String = switch tap {
+        case .remove(let index): "去掉了第\(index)个：\(Self.removedName(result) ?? "")"
+        case .move(let from, let to): "把第\(from)个移到了第\(to)个"
+        case .route(let start): start ? "开始了导航" : "串成了路线"
+        case .add(let place): "加入了\(place.name)"
+        }
+        return (result, "[系统] 司机在屏幕上\(what)，现在清单有\(list.count)个地点。这句不用回答。")
+    }
+
+    /// §13 item 3: an already-found place added at the end, with no new lookup.
+    private func add(_ place: Place) -> ToolResult {
+        guard list.count < TripList.maxStops else { return failure(.tripTooLong) }
+        if list.contains(placeID: place.id) {
+            return listResult(changed: "none", duplicates: [place.name],
+                              next: "只说一句：\(place.name)已经在清单里了，现在清单有\(list.count)个地点。")
+        }
+        list.insert(TripStop(index: 0, asked: place.name, place: place, distanceMeters: place.distanceMeters))
+        changed()
+        return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
+    }
+
+    private static func removedName(_ result: ToolResult) -> String? { result.data["removed"]?.stringValue }
+
+    // MARK: Photos (§12)
+
+    /// After a change: one detail call per stop without a photo link, at most 4 at once, after the tool result,
+    /// so it never delays her reply. A stop that already has a link (a saved plan) makes no call.
+    private func photos() {
+        let wanted = list.stops.map(\.place).filter { place in
+            place.photoURL == nil && !place.id.hasPrefix("saved_")
+                && (photoTries[place.id] ?? 0) < (photoFailed.contains(place.id) ? 2 : 1)
+        }
+        guard !wanted.isEmpty else { return }
+        for place in wanted { photoTries[place.id, default: 0] += 1 }
+        let search = search, clock = clock, limit = tuning.parallelLookups
+        let previous = photoTask
+        photoTask = Task { [weak self] in
+            await previous?.value
+            let started = clock.now
+            var found: [(String, URL?, Bool)] = []
+            await withTaskGroup(of: (String, URL?, Bool).self) { group in
+                var next = 0
+                func add() {
+                    guard next < wanted.count else { return }
+                    let place = wanted[next]
+                    next += 1
+                    group.addTask {
+                        do {
+                            let detail = try await search.detail(id: place.id)
+                            return (place.id, detail?.photoURL, true)
+                        } catch {
+                            return (place.id, nil, false)
+                        }
+                    }
+                }
+                for _ in 0..<min(limit, wanted.count) { add() }
+                while let item = await group.next() {
+                    found.append(item)
+                    add()
+                }
+            }
+            await self?.photosArrived(found, since: started)
+        }
+    }
+
+    private func photosArrived(_ found: [(String, URL?, Bool)], since started: NovaInstant) {
+        var ok = 0, none = 0, failed = 0
+        for (id, url, reached) in found {
+            if !reached {
+                failed += 1
+                photoFailed.insert(id)
+            } else if let url {
+                ok += 1
+                photoFailed.remove(id)
+                list.setPhoto(placeID: id, url: url)
+            } else {
+                none += 1
+                photoFailed.remove(id)
+            }
+        }
+        onLine("trip photo ok=\(ok) none=\(none) failed=\(failed) ms=\(ms(since: started))")
+        onChange(list)
+    }
+
+    /// Tests: the photo lookups of the last change have finished.
+    public func photosSettled() async { await photoTask?.value }
 
     private func line(stops: Int, notFound: Int, duplicates: Int, since: NovaInstant) {
         onLine("trip list stops=\(stops) not_found=\(notFound) duplicates=\(duplicates) ms=\(ms(since: since))")

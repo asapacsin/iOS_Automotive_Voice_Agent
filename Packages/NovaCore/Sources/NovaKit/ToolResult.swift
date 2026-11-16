@@ -25,6 +25,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case tripTooLong = "TRIP_TOO_LONG"
     case tripTooShort = "TRIP_TOO_SHORT"
     case notFound = "NOT_FOUND"
+    /// F-15b §13 item 1 (T-040j): a screen edit while the phone is moving.
+    case notWhileMoving = "NOT_WHILE_MOVING"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

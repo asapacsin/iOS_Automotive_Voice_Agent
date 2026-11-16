@@ -1,3 +1,4 @@
+import Foundation
 import NovaKit
 import NovaPorts
 import NovaTools
@@ -81,6 +82,14 @@ public struct TripList: Sendable, Hashable {
     }
 
     public func contains(placeID: String) -> Bool { stops.contains { $0.place.id == placeID } }
+
+    /// F-15b §12: a photo link arrived. Not a list change: no renumbering, no new generation, so it never makes a
+    /// resolve stale.
+    public mutating func setPhoto(placeID: String, url: URL?) {
+        stops = stops.map { $0.place.id == placeID
+            ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters)
+            : $0 }
+    }
 
     /// §5.2: stops whose resolved or asked name contains `name`, after normalize (1-based indexes).
     public func matches(_ name: String) -> [Int] {

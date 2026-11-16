@@ -175,3 +175,28 @@ struct FlexibleAssistantTests {
         #expect(ToolErrorCode(rawValue: "NOT_A_CAR_REQUEST") == nil)
     }
 }
+
+@Suite("T-040j F-15b §13 item 4 tap note")
+struct TripTapNoteTests {
+    static let note = "[系统] 司机在屏幕上去掉了第2个：五大道，现在清单有3个地点。这句不用回答。"
+
+    @Test("F-15b row 21: the tap note goes as a silent text turn when idle; held while a reply is open; dropped with no session")
+    func tapNote() {
+        var none = Drive()
+        #expect(FlexibleAssistantTests.notes(none.send(.screenNote(Self.note))).isEmpty)
+        none.connect()
+        #expect(FlexibleAssistantTests.notes(none.send(.vehicleState(FlexibleAssistantTests.car()))).allSatisfy { !$0.contains("司机在屏幕上") })
+
+        var d = Drive()
+        d.connect()
+        #expect(FlexibleAssistantTests.notes(d.send(.screenNote(Self.note))) == [Self.note])
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.turn = d.turn.next()
+        d.realtime(.responseStarted(d.turn))
+        #expect(FlexibleAssistantTests.notes(d.send(.screenNote(Self.note))).isEmpty)
+        d.realtime(.replyText(d.turn, "好的。"))
+        let done = d.realtime(.responseDone(d.turn, outcome: .completed))
+        #expect(FlexibleAssistantTests.notes(done).joined().contains("司机在屏幕上"))
+    }
+}

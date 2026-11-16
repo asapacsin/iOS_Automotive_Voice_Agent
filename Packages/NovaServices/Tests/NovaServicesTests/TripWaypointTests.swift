@@ -93,3 +93,18 @@ struct TripWaypointTests {
         #expect(transport.query(1, "destination") == "113.540000,22.270000")
     }
 }
+
+@Suite("T-040j F-15b §12 place photos")
+struct TripPhotoParseTests {
+    @Test("F-15b row 19: the detail's first photos[].url is kept, an http link as https; no photos is nil")
+    func parse() {
+        let body: [String: Any] = ["pois": [
+            ["id": "B1", "name": "古文化街", "location": "117.19,39.14",
+             "photos": [["titile": "门口", "url": "http://store.is.autonavi.com/showpic/a.jpg"], ["title": "", "url": "https://x.cn/b.jpg"]]],
+            ["id": "B2", "name": "五大道", "location": "117.20,39.11", "photos": [Any]()],
+            ["id": "B3", "name": "瓷房子", "location": "117.20,39.12"],
+        ]]
+        let places = AmapWebClient.places(body)
+        #expect(places.map { $0.photoURL?.absoluteString } == ["https://store.is.autonavi.com/showpic/a.jpg", nil, nil])
+    }
+}

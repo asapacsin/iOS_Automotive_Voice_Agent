@@ -217,9 +217,13 @@ public struct Place: Sendable, Hashable {
     /// F-16 §14 item 7: Amap's `cityname` and `adname`; nil when Amap gives none.
     public let city: String?
     public let district: String?
+    /// F-15b §12 item 1 (T-040j): the first `photos[].url` of the place detail; nil when there is none.
+    public let photoURL: URL?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
-                openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil) {
+                openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil,
+                photoURL: URL? = nil) {
+        self.photoURL = photoURL
         self.city = city
         self.district = district
         self.openingHours = openingHours
@@ -229,6 +233,14 @@ public struct Place: Sendable, Hashable {
         self.address = address
         self.coordinate = coordinate
         self.distanceMeters = distanceMeters
+    }
+}
+
+extension Place {
+    /// The same place with `photoURL` (F-15b §12).
+    public func with(photoURL: URL?) -> Place {
+        Place(id: id, name: name, address: address, coordinate: coordinate, distanceMeters: distanceMeters,
+              openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL)
     }
 }
 

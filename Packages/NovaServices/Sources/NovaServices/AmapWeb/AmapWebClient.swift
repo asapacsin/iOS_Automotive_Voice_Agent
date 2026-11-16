@@ -3,6 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import NovaKit
+import NovaNav
 import NovaPorts
 
 /// Amap Web service REST (`restapi.amap.com`, contracts/api-contracts.md): place search, reverse
@@ -173,7 +174,10 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup {
                          coordinate: GeoCoordinate(latitude: parts[1], longitude: parts[0], datum: .gcj02),
                          distanceMeters: (poi["distance"] as? String).flatMap { Int($0) },
                          openingHours: text(business?["open_time"]) ?? text(business?["opentime2"]),
-                         phone: text(poi["tel"]), city: text(poi["cityname"]), district: text(poi["adname"]))
+                         phone: text(poi["tel"]), city: text(poi["cityname"]), district: text(poi["adname"]),
+                         // F-15b §12 items 1 and 3 (T-040j): the first `photos[].url` (older docs spell the title
+                         // `titile`; only `url` is read), secure links only.
+                         photoURL: TripPhotoLink.secure(((poi["photos"] as? [[String: Any]])?.first)?["url"] as? String))
         }
     }
 }
