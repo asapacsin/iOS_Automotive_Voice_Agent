@@ -2671,14 +2671,19 @@
     {
       "id": "T-013k",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-04b §17 items 1-9: with the lock on, BargeInLive's dip acts at once; a live candidate gets one early speaker score on its first 1.0 s of speech (AS-norm, cohort threshold1s); accepted releases the queued stop, rejected/unknown drops it and undips; words still follow the §16 whole-sentence verdict; SpeakerHold keeps an utterance whose score was requested when a new one starts (cutAtUnmute no longer loses it); speaker_cohort.py --test-seconds adds threshold1s/eer1s/trials1s; record kind=early and early= on the stop line; rows 61-69.",
       "depends_on": [
         "T-013j"
       ],
       "notes": "Device 2026-11-16 (64abef8): lock on, BargeInLive decided stop 3 of 3 but only 1 stopped her; 2 were held for the end-of-sentence verdict, cut by cutAtUnmute and dropped as unknown. Lock off: 2 of 2 stopped. Owner: only the driver may interrupt; \"Yes, write B\". The 1 s threshold needs a PC run of speaker_cohort.py on CN-Celeb1.",
-      "evidence": []
+      "evidence": [
+        "gates: scripts/gates/run_all.sh PASS at e2f5c4b (clean worktree; NovaCore 787 tests, 1 known unrelated issue; spec-trace 124, 0 missing); test_speaker_cohort.py 8 OK (row 61)",
+        "review: independent read-only high-effort reviewer FAIL at c3d5d09 (shared action queue, stuck awaiting on threshold change, unordered dispatch), fixed in e2f5c4b, re-review PASS",
+        "unit rows 62-67: EarlyBargeInTests (+perUtterance, thresholdChangeRescores)",
+        "NOT_VERIFIED: App build (Codemagic); rows 68-69 device; threshold1s needs a PC run of speaker_cohort.py --test-seconds 1.0 on CN-Celeb1 (until then early check = unknown, no early stop)"
+      ]
     }
   ]
 }
