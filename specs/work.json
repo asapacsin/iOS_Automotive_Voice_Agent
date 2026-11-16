@@ -1974,11 +1974,11 @@
         "T-031d",
         "T-031e"
       ],
-      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Do not start until the owner approves in specs/STATUS.md.",
-      "automation_blocker": "Owner approval of the scored numbers is required by the task itself (notes: do not start until the owner approves in specs/STATUS.md).",
-      "procedure": "Read the T-031d scores in specs/STATUS.md (F-12 §15) and write approve or reject for F-12 §14 items 14-15 in specs/STATUS.md.",
-      "expected_return": "Owner's approve or reject, recorded in specs/STATUS.md.",
-      "pass_criteria": "A dated owner decision row exists in specs/STATUS.md.",
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. 2026-11-16: the owner decided the switch without the item 14 bars (F-09b §3, \"write the spec for this so call more flexibile stuff\"); scope is now F-09b §3. Build waits for the owner's go.",
+      "automation_blocker": "owner_decision",
+      "procedure": "Read specs/features/flexible-assistant.md (F-09b) and say whether to build it (T-031c, T-031j, T-016p, T-017c).",
+      "expected_return": "Build F-09b, or changes to the spec.",
+      "pass_criteria": "Owner's go recorded in specs/STATUS.md; then T-031c becomes AUTONOMOUS / NOT_RUN.",
       "quantified": "Model mode 27/27 with no wrongful action on ace916f (owner note 2026-11-02), behind on unprompted wordings and worst time; T-031d score table in specs/STATUS.md."
     },
     {
@@ -2734,6 +2734,72 @@
         ]
       },
       "notes": "Spec only (owner 2026-11-16: \"write a spec and push to remot\"). Build starts on the owner's go; then owner AUTONOMOUS, status NOT_RUN. Source: owner video 11-16 (豆包 trip list -> 8-stop route); Amap waypoints limit 16 read 2026-11-16.",
+      "evidence": []
+    },
+    {
+      "id": "T-031j",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 30,
+      "action": "F-09b §4-5: undo_last_change (one kept change set, 5 min, through VehicleActionPolicy, backs claims) and the car-state silent note on connect / changed turn / speed cross; rows 3-5, 9.",
+      "depends_on": [
+        "T-031c"
+      ],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read specs/features/flexible-assistant.md (F-09b) and say whether to build it",
+      "pass_criteria": "Owner go recorded in specs/STATUS.md; then this entry becomes AUTONOMOUS / NOT_RUN",
+      "expected_return": "Build F-09b, or changes to the spec",
+      "quantified": {
+        "options": [
+          "Build F-09b as written",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"you just write the spec for this so call more flexibile stuff\").",
+      "evidence": []
+    },
+    {
+      "id": "T-016p",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 30,
+      "action": "F-09b §6: in-memory summary of the last 6 exchanges (60 chars each, tool codes) sent as a silent note when a new session starts without a resumption handle within 30 min; never on disk or in logs; rows 6, 10.",
+      "depends_on": [
+        "T-031c"
+      ],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read specs/features/flexible-assistant.md (F-09b) and say whether to build it",
+      "pass_criteria": "Owner go recorded in specs/STATUS.md; then this entry becomes AUTONOMOUS / NOT_RUN",
+      "expected_return": "Build F-09b, or changes to the spec",
+      "quantified": {
+        "options": [
+          "Build F-09b as written",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"you just write the spec for this so call more flexibile stuff\").",
+      "evidence": []
+    },
+    {
+      "id": "T-017c",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 30,
+      "action": "F-09b §7: withdraw F-09a CarRequestRouter areas, NOT_A_CAR_REQUEST, the area wait and the tired silence in code; local stop phrases and list picks kept; rows 7, 11.",
+      "depends_on": [
+        "T-031j"
+      ],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read specs/features/flexible-assistant.md (F-09b) and say whether to build it",
+      "pass_criteria": "Owner go recorded in specs/STATUS.md; then this entry becomes AUTONOMOUS / NOT_RUN",
+      "expected_return": "Build F-09b, or changes to the spec",
+      "quantified": {
+        "options": [
+          "Build F-09b as written",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"you just write the spec for this so call more flexibile stuff\").",
       "evidence": []
     }
   ]

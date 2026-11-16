@@ -1,6 +1,7 @@
 # F-09a Car tools only for car requests (落域)
 
 **Status:** APPROVED (owner 2026-11-10, "Yes, build it"). iOS only. Both comfort modes.
+**Withdrawn by F-09b §7 (T-017c) once built:** §2–4 (areas, `NOT_A_CAR_REQUEST`, tired silence in code). Until then this file is in force.
 **Depends on:** F-09 (dispatch and guards), F-05a §6 and §12 (the phone's own recognizer), F-12 §14 and §20 (comfort
 modes, sleepy driver), F-06 (reply pipeline), F-04a (driver turns), contracts/voice-agent.md
 
