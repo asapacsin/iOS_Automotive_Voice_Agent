@@ -1,7 +1,10 @@
 # F-15b Trip list and multi-stop route (打卡清单 → 串成路线 → 途经点导航)
 
-**Status:** APPROVED for phase 1 (owner 2026-11-16, after the proposal: "good then you just write a spec and push to
-remot"). iOS only. Phase 1 is voice only. Phases 2–3 (§10) are not started: each needs the owner's request.
+**Status:** APPROVED for phases 1 and 2 (owner 2026-11-16: phase 1 "good then you just write a spec and push to
+remot"; phase 2 "you just create a spec including this function and also other thing that tailored from the movie
+and push to remtoe", after the community review of poster cards, screen editing and saved plans). iOS only.
+Phase 1 (§3–§9) is voice only. Phase 2 (§11–§17) adds the poster cards, editing on screen, map pins, saved plans
+and days. Phase 3 (§10, T-040k) is not started: it needs the owner's request.
 **Depends on:** F-15 (navigation flow, `NaviEngine`, `RouteRequest`), F-15a §2.5 and §9 (start on the recommended
 route, no start guard, one trip at a time), F-16 (`PlaceSearch`, origin rule), F-09 (catalog, dispatch,
 argument validation), F-06 (reply pipeline), contracts/navigation.md, contracts/api-contracts.md (Amap)
@@ -18,12 +21,13 @@ The owner's video `11-16_compressed.mp4` (2026-11-16) is a 6-minute 豆包 car d
 
 The assistant carries the list across six turns, and "the second one" means a real place.
 
-NovaDrive (code at 5d7486a) can only take one destination:
+NovaDrive (code at a429e99, after F-09b) can only take one destination:
 - `navigate_to` → pick → route → guidance.
 - `RouteRequest` holds only `destination` and `destinationName`.
 - `AmapRouteEngine.fetch` sends only `origin` and `destination` to `/v3/direction/driving`.
-- Nothing keeps a list of places between turns. The model's memory is the only "list", and it is gone after a session
-  restart.
+- Nothing keeps a list of places between turns. The model's memory is the only "list". F-09b §6 (T-016p) carries a
+  short summary of the last 6 exchanges into a new session, 60 characters each, but no place list and no coordinates.
+- Nothing shows a list on screen, and nothing is saved on the phone.
 
 ## 2. Sources
 
@@ -59,7 +63,7 @@ NovaDrive (code at 5d7486a) can only take one destination:
 2. **Lifetime.**
    - `make_trip_list` replaces the list.
    - `edit_trip_list` `clear` empties it.
-   - An app restart empties it.
+   - An app restart empties it in phase 1. Phase 2 saves it on the phone (§14), so a restart keeps it.
    - `navigate_to` and `exit_navigation_mode` leave it unchanged.
 3. **Indexes.**
    - After every change, indexes are renumbered 1…n in list order.
@@ -246,12 +250,14 @@ Codes and numbers only (I-8). The place names are already in the conversation re
 
 ## 8. Out of scope in phase 1
 
-- Showing the list or numbered pins on screen (phase 2).
+- Showing the list, photo cards or numbered pins on screen: phase 2 (§11–§13).
+- Saved plans and days (「第一天」): phase 2 (§14–§15). One route is still one day's drive.
 - Adding, skipping or reordering stops during guidance (phase 3).
 - Per-stop arrival announcements and "next stop" questions (phase 3).
-- Photo cards: slow, data-heavy, and not to be looked at while driving. Not planned.
-- Planning by day (「第一天」): the model may talk about days, but one route is one drive.
 - Ratings: `Place` has no rating, and getting one costs a detail call per stop.
+
+The 2026-11-16 phase 1 text said photo cards were "not planned". Phase 2 replaces that: photos show only when the
+phone is not moving (§11 item 4), as the community rules require.
 
 ## 9. Acceptance (iOS)
 
@@ -278,7 +284,225 @@ Codes and numbers only (I-8). The place names are already in the conversation re
 | Task | Scope | Verify |
 |---|---|---|
 | T-040i | Phase 1: `TripList` and name resolving (§3–4), the three tools in the catalog with validation (§5), `RouteRequest.waypoints` and `AmapRouteEngine` (§6 items 1–2), stops passed and recalculation (§6 items 3–4), record lines (§7); rows 1–15 | unit, build, D |
-| T-040j | Phase 2: the list card on screen (name, district, distance), numbered pins on the map, 途经1…N on the route line. Not started: needs the owner's request after T-040i row 15 passes | — |
+| T-040j | Phase 2a: poster cards and the moving strip (§11), place photos (§12), editing on screen (§13), numbered pins and 途经1…N on the map (§13 item 5), the tap note (§13 item 4); rows 16–25 | unit, build, D |
+| T-040l | Phase 2b: the trip saved on the phone (§14), named plans and days (§15), the `trip_plans` tool (§16), record lines (§17); rows 26–35 | unit, build, D |
 | T-040k | Phase 3: during guidance, 「加一个加油站」 (inserted at the best place), 「跳过下一站」, 「先去X」, next-stop questions and per-stop arrival, re-routed from here. Not started: needs the owner's request | — |
 
-Trace ids: T-040i is added to `specs/trace-ids.txt` (F-15b) with its tests, not before, so spec-trace stays green.
+Trace ids: T-040i, T-040j and T-040l are each added to `specs/trace-ids.txt` (F-15b) with their tests, not before, so
+spec-trace stays green.
+
+---
+
+# Phase 2: cards, screen editing, saved plans (T-040j, T-040l)
+
+## 11. Poster cards and the moving strip (T-040j)
+
+**Why.** The video shows the list as cards over the map, and the owner asked for "poster like stuff you can observe on
+the screen" (2026-11-16).
+
+**Sources (read 2026-11-16).**
+- Google's car app rules: no images on screen while driving, except images that help the driving task (rule IU-1);
+  text cut to 2 lines while driving; tasks of about 5 screens, longer ones paused until parked
+  ([Android car app quality](https://developer.android.com/docs/quality-guidelines/car-app-quality)).
+- NHTSA's visual-manual guidelines: each glance away from the road at most 2 s, a whole task at most 12 s
+  ([NHTSA 811781](https://www.nhtsa.gov/sites/nhtsa.gov/files/811781.pdf)).
+- Google Ask Maps builds a day-by-day trip with stop details and saves it as a list
+  ([Google blog](https://blog.google/products-and-platforms/products/maps/ask-maps-immersive-navigation/)).
+
+1. **Where.** On the 导航 tab, a row of cards over the bottom of the map whenever the trip list has stops. Empty list:
+   no row.
+2. **One card.**
+   - The stop's number (1…n), large.
+   - The place photo (§12), or a placeholder: the first character of the name on a plain colour.
+   - The name (one line), district, and distance from the origin in km (one decimal).
+   - A ✕ button (§13).
+   - Passed stops (§6 item 3) are greyed and marked 已到.
+3. **Order.** Cards follow the list's indexes. After `route_trip order=nearest` they follow the new order.
+4. **Moving rule.**
+   - The phone is **moving** when its own speed (F-16b `speedMetersPerSecond`) is at least 8 km/h, or 真实导航 is
+     running. It stops being moving after 3 s below 3 km/h.
+   - 模拟导航 alone is not moving: the phone is not.
+   - Speed unknown counts as moving while 真实导航 runs, and as not moving otherwise.
+   - **While moving**, the card row becomes the **strip**: one line, 「1 古文化街 · 2 五大道 · 3 天津之眼 …」, at most
+     2 lines, no photos, no ✕, no dragging, no buttons. Taps on the strip do nothing.
+   - Voice works the same moving or not.
+5. **Buttons (not moving).**
+   - 「串成路线」 → `route_trip start=false` (§13 item 1).
+   - 「开始导航」, shown once a trip route is kept → `route_trip start=true`.
+   - Day tabs 「第1天」「第2天」… when the plan has more than one day (§15).
+   - 「我的行程」 opens the saved plans sheet (§16 item 6).
+6. **Card details (not moving).** A tap on a card opens a sheet with the photo, address, opening hours and phone from
+   the place detail (the same fields as F-18 place_details). Nothing is spoken.
+
+## 12. Place photos (T-040j)
+
+1. **Source.** 高德 `/v3/place/detail` with `extensions=all` (`AmapWebClient.detail` already sends it) returns
+   `photos`: a list of `{title, url}` ([高德 搜索POI](https://lbs.amap.com/api/webservice/guide/api-advanced/search)).
+   `Place` gains `photoURL: URL?`: the first `photos[].url`, nil when there is none. Older docs spell the subfield
+   `titile`; only `url` is read.
+2. **When.**
+   - After a stop is resolved (§4), one detail call per stop, at most 4 at once.
+   - It runs after the tool result is returned, so it never delays her reply.
+   - A stop that already has `photoURL` (a saved plan, §14) makes no call.
+3. **Secure links only.** An `http://` link is tried once as `https://`. No App Transport Security exception is added.
+   If the secure link fails, the card shows the placeholder.
+4. **Size and cache.**
+   - Images are downsampled to twice the card's size before they are kept.
+   - Memory cache: 32 images. Disk cache: `Caches/TripPhotos`, at most 20 MB, oldest removed first.
+   - Saved plans keep the link, not the image.
+5. **Failure.** No photo, a failed call or a quota error shows the placeholder. The list is never changed by a photo
+   failure. A failed photo is tried again at most once per app launch.
+6. **Cost.** One extra 高德 call per stop: at most 16 for a full list.
+
+## 13. Editing on screen, pins on the map (T-040j)
+
+1. **Same path as voice (I-6).** Every tap is a `UIIntent` that becomes the tool call the voice path makes, through
+   the same dispatcher and executor, as `UIIntent.choose` does today. New intents:
+
+   | Intent | Tool call | When |
+   |---|---|---|
+   | `tripRemove(index)` | `edit_trip_list action=remove index` | Not moving |
+   | `tripMove(from, to)` | `edit_trip_list action=move index to_index` | Not moving |
+   | `tripRoute(start: Bool)` | `route_trip start` | Not moving |
+   | `tripDay(day)` | `edit_trip_list action=read day` | Not moving |
+   | `tripAdd(row)` | Adds row `row` of an open destination list (below) | Not moving |
+   | `tripOpenPlan(name)` | `trip_plans action=open name` | Not moving |
+
+   The executor refuses a tap intent while moving with `NOT_WHILE_MOVING` (no change). The screen does not offer them
+   then, so this is the backstop.
+2. **Drag to reorder.** Long-press and drag a card; dropping it is one `tripMove`. Not moving only.
+3. **Add from a list.** When a destination list from `navigate_to` is open and the trip list exists, each row has
+   「加入清单」. It adds that already-found `Place` with no new lookup, as `add` at the end. A full list returns
+   `TRIP_TOO_LONG`.
+4. **Tap note.** After a tap's tool result, when a voice session is connected, a silent note in the F-18 §21 form is
+   sent so she knows the list changed:
+   > [系统] 司机在屏幕上<去掉了第k个：名字|把第k个移到了第m个|加入了名字|串成了路线|开始了导航|打开了行程「名字」>，现在清单有n个地点。这句不用回答。
+
+   No session: no note. The list is the app's, and she reads it with `edit_trip_list read` when asked.
+5. **Map pins and labels.**
+   - Numbered pins 1…n at the stops' coordinates whenever the list has stops, before and after routing.
+   - On a kept or running trip route, the stops are labelled 途经1…途经n−1 and 终点, as in the video.
+   - Passed stops are greyed.
+   - `RouteGeometry` gains `stops: [TripPin]` (index, coordinate, label, passed); the map draws them.
+
+## 14. The trip saved on the phone (T-040l)
+
+1. **Current plan.** The current plan (§15: its name, days and stops) is written to
+   `Application Support/trip/current.json` after every change, with an atomic write, and read at launch. It replaces
+   phase 1's "an app restart empties it" (§3 item 2).
+2. **What is kept per stop:** asked name, `Place` id, name, address, district, coordinate (GCJ-02), `photoURL`.
+   Not kept: generations, passed stops, the kept route. A restored plan is recalculated by `route_trip`.
+3. **Privacy (I-8).**
+   - Place names never go to the log or the conversation record's numbers lines.
+   - The files have complete-until-first-unlock protection and are excluded from backup.
+4. **Bad file.** An unreadable file, or an unknown `version`, starts empty and logs `trip load ok=no`. The file is
+   moved aside as `current.bad.json`, not deleted.
+
+## 15. Named plans and days (T-040l)
+
+**Why.** The video starts with 「规划天津三天的行程」 and a day-by-day plan. Ask Maps keeps a day-by-day trip as a saved
+list (§11 sources).
+
+1. **A plan** has:
+   - an optional name, 1–20 characters;
+   - 1–5 days, each a `TripList` of 1–16 stops (§3);
+   - a current day: the last day made, edited, read or routed.
+2. **Days in the tools.** `make_trip_list`, `edit_trip_list` and `route_trip` gain an optional `day` (1–5):
+   - `make_trip_list` with `day` replaces only that day and keeps the others. `day` may be at most the number of days
+     + 1. Without `day`, it replaces the whole plan with one day, as in phase 1.
+   - `edit_trip_list` and `route_trip` with `day` act on that day; without it, on the current day.
+   - `edit_trip_list action=clear` with `day` removes that day; the later days move up one. Without `day`, the whole
+     plan is cleared.
+   - A day out of range returns `OUT_OF_RANGE`.
+3. **Results.** `trip_list` and `trip_route` add `day` and `days` (the count).
+4. **One route is one day.** Routing a day never adds stops of another day.
+5. **Catalog text additions** (appended to each tool's §5 text):
+   - `make_trip_list`: 「多天的行程按天分别调用，day 填第几天：「第一天去古文化街和五大道」→day=1。」
+   - `edit_trip_list`: 「说到第几天时填 day，不说就是刚才那一天。」
+   - `route_trip`: 「「开始第二天的导航」→day=2, start=true。」
+
+## 16. Saved plans: the `trip_plans` tool (T-040l)
+
+1. **Arguments:**
+   - `action`: `save`, `open`, `list`, `delete`, `rename`;
+   - `name`: 1–20 characters;
+   - `new_name`: 1–20 characters, for `rename`.
+2. **Actions:**
+
+   | action | Required | Effect |
+   |---|---|---|
+   | `save` | `name` | Saves the current plan under `name` and gives the current plan that name. Same name: replaced, `replaced: true`. |
+   | `open` | `name` | Makes that plan the current plan (a copy). |
+   | `list` | | Names with days and stop counts, newest first. |
+   | `delete` | `name` | Deletes the saved plan. The current plan is not changed. |
+   | `rename` | `name`, `new_name` | Renames the saved plan (and the current plan if it has that name). |
+
+3. **Nothing is lost on open.** If the current plan has stops and no name, opening another plan keeps it as
+   「上一个清单」 (one slot, replaced each time). She says so once.
+4. **Name matching.** Exact after `TranscriptText.normalize`. Otherwise one saved name containing it, or contained in
+   it. Several → `AMBIGUOUS`. None → `PLAN_NOT_FOUND`.
+5. **Limits and errors.**
+
+   | Code | When |
+   |---|---|
+   | `NO_TRIP_LIST` | `save` with an empty current plan. |
+   | `PLAN_NOT_FOUND` | `open`, `delete` or `rename` found no plan. |
+   | `PLANS_FULL` | `save` of a new name with 20 plans saved. |
+   | `AMBIGUOUS` | More than one name matches. |
+   | `invalidFields` | A field is missing or too long for the action. |
+
+6. **Screen.** 「我的行程」 (not moving) lists the saved plans with name, days and stop count. A tap opens one
+   (`tripOpenPlan`). A swipe deletes one after a confirm on screen.
+7. **Opening while navigating.** The plan is replaced and a kept trip route is dropped. Guidance on the running route
+   goes on until 结束导航 or a new `route_trip start=true` (F-15a §9, one trip at a time).
+8. **Saved in** `Application Support/trip/plans.json`, the same way as §14.
+9. **Catalog text:**
+   > 保存、打开、列出、删除、改名行程：「把这个行程存成天津一日游」→save name=天津一日游；「打开天津一日游」→open；「我存了哪些行程」→list；「删掉天津那个行程」→delete；「改名叫周末出游」→rename。打开后要导航就再调用 route_trip。按结果答：一句话说做了什么；list 只说有几个和名字；ok=false 按 error：NO_TRIP_LIST=还没有清单，PLAN_NOT_FOUND=没有这个行程，PLANS_FULL=最多存20个，AMBIGUOUS=有多个请说全名。
+
+## 17. Phase 2 record and log
+
+Codes and numbers only (I-8).
+
+| Line | When |
+|---|---|
+| `trip photo ok=<n> none=<n> failed=<n> ms=<ms>` | After the photos of one change are done. |
+| `trip strip moving=<yes\|no>` | When the card row turns into the strip or back. |
+| `trip tap action=<remove\|move\|route\|start\|add\|day\|open> ok=<yes\|no>` | After a tap's tool result. |
+| `trip plan action=<save\|open\|list\|delete\|rename> ok=<yes\|no> days=<n> stops=<n>` | After `trip_plans`. |
+| `trip load ok=<yes\|no> days=<n> stops=<n>` | At launch. |
+
+New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SHORT`, `NOT_FOUND` (phase 1);
+`PLAN_NOT_FOUND`, `PLANS_FULL`, `NOT_WHILE_MOVING` (phase 2). Each gets a `ToolFailureAdvice` sentence.
+
+## 18. Phase 2 out of scope
+
+- Ratings, prices and reviews on cards.
+- Sharing a plan to another phone, iCloud sync.
+- Hour-by-hour schedules, hotels and tickets.
+- Video or animated cards.
+- Planning while moving by screen: voice only.
+
+## 19. Phase 2 acceptance (iOS)
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 16 | A list of 5, not moving | 5 cards in index order with number, name, district, km and ✕; an empty list shows no row | unit (view model) |
+| 17 | Speed 10 km/h; then 2 km/h for 3 s | The strip (names and numbers, no photos, no ✕, no buttons), `trip strip moving=yes`; then cards again, `moving=no` | unit |
+| 18 | 模拟导航 with the phone still; 真实导航 with speed unknown | Cards; strip | unit |
+| 19 | Detail returns 2 photos with an `http://` first link; another stop has none; a third fails | The first gets the `https://` form; the others get the placeholder; `trip photo ok=1 none=1 failed=1`; the list is unchanged | unit |
+| 20 | A saved stop with `photoURL` | No detail call | unit |
+| 21 | Tap ✕ on card 2, not moving | Exactly one `edit_trip_list remove index=2` through the dispatcher; the list renumbers; one tap note with the new count; `trip tap action=remove ok=yes` | unit |
+| 22 | `tripRemove` while moving | `NOT_WHILE_MOVING`, nothing changes, no note | unit |
+| 23 | Drag card 4 to place 1 | One `move index=4 to_index=1` | unit |
+| 24 | A destination list is open and a list of 16 exists; 「加入清单」 | `TRIP_TOO_LONG`, nothing changes; with 15, the place is added with no new lookup | unit |
+| 25 | A 4-stop list; then a kept trip route; then stop 1 passed | Pins 1–4; labels 途经1–3 and 终点; pin 1 greyed | unit (geometry) |
+| 26 | Change the list, restart the controller from the file | The same plan, days and stops come back; no lookups; no passed stops; no kept route | unit |
+| 27 | An unreadable `current.json` | Empty plan, `trip load ok=no`, the file moved to `current.bad.json` | unit |
+| 28 | The log and record after a full session | No place names in log or numbers lines | unit |
+| 29 | `make_trip_list day=1`, then `day=2`, then `day=4` | 2 days kept; the third returns `OUT_OF_RANGE` | unit |
+| 30 | `route_trip day=2 start=true` | The route has only day 2's stops; the current day becomes 2 | unit |
+| 31 | `edit_trip_list clear day=1` on 3 days | 2 days left; the old day 2 is now day 1 | unit |
+| 32 | `trip_plans save 天津一日游`, `list`, `open 天津`, `rename`, `delete` | Each as §16; `open 天津` finds the one plan by containment | unit |
+| 33 | An unnamed current plan, then `open` another | The old one is kept as 「上一个清单」 | unit |
+| 34 | 20 saved, `save` a new name; two names contain the asked one | `PLANS_FULL`; `AMBIGUOUS` | unit |
+| 35 | Device, 模拟导航, parked: 「规划天津两天的行程」, 「做个打卡清单」 (two days), cards with photos, ✕ one card, 「存成天津周末」, close and reopen the app, 「打开天津周末」, 「开始第一天的导航」 | She makes two days; the cards show photos or placeholders; the ✕ removes the stop and she knows it; after reopening the plan is there; guidance runs through day 1's stops with 途经 labels; the record has the `trip` lines | D |
