@@ -74,10 +74,12 @@ public enum RecordEvent: Sendable, Hashable {
     case volume(String)
     /// F-05a §15 item 7 (T-016m): `lang-check …`, `correction WRONG_LANGUAGE heard=…`, `fallback-line …`.
     case languageLine(ReplyLanguageLine)
-    /// F-09a §5 (T-017a): `area utterance=<n> area=<area>`; codes and numbers only.
-    case area(utterance: Int, area: CarRequestArea)
-    /// F-09a §5: `tired-silenced turn=<n>`.
-    case tiredSilenced(turn: Int)
+    /// F-09b §8 (T-031j): `state-note reason=<connect|changed|speed>`.
+    case stateNote(StateNoteReason)
+    /// F-09b §8 (T-016p): `summary-note exchanges=<n> age_s=<s>`.
+    case summaryNote(exchanges: Int, ageS: Int)
+    /// F-09b §8 (T-031j): `undo ok=<yes|no> restored=<n>`.
+    case undo(String)
     /// F-18 §30 item 5 (T-046s): `weather source= ok= reason= view= lookup= attempts= ms=`; codes and numbers only.
     case weather(String)
     /// F-03 §14 item 4 (T-021q): `audio interrupted`, `audio interruption-ended resume=…`, `audio resumed …`.
@@ -225,8 +227,9 @@ public struct ConversationRecorder: Sendable {
         case .voiceFailed(let v): return [line("voice-failed", v.fields)]
         case .voiceGemini(let v): return [line("voice", v.fields)]
         case .claimCut(let turn, let played): return [line("claim-cut", "turn=\(turn) played_ms=\(played)")]
-        case .area(let utterance, let area): return [line("area", "utterance=\(utterance) area=\(area.rawValue)")]
-        case .tiredSilenced(let turn): return [line("tired-silenced", "turn=\(turn)")]
+        case .stateNote(let reason): return [line("state-note", "reason=\(reason.rawValue)")]
+        case .summaryNote(let n, let age): return [line("summary-note", "exchanges=\(n) age_s=\(age)")]
+        case .undo(let text): return ["\(ms) \(text)"]
         case .volume(let text), .audio(let text): return ["\(ms) \(text)"]
         case .weather(let text): return ["\(ms) \(text)"]
         case .music(let text):

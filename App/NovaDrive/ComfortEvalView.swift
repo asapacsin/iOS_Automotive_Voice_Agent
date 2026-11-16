@@ -36,12 +36,11 @@ final class ComfortEvalModel: ObservableObject {
     @Published var done = 0
     @Published var total = 0
     @Published var report: ComfortReport?
-    @Published var reportMode = ToolCatalog.ComfortMode.table
     /// §16 item 3: the last run was 「试跑」; every reply is shown.
     @Published var reportIsTrial = false
     @Published var trialRuns: [ComfortRun] = []
-    /// §16 item 7: the latest full report per mode, from a local file (never logged).
-    @Published var saved: [ToolCatalog.ComfortMode: ComfortSummary] = ComfortSummaryStore.load()
+    /// §16 item 7: the latest full report, from a local file (never logged).
+    @Published var saved: ComfortSummary? = ComfortSummaryStore.load()
     private var runner: ComfortEvalRunner?
 
     /// §16 item 9: the app left the foreground; the run in progress is repeated and not scored.
@@ -60,7 +59,7 @@ final class ComfortEvalModel: ObservableObject {
         Task { await runner.cancel() }
     }
 
-    func start(_ mode: ToolCatalog.ComfortMode, trial: Bool) {
+    func start(trial: Bool) {
         guard !running else { return }
         let vehicle = SimulatedVehicle()
         let music = EvalMusic()
@@ -72,13 +71,14 @@ final class ComfortEvalModel: ObservableObject {
         for name in VehicleToolExecutor.tools { tools[name] = vehicleTools }
         let musicTools = MusicToolHandler(music: music, clock: SystemClock())
         for name in MusicToolHandler.tools { tools[name] = musicTools }
-        switch mode {
-        case .table: tools[ScenarioToolHandler.tool] = ScenarioToolHandler(port: port, music: music)
-        case .model:
-            tools[VehicleStateTool.tool] = VehicleStateTool(port: port, music: music, navigating: { false }, speedKmh: speedKmh)
-        }
+        // F-09b §3 item 4 (T-031c): one comfort path; F-09b §4 (T-031j): the undo runs on the same port.
+        tools[VehicleStateTool.tool] = VehicleStateTool(port: port, music: music, navigating: { false }, speedKmh: speedKmh)
+        let changeSets = ChangeSetStore(clock: SystemClock())
+        tools[UndoLastChangeTool.tool] = UndoLastChangeTool(port: port, store: changeSets)
+        for name in VehicleToolExecutor.tools { tools[name] = ChangeSetRecorder(inner: vehicleTools, port: port, store: changeSets) }
         let harness = ComfortEvalHarness(
             reset: { state in
+                changeSets.clear()
                 vehicle.reset(climate: state.climate, cabin: state.cabin)
                 vehicle.failWindows(state.windowsFail)
                 music.set(state.musicPlaying)
@@ -89,9 +89,9 @@ final class ComfortEvalModel: ObservableObject {
                                     musicPlaying: await music.isPlaying, speedKmh: speed.get())
             },
             tools: tools)
-        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(for: mode),
+        let instruction = PersonaInstruction.build(base: PersonaInstruction.base,
                                                    style: SpeakingStyle.saved(in: DefaultsSettingsStore()))
-        let config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: mode), thinkingLevel: nil)
+        let config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations, thinkingLevel: nil)
         let runner = ComfortEvalRunner(provider: GeminiLiveProvider(credentials: KeychainRealtimeCredentials()), config: config,
                                        harness: harness, clock: SystemClock())
         self.runner = runner
@@ -110,20 +110,19 @@ final class ComfortEvalModel: ObservableObject {
             let complete = !(await runner.wasCancelled)
                 && runs.filter { $0.problem != .interrupted }.count == cases.count * attempts
             // I-8: numbers, enums and case ids only; one line each so nothing is cut off.
-            for line in result.logLines(mode: mode) { RuntimeLog.agent.notice("\(line, privacy: .public)") }
+            for line in result.logLines() { RuntimeLog.agent.notice("\(line, privacy: .public)") }
             // §15 item 4: each block as in a drive (tool and rule only).
             for b in result.blocks {
                 RuntimeLog.agent.notice("vehicleBlocked \(b.tool, privacy: .public) \(b.rule, privacy: .public) case=\(b.caseID, privacy: .public)")
             }
             UIApplication.shared.isIdleTimerDisabled = false
             if !trial, complete, result.valid {
-                let summary = ComfortSummary(report: result, mode: mode, build: ComfortSummaryStore.build,
+                let summary = ComfortSummary(report: result, build: ComfortSummaryStore.build,
                                              date: Date().formatted(.iso8601.year().month().day()))
                 ComfortSummaryStore.save(summary)
-                self?.saved[mode] = summary
+                self?.saved = summary
             }
             self?.report = result
-            self?.reportMode = mode
             self?.reportIsTrial = trial
             self?.trialRuns = trial ? runs.filter { $0.problem != .interrupted } : []
             self?.running = false
@@ -147,58 +146,47 @@ enum ComfortSummaryStore {
         return "\(stamp)-\(built)"
     }
 
-    private static func url(_ mode: ToolCatalog.ComfortMode) -> URL? {
+    /// F-09b §3 item 4: one path; the old per-mode files are left alone and never read.
+    private static var url: URL? {
         guard let dir = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                                       appropriateFor: nil, create: true) else { return nil }
-        return dir.appendingPathComponent("comfortEval-\(mode.rawValue).json")
+        return dir.appendingPathComponent("comfortEval.json")
     }
 
-    static func load() -> [ToolCatalog.ComfortMode: ComfortSummary] {
-        var out: [ToolCatalog.ComfortMode: ComfortSummary] = [:]
-        for mode in [ToolCatalog.ComfortMode.table, .model] {
-            if let url = url(mode), let data = try? Data(contentsOf: url),
-               let s = try? JSONDecoder().decode(ComfortSummary.self, from: data) { out[mode] = s }
-        }
-        return out
+    static func load() -> ComfortSummary? {
+        guard let url, let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(ComfortSummary.self, from: data)
     }
 
     static func save(_ s: ComfortSummary) {
-        guard let mode = ToolCatalog.ComfortMode(rawValue: s.mode), let url = url(mode),
-              let data = try? JSONEncoder().encode(s) else { return }
+        guard let url, let data = try? JSONEncoder().encode(s) else { return }
         try? data.write(to: url, options: .atomic)
     }
 }
 
 /// F-12 §14 items 4-5 (T-031a): 设置 → 舒适场景测试. Sends every case as text through a real Gemini session with the
-/// app's tools and checks, on a simulated vehicle reset per case, 3 runs each. Run it with the table first (baseline),
-/// then in model mode; screenshot both reports. Keys come from the Keychain and never appear in the report.
+/// app's tools and checks, on a simulated vehicle reset per case, 3 runs each. F-09b §3 item 4: one comfort path
+/// (the model decides). Keys come from the Keychain and never appear in the report.
 struct ComfortEvalView: View {
-    @State private var mode = ToolCatalog.ComfortMode.table
     @StateObject private var eval = ComfortEvalModel()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Form {
             Section {
-                Picker("测试哪种", selection: $mode) {
-                    Text("固定场景表").tag(ToolCatalog.ComfortMode.table)
-                    Text("模型决定").tag(ToolCatalog.ComfortMode.model)
-                }
-                .pickerStyle(.segmented)
-                .disabled(eval.running)
-                Text("先「试跑」\(ComfortCases.trial.count) 条（约 2 分钟），读完每条回复再做完整测试：\(ComfortCases.all.count) 条句子，每条 3 次，用文字发给 Gemini，车辆是模拟的，每条都从头开始。同一天、同一个网络，先测固定场景表，再测模型决定，两次都截图。每种大约 30 分钟，会用 Gemini 额度。测试时屏幕常亮，不要切出应用。")
+                Text("先「试跑」\(ComfortCases.trial.count) 条（约 2 分钟），读完每条回复再做完整测试：\(ComfortCases.all.count) 条句子，每条 3 次，用文字发给 Gemini，车辆是模拟的，每条都从头开始。完成后截图。大约 30 分钟，会用 Gemini 额度。测试时屏幕常亮，不要切出应用。")
                     .font(.footnote).foregroundStyle(.secondary)
                 if eval.running {
                     ProgressView(value: Double(eval.done), total: Double(max(eval.total, 1)))
                     Text("\(eval.done) / \(eval.total)").font(.footnote.monospacedDigit())
                     Button("停止", role: .destructive) { eval.cancel() }
                 } else {
-                    Button("试跑") { eval.start(mode, trial: true) }
-                    Button("完整测试") { eval.start(mode, trial: false) }
+                    Button("试跑") { eval.start(trial: true) }
+                    Button("完整测试") { eval.start(trial: false) }
                 }
             }
             if let report = eval.report { reportSections(report) }
-            comparisonSection
+            barsSection
             Section("待定答案（\(ComfortCases.awaitingVerdict.count)）") {
                 Text(ComfortCases.awaitingVerdict.joined(separator: "、")).font(.footnote.monospaced())
                 if !ComfortCases.disputed.isEmpty {
@@ -214,7 +202,7 @@ struct ComfortEvalView: View {
 
     @ViewBuilder
     private func reportSections(_ r: ComfortReport) -> some View {
-        Section("结果（\(eval.reportMode == .table ? "固定场景表" : "模型决定")\(eval.reportIsTrial ? " · 试跑" : "")）") {
+        Section("结果\(eval.reportIsTrial ? "（试跑）" : "")") {
             LabeledContent("有效", value: r.valid ? "是" : "否（连接失败超过 5%）")
             LabeledContent("连接失败（不计分）", value: "\(r.infrastructure.count) / \(r.runs)")
             row("总分", r.overall)
@@ -282,26 +270,15 @@ struct ComfortEvalView: View {
         }
     }
 
-    /// §16 item 7: model minus table per case, same build only; item 14 bars are PROPOSED.
+    /// F-09b §9 row 8: the bars on the one path (latest full report).
     @ViewBuilder
-    private var comparisonSection: some View {
-        if let t = eval.saved[.table], let m = eval.saved[.model] {
-            Section("对比（模型 − 固定场景表）") {
-                LabeledContent("固定场景表", value: "\(t.build) · \(t.date)").font(.footnote)
-                LabeledContent("模型决定", value: "\(m.build) · \(m.date)").font(.footnote)
-                if let cmp = ComfortComparison(table: t, model: m) {
-                    LabeledContent("平均差（\(cmp.cases) 条）",
-                                   value: String(format: "%+.1f 分，95%% 区间 %+.1f … %+.1f", cmp.meanPoints, cmp.lowPoints, cmp.highPoints))
-                    if cmp.noVisibleDifference { Text("看不出差别").font(.footnote.bold()) }
-                    let bars = cmp.bars(table: t, model: m)
-                    Text("门槛（待定）：纠正后无依据 0 \(mark(bars.noUncorrectedClaims))；不该做的没做 ≥95% \(mark(bars.noWrongfulAction95))；区间下限 ≥ −5 分 \(mark(bars.overallWithinFive))；舒适第一声中位慢不超过 1 s \(mark(bars.medianWithinOneSecond))；90% < 3 s \(mark(bars.p90UnderThreeSeconds))；最慢 \(m.comfortFirstAudioWorst.map { "\($0) ms" } ?? "—")；第一次回复无依据 \(m.firstReplyClaims)；车上第 8 行另测")
-                        .font(.footnote)
-                    ForEach(cmp.differing, id: \.caseID) { d in
-                        LabeledContent(d.caseID, value: String(format: "%+.0f", d.points)).font(.footnote.monospaced())
-                    }
-                } else {
-                    Text("不是同一个版本，不对比。").font(.footnote)
-                }
+    private var barsSection: some View {
+        if let m = eval.saved {
+            Section("门槛（F-09b 第 8 行）") {
+                LabeledContent("版本", value: "\(m.build) · \(m.date)").font(.footnote)
+                let bars = ComfortBars(m)
+                Text("不该做的没做 ≥95% \(mark(bars.noWrongfulAction95))；纠正后无依据 0 \(mark(bars.noUncorrectedClaims))；舒适第一声中位 ≤ 2.5 s \(mark(bars.medianWithinBar))（\(m.comfortFirstAudioMedian.map { "\($0) ms" } ?? "—")）；第一次回复无依据 \(m.firstReplyClaims)")
+                    .font(.footnote)
             }
         }
     }

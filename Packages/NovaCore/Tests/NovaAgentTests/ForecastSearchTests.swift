@@ -47,10 +47,10 @@ struct ForecastSearchTests {
         let s = PersonaInstruction.webSearchSentence
         #expect(s.contains("（新闻、营业时间、价格、油价、汇率、比分等）") && !s.contains("任何一天的天气"))
         #expect(s.contains("现在的气温和天气预报用 query_live_info（今后10天内，国外地点用英文名并填 country）。问很久以后的天气时"))
-        for mode in [ToolCatalog.ComfortMode.table, .model] {
-            let on = ToolCatalog.declarations(for: mode, webSearch: true).first { $0.name == "query_live_info" }!
+        for mode in ["model"] {
+            let on = ToolCatalog.declarations(webSearch: true).first { $0.name == "query_live_info" }!
             #expect(on.description.contains(ToolCatalog.officialFirst))
-            let text = PersonaInstruction.base(PersonaInstruction.base(for: mode), webSearch: true)
+            let text = PersonaInstruction.base(PersonaInstruction.base, webSearch: true)
             #expect(text.count <= PersonaInstruction.maxBaseCharacters, "\(mode) \(text.count)")
         }
     }

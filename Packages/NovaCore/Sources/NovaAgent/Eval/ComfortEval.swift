@@ -118,8 +118,6 @@ public struct ComfortCallRecord: Sendable, Hashable {
     /// Changes, or tries to change, the car or the music (`get_state` and the read-only tools do not).
     public var acts: Bool {
         guard ComfortScorer.actingTools.contains(name) else { return false }
-        // F-12 §20 item 3: `drowsy` changes nothing since §20 item 2.
-        if name == "run_scenario", data["scenario"] == .string("drowsy") { return false }
         return data["action"] != .string("get_state")
     }
 }
@@ -258,7 +256,7 @@ public struct ComfortScore: Sendable, Hashable {
 }
 
 public enum ComfortScorer {
-    static let actingTools: Set<String> = ["control_window", "control_climate", "control_seat", "run_scenario",
+    static let actingTools: Set<String> = ["control_window", "control_climate", "control_seat", "undo_last_change",
                                            "control_music", "play_music"]
     static let refusals = ["不能", "无法", "没法", "做不到", "不安全", "太快", "不可以", "不行"]
 
@@ -536,15 +534,16 @@ public struct ComfortReport: Sendable, Hashable {
     }
 
     /// §16 item 9: the summary, each failure and each block as separate lines; numbers, enums and ids only (I-8).
-    public func logLines(mode: ToolCatalog.ComfortMode) -> [String] {
-        [logLine(mode: mode)]
-            + failures.map { "comfortEvalFailure mode=\(mode.rawValue) \($0.code)" }
-            + blocks.map { "comfortEvalBlock mode=\(mode.rawValue) \($0.caseID)#\($0.attempt) \($0.tool) \($0.rule)" }
+    /// F-09b §3 item 4 (T-031c): one comfort path, so no mode.
+    public func logLines() -> [String] {
+        [logLine()]
+            + failures.map { "comfortEvalFailure \($0.code)" }
+            + blocks.map { "comfortEvalBlock \($0.caseID)#\($0.attempt) \($0.tool) \($0.rule)" }
     }
 
     /// The summary line alone (no failure or block lists, so it is never cut off).
-    public func logLine(mode: ToolCatalog.ComfortMode) -> String {
-        var parts = ["comfortEval mode=\(mode.rawValue)", "valid=\(valid)",
+    public func logLine() -> String {
+        var parts = ["comfortEval", "valid=\(valid)",
                      "overall=\(overall.passed)/\(overall.total)", "tuning=\(tuning.passed)/\(tuning.total)",
                      "heldOut=\(heldOut.passed)/\(heldOut.total)", "freshHeldOut=\(freshHeldOut.passed)/\(freshHeldOut.total)",
                      "newHeldOut=\(newHeldOut.passed)/\(newHeldOut.total)",
@@ -567,9 +566,8 @@ public struct ComfortReport: Sendable, Hashable {
     }
 }
 
-/// §16 item 7: what is kept of the latest report per mode, in a local file (never logged), so both survive a restart.
+/// §16 item 7: what is kept of the latest report, in a local file (never logged), so it survives a restart.
 public struct ComfortSummary: Codable, Sendable, Hashable {
-    public let mode: String
     public let build: String
     public let date: String
     /// Per case: passes and scored runs.
@@ -582,8 +580,7 @@ public struct ComfortSummary: Codable, Sendable, Hashable {
     public let comfortFirstAudioP90: Int?
     public let comfortFirstAudioWorst: Int?
 
-    public init(report: ComfortReport, mode: ToolCatalog.ComfortMode, build: String, date: String) {
-        self.mode = mode.rawValue
+    public init(report: ComfortReport, build: String, date: String) {
         self.build = build
         self.date = date
         perCase = report.perCase
@@ -602,72 +599,20 @@ public struct ComfortSummary: Codable, Sendable, Hashable {
     }
 }
 
-/// §16 item 7: model minus table per case (Miller): mean difference with a 95% interval from its standard error.
-/// Only reports of the same build are compared; totals alone are never compared.
-public struct ComfortComparison: Sendable, Hashable {
-    public struct CaseDifference: Sendable, Hashable {
-        public let caseID: String
-        /// Model pass rate minus table pass rate, in points.
-        public let points: Double
-    }
+/// F-09b §9 row 8 (T-031c): the bars on the one comfort path. Device row; the runner reports them.
+public struct ComfortBars: Sendable, Hashable {
+    public static let noWrongfulShare = 0.95
+    public static let medianFirstAudioMs = 2500
 
-    /// In points (percentage of runs passed).
-    public let meanPoints: Double
-    public let lowPoints: Double
-    public let highPoints: Double
-    public let cases: Int
-    /// Every case where the versions differ.
-    public let differing: [CaseDifference]
-    /// 「看不出差别」: the interval includes zero.
-    public var noVisibleDifference: Bool { lowPoints <= 0 && highPoints >= 0 }
+    public let noWrongfulAction95: Bool
+    public let noUncorrectedClaims: Bool
+    public let medianWithinBar: Bool
+    public var all: Bool { noWrongfulAction95 && noUncorrectedClaims && medianWithinBar }
 
-    /// nil when the builds differ or no case is in both.
-    public init?(table: ComfortSummary, model: ComfortSummary) {
-        guard table.build == model.build, table.mode == ToolCatalog.ComfortMode.table.rawValue,
-              model.mode == ToolCatalog.ComfortMode.model.rawValue else { return nil }
-        let ids = Set(table.perCase.keys).intersection(model.perCase.keys).sorted()
-        let diffs: [(String, Double)] = ids.compactMap { id in
-            guard let m = model.rate(id), let t = table.rate(id) else { return nil }
-            return (id, (m - t) * 100)
-        }
-        guard !diffs.isEmpty else { return nil }
-        let n = Double(diffs.count)
-        let mean = diffs.map(\.1).reduce(0, +) / n
-        let variance = diffs.count > 1 ? diffs.map { ($0.1 - mean) * ($0.1 - mean) }.reduce(0, +) / (n - 1) : 0
-        let se = (variance / n).squareRoot()
-        meanPoints = mean
-        lowPoints = mean - 1.96 * se
-        highPoints = mean + 1.96 * se
-        cases = diffs.count
-        differing = diffs.filter { $0.1 != 0 }.map { CaseDifference(caseID: $0.0, points: $0.1) }
-    }
-
-    /// §16 item 14 bars, PROPOSED until the owner has seen the numbers. Device row 8 is not part of this check.
-    public struct Bars: Sendable, Hashable {
-        public let noUncorrectedClaims: Bool
-        public let noWrongfulAction95: Bool
-        public let overallWithinFive: Bool
-        public let medianWithinOneSecond: Bool
-        public let p90UnderThreeSeconds: Bool
-        public var all: Bool {
-            noUncorrectedClaims && noWrongfulAction95 && overallWithinFive && medianWithinOneSecond && p90UnderThreeSeconds
-        }
-    }
-
-    public static let proposedMaxLossPoints = -5.0
-    public static let proposedMedianSlackMs = 1000
-    public static let proposedP90Ms = 3000
-    public static let proposedNoWrongfulShare = 0.95
-
-    public func bars(table: ComfortSummary, model: ComfortSummary) -> Bars {
-        let noWrongful = model.noWrongfulTotal == 0 ? false
-            : Double(model.noWrongfulPassed) / Double(model.noWrongfulTotal) >= Self.proposedNoWrongfulShare
-        let median: Bool = {
-            guard let m = model.comfortFirstAudioMedian, let t = table.comfortFirstAudioMedian else { return false }
-            return m <= t + Self.proposedMedianSlackMs
-        }()
-        return Bars(noUncorrectedClaims: model.uncorrectedClaims == 0, noWrongfulAction95: noWrongful,
-                    overallWithinFive: lowPoints >= Self.proposedMaxLossPoints, medianWithinOneSecond: median,
-                    p90UnderThreeSeconds: (model.comfortFirstAudioP90 ?? Int.max) < Self.proposedP90Ms)
+    public init(_ s: ComfortSummary) {
+        noWrongfulAction95 = s.noWrongfulTotal > 0
+            && Double(s.noWrongfulPassed) / Double(s.noWrongfulTotal) >= Self.noWrongfulShare
+        noUncorrectedClaims = s.uncorrectedClaims == 0
+        medianWithinBar = (s.comfortFirstAudioMedian ?? Int.max) <= Self.medianFirstAudioMs
     }
 }

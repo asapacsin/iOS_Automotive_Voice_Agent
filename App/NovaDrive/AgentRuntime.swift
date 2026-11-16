@@ -124,13 +124,6 @@ enum DriveSettings {
     /// F-08 §17 item 10 (T-022e) 「可以打断她（实验）」: talking over her can stop her (default off).
     static let interruptible = "interruptible_experimental"
 
-    /// F-12 §14 item 7 (T-031b) 「由模型决定舒适动作（实验）」: default off; read at session start.
-    static let modelComfort = "model_comfort_experimental"
-
-    static func comfortMode(_ defaults: UserDefaults = .standard) -> ToolCatalog.ComfortMode {
-        defaults.object(forKey: modelComfort) as? Bool ?? false ? .model : .table
-    }
-
     /// F-12 §17 item 1 (T-031f) 「保存对话记录（测试用）」: default off; read at session start.
     static let conversationRecord = "conversation_record_test"
 
@@ -246,8 +239,12 @@ struct RuntimeSink: AgentEffectSink {
     let wakeWatch: WakeSessionWatch
     /// F-24 §15 item 4 (T-016j): the runtime keeps the handle in memory; never logged or written (I-7).
     let keepHandle: @Sendable (String?) async -> Void
+    /// F-09b §6 item 1 (T-016p): one completed exchange for the runtime's in-memory summary (I-7).
+    let onExchange: @Sendable (ConversationExchange) -> Void
 
     func keepResumption(_ handle: String?) async { await keepHandle(handle) }
+
+    func exchange(_ exchange: ConversationExchange) { onExchange(exchange) }
 
     func provider(_ command: ProviderCommand) async {
         switch command {
@@ -331,8 +328,8 @@ struct RuntimeSink: AgentEffectSink {
         case .claimHeld: record?.submit(.held)
         case .claimCut(let turn, let ms): record?.submit(.claimCut(turn: turn, playedMs: ms))  // F-07 §15 item 8
         case .asyncToolDropped(let tool): record?.submit(.toolDropped(tool))  // F-18 §27 item 4
-        case .carArea(let utterance, let area): record?.submit(.area(utterance: utterance, area: area))  // F-09a §5
-        case .tiredSilenced(let turn): record?.submit(.tiredSilenced(turn: turn))  // F-09a §5
+        case .stateNote(let reason): record?.submit(.stateNote(reason))  // F-09b §8
+        case .summaryNote(let n, let age): record?.submit(.summaryNote(exchanges: n, ageS: age))  // F-09b §8
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
@@ -386,6 +383,8 @@ struct ObservedVehicleExecutor: ToolExecutor {
     let inner: any ToolExecutor
     let vehicle: SimulatedVehicle
     let model: DriveModel
+    /// F-09b §5 (T-031j): the core hears the new state.
+    var changed: @Sendable () async -> Void = {}
 
     func execute(_ call: ToolCall) async -> ToolResult {
         let result = await inner.execute(call)
@@ -401,6 +400,7 @@ struct ObservedVehicleExecutor: ToolExecutor {
             model.cabin = cabin
             model.toolLine = "\(call.name) → \(result.ok ? "ok" : (result.code?.rawValue ?? "failed"))"
         }
+        await changed()
         return result
     }
 }
@@ -848,10 +848,22 @@ final class AgentRuntime {
             return mps * 3.6
         }
         let port = PolicedVehiclePort(vehicle, speedKmh: speedKmh)
-        // F-12 §14 item 7: the comfort path is fixed for the whole session (the catalog goes in `setup`).
-        let comfortMode = DriveSettings.comfortMode()
-        RuntimeLog.agent.notice("comfortMode \(comfortMode.rawValue, privacy: .public)")
-        let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: port), vehicle: vehicle, model: model)
+        // F-09b §3 item 1 (T-031c): one comfort path, the model decides. F-09b §4 (T-031j): every ok change of one
+        // model turn is kept for the undo; F-09b §5: the core hears the car's state after each change.
+        let carState = CoreRelay()
+        let musicRef = MusicRef()
+        let snapshot: @Sendable () async -> CarStateSnapshot = { [vehicle] in
+            let climate = await vehicle.climateState()
+            let cabin = await vehicle.cabinState()
+            return CarStateSnapshot(acOn: climate.powerOn, temperatureC: climate.targetTemperatureCelsius,
+                                    fanLevel: climate.fanLevel, windows: cabin.windows,
+                                    driverSeat: cabin.seatHeights[.driver] ?? CabinLimits.seatDefault,
+                                    musicPlaying: await musicRef.port?.isPlaying ?? false, speedKmh: await speedKmh())
+        }
+        let changeSets = self.changeSets
+        let vehicleTools = ObservedVehicleExecutor(
+            inner: ChangeSetRecorder(inner: VehicleToolExecutor(port: port), port: port, store: changeSets),
+            vehicle: vehicle, model: model, changed: { await carState.send(.vehicleState(await snapshot())) })
         // F-18: adcodes cached 30 min (T-033); 和风 weather answers 10 min inside QWeatherClient (§31).
         let cache = LiveInfoCache(geocoder: web, clock: SystemClock())
         // F-18 §15 item 1, §16: 「联网搜索（实验）」 is read once here, at session start.
@@ -903,17 +915,19 @@ final class AgentRuntime {
                                          onCard: { [model] card in Task { @MainActor in model.previewCard = card } })
         previewBox.music = preview
         let music = PreviewAwareMusic(base: lane, preview: preview)
+        musicRef.port = music
         let musicTools = MusicToolHandler(music: music, named: preview, clock: SystemClock())
         for name in MusicToolHandler.tools { executors[name] = musicTools }
-        switch comfortMode {
-        case .table:
-            executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: port, music: music),
-                                                                          vehicle: vehicle, model: model)
-        case .model:
-            executors[VehicleStateTool.tool] = VehicleStateTool(port: port, music: music,
-                                                                navigating: { await navigation.current.navigating },
-                                                                speedKmh: speedKmh)
-        }
+        executors[VehicleStateTool.tool] = VehicleStateTool(port: port, music: music,
+                                                            navigating: { await navigation.current.navigating },
+                                                            speedKmh: speedKmh)
+        // F-09b §4, §8: `undo ok=<yes|no> restored=<n>` to the log and the record (numbers only, I-8).
+        executors[UndoLastChangeTool.tool] = ObservedVehicleExecutor(
+            inner: UndoLastChangeTool(port: port, store: changeSets, onLine: { line in
+                RuntimeLog.agent.notice("\(line, privacy: .public)")
+                voiceLines.record?.submit(.undo(line))
+            }),
+            vehicle: vehicle, model: model, changed: { await carState.send(.vehicleState(await snapshot())) })
         for name in NavigationController.tools { executors[name] = navigation }
         executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
@@ -955,8 +969,7 @@ final class AgentRuntime {
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
         // F-21: the saved tone is read once here, at session start.
-        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(PersonaInstruction.base(for: comfortMode),
-                                                                                 webSearch: webSearch),
+        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(PersonaInstruction.base, webSearch: webSearch),
                                                    style: SpeakingStyle.saved(in: settings))
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
@@ -973,10 +986,10 @@ final class AgentRuntime {
             appVersion: BuildStamp.appVersion(short: info?["CFBundleShortVersionString"] as? String,
                                               build: info?["CFBundleVersion"] as? String,
                                               commit: info?[BuildStamp.infoKey] as? String),
-            comfortMode: comfortMode.rawValue, interruptible: DriveSettings.isInterruptible(),
+            comfortMode: "model", interruptible: DriveSettings.isInterruptible(),
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
             searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy,
-            declaredTools: ToolCatalog.declarations(for: comfortMode, webSearch: webSearch).map(\.name)))
+            declaredTools: ToolCatalog.declarations(webSearch: webSearch).map(\.name)))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         voiceLines.record = record
         sessionRecord = record
@@ -1017,7 +1030,7 @@ final class AgentRuntime {
             executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
         }
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
-        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: comfortMode, webSearch: webSearch),
+        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(webSearch: webSearch),
                                    thinkingLevel: nil)
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
         // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
@@ -1028,16 +1041,29 @@ final class AgentRuntime {
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch,
-                               keepHandle: { [weak self, session] handle in await self?.keepResumption(handle, session: session) })
+                               keepHandle: { [weak self, session] handle in await self?.keepResumption(handle, session: session) },
+                               onExchange: { [weak self] exchange in Task { @MainActor in self?.keepExchange(exchange) } })
         // F-24 §15 item 5 (T-016j): a handle kept by the last give-up is sent once, then forgotten.
         let resume = keptResumption.take(at: navigationClock.now)
+        // F-09b §6 item 2 (T-016p): a session without a handle gets the last exchanges, within 30 minutes.
+        let summary = resume == nil ? exchanges.summary(at: navigationClock.now) : nil
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
                                                resume: resume, revoicing: decision.revoicing,
                                                languageIdentifier: AppleLanguageIdentifier(),
-                                               carRequestAreas: true))  // F-09a (T-017a)
+                                               summary: summary))
         ended.core = core
+        carState.core = core
+        // F-09b §5 item 2: the state at start (the connect note), then every 5 s for the speed and the music;
+        // the core sends a note only on a change, a speed crossing or a (re)connect.
+        await core.send(.vehicleState(await snapshot()))
+        tasks.append(Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                await core.send(.vehicleState(await snapshot()))
+            }
+        })
         self.core = core
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.
         trip.session.attach(core: core, record: record)
@@ -1446,6 +1472,17 @@ final class AgentRuntime {
 
     /// F-24 §15 item 4 (T-016j): the handle the last give-up or offline cap kept. Memory only (I-7).
     private var keptResumption = KeptResumption()
+
+    /// F-09b §4 item 2 (T-031j): the last comfort change set, across sessions, 5 minutes. Memory only.
+    private let changeSets = ChangeSetStore(clock: SystemClock())
+
+    /// F-09b §6 (T-016p): the last 6 exchanges, memory only (I-7); gone on app restart.
+    private var exchanges = ExchangeMemory()
+
+    /// §6 item 3: 结束对话 drops what is kept; any other completed exchange is kept.
+    private func keepExchange(_ exchange: ConversationExchange) {
+        if exchange.tools.contains("end_conversation ok") { exchanges.clear() } else { exchanges.add(exchange, at: navigationClock.now) }
+    }
 
     /// Only for the session still running: a driver stop in between means nothing is kept (item 4).
     private func keepResumption(_ handle: String?, session: Int) {
@@ -1908,6 +1945,16 @@ final class OnceFlag: @unchecked Sendable {
 }
 
 /// Lets the sink report back to the core it belongs to (set once the core exists).
+/// F-09b §5: the session's music, set once it exists, for the car-state note.
+final class MusicRef: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _port: (any MusicPort)?
+    var port: (any MusicPort)? {
+        get { lock.withLock { _port } }
+        set { lock.withLock { _port = newValue } }
+    }
+}
+
 final class CoreRelay: @unchecked Sendable {
     private let lock = NSLock()
     private weak var _core: AgentCore?

@@ -23,7 +23,7 @@ struct ComfortEvalTests {
         let c = comfortCase("mosquito")
         var windowsOpen = c.start
         for w in WindowID.allCases { windowsOpen.cabin.windows[w] = 50 }
-        let table = run(c, end: windowsOpen, calls: [ok("run_scenario", ["done": ["车窗开到50%"]])], reply: "车窗都开了一半")
+        let table = run(c, end: windowsOpen, calls: [ok("control_window", ["windows": ["front_left": 50]])], reply: "车窗都开了一半")
         #expect(ComfortScorer.score(c, table).pass)
         var fanOn = c.start
         fanOn.climate.powerOn = true
@@ -91,8 +91,8 @@ struct ComfortEvalTests {
         }
         #expect(all.contains { $0.group == .blocked && $0.start.speedKmh ?? 0 > VehicleActionPolicy.windowSpeedKmh })
         // Unprompted wordings appear in no prompt or tool description.
-        let prompts = ([PersonaInstruction.base, PersonaInstruction.modelComfortBase]
-                       + (ToolCatalog.specs + ToolCatalog.modelComfortSpecs).map(\.declaration.description)).joined()
+        let prompts = ([PersonaInstruction.base, PersonaInstruction.base]
+                       + (ToolCatalog.specs + ToolCatalog.specs).map(\.declaration.description)).joined()
         for c in all where c.unprompted { #expect(!prompts.contains(c.sentence), "\(c.id) is prompted") }
     }
 
@@ -108,24 +108,25 @@ struct ComfortEvalTests {
         #expect(r.medianFirstAudioMs == 1100 && r.worstFirstAudioMs == 1500)
         #expect(r.unbackedClaims == 1)
         #expect(r.failures.map(\.caseID) == ["hColleagueSmoke"])
-        let line = r.logLines(mode: .table).joined(separator: "\n")
+        let line = r.logLines().joined(separator: "\n")
         #expect(line.contains("overall=2/3"))
-        #expect(line.contains("comfortEvalFailure mode=table hColleagueSmoke#1:unbackedClaim"))
+        #expect(line.contains("comfortEvalFailure hColleagueSmoke#1:unbackedClaim"))
         for run in runs { #expect(!line.contains(run.reply)) }
     }
 
-    @Test("F-12 rows 3-4 prompt: off is today's base; on drops the scenario words and stays within the limit")
+    @Test("T-031c F-09b row 1: base is the model base with the §3 item 3 rule 5, within maxBaseCharacters")
     func prompt() {
-        #expect(PersonaInstruction.base(for: .table) == PersonaInstruction.base)
-        let on = PersonaInstruction.base(for: .model)
-        #expect(on != PersonaInstruction.base)
-        #expect(!on.contains("车内场景（有蚊子、闷）"))
-        #expect(!on.contains("有点热、太热了：调低一度温度"))
-        #expect(on.contains(PersonaInstruction.modelComfortRule))
-        #expect(on.contains("get_vehicle_state"))
-        #expect(on.contains("我朋友车里有蚊子"))
-        #expect(on.contains(PersonaInstruction.sleepySentence))
-        #expect(on.count <= PersonaInstruction.maxBaseCharacters)
+        let base = PersonaInstruction.base
+        #expect(!base.contains("车内场景（有蚊子、闷）"))
+        #expect(!base.contains("有点热、太热了：调低一度温度"))
+        #expect(base.contains("5. 司机说车里的感受或情况：按车内状态选一个合理的小动作直接做，不要反问。要做动作就先调用工具。做了就用一句话说改成了什么（例如「空调调到24度了」）；司机说「不用」「改回去」「刚才那个不要」就调用 undo_last_change。只是提到别处的事或问知识时不做任何操作。只说真正做成的，没做成的要说。"))
+        #expect(!base.contains("get_vehicle_state"))
+        #expect(base.contains(PersonaInstruction.sleepySentence))
+        #expect(base.contains("座位有点高：座椅降低一级。"))
+        #expect(base.count <= PersonaInstruction.maxBaseCharacters, "\(base.count)")
+        for search in [false, true] {
+            #expect(PersonaInstruction.base(base, webSearch: search).count <= PersonaInstruction.maxBaseCharacters)
+        }
     }
 }
 
@@ -229,8 +230,8 @@ struct ComfortEvalRunnerTests {
             reset: { s in vehicle.state.withLock { $0 = s }; speed.withLock { $0 = s.speedKmh } },
             snapshot: { vehicle.state.withLock { $0 } },
             tools: ["control_window": VehicleToolExecutor(port: port), "control_climate": VehicleToolExecutor(port: port)])
-        let config = SessionConfig(systemInstruction: PersonaInstruction.modelComfortBase,
-                                   tools: ToolCatalog.declarations(for: .model))
+        let config = SessionConfig(systemInstruction: PersonaInstruction.base,
+                                   tools: ToolCatalog.declarations)
         let runner = ComfortEvalRunner(provider: provider, config: config, harness: harness, clock: SystemClock(),
                                        timeout: .seconds(5))
         let cases = ["mosquito", "openAllFast", "mosquitoGoneClose"].map(comfortCase)

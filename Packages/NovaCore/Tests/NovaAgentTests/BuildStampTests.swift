@@ -22,8 +22,8 @@ struct BuildStampTests {
 
     @Test("Row 14: both catalogs declare set_volume, and the line says so")
     func declaredTools() {
-        for mode in [ToolCatalog.ComfortMode.table, .model] {
-            let names = ToolCatalog.declarations(for: mode, webSearch: false).map(\.name)
+        for mode in ["model"] {
+            let names = ToolCatalog.declarations(webSearch: false).map(\.name)
             #expect(header("1", tools: names).lines.last == "tools declared=\(names.count) set_volume=yes", "\(mode)")
         }
         #expect(header("1", tools: ["open_app"]).lines.last == "tools declared=1 set_volume=no")
@@ -31,9 +31,9 @@ struct BuildStampTests {
 
     @Test("Row 15: both bases name 音量 in the strict list, within maxBaseCharacters; the description starts with its trigger")
     func rule() {
-        for mode in [ToolCatalog.ComfortMode.table, .model] {
+        for mode in ["model"] {
             for search in [false, true] {
-                let text = PersonaInstruction.base(PersonaInstruction.base(for: mode), webSearch: search)
+                let text = PersonaInstruction.base(PersonaInstruction.base, webSearch: search)
                 #expect(text.contains("音乐、音量、"), "\(mode)")
                 #expect(text.count <= PersonaInstruction.maxBaseCharacters, "\(mode) \(search) \(text.count)")
             }

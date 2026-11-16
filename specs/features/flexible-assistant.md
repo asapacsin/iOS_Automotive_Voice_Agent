@@ -1,7 +1,7 @@
 # F-09b Flexible assistant: the model understands, code checks the action (随机应变)
 
-**Status:** APPROVED, spec only (owner 2026-11-16: "you just write the spec for this so call more flexibile stuff").
-iOS only. Building it needs the owner's go (§9).
+**Status:** APPROVED (owner 2026-11-16: "you just write the spec for this so call more flexibile stuff"); owner's go
+to build 2026-11-16 ("pull and implment this flexible spec"). iOS only.
 **Replaces:**
 - the T-031c owner decision (F-12 §14 items 14–15): the model-chosen path becomes the only comfort path;
 - F-09a §2–4 (word-list areas, comfort refusal, tired silence in code), withdrawn by T-017c.
@@ -183,3 +183,33 @@ Codes and numbers only (I-8).
 
 Order: T-031c first, then T-031j and T-017c together (the undo is the safety net for the withdrawn lists), then
 T-016p. Trace ids are added with the tests (`T-031c: F-12 F-09b` and so on), not before.
+
+## 11. Implementation notes (T-031c, T-031j, T-016p, T-017c)
+
+1. **One catalog.** `ToolCatalog.specs` is the Android catalog without `run_scenario`, with the model-chosen climate
+   and window texts, then `set_volume`, `get_vehicle_state` and `undo_last_change`. The generated Android mirror is
+   unchanged; `run_scenario` is filtered out of it and is `UNKNOWN_TOOL`. `ToolCatalog.ComfortMode`,
+   `declarations(for:)` and `PersonaInstruction.base(for:)` are gone. The record header still writes
+   `comfortMode model` so old and new records read alike.
+2. **Rule 5** is §3 item 3's text, then the sleepy sentence, then 座位有点高. `get_vehicle_state`'s description no
+   longer says when to call it.
+3. **Comfort test.** One path; the table comparison is replaced by `ComfortBars` (row 8: no wrongful action in at least
+   95% of the scored runs, no uncorrected claim, comfort first audio median ≤ 2.5 s). The latest full report is kept in
+   `comfortEval.json`; the old per-mode files are not read.
+4. **Change sets.** The tool runner gives each executor its model turn as `ToolTurn.current`. `ChangeSetRecorder`
+   wraps the three vehicle tools and keeps the state from before the first ok change of a turn (`get_state` and a
+   failed or blocked call keep nothing). The store lives for the app run (memory only), so an undo can follow a new
+   session within the 5 minutes. A partial undo returns ok with `not_restored`; an undo where every step failed is
+   `VEHICLE_EXECUTION_FAILED`.
+5. **Taps.** The 车辆 tab runs its own simulator, not the session's car, so today no tap reaches the kept set;
+   `ChangeSetStore.clear()` is the hook for a comfort control that uses the session's car.
+6. **State note.** The shell sends `AgentEvent.vehicleState` at session start, after each vehicle tool or undo, and
+   every 5 s (speed and music). The core sends a note only for §5 item 2's reasons. The connect note counts as that
+   turn's note, so a speed crossing before the first completed turn waits for it. Summary, destination and state
+   notes due together go as one text turn, in that order.
+7. **Summary.** `AgentState` emits `.exchange` for each completed turn with her judged subtitle, the driver line and
+   the tool results (`name ok` or `name CODE`). The note lists them as `司机「…」→ 你「…」（tool ok）`. An exchange
+   whose tools include `end_conversation ok` clears the memory instead of being kept.
+8. **Withdrawn (T-017c).** `CarRequestRouter`, `CarRequestArea`, the `area` timer, `NOT_A_CAR_REQUEST`, the
+   `carArea` / `tiredSilenced` diagnostics and their record lines are removed; `carRequestAreas` is no longer an
+   `AgentState` argument. The diagnostics `stateNote` and `summaryNote` take their place in the closed set.

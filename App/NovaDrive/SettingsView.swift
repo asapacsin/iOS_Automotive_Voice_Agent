@@ -50,7 +50,6 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
     @AppStorage(DriveSettings.noiseSuppression) private var noiseSuppression = true
     @AppStorage(DriveSettings.interruptible) private var interruptible = false
-    @AppStorage(DriveSettings.modelComfort) private var modelComfort = false
     @AppStorage(DriveSettings.webSearch) private var webSearch = false
     @AppStorage(MusicCountry.settingKey) private var musicCountry = MusicCountry.default.rawValue
     @AppStorage(DriveSettings.conversationRecord) private var conversationRecord = false
@@ -112,11 +111,8 @@ struct SettingsView: View {
                     // F-04b §3 (T-013e).
                     SpeakerLockSection()
                 }
-                // F-12 §14 items 4 and 7 (T-031a, T-031b).
+                // F-12 §14 item 4 (T-031a); F-09b §3 item 1 (T-031c): the model decides, no setting.
                 Section("舒适场景") {
-                    Toggle("由模型决定舒适动作（实验）", isOn: $modelComfort)
-                    Text("开：说「有蚊子」「有点闷」这类感受时，由模型看车内状态自己决定开窗、空调或音乐，并用自己的话说做了什么。关：按固定的场景表做。下次开始对话时生效。")
-                        .font(.footnote).foregroundStyle(.secondary)
                     NavigationLink("舒适场景测试") { ComfortEvalView() }
                 }
                 // F-18 §15 item 1, §17 item 2 (T-046e).

@@ -43,6 +43,54 @@ public enum AgentEvent: Sendable, Hashable {
     case network(available: Bool)
     /// F-18 §21 item 1 (T-046i): the current destination's cleaned name, or nil when there is none.
     case destination(String?)
+    /// F-09b §5 (T-031j): the car's state now (after any change, a tap included, and on speed updates).
+    case vehicleState(CarStateSnapshot)
+}
+
+/// F-09b §5 item 1 (T-031j): what the car-state note says. The same values as `get_vehicle_state`; never a location.
+public struct CarStateSnapshot: Sendable, Hashable {
+    public var acOn: Bool
+    public var temperatureC: Double
+    public var fanLevel: Int
+    public var windows: [WindowID: Int]
+    public var driverSeat: Int
+    public var musicPlaying: Bool
+    public var speedKmh: Double?
+
+    public init(acOn: Bool, temperatureC: Double, fanLevel: Int, windows: [WindowID: Int], driverSeat: Int,
+                musicPlaying: Bool, speedKmh: Double?) {
+        self.acOn = acOn
+        self.temperatureC = temperatureC
+        self.fanLevel = fanLevel
+        self.windows = windows
+        self.driverSeat = driverSeat
+        self.musicPlaying = musicPlaying
+        self.speedKmh = speedKmh
+    }
+
+    /// Everything but the speed (a speed change alone is no state change; only a crossing is, §5 item 2).
+    var cabin: CarStateSnapshot { var c = self; c.speedKmh = nil; return c }
+
+    /// §5 item 1, exact form.
+    public var note: String {
+        func t(_ c: Double) -> String { c == c.rounded() ? String(Int(c)) : String(format: "%.1f", c) }
+        func w(_ id: WindowID) -> Int { windows[id] ?? 0 }
+        let speed = speedKmh.map { String(Int($0.rounded())) } ?? "未知"
+        return "[系统] 车内状态：空调\(acOn ? "开" : "关")，\(t(temperatureC))度，风量\(fanLevel)；车窗 主驾\(w(.frontLeft))% 副驾\(w(.frontRight))% 后左\(w(.rearLeft))% 后右\(w(.rearRight))%；座椅 主驾\(driverSeat)档；音乐\(musicPlaying ? "在放" : "没放")；车速\(speed)公里。这句不用回答。"
+    }
+}
+
+/// F-09b §6 item 2 (T-016p): the summary note for a new session without a resumption handle.
+public struct SessionSummary: Sendable, Hashable {
+    public let text: String
+    public let exchanges: Int
+    public let ageS: Int
+
+    public init(text: String, exchanges: Int, ageS: Int) {
+        self.text = text
+        self.exchanges = exchanges
+        self.ageS = ageS
+    }
 }
 
 /// Screen actions (ios-architecture §11.1). Each becomes the tool call the voice path would make.
@@ -73,8 +121,6 @@ public enum AgentTimer: Sendable, Hashable {
     case arbiter(NovaInstant)
     /// F-08 §15 item 1: 1 s after the stop's empty activity; no `interrupted` by then is logged.
     case stopSync(NovaInstant)
-    /// F-09a §3 item 3 (T-017a): a comfort call or her reply waited this long for the utterance's area.
-    case area(NovaInstant)
 }
 
 public enum ProviderCommand: Sendable, Hashable {
@@ -136,6 +182,22 @@ public enum AgentEffect: Sendable, Hashable {
     case keepResumption(String?)
     /// F-05a §15 item 7 (T-016m): the language check's record and log line; no words (I-8).
     case languageLine(ReplyLanguageLine)
+    /// F-09b §6 item 1 (T-016p): one completed exchange, for the shell's in-memory summary. Never logged or
+    /// persisted (I-7).
+    case exchange(ConversationExchange)
+}
+
+/// F-09b §6 item 1: the driver's line as shown, her final reply text, and the tool results as names and ok/codes.
+public struct ConversationExchange: Sendable, Hashable {
+    public let driver: String
+    public let reply: String
+    public let tools: [String]
+
+    public init(driver: String, reply: String, tools: [String]) {
+        self.driver = driver
+        self.reply = reply
+        self.tools = tools
+    }
 }
 
 /// The single serialisation point (Android's session mutex), as a pure value: `VoiceSession`,
@@ -261,35 +323,16 @@ public struct AgentState: Sendable {
     /// A (re)connect: the note goes again even with no turn since.
     private var noteOnConnect = false
 
-    // MARK: F-09a (T-017a) state
-
-    /// A closed sent utterance and its area (nil while the local final is awaited).
-    private struct AreaUtterance {
-        let index: Int
-        var area: CarRequestArea?
-        var comfortOk = false
-        /// Model turns opened for it (after it closed, before the next one closed); not guidance readings.
-        var turns: Set<TurnID> = []
-    }
-    /// On when the shell feeds the phone recognizer's words (`.driverWords`); off, every area is unknown (today's behaviour).
-    private var carAreas = false
-    /// The newest closed utterance (the one a call belongs to, §3 item 3) and the one before it (§2 rule 4).
-    private var areaCurrent: AreaUtterance?
-    private var areaPrevious: AreaUtterance?
-    /// A local final that came while its utterance was still open: (speech onset, text; nil = unclear).
-    private var areaEarlyFinal: (onset: Int, text: String?)?
-    /// Comfort calls waiting for the area, already validated by the dispatcher.
-    /// `utterance`: the closed-utterance index the call belongs to; `until` is nil while that utterance is still open.
-    private var areaHeldCalls: [(turn: TurnID, call: ToolCall, utterance: Int, until: NovaInstant?)] = []
-    /// Her judged reply waiting for the area (her turn's text and audio), and when that wait ends.
-    private var areaHeldReply: [PipelineOutput] = []
-    private var areaHeldUntil: NovaInstant?
-    /// A turn whose reply was held closed meanwhile: whether it completed.
-    private var areaHeldClosed: [TurnID: Bool] = [:]
-    /// Turns Gemini opened while a sent utterance was still open: they answer that utterance (attached at its close).
-    private var areaEarlyTurns: Set<TurnID> = []
-    /// Comfort calls running, by the utterance they belong to (for `comfortOk`).
-    private var comfortCalls: [CallID: Int] = [:]
+    /// F-09b §5 (T-031j): the car's state, a change since the last state note, the note waiting, and whether one
+    /// went since the last completed turn (at most one per completed turn; a connect always may).
+    private var carState: CarStateSnapshot?
+    private var carChanged = false
+    private var pendingState: StateNoteReason?
+    private var stateSinceTurn = false
+    /// F-09b §6 (T-016p): the summary for this session's first connect; sent once.
+    private var summary: SessionSummary?
+    /// F-09b §6 item 1: the tool results of the exchange in progress (`name ok` or `name CODE`).
+    private var exchangeTools: [String] = []
 
     public init() {}
 
@@ -298,12 +341,11 @@ public struct AgentState: Sendable {
     /// `resume`: F-24 §15 item 5, what the last give-up kept for this session's first connect.
     /// `revoicing`: F-07 §15 item 3, false when her voice is Gemini's own audio.
     /// `languageIdentifier`: F-05a §15 item 1, the detector her reply's language is checked with.
-    /// `carRequestAreas`: F-09a (T-017a), comfort tools only for car requests and tired utterances silenced; the shell
-    /// turns it on because it feeds the phone recognizer's words.
+    /// `summary`: F-09b §6 (T-016p), the earlier exchanges for a session started without a handle (nil: none).
     public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
                 revoicing: Bool = true, languageIdentifier: any LanguageIdentifier = NoLanguageIdentifier(),
-                carRequestAreas: Bool = false) {
-        carAreas = carRequestAreas
+                summary: SessionSummary? = nil) {
+        self.summary = resume == nil ? summary : nil
         pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing, detector: languageIdentifier)
         detector = languageIdentifier
         self.revoicing = revoicing
@@ -319,9 +361,37 @@ public struct AgentState: Sendable {
 
     public mutating func handle(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
         let effects = dispatch(event, at: now)
-        guard destinationNotes else { return effects }
-        noteTriggers(event)
-        return effects + flushNote()
+        if destinationNotes { noteTriggers(event) }
+        stateTriggers(event)
+        return effects + flushNotes()
+    }
+
+    /// F-09b §5 item 2: on (re)connect; after a completed turn in which the state changed (a tap included); when the
+    /// speed crosses `VehicleActionPolicy.windowSpeedKmh`.
+    private mutating func stateTriggers(_ event: AgentEvent) {
+        switch event {
+        case .vehicleState(let new):
+            let old = carState
+            carState = new
+            guard let old else {
+                // The first state of a session already connected: the connect note.
+                if ![.disconnected, .connecting, .reconnecting, .error].contains(session.state) {
+                    pendingState = .connect
+                }
+                return
+            }
+            let limit = VehicleActionPolicy.windowSpeedKmh
+            if let a = old.speedKmh, let b = new.speedKmh, (a > limit) != (b > limit) { pendingState = pendingState ?? .speed }
+            if new.cabin != old.cabin { carChanged = true }
+        case .realtime(.responseDone(_, .completed), _):
+            stateSinceTurn = false
+            if carChanged, pendingState == nil { pendingState = .changed }
+        case .realtime(.setupComplete, _):
+            stateSinceTurn = false
+            if carState != nil { pendingState = .connect }
+        default:
+            break
+        }
     }
 
     /// §21 item 2 "When": a destination change, a completed turn, or a (re)connect with a destination.
@@ -353,24 +423,50 @@ public struct AgentState: Sendable {
             && !utteranceOpen && relayAwaiting == nil && unclassified == nil
     }
 
-    private mutating func flushNote() -> [AgentEffect] {
-        guard let pending = pendingNote, noteIdle else { return [] }
+    /// The summary (first connect), the destination note and the state note, in one text turn when more than one is
+    /// due (F-09b §5 item 2, §6 item 2). Only when idle; never interrupts a reply.
+    private mutating func flushNotes() -> [AgentEffect] {
+        guard noteIdle else { return [] }
+        var texts: [String] = []
+        var diagnostics: [AgentEffect] = []
+        if let s = summary, session.state == .listening {
+            summary = nil
+            texts.append(s.text)
+            diagnostics.append(.diagnostic(.summaryNote(exchanges: s.exchanges, ageS: s.ageS)))
+        }
+        if let text = destinationNoteText() {
+            texts.append(text)
+            diagnostics.append(.diagnostic(.destinationNote))
+        }
+        if let reason = pendingState, let state = carState, reason == .connect || !stateSinceTurn {
+            pendingState = nil
+            carChanged = false
+            stateSinceTurn = true
+            texts.append(state.note)
+            diagnostics.append(.diagnostic(.stateNote(reason: reason)))
+        }
+        guard !texts.isEmpty else { return [] }
+        // `turnComplete: false`, never `realtimeInput` (F-18 §21 item 2, item 8 is the risk).
+        return [.provider(.text([TextTurn(role: .user, text: texts.joined(separator: "\n"))], turnComplete: false))]
+            + diagnostics
+    }
+
+    private mutating func destinationNoteText() -> String? {
+        guard let pending = pendingNote else { return nil }
         pendingNote = nil
         // No second note when nothing happened since the last one; the end note goes once.
         // The end note goes once, and only after a destination note was sent.
-        if pending == nil, (lastNote ?? nil) == nil { return [] }
-        if let name = pending, lastNote == .some(name), !turnSinceNote, !noteOnConnect { return [] }
+        if pending == nil, (lastNote ?? nil) == nil { return nil }
+        if let name = pending, lastNote == .some(name), !turnSinceNote, !noteOnConnect { return nil }
         lastNote = .some(pending)
         turnSinceNote = false
         noteOnConnect = false
-        // `turnComplete: false`, never `realtimeInput` (§21 item 2, item 8 is the risk).
-        return [.provider(.text([TextTurn(role: .user, text: Self.destinationNote(pending))], turnComplete: false)),
-                .diagnostic(.destinationNote)]
+        return Self.destinationNote(pending)
     }
 
     private mutating func dispatch(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
         switch event {
-        case .destination:
+        case .destination, .vehicleState:
             return []
         case .start:
             return session(.start, at: now)
@@ -428,16 +524,15 @@ public struct AgentState: Sendable {
             driverSpeaking = false
             arbiter.driverSpeech(false)
             closedTurns += 1
-            let area = areaClosed(at: now)
             // R6: she may answer this utterance while navigating.
             arbiter.driverSpoke(at: now)
             // F-08 §15 item 3: a stop phrase's own utterance owes no answer and starts no clock.
             if stopUtterance == utterances {
-                return area + session(.speechStopped, at: now) + [.diagnostic(.reaskSuppressed)] + arbiterChanged(at: now)
+                return session(.speechStopped, at: now) + [.diagnostic(.reaskSuppressed)] + arbiterChanged(at: now)
             }
             answerOwed = true
             // The no-answer clock (W3) starts when the driver stops, with what we heard so far.
-            return area + session(.speechStopped, at: now) + pipeline(.driverUtterance(transcript), at: now)
+            return session(.speechStopped, at: now) + pipeline(.driverUtterance(transcript), at: now)
                 + arbiterChanged(at: now)
         case .driverWords(let words):
             selectorOwnsWords = true
@@ -445,15 +540,12 @@ public struct AgentState: Sendable {
             switch words {
             case .partial(let text): return heard(text, isFinal: false, at: now)
             case .final(let text):
-                // F-09a §2: the comfort area reads the phone recognizer's final (her echoed guidance is not the driver).
-                var probe = relay
-                let area = probe.isEcho(text, at: now) ? [] : areaFinal(text, at: now)
-                return area + heard(text, isFinal: true, at: now)
+                return heard(text, isFinal: true, at: now)
             case .unclear:
-                // S4: shown as 「（没听清）」 only; no stop-phrase check. F-09a §2 rule 1: the area is unknown.
+                // S4: shown as 「（没听清）」 only; no stop-phrase check.
                 transcriptEpoch = speechOnsets
                 transcript = ""
-                return areaFinal(nil, at: now)
+                return []
             }
         case .toolFinished(let turn, let call, let result):
             if call.name == "web_search", searchCalls.removeValue(forKey: call.id) == nil {
@@ -467,10 +559,7 @@ public struct AgentState: Sendable {
                 elapsedMs = Int(now.milliseconds - started.at.milliseconds)
             }
             runningTools = max(runningTools - 1, 0)
-            if let index = comfortCalls.removeValue(forKey: call.id), result.ok {
-                if areaCurrent?.index == index { areaCurrent?.comfortOk = true }
-                if areaPrevious?.index == index { areaPrevious?.comfortOk = true }
-            }
+            exchangeTools.append(call.name + " " + (result.ok ? "ok" : (result.code?.rawValue ?? "failed")))
             if uiCalls.remove(call.id) != nil {
                 context.record(call, ok: result.ok, at: now)
                 return uiResult(call, dispatcher.finish(call, result), at: now)
@@ -543,11 +632,6 @@ public struct AgentState: Sendable {
             return effects + arbiterChanged(at: now)
         case .timer(.arbiter):
             return arbiterChanged(at: now)
-        case .timer(.area):
-            // F-09a §3 item 3: no local final within the wait: the area is unknown and what waited goes on.
-            let due = areaHeldCalls.contains { $0.until.map { $0 <= now } == true } || areaHeldUntil.map { $0 <= now } == true
-            guard due, areaCurrent != nil, areaCurrent?.area == nil else { return [] }
-            return decideArea(nil, at: now)
         case .timer(.stopSync(let sent)):
             guard stopSyncAt == sent else { return [] }
             stopSyncAt = nil
@@ -839,15 +923,6 @@ public struct AgentState: Sendable {
         relayReading = nil
         relayTurns = [:]
         effects += dropAsyncCalls()
-        // F-09a: calls and reply of the old socket that waited for the area are never sent.
-        runningTools = max(runningTools - areaHeldCalls.count, 0)
-        areaHeldCalls = []
-        areaHeldReply = []
-        areaHeldUntil = nil
-        areaHeldClosed = [:]
-        areaEarlyTurns = []
-        comfortCalls = [:]
-        areaCurrent?.turns = []
         unclassified = nil
         if let waiting = waitingFallback {
             waitingFallback = nil
@@ -1071,7 +1146,7 @@ public struct AgentState: Sendable {
             }
             answerOwed = false
             resetSubtitle()
-            return [.newReply] + pipeline(.turnOpened(turn), at: now) + areaTurnOpened(turn)
+            return [.newReply] + pipeline(.turnOpened(turn), at: now)
         case .replyText(let turn, let text):
             guard !silenced.contains(turn) else { return [] }
             if relayTurns[turn] != nil {
@@ -1094,35 +1169,12 @@ public struct AgentState: Sendable {
             // F-18 §15 item 8: refused below as UNKNOWN_TOOL like any undeclared name; only noted here.
             if calls.contains(where: { $0.name == "google_search" }) { effects.append(.diagnostic(.webSearchAsFunction)) }
             for call in calls {
-                // F-05a §6: the guards read state and turn counts only, never the transcript.
+                // F-05a §6, F-09b §7 item 1: the guards read state and turn counts only, never the transcript.
                 let guardContext = GuardContext(turn: speechOnsets, closedTurns: closedTurns, now: now,
                                                 navigating: navigation.navigating,
                                                 guidanceRunning: navigation.guidanceRunning,
                                                 listOpen: navigation.listOpen)
                 switch dispatcher.decide(call, context: guardContext) {
-                case .execute(let running) where CarRequestRouter.comfortTools.contains(running.name):
-                    // F-09a §3: a comfort call runs only for a car request; it waits for the area at most 800 ms.
-                    // An early turn's call (or one while a sent utterance is open) belongs to that open utterance.
-                    // A turn already attached to the closed utterance keeps that utterance's area (below).
-                    let ofCurrent = areaCurrent?.turns.contains(turn) ?? false
-                    if carAreas, areaEarlyTurns.contains(turn) || (driverSpeaking && utteranceSent && !ofCurrent) {
-                        runningTools += 1
-                        areaHeldCalls.append((turn, running, closedTurns + 1, nil))
-                        continue
-                    }
-                    guard let current = areaCurrent else {
-                        runningTools += 1
-                        effects.append(.startTool(turn, running))
-                        continue
-                    }
-                    if let area = current.area {
-                        effects += comfortCall(turn, running, area: area, utterance: current.index, at: now)
-                    } else {
-                        runningTools += 1
-                        let until = now + TranscriptSelector.Tuning().localFinalWait
-                        areaHeldCalls.append((turn, running, current.index, until))
-                        effects.append(.schedule(.area(until), at: until))
-                    }
                 case .execute(let running):
                     runningTools += 1
                     if running.name == "web_search" { searchCalls[running.id] = turn }
@@ -1137,10 +1189,7 @@ public struct AgentState: Sendable {
             for id in ids {
                 let search = searchCalls.removeValue(forKey: id) != nil
                 let background = asyncCalls.removeValue(forKey: id) != nil
-                // F-09a: a comfort call held for its area that Gemini cancels never runs.
-                let held = areaHeldCalls.contains { $0.call.id == id }
-                areaHeldCalls.removeAll { $0.call.id == id }
-                if search || background || held { runningTools = max(runningTools - 1, 0) }
+                if search || background { runningTools = max(runningTools - 1, 0) }
             }
             return ids.map { .cancelTool($0) }
         case .audioDone(let turn):
@@ -1173,18 +1222,22 @@ public struct AgentState: Sendable {
             let open = openTurn == turn
             if openTurn == turn { openTurn = nil }
             let closed = pipeline(.turnClosed(turn, .cancelled), at: now)
-            if areaHolds(turn) { areaHeldClosed[turn] = false }
             return synced + stops + closed + (open ? finalSubtitle() : [])
         case .responseDone(let turn, let outcome):
             let open = openTurn == turn
             if openTurn == turn { openTurn = nil }
             var effects = pipeline(.turnClosed(turn, outcome), at: now)
-            if areaHolds(turn) { areaHeldClosed[turn] = outcome == .completed }
             // F-05a §13: the reply is complete once the pipeline has released what it held.
             if open { effects += finalSubtitle() }
             // The last half clause is spoken only for a reply that completed and still may be heard.
             if outcome == .completed, !silenced.contains(turn), let rest = segmenter.flush() {
                 effects += speak([rest], at: now)
+            }
+            // F-09b §6 item 1: a completed exchange; her text is the judged subtitle the screen showed.
+            if outcome == .completed, open, !silenced.contains(turn), !view.subtitle.isEmpty || !exchangeTools.isEmpty {
+                effects.append(.exchange(ConversationExchange(driver: view.driverLine, reply: view.subtitle,
+                                                              tools: exchangeTools)))
+                exchangeTools = []
             }
             return effects
         case .setupComplete, .resumptionHandle, .goAway, .failed, .closed, .turnEnded:
@@ -1235,7 +1288,7 @@ public struct AgentState: Sendable {
             relayAwaiting = nil
             awaitingText = nil
             silenceNextRelayTurn = false
-            effects += pipeline(.turnOpened(pending.turn), at: now) + areaTurnOpened(pending.turn)
+            effects += pipeline(.turnOpened(pending.turn), at: now)
         }
         if case .replyText = event {
             return effects + reply(.replyText(pending.turn, heard), at: now)
@@ -1253,18 +1306,6 @@ public struct AgentState: Sendable {
     private mutating func pipelineOutput(_ output: PipelineOutput, at now: NovaInstant) -> [AgentEffect] {
         var effects: [AgentEffect] = []
         switch output {
-            case .speechText(let turn, _) where areaHolds(turn), .speechAudio(let turn, _) where areaHolds(turn):
-                // F-09a §4: nothing of her reply is heard or shown until the utterance's area is known.
-                areaHeldReply.append(output)
-                if areaHeldUntil == nil {
-                    let until = now + TranscriptSelector.Tuning().localFinalWait
-                    areaHeldUntil = until
-                    effects.append(.schedule(.area(until), at: until))
-                }
-            case .sendCorrection where areaTired, .languageReask where areaTired, .fallbackLine where areaTired,
-                 .reask where areaTired:
-                // F-09a §4 item 2: no re-ask, correction or fallback line for a tired utterance.
-                break
             case .speechText(let turn, let text):
                 guard !silenced.contains(turn) else { break }
                 effects += subtitle(adding: text, .reply)
@@ -1277,7 +1318,6 @@ public struct AgentState: Sendable {
                 heldClauses.append(.playReplyAudio(turn, pcm))
                 effects += releaseHeld(at: now)
             case .voided(let turn):
-                areaHeldReply.removeAll { $0.turn == turn }
                 // F-07 §15 item 8: a claim disproven while her audio already plays is cut here; the record says how much.
                 if let played = turnAudio, played.turn == turn, !silenced.contains(turn) {
                     let heard = min(played.ms, Int((now - played.since).milliseconds))
@@ -1329,129 +1369,11 @@ public struct AgentState: Sendable {
         return effects
     }
 
-    // MARK: F-09a (T-017a): car tools only for car requests
-
-    /// The newest closed utterance is tired: her turns for it are silent and nothing re-asks (§4).
-    private var areaTired: Bool { areaCurrent?.area == .tired }
-
-    /// Her reply of `turn` waits: the turn answers the newest closed utterance, whose area is not known yet.
-    private func areaHolds(_ turn: TurnID) -> Bool {
-        if areaEarlyTurns.contains(turn) { return !silenced.contains(turn) }
-        guard let current = areaCurrent, current.area == nil, current.turns.contains(turn) else { return false }
-        return !silenced.contains(turn)
-    }
-
-    /// A sent utterance closed: it becomes the newest one. The one before, if still undecided, is unknown (§2 rule 1).
-    private mutating func areaClosed(at now: NovaInstant) -> [AgentEffect] {
-        guard carAreas else { return [] }
-        var effects: [AgentEffect] = []
-        if areaCurrent != nil, areaCurrent?.area == nil { effects += decideArea(nil, at: now) }
-        areaPrevious = areaCurrent
-        areaCurrent = AreaUtterance(index: closedTurns, turns: areaEarlyTurns)
-        areaEarlyTurns = []
-        // What already waits for the new utterance (early turns' replies and calls) waits at most 800 ms from now.
-        let index = closedTurns
-        let turns = areaCurrent?.turns ?? []
-        let heldReply = areaHeldReply.contains { $0.turn.map(turns.contains) ?? false }
-        let heldCalls = areaHeldCalls.contains { $0.utterance == index }
-        if heldReply || heldCalls {
-            let until = now + TranscriptSelector.Tuning().localFinalWait
-            for i in areaHeldCalls.indices where areaHeldCalls[i].utterance == index { areaHeldCalls[i].until = until }
-            if heldReply { areaHeldUntil = until }
-            effects.append(.schedule(.area(until), at: until))
-        }
-        if let early = areaEarlyFinal, early.onset == speechOnsets { effects += decideArea(early.text, at: now) }
-        areaEarlyFinal = nil
-        return effects
-    }
-
-    /// The phone recognizer's final for the current utterance (nil = unclear).
-    private mutating func areaFinal(_ text: String?, at now: NovaInstant) -> [AgentEffect] {
-        // A not-sent utterance's words are no driver request (F-04 §14 item 1).
-        guard utteranceSent, speechOnsets > 0 else { return [] }
-        if closedTurns < speechOnsets {
-            areaEarlyFinal = (speechOnsets, text)
-            return []
-        }
-        guard let current = areaCurrent, current.index == closedTurns, current.area == nil else { return [] }
-        return decideArea(text, at: now)
-    }
-
-    /// §2: the area of the newest closed utterance is decided; what waited for it goes on, or is refused / silenced.
-    private mutating func decideArea(_ text: String?, at now: NovaInstant) -> [AgentEffect] {
-        guard var current = areaCurrent, current.area == nil else { return [] }
-        let previous = areaPrevious.flatMap { p in p.area.map { CarRequestRouter.Previous(area: $0, comfortOk: p.comfortOk) } }
-        let area = CarRequestRouter.area(final: text, previous: previous)
-        current.area = area
-        areaCurrent = current
-        var effects: [AgentEffect] = [.diagnostic(.carArea(utterance: current.index, area: area))]
-        let calls = areaHeldCalls.filter { $0.utterance == current.index }
-        areaHeldCalls.removeAll { $0.utterance == current.index }
-        let connected = session.state != .disconnected && session.state != .error
-        for held in calls {
-            runningTools = max(runningTools - 1, 0)
-            if connected { effects += comfortCall(held.turn, held.call, area: area, utterance: current.index, at: now) }
-        }
-        let reply = areaHeldReply.filter { $0.turn.map(current.turns.contains) ?? true }
-        areaHeldReply.removeAll { $0.turn.map(current.turns.contains) ?? true }
-        let closed = areaHeldClosed.filter { current.turns.contains($0.key) }.sorted { $0.key.value < $1.key.value }
-        for entry in closed { areaHeldClosed[entry.key] = nil }
-        if areaHeldReply.isEmpty { areaHeldUntil = nil }
-        if area == .tired {
-            // §4 item 1: every turn opened for it is silent; what of it was held is dropped.
-            for turn in current.turns.sorted(by: { $0.value < $1.value }) where !silenced.contains(turn) {
-                effects += silenceTired(turn)
-            }
-            return effects + arbiterChanged(at: now)
-        }
-        for output in reply { effects += pipelineOutput(output, at: now) }
-        // A held turn that closed meanwhile: its subtitle is final and its last half clause may be spoken.
-        for (turn, completed) in closed where openTurn == nil || openTurn == turn {
-            effects += finalSubtitle()
-            if completed, !silenced.contains(turn), let rest = segmenter.flush() { effects += speak([rest], at: now) }
-        }
-        return effects + arbiterChanged(at: now)
-    }
-
-    /// §3 item 1: run the comfort call, or refuse it with `NOT_A_CAR_REQUEST`.
-    private mutating func comfortCall(_ turn: TurnID, _ call: ToolCall, area: CarRequestArea, utterance: Int,
-                                      at now: NovaInstant) -> [AgentEffect] {
-        guard CarRequestRouter.allows(area) else {
-            return refuse(turn, call, ToolDispatcher.failure(.notACarRequest), at: now)
-        }
-        runningTools += 1
-        comfortCalls[call.id] = utterance
-        return [.startTool(turn, call)]
-    }
-
     private mutating func refuse(_ turn: TurnID, _ call: ToolCall, _ result: ToolResult, at now: NovaInstant) -> [AgentEffect] {
         let response = ToolResponse(id: call.id, name: call.name, result: result)
         answerOwed = true
         return [.diagnostic(.toolRefused(code: result.code ?? .invalidValue)), .provider(.toolResponses([response]))]
             + pipeline(.toolResult(turn, response), at: now)
-    }
-
-    /// A model turn opened for the newest closed utterance (not a guidance reading).
-    private mutating func areaTurnOpened(_ turn: TurnID) -> [AgentEffect] {
-        guard carAreas else { return [] }
-        // Gemini's VAD may open the answer before the phone closes the utterance: it belongs to that one.
-        if driverSpeaking, utteranceSent {
-            areaEarlyTurns.insert(turn)
-            return []
-        }
-        guard areaCurrent != nil else { return [] }
-        areaCurrent?.turns.insert(turn)
-        return areaTired ? silenceTired(turn) : []
-    }
-
-    /// §4 item 1: nothing of `turn` is heard or shown; queued playback is flushed.
-    private mutating func silenceTired(_ turn: TurnID) -> [AgentEffect] {
-        var effects = stopReply(turn)
-        if openTurn == turn || openTurn == nil {
-            resetSubtitle()
-            effects.append(.publish(view))
-        }
-        return effects + [.diagnostic(.tiredSilenced(turn: Int(turn.value)))]
     }
 
     /// Clauses go to the revoicer only while the arbiter says PLAY; HOLD keeps them, DROP discards them.

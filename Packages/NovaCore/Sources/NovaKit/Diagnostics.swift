@@ -65,19 +65,15 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case claimCut(turn: Int, playedMs: Int)
     /// F-18 §27 item 4 (T-020c): a background tool's result was not sent because the socket was replaced.
     case asyncToolDropped(tool: AsyncTool)
-    /// F-09a §5 (T-017a): the area of closed utterance `utterance` (1 for the first sent one). Codes only.
-    case carArea(utterance: Int, area: CarRequestArea)
-    /// F-09a §4-§5: a model turn opened for a tired utterance was silenced.
-    case tiredSilenced(turn: Int)
+    /// F-09b §8 (T-031j): a car-state note went to the model, and why. No values (I-8).
+    case stateNote(reason: StateNoteReason)
+    /// F-09b §8 (T-016p): a summary of earlier exchanges went to the model. Numbers only, no words (I-8, I-7).
+    case summaryNote(exchanges: Int, ageS: Int)
 }
 
-/// F-09a §2 (T-017a): what kind of request a closed utterance is, from the phone recognizer's final text.
-public enum CarRequestArea: String, Sendable, Hashable, CaseIterable {
-    case car
-    case followUp = "follow-up"
-    case tired
-    case chat
-    case unknown
+/// F-09b §5 item 2 (T-031j): why a car-state note is sent.
+public enum StateNoteReason: String, Sendable, Hashable, CaseIterable {
+    case connect, changed, speed
 }
 
 /// F-18 §27 item 1 (T-020c): the functions declared to Gemini Live as `NON_BLOCKING`; every other one blocks.
@@ -143,8 +139,8 @@ extension DiagnosticEvent {
         case sessionResume
         case claimCut
         case asyncToolDropped
-        case carArea
-        case tiredSilenced
+        case stateNote
+        case summaryNote
     }
 
     public var kind: Kind {
@@ -189,8 +185,8 @@ extension DiagnosticEvent {
         case .sessionResume: .sessionResume
         case .claimCut: .claimCut
         case .asyncToolDropped: .asyncToolDropped
-        case .carArea: .carArea
-        case .tiredSilenced: .tiredSilenced
+        case .stateNote: .stateNote
+        case .summaryNote: .summaryNote
         }
     }
 }
@@ -222,8 +218,8 @@ extension DiagnosticEvent {
         case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
         case .claimCut(let turn, let ms): "claim-cut turn=\(turn) played_ms=\(ms)"
         case .asyncToolDropped(let tool): "tool-result \(tool.rawValue) dropped reason=reconnect"
-        case .carArea(let utterance, let area): "area utterance=\(utterance) area=\(area.rawValue)"
-        case .tiredSilenced(let turn): "tired-silenced turn=\(turn)"
+        case .stateNote(let reason): "state-note reason=\(reason.rawValue)"
+        case .summaryNote(let n, let age): "summary-note exchanges=\(n) age_s=\(age)"
         default: "diagnostic \(self)"
         }
     }

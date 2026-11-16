@@ -110,7 +110,7 @@ struct BaseInstructionScopeTests {
         for rule in ["2. 车辆控制是模拟车辆，结果以工具返回为准。",
                      "3. 工具返回 next 或 instruction 时照着做，只说一句。屏幕上已经显示的列表不要念出来。",
                      "4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具",
-                     "5. 有点热、太热了：调低一度温度。有点冷：调高一度。座位有点高：座椅降低一级。",
+                     "5. 司机说车里的感受或情况：按车内状态选一个合理的小动作直接做，不要反问。",
                      "6. 导航：「导航去X」用 navigate_to；",
                      "7. 问「我现在在哪」「这是哪里」：调用 query_live_info（kind=current_location）"] {
             let range = try #require(base.range(of: rule), "\(rule)")
@@ -138,7 +138,10 @@ enum ToolPromptCoverage: Sendable {
         "control_climate": .phrase("空调"),
         "control_window": .phrase("车窗"),
         "control_seat": .phrase("座椅"),
-        "run_scenario": .phrase("车内场景（有蚊子、闷）"),
+        // F-09b §5 item 3: the state arrives by note; the model reads it on its own only when it wants it again.
+        "get_vehicle_state": .notByVoice("read by the model on its own; the state arrives by note (F-09b §5)"),
+        // F-09b §4: rule 5 names it for 不用、改回去.
+        "undo_last_change": .phrase("undo_last_change"),
         "navigate_to": .phrase("navigate_to"),
         "choose_navigation_option": .phrase("choose_navigation_option"),
         "exit_navigation_mode": .phrase("exit_navigation_mode"),

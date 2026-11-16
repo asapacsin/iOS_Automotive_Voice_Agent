@@ -195,9 +195,9 @@ struct VolumeTests {
     @Test("F-13a §4 items 6–7: declared, not a comfort tool, not repeat-sensitive (two steps in one turn)")
     func declaration() throws {
         let spec = try #require(ToolCatalog.spec("set_volume"))
-        #expect(!spec.repeatSensitive && !CarRequestRouter.comfortTools.contains("set_volume"))
+        #expect(!spec.repeatSensitive && spec.domain != "comfort")
         #expect(ToolCatalog.declarations.contains { $0.name == "set_volume" })
-        #expect(ToolCatalog.declarations(for: .model, webSearch: true).contains { $0.name == "set_volume" })
+        #expect(ToolCatalog.declarations(webSearch: true).contains { $0.name == "set_volume" })
         #expect(spec.declaration.parametersJSONSchema["required"] == ["target", "action"])
         var dispatcher = ToolDispatcher()
         let up = volumeCall(["target": "media", "action": "up"])

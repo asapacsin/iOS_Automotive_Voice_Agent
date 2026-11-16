@@ -40,11 +40,11 @@ struct CurrentTemperatureSearchTests {
         #expect(ToolCatalog.webSearchSpec.declaration.description.hasSuffix("不用于查现在的气温或10天内的天气预报（用 query_live_info 的 weather）。"))
         let s = PersonaInstruction.webSearchSentence
         #expect(s.contains("用返回的 answer 回答，一两句话。现在的气温和天气预报用 query_live_info（今后10天内，国外地点用英文名并填 country）。问很久以后的天气时"))
-        for mode in [ToolCatalog.ComfortMode.table, .model] {
-            let d = ToolCatalog.declarations(for: mode, webSearch: true).first { $0.name == "query_live_info" }!
+        for mode in ["model"] {
+            let d = ToolCatalog.declarations(webSearch: true).first { $0.name == "query_live_info" }!
             #expect(d.description.contains(ToolCatalog.weatherPart) && d.description.contains(ToolCatalog.officialFirst))
             for search in [false, true] {
-                let text = PersonaInstruction.base(PersonaInstruction.base(for: mode), webSearch: search)
+                let text = PersonaInstruction.base(PersonaInstruction.base, webSearch: search)
                 #expect(text.count <= PersonaInstruction.maxBaseCharacters, "\(mode) \(search) \(text.count)")
             }
         }

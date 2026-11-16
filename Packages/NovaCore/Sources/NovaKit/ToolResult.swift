@@ -18,8 +18,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case missingAction = "MISSING_ACTION"
     /// F-12 §14 item 11 (T-031b): `VehicleActionPolicy` refused the action before the port.
     case vehicleBlocked = "VEHICLE_BLOCKED"
-    /// F-09a §3 item 1 (T-017a): a comfort tool called for an utterance outside the car area.
-    case notACarRequest = "NOT_A_CAR_REQUEST"
+    /// F-09b §4 item 2 (T-031j): no kept change set, or it is older than 5 minutes.
+    case nothingToUndo = "NOTHING_TO_UNDO"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

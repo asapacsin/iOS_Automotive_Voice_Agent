@@ -34,9 +34,9 @@ struct QWeatherTextTests {
         for text in texts {
             #expect(!text.contains("16天") && text.contains("10天内"), "\(text)")
         }
-        for mode in [ToolCatalog.ComfortMode.table, .model] {
+        for mode in ["model"] {
             for search in [false, true] {
-                let text = PersonaInstruction.base(PersonaInstruction.base(for: mode), webSearch: search)
+                let text = PersonaInstruction.base(PersonaInstruction.base, webSearch: search)
                 #expect(text.count <= PersonaInstruction.maxBaseCharacters && !text.contains("16天"))
             }
         }

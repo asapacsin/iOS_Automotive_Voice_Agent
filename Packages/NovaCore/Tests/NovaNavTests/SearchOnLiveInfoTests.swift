@@ -50,9 +50,9 @@ struct SearchOnLiveInfoTests {
 
     @Test("F-18 §23 row 2: search-on catalog keeps weather and place_details and adds the official-first sentence")
     func catalog() throws {
-        for mode in [ToolCatalog.ComfortMode.table, .model] {
-            let off = try #require(ToolCatalog.declarations(for: mode).first { $0.name == "query_live_info" })
-            let on = try #require(ToolCatalog.declarations(for: mode, webSearch: true).first { $0.name == "query_live_info" })
+        for mode in ["model"] {
+            let off = try #require(ToolCatalog.declarations.first { $0.name == "query_live_info" })
+            let on = try #require(ToolCatalog.declarations(webSearch: true).first { $0.name == "query_live_info" })
             #expect(on.parametersJSONSchema == off.parametersJSONSchema)
             #expect(on.parametersJSONSchema["properties"]?["kind"]?["enum"] == .array(ToolCatalog.liveInfoKinds.map { .string($0) }))
             // §26 item 8 replaced the §23 sentence.
@@ -77,6 +77,6 @@ struct SearchOnLiveInfoTests {
         #expect(details.data["next"]?.stringValue?.contains("web_search") == false)
         let live = try #require(ToolCatalog.declarations.first { $0.name == "query_live_info" })
         #expect(live.parametersJSONSchema["properties"]?["day"]?["enum"] == ["now", "today", "tomorrow", "day_after", "day_after_next"])
-        #expect(ToolCatalog.declarations(for: .table, webSearch: false) == ToolCatalog.declarations(for: .table))
+        #expect(ToolCatalog.declarations(webSearch: false) == ToolCatalog.declarations)
     }
 }

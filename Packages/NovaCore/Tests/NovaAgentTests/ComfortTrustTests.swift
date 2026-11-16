@@ -81,7 +81,7 @@ private func makeRunner(_ provider: any RealtimeProvider, timeout: Int64 = 400) 
                                      snapshot: { vehicle.state.withLock { $0 } },
                                      tools: ["control_window": VehicleToolExecutor(port: port),
                                              "control_climate": VehicleToolExecutor(port: port)])
-    let config = SessionConfig(systemInstruction: PersonaInstruction.modelComfortBase, tools: ToolCatalog.declarations(for: .model))
+    let config = SessionConfig(systemInstruction: PersonaInstruction.base, tools: ToolCatalog.declarations)
     return ComfortEvalRunner(provider: provider, config: config, harness: harness, clock: SystemClock(),
                              timeout: .milliseconds(timeout))
 }
@@ -201,8 +201,8 @@ struct ComfortTrustTests {
         #expect(new.filter { $0.expected == .noTool || $0.expected == .ask }.count >= 12)
         #expect(new.filter { $0.unprompted && $0.group == .comfort }.count >= 10)
         #expect(ComfortCases.newest.count == 20)
-        let prompts = ([PersonaInstruction.base, PersonaInstruction.modelComfortBase]
-                       + (ToolCatalog.specs + ToolCatalog.modelComfortSpecs).map(\.declaration.description)).joined()
+        let prompts = ([PersonaInstruction.base, PersonaInstruction.base]
+                       + (ToolCatalog.specs + ToolCatalog.specs).map(\.declaration.description)).joined()
         for c in new where c.heldOut || c.unprompted { #expect(!prompts.contains(c.sentence), "\(c.id) is in a prompt") }
         let trial = ComfortCases.trial
         #expect(trial.count == 12 && Set(trial.map(\.expected)) == Set(ComfortDecision.allCases))
@@ -211,27 +211,21 @@ struct ComfortTrustTests {
         #expect(r.disputed == ["mosquito"] && r.overall.total == 1 && r.perCase["mosquito"] == nil)
     }
 
-    @Test("Row 5: pass^3, the paired mean and interval by hand, no difference, different builds")
+    @Test("Row 5, F-09b row 8 bars: pass^3; one path, no table comparison; the row 8 bars by hand")
     func comparison() {
-        func summary(_ mode: ToolCatalog.ComfortMode, _ build: String, _ per: [String: [Bool]]) -> ComfortSummary {
+        func summary(noWrongful: (Int, Int), claims: Int, median: Int?) -> ComfortSummary {
             var r = ComfortReport(cases: [], runs: [])
-            r.perCase = per
-            return ComfortSummary(report: r, mode: mode, build: build, date: "2026-11-03")
+            r.noWrongfulAction.passed = noWrongful.0
+            r.noWrongfulAction.total = noWrongful.1
+            r.uncorrectedClaims = claims
+            if let median { r.stagesComfort[.firstAudio] = ComfortReport.Percentiles([median]) }
+            return ComfortSummary(report: r, build: "x", date: "2026-11-16")
         }
-        // Table: a 3/3, b 0/3, c 3/3. Model: a 3/3, b 3/3, c 0/3 → diffs 0, +100, −100: mean 0, sd 100, se 57.735.
-        let t = summary(.table, "x", ["a": [true, true, true], "b": [false, false, false], "c": [true, true, true]])
-        let m = summary(.model, "x", ["a": [true, true, true], "b": [true, true, true], "c": [false, false, false]])
-        let cmp = ComfortComparison(table: t, model: m)!
-        #expect(abs(cmp.meanPoints) < 1e-9)
-        #expect(abs(cmp.highPoints - 1.96 * 57.735_026_9) < 1e-3)
-        #expect(cmp.noVisibleDifference)
-        #expect(cmp.differing.map(\.caseID) == ["b", "c"])
-        // Every case +1/3: mean 33.3 with zero spread → a clear difference.
-        let m2 = summary(.model, "x", ["a": [true, true, true], "b": [true, false, false], "c": [true, true, true]])
-        let t2 = summary(.table, "x", ["a": [true, true, false], "b": [false, false, false], "c": [true, true, false]])
-        let c2 = ComfortComparison(table: t2, model: m2)!
-        #expect(abs(c2.meanPoints - 100.0 / 3) < 1e-9 && !c2.noVisibleDifference)
-        #expect(ComfortComparison(table: t, model: summary(.model, "y", m.perCase)) == nil)
+        #expect(ComfortBars(summary(noWrongful: (19, 20), claims: 0, median: 2500)).all)
+        #expect(!ComfortBars(summary(noWrongful: (18, 20), claims: 0, median: 2000)).noWrongfulAction95)
+        #expect(!ComfortBars(summary(noWrongful: (20, 20), claims: 1, median: 2000)).noUncorrectedClaims)
+        #expect(!ComfortBars(summary(noWrongful: (20, 20), claims: 0, median: 2501)).medianWithinBar)
+        #expect(!ComfortBars(summary(noWrongful: (0, 0), claims: 0, median: 1000)).all)
         // pass^3 in the report.
         let joke = comfortCase("joke")
         func run(_ ok: Bool, _ a: Int) -> ComfortRun {
