@@ -1966,7 +1966,7 @@
     {
       "id": "T-031c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 4,
       "action": "F-12 §14 items 14-15, only after the owner approves the numbers: model-chosen actions become the only path, table and run_scenario removed, F-09, F-12 and J5 updated",
       "depends_on": [
@@ -1976,7 +1976,12 @@
       ],
       "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. 2026-11-16: the owner decided the switch without the item 14 bars (F-09b §3, \"write the spec for this so call more flexibile stuff\"); scope is now F-09b §3. Build waits for the owner's go. Owner go 2026-11-16: \"pull and implment this flexible spec\" (F-09b).",
       "quantified": "Model mode 27/27 with no wrongful action on ace916f (owner note 2026-11-02), behind on unprompted wordings and worst time; T-031d score table in specs/STATUS.md.",
-      "evidence": []
+      "evidence": [
+        "gates PASS at 651bc01 (scripts/gates/run_all.sh: static PASS, NovaCore 780 tests, 1 known unrelated; ios-spec-check PASS)",
+        "independent read-only review (high effort): PASS at d193d0f (rule 5 matches §3 item 3, base 1380/1629 chars within 1707, run_scenario not declared and UNKNOWN_TOOL, comfort-mode setting removed); its finding (comfort eval sent no state note) fixed in f22cdd5; PASS confirmed at c088529",
+        "unit rows 1-2: ComfortTuningTests, ComfortEvalTests (one catalog, no run_scenario, state note before each eval sentence)",
+        "NOT_VERIFIED: App build (Codemagic); row 8 device comfort run"
+      ]
     },
     {
       "id": "T-031d",
@@ -2759,7 +2764,7 @@
     {
       "id": "T-016p",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-09b §6: in-memory summary of the last 6 exchanges (60 chars each, tool codes) sent as a silent note when a new session starts without a resumption handle within 30 min; never on disk or in logs; rows 6, 10.",
       "depends_on": [
@@ -2772,7 +2777,13 @@
         ]
       },
       "notes": "Spec only (owner 2026-11-16: \"you just write the spec for this so call more flexibile stuff\"). Owner go 2026-11-16: \"pull and implment this flexible spec\" (F-09b).",
-      "evidence": []
+      "evidence": [
+        "gates PASS at 651bc01 (scripts/gates/run_all.sh)",
+        "independent read-only review (high effort): PASS at d193d0f, confirmed at c088529 (6 exchanges, 60 chars, 30 min, not on resume, memory only, never in record or log)",
+        "unit row 6: FlexibleAssistantTests (summary note, exchange effect)",
+        "Owner decision open: §6 item 3 clears the memory on 结束对话 by voice while row 10 expects it kept; ending with the button keeps it",
+        "NOT_VERIFIED: App build (Codemagic); row 10 device"
+      ]
     },
     {
       "id": "T-017c",
