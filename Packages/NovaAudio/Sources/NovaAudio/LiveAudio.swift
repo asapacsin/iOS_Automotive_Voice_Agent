@@ -156,13 +156,19 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     }
 
     /// The engine and the player nodes running again after a configuration change or an interruption.
-    private func startEngine() {
-        do { try engine.start() } catch { audioLine("audio engine-start-failed") }
+    /// False: the engine did not start; nothing is played on it (AVFAudio raises on a stopped engine).
+    @discardableResult
+    private func startEngine() -> Bool {
+        do { try engine.start() } catch {
+            audioLine("audio engine-start-failed")
+            return false
+        }
         reply.play()
         guidance.play()
         cue.play()
         apply(machine.restart())
         lock.withLock { restarted }?()
+        return true
     }
 
     private func interruption(_ note: Notification) {
@@ -190,7 +196,8 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     }
 
     private func resumeAfterInterruption() {
-        guard lock.withLock({ running }) else { return }
+        // A new interruption that began after this resume was asked for cancels it.
+        guard lock.withLock({ running && mic.resuming }) else { return }
         do {
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
@@ -199,8 +206,12 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             audioLine("audio resume-failed")
             return
         }
+        // Only a started engine ends the interruption; a failed start waits for the next return (§14 item 3).
+        guard lock.withLock({ mic.resuming }), startEngine() else {
+            lock.withLock { mic.resumeFailed() }
+            return
+        }
         lock.withLock { mic.resumed() }
-        startEngine()
     }
 
     private func audioLine(_ line: String) {

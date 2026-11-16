@@ -59,7 +59,7 @@ Dedicated capture thread; render reference fed right before the playback write.
 4. Record lines: `audio interrupted`, `audio interruption-ended resume=<now|on-return>`, `audio resumed on-return`, `audio resume-failed`. Codes only (I-8).
 5. The decision is a pure `MicInterruption` in `NovaVoice`. Nothing else changes: with no other app on the microphone, behaviour is as today.
 
-Implementation notes (T-021q review): Apple does not promise an end for every began, so becoming active also resumes an interruption with no end; a began with reason `appWasSuspended` is ignored (nothing took the microphone). The configuration-change restart stays blocked until reactivation has succeeded. A stray end writes no line. A failed engine start after reactivation writes `audio engine-start-failed`. `flush` does not call `play()` on a stopped engine.
+Implementation notes (T-021q review): Apple does not promise an end for every began, so becoming active also resumes an interruption with no end; a began with reason `appWasSuspended` is ignored (nothing took the microphone). The configuration-change restart stays blocked until reactivation has succeeded. A stray end writes no line. A failed engine start writes `audio engine-start-failed`, plays nothing on the stopped engine and, after an interruption, waits for the next return. A began that arrives while a resume is queued cancels that resume. `flush` does not call `play()` on a stopped engine.
 
 | # | Given / when | Then | Test |
 |---|---|---|---|
