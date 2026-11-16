@@ -175,9 +175,18 @@ struct UndoLastChangeTests {
         let port = PolicedVehiclePort(car, speedKmh: { nil })
         let tools = ChangeSetRecorder(inner: VehicleToolExecutor(port: port), port: port, store: store)
         let a = Task { await ToolTurn.$current.withValue(5) { await tools.execute(vcall("control_climate", ["action": "set_temperature", "value": .int(20)])) } }
-        while !car.entered { await Task.yield() }
-        let b = Task { await ToolTurn.$current.withValue(5) { await tools.execute(vcall("control_window", ["action": "set", "window": "driver", "value": .int(50)], id: "c2")) } }
-        for _ in 0..<200 { await Task.yield() }
+        // Bounded: a write that never reaches the car fails the test instead of hanging it.
+        for _ in 0..<2000 where !car.entered { try? await Task.sleep(for: .milliseconds(1)) }
+        guard car.entered else { Issue.record("temperature write never reached the car"); a.cancel(); return }
+        let bDone = Mutex(false)
+        let b = Task {
+            let r = await ToolTurn.$current.withValue(5) { await tools.execute(vcall("control_window", ["action": "set", "window": "driver", "value": .int(50)], id: "c2")) }
+            bDone.withLock { $0 = true }
+            return r
+        }
+        // Without the lock the window call finishes (and records) while the temperature call is paused;
+        // with it, it waits, and this wait runs out.
+        for _ in 0..<200 where !bDone.withLock({ $0 }) { try? await Task.sleep(for: .milliseconds(1)) }
         car.release()
         _ = await (a.value, b.value)
         #expect(await UndoLastChangeTool(port: port, store: store).execute(vcall("undo_last_change")).ok)

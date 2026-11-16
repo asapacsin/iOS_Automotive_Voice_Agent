@@ -754,15 +754,27 @@ struct ToolTurnKeyTests {
         let sink = RecordingSink()
         let exec = TurnKeyExecutor()
         let core = AgentCore(clock: ManualClock(), sink: sink, tools: ToolRunner(executors: ["control_climate": exec]))
+        var previous: Generation?
         for session in 1...2 {
             await core.send(.start)
-            let connection = await core.state.session.connection
+            // send() only queues while another caller drains; wait until this start is handled.
+            var connection = await core.state.session.connection
+            for _ in 0..<400 where connection == previous {
+                try await Task.sleep(for: .milliseconds(5))
+                connection = await core.state.session.connection
+            }
+            try #require(connection != previous)
+            previous = connection
             await core.send(.realtime(.setupComplete, connection: connection))
             await core.send(.speechStarted(recentSpeech: true))
             await core.send(.speechStopped)
             await core.send(.realtime(.responseStarted(TurnID(1)), connection: connection))
             await core.send(.realtime(.toolCalls(TurnID(1), [climateOn()]), connection: connection))
             for _ in 0..<200 where exec.keys.withLock({ $0.count }) < session { try await Task.sleep(for: .milliseconds(5)) }
+            // The tool result is handled before the session stops.
+            for _ in 0..<400 where sink.log.withLock({ $0.filter { $0.hasPrefix("toolResponse") }.count }) < session {
+                try await Task.sleep(for: .milliseconds(5))
+            }
             await core.send(.realtime(.responseDone(TurnID(1), outcome: .completed), connection: connection))
             await core.send(.stop)
         }
