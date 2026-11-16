@@ -25,6 +25,27 @@ private func call(_ name: String, _ args: [String: JSONValue]) -> ToolCall {
     ToolCall(id: CallID("m1")!, name: name, arguments: .object(args))
 }
 
+/// Real-time bound on every wait below, so a stuck handler fails the test instead of hanging it.
+private let waitLimit = Duration.seconds(10)
+
+/// Waits until `condition` holds, for at most `waitLimit` of real time; false on timeout.
+private func waitUntil(_ condition: @Sendable () -> Bool) async -> Bool {
+    let end = ContinuousClock.now + waitLimit
+    while !condition() {
+        if ContinuousClock.now >= end { return false }
+        await Task.yield()
+        if !condition() { try? await Task.sleep(for: .milliseconds(1)) }
+    }
+    return true
+}
+
+/// A background task's result, readable without awaiting the task (so the read can time out).
+private final class Outcome<Value: Sendable>: Sendable {
+    private let slot = Mutex<Value?>(nil)
+    func set(_ value: Value) { slot.withLock { $0 = value } }
+    var value: Value? { slot.withLock { $0 } }
+}
+
 @Suite("T-032 F-13 music")
 struct MusicToolHandlerTests {
     @Test("F-13 §10 row 1: bundled play and stop work offline and are read back from the player")
@@ -63,13 +84,24 @@ struct MusicToolHandlerTests {
 
         let clock = ManualClock()
         let rejected = MusicToolHandler(music: LanePlayer(), named: named, clock: clock)
-        let task = Task { await rejected.execute(call("play_music", ["query": "换一首", "exclude_title": "七里香"])) }
+        let outcome = Outcome<ToolResult>()
+        let task = Task {
+            outcome.set(await rejected.execute(call("play_music", ["query": "换一首", "exclude_title": "七里香"])))
+        }
+        // Advance one poll only once the handler is asleep on the clock: it takes each deadline from
+        // `clock.now`, so time moved before it sleeps never wakes it. 6 s / 250 ms is 24 polls; 40 bounds it.
         for _ in 0..<40 {
-            await Task.yield()
+            guard await waitUntil({ clock.pendingSleepers > 0 || outcome.value != nil }),
+                  outcome.value == nil else { break }
             clock.advance(by: .milliseconds(250))
         }
-        let result = await task.value
+        guard await waitUntil({ outcome.value != nil }), let result = outcome.value else {
+            task.cancel()
+            Issue.record("play_music did not finish within \(waitLimit) (pending sleepers: \(clock.pendingSleepers))")
+            return
+        }
         #expect(result.data["status"] == "requested_unverified")
+        #expect(clock.pendingSleepers == 0)
     }
 }
 
