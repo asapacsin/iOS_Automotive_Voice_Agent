@@ -39,7 +39,11 @@ public struct SpeakerCohortMeta: Codable, Sendable, Hashable {
     }
 
     /// §17 item 6: the 1 s threshold, only when it is a finite number the script wrote; never made up.
-    public var earlyThreshold: Double? { threshold1s.flatMap { $0.isFinite ? $0 : nil } }
+    /// T-013l (owner 2026-11-16): until `threshold1s` is measured, the measured whole-sentence `threshold` is used.
+    public var earlyThreshold: Double? {
+        if let t = threshold1s, t.isFinite { return t }
+        return threshold.isFinite ? threshold : nil
+    }
 
     /// §16 item 6: the cohort was made with the loaded model.
     public func matches(modelSha256 sha: String) -> Bool { modelSha256.lowercased() == sha.lowercased() }

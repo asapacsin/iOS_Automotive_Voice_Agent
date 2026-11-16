@@ -131,6 +131,8 @@ struct EarlyBargeInTests {
         #expect(released.map(\.words) == [.partial("导航")])
         let final = actions.decided(done.decided)
         #expect(!final.actions.contains(.stop))
+        // T-013l: the words are not thrown away by the early rejection: the whole verdict sends them.
+        #expect(final.adopt && audio(final.outputs) == [1])
         let kinds = hold.takeChecks().map(\.kind)
         #expect(kinds == [.early, .speech])
     }
@@ -163,7 +165,8 @@ struct EarlyBargeInTests {
         // A cohort without threshold1s gives none; a finite one is used.
         let meta = SpeakerCohortMeta(source: "s", license: "l", model: "m", modelSha256: "x", speakers: 1, dimension: 1,
                                      topN: 1, threshold: 1.5, eer: 0.1, trials: 1)
-        #expect(meta.earlyThreshold == nil)
+        // T-013l: no threshold1s: the measured whole-sentence threshold is used.
+        #expect(meta.earlyThreshold == 1.5)
         let decoded = try JSONDecoder().decode(SpeakerCohortMeta.self, from: Data(
             #"{"source":"s","license":"l","model":"m","modelSha256":"x","speakers":1,"dimension":1,"topN":1,"threshold":1.5,"eer":0.1,"trials":1,"threshold1s":0.9,"eer1s":0.2,"trials1s":4}"#.utf8))
         #expect(decoded.earlyThreshold == 0.9 && decoded.eer1s == 0.2 && decoded.trials1s == 4)

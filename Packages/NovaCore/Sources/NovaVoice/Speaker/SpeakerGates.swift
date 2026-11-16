@@ -47,8 +47,16 @@ public struct SpeakerActionHold: Sendable {
             rejected = false
             if let e = early, e.utterance != utterance { early = nil }
             if let e = early, !e.accepted {
-                // §17 item 3: rejected early: nothing of the live interruption for this utterance acts.
-                return Self.unsent(step)
+                // §17 item 3 (T-013l): not accepted early: no stop and no new dip for this utterance; its outputs
+                // and adopt still wait for the whole verdict, which alone decides the words.
+                var later = step
+                later.actions = step.actions.filter { $0 == .dip(false) }
+                var now = BargeInLive.Step()
+                now.actions = later.actions
+                later.actions = []
+                if queue.isEmpty, !later.adopt { now.outputs = step.outputs; return now }
+                queue.append((utterance, later))
+                return now
             }
             let accepted = early?.accepted == true
             // §17 item 1: a dip never waits; after an accepted early check neither does a stop.
@@ -82,11 +90,15 @@ public struct SpeakerActionHold: Sendable {
             }
         } else {
             early = (utterance, false)
-            // No stop; her volume comes back. Outputs of the dropped steps go up as not sent.
-            var dropped = flush(utterance)
-            dropped.adopt = false
-            out = Self.unsent(dropped)
-            if !out.actions.contains(.dip(false)) { out.actions.append(.dip(false)) }
+            // No stop; her volume comes back. T-013l: only the queued actions are dropped; the outputs and adopt
+            // wait for the whole verdict, which alone decides whether the words go up (§17 item 3).
+            queue = queue.map { e in
+                guard mine(e.utterance) else { return e }
+                var s = e.step
+                s.actions = []
+                return (e.utterance, s)
+            }
+            out.actions = [.dip(false)]
         }
         return out
     }

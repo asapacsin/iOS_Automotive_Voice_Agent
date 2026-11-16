@@ -2684,6 +2684,18 @@
         "unit rows 62-67: EarlyBargeInTests (+perUtterance, thresholdChangeRescores)",
         "NOT_VERIFIED: App build (Codemagic); rows 68-69 device; threshold1s needs a PC run of speaker_cohort.py --test-seconds 1.0 on CN-Celeb1 (until then early check = unknown, no early stop)"
       ]
+    },
+    {
+      "id": "T-013l",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-04b §17 amendment items 1-2: early threshold falls back to the measured whole-sentence threshold; early rejected/unknown drops only the queued actions, outputs wait for the whole verdict.",
+      "depends_on": [
+        "T-013k"
+      ],
+      "notes": "Device 10:14 record (faf209f): early always unknown (threshold none), and unknown marked the driver's sentences mute=speaker before the whole verdict accepted them.",
+      "evidence": []
     }
   ]
 }
