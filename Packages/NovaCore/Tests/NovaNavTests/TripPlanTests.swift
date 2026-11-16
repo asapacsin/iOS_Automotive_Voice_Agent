@@ -237,3 +237,101 @@ struct TripPlanTests {
         #expect(await rig.planner.savedPlans.entries.isEmpty)
     }
 }
+
+/// Detail calls held until `release()`, counted per place.
+final class HeldPhotoSearch: PlaceSearch, @unchecked Sendable {
+    let details = Mutex<[String]>([])
+    private let held = Mutex<[CheckedContinuation<Void, Never>]>([])
+    let hold: Bool
+    init(hold: Bool) { self.hold = hold }
+    var waiting: Int { held.withLock { $0.count } }
+    func release() { for c in held.withLock({ h in defer { h = [] }; return h }) { c.resume() } }
+    func text(_ keywords: String, city: String?) async throws -> [Place] { tianjin[keywords] ?? [] }
+    func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] { [] }
+    func polygon(_ keywords: String, vertices: [GeoCoordinate]) async throws -> [Place] { [] }
+    func detail(id: String) async throws -> Place? {
+        details.withLock { $0.append(id) }
+        if hold { await withCheckedContinuation { c in held.withLock { $0.append(c) } } }
+        return spot(id, lat: 0, lng: 0).with(photoURL: URL(string: "https://a.cn/\(id.unicodeScalars.first!.value).jpg"))
+    }
+}
+
+@Suite("T-040j T-040l F-15b review fixes")
+struct TripReviewFixTests {
+    func rig(_ search: HeldPhotoSearch) async -> (NavigationController, TripPlanner, ScriptedNaviEngine, TripLines) {
+        let engine = ScriptedNaviEngine(routes: [route(1, meters: 20_000, seconds: 1_800)])
+        let lines = TripLines()
+        let nav = NavigationController(search: search, engine: engine, location: NoLocation(), clock: ManualClock())
+        await nav.start()
+        let planner = TripPlanner(search: search, navigation: nav, origin: { origin }, clock: ManualClock(),
+                                  onLine: { lines.append($0) })
+        return (nav, planner, engine, lines)
+    }
+
+    @Test("F-15b §12: a reorder of stops with known photos sends the list with the links; a change while lookups run asks nobody again")
+    func photosOnScreen() async {
+        let search = HeldPhotoSearch(hold: true)
+        let seen = Mutex<[TripList]>([])
+        let engine = ScriptedNaviEngine(routes: [route(1, meters: 20_000, seconds: 1_800)])
+        let nav = NavigationController(search: search, engine: engine, location: NoLocation(), clock: ManualClock())
+        await nav.start()
+        let planner = TripPlanner(search: search, navigation: nav, origin: { origin }, clock: ManualClock(),
+                                  onChange: { list in seen.withLock { $0.append(list) } })
+        _ = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道", "瓷房子"])]))
+        for _ in 0..<2000 where search.waiting < 3 { try? await Task.sleep(for: .milliseconds(1)) }
+        _ = await planner.execute(trip("edit_trip_list", ["action": "move", "index": 3, "to_index": 1]))
+        search.release()
+        await planner.photosSettled()
+        #expect(search.details.withLock { $0 }.count == 3)
+        _ = await planner.execute(trip("make_trip_list", ["places": names(["五大道", "古文化街"])]))
+        let last = seen.withLock { $0.last }
+        #expect(last?.stops.allSatisfy { $0.place.photoURL != nil } == true)
+        #expect(search.details.withLock { $0 }.count == 3)
+    }
+
+    @Test("F-15b row 10: a photo arriving after the route was kept does not make the start recalculate")
+    func photoAfterKept() async {
+        let search = HeldPhotoSearch(hold: true)
+        let (nav, planner, engine, _) = await rig(search)
+        _ = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await planner.execute(trip("route_trip", [:]))
+        search.release()
+        await planner.photosSettled()
+        #expect(await planner.execute(trip("route_trip", ["start": true])).ok)
+        #expect(engine.calls.withLock { $0 }.filter { $0.hasPrefix("calculate") }.count == 1)
+        #expect(await nav.current.navigating)
+    }
+
+    @Test("F-15b §15: another day is a plan change: its route is nearest, a day tab drops the other day's kept route, a slow add of day 1 is stale after switching")
+    func dayIsAChange() async {
+        let search = HeldPhotoSearch(hold: false)
+        let (nav, planner, engine, _) = await rig(search)
+        _ = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道"]), "day": 1]))
+        _ = await planner.execute(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子"]), "day": 2]))
+        _ = await planner.execute(trip("route_trip", ["day": 1]))
+        _ = await planner.execute(trip("route_trip", ["day": 2, "start": true]))
+        #expect(engine.requests.withLock { $0.last?.destinationName } == "天津之眼")
+        _ = await nav.execute(tool("exit_navigation_mode"))
+        _ = await planner.execute(trip("route_trip", ["day": 1]))
+        #expect(await nav.current.tripRoute)
+        _ = await planner.tap(.day(2), moving: false)
+        #expect(await !nav.current.tripRoute)
+    }
+
+    @Test("F-15b §14 item 4: an unreadable plans.json logs trip load ok=no")
+    func badPlans() async {
+        let files = MemoryTripFiles()
+        files.write("plans.json", Data("[".utf8))
+        let rig = await PlanRig(files: files)
+        await rig.planner.restore()
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip load ok=no") })
+        #expect(files.read("plans.bad.json") != nil)
+    }
+
+    @Test("F-15b §13 item 5: an opened plan's pins are not labelled or greyed from the running route")
+    func pinsOnlyForTheRoute() {
+        let list = TripList.withStops(["古文化街", "五大道"])
+        #expect(TripScreen.passed(list, routeStops: ["天津之眼", "瓷房子"], passed: [1]).isEmpty)
+        #expect(TripScreen.passed(list, routeStops: ["古文化街", "五大道"], passed: [1]) == [1])
+    }
+}

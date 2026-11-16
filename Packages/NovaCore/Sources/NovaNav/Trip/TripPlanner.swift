@@ -67,6 +67,8 @@ public actor TripPlanner: ToolExecutor {
     /// none); a place known to have none is not asked again.
     private var photoKnown: [String: URL] = [:]
     private var photoNone: Set<String> = []
+    /// Lookups still running: not asked again by a change meanwhile (§12 item 6: one call per stop).
+    private var photoPending: Set<String> = []
     private var photoTask: Task<Void, Never>?
 
     /// `origin`: the same as `navigate_to`'s (the usable fix, or the demo origin in 模拟导航), GCJ-02.
@@ -111,7 +113,12 @@ public actor TripPlanner: ToolExecutor {
             }
         }
         if let data = files.read(Self.plansFile) {
-            if let restored = SavedTripPlans(data: data) { saved = restored } else { files.moveAside(Self.plansFile) }
+            if let restored = SavedTripPlans(data: data) {
+                saved = restored
+            } else {
+                ok = false
+                files.moveAside(Self.plansFile)
+            }
         }
         onLine("trip load ok=\(ok ? "yes" : "no") days=\(plan.dayCount) stops=\(plan.stopCount)")
         onChange(list)
@@ -476,6 +483,7 @@ public actor TripPlanner: ToolExecutor {
     }
 
     private func changed() {
+        applyKnownPhotos()
         onChange(list)
         persist()
         photos()
@@ -649,21 +657,29 @@ public actor TripPlanner: ToolExecutor {
 
     // MARK: Photos (§12)
 
-    /// After a change: one detail call per stop without a photo link, at most 4 at once, after the tool result,
-    /// so it never delays her reply. A stop that already has a link (a saved plan) makes no call.
-    private func photos() {
+    /// A place resolved again gets the link this launch already found (text search gives none), before the screen
+    /// and the file see the list.
+    private func applyKnownPhotos() {
         for place in plan.days.flatMap(\.stops).map(\.place) where place.photoURL == nil {
             if let known = photoKnown[place.id] { plan.setPhoto(placeID: place.id, url: known) }
         }
+    }
+
+    /// After a change: one detail call per stop without a photo link, at most 4 at once, after the tool result,
+    /// so it never delays her reply. A stop that already has a link (a saved plan) makes no call.
+    private func photos() {
         // §12 item 5: only failures count toward the one retry per launch.
         let asked = plan.days.flatMap(\.stops).map(\.place).filter { place in
             place.photoURL == nil && !place.id.hasPrefix("saved_") && !photoNone.contains(place.id)
-                && (photoTries[place.id] ?? 0) < 2
+                && !photoPending.contains(place.id) && (photoTries[place.id] ?? 0) < 2
         }
         let unique = Dictionary(asked.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }).values.map { $0 }
         guard !unique.isEmpty else { return }
         let wanted2 = unique
-        for place in wanted2 { photoTries[place.id, default: 0] += 1 }
+        for place in wanted2 {
+            photoTries[place.id, default: 0] += 1
+            photoPending.insert(place.id)
+        }
         let search = search, clock = clock, limit = tuning.parallelLookups
         let previous = photoTask
         let wanted = wanted2
@@ -699,6 +715,7 @@ public actor TripPlanner: ToolExecutor {
     private func photosArrived(_ found: [(String, URL?, Bool)], since started: NovaInstant) {
         var ok = 0, none = 0, failed = 0
         for (id, url, reached) in found {
+            photoPending.remove(id)
             if !reached {
                 failed += 1
                 photoFailed.insert(id)

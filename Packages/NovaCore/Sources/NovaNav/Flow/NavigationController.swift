@@ -40,6 +40,9 @@ public struct NavigationFlowState: Sendable, Hashable {
     /// F-15b §5.3 (T-040i): a trip route is kept (not started) or running; its stops passed so far (1-based).
     public var tripRoute = false
     public var tripStopsPassed: Set<Int> = []
+    /// The place ids of the kept or running trip route, in route order: the screen labels and greys a list's pins
+    /// only when they are this route's stops.
+    public var tripStopIDs: [String] = []
     /// The route buttons on screen: none while a list is open (a tap there picks a list row), and in 真实导航 only
     /// 「第N条」, since a change recalculates from here and the earlier minutes no longer hold.
     public var routeTapTargets: [AlternativeRoute] {
@@ -772,7 +775,8 @@ public actor NavigationController: ToolExecutor {
     /// still this list's, else calculates first. One trip at a time: a running trip is stopped first.
     public func routeTrip(_ stops: [Place], list: Int, start: Bool) async -> TripRouteOutcome {
         precondition(stops.count >= 2 && stops.count <= RouteRequest.maxWaypoints + 1)
-        if start, let trip, trip.list == list, trip.stops == stops {
+        // Same stops by id: a photo link that arrived meanwhile is not another trip.
+        if start, let trip, trip.list == list, trip.stops.map(\.id) == stops.map(\.id) {
             if trip.running, snapshot.navigating { return .alreadyRunning(trip.route, snapshot.mode) }
             if !trip.running, snapshot.phase == .awaitingRouteSelection {
                 if startInFlight { return .failed(.failure(.optionsNotReady, advice: "导航正在启动。请如实说正在启动，稍等一下。")) }
@@ -809,6 +813,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.selectedRoute = recommended.id
         trip = (list, stops, recommended, false)
         snapshot.tripRoute = true
+        snapshot.tripStopIDs = stops.map(\.id)
         guard start else {
             snapshot.phase = .awaitingRouteSelection
             listedAt = nil
@@ -1093,6 +1098,7 @@ public actor NavigationController: ToolExecutor {
         trip = nil
         snapshot.tripRoute = false
         snapshot.tripStopsPassed = []
+        snapshot.tripStopIDs = []
         early = [:]
         waiting?.continuation.resume(returning: nil)
         waiting = nil

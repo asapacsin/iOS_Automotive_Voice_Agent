@@ -39,9 +39,13 @@ public struct TripPlan: Sendable, Hashable {
     }
 
     /// Makes `day` (1…dayCount) the current day; false when out of range.
+    /// Another day is a plan change (a kept route or a slow lookup of the old day no longer applies).
     public mutating func select(_ day: Int) -> Bool {
         guard (1...days.count).contains(day) else { return false }
-        currentDay = day
+        if day != currentDay {
+            currentDay = day
+            revision += 1
+        }
         return true
     }
 
@@ -200,7 +204,7 @@ public struct SavedTripPlans: Sendable, Hashable {
         return near.first.map(Match.found) ?? .none
     }
 
-    /// Saves under `name` (an existing exact name is replaced, keeping its place); returns whether it replaced.
+    /// Saves under `name` (an existing exact name is replaced and moves to the front); returns whether it replaced.
     public mutating func save(_ plan: TripPlan, as name: String, at date: Date) -> Bool {
         var named = plan
         named.name = name

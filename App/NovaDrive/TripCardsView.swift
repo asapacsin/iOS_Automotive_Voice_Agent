@@ -14,7 +14,7 @@ struct TripCardsView: View {
     let runtime: AgentRuntime
 
     var body: some View {
-        switch TripScreen.of(model.tripList, passed: model.nav.tripStopsPassed, moving: model.tripMoving) {
+        switch TripScreen.of(model.tripList, passed: TripScreen.passed(model.tripList, routeStops: model.nav.tripStopIDs, passed: model.nav.tripStopsPassed), moving: model.tripMoving) {
         case .none:
             // §16 item 6: the saved plans stay reachable with an empty current plan (not moving).
             if !model.tripMoving, let plans = model.tripPlans, !plans.saved.isEmpty {
@@ -69,7 +69,7 @@ struct TripCardsView: View {
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("trip-route")
                     }
-                    if model.nav.tripRoute && model.nav.phase == .awaitingRouteSelection {
+                    if model.nav.tripRoute && model.nav.phase == .awaitingRouteSelection && model.nav.tripStopIDs == model.tripList.stops.map(\.place.id) {
                         Button("开始导航") { Task { await runtime.tripTap(.route(start: true)) } }
                             .buttonStyle(.borderedProminent)
                             .accessibilityIdentifier("trip-start")

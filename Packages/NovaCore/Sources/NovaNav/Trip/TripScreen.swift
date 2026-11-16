@@ -70,6 +70,11 @@ public enum TripScreen: Sendable, Hashable {
     /// §11 item 4: the strip is at most 2 lines.
     public static let stripLimit = 48
 
+    /// The route's passed stops, only when `routeStops` (the trip route's place ids) are this list's stops.
+    public static func passed(_ list: TripList, routeStops: [String], passed: Set<Int>) -> Set<Int> {
+        routeStops == list.stops.map(\.place.id) ? passed : []
+    }
+
     public static func of(_ list: TripList, passed: Set<Int>, moving: Bool) -> TripScreen {
         guard !list.isEmpty else { return .none }
         if moving {

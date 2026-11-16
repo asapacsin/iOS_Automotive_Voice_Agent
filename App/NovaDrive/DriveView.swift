@@ -269,7 +269,9 @@ private struct DriveContent: View {
                 Marker("\(index + 1) \(place.name)", coordinate: CLLocationCoordinate2D(place.coordinate)).tint(.orange)
             }
             // F-15b §13 item 5: numbered pins at the stops; 途经k and 终点 on a trip route; passed stops greyed.
-            ForEach(TripPin.pins(model.tripList, routed: model.nav.tripRoute, passed: model.nav.tripStopsPassed)) { pin in
+            // Labels and grey only when the list's stops are the trip route's (an opened plan or another day is not).
+            ForEach(TripPin.pins(model.tripList, routed: model.nav.tripRoute && model.nav.tripStopIDs == model.tripList.stops.map(\.place.id),
+                                 passed: TripScreen.passed(model.tripList, routeStops: model.nav.tripStopIDs, passed: model.nav.tripStopsPassed))) { pin in
                 Annotation(pin.label, coordinate: CLLocationCoordinate2D(pin.coordinate)) {
                     Text("\(pin.index)")
                         .font(.caption.weight(.heavy)).foregroundStyle(.white)
