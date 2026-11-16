@@ -119,6 +119,8 @@ public struct SpeakerHold: Sendable {
         /// §17 item 3: the early verdict reached in this step (accepted, rejected, or unknown).
         public var early: SpeakerCheckResult?
         public var earlyUtterance: Int?
+        /// Requests asked again after a threshold change (their earlier results are stale).
+        public var rescore: [SpeakerScoreRequest] = []
         /// Utterances decided in this step, in order, and their numbers.
         public var decided: [Verdict] = []
         public var decidedUtterances: [Int] = []
@@ -139,6 +141,8 @@ public struct SpeakerHold: Sendable {
         var frames: [PCMFrame16k] = []
         var speech = 0
         var requested = false
+        /// What the whole request scored, kept so a threshold change can ask again (§6 item 5 with §17 item 4).
+        var scored: [PCMFrame16k] = []
         var closed = false
         /// §17 item 2: pre-roll frames at its start, then its first speech frames for the early request.
         var skip = 0
@@ -223,11 +227,33 @@ public struct SpeakerHold: Sendable {
     /// (an open one keeps passing). A new threshold while locked keeps what is pending.
     public mutating func setLock(threshold: Double?, early: Double? = nil) -> Step {
         let wasLocked = locked
+        let changed = self.threshold != threshold
         self.threshold = threshold
         earlyThreshold = threshold == nil ? nil : early
         var step = Step()
-        // §6 item 5: any lock change resets pending state; a held one's late result is dropped.
-        if wasLocked, locked { generation += 1 }
+        // §6 item 5: a threshold change makes pending results stale. §17 item 4: what already waits for its score is
+        // asked again under the new generation, so it is decided, not lost. Only the 1 s threshold changing keeps them.
+        if wasLocked, locked, changed {
+            generation += 1
+            for k in awaiting.indices {
+                step.rescore.append(SpeakerScoreRequest(utterance: awaiting[k].id, generation: generation, kind: .speech,
+                                                        frames: awaiting[k].scored))
+                if awaiting[k].early == .pending { awaiting[k].early = .unknown }
+            }
+            if case .holding(var h) = state {
+                if h.requested {
+                    step.rescore.append(SpeakerScoreRequest(utterance: h.id, generation: generation, kind: .speech,
+                                                            frames: h.scored))
+                }
+                if h.early == .pending {
+                    // Its early result is stale: unknown, so she is not stopped (§17 item 3).
+                    h.early = .unknown
+                    step.early = .unknown
+                    step.earlyUtterance = h.id
+                }
+                state = .holding(h)
+            }
+        }
         guard wasLocked, !locked else { return step }
         unavailable = false
         generation += 1  // a pending result can no longer apply
@@ -352,6 +378,7 @@ public struct SpeakerHold: Sendable {
             if !h.requested, h.closed, audio >= tuning.minScoreSpeech {
                 h.requested = true
                 step.request = SpeakerScoreRequest(utterance: h.id, generation: generation, kind: .speech, frames: h.frames)
+                h.scored = h.frames
                 h.frames = []
             }
             state = .holding(h)

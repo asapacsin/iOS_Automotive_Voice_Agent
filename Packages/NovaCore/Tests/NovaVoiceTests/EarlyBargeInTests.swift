@@ -203,13 +203,52 @@ struct EarlyBargeInTests {
         let done = hold.result(.score(0.9, scoreMs: 1), utterance: w.utterance, generation: w.generation)
         #expect(done.decided == [.accepted] && done.decidedUtterances == [1])
         #expect(hold.heldUtterance == 2 && hold.verdict == .pending && !hold.isHeld(1))
-        // The carry path's outputs queued under utterance 2 go out when 1 is accepted.
+        // Steps queued under utterance 2 (the carry and a stop) wait for 2's own verdict, not 1's.
         var actions = SpeakerActionHold()
-        let carry = live([.dip(false)], [.speechStarted(sentToModel: true), .audio(f(1)), .audio(f(900))])
+        let carry = live([.dip(false)], [.speechStarted(sentToModel: true), .audio(f(1)), .audio(f(900))], adopt: true)
         _ = actions.step(live([.stop]), verdict: .pending, utterance: 2)
         _ = actions.step(carry, verdict: .pending, utterance: 2)
-        let carried = actions.decided(done.decided)
-        #expect(audio(carried.outputs) == [1, 900])
+        let first = actions.decided(done.decided, utterances: done.decidedUtterances)
+        #expect(first.actions.isEmpty && !first.adopt && first.outputs.isEmpty && actions.holding)
+        let second = actions.decided([.accepted], utterances: [2])
+        #expect(second.actions == [.stop] && second.adopt && audio(second.outputs) == [1, 900])
+    }
+
+    @Test("T-013k F-04b §17 items 3-4 review: one utterance's early or whole rejection never drops another's queued stop")
+    func perUtterance() {
+        var actions = SpeakerActionHold()
+        // B (2) is open with a stop queued while A (1) waits for its score.
+        _ = actions.step(live([.stop], [.speechStarted(sentToModel: true), .audio(f(5))], adopt: true),
+                         verdict: .pending, utterance: 2)
+        let aRejected = actions.decided([.rejected], utterances: [1])
+        #expect(!aRejected.actions.contains(.stop) && actions.holding)
+        let aEarly = actions.early(.rejected, utterance: 1)
+        #expect(!aEarly.actions.contains(.stop) && actions.holding)
+        let bEarly = actions.early(.accepted, utterance: 2)
+        #expect(bEarly.actions == [.stop])
+        let bWhole = actions.decided([.accepted], utterances: [2])
+        #expect(bWhole.adopt && audio(bWhole.outputs) == [5] && !actions.holding)
+    }
+
+    @Test("T-013k F-04b §17 item 4 review: a threshold change re-asks a kept utterance instead of leaving it held")
+    func thresholdChangeRescores() throws {
+        var hold = Self.locked()
+        var steps = Self.candidate(frames: 230, end: .cutAtUnmute)
+        let close = steps.removeLast()
+        steps.append(close.filter { $0 != .streamEnd } + [.speechStarted(sentToModel: true), .audio(f(900))])
+        var whole: [SpeakerScoreRequest] = []
+        for s in steps { if let r = hold.frame(s).request { whole.append(r) } }
+        let old = try #require(whole.first)
+        let change = hold.setLock(threshold: 0.6, early: 0.3)
+        let again = try #require(change.rescore.first)
+        #expect(again.utterance == 1 && again.generation != old.generation && again.frames.count == 230)
+        // The stale result does nothing; the new one decides it.
+        #expect(hold.result(.score(0.9, scoreMs: 1), utterance: 1, generation: old.generation).decided.isEmpty)
+        let done = hold.result(.score(0.9, scoreMs: 1), utterance: 1, generation: again.generation)
+        #expect(done.decided == [.accepted] && !hold.isHeld(1))
+        // Only the 1 s threshold changing keeps the generation.
+        let g = hold.generation
+        #expect(hold.setLock(threshold: 0.6, early: 0.4).rescore.isEmpty && hold.generation == g)
     }
 
     @Test("T-013k F-04b §17 row 67: lock off, or lock on with her silent: no early request; outputs as today")

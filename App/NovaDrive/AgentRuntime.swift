@@ -1556,6 +1556,9 @@ final class GateBox: @unchecked Sendable {
     /// §6 item 4: the words of a held utterance wait for its verdict.
     private var speakerWordsHold = SpeakerWordsHold()
     private var speakerScore: (@Sendable (SpeakerScoreRequest) -> Void)?
+    /// §17 item 4: requests leave in order (the scorer's own queue is serial too), so an older kept utterance is
+    /// always answered before a newer one.
+    private let scoreDispatch = DispatchQueue(label: "com.asapacsin.novadrive.speaker-requests")
     /// §6 item 8: the last 2 s of capture, for a spotted stop phrase.
     private var recentFrames = RecentFrames()
     private var stopCheck = SpeakerPhraseCheck(kind: .stop)
@@ -1666,9 +1669,10 @@ final class GateBox: @unchecked Sendable {
     /// Under `lock`: dispatches the request and check lines, resolves held words. Returns the outputs for the
     /// post-stop hold and the words to deliver.
     private func speakerAfter(_ sp: SpeakerHold.Step) -> ([UplinkGateOutput], [SpeakerWordsHold.Released]) {
-        // §17 item 2: the early request goes first; one serial scoring queue keeps the order.
-        let requests = [sp.earlyRequest, sp.request].compactMap { $0 }
-        if !requests.isEmpty, let score = speakerScore { DispatchQueue.global().async { requests.forEach(score) } }
+        // §17 item 2: the early request goes first.
+        let requests = [sp.earlyRequest, sp.request].compactMap { $0 } + sp.rescore
+        // One serial queue: requests reach the scorer in the order they were made, across frames too.
+        if !requests.isEmpty, let score = speakerScore { scoreDispatch.async { requests.forEach(score) } }
         let checks = speaker.takeChecks()
         if !checks.isEmpty, let check = speakerCheck { DispatchQueue.global().async { checks.forEach(check) } }
         let released = speakerWordsHold.decided(sp.decided, utterances: sp.decidedUtterances)
@@ -1707,7 +1711,8 @@ final class GateBox: @unchecked Sendable {
         // first second is (the early check); a dip acts at once.
         let open = speaker.heldUtterance
         let step = speakerActions.early(sp.early, utterance: sp.early == nil ? nil : (sp.earlyUtterance ?? open))
-            + speakerActions.decided(sp.decided) + speakerActions.step(live, verdict: speaker.verdict, utterance: open)
+            + speakerActions.decided(sp.decided, utterances: sp.decidedUtterances)
+            + speakerActions.step(live, verdict: speaker.verdict, utterance: open)
         if step.adopt { gate.adoptOpenUtterance() }
         return step
     }

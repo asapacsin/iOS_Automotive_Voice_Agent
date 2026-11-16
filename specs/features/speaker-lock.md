@@ -368,6 +368,13 @@ Owner 2026-11-16: only the driver may interrupt her; a passenger talking over he
 | 68 | Device, lock on, 「可以打断她」 on: the driver talks over 10 long replies | Note how many stop within about 1.5 s of starting, the `kind=early` scores, and no driver sentence lost (`mute=reply` with no carry) | D |
 | 69 | Device, lock on: another person talks over 5 long replies (optional) | Note how many stop her; her volume comes back each time she does not | D |
 
+*Implementation notes (T-013k, 2026-11-16):*
+- Item 7: the stop line's `early=` is the early state when the stop is decided, often `none` (the stop usually comes before 1.0 s). The early verdict and what it did to the stop is its own line, `bargeInEarly <utterance> early=<accepted|rejected|unknown> stop=<released|dropped|none>`.
+- Items 3–4: queued live steps belong to the utterance that was open when they came, and each verdict releases or drops only those. The carry of a cut utterance comes while the next one is open, so it follows the next one's verdict.
+- Item 2: pre-roll is the audio in a start's burst before the current frame, at most `UplinkGateTuning.preRoll` (300 ms).
+- §6 item 5 with item 4: a threshold change asks again for the utterances still waiting for a score. A pending early check becomes unknown, so she is not stopped. A change of only `threshold1s` keeps what is pending.
+- Requests leave through one serial queue, so a kept older utterance is answered first. When a newer one is decided first, the older one is unknown.
+
 **Trace gate.** Add `T-013k: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013k.
 
 **Tasks.**
