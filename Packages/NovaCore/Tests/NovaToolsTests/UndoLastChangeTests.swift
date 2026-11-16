@@ -4,6 +4,32 @@ import Testing
 @testable import NovaPorts
 @testable import NovaTools
 
+/// Suspends after its temperature write until released, so a parallel call of the same turn runs in between.
+final class GatedVehicle: VehicleControlPort, @unchecked Sendable {
+    let inner = FakeVehicle()
+    let gate = Mutex<(entered: Bool, waiter: CheckedContinuation<Void, Never>?)>((false, nil))
+    var backendLabel: String { "gated" }
+    var entered: Bool { gate.withLock { $0.entered } }
+    func release() { gate.withLock { g in defer { g.waiter = nil }; return g.waiter }?.resume() }
+    func setCabinTemperature(_ celsius: Double) async -> VehicleActionResult<ClimateState> {
+        let r = await inner.setCabinTemperature(celsius)
+        // Only the first write pauses (the undo's own write must not).
+        guard !entered else { return r }
+        await withCheckedContinuation { c in gate.withLock { $0 = (true, c) } }
+        return r
+    }
+    func setHvacPower(_ on: Bool) async -> VehicleActionResult<ClimateState> { await inner.setHvacPower(on) }
+    func changeCabinTemperature(_ d: Double) async -> VehicleActionResult<ClimateState> { await inner.changeCabinTemperature(d) }
+    func setFanLevel(_ l: Int) async -> VehicleActionResult<ClimateState> { await inner.setFanLevel(l) }
+    func changeFanLevel(_ d: Int) async -> VehicleActionResult<ClimateState> { await inner.changeFanLevel(d) }
+    func climateState() async -> ClimateState { await inner.climateState() }
+    func setWindows(_ w: Set<WindowID>, openPercent: Int) async -> VehicleActionResult<CabinState> { await inner.setWindows(w, openPercent: openPercent) }
+    func changeWindows(_ w: Set<WindowID>, deltaPercent: Int) async -> VehicleActionResult<CabinState> { await inner.changeWindows(w, deltaPercent: deltaPercent) }
+    func setSeatHeight(_ s: SeatID, level: Int) async -> VehicleActionResult<CabinState> { await inner.setSeatHeight(s, level: level) }
+    func changeSeatHeight(_ s: SeatID, delta: Int) async -> VehicleActionResult<CabinState> { await inner.changeSeatHeight(s, delta: delta) }
+    func cabinState() async -> CabinState { await inner.cabinState() }
+}
+
 final class UndoStepClock: NovaClock, @unchecked Sendable {
     private let t = Mutex(NovaInstant.zero)
     var now: NovaInstant { t.withLock { $0 } }
@@ -140,5 +166,22 @@ struct UndoLastChangeTests {
         _ = await rig.run(vcall("control_climate", ["action": "set_fan", "value": .int(6)], id: "c2"), turn: 9)
         #expect(await rig.undo.execute(vcall("undo_last_change", id: "u2")).ok)
         #expect(await rig.fake.climateState().fanLevel == 5)
+    }
+
+    @Test("T-031j F-09b §4 item 2: a window call that runs while the temperature call is still finishing does not lose the climate")
+    func interleaved() async {
+        let car = GatedVehicle()
+        let store = ChangeSetStore(clock: UndoStepClock())
+        let port = PolicedVehiclePort(car, speedKmh: { nil })
+        let tools = ChangeSetRecorder(inner: VehicleToolExecutor(port: port), port: port, store: store)
+        let a = Task { await ToolTurn.$current.withValue(5) { await tools.execute(vcall("control_climate", ["action": "set_temperature", "value": .int(20)])) } }
+        while !car.entered { await Task.yield() }
+        let b = Task { await ToolTurn.$current.withValue(5) { await tools.execute(vcall("control_window", ["action": "set", "window": "driver", "value": .int(50)], id: "c2")) } }
+        for _ in 0..<200 { await Task.yield() }
+        car.release()
+        _ = await (a.value, b.value)
+        #expect(await UndoLastChangeTool(port: port, store: store).execute(vcall("undo_last_change")).ok)
+        #expect(await car.climateState().targetTemperatureCelsius == ClimateState.default.targetTemperatureCelsius)
+        #expect(await car.cabinState().windows[.frontLeft] == 0)
     }
 }

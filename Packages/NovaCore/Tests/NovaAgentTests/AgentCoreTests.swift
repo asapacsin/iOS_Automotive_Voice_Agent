@@ -737,3 +737,38 @@ struct BargeInStopCoreTests {
     }
 }
 
+
+/// Records `ToolTurn.current` for each call (F-09b §4 item 2).
+final class TurnKeyExecutor: ToolExecutor, Sendable {
+    let keys = Mutex<[UInt64?]>([])
+    func execute(_ call: ToolCall) async -> ToolResult {
+        keys.withLock { $0.append(ToolTurn.current) }
+        return .success(["power_on": true])
+    }
+}
+
+@Suite("T-031j F-09b §4 item 2 tool turn keys")
+struct ToolTurnKeyTests {
+    @Test("Turn 1 on a new connection gets a different ToolTurn.current from turn 1 on the old one")
+    func newConnectionNewKey() async throws {
+        let sink = RecordingSink()
+        let exec = TurnKeyExecutor()
+        let core = AgentCore(clock: ManualClock(), sink: sink, tools: ToolRunner(executors: ["control_climate": exec]))
+        for session in 1...2 {
+            await core.send(.start)
+            let connection = await core.state.session.connection
+            await core.send(.realtime(.setupComplete, connection: connection))
+            await core.send(.speechStarted(recentSpeech: true))
+            await core.send(.speechStopped)
+            await core.send(.realtime(.responseStarted(TurnID(1)), connection: connection))
+            await core.send(.realtime(.toolCalls(TurnID(1), [climateOn()]), connection: connection))
+            for _ in 0..<200 where exec.keys.withLock({ $0.count }) < session { try await Task.sleep(for: .milliseconds(5)) }
+            await core.send(.realtime(.responseDone(TurnID(1), outcome: .completed), connection: connection))
+            await core.send(.stop)
+        }
+        let keys = exec.keys.withLock { $0 }
+        #expect(sink.log.withLock { $0.filter { $0 == "connect" }.count } == 2)
+        #expect(keys.count == 2 && keys[0] != nil && keys[1] != nil && keys[0] != keys[1])
+        #expect(keys.allSatisfy { ($0 ?? 0) & 0xFFFF_FFFF == 1 })
+    }
+}
