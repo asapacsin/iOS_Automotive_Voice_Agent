@@ -110,4 +110,35 @@ struct UndoLastChangeTests {
         #expect(r.code == .vehicleExecutionFailed)
         #expect(await fake.cabinState().windows[.frontLeft] == 0)
     }
+
+    @Test("T-031j F-09b §4 item 2: parallel calls of one turn keep the state from before the turn")
+    func parallelTurn() async {
+        let rig = Rig()
+        async let a = rig.run(vcall("control_climate", ["action": "set_temperature", "value": .int(20)]), turn: 7)
+        async let b = rig.run(vcall("control_window", ["action": "set", "window": "driver", "value": .int(50)], id: "c2"), turn: 7)
+        async let f = rig.run(vcall("control_climate", ["action": "set_fan", "value": .int(5)], id: "c3"), turn: 7)
+        _ = await (a, b, f)
+        #expect(await rig.undo.execute(vcall("undo_last_change")).data["restored_count"] == .int(3))
+        #expect(await rig.fake.climateState() == ClimateState.default)
+        #expect(await rig.fake.cabinState().windows[.frontLeft] == 0)
+    }
+
+    @Test("T-031j F-09b §4 item 2: the same turn number on a new connection is a new set; an expired set is replaced")
+    func reconnect() async {
+        let rig = Rig()
+        let e1 = ToolTurn.newEpoch(), e2 = ToolTurn.newEpoch()
+        #expect(ToolTurn.key(epoch: e1, turn: 1) != ToolTurn.key(epoch: e2, turn: 1))
+        _ = await rig.run(vcall("control_climate", ["action": "set_temperature", "value": .int(20)]), turn: ToolTurn.key(epoch: e1, turn: 1))
+        _ = await rig.run(vcall("control_window", ["action": "set", "window": "driver", "value": .int(50)], id: "c2"),
+                          turn: ToolTurn.key(epoch: e2, turn: 1))
+        #expect(await rig.undo.execute(vcall("undo_last_change")).ok)
+        #expect(await rig.fake.climateState().targetTemperatureCelsius == 20)
+        #expect(await rig.fake.cabinState().windows[.frontLeft] == 0)
+        // Same key, but the kept set expired: the new change starts a fresh set.
+        _ = await rig.run(vcall("control_climate", ["action": "set_fan", "value": .int(5)]), turn: 9)
+        rig.clock.advance(.seconds(6 * 60))
+        _ = await rig.run(vcall("control_climate", ["action": "set_fan", "value": .int(6)], id: "c2"), turn: 9)
+        #expect(await rig.undo.execute(vcall("undo_last_change", id: "u2")).ok)
+        #expect(await rig.fake.climateState().fanLevel == 5)
+    }
 }

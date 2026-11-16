@@ -186,10 +186,9 @@ struct ComfortTuningTests {
         }
     }
 
-    @Test("Row 5: setting off keeps today's catalog and prompt")
+    @Test("Row 5 (F-09b): one catalog without run_scenario; the base fits; rule 5 keeps the sleepy sentence")
     func settingOff() {
-        #expect(ToolCatalog.declarations == ToolCatalog.declarations)
-        #expect(PersonaInstruction.base == PersonaInstruction.base)
+        #expect(!ToolCatalog.declarations.map(\.name).contains("run_scenario"))
         #expect(PersonaInstruction.base.count <= PersonaInstruction.maxBaseCharacters)
         #expect(PersonaInstruction.comfortRule.contains(PersonaInstruction.sleepySentence))
     }

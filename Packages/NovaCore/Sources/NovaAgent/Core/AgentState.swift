@@ -1,3 +1,4 @@
+import Foundation
 import NovaKit
 import NovaPorts
 import NovaTools

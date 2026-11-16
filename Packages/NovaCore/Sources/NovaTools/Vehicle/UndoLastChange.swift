@@ -6,6 +6,36 @@ import Synchronization
 /// test, where every call of a case is one set).
 public enum ToolTurn {
     @TaskLocal public static var current: UInt64?
+    private static let epochs = Mutex<UInt64>(0)
+    /// A new epoch per connection: turn ids restart at 1 on every socket, the store lives for the app run.
+    public static func newEpoch() -> UInt64 { epochs.withLock { $0 += 1; return $0 } }
+    /// One key per (connection, turn), unique within the process.
+    public static func key(epoch: UInt64, turn: UInt64) -> UInt64 { epoch << 32 | (turn & 0xFFFF_FFFF) }
+}
+
+/// Runs vehicle steps one at a time (F-09b §4 item 2): the calls of one model turn start as parallel tasks, and each
+/// must read its "before" state after the previous one finished, so the set holds the state from before the turn.
+public final class VehicleSerial: Sendable {
+    private let state = Mutex<(busy: Bool, waiters: [CheckedContinuation<Void, Never>])>((false, []))
+    public init() {}
+
+    public func run<T: Sendable>(_ body: () async -> T) async -> T {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            let go = state.withLock { s -> Bool in
+                if s.busy { s.waiters.append(c); return false }
+                s.busy = true
+                return true
+            }
+            if go { c.resume() }
+        }
+        let value = await body()
+        let next = state.withLock { s -> CheckedContinuation<Void, Never>? in
+            if s.waiters.isEmpty { s.busy = false; return nil }
+            return s.waiters.removeFirst()
+        }
+        next?.resume()
+        return value
+    }
 }
 
 /// F-09b §4 item 2 (T-031j): the cabin state from before the last comfort change set. Every vehicle action that was
@@ -23,6 +53,8 @@ public final class ChangeSetStore: Sendable {
 
     private let kept = Mutex<Kept?>(nil)
     private let clock: any NovaClock
+    /// Serialises the recorded vehicle calls and the undo.
+    public let serial = VehicleSerial()
 
     public init(clock: any NovaClock) { self.clock = clock }
 
@@ -31,7 +63,8 @@ public final class ChangeSetStore: Sendable {
     public func changed(before climate: ClimateState, _ cabin: CabinState, turn: UInt64?) {
         let now = clock.now
         kept.withLock { k in
-            if let k, k.turn == turn { return }
+            // Same turn joins the set, unless that set already expired.
+            if let k, k.turn == turn, now - k.at <= Self.keep { return }
             k = Kept(climate: climate, cabin: cabin, at: now, turn: turn)
         }
     }
@@ -63,6 +96,11 @@ public struct ChangeSetRecorder: ToolExecutor {
     }
 
     public func execute(_ call: ToolCall) async -> ToolResult {
+        let turn = ToolTurn.current
+        return await store.serial.run { await record(call, turn: turn) }
+    }
+
+    private func record(_ call: ToolCall, turn: UInt64?) async -> ToolResult {
         let climate = await port.climateState()
         let cabin = await port.cabinState()
         let result = await inner.execute(call)
@@ -71,7 +109,7 @@ public struct ChangeSetRecorder: ToolExecutor {
         let afterClimate = await port.climateState()
         let afterCabin = await port.cabinState()
         if climate != afterClimate || cabin != afterCabin {
-            store.changed(before: climate, cabin, turn: ToolTurn.current)
+            store.changed(before: climate, cabin, turn: turn)
         }
         return result
     }
@@ -95,6 +133,10 @@ public struct UndoLastChangeTool: ToolExecutor {
     public static func line(ok: Bool, restored: Int) -> String { "undo ok=\(ok ? "yes" : "no") restored=\(restored)" }
 
     public func execute(_ call: ToolCall) async -> ToolResult {
+        await store.serial.run { await restore() }
+    }
+
+    private func restore() async -> ToolResult {
         guard let set = store.take() else {
             onLine(Self.line(ok: false, restored: 0))
             return ToolDispatcher.failure(.nothingToUndo)

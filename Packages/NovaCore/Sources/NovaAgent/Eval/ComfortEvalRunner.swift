@@ -39,6 +39,8 @@ public actor ComfortEvalRunner {
         let connection: Generation
         let history: [TextTurn]
         let sentence: String
+        /// F-09b §5: the case's start state as the app's state note.
+        let note: String
         var sentAt: NovaInstant?
         var calls: [ComfortCallRecord] = []
         var reply = ""
@@ -155,7 +157,7 @@ public actor ComfortEvalRunner {
         await harness.reset(c.start)
         connection = connection.next()
         let mine = connection
-        pending = Pending(connection: mine, history: c.history, sentence: c.sentence)
+        pending = Pending(connection: mine, history: c.history, sentence: c.sentence, note: c.start.stateNote)
         let connectTimer = timer(after: connectTimeout, mine, sent: false)
         await provider.connect(config, resume: nil, connection: mine)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -258,7 +260,9 @@ public actor ComfortEvalRunner {
             guard p.sentAt == nil else { return }
             pending?.sentAt = clock.now
             answerTimer = timer(after: timeout, p.connection, sent: true)
-            await provider.sendText(p.history + [TextTurn(role: .user, text: p.sentence)], turnComplete: true)
+            // F-09b §5: the state note goes before the sentence, as in the app, so rule 5 can choose by state.
+            await provider.sendText(p.history + [TextTurn(role: .user, text: p.note), TextTurn(role: .user, text: p.sentence)],
+                                    turnComplete: true)
         case .replyText(_, let text):
             pending?.reply += text
             pending?.started = true

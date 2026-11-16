@@ -39,6 +39,13 @@ public struct ComfortVehicleState: Sendable, Hashable {
     }
 
     public static let `default` = ComfortVehicleState()
+
+    /// F-09b §5: this state as the app's `[系统] 车内状态` note.
+    public var stateNote: String {
+        CarStateSnapshot(acOn: climate.powerOn, temperatureC: climate.targetTemperatureCelsius, fanLevel: climate.fanLevel,
+                         windows: cabin.windows, driverSeat: cabin.seatHeights[.driver] ?? CabinLimits.seatDefault,
+                         musicPlaying: musicPlaying, speedKmh: speedKmh).note
+    }
 }
 
 /// A part of the vehicle state the scorer compares.

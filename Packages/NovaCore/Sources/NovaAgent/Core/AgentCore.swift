@@ -51,12 +51,12 @@ public final class ToolRunner: Sendable {
     }
 
     /// `turn`: the model turn the call belongs to, visible to the executor as `ToolTurn.current` (F-09b §4 item 2).
-    public func start(_ call: ToolCall, turn: TurnID? = nil, onFinish: @escaping @Sendable (ToolResult) async -> Void) {
+    public func start(_ call: ToolCall, turn: TurnID? = nil, epoch: UInt64 = 0, onFinish: @escaping @Sendable (ToolResult) async -> Void) {
         let executor = executors[call.name] ?? fallback
         // Registered under the lock before it can finish, so its own removal always finds it.
         running.withLock { tasks in
             tasks[call.id] = Task { [self] in
-                let result = await ToolTurn.$current.withValue(turn?.value) { await executor.execute(call) }
+                let result = await ToolTurn.$current.withValue(turn.map { ToolTurn.key(epoch: epoch, turn: $0.value) }) { await executor.execute(call) }
                 let current = running.withLock { $0.removeValue(forKey: call.id) != nil }
                 // `toolCallCancellation`: the result of a cancelled call is never sent.
                 guard current, !Task.isCancelled else { return }
@@ -104,6 +104,8 @@ public actor AgentCore {
     private let timers: TimerService
     private var queue: [AgentEvent] = []
     private var draining = false
+    /// F-09b §4 item 2: turn ids restart on every connection, so each connect takes a new process-wide epoch.
+    private var toolEpoch = ToolTurn.newEpoch()
 
     public init(clock: any NovaClock, sink: any AgentEffectSink, tools: ToolRunner, state: AgentState = AgentState()) {
         self.state = state
@@ -128,14 +130,16 @@ public actor AgentCore {
 
     private func run(_ effect: AgentEffect) async {
         switch effect {
-        case .provider(let command): await sink.provider(command)
+        case .provider(let command):
+            if case .connect = command { toolEpoch = ToolTurn.newEpoch() }
+            await sink.provider(command)
         case .flushPlayback(let epoch): sink.flushPlayback(to: epoch)
         case .cancelRevoicing(let epoch): await sink.cancelRevoicing(epoch)
         case .newReply: await sink.newReply()
         case .speak(let clause): await sink.speak(clause)
         case .playReplyAudio(let turn, let pcm): await sink.playReplyAudio(pcm, turn: turn)
         case .startTool(let turn, let call):
-            tools.start(call, turn: turn) { [weak self] result in await self?.send(.toolFinished(turn, call, result)) }
+            tools.start(call, turn: turn, epoch: toolEpoch) { [weak self] result in await self?.send(.toolFinished(turn, call, result)) }
         case .cancelTool(let id): tools.cancel(id)
         case .schedule(let timer, let deadline):
             timers.schedule(timer, at: deadline) { [weak self] timer in await self?.send(.timer(timer)) }
