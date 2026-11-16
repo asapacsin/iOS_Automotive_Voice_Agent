@@ -8,7 +8,8 @@ import NovaPorts
 ///
 /// §17 items 1, 3 (T-013k): a dip acts at once (only a stop and the adopted utterance wait). The early verdict
 /// decides the stop: accepted releases the queued stop (the outputs and adopt still wait for the whole verdict);
-/// rejected or unknown drops it, restores her volume, and every later live step of that utterance is dropped.
+/// rejected or unknown drops the queued actions and restores her volume; later live steps of that utterance lose
+/// their stop and dip, while their outputs and adopt wait for the whole verdict (T-013l amendment item 2).
 public struct SpeakerActionHold: Sendable {
     /// Steps waiting, each with the utterance that was open when it came (nil: not known), so a verdict releases or
     /// drops only its own utterance's steps (§17 items 3–4).

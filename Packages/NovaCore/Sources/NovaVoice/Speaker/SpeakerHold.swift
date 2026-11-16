@@ -171,7 +171,8 @@ public struct SpeakerHold: Sendable {
     /// Scoring failed on the last try while locked (§6 item 11: the chip).
     public private(set) var unavailable = false
     public private(set) var threshold: Double?
-    /// §17 items 3, 6: the cohort's `threshold1s`; nil makes every early check unknown.
+    /// §17 items 3, 6: the cohort's `threshold1s`, else its whole-sentence threshold (T-013l); nil makes every early
+    /// check unknown.
     public private(set) var earlyThreshold: Double?
     public private(set) var generation = 0
     /// Also score not-sent utterances (可以打断她 on), so an interruption can wait on a verdict (§6 item 9).
@@ -361,7 +362,7 @@ public struct SpeakerHold: Sendable {
             // §17 item 2: a live candidate's first second, once, before it ends.
             if h.early == .none, !h.closed, !h.sent, earlyCandidate, h.earlyFrames.count >= earlyFrameCount {
                 if earlyThreshold == nil {
-                    // §17 item 6: no 1 s threshold: unknown, she is never stopped early.
+                    // §17 item 6: no finite early threshold: unknown, she is never stopped early.
                     h.early = .unknown
                     step.early = .unknown
                     step.earlyUtterance = h.id
