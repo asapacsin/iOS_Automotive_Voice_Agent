@@ -2746,7 +2746,7 @@
     {
       "id": "T-031j",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-09b §4-5: undo_last_change (one kept change set, 5 min, through VehicleActionPolicy, backs claims) and the car-state silent note on connect / changed turn / speed cross; rows 3-5, 9.",
       "depends_on": [
@@ -2759,7 +2759,13 @@
         ]
       },
       "notes": "Spec only (owner 2026-11-16: \"you just write the spec for this so call more flexibile stuff\"). Owner go 2026-11-16: \"pull and implment this flexible spec\" (F-09b).",
-      "evidence": []
+      "evidence": [
+        "gates PASS at 4854b64 (scripts/gates/run_all.sh: static PASS, NovaCore 780 tests, 1 known unrelated; ios-spec-check PASS)",
+        "independent read-only review (high effort): FAIL at d193d0f (B1 turn ids restart per connection; B2 parallel calls of one turn lose part of the set), fixed in f22cdd5 (per-connect epoch, expired set replaced, VehicleSerial); FAIL at c088529 and 651bc01 (tests did not prove the fixes, then timing-dependent); PASS at 4854b64",
+        "mutation evidence (reviewer): interleaved 100/100 pass with the lock, 100/100 fail without; ToolTurnKeyTests 100/100 pass with the epoch, 100/100 fail without; a write that never reaches the car fails in about 2 s, never hangs",
+        "unit rows 2-5, 9: UndoLastChangeTests (row3, oneSetKept, row4, throughPolicy, parallelTurn, reconnect, interleaved), ToolTurnKeyTests, FlexibleAssistantTests (rows 5, noteForm, oncePerTurn), ClaimLexicon undo claims",
+        "NOT_VERIFIED: App build (Codemagic); row 9 device"
+      ]
     },
     {
       "id": "T-016p",
@@ -2788,7 +2794,7 @@
     {
       "id": "T-017c",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-09b §7: withdraw F-09a CarRequestRouter areas, NOT_A_CAR_REQUEST, the area wait and the tired silence in code; local stop phrases and list picks kept; rows 7, 11.",
       "depends_on": [
@@ -2801,7 +2807,12 @@
         ]
       },
       "notes": "Spec only (owner 2026-11-16: \"you just write the spec for this so call more flexibile stuff\"). Owner go 2026-11-16: \"pull and implment this flexible spec\" (F-09b).",
-      "evidence": []
+      "evidence": [
+        "gates PASS at 4854b64 (scripts/gates/run_all.sh)",
+        "independent read-only review (high effort): PASS at d193d0f, confirmed at c088529 (CarRequestRouter, CarRequestArea, area timer, NOT_A_CAR_REQUEST, carArea/tiredSilenced lines removed; guards read state and turn counts only; stop phrases, local pick and wake word unchanged)",
+        "unit row 7: FlexibleAssistantTests row 7; row 11 suites renamed mechanically",
+        "NOT_VERIFIED: App build (Codemagic); row 11 device"
+      ]
     }
   ]
 }
