@@ -2723,68 +2723,56 @@
     },
     {
       "id": "T-040i",
-      "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
       "priority": 30,
       "action": "F-15b phase 1: TripList + name resolving through PlaceSearch, tools make_trip_list / edit_trip_list / route_trip, RouteRequest.waypoints sent to Amap /v3/direction/driving (max 16), stops passed and recalculation with the unpassed waypoints, trip record lines; F-15b rows 1-15.",
       "depends_on": [
         "T-040h"
       ],
-      "automation_blocker": "owner_decision",
-      "procedure": "Read specs/features/trip-plan.md (F-15b) and say whether to build phase 1",
-      "pass_criteria": "Owner's go recorded in specs/STATUS.md; then this entry becomes AUTONOMOUS / NOT_RUN",
-      "expected_return": "Build phase 1, or changes to the spec",
       "quantified": {
         "options": [
           "Build phase 1 as written (rows 1-15)",
           "Change the spec first"
         ]
       },
-      "notes": "Spec only (owner 2026-11-16: \"write a spec and push to remot\"). Build starts on the owner's go; then owner AUTONOMOUS, status NOT_RUN. Source: owner video 11-16 (豆包 trip list -> 8-stop route); Amap waypoints limit 16 read 2026-11-16.",
+      "notes": "Spec only (owner 2026-11-16: \"write a spec and push to remot\"). Build starts on the owner's go; then owner AUTONOMOUS, status NOT_RUN. Source: owner video 11-16 (豆包 trip list -> 8-stop route); Amap waypoints limit 16 read 2026-11-16. Owner go 2026-11-16: \"pull and implement the spec\" (F-15b, phases 1 and 2).",
       "evidence": []
     },
     {
       "id": "T-040j",
-      "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
       "priority": 30,
       "action": "F-15b phase 2a: poster cards with Amap place photos (https only, cache), the strip while moving (8 km/h / 3 s), editing on screen through UIIntent (remove, move, route, add from list), NOT_WHILE_MOVING, tap note, numbered pins and 途经 labels; F-15b rows 16-25.",
       "depends_on": [
         "T-040i"
       ],
-      "automation_blocker": "owner_decision",
-      "procedure": "Read specs/features/trip-plan.md (F-15b) and say whether to build this phase",
-      "pass_criteria": "Owner's go recorded in specs/STATUS.md; then this entry becomes AUTONOMOUS / NOT_RUN",
-      "expected_return": "Build as written, or changes to the spec",
       "quantified": {
         "options": [
           "Build as written (rows 16-25)",
           "Change the spec first"
         ]
       },
-      "notes": "Spec only (owner 2026-11-16: \"create a spec including this function and also other thing that tailored from the movie and push to remtoe\"). Build starts on the owner's go.",
+      "notes": "Spec only (owner 2026-11-16: \"create a spec including this function and also other thing that tailored from the movie and push to remtoe\"). Build starts on the owner's go. Owner go 2026-11-16: \"pull and implement the spec\" (F-15b, phases 1 and 2).",
       "evidence": []
     },
     {
       "id": "T-040l",
-      "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
       "priority": 30,
       "action": "F-15b phase 2b: current plan saved in Application Support, named plans (max 20) and days (1-5), trip_plans tool (save/open/list/delete/rename), 上一个清单 slot, load/save record lines; F-15b rows 26-35.",
       "depends_on": [
         "T-040j"
       ],
-      "automation_blocker": "owner_decision",
-      "procedure": "Read specs/features/trip-plan.md (F-15b) and say whether to build this phase",
-      "pass_criteria": "Owner's go recorded in specs/STATUS.md; then this entry becomes AUTONOMOUS / NOT_RUN",
-      "expected_return": "Build as written, or changes to the spec",
       "quantified": {
         "options": [
           "Build as written (rows 26-35)",
           "Change the spec first"
         ]
       },
-      "notes": "Spec only (owner 2026-11-16: \"create a spec including this function and also other thing that tailored from the movie and push to remtoe\"). Build starts on the owner's go.",
+      "notes": "Spec only (owner 2026-11-16: \"create a spec including this function and also other thing that tailored from the movie and push to remtoe\"). Build starts on the owner's go. Owner go 2026-11-16: \"pull and implement the spec\" (F-15b, phases 1 and 2).",
       "evidence": []
     },
     {
