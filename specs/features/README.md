@@ -17,6 +17,7 @@ One file per feature. Load one file plus the contracts it lists under "Depends o
 | F-08 | [Barge-in and speech arbitration](barge-in-arbitration.md) | ACTIVE (JVM; EMU; device latency HUMAN) |
 | F-09 | [Tool catalog, dispatch and guards](tool-dispatch-guards.md) | ACTIVE (JVM + LIVE) |
 | F-09a | [Car tools only for car requests (落域)](car-request-areas.md) | iOS only, APPROVED (2026-11-10); task T-017a |
+| F-09b | [Flexible assistant: the model understands, code checks the action (随机应变)](flexible-assistant.md) | iOS only, APPROVED (2026-11-16, spec only); tasks T-031c, T-031j, T-016p, T-017c |
 | F-10 | [Driver context and ambiguity resolution](ambiguity-context.md) | IMPLEMENTED (JVM); FZ-14 clarification not yet proven in a recording (runs 298, 317, 319) |
 | F-11 | [Vehicle controls (simulated)](vehicle-controls.md) | IMPLEMENTED, SIMULATED ONLY (no VHAL/CarPropertyManager) |
 | F-12 | [Comfort scenarios](comfort-scenarios.md) | IMPLEMENTED (JVM + LIVE text) |

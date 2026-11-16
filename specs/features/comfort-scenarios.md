@@ -88,6 +88,7 @@ Nobody publishes results for vague comfort requests such as 有蚊子, so this i
 13. **Removed when on.** The `mosquitoWindowsOpen` flag and `noRecentMosquito`. 蚊子出去了 is judged from the conversation and state.
 
 ### Part C: decide and clean up (T-031c, owner decision)
+**Decided 2026-11-16 (owner, F-09b §3):** the model path becomes the only path without the item 14 bars; the scope is F-09b §3.
 14. **Pass bars for switching the default**, on the held-out cases, typed, 3 runs each:
     - overall score at least as high as the table's baseline, and clearly better on unprompted wordings;
     - `noTool` and `refuse` cases: no wrongful action in at least 95%;
