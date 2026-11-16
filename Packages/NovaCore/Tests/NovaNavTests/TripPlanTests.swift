@@ -335,3 +335,25 @@ struct TripReviewFixTests {
         #expect(TripScreen.passed(list, routeStops: ["古文化街", "五大道"], passed: [1]) == [1])
     }
 }
+
+@Suite("T-040l F-15b review fixes 2")
+struct TripReviewFix2Tests {
+    @Test("F-15b §15: a look at day 2 during day 1's guidance, then start day 1 again: already running, no new calculation; tripStopIDs follow the route")
+    func lookAtOtherDay() async {
+        let rig = await PlanRig()
+        _ = await rig.run("make_trip_list", ["places": names(["古文化街", "五大道"]), "day": 1])
+        _ = await rig.run("make_trip_list", ["places": names(["天津之眼", "瓷房子"]), "day": 2])
+        _ = await rig.run("route_trip", ["day": 1])
+        let ids = await rig.planner.current.stops.map(\.place.id)
+        #expect(await rig.nav.current.tripStopIDs == ids)
+        _ = await rig.run("route_trip", ["day": 1, "start": true])
+        #expect(await rig.nav.current.tripStopIDs == ids)
+        _ = await rig.run("edit_trip_list", ["action": "read", "day": 2])
+        let again = await rig.run("route_trip", ["day": 1, "start": true])
+        #expect(again.ok)
+        #expect(rig.engine.calls.withLock { $0 }.filter { $0.hasPrefix("calculate") }.count == 1)
+        #expect(!rig.engine.calls.withLock { $0 }.contains("stop"))
+        _ = await rig.nav.execute(tool("exit_navigation_mode"))
+        #expect(await rig.nav.current.tripStopIDs.isEmpty)
+    }
+}

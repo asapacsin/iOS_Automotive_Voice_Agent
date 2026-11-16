@@ -776,8 +776,12 @@ public actor NavigationController: ToolExecutor {
     public func routeTrip(_ stops: [Place], list: Int, start: Bool) async -> TripRouteOutcome {
         precondition(stops.count >= 2 && stops.count <= RouteRequest.maxWaypoints + 1)
         // Same stops by id: a photo link that arrived meanwhile is not another trip.
+        // A running trip through the same stops is already running, whatever the plan's revision (a look at another
+        // day raises it); a kept route must also be this revision's.
+        if start, let trip, trip.running, snapshot.navigating, trip.stops.map(\.id) == stops.map(\.id) {
+            return .alreadyRunning(trip.route, snapshot.mode)
+        }
         if start, let trip, trip.list == list, trip.stops.map(\.id) == stops.map(\.id) {
-            if trip.running, snapshot.navigating { return .alreadyRunning(trip.route, snapshot.mode) }
             if !trip.running, snapshot.phase == .awaitingRouteSelection {
                 if startInFlight { return .failed(.failure(.optionsNotReady, advice: "导航正在启动。请如实说正在启动，稍等一下。")) }
                 return await startTrip(trip.route, list: list, stops: stops)
