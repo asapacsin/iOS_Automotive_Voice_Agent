@@ -186,7 +186,9 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
    - **No start guard.** F-15a §2.5 withdrew the driver-turn start guard (T-040h): the call is the request, and a
      wrong start is undone with 结束导航. Phase 1 keeps that rule. `start=false` is not a route-choice step. It exists
      because chaining a list into a route is a planning request, not a request to drive (§1, step 4 → step 5).
-   - "One trip at a time" (F-15a §9) holds: a running trip is stopped first.
+   - **No trip route while guidance runs** (owner 2026-11-16: "you just abandon this function during navigation"):
+     `route_trip` returns `TRIP_WHILE_NAVIGATING` and the running guidance goes on. A `start=true` for the trip
+     already being driven is answered as running. The list can still be made and edited.
    - A `navigate_to` drops the kept trip route; the list stays.
 6. **Result:** `trip_route` with:
    - `stops`: `[{index, name}]` in route order;
@@ -210,7 +212,7 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
 - Started: 「说已开始导航，第一站是\<name\>，全程约X公里」. In 模拟导航, 「已开始模拟导航」 as in F-15a.
 
 **Catalog text:**
-> 把打卡清单串成一条自驾路线（多个途经点）：「串成自驾路线」「规划一下路线」→start=false；看过路线后「开始导航」「出发」→start=true；「按清单顺序走」→order=as_listed，默认 nearest（就近排序，清单会按路线顺序重新编号）。只有一个地点时用 navigate_to。按结果答：按 next 说；不要念每个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，TRIP_TOO_SHORT=至少要两个地点，ROUTE_CALCULATION_FAILED=路线规划失败，START_FAILED=导航没有启动，不要说已开始。
+> 把打卡清单串成一条自驾路线（多个途经点）：「串成自驾路线」「规划一下路线」→start=false；看过路线后「开始导航」「出发」→start=true；「按清单顺序走」→order=as_listed，默认 nearest（就近排序，清单会按路线顺序重新编号）。只有一个地点时用 navigate_to。按结果答：按 next 说；不要念每个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，TRIP_TOO_SHORT=至少要两个地点，ROUTE_CALCULATION_FAILED=路线规划失败，START_FAILED=导航没有启动，不要说已开始，TRIP_WHILE_NAVIGATING=导航中不能串路线。
 
 **开始导航 after a trip route.**
 - The model calls `route_trip start=true`. No local intercept is added.
@@ -532,8 +534,8 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
    `RouteGeometry.stops`. The engine knows coordinates, not names or labels.
 8. **Persona.** `edit_trip_list` is not repeat-sensitive: 「去掉第一个和第二个」 can be two identical `remove index=1`
    calls. The persona base is unchanged: the trip tools are 要去的地方 and 导航 in its strict scope.
-9. **Planning stops guidance.** `route_trip start=false` while guidance runs stops that guidance (F-15a §9, one trip
-   at a time). Open for the owner: whether planning should keep the running guidance instead.
+9. **No trip route during guidance** (owner 2026-11-16). `route_trip` while guidance runs is `TRIP_WHILE_NAVIGATING`;
+   the guidance is never stopped for it, and 「串成路线」 is not shown then.
 10. **Phase 2b (T-040l).**
     - **Plan.** `TripPlan` (days, current day, name) and the `SavedTripPlans` codec are in `NovaNav/Trip/TripPlan.swift`.
       The planner's list is the plan's current day. A plan-wide `revision`, not one day's list generation, tells a
@@ -551,4 +553,10 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
       - A `rename` onto another saved plan's name is refused with `invalidFields` and changes nothing.
       - `open name=上一个清单` opens the §16 item 3 slot.
       - Plans are listed newest saved first; saving an existing name again moves it to the front.
+11. **During guidance the plan stays saved** (owner 2026-11-16: "a saved navigation state and later able to call
+    locally"). The plan is written to `current.json` after every change, guidance or not. Named plans and
+    「上一个清单」 open later from the phone's files, with no 高德 lookups (`trip_plans open`, 「我的行程」); a route
+    is calculated again only on `route_trip` after guidance ends.
+12. **Build handoff** (owner 2026-11-16): the app build (Codemagic), the device rows 15 and 35 and the on-screen
+    checks of phase 2 go to the owner's local agent. This session does not build or install.
 

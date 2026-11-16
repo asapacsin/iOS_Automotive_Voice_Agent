@@ -787,8 +787,12 @@ public actor NavigationController: ToolExecutor {
                 return await startTrip(trip.route, list: list, stops: stops)
             }
         }
+        // Owner 2026-11-16: no trip route while guidance runs; the running guidance is never stopped for one.
+        if snapshot.navigating {
+            return .failed(.failure(.tripWhileNavigating, advice: ToolFailureAdvice.forCode(.tripWhileNavigating)))
+        }
         if mode() == .gps, let refusal = await noUsableFix() { return .failed(refusal) }
-        if snapshot.navigating || snapshot.listOpen {
+        if snapshot.listOpen {
             let old = snapshot.generation
             await engine.stop(generation: old)
             guard old == snapshot.generation else { return .failed(.failure(.optionsStale)) }

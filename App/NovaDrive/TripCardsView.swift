@@ -64,7 +64,8 @@ struct TripCardsView: View {
                     .padding(.horizontal, 2)
                 }
                 HStack(spacing: 8) {
-                    if model.tripList.count >= 2 {
+                    // Owner 2026-11-16: no trip route while guidance runs.
+                    if model.tripList.count >= 2 && !model.nav.navigating {
                         Button("串成路线") { Task { await runtime.tripTap(.route(start: false)) } }
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("trip-route")

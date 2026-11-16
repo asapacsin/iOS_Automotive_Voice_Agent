@@ -414,3 +414,20 @@ struct TripPlannerTests {
         #expect(TripNameMatch.accepts(asked: "海河", found: "海河观光") && !TripNameMatch.accepts(asked: "盘山", found: "饭店"))
     }
 }
+
+@Suite("T-040i F-15b owner 2026-11-16 no trip route during guidance")
+struct TripDuringGuidanceTests {
+    @Test("F-15b §5.3: while guiding to a destination, route_trip is TRIP_WHILE_NAVIGATING and guidance goes on; the list can still be edited")
+    func refused() async {
+        let rig = await TripRig()
+        _ = await rig.nav.execute(tool("navigate_to", ["destination": "天津之眼"]))
+        #expect(await rig.nav.current.navigating)
+        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        for start in [false, true] {
+            #expect(await rig.run(trip("route_trip", ["start": .bool(start)])).code == .tripWhileNavigating)
+        }
+        #expect(await rig.nav.current.navigating)
+        #expect(!rig.engine.calls.withLock { $0 }.contains("stop"))
+        #expect(await rig.run(trip("edit_trip_list", ["action": "remove", "index": 1])).ok)
+    }
+}

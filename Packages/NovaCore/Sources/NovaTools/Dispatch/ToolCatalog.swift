@@ -154,7 +154,7 @@ public enum ToolCatalog {
 
     public static let makeTripListDescription = "把刚才推荐的地点做成打卡清单：「做个打卡清单」「列个清单」「把这些地方存下来」。places 填地点名（最多16个，每个只写地名，不写介绍），知道城市时填 city。会替换旧清单。按结果答：只说清单有几个地点；not_found 里的地点说没找到；不要念整张清单，司机问时再念。多天的行程按天分别调用，day 填第几天：「第一天去古文化街和五大道」→day=1。"
     public static let editTripListDescription = "修改打卡清单：「去掉第二个」→remove index=2；「不去古文化街了」→remove name；「加上天津之眼」→add；「第三个换成五大道」→replace；「把瓷房子放到第一个」→move；「清单里有什么」→read；「清空清单」→clear。第几个按她最后说的清单顺序。按结果答：一句话说改了什么和现在几个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，TRIP_TOO_LONG=最多16个地点，AMBIGUOUS=有多个匹配请说第几个。说到第几天时填 day，不说就是刚才那一天。"
-    public static let routeTripDescription = "把打卡清单串成一条自驾路线（多个途经点）：「串成自驾路线」「规划一下路线」→start=false；看过路线后「开始导航」「出发」→start=true；「按清单顺序走」→order=as_listed，默认 nearest（就近排序，清单会按路线顺序重新编号）。只有一个地点时用 navigate_to。按结果答：按 next 说；不要念每个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，TRIP_TOO_SHORT=至少要两个地点，ROUTE_CALCULATION_FAILED=路线规划失败，START_FAILED=导航没有启动，不要说已开始。「开始第二天的导航」→day=2, start=true。"
+    public static let routeTripDescription = "把打卡清单串成一条自驾路线（多个途经点）：「串成自驾路线」「规划一下路线」→start=false；看过路线后「开始导航」「出发」→start=true；「按清单顺序走」→order=as_listed，默认 nearest（就近排序，清单会按路线顺序重新编号）。只有一个地点时用 navigate_to。按结果答：按 next 说；不要念每个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，TRIP_TOO_SHORT=至少要两个地点，ROUTE_CALCULATION_FAILED=路线规划失败，START_FAILED=导航没有启动，不要说已开始，TRIP_WHILE_NAVIGATING=导航中不能串路线。「开始第二天的导航」→day=2, start=true。"
     public static let tripPlansDescription = "保存、打开、列出、删除、改名行程：「把这个行程存成天津一日游」→save name=天津一日游；「打开天津一日游」→open；「我存了哪些行程」→list；「删掉天津那个行程」→delete；「改名叫周末出游」→rename。打开后要导航就再调用 route_trip。按结果答：一句话说做了什么；list 只说有几个和名字；ok=false 按 error：NO_TRIP_LIST=还没有清单，PLAN_NOT_FOUND=没有这个行程，PLANS_FULL=最多存20个，AMBIGUOUS=有多个请说全名。"
     public static let tripPlanActions = ["save", "open", "list", "delete", "rename"]
     public static let tripDay: JSONValue = ["type": "integer", "minimum": 1, "maximum": 5]
@@ -483,6 +483,7 @@ public enum ToolFailureAdvice {
         .notWhileMoving: "车在行驶，屏幕上的编辑没有执行。请用一句话说开车时请用语音改清单。",
         // F-15b §16 (T-040l).
         .planNotFound: "没有这个行程，什么都没有改。请用一句话如实说没有这个行程。",
+        .tripWhileNavigating: "正在导航，清单没有串成路线，导航还在继续。请用一句话说导航中不能串路线，要先结束导航。",
         .plansFull: "最多存20个行程，这次没有存。请用一句话如实说明，可以先删掉一个。",
         .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
