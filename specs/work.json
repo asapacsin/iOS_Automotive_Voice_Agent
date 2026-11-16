@@ -2667,6 +2667,18 @@
         "NOT_VERIFIED: row 10 Codemagic build/设置 check; rows 11-12 device runs with 和风 key; range=hk/mo device check",
         "non-blocking follow-ups: L1 executor tests (adcode 81/82 hkmo, concurrent now requests, destination weather); L3 record line on regeo key error; L4 regeo address alongside 和风; L5 place date when daily fails; L7 dead code"
       ]
+    },
+    {
+      "id": "T-013k",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-04b §17 items 1-9: with the lock on, BargeInLive's dip acts at once; a live candidate gets one early speaker score on its first 1.0 s of speech (AS-norm, cohort threshold1s); accepted releases the queued stop, rejected/unknown drops it and undips; words still follow the §16 whole-sentence verdict; SpeakerHold keeps an utterance whose score was requested when a new one starts (cutAtUnmute no longer loses it); speaker_cohort.py --test-seconds adds threshold1s/eer1s/trials1s; record kind=early and early= on the stop line; rows 61-69.",
+      "depends_on": [
+        "T-013j"
+      ],
+      "notes": "Device 2026-11-16 (64abef8): lock on, BargeInLive decided stop 3 of 3 but only 1 stopped her; 2 were held for the end-of-sentence verdict, cut by cutAtUnmute and dropped as unknown. Lock off: 2 of 2 stopped. Owner: only the driver may interrupt; \"Yes, write B\". The 1 s threshold needs a PC run of speaker_cohort.py on CN-Celeb1.",
+      "evidence": []
     }
   ]
 }

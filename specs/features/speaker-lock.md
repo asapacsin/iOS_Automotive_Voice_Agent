@@ -293,3 +293,85 @@ No source gives accuracy for this setup in a car. Rows 58–60 measure it.
 | 60 | Device, lock on: another person says 10 commands and 「你好小诺」 3 times (optional) | Note how many are blocked; each blocked sentence shows the §14 item 8 notice | D |
 
 **Trace gate.** Add `T-013j: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013j.
+
+## 17. Only the driver can interrupt her, decided on the first second (owner request 2026-11-16)
+
+**Why.** Device 2026-11-16, 64abef8, 「可以打断她」 on.
+- **Lock on, 09:18 record:** 24 times sound started while she spoke; she stopped twice. The driver's sentences said over her were accepted by the voiceprint (scores 8–10), but most were muted (`mute=reply`) and lost.
+- **Lock on, live log 09:28–09:29:** `BargeInLive` decided to stop her for all 3 tries (`bargeInStop 2 heldMs=1490`, `4 heldMs=300`, `6 heldMs=300`). Only 2 stopped her. For 4 and 6:
+  - §6 item 9 held the stop until the voiceprint verdict.
+  - §16 item 4 scores only at the end of the sentence, so the verdict was still pending when her reply ended.
+  - Her reply ending cut the utterance (`endReason=cutAtUnmute`), and the next utterance started at once. `SpeakerHold` drops a waiting utterance as unknown when a new one starts, so `speaker-check … result=unknown`, the queued stop was dropped, and the words were lost.
+- **Lock off, same session:** 2 of 2 tries stopped her (`bargeInStop 2 heldMs=1920`, `3 heldMs=780`, both `bargeInStopped`).
+
+Owner 2026-11-16: only the driver may interrupt her; a passenger talking over her must not stop her.
+
+**Sources.**
+- **Production voice agents decide interruptions without a voiceprint.**
+  - LiveKit recommends voice isolation (Krisp VIVA, ai-coustics) in front of turn detection ([LiveKit docs](https://docs.livekit.io/transport/media/noise-cancellation/)).
+  - Pipecat holds an interruption until 2 words are recognised (`MinWordsUserTurnStartStrategy(min_words=2)`; [Evalgent](https://www.evalgent.com/blog/pipecat-interruption-strategy-smart-turn), [Sarvam guide](https://docs.sarvam.ai/api/integration/pipecat-production-guide)).
+  - Our `BargeInCheck` (words, not her echo) already does this, and it works (lock-off rows above).
+- **Only a target speaker interrupting is research practice.**
+  - It is decided while the speech is coming in, not at the end of the sentence: [Personal VAD](https://arxiv.org/html/1908.04284v5) (frame-level target speech), [HyWA](https://arxiv.org/html/2510.12947) (personalised VAD as the barge-in gate of a full-duplex assistant), and [FireRedChat](https://arxiv.org/pdf/2509.06502) (primary-speaker VAD to cut false barge-ins).
+  - No such model is on the phone. The nearest thing we have is the §16 voiceprint scored on the first part of the speech.
+- **A threshold must be measured on clips of the length it is used on** (§14 sources: [Intelligent Voice 2016](https://arxiv.org/pdf/1611.00514), [Cumani et al.](https://iris.polito.it/retrieve/handle/11583/2979926/656155), [duration-aware calibration](https://iris.polito.it/retrieve/handle/11583/2968877/594269)). So the 1 s check gets its own EER threshold, measured with §16's method on 1 s clips.
+- **Dipping her volume while deciding** is §17 of F-08 (`BargeInLive.dipDb`). A dip is undone without loss, a stop is not.
+
+**Rule in plain words.** While she speaks, the driver's voice is checked on the first second of speech. If it is the driver, she stops at once. If not, she goes on, and her volume only dips for that second. What is sent to Gemini is still decided on the whole sentence, as §16. A stop or the driver's words are never thrown away because her reply ended first.
+
+1. **Dip before the verdict.** With the lock on, `BargeInLive`'s `.dip(true)` acts at once. §6 item 9 now covers only `.stop` (and the adopted utterance), not the dip. A dip whose stop never comes is undone (`.dip(false)`) as it is today.
+2. **Early check, only for an interruption.**
+   - When an utterance is a live candidate (it started while her reply plays, `BargeInLive` is keeping it, and the lock is on), `SpeakerHold` makes one extra score request after `earlyScoreSpeech` of its speech: kind `early`, on its first `earlyScoreSpeech` of speech frames (pre-roll not counted).
+   - `earlyScoreSpeech` is 1.0 s.
+   - An utterance that ends before reaching it gets no early request. Its whole-sentence score (§16 item 4) decides both the stop and the words, as today.
+3. **Early verdict.** It uses the §16 item 2 AS-norm score, with the cohort's `threshold1s` (item 6).
+   - **Accepted:** `SpeakerActionHold` releases the live steps it queued for that utterance, so the stop acts.
+   - **Rejected or unknown:** the queued `.stop` is dropped, `.dip(false)` is sent, and she plays on. Live steps for this utterance stay dropped, even if the whole-sentence score accepts it later.
+   - Either way, the utterance stays held for its §16 whole-sentence verdict, which alone decides whether its words are sent.
+4. **Her reply ending never loses the driver.**
+   - `SpeakerHold` keeps an utterance whose score was already requested until that score arrives, even when a new utterance starts. Today such an utterance is dropped as unknown.
+   - Each result still applies only to its own utterance id and generation (§6 item 5).
+   - An utterance cut by her reply ending (`cutAtUnmute`) is scored like any other.
+   - If the early or whole verdict accepts it, `BargeInLive`'s carry path (her reply already ended: the kept audio leads the next utterance) sends it on as the driver's question.
+5. **Lock off and no candidate.** With the lock off, nothing changes (§6 item 12): no early request. Utterances that start while she is silent get no early request either.
+6. **The 1 s threshold, measured on the PC.**
+   - `scripts/speaker_cohort.py` gains `--test-seconds <s>`. Each CN-Celeb1 test utterance is cut to its first `<s>` seconds of audio; enrollment audio is not cut.
+   - The script then computes the same AS-norm scores and EER, and adds `threshold1s`, `eer1s` and `trials1s` to `speaker_cohort.json`. The other fields stay byte-for-byte the same.
+   - Run once with `--test-seconds 1.0` on the PC that made the cohort. Record the result in STATUS.
+   - Until `threshold1s` exists, the early check counts as unknown, so with the lock on she is never stopped early. The app never invents a value.
+7. **Record and log.**
+   - The early score writes a `speaker-check … kind=early …` line with the §16 item 8 fields.
+   - `BargeInLive`'s stop line in the record gains `early=<accepted|rejected|unknown|none>`.
+   - Numbers and enums only (I-8).
+8. **Where the code goes.**
+   - `SpeakerHold`, `SpeakerActionHold`, `SpeakerTuning.earlyScoreSpeech` in `Packages/NovaCore/Sources/NovaVoice/Speaker/`.
+   - The cohort field in the cohort loader.
+   - The early request in `AgentRuntime`'s scoring queue, beside the existing one.
+   - `scripts/speaker_cohort.py`.
+9. **Not changed:** §16's whole-sentence verdict for what is sent, the wake word and stop-phrase checks (§6 items 7–8), `BargeInCheck`'s stages, the voiceprint model and enrollment, and lock off.
+
+**Not verified.**
+- How often a 1 s clip of the driver passes in the car. Row 68 measures it.
+- How often a passenger's 1 s passes. Row 69 measures it.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 61 | `speaker_cohort.py --test-seconds 1.0` on the §16 row 51 synthetic set | `threshold1s`, `eer1s`, `trials1s` added; every other field unchanged | script |
+| 62 | Lock on, her reply playing: a candidate utterance of 2.5 s; early score accepted at 1.0 s | `.dip(true)` before any verdict; one `early` request on exactly the first 1.0 s of speech; `.stop` released at the early verdict; words still wait for the whole-sentence verdict | unit |
+| 63 | Same; early score rejected; then whole sentence accepted | `.stop` never sent; `.dip(false)` at the early verdict; words sent after the whole verdict as today's muted-reply rules allow | unit |
+| 64 | Same; early score fails, or the cohort has no `threshold1s` | Unknown: no stop, dip undone | unit |
+| 65 | Candidate of 0.8 s (ends before 1.0 s), accepted at the end | No early request; the stop follows the whole-sentence verdict as today | unit |
+| 66 | Candidate cut at 2.3 s by `cutAtUnmute`, the next utterance starts in the same frame, whole score accepted later | The cut utterance is not dropped as unknown; its verdict applies to its own id; the carry path sends its audio first | unit |
+| 67 | Lock off; lock on with her silent | No `early` request; outputs as today | unit |
+| 68 | Device, lock on, 「可以打断她」 on: the driver talks over 10 long replies | Note how many stop within about 1.5 s of starting, the `kind=early` scores, and no driver sentence lost (`mute=reply` with no carry) | D |
+| 69 | Device, lock on: another person talks over 5 long replies (optional) | Note how many stop her; her volume comes back each time she does not | D |
+
+**Trace gate.** Add `T-013k: F-04b` to `specs/trace-ids.txt` together with the first `@Test` that names T-013k.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-013k | Items 1–9; rows 61–69 | unit, script, build, D |
