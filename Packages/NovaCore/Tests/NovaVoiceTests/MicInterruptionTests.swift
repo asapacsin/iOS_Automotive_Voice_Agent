@@ -62,4 +62,14 @@ struct MicInterruptionTests {
         let after = m.becameActive()
         #expect(m.allowsRestart && !after)
     }
+
+    @Test("T-021q F-03 §14 row 1: a new interruption during a resume is not cleared by that resume")
+    func beganDuringResume() {
+        var m = MicInterruption()
+        _ = m.began()
+        _ = m.ended(shouldResume: true)
+        _ = m.began()
+        m.resumed()
+        #expect(!m.allowsRestart)
+    }
 }

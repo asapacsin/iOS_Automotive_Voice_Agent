@@ -2705,14 +2705,19 @@
     {
       "id": "T-021q",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-03 §14 items 1-5: LiveAudio handles AVAudioSession interruptions (stop and wait, resume with shouldResume or on return), no configuration-change restart while interrupted; audio record lines; pure MicInterruption.",
       "depends_on": [
         "T-021"
       ],
       "notes": "Device 2026-11-16: Voice Memos recorded silence with NovaDrive running, normal with it closed.",
-      "evidence": []
+      "evidence": [
+        "gates PASS (scripts/gates/run_all.sh: static PASS, NovaCore 798 tests, ios-spec-check PASS) with the final MicInterruption change",
+        "independent read-only review (high effort): FAIL at 3c4b9d4 (no resume without an end; play() on a stopped engine), FAIL at 5af7bae (failed engine start crash), PASS at 8f378a8; its one minor finding (resume clearing a new interruption) fixed after: resumed() only while resuming, test beganDuringResume",
+        "unit rows 1-3: MicInterruptionTests (+beganWithoutEnd, beganDuringResume)",
+        "NOT_VERIFIED: App build (Codemagic); rows 4-5 device"
+      ]
     },
     {
       "id": "T-040i",

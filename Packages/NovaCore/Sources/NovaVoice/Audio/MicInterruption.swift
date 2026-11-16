@@ -40,8 +40,9 @@ public struct MicInterruption: Sendable, Equatable {
         return true
     }
 
-    /// The session was reactivated: the engine may start again.
+    /// The session was reactivated: the engine may start again. A new interruption that began meanwhile stays.
     public mutating func resumed() {
+        guard resuming else { return }
         interrupted = false
         resuming = false
     }
