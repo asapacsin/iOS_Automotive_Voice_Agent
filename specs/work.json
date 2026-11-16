@@ -2748,7 +2748,7 @@
     {
       "id": "T-040j",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b phase 2a: poster cards with Amap place photos (https only, cache), the strip while moving (8 km/h / 3 s), editing on screen through UIIntent (remove, move, route, add from list), NOT_WHILE_MOVING, tap note, numbered pins and 途经 labels; F-15b rows 16-25.",
       "depends_on": [
@@ -2761,7 +2761,12 @@
         ]
       },
       "notes": "Spec only (owner 2026-11-16: \"create a spec including this function and also other thing that tailored from the movie and push to remtoe\"). Build starts on the owner's go. Owner go 2026-11-16: \"pull and implement the spec\" (F-15b, phases 1 and 2).",
-      "evidence": []
+      "evidence": [
+        "gates PASS at 6ecd95c (scripts/gates/run_all.sh)",
+        "independent read-only review (high effort): FAIL at 681dccf (re-resolved stop lost its photo), FAIL at e1f4836 (known photos not on screen, repeated lookups, late photo forced recalculation), PASS at 6ecd95c with mutation checks per fix",
+        "unit rows 16-25: TripScreenTests, TripPhotoAgainTests, TripTapNoteTests, TripPhotoParseTests, TripReviewFixTests",
+        "NOT_VERIFIED: App build (Codemagic); cards, strip, pins on device"
+      ]
     },
     {
       "id": "T-040l",
