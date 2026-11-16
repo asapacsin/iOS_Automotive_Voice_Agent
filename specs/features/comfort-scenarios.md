@@ -3,6 +3,8 @@
 **Android status:** IMPLEMENTED (JVM + LIVE text).
 **Depends on:** F-11
 
+**iOS (2026-11-16, F-09b §3, T-031c):** the model-chosen path (§14) is the only comfort path. `run_scenario`, `ScenarioToolHandler`, the step table (§2, §4, §10) and the setting are removed on iOS; the sections below that describe them are Android history. Undo, car-state notes and the session summary are F-09b §4–6.
+
 ## 1. Purpose
 Multi-step responses to situations: mosquito, mosquito done, mosquito still there, stuffy, drowsy.
 

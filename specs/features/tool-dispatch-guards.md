@@ -3,6 +3,8 @@
 **Android status:** ACTIVE (JVM + LIVE).
 **Depends on:** contracts/voice-agent.md §6, contracts/navigation.md
 
+**iOS catalog (2026-11-16, F-09b §3, T-031c):** the Android tools without `run_scenario`, then `set_volume`, `get_vehicle_state` and `undo_last_change`; `control_climate` and `control_window` carry the model-chosen texts (F-12 §14 item 8, §18 item 1). `run_scenario` is `UNKNOWN_TOOL`. The generated Android mirror stays byte-for-byte.
+
 ## 1. Purpose
 Expose the product tools to the model and refuse unsafe or unrequested calls deterministically.
 
