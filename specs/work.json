@@ -2688,14 +2688,19 @@
     {
       "id": "T-013l",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "action": "F-04b §17 amendment items 1-2: early threshold falls back to the measured whole-sentence threshold; early rejected/unknown drops only the queued actions, outputs wait for the whole verdict.",
       "depends_on": [
         "T-013k"
       ],
       "notes": "Device 10:14 record (faf209f): early always unknown (threshold none), and unknown marked the driver's sentences mute=speaker before the whole verdict accepted them.",
-      "evidence": []
+      "evidence": [
+        "gates PASS at 8f378a8 (scripts/gates/run_all.sh: static PASS, NovaCore 797 tests, ios-spec-check PASS)",
+        "independent read-only review (high effort): FAIL at 3c4b9d4 (closed stop step released outputs early), fixed in 5af7bae; re-review PASS at 5af7bae",
+        "unit: EarlyBargeInTests rows 62-67 (63-64 updated), EarlyBargeInAmendmentTests (unknown/rejected then whole verdict, fallback threshold, closed stop step both early verdicts)",
+        "NOT_VERIFIED: App build (Codemagic); rows 68-69 device"
+      ]
     },
     {
       "id": "T-021q",
