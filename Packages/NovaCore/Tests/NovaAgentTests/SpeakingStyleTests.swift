@@ -161,6 +161,8 @@ enum ToolPromptCoverage: Sendable {
         "make_trip_list": .phrase("要去的地方"),
         "edit_trip_list": .phrase("要去的地方"),
         "route_trip": .phrase("导航"),
+        // F-15b §16 (T-040l): saved trips are 要去的地方 too.
+        "trip_plans": .phrase("要去的地方"),
     ]
 
     /// Failure messages for `tools` against `base`; empty when every tool is covered.

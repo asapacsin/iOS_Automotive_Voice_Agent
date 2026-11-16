@@ -16,7 +16,13 @@ struct TripCardsView: View {
     var body: some View {
         switch TripScreen.of(model.tripList, passed: model.nav.tripStopsPassed, moving: model.tripMoving) {
         case .none:
-            EmptyView()
+            // §16 item 6: the saved plans stay reachable with an empty current plan (not moving).
+            if !model.tripMoving, let plans = model.tripPlans, !plans.saved.isEmpty {
+                HStack {
+                    plansButton
+                    Spacer()
+                }
+            }
         case .strip(let text):
             Text(text)
                 .font(.subheadline.weight(.semibold))
@@ -28,6 +34,18 @@ struct TripCardsView: View {
                 .accessibilityIdentifier("trip-strip")
         case .cards(let cards):
             VStack(alignment: .leading, spacing: 6) {
+                // §11 item 5: day tabs when the plan has more than one day.
+                if let plans = model.tripPlans, plans.days > 1 {
+                    HStack(spacing: 6) {
+                        ForEach(1...plans.days, id: \.self) { day in
+                            Button("第\(day)天") { Task { await runtime.tripTap(.day(day)) } }
+                                .buttonStyle(.bordered)
+                                .tint(day == plans.currentDay ? .blue : .gray)
+                                .accessibilityIdentifier("trip-day-\(day)")
+                        }
+                    }
+                    .font(.caption)
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(cards) { card in
@@ -57,10 +75,93 @@ struct TripCardsView: View {
                             .accessibilityIdentifier("trip-start")
                     }
                     Spacer()
+                    plansButton
                 }
                 .font(.subheadline)
             }
         }
+    }
+}
+
+extension TripCardsView {
+    private var plansButton: some View {
+        Button("我的行程") { model.tripPlansOpen = true }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("trip-plans")
+    }
+}
+
+/// F-15b §16 item 6 (T-040l): the saved plans with name, days and stop count. A tap opens one; a swipe deletes one
+/// after a confirm on screen. Not offered while moving (the sheet closes when moving starts).
+struct TripPlansSheet: View {
+    @ObservedObject var model: DriveModel
+    let runtime: AgentRuntime
+    @State private var deleting: TripPlansSummary.Saved?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(model.tripPlans?.saved ?? []) { plan in
+                    Button {
+                        model.tripPlansOpen = false
+                        Task { await runtime.tripTap(.openPlan(plan.name)) }
+                    } label: {
+                        VStack(alignment: .leading) {
+                            Text(plan.name).font(.headline)
+                            Text("\(plan.days)天 · \(plan.stops)个地点").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .swipeActions {
+                        Button("删除", role: .destructive) { deleting = plan }
+                    }
+                }
+            }
+            .overlay {
+                if model.tripPlans?.saved.isEmpty ?? true { Text("还没有存过行程").foregroundStyle(.secondary) }
+            }
+            .navigationTitle("我的行程")
+            .toolbar { Button("完成") { model.tripPlansOpen = false } }
+            .confirmationDialog("删除这个行程？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                                titleVisibility: .visible) {
+                Button("删除「\(deleting?.name ?? "")」", role: .destructive) {
+                    if let name = deleting?.name { Task { await runtime.tripTap(.deletePlan(name)) } }
+                    deleting = nil
+                }
+            }
+        }
+        .onChange(of: model.tripMoving) { _, moving in if moving { model.tripPlansOpen = false } }
+    }
+}
+
+/// F-15b §14: `Application Support/trip/`, atomic writes with complete-until-first-unlock protection, excluded from
+/// backup; a bad file is moved aside, not deleted.
+struct AppTripFiles: TripFiles {
+    private var directory: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("trip", isDirectory: true)
+    }
+
+    func read(_ name: String) -> Data? {
+        guard let directory else { return nil }
+        return try? Data(contentsOf: directory.appendingPathComponent(name))
+    }
+
+    func write(_ name: String, _ data: Data) {
+        guard var directory else { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? directory.setResourceValues(values)
+        try? data.write(to: directory.appendingPathComponent(name),
+                        options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
+    func moveAside(_ name: String) {
+        guard let directory else { return }
+        let from = directory.appendingPathComponent(name)
+        let to = directory.appendingPathComponent(name.replacingOccurrences(of: ".json", with: ".bad.json"))
+        try? FileManager.default.removeItem(at: to)
+        try? FileManager.default.moveItem(at: from, to: to)
     }
 }
 

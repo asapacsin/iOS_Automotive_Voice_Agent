@@ -213,7 +213,16 @@ private struct DriveContent: View {
             position.disappear()
         }
         // F-20a §5: the camera never runs in the background.
-        .task { if UITestDrive.enabled { await runtime.startUITestDrive() } else { await runtime.refreshWake() } }
+        .task {
+            if UITestDrive.enabled {
+                await runtime.startUITestDrive()
+            } else {
+                await runtime.prepareTrip()
+                await runtime.refreshWake()
+            }
+        }
+        // F-15b §16 item 6: 「我的行程」.
+        .sheet(isPresented: $model.tripPlansOpen) { TripPlansSheet(model: model, runtime: runtime) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && model.cameraOpen { runtime.closeCamera() }
             // F-16b §9: 我的位置 streams only while the drive screen is visible, not in the background.

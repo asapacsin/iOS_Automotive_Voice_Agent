@@ -534,4 +534,21 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
    calls. The persona base is unchanged: the trip tools are 要去的地方 and 导航 in its strict scope.
 9. **Planning stops guidance.** `route_trip start=false` while guidance runs stops that guidance (F-15a §9, one trip
    at a time). Open for the owner: whether planning should keep the running guidance instead.
+10. **Phase 2b (T-040l).**
+    - **Plan.** `TripPlan` (days, current day, name) and the `SavedTripPlans` codec are in `NovaNav/Trip/TripPlan.swift`.
+      The planner's list is the plan's current day. A plan-wide `revision`, not one day's list generation, tells a
+      kept trip route or a slow lookup that the plan moved on.
+    - **Files.** `AppTripFiles` (app) writes `current.json` and `plans.json` atomically, with
+      complete-until-first-unlock protection, and excludes the folder from backup.
+    - **Loading.** The drive screen prepares the trip at appear (`prepareTrip`), so a restored plan's cards show before
+      any voice session.
+    - **Kept in a saved stop.** The distance from the origin is not kept (§14 item 2 does not list it): restored cards
+      show no km until the stop is looked up again.
+    - **Taps.** A day tab is `edit_trip_list action=read day` and sends no note (the list did not change). 「我的行程」
+      also deletes by swipe, confirmed on screen, through `trip_plans delete` (a `TripTap.deletePlan`, line
+      `trip tap action=delete`), so that tap goes through the executor too (I-6).
+    - **`trip_plans`.**
+      - A `rename` onto another saved plan's name is refused with `invalidFields` and changes nothing.
+      - `open name=上一个清单` opens the §16 item 3 slot.
+      - Plans are listed newest saved first; saving an existing name again moves it to the front.
 

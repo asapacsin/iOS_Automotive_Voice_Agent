@@ -27,6 +27,9 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case notFound = "NOT_FOUND"
     /// F-15b §13 item 1 (T-040j): a screen edit while the phone is moving.
     case notWhileMoving = "NOT_WHILE_MOVING"
+    /// F-15b §16 (T-040l): the saved plans.
+    case planNotFound = "PLAN_NOT_FOUND"
+    case plansFull = "PLANS_FULL"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

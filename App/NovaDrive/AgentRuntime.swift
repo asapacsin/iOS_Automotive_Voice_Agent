@@ -24,6 +24,9 @@ final class DriveModel: ObservableObject {
     /// F-15b §11 item 6: the card whose details sheet is open, with the place detail once it arrived.
     @Published var tripDetail: TripCard?
     @Published var tripDetailPlace: Place?
+    /// F-15b §11 item 5, §16 item 6 (T-040l): the plan's days and the saved plans; the 「我的行程」 sheet.
+    @Published var tripPlans: TripPlansSummary?
+    @Published var tripPlansOpen = false
     @Published var climate = ClimateState.default
     @Published var cabin = CabinState.default
     @Published var driverLine = ""
@@ -614,6 +617,15 @@ final class AgentRuntime {
         guard let planner = trip?.planner else { return }
         let (_, note) = await planner.tap(tap, moving: model.tripMoving)
         if let note, let core { await core.send(.screenNote(note)) }
+    }
+
+    /// F-15b §14 item 1: the trip (and the plan saved on the phone) is ready when the drive screen appears, so the
+    /// cards are there after a restart before any voice session.
+    func prepareTrip() async {
+        guard !UITestDrive.enabled else { return }
+        let location = SwitchableLocationProvider(device: deviceLocation, demo: DemoLocation(clock: navigationClock),
+                                                  useDevice: { DriveSettings.usesDeviceLocation() })
+        _ = await appTrip(location: location)
     }
 
     /// F-15b §11 item 6: the details sheet of a card (photo, address, opening hours, phone); nothing is spoken.
@@ -1452,9 +1464,12 @@ final class AgentRuntime {
         }
         await navigation.start()
         // F-15b (T-040i): the app's one trip list, next to the navigation controller; it outlives voice sessions.
+        // F-15b §14 (T-040l): the plan and the saved plans live in Application Support/trip/.
         let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock,
-                                  onLine: tripLine,
-                                  onChange: { list in Task { @MainActor in model.tripList = list } })
+                                  files: AppTripFiles(), onLine: tripLine,
+                                  onChange: { list in Task { @MainActor in model.tripList = list } },
+                                  onPlans: { plans in Task { @MainActor in model.tripPlans = plans } })
+        await planner.restore()
         // F-15b §11 item 4: moving at ≥ 8 km/h or while 真实导航 runs; still after 3 s below 3 km/h; a stale fix's
         // speed is unknown. `trip strip moving=<yes|no>` on each change.
         tripMonitor?.cancel()
