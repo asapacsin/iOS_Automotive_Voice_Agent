@@ -251,7 +251,10 @@ struct ComfortEvalRunnerTests {
         #expect(ComfortScorer.score(cases[1], fast).pass)
         // A tool the session did not declare (run_scenario in model mode) is refused as unknown, and history goes first.
         #expect(runs[4].calls.first?.code == .unknownTool)
-        #expect(provider.sent[4].map(\.text) == ["有蚊子", "车窗都开了一半，让蚊子飞出去。", "蚊子出去了，关上吧"])
+        // F-09b §5: the start state's note goes just before the sentence.
+        let sent = provider.sent[4].map(\.text)
+        #expect(sent.count == 4 && sent[0] == "有蚊子" && sent[1] == "车窗都开了一半，让蚊子飞出去。" && sent[3] == "蚊子出去了，关上吧")
+        #expect(sent[2].hasPrefix("[系统] 车内状态：") && sent[2].contains("车窗 主驾50%"))
         let report = ComfortReport(cases: ComfortCases.all, runs: runs)
         #expect(report.blocked == 2)
     }
