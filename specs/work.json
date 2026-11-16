@@ -2696,6 +2696,18 @@
       ],
       "notes": "Device 10:14 record (faf209f): early always unknown (threshold none), and unknown marked the driver's sentences mute=speaker before the whole verdict accepted them.",
       "evidence": []
+    },
+    {
+      "id": "T-021q",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-03 §14 items 1-5: LiveAudio handles AVAudioSession interruptions (stop and wait, resume with shouldResume or on return), no configuration-change restart while interrupted; audio record lines; pure MicInterruption.",
+      "depends_on": [
+        "T-021"
+      ],
+      "notes": "Device 2026-11-16: Voice Memos recorded silence with NovaDrive running, normal with it closed.",
+      "evidence": []
     }
   ]
 }

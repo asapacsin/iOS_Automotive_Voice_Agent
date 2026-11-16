@@ -886,6 +886,8 @@ final class AgentRuntime {
             RuntimeLog.agent.notice("\(line, privacy: .public)")
             voiceLines.record?.submit(.music(line))
         }
+        // F-03 §14 (T-021q): another app took the microphone; codes only.
+        audio.onAudioLine { line in voiceLines.record?.submit(.audio(line)) }
         // F-13a §7 (T-032h): `duck on` / `duck off`; numbers only (I-8).
         audio.onDuckLine { line in
             RuntimeLog.agent.notice("\(line, privacy: .public)")

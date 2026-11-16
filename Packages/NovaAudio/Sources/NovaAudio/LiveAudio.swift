@@ -50,6 +50,10 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private var configObserver: NSObjectProtocol?
     private var running = false
     private var restarted: (@Sendable () -> Void)?
+    /// F-03 §14 (T-021q): another app has the microphone (`lock`).
+    private var mic = MicInterruption()
+    private var interruptionObservers: [NSObjectProtocol] = []
+    private var audioLineHandler: (@Sendable (String) -> Void)?
     /// F-13a §3 items 1, 3 (T-032g): the lane gains of the two app volumes, and the F-08 dip now on the reply (`lock`).
     private var voiceGain = 1.0
     private var mediaGain = 1.0
@@ -127,18 +131,80 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             guard let self else { return }
             // §18 item 6: on mediaQueue, never waited for here; the preview keeps its buffer and generation.
             self.laneAsync(.restart) {
-                // A change that came while the session stopped never starts the engine again.
-                guard self.lock.withLock({ self.running }) else { return }
-                try? self.engine.start()
-                self.reply.play()
-                self.guidance.play()
-                self.cue.play()
-                self.apply(self.machine.restart())
-                self.lock.withLock { self.restarted }?()
+                // A change that came while the session stopped never starts the engine again; nor while another
+                // app has the microphone (F-03 §14 item 2).
+                guard self.lock.withLock({ self.running && self.mic.allowsRestart }) else { return }
+                self.startEngine()
             }
         }
+        // F-03 §14 (T-021q): another app took the microphone: stop and wait; resume as iOS says, or on return.
+        let center = NotificationCenter.default
+        interruptionObservers = [
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: session,
+                               queue: nil) { [weak self] note in
+                self?.interruption(note)
+            },
+            // UIApplication.didBecomeActiveNotification by name: NovaAudio does not import UIKit.
+            center.addObserver(forName: Notification.Name("UIApplicationDidBecomeActiveNotification"), object: nil,
+                               queue: nil) { [weak self] _ in
+                guard let self, self.lock.withLock({ self.running && self.mic.becameActive() }) else { return }
+                self.audioLine("audio resumed on-return")
+                self.laneAsync(.restart) { self.resumeAfterInterruption() }
+            },
+        ]
         lock.withLock { running = true }
     }
+
+    /// The engine and the player nodes running again after a configuration change or an interruption.
+    private func startEngine() {
+        try? engine.start()
+        reply.play()
+        guidance.play()
+        cue.play()
+        apply(machine.restart())
+        lock.withLock { restarted }?()
+    }
+
+    private func interruption(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        switch type {
+        case .began:
+            guard let line = lock.withLock({ running ? mic.began() : nil }) else { return }
+            audioLine(line)
+        case .ended:
+            let opts = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt).map {
+                AVAudioSession.InterruptionOptions(rawValue: $0)
+            } ?? []
+            guard let e = lock.withLock({ running ? mic.ended(shouldResume: opts.contains(.shouldResume)) : nil })
+            else { return }
+            audioLine(e.line)
+            if e.resume { laneAsync(.restart) { self.resumeAfterInterruption() } }
+        @unknown default:
+            break
+        }
+    }
+
+    private func resumeAfterInterruption() {
+        guard lock.withLock({ running }) else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            // Still in use by the other app: wait for the next return to the app.
+            lock.withLock { _ = mic.began(); _ = mic.ended(shouldResume: false) }
+            audioLine("audio resume-failed")
+            return
+        }
+        startEngine()
+    }
+
+    private func audioLine(_ line: String) {
+        Logger(subsystem: "com.asapacsin.novadrive", category: "audio").notice("\(line, privacy: .public)")
+        lock.withLock { audioLineHandler }?(line)
+    }
+
+    /// F-03 §14 item 4: `audio interrupted`, `audio interruption-ended resume=<now|on-return>`, `audio resumed …`.
+    public func onAudioLine(_ handler: @escaping @Sendable (String) -> Void) { lock.withLock { audioLineHandler = handler } }
 
     /// F-07 §16 item 2 (T-020c): the reply's output format and session settings, read after `start`.
     public var playbackFormat: PlaybackFormat {
@@ -154,9 +220,12 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         guard lock.withLock({ running }) else { return }
         stopMedia()
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        interruptionObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        interruptionObservers = []
         lock.withLock {
             running = false
             onFrame = nil
+            mic.reset()
         }
         // A restart queued before the observer went away runs (and sees `running` false) before the engine stops.
         mediaQueue.sync {
