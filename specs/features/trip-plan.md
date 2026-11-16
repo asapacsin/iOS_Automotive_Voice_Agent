@@ -266,7 +266,7 @@ phone is not moving (§11 item 4), as the community rules require.
 | 1 | `make_trip_list` with 8 names; the fake search finds 7, and the 8th's first result has an unrelated name | `trip_list` count 7, indexes 1–7, `not_found` = the 8th; one `trip lookup … reason=nomatch` line | unit |
 | 2 | Two names resolve to the same `Place.id` | One stop; the other is in `duplicates` | unit |
 | 3 | 17 names; a blank name | `invalidFields`; the list is unchanged | unit |
-| 4 | A list of 5: `remove index=2`, then `remove name=古文化街` (one match), then `move index=4 to_index=1`, then `replace index=9` | Renumbered 1…n after each; the last returns `OUT_OF_RANGE` and changes nothing | unit |
+| 4 | A list of 5: `remove index=2`, then `remove name=古文化街` (one match), then `move index=3 to_index=1` (3 stops are left), then `replace index=9` | Renumbered 1…n after each; the last returns `OUT_OF_RANGE` and changes nothing | unit |
 | 5 | `remove name` matching 2 stops; any action except add/clear on an empty list | `AMBIGUOUS`; `NO_TRIP_LIST` | unit |
 | 6 | `add` while a slow lookup is running, then `make_trip_list` replaces the list before it ends | The add returns `OPTIONS_STALE`; the new list is unchanged by it | unit |
 | 7 | 4 stops, origin and coordinates scripted; `route_trip order=nearest` | The list is reordered to nearest-next; the `RouteRequest` has destination = the last stop and 3 waypoints in that order | unit |
@@ -506,3 +506,32 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
 | 33 | An unnamed current plan, then `open` another | The old one is kept as 「上一个清单」 | unit |
 | 34 | 20 saved, `save` a new name; two names contain the asked one | `PLANS_FULL`; `AMBIGUOUS` | unit |
 | 35 | Device, 模拟导航, parked: 「规划天津两天的行程」, 「做个打卡清单」 (two days), cards with photos, ✕ one card, 「存成天津周末」, close and reopen the app, 「打开天津周末」, 「开始第一天的导航」 | She makes two days; the cards show photos or placeholders; the ✕ removes the stop and she knows it; after reopening the plan is there; guidance runs through day 1's stops with 途经 labels; the record has the `trip` lines | D |
+
+## 20. Implementation notes (T-040i, T-040j)
+
+1. **Code.**
+   - `TripList`, `TripOrder`, `TripNameMatch` and `TripStopTracker` are in `NovaNav/Trip/TripList.swift`.
+   - `TripPlanner` (the three tools, taps, photos) is in `TripPlanner.swift`.
+   - `TripMoving`, `TripScreen`, `TripPin`, `TripPhotoLink` and `TripPhotoCachePolicy` are in `TripScreen.swift`.
+   - The trip route is `NavigationController.routeTrip`.
+   - The engine waypoints and stops passed are in `AmapRouteEngine`.
+   - The app's cards, strip, pins, photo store and details sheet are in `App/NovaDrive/TripCardsView.swift` and `DriveView`.
+2. **Kept route (§5.3 item 5).** Every list change except `route_trip`'s own reorder drops a kept, not yet started
+   trip route, and takes its line off the map. `route_trip start=true` with no `order` keeps the kept route's order,
+   so 「按清单顺序走」 then 「开始导航」 starts the route she described.
+3. **A change while starting.** A list change while a start is in flight stops that guidance and returns
+   `OPTIONS_STALE`, so a start never runs on a list she no longer has.
+4. **Cancelled calls.** A `make_trip_list`, `add` or `replace` cancelled mid-lookup (barge-in) changes nothing and
+   returns `OPTIONS_STALE`.
+5. **Stops passed (§6 item 3).** Each stop's closest route point is searched from the previous stop's point onward,
+   so a stop near an earlier leg (out and back, a route that crosses itself) is not passed early.
+6. **Taps (§13 item 1).** A card tap calls `TripPlanner.tap`. It runs the same `ToolCatalog.validate` and the same
+   executor as the voice call, not `AgentCore`'s `.ui` path. Taps do not make her speak: §13 item 4 sends a silent
+   note, `AgentEvent.screenNote`, which joins the F-18 §21 note flush.
+7. **Pins (§13 item 5).** Pins come from `TripPin.pins(list, routed:, passed:)` in the view, not from
+   `RouteGeometry.stops`. The engine knows coordinates, not names or labels.
+8. **Persona.** `edit_trip_list` is not repeat-sensitive: 「去掉第一个和第二个」 can be two identical `remove index=1`
+   calls. The persona base is unchanged: the trip tools are 要去的地方 and 导航 in its strict scope.
+9. **Planning stops guidance.** `route_trip start=false` while guidance runs stops that guidance (F-15a §9, one trip
+   at a time). Open for the owner: whether planning should keep the running guidance instead.
+

@@ -144,7 +144,7 @@ public enum ToolCatalog {
         return head + windowPurpose + String(today.dropFirst(head.count))
     }
 
-    /// F-09b §4 item 1 (T-031j): undo the last comfort change set.
+
     // MARK: Trip list (F-15b §5, T-040i)
 
     public static let maxTripStops = 16
@@ -195,6 +195,7 @@ public enum ToolCatalog {
             ])),
     ]
 
+    /// F-09b §4 item 1 (T-031j): undo the last comfort change set.
     public static let undoSpec = ToolSpec(domain: "comfort", repeatSensitive: false, declaration: ToolDeclaration(
         name: "undo_last_change",
         description: "撤销刚才的车辆调整：「不用」「改回去」「刚才那个不要」「还是原来的好」。按结果答：一句话说恢复成了什么；NOTHING_TO_UNDO 说没有可以撤销的。",

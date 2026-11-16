@@ -65,12 +65,22 @@ public actor TripPlanner: ToolExecutor {
     public func execute(_ call: ToolCall) async -> ToolResult {
         // The dispatcher validated the call (ToolCatalog.validate); this is the backstop for direct callers.
         if let code = ToolCatalog.validate(call) { return .failure(code) }
+        let before = list.generation
+        let result: ToolResult
         switch call.name {
-        case "make_trip_list": return await make(call.arguments)
-        case "edit_trip_list": return await edit(call.arguments)
+        case "make_trip_list": result = await make(call.arguments)
+        case "edit_trip_list": result = await edit(call.arguments)
         case "route_trip": return await route(call.arguments)
         default: return .failure(.unknownTool)
         }
+        await listChanged(since: before)
+        return result
+    }
+
+    /// §5.3 item 5: a kept trip route is kept only until the list changes.
+    private func listChanged(since before: Int) async {
+        guard list.generation != before else { return }
+        await navigation.dropKeptTrip(unless: list.generation)
     }
 
     // MARK: make_trip_list
@@ -83,7 +93,8 @@ public actor TripPlanner: ToolExecutor {
         let generation = list.generation
         let here = await origin()
         let lookups = await resolve(names, city: city)
-        guard list.generation == generation else { return .failure(.optionsStale) }
+        // A cancelled call (barge-in) or a newer change while the lookups ran: this one changes nothing.
+        guard !Task.isCancelled, list.generation == generation else { return .failure(.optionsStale) }
         if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
             line(stops: list.count, notFound: names.count, duplicates: 0, since: started)
             return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有做成清单。")
@@ -123,7 +134,10 @@ public actor TripPlanner: ToolExecutor {
         let started = clock.now
         let action = args["action"]?.stringValue ?? ""
         let result = await editAction(action, args)
-        onLine("trip list stops=\(list.count) not_found=\(result.code == .notFound ? 1 : 0) duplicates=0 ms=\(ms(since: started)) action=\(action) ok=\(result.ok ? "yes" : "no")")
+        // not_found counts only a lookup that found nothing (add, replace); duplicates an add of a listed place.
+        let lookedUp = (action == "add" || action == "replace") && result.code == .notFound
+        let duplicates: Int = if case .array(let d)? = result.data["duplicates"] { d.count } else { 0 }
+        onLine("trip list stops=\(list.count) not_found=\(lookedUp ? 1 : 0) duplicates=\(duplicates) ms=\(ms(since: started)) action=\(action) ok=\(result.ok ? "yes" : "no")")
         return result
     }
 
@@ -173,13 +187,14 @@ public actor TripPlanner: ToolExecutor {
             let here = await origin()
             let lookup = await resolve([name], city: nil).first ?? .missing("failed")
             // §3 item 4: a newer change while this lookup ran wins; this one changes nothing.
-            guard list.generation == generation else { return .failure(.optionsStale) }
+            guard !Task.isCancelled, list.generation == generation else { return .failure(.optionsStale) }
             let place: Place
             switch lookup {
             case .found(let found): place = found
             case .keyMissing: return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有改清单。")
             case .missing(let reason):
-                onLine("trip lookup index=1 ok=no reason=\(reason)")
+                // The stop's place in the list: the add position (the end when none) or the replaced index.
+                onLine("trip lookup index=\(index ?? (n + 1)) ok=no reason=\(reason)")
                 return failure(.notFound)
             }
             let replacing = action == "replace" ? index : nil
@@ -205,12 +220,14 @@ public actor TripPlanner: ToolExecutor {
 
     private func route(_ args: JSONValue) async -> ToolResult {
         let started = clock.now
-        let asListed = args["order"]?.stringValue == "as_listed"
         let start = args["start"]?.boolValue ?? false
         guard !list.isEmpty else { return failure(.noTripList) }
         guard list.count >= 2 else {
             return .failure(.tripTooShort, advice: "清单里只有一个地点，串不成路线。请如实说明；要去这一个地方就用 navigate_to。")
         }
+        // 「开始导航」 after 「按清单顺序走」: with no order given, the kept route of this list keeps its order.
+        let keptThisList = await navigation.keptTripList == list.generation
+        let asListed = args["order"]?.stringValue == "as_listed" || (args["order"] == nil && keptThisList)
         if !asListed {
             let order = TripOrder.nearest(from: await origin(), list.stops.map(\.place.coordinate))
             list.reorder(order)
@@ -232,7 +249,7 @@ public actor TripPlanner: ToolExecutor {
         case .kept(let route):
             // §3 item 4: the list changed while the route was calculated: the route is not this list's.
             guard list.generation == generation else {
-                await navigation.dropKeptTrip()
+                await navigation.dropKeptTrip(unless: list.generation)
                 logLine(nil, started: false)
                 return .failure(.optionsStale, advice: "清单在规划时改了，这条路线不算数。请如实说明，需要时再说串成路线。")
             }
@@ -241,6 +258,12 @@ public actor TripPlanner: ToolExecutor {
             return routeResult(route, started: false,
                                next: "只说一句：经过\(stops.count)个地点，全程约\(km)公里，大约\(time)，问要不要开始导航；不要念每个地点，司机问时再念。")
         case .started(let route, let mode), .alreadyRunning(let route, let mode):
+            // B3: the list changed while this trip started; it is not this list's, so its guidance stops.
+            guard list.generation == generation else {
+                await navigation.stopTrip(list: generation)
+                logLine(nil, started: false)
+                return .failure(.optionsStale, advice: "清单在启动导航时改了，导航没有开始。请如实说明，需要时再说开始导航。")
+            }
             logLine(route, started: true)
             let (km, _) = Self.distanceAndTime(route)
             let said = mode == .emulator ? "已开始模拟导航" : "已开始导航"
@@ -270,7 +293,7 @@ public actor TripPlanner: ToolExecutor {
                     guard next < names.count else { return }
                     let i = next
                     next += 1
-                    group.addTask { feed.yield((i, await Self.lookup(names[i], city: city, search: search))) }
+                    _ = group.addTaskUnlessCancelled { feed.yield((i, await Self.lookup(names[i], city: city, search: search))) }
                 }
                 for _ in 0..<min(limit, names.count) { add() }
                 while await group.next() != nil { add() }
@@ -382,7 +405,9 @@ public actor TripPlanner: ToolExecutor {
             case .route(let start):
                 result = await execute(ToolCall(id: CallID("ui-trip")!, name: "route_trip", arguments: ["start": .bool(start)]))
             case .add(let place):
+                let before = list.generation
                 result = add(place)
+                await listChanged(since: before)
             }
         }
         onLine("trip tap action=\(tap.action) ok=\(result.ok ? "yes" : "no")")

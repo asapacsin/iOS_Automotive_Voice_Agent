@@ -68,6 +68,33 @@ final class TripLines: Sendable {
     func append(_ line: String) { all.withLock { $0.append(line) } }
 }
 
+/// Routes at once; a start waits until `release()` (B3: the list changes while the trip starts).
+final class HeldStartEngine: NaviEngine, @unchecked Sendable {
+    let events: AsyncStream<NaviEngineEnvelope>
+    private let continuation: AsyncStream<NaviEngineEnvelope>.Continuation
+    private let held = Mutex<(Generation, Bool)?>(nil)
+    let calls = Mutex<[String]>([])
+    init() { (events, continuation) = AsyncStream.makeStream() }
+    var starting: Bool { held.withLock { $0 != nil } }
+    func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
+        calls.withLock { $0.append("calculate") }
+        continuation.yield(NaviEngineEnvelope(generation: generation, event: .routesReady([route(1, meters: 9_000, seconds: 900)])))
+    }
+    func selectRoute(_ id: RouteID, generation: Generation) async {}
+    func start(_ mode: NaviMode, generation: Generation) async {
+        calls.withLock { $0.append("start") }
+        held.withLock { $0 = (generation, true) }
+    }
+    func release() {
+        guard let (g, _) = held.withLock({ h in defer { h = nil }; return h }) else { return }
+        continuation.yield(NaviEngineEnvelope(generation: g, event: .naviStarted))
+    }
+    func stop(generation: Generation) async {
+        calls.withLock { $0.append("stop") }
+        continuation.yield(NaviEngineEnvelope(generation: generation, event: .naviStopped))
+    }
+}
+
 struct TripRig {
     let search: TripSearch
     let engine: ScriptedNaviEngine
@@ -76,12 +103,12 @@ struct TripRig {
     let lines = TripLines()
 
     init(search: TripSearch = TripSearch(tianjin), engine: ScriptedNaviEngine? = nil, tuning: NovaNav.NavigationTuning = NovaNav.NavigationTuning(),
-         clock: any NovaClock = ManualClock(), resolveLimit: NovaDuration = .seconds(15)) async {
+         clock: any NovaClock = ManualClock(), resolveLimit: NovaDuration = .seconds(15), other: (any NaviEngine)? = nil) async {
         self.search = search
         let engine = engine ?? ScriptedNaviEngine(routes: [route(1, meters: 156_000, seconds: 14_640, toll: 20)])
         self.engine = engine
         let lines = self.lines
-        nav = NavigationController(search: search, engine: engine, location: NoLocation(), clock: clock, tuning: tuning,
+        nav = NavigationController(search: search, engine: other ?? engine, location: NoLocation(), clock: clock, tuning: tuning,
                                    onTripLine: { line in lines.append(line) })
         await nav.start()
         var t = TripTuning()
@@ -230,6 +257,10 @@ struct TripPlannerTests {
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "瓷房子"])]))
         _ = await rig.run(trip("route_trip", ["order": "as_listed"]))
         _ = await rig.run(trip("edit_trip_list", ["action": "remove", "name": "五大道"]))
+        // §5.3 item 5: the edit dropped the kept route (and its line); a choice now finds nothing on screen.
+        let dropped = await rig.nav.current
+        #expect(!dropped.tripRoute && dropped.phase == .idle && dropped.routes.isEmpty)
+        #expect(await rig.nav.execute(tool("choose_navigation_option", ["index": 1])).code == .noOptionsOnScreen)
         #expect(await rig.run(trip("route_trip", ["order": "as_listed", "start": true])).ok)
         let requests = rig.engine.requests.withLock { $0 }
         #expect(requests.count == 2)
@@ -240,6 +271,74 @@ struct TripPlannerTests {
         _ = await rig.nav.execute(tool("navigate_to", ["destination": "天津之眼"]))
         #expect(await !rig.nav.current.tripRoute)
         #expect(await rig.order() == ["古文化街", "瓷房子"])
+    }
+
+    @Test("F-15b row 11 (B1): clear and add drop the kept route too; a kept route of this list survives a read")
+    func editsDropKept() async {
+        let rig = await TripRig()
+        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(trip("route_trip", [:]))
+        _ = await rig.run(trip("edit_trip_list", ["action": "read"]))
+        #expect(await rig.nav.current.tripRoute)
+        _ = await rig.run(trip("edit_trip_list", ["action": "add", "name": "瓷房子"]))
+        #expect(await !rig.nav.current.tripRoute)
+        _ = await rig.run(trip("route_trip", [:]))
+        _ = await rig.run(trip("edit_trip_list", ["action": "clear"]))
+        #expect(await !rig.nav.current.tripRoute)
+        #expect(await rig.run(trip("route_trip", ["start": true])).code == .noTripList)
+    }
+
+    @Test("F-15b row 10 (B2): 「按清单顺序走」 then 「开始导航」 with no order starts the kept route in its order, no new calculation")
+    func asListedThenStart() async {
+        let rig = await TripRig()
+        _ = await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "古文化街", "瓷房子"])]))
+        _ = await rig.run(trip("route_trip", ["order": "as_listed"]))
+        let started = await rig.run(trip("route_trip", ["start": true]))
+        #expect(started.ok && started.data["next"]?.stringValue?.contains("第一站是天津之眼") == true)
+        #expect(await rig.order() == ["天津之眼", "古文化街", "瓷房子"])
+        #expect(rig.engine.calls.withLock { $0 }.filter { $0.hasPrefix("calculate") }.count == 1)
+    }
+
+    @Test("F-15b §5.3 (B3): the list changes while the trip starts: OPTIONS_STALE, guidance stopped, no start claim")
+    func changedWhileStarting() async {
+        let held = HeldStartEngine()
+        let rig = await TripRig(other: held)
+        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "瓷房子"])]))
+        let start = Task { await rig.run(trip("route_trip", ["start": true])) }
+        for _ in 0..<2000 where !held.starting { try? await Task.sleep(for: .milliseconds(1)) }
+        #expect(await rig.run(trip("edit_trip_list", ["action": "remove", "index": 3])).ok)
+        held.release()
+        let r = await start.value
+        #expect(r.code == .optionsStale)
+        #expect(await !rig.nav.current.navigating)
+        #expect(held.calls.withLock { $0 }.last == "stop")
+    }
+
+    @Test("F-15b §4 (barge-in): a cancelled make_trip_list changes nothing")
+    func cancelledMake() async {
+        let rig = await TripRig(search: TripSearch(tianjin, slow: ["南开大学"]))
+        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "南开大学"])])) }
+        for _ in 0..<2000 where rig.search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
+        made.cancel()
+        rig.search.release()
+        #expect(await made.value.code == .optionsStale)
+        #expect(await rig.order() == ["古文化街", "五大道"])
+    }
+
+    @Test("F-15b §6 item 3: a stop is passed when the car goes past its closest route point, far from it; a stop near an earlier leg is not passed early")
+    func tracker() {
+        func p(_ lng: Double, _ lat: Double = 22.27) -> GeoCoordinate { GeoCoordinate(latitude: lat, longitude: lng, datum: .gcj02) }
+        let line = [p(113.50), p(113.51), p(113.52), p(113.53)]
+        // Stop 1 sits 300 m north of the route at 113.51: never within 100 m of the car.
+        var t = TripStopTracker(points: line, waypoints: [.init(index: 1, coordinate: p(113.51, 22.2727))])
+        #expect(t.update(along: 900, position: p(113.509)).isEmpty)
+        #expect(t.update(along: 1100, position: p(113.511)) == [1])
+        #expect(t.update(along: 1500, position: p(113.515)).isEmpty)
+        // Out and back: stop 2 is near the outbound leg's start, but on the way back.
+        let back = [p(113.50), p(113.52), p(113.50)]
+        var r = TripStopTracker(points: back, waypoints: [.init(index: 1, coordinate: p(113.52)), .init(index: 2, coordinate: p(113.502, 22.2727))])
+        #expect(r.update(along: 300, position: p(113.5027)).isEmpty)
     }
 
     @Test("F-15b row 13: one stop is TRIP_TOO_SHORT; an engine failure ROUTE_CALCULATION_FAILED; no confirm START_FAILED, never a start claim")

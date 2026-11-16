@@ -166,12 +166,22 @@ public struct TripStopTracker: Sendable {
         for i in points.indices.dropFirst() {
             cumulative.append(cumulative[i - 1] + SelfPosition.distanceMeters(points[i - 1], points[i]))
         }
-        self.waypoints = waypoints.map { wp in
-            let closest = points.indices.min {
-                SelfPosition.distanceMeters(points[$0], wp.coordinate) < SelfPosition.distanceMeters(points[$1], wp.coordinate)
+        // Stops are in route order: each one's closest point is searched from the previous stop's point on, so a stop
+        // that lies near an earlier leg (out and back, a route that crosses itself) is not passed early.
+        var from = 0
+        var located: [(Waypoint, Double)] = []
+        for wp in waypoints {
+            guard from < points.count else {
+                located.append((wp, .infinity))
+                continue
             }
-            return (wp, closest.map { cumulative[$0] } ?? .infinity)
+            let closest = (from..<points.count).min {
+                SelfPosition.distanceMeters(points[$0], wp.coordinate) < SelfPosition.distanceMeters(points[$1], wp.coordinate)
+            }!
+            located.append((wp, cumulative[closest]))
+            from = closest
         }
+        self.waypoints = located
         self.passed = passed
     }
 

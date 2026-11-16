@@ -819,10 +819,27 @@ public actor NavigationController: ToolExecutor {
         return await startTrip(recommended, list: list, stops: stops)
     }
 
-    /// F-15b §5.3: the trip list changed; a kept, not yet started trip route is dropped.
-    public func dropKeptTrip() {
-        guard let trip, !trip.running else { return }
+    /// F-15b §5.3 item 5: the trip list is now generation `list`; a kept, not yet started trip route of another
+    /// generation is dropped (and its line taken off the map). A newer trip's route is left alone.
+    public func dropKeptTrip(unless list: Int) async {
+        guard let trip, !trip.running, trip.list != list, snapshot.phase == .awaitingRouteSelection else { return }
+        let generation = snapshot.generation
         reset()
+        await engine.stop(generation: generation)
+    }
+
+    /// B3: the list changed while this trip was starting; its guidance stops (the trip is not this list's).
+    public func stopTrip(list: Int) async {
+        guard let trip, trip.running, trip.list == list else { return }
+        let generation = snapshot.generation
+        reset()
+        await engine.stop(generation: generation)
+    }
+
+    /// The list generation of a kept (not yet started) trip route, else nil.
+    public var keptTripList: Int? {
+        guard let trip, !trip.running, snapshot.phase == .awaitingRouteSelection else { return nil }
+        return trip.list
     }
 
     private func startTrip(_ route: RouteSummary, list: Int, stops: [Place]) async -> TripRouteOutcome {
