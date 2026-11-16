@@ -2708,6 +2708,28 @@
       ],
       "notes": "Device 2026-11-16: Voice Memos recorded silence with NovaDrive running, normal with it closed.",
       "evidence": []
+    },
+    {
+      "id": "T-040i",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 30,
+      "action": "F-15b phase 1: TripList + name resolving through PlaceSearch, tools make_trip_list / edit_trip_list / route_trip, RouteRequest.waypoints sent to Amap /v3/direction/driving (max 16), stops passed and recalculation with the unpassed waypoints, trip record lines; F-15b rows 1-15.",
+      "depends_on": [
+        "T-040h"
+      ],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read specs/features/trip-plan.md (F-15b) and say whether to build phase 1",
+      "pass_criteria": "Owner's go recorded in specs/STATUS.md; then this entry becomes AUTONOMOUS / NOT_RUN",
+      "expected_return": "Build phase 1, or changes to the spec",
+      "quantified": {
+        "options": [
+          "Build phase 1 as written (rows 1-15)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"write a spec and push to remot\"). Build starts on the owner's go; then owner AUTONOMOUS, status NOT_RUN. Source: owner video 11-16 (豆包 trip list -> 8-stop route); Amap waypoints limit 16 read 2026-11-16.",
+      "evidence": []
     }
   ]
 }
