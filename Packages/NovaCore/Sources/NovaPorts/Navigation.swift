@@ -28,10 +28,16 @@ public struct RouteID: Sendable, Hashable {
 public struct RouteRequest: Sendable, Hashable {
     public let destination: GeoCoordinate
     public let destinationName: String
+    /// F-15b §6 item 1 (T-040i): stops before the destination, in order (GCJ-02); empty for a single destination.
+    public let waypoints: [GeoCoordinate]
 
-    public init(destination: GeoCoordinate, destinationName: String) {
+    /// 高德 `/v3/direction/driving` takes at most 16 waypoints (F-15b §2).
+    public static let maxWaypoints = 16
+
+    public init(destination: GeoCoordinate, destinationName: String, waypoints: [GeoCoordinate] = []) {
         self.destination = destination
         self.destinationName = destinationName
+        self.waypoints = waypoints
     }
 }
 
@@ -110,6 +116,8 @@ public enum NaviEngineEvent: Sendable, Hashable {
     case rerouting
     /// The recalculation finished: the new route, or nil when it failed and the old route stays.
     case rerouted(RouteSummary?)
+    /// F-15b §6 item 3 (T-040i): waypoint `index` (1-based, route order) of `of` stops was passed; never unpassed.
+    case stopPassed(index: Int, of: Int)
 }
 
 /// Every engine event carries the generation of the request it answers; stale ones are dropped.

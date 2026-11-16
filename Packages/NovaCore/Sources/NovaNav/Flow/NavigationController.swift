@@ -37,6 +37,9 @@ public struct NavigationFlowState: Sendable, Hashable {
     /// F-15a §2.5 (T-040h): the other routes of the trip's calculation while navigating, for a tap that changes the
     /// route (I-6: the same `choose_navigation_option` index as 「换第N条」).
     public var alternatives: [AlternativeRoute] = []
+    /// F-15b §5.3 (T-040i): a trip route is kept (not started) or running; its stops passed so far (1-based).
+    public var tripRoute = false
+    public var tripStopsPassed: Set<Int> = []
     /// The route buttons on screen: none while a list is open (a tap there picks a list row), and in 真实导航 only
     /// 「第N条」, since a change recalculates from here and the earlier minutes no longer hold.
     public var routeTapTargets: [AlternativeRoute] {
@@ -142,11 +145,17 @@ public actor NavigationController: ToolExecutor {
     private var rejectedName: String?
     /// F-16 §14 item 5: listed place ids that need a yes on a later driver turn, and the turn count when listed.
     private var confirm: (ids: Set<String>, turn: Int)?
+    /// F-15b §5.3 (T-040i): the trip route of trip-list generation `list`: kept (`running == false`) or driven.
+    private var trip: (list: Int, stops: [Place], route: RouteSummary, running: Bool)?
+    /// F-15b §7: `trip stop-passed index=<k> of=<n>`.
+    private let onTripLine: @Sendable (String) -> Void
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
                 clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(), saved: SavedPlaces? = nil,
                 mode: (@Sendable () -> NaviMode)? = nil, nearFirst: NearFirstSearch? = nil,
+                onTripLine: @escaping @Sendable (String) -> Void = { _ in },
                 onChange: @escaping @Sendable (NavigationFlowState) -> Void = { _ in }) {
+        self.onTripLine = onTripLine
         self.nearFirst = nearFirst
         self.saved = saved
         self.search = search
@@ -536,6 +545,11 @@ public actor NavigationController: ToolExecutor {
             case .failure(let box): return box.result
             }
         case .awaitingRouteSelection:
+            // F-15b §5.3: a kept trip route is not a route choice; route_trip start=true starts it.
+            if let trip, !trip.running {
+                return .success(["status": "route_unchanged",
+                                 "next": "只说一句：路线已经规划好了，说开始导航就出发。"])
+            }
             if let stale = staleList() { return stale }
             if startInFlight {
                 return .failure(.optionsNotReady, advice: "导航正在启动。请如实说正在启动，稍等一下。")
@@ -741,6 +755,89 @@ public actor NavigationController: ToolExecutor {
         }
     }
 
+    // MARK: route_trip (F-15b §5.3, T-040i)
+
+    public enum TripRouteOutcome: Sendable {
+        /// `start=false`: calculated and kept; nothing started.
+        case kept(RouteSummary)
+        /// Guidance confirmed (I-1).
+        case started(RouteSummary, NaviMode)
+        /// This list's trip is already being driven: nothing started again.
+        case alreadyRunning(RouteSummary, NaviMode)
+        case failed(ToolResult)
+    }
+
+    /// The trip of list generation `list` through `stops` (route order; the last is the destination). `start=false`
+    /// keeps the recommended route without the F-15 choice lifetime; `start=true` drives the kept route when it is
+    /// still this list's, else calculates first. One trip at a time: a running trip is stopped first.
+    public func routeTrip(_ stops: [Place], list: Int, start: Bool) async -> TripRouteOutcome {
+        precondition(stops.count >= 2 && stops.count <= RouteRequest.maxWaypoints + 1)
+        if start, let trip, trip.list == list, trip.stops == stops {
+            if trip.running, snapshot.navigating { return .alreadyRunning(trip.route, snapshot.mode) }
+            if !trip.running, snapshot.phase == .awaitingRouteSelection {
+                if startInFlight { return .failed(.failure(.optionsNotReady, advice: "导航正在启动。请如实说正在启动，稍等一下。")) }
+                return await startTrip(trip.route, list: list, stops: stops)
+            }
+        }
+        if mode() == .gps, let refusal = await noUsableFix() { return .failed(refusal) }
+        if snapshot.navigating || snapshot.listOpen {
+            let old = snapshot.generation
+            await engine.stop(generation: old)
+            guard old == snapshot.generation else { return .failed(.failure(.optionsStale)) }
+        }
+        let generation = advance(to: .calculatingRoute)
+        snapshot.alongRouteList = false
+        snapshot.places = []
+        snapshot.routes = []
+        snapshot.info = nil
+        snapshot.destination = stops.last
+        forgetConfirmations()
+        publish()
+        let request = RouteRequest(destination: stops[stops.count - 1].coordinate, destinationName: stops[stops.count - 1].name,
+                                   waypoints: stops.dropLast().map(\.coordinate))
+        await engine.calculateRoutes(request, generation: generation)
+        guard generation == snapshot.generation else { return .failed(.failure(.optionsStale)) }
+        let event = await wait(.routes, within: tuning.routeWait)
+        guard generation == snapshot.generation else { return .failed(.failure(.optionsStale)) }
+        guard case .routesReady(let routes) = event, let recommended = routes.first else {
+            reset()
+            return .failed(.failure(.routeCalculationFailed, advice: "路线规划失败了。请如实说没有算出路线。"))
+        }
+        // §5.3 item 4: the recommended path only; no route choice for a trip.
+        calculated = [recommended]
+        snapshot.routes = [recommended]
+        snapshot.selectedRoute = recommended.id
+        trip = (list, stops, recommended, false)
+        snapshot.tripRoute = true
+        guard start else {
+            snapshot.phase = .awaitingRouteSelection
+            listedAt = nil
+            publish()
+            await engine.selectRoute(recommended.id, generation: generation)
+            return .kept(recommended)
+        }
+        return await startTrip(recommended, list: list, stops: stops)
+    }
+
+    /// F-15b §5.3: the trip list changed; a kept, not yet started trip route is dropped.
+    public func dropKeptTrip() {
+        guard let trip, !trip.running else { return }
+        reset()
+    }
+
+    private func startTrip(_ route: RouteSummary, list: Int, stops: [Place]) async -> TripRouteOutcome {
+        let generation = snapshot.generation
+        let result = await startGuidance(route)
+        guard result.ok else { return .failed(result) }
+        guard generation == snapshot.generation else { return .failed(.failure(.optionsStale)) }
+        trip = (list, stops, route, true)
+        snapshot.tripRoute = true
+        snapshot.tripStopsPassed = []
+        snapshot.alternatives = []
+        publish()
+        return .started(route, snapshot.mode)
+    }
+
     // MARK: exit_navigation_mode
 
     private func exit() async -> ToolResult {
@@ -816,6 +913,11 @@ public actor NavigationController: ToolExecutor {
                 // The other routes started where the trip was; a change now recalculates (§2.5).
                 snapshot.alternatives = []
             }
+            publish()
+        case .stopPassed(let index, let of):
+            guard trip?.running == true, !snapshot.tripStopsPassed.contains(index) else { return }
+            snapshot.tripStopsPassed.insert(index)
+            onTripLine("trip stop-passed index=\(index) of=\(of)")
             publish()
         case .cameraInfo:
             break
@@ -970,6 +1072,10 @@ public actor NavigationController: ToolExecutor {
     private func advance(to phase: NavigationPhase) -> Generation {
         snapshot.generation = snapshot.generation.next()
         snapshot.phase = phase
+        // F-15b §5.3 item 5: any new request (a navigate_to, a cancel, a new trip route) drops the trip route.
+        trip = nil
+        snapshot.tripRoute = false
+        snapshot.tripStopsPassed = []
         early = [:]
         waiting?.continuation.resume(returning: nil)
         waiting = nil

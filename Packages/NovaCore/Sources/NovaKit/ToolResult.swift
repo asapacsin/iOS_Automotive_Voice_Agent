@@ -20,6 +20,11 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case vehicleBlocked = "VEHICLE_BLOCKED"
     /// F-09b §4 item 2 (T-031j): no kept change set, or it is older than 5 minutes.
     case nothingToUndo = "NOTHING_TO_UNDO"
+    /// F-15b §5 (T-040i): the trip list tools.
+    case noTripList = "NO_TRIP_LIST"
+    case tripTooLong = "TRIP_TOO_LONG"
+    case tripTooShort = "TRIP_TOO_SHORT"
+    case notFound = "NOT_FOUND"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

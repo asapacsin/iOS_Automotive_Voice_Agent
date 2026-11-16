@@ -157,6 +157,10 @@ enum ToolPromptCoverage: Sendable {
         "end_conversation": .phrase("结束对话"),
         // F-13a §10 item 3 (T-032i): 音量 is in the strict scope.
         "set_volume": .phrase("音量"),
+        // F-15b §5 (T-040i): the trip list is 要去的地方 in the strict scope; the tool texts carry the wording.
+        "make_trip_list": .phrase("要去的地方"),
+        "edit_trip_list": .phrase("要去的地方"),
+        "route_trip": .phrase("导航"),
     ]
 
     /// Failure messages for `tools` against `base`; empty when every tool is covered.

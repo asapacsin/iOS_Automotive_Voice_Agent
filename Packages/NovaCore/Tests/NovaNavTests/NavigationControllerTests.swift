@@ -10,6 +10,8 @@ final class ScriptedNaviEngine: NaviEngine {
     private let continuation: AsyncStream<NaviEngineEnvelope>.Continuation
     let routes: [RouteSummary]
     let calls = Mutex<[String]>([])
+    /// F-15b §6 item 6: every request, waypoints included.
+    let requests = Mutex<[RouteRequest]>([])
     let failStart: Bool
 
     init(routes: [RouteSummary], failStart: Bool = false) {
@@ -20,6 +22,7 @@ final class ScriptedNaviEngine: NaviEngine {
 
     func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
         calls.withLock { $0.append("calculate \(request.destinationName)") }
+        requests.withLock { $0.append(request) }
         continuation.yield(NaviEngineEnvelope(generation: generation,
                                               event: routes.isEmpty ? .routeCalculationFailed(code: 2) : .routesReady(routes)))
     }

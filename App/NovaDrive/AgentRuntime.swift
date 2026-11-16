@@ -929,6 +929,7 @@ final class AgentRuntime {
             }),
             vehicle: vehicle, model: model, changed: { await carState.send(.vehicleState(await snapshot())) })
         for name in NavigationController.tools { executors[name] = navigation }
+        for name in TripPlanner.tools { executors[name] = trip.planner }
         executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
@@ -1379,14 +1380,15 @@ final class AgentRuntime {
         let navigationClock = self.navigationClock
         let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
         let web = AmapWebClient(key: amapKey)
-        let engine = AmapRouteEngine(key: amapKey, origin: {
-            // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise, but never in 真实导航
-            // (F-15a OQ-NAVM-2: no route rather than a fake start).
+        // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise, but never in 真实导航
+        // (F-15a OQ-NAVM-2: no route rather than a fake start). F-15b §5.3: the trip list orders from the same origin.
+        let routeOrigin: @Sendable () async -> GeoCoordinate? = {
             guard let fix = await location.latestFix(), LocationQuality.of(fix, at: navigationClock.now) != nil else {
                 return DriveSettings.naviMode() == .gps ? nil : DriveSettings.demoOrigin
             }
             return CoordinateConverter.gcj02(fix.coordinate)
-        },
+        }
+        let engine = AmapRouteEngine(key: amapKey, origin: routeOrigin,
                                      location: location, clock: navigationClock,
                                      onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         let listeners = TripListeners()
@@ -1400,6 +1402,11 @@ final class AgentRuntime {
                 RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
             })
         let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
+        // F-15b §7 (T-040i): the trip lines, codes and numbers only (I-8), to the log and the running record.
+        let tripLine: @Sendable (String) -> Void = { line in
+            RuntimeLog.agent.notice("\(line, privacy: .public)")
+            tripSession.record()?.submit(.trip(line))
+        }
         // The screen follows the trip with or without a session, in snapshot order.
         let screen = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         Task { @MainActor [weak self] in
@@ -1412,14 +1419,17 @@ final class AgentRuntime {
         }
         let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
                                               saved: savedPlaces, mode: { DriveSettings.naviMode() },
-                                              nearFirst: nearFirst) { snapshot in
+                                              nearFirst: nearFirst, onTripLine: tripLine) { snapshot in
             screen.continuation.yield(snapshot)
             // The running session, if any, gets the flags.
             listeners.yield(snapshot)
         }
         await navigation.start()
+        // F-15b (T-040i): the app's one trip list, next to the navigation controller; it outlives voice sessions.
+        let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock,
+                                  onLine: tripLine)
         let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners,
-                           session: tripSession)
+                           session: tripSession, planner: planner)
         self.trip = trip
         return trip
     }
@@ -1988,6 +1998,7 @@ struct AppTrip {
     let savedPlaces: SavedPlaces
     let listeners: TripListeners
     let session: TripSession
+    let planner: TripPlanner
 }
 
 /// F-16 §14 (T-042c): the running session's core (its driver-turn count) and record, for the trip's search.

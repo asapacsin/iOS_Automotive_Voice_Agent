@@ -110,13 +110,16 @@ struct DispatchTests {
         #expect(ToolErrorCode.validationError.rawValue == "_validation_error")
     }
 
-    @Test("F-09, F-09b §3: the Android tools in domain order without run_scenario, then set_volume, get_vehicle_state, undo_last_change")
+    @Test("F-09, F-09b §3: the Android tools in domain order without run_scenario, then set_volume, get_vehicle_state, undo_last_change, the F-15b trip tools")
     func catalog() {
         #expect(ToolCatalog.specs.map(\.name) == [
             "navigate_to", "choose_navigation_option", "exit_navigation_mode", "save_place", "open_app",
             "control_music", "play_music", "control_climate", "control_window", "control_seat",
             "describe_camera_view", "place_call", "query_live_info", "end_conversation", "set_speech_output",
-            "set_speaking_style", "set_volume", "get_vehicle_state", "undo_last_change"])
+            "set_speaking_style", "set_volume", "get_vehicle_state", "undo_last_change",
+            // F-15b §5 (T-040i).
+            "make_trip_list", "edit_trip_list", "route_trip"])
+        #expect(ToolCatalog.spec("edit_trip_list")?.repeatSensitive == false)
         #expect(ToolCatalog.spec("describe_camera_view")?.repeatSensitive == false)
         #expect(ToolCatalog.spec("set_speaking_style")?.repeatSensitive == true)
         #expect(ToolCatalog.spec("play_music")?.declaration.parametersJSONSchema["required"] == nil)

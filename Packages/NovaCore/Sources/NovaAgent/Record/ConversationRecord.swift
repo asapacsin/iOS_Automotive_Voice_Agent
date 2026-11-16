@@ -80,6 +80,8 @@ public enum RecordEvent: Sendable, Hashable {
     case summaryNote(exchanges: Int, ageS: Int)
     /// F-09b §8 (T-031j): `undo ok=<yes|no> restored=<n>`.
     case undo(String)
+    /// F-15b §7 (T-040i): `trip list …`, `trip lookup …`, `trip route …`, `trip stop-passed …`; codes and numbers only.
+    case trip(String)
     /// F-18 §30 item 5 (T-046s): `weather source= ok= reason= view= lookup= attempts= ms=`; codes and numbers only.
     case weather(String)
     /// F-03 §14 item 4 (T-021q): `audio interrupted`, `audio interruption-ended resume=…`, `audio resumed …`.
@@ -230,6 +232,7 @@ public struct ConversationRecorder: Sendable {
         case .stateNote(let reason): return [line("state-note", "reason=\(reason.rawValue)")]
         case .summaryNote(let n, let age): return [line("summary-note", "exchanges=\(n) age_s=\(age)")]
         case .undo(let text): return ["\(ms) \(text)"]
+        case .trip(let text): return ["\(ms) \(text)"]
         case .volume(let text), .audio(let text): return ["\(ms) \(text)"]
         case .weather(let text): return ["\(ms) \(text)"]
         case .music(let text):
