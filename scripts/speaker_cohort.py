@@ -17,6 +17,7 @@ Needs: pip install sherpa-onnx numpy soundfile. Audio (CC BY-SA 4.0, OpenSLR 82)
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import pathlib
@@ -98,12 +99,16 @@ def make_embedder(model: pathlib.Path, threads: int):
         raise SystemExit(f"speaker_cohort: invalid model config for {model}")
     extractor = sherpa_onnx.SpeakerEmbeddingExtractor(config)
 
-    def embed(path: pathlib.Path) -> np.ndarray | None:
+    def embed(path: pathlib.Path, seconds: float | None = None) -> np.ndarray | None:
         audio, sr = soundfile.read(str(path), dtype="float32", always_2d=True)
         if sr != SAMPLE_RATE:
             raise SystemExit(f"speaker_cohort: {path} is {sr} Hz, expected {SAMPLE_RATE}")
+        samples = audio[:, 0]
+        if seconds is not None:
+            # §17 item 6 (T-013k): only the first `seconds` of the test utterance.
+            samples = samples[: int(round(seconds * SAMPLE_RATE))]
         stream = extractor.create_stream()
-        stream.accept_waveform(SAMPLE_RATE, audio[:, 0])
+        stream.accept_waveform(SAMPLE_RATE, samples)
         stream.input_finished()
         if not extractor.is_ready(stream):
             return None
@@ -136,7 +141,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--top-n", type=int, default=300)
     ap.add_argument("--min-speakers", type=int, default=300)
     ap.add_argument("--cache", type=pathlib.Path)
+    ap.add_argument("--test-seconds", type=float,
+                    help="§17 item 6 (T-013k): also score test utterances cut to their first N seconds "
+                         "(enrollment uncut) and add threshold1s, eer1s, trials1s")
     a = ap.parse_args(argv)
+    if a.test_seconds is not None and not a.test_seconds > 0:
+        print("speaker_cohort: --test-seconds must be > 0; nothing written", file=sys.stderr)
+        return 1
 
     sha = sha256(a.model)
     if sha != pinned_sha():
@@ -182,31 +193,43 @@ def main(argv: list[str] | None = None) -> int:
     enr = embed_all([enroll_path(i) for i in enroll_ids], embed, a.cache, "enroll")
     tst = embed_all([test_path(i) for i in test_ids], embed, a.cache, "test")
     e_ok = [i for i in enroll_ids if enroll_path(i).as_posix() in enr]
-    t_ok = [i for i in test_ids if test_path(i).as_posix() in tst]
     E = unit(np.stack([enr[enroll_path(i).as_posix()] for i in e_ok]))
-    T = unit(np.stack([tst[test_path(i).as_posix()] for i in t_ok]))
     me, se = cohort_stats(E, cohort, a.top_n)
-    mt, st = cohort_stats(T, cohort, a.top_n)
     ei = {i: k for k, i in enumerate(e_ok)}
-    ti = {i: k for k, i in enumerate(t_ok)}
-    kept = [t for t in trials if t[0] in ei and t[1] in ti]
-    a_idx = np.array([ei[t[0]] for t in kept])
-    b_idx = np.array([ti[t[1]] for t in kept])
-    labels = np.array([t[2] in ("1", "target") for t in kept])
-    raw = np.einsum("ij,ij->i", E[a_idx], T[b_idx])
-    norm = 0.5 * ((raw - me[a_idx]) / se[a_idx] + (raw - mt[b_idx]) / st[b_idx])
-    rate, threshold = eer(norm, labels)
-    raw_rate, raw_threshold = eer(raw, labels)
+
+    def score(tst: dict[str, np.ndarray]) -> tuple[float, float, float, float, int]:
+        """AS-norm EER and threshold, raw-cosine EER and threshold, and the trials kept, for these test embeddings."""
+        t_ok = [i for i in test_ids if test_path(i).as_posix() in tst]
+        T = unit(np.stack([tst[test_path(i).as_posix()] for i in t_ok]))
+        mt, st = cohort_stats(T, cohort, a.top_n)
+        ti = {i: k for k, i in enumerate(t_ok)}
+        kept = [t for t in trials if t[0] in ei and t[1] in ti]
+        a_idx = np.array([ei[t[0]] for t in kept])
+        b_idx = np.array([ti[t[1]] for t in kept])
+        labels = np.array([t[2] in ("1", "target") for t in kept])
+        raw = np.einsum("ij,ij->i", E[a_idx], T[b_idx])
+        norm = 0.5 * ((raw - me[a_idx]) / se[a_idx] + (raw - mt[b_idx]) / st[b_idx])
+        rate, threshold = eer(norm, labels)
+        raw_rate, raw_threshold = eer(raw, labels)
+        return rate, threshold, raw_rate, raw_threshold, len(kept)
+
+    rate, threshold, raw_rate, raw_threshold, kept = score(tst)
 
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "speaker_cohort.f32").write_bytes(cohort.astype("<f4").tobytes())
     meta = {
         "source": "CN-Celeb1 dev (OpenSLR 82)", "license": "CC BY-SA 4.0", "model": MODEL_NAME,
         "modelSha256": sha, "speakers": len(speakers), "dimension": int(dim), "topN": a.top_n,
-        "threshold": round(threshold, 4), "eer": round(rate, 4), "trials": len(kept),
-        "skippedTrials": len(trials) - len(kept), "rawCosineEer": round(raw_rate, 4),
+        "threshold": round(threshold, 4), "eer": round(rate, 4), "trials": kept,
+        "skippedTrials": len(trials) - kept, "rawCosineEer": round(raw_rate, 4),
         "rawCosineEerThreshold": round(raw_threshold, 4),
     }
+    if a.test_seconds is not None:
+        # §17 item 6: the same method on test clips of the length the early check scores.
+        cut = functools.partial(embed, seconds=a.test_seconds)
+        tag = f"test{a.test_seconds:g}s"
+        rate1, threshold1, _, _, kept1 = score(embed_all([test_path(i) for i in test_ids], cut, a.cache, tag))
+        meta.update({"threshold1s": round(threshold1, 4), "eer1s": round(rate1, 4), "trials1s": kept1})
     (a.out / "speaker_cohort.json").write_text(json.dumps(meta, indent=2) + "\n")
     print(json.dumps(meta, indent=2))
     return 0

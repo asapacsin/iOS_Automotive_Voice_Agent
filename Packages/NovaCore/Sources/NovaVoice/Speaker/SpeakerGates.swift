@@ -2,38 +2,88 @@ import NovaKit
 import NovaPorts
 
 /// F-04b §6 item 9 (T-013e): with the lock on, a live interruption acts only on an accepted utterance. `BargeInLive`'s
-/// steps for the open utterance are held while its verdict is pending (no dip, no stop before acceptance); accepted
-/// releases them in order, rejected drops the actions and turns what it would have sent into a not-sent utterance.
-/// Lock off (verdict nil): steps pass unchanged. Pure.
+/// steps for the open utterance are held while its verdict is pending; accepted releases them in order, rejected drops
+/// the actions and turns what it would have sent into a not-sent utterance. Lock off (verdict nil): steps pass
+/// unchanged. Pure.
+///
+/// §17 items 1, 3 (T-013k): a dip acts at once (only a stop and the adopted utterance wait). The early verdict
+/// decides the stop: accepted releases the queued stop (the outputs and adopt still wait for the whole verdict);
+/// rejected or unknown drops it, restores her volume, and every later live step of that utterance is dropped.
 public struct SpeakerActionHold: Sendable {
     private var queue: [BargeInLive.Step] = []
     /// The open utterance was rejected: what the live interruption sends for it is not sent.
     private var rejected = false
+    /// §17: the utterance whose early verdict is known, and that verdict.
+    private var early: (utterance: Int, accepted: Bool)?
+    private var logs: [String] = []
 
     public init() {}
+
+    /// §17 item 7: `bargeInEarly <utterance> early=<accepted|rejected|unknown> stop=<released|dropped|none>`.
+    public mutating func takeLogs() -> [String] {
+        defer { logs.removeAll(keepingCapacity: true) }
+        return logs
+    }
 
     /// True while steps wait for a verdict (tests).
     public var holding: Bool { !queue.isEmpty }
 
-    /// One live step and the speaker verdict of the open utterance at that moment.
-    public mutating func step(_ step: BargeInLive.Step, verdict: SpeakerHold.Verdict?) -> BargeInLive.Step {
+    /// One live step and the speaker verdict of the open utterance at that moment. `utterance`: the open one's
+    /// number (`SpeakerHold.heldUtterance`), for the early verdict.
+    public mutating func step(_ step: BargeInLive.Step, verdict: SpeakerHold.Verdict?, utterance: Int? = nil)
+        -> BargeInLive.Step {
         switch verdict {
-        case nil:
+        case nil, .accepted?:
             rejected = false
-            return flush() + step
-        case .accepted?:
-            rejected = false
+            early = nil
             return flush() + step
         case .rejected?:
             rejected = true
-            return Self.unsent(flushDropped() + step)
+            early = nil
+            return Self.unsent(flush() + step)
         case .pending?:
             rejected = false
-            if queue.isEmpty, step.actions.isEmpty, !step.adopt { return step }
-            queue.append(step)
-            return BargeInLive.Step()
+            if let e = early, e.utterance != utterance { early = nil }
+            if let e = early, !e.accepted {
+                // §17 item 3: rejected early: nothing of the live interruption for this utterance acts.
+                return Self.unsent(step)
+            }
+            let accepted = early?.accepted == true
+            // §17 item 1: a dip never waits; after an accepted early check neither does a stop.
+            var now = BargeInLive.Step()
+            now.actions = step.actions.filter { accepted || Self.isDip($0) }
+            var later = step
+            later.actions = step.actions.filter { !(accepted || Self.isDip($0)) }
+            if queue.isEmpty, later.actions.isEmpty, !later.adopt { now.outputs = step.outputs; return now }
+            queue.append(later)
+            return now
         }
     }
+
+    /// §17 item 3: the early verdict for `utterance`.
+    public mutating func early(_ result: SpeakerCheckResult?, utterance: Int?) -> BargeInLive.Step {
+        guard let result, let utterance else { return BargeInLive.Step() }
+        var out = BargeInLive.Step()
+        let stops = queue.contains { $0.actions.contains(.stop) }
+        logs.append("bargeInEarly \(utterance) early=\(result.rawValue) stop="
+                    + (stops ? (result == .accepted ? "released" : "dropped") : "none"))
+        if result == .accepted {
+            early = (utterance, true)
+            // The queued stop acts now; outputs and adopt wait for the whole verdict.
+            out.actions = queue.flatMap(\.actions)
+            queue = queue.map { var s = $0; s.actions = []; return s }
+        } else {
+            early = (utterance, false)
+            // No stop; her volume comes back. Outputs of the dropped steps go up as not sent.
+            var dropped = flush()
+            dropped.adopt = false
+            out = Self.unsent(dropped)
+            if !out.actions.contains(.dip(false)) { out.actions.append(.dip(false)) }
+        }
+        return out
+    }
+
+    static func isDip(_ a: BargeInAction) -> Bool { if case .dip = a { true } else { false } }
 
     /// The verdicts `SpeakerHold` reached in a step, in order.
     public mutating func decided(_ verdicts: [SpeakerHold.Verdict]) -> BargeInLive.Step {
@@ -41,7 +91,7 @@ public struct SpeakerActionHold: Sendable {
         for v in verdicts {
             switch v {
             case .accepted: rejected = false; out = out + flush()
-            case .rejected: rejected = true; out = out + Self.unsent(flushDropped())
+            case .rejected: rejected = true; out = out + Self.unsent(flush())
             case .pending: break
             }
         }
@@ -53,19 +103,13 @@ public struct SpeakerActionHold: Sendable {
         return queue.reduce(BargeInLive.Step(), +)
     }
 
-    private mutating func flushDropped() -> BargeInLive.Step {
-        let all = flush()
-        var kept = BargeInLive.Step()
-        kept.outputs = all.outputs
-        kept.actions = all.actions.filter { $0 == .dip(false) }
-        return kept
-    }
-
     /// Nothing of it goes up: no actions, no adopt, a sent start becomes not sent, audio and stream end are dropped.
     static func unsent(_ step: BargeInLive.Step) -> BargeInLive.Step {
         var out = BargeInLive.Step()
         // Restoring her volume is never held back: only a dip, a stop and an adopt need an accepted voice.
         out.actions = step.actions.filter { $0 == .dip(false) }
+        // §17 item 1: the dip acted at once, so a dropped stop must give her volume back.
+        if step.actions.contains(.stop), !out.actions.contains(.dip(false)) { out.actions.append(.dip(false)) }
         for output in step.outputs {
             switch output {
             case .speechStarted: out.outputs.append(.speechStarted(sentToModel: false))

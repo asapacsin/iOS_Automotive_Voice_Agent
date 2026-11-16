@@ -126,10 +126,15 @@ struct SpeakerHoldTests {
         _ = hold.setLock(threshold: 0.5)
         var first: SpeakerScoreRequest?
         for step in utterance(1, frames: 120) { if let r = hold.frame(step).request { first = r } }
-        // Utterance 1 closed waiting; utterance 2 starts and makes it unknown.
+        // §17 item 4 (T-013k): utterance 1 closed waiting is kept when utterance 2 starts; its result applies to it alone.
         var second: SpeakerScoreRequest?
         for step in utterance(2, frames: 120, from: 500) { if let r = hold.frame(step).request { second = r } }
         let old = try! #require(first)
+        #expect(hold.isHeld(1) && hold.isHeld(2))
+        let late = hold.result(.score(0.99, scoreMs: 1), utterance: old.utterance, generation: old.generation)
+        #expect(audioNumbers(late.outputs) == Array(1...120) && late.decidedUtterances == [1])
+        #expect(!hold.isHeld(1) && hold.verdict == .pending)
+        // The same result again is stale.
         #expect(hold.result(.score(0.99, scoreMs: 1), utterance: old.utterance, generation: old.generation).outputs.isEmpty)
         // A new session: the second request is stale too.
         hold.reset()
@@ -205,14 +210,14 @@ struct SpeakerActionTests {
         return s
     }
 
-    @Test("F-04b §6 item 9: no dip or stop before acceptance; accepted releases them in order")
+    @Test("F-04b §6 item 9, §17 item 1: the dip acts at once; no stop before acceptance; accepted releases it in order")
     func interruptionWaitsForAcceptance() {
         var hold = SpeakerActionHold()
-        #expect(hold.step(step([.dip(true)]), verdict: .pending) == BargeInLive.Step())
+        #expect(hold.step(step([.dip(true)]), verdict: .pending) == step([.dip(true)]))
         #expect(hold.step(step([.stop], [.speechStarted(sentToModel: true), .audio(f(1))], adopt: true),
                           verdict: .pending) == BargeInLive.Step())
         let released = hold.decided([.accepted])
-        #expect(released.actions == [.dip(true), .stop])
+        #expect(released.actions == [.stop])
         #expect(released.adopt)
         #expect(audioNumbers(released.outputs) == [1])
         #expect(!hold.holding)
@@ -224,10 +229,11 @@ struct SpeakerActionTests {
         _ = hold.step(step([.dip(true)]), verdict: .pending)
         _ = hold.step(step([.stop], [.speechStarted(sentToModel: true), .audio(f(1))], adopt: true), verdict: .pending)
         let dropped = hold.decided([.rejected])
-        #expect(dropped.actions.isEmpty && !dropped.adopt)
+        // §17 item 1: the dip already acted, so dropping the stop gives her volume back.
+        #expect(dropped.actions == [.dip(false)] && !dropped.adopt)
         #expect(dropped.outputs == [.speechStarted(sentToModel: false)])
         let later = hold.step(step([.stop], [.audio(f(2)), .streamEnd]), verdict: .rejected)
-        #expect(later.actions.isEmpty && later.outputs.isEmpty)
+        #expect(later.actions == [.dip(false)] && later.outputs.isEmpty)
         // Lock off: unchanged.
         let s = step([.dip(true)], [.audio(f(3))])
         #expect(hold.step(s, verdict: nil) == s)
@@ -421,7 +427,8 @@ struct SpeakerBatchTests {
         var actions = SpeakerActionHold()
         var s = BargeInLive.Step()
         s.actions = [.dip(false), .stop]
-        _ = actions.step(s, verdict: .pending)
+        // §17 item 1: restoring her volume never waits; the stop is dropped.
+        #expect(actions.step(s, verdict: .pending).actions == [.dip(false)])
         #expect(actions.decided([.rejected]).actions == [.dip(false)])
         #expect(actions.step(s, verdict: .rejected).actions == [.dip(false)])
     }

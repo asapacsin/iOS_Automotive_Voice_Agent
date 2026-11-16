@@ -15,7 +15,7 @@ public enum SpeakerRejectionNotice {
         case (_, .accepted): nil
         case (.speech, _): speech
         case (.wake, _): wake
-        case (.stop, _): nil
+        case (.stop, _), (.early, _): nil  // §17: an early check only decides whether she stops
         }
     }
 }
