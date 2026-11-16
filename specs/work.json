@@ -2771,7 +2771,7 @@
     {
       "id": "T-040l",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b phase 2b: current plan saved in Application Support, named plans (max 20) and days (1-5), trip_plans tool (save/open/list/delete/rename), 上一个清单 slot, load/save record lines; F-15b rows 26-35.",
       "depends_on": [
@@ -2784,7 +2784,12 @@
         ]
       },
       "notes": "Spec only (owner 2026-11-16: \"create a spec including this function and also other thing that tailored from the movie and push to remtoe\"). Build starts on the owner's go. Owner go 2026-11-16: \"pull and implement the spec\" (F-15b, phases 1 and 2).",
-      "evidence": []
+      "evidence": [
+        "gates PASS at d0e6903 (scripts/gates/run_all.sh: NovaCore 826 tests, ios-spec-check PASS, spec-trace 132 ids)",
+        "independent read-only review (high effort): FAIL at e1f4836 (a day switch was not a plan change; pins and passed marks from the old route), FAIL at 6ecd95c (a look at another day restarted running guidance; no controller test for tripStopIDs), PASS at 3c1161b with mutation checks",
+        "unit rows 26-34: TripPlanTests, TripReviewFixTests, TripReviewFix2Tests",
+        "NOT_VERIFIED: App build (Codemagic); row 35 device"
+      ]
     },
     {
       "id": "T-031j",
