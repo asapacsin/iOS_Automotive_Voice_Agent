@@ -2724,7 +2724,7 @@
     {
       "id": "T-040i",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b phase 1: TripList + name resolving through PlaceSearch, tools make_trip_list / edit_trip_list / route_trip, RouteRequest.waypoints sent to Amap /v3/direction/driving (max 16), stops passed and recalculation with the unpassed waypoints, trip record lines; F-15b rows 1-15.",
       "depends_on": [
@@ -2737,7 +2737,13 @@
         ]
       },
       "notes": "Spec only (owner 2026-11-16: \"write a spec and push to remot\"). Build starts on the owner's go; then owner AUTONOMOUS, status NOT_RUN. Source: owner video 11-16 (豆包 trip list -> 8-stop route); Amap waypoints limit 16 read 2026-11-16. Owner go 2026-11-16: \"pull and implement the spec\" (F-15b, phases 1 and 2).",
-      "evidence": []
+      "evidence": [
+        "gates PASS at 681dccf and 25e42f1 (scripts/gates/run_all.sh: static PASS, NovaCore tests, ios-spec-check PASS)",
+        "independent read-only review (high effort): FAIL at 6015cc1 (kept trip route survived list changes; as_listed then start reordered; no OPTIONS_STALE on a change during start), fixed in 681dccf; PASS at 681dccf",
+        "mutation evidence: each fix's test fails with the fix removed (editsDropKept, asListedThenStart, changedWhileStarting, cancelledMake, tracker)",
+        "unit rows 1-14: TripPlannerTests, TripWaypointTests (NovaServices); spec §20 implementation notes",
+        "NOT_VERIFIED: App build (Codemagic); row 15 device"
+      ]
     },
     {
       "id": "T-040j",
