@@ -242,16 +242,26 @@ struct TripPlanTests {
 final class HeldPhotoSearch: PlaceSearch, @unchecked Sendable {
     let details = Mutex<[String]>([])
     private let held = Mutex<[CheckedContinuation<Void, Never>]>([])
-    let hold: Bool
-    init(hold: Bool) { self.hold = hold }
+    /// After `release()` no call is held (lookups run `parallelLookups` at a time, so some start after it).
+    private let holding: Mutex<Bool>
+    init(hold: Bool) { holding = Mutex(hold) }
     var waiting: Int { held.withLock { $0.count } }
-    func release() { for c in held.withLock({ h in defer { h = [] }; return h }) { c.resume() } }
+    func release() {
+        holding.withLock { $0 = false }
+        for c in held.withLock({ h in defer { h = [] }; return h }) { c.resume() }
+    }
     func text(_ keywords: String, city: String?) async throws -> [Place] { tianjin[keywords] ?? [] }
     func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] { [] }
     func polygon(_ keywords: String, vertices: [GeoCoordinate]) async throws -> [Place] { [] }
     func detail(id: String) async throws -> Place? {
         details.withLock { $0.append(id) }
-        if hold { await withCheckedContinuation { c in held.withLock { $0.append(c) } } }
+        if holding.withLock({ $0 }) {
+            await withCheckedContinuation { c in
+                held.withLock { h in
+                    if holding.withLock({ $0 }) { h.append(c) } else { c.resume() }
+                }
+            }
+        }
         return spot(id, lat: 0, lng: 0).with(photoURL: URL(string: "https://a.cn/\(id.unicodeScalars.first!.value).jpg"))
     }
 }
@@ -278,7 +288,7 @@ struct TripReviewFixTests {
         let planner = TripPlanner(search: search, navigation: nav, origin: { origin }, clock: ManualClock(),
                                   onChange: { list in seen.withLock { $0.append(list) } })
         _ = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道", "瓷房子"])]))
-        for _ in 0..<2000 where search.waiting < 3 { try? await Task.sleep(for: .milliseconds(1)) }
+        for _ in 0..<2000 where search.waiting < TripTuning().parallelLookups { try? await Task.sleep(for: .milliseconds(1)) }
         _ = await planner.execute(trip("edit_trip_list", ["action": "move", "index": 3, "to_index": 1]))
         search.release()
         await planner.photosSettled()
