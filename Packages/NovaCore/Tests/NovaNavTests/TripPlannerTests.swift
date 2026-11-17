@@ -14,10 +14,14 @@ final class TripSearch: PlaceSearch, @unchecked Sendable {
     let asked = Mutex<[String]>([])
     let returned = Mutex(0)
 
-    init(_ table: [String: [Place]], slow: Set<String> = [], error: AmapWebError? = nil) {
+    /// The first `failFirst` text searches throw `quota` (高德's per-second limit), then it answers.
+    private let failing: Mutex<Int>
+
+    init(_ table: [String: [Place]], slow: Set<String> = [], error: AmapWebError? = nil, failFirst: Int = 0) {
         self.table = table
         self.slow = slow
         self.error = error
+        self.failing = Mutex(failFirst)
     }
 
     var waiting: Int { held.withLock { $0.count } }
@@ -27,6 +31,7 @@ final class TripSearch: PlaceSearch, @unchecked Sendable {
         asked.withLock { $0.append(keywords) }
         if slow.contains(keywords) { await withCheckedContinuation { c in held.withLock { $0.append(c) } } }
         if let error { throw error }
+        if failing.withLock({ n in defer { n = max(n - 1, 0) }; return n > 0 }) { throw AmapWebError.quota }
         defer { returned.withLock { $0 += 1 } }
         return table[keywords] ?? []
     }
@@ -412,6 +417,63 @@ struct TripPlannerTests {
         list.reorder([0, 1, 2])
         #expect(list.generation == 2)
         #expect(TripNameMatch.accepts(asked: "海河", found: "海河观光") && !TripNameMatch.accepts(asked: "盘山", found: "饭店"))
+    }
+}
+
+@Suite("F-15b §4 item 6 device 2026-11-17 lookups")
+struct TripLookupTests {
+    @Test("F-15b row 40: 路环安德鲁葡挞 takes 安德鲁饼店 (a shared run of 3); 澳门旅游塔 takes the 2nd result 澳门旅游塔(观光) over a first 澳门旅游局; 盘山 never takes 饭店")
+    func nameCheck() {
+        let andrew = spot("安德鲁饼店(路环店)", lat: 22.12, lng: 113.55)
+        #expect(TripNameMatch.pick(asked: "路环安德鲁葡挞", from: [andrew]) == andrew)
+        let bureau = spot("澳门旅游局", lat: 22.19, lng: 113.54), tower = spot("澳门旅游塔会展娱乐中心", lat: 22.18, lng: 113.54)
+        #expect(TripNameMatch.pick(asked: "澳门旅游塔", from: [bureau, tower]) == tower)
+        #expect(TripNameMatch.pick(asked: "盘山", from: [spot("饭店", lat: 39, lng: 117)]) == nil)
+        #expect(TripNameMatch.pick(asked: "大三巴", from: []) == nil)
+        // Review counterexamples: a shared city prefix, a place-type word or the city argument is not a match.
+        func place(_ name: String, city: String) -> Place {
+            Place(id: name, name: name, address: nil, coordinate: GeoCoordinate(latitude: 30, longitude: 110, datum: .gcj02),
+                  distanceMeters: nil, city: city, district: nil)
+        }
+        #expect(TripNameMatch.pick(asked: "哈尔滨中央大街", from: [place("哈尔滨站", city: "哈尔滨市")]) == nil)
+        #expect(TripNameMatch.pick(asked: "天津博物馆", from: [place("天津自然博物馆", city: "天津市")]) == nil)
+        #expect(TripNameMatch.pick(asked: "XX购物中心", from: [spot("YY购物中心", lat: 39, lng: 117)]) == nil)
+        #expect(TripNameMatch.pick(asked: "澳门旅游塔", from: [place("澳门旅游局", city: "澳门特别行政区")]) == nil)
+        let shop = place("安德鲁饼店", city: "澳门特别行政区")
+        #expect(TripNameMatch.pick(asked: "安德鲁葡挞", from: [shop]) == shop)
+        #expect(TripNameMatch.pick(asked: "乌鲁木齐红山", from: [spot("乌鲁木齐站", lat: 43.8, lng: 87.6)], city: "乌鲁木齐") == nil)
+        #expect(TripNameMatch.longestRun("路环安德鲁葡挞", "安德鲁饼店路环店") == 3)
+    }
+
+    @Test("F-15b row 41: two lookups refused as busy (高德 per-second limit) are tried once more and found; 2 at once")
+    func busyRetried() async {
+        let search = TripSearch(tianjin, failFirst: 2)
+        var t = TripTuning()
+        t.retryDelay = .milliseconds(10)
+        #expect(TripTuning().parallelLookups == 2)
+        let rig = await TripRig(search: search)
+        let planner = TripPlanner(search: search, navigation: rig.nav, origin: { origin }, clock: ManualClock(), tuning: t,
+                                  onLine: { line in rig.lines.append(line) })
+        let r = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼"])]))
+        #expect(r.ok && r.data["count"] == .int(3) && r.data["not_found"] == names([]))
+        // F-15b row 43: the same names again cost no lookup (cache), even with 高德 refusing everything now.
+        let asked = search.asked.withLock { $0.count }
+        let again = await planner.execute(trip("make_trip_list", ["places": names(["五大道", "古文化街"])]))
+        #expect(again.ok && again.data["count"] == .int(2))
+        #expect(search.asked.withLock { $0.count } == asked)
+    }
+
+    @Test("F-15b row 42: a lookup still busy after its retry is not_found with reason=busy")
+    func busyTwice() async {
+        let search = TripSearch(tianjin, failFirst: 10)
+        var t = TripTuning()
+        t.retryDelay = .milliseconds(10)
+        let rig = await TripRig(search: search)
+        let planner = TripPlanner(search: search, navigation: rig.nav, origin: { origin }, clock: ManualClock(), tuning: t,
+                                  onLine: { line in rig.lines.append(line) })
+        let r = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        #expect(r.code == .noCandidates)
+        #expect(rig.lines.withLock { $0 }.contains("trip lookup index=1 ok=no reason=busy"))
     }
 }
 

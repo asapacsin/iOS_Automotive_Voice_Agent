@@ -85,11 +85,71 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
      from speech.
 3. **Duplicates.** A result whose `Place.id` is already in the list is dropped. Its name is reported in `duplicates`.
 4. **Limits.**
-   - At most 4 lookups run at once.
+   - At most 2 lookups run at once (item 7; was 4).
    - Each lookup uses the transport's 8 s timeout.
    - The whole `make_trip_list` call finishes within 15 s. Lookups still running then count as not found, with
      `reason=timeout` in the record.
-5. **No key.** A missing or rejected key returns `AMAP_WEB_KEY_MISSING`. Any other lookup failure counts as not found.
+5. **No key.** A missing or rejected key returns `AMAP_WEB_KEY_MISSING`. Any other lookup failure counts as not found
+   (after item 7's retries).
+6. **Name check, widened** (device 2026-11-17: 「路环安德鲁葡挞」 and 「路环玛嘉烈蛋挞」 were `nomatch`; 高德 knows the shops
+   by their shop names). The first of the top 5 results whose name contains, or is contained in, the asked name is
+   taken. If none is, the first result is taken when it shares a run of at least 3 characters with the asked name
+   (「安德鲁」), counted after removing the city and the result's own city and district names and place-type words such as 博物馆 or 站; a shared start that is not a region still counts (「安德鲁葡挞」 takes 「安德鲁饼店」) (review: 「哈尔滨中央大街」 never takes 「哈尔滨站」). 「盘山」 still never takes 「饭店」. The catalog texts ask for shop names, not dish names
+   (「安德鲁饼店」).
+7. **高德's request limits** (device 2026-11-17: 2 of 5 lookups failed with 4 at once). 高德's error codes 10019–10021
+   mean the per-second limit was exceeded: requests over it are rejected, those within it still answer
+   ([错误码说明](https://lbs.amap.com/api/webservice/guide/tools/info)). The per-second limit of a key is shown only in
+   its console ([流量限制说明](https://lbs.amap.com/api/webservice/guide/tools/flowlevel)); a personal key has 5,000
+   basic searches a month ([基础服务配额](https://lbs.amap.com/upgrade#price#base_service_price)). Common practice:
+   fewer requests at once, retry with growing waits, cache results. So:
+   - at most 2 lookups at once (was 4);
+   - a lookup refused as busy (`quota`), timed out or failed is tried up to twice more, after 600 ms and then
+     1.2 s, all inside the 15 s limit; `nomatch` is never retried;
+   - places found are cached for the app's lifetime by city and asked name, at most 64, oldest dropped, so a
+     re-made plan or a re-added stop costs no lookup;
+   - record reasons: `nomatch`, `busy`, `timeout`, `failed`.
+8. **Community review (2026-11-17, owner asked).** What published practice does, against items 6 and 7.
+   - **Request limits.** Vendor guides agree on five points:
+     - bound concurrency with a semaphore or token bucket
+       ([CometAPI](https://apidoc.cometapi.com/zh-Hans/guides/rate-limits-and-concurrency),
+       [阿里云客户端限流](https://help.aliyun.com/zh/redis/use-cases/client-side-throttling));
+     - retry with exponential backoff, capped attempts, plus random jitter so retries do not fire together
+       ([Prismatic](https://prismatic.io/blog/how-do-i-implement-exponential-backoff-with-jitter/),
+       [Docebo](https://developer.docebo.com/docs/best-practices-for-handling-api-rate-limits-and-429-errors));
+     - retry only throttle errors, not other refusals (阿里云 above);
+     - cache stable results and send requests only when needed
+       ([Google Maps: optimize web services](https://developers.google.com/maps/optimize-web-services?hl=zh-tw),
+       [Truto](https://truto.one/blog/best-practices-for-handling-api-rate-limits-and-retries-across-multiple-third-party-apis/));
+     - avoid nested retries.
+
+     高德 publishes no retry advice.
+     - Item 7 has: the concurrency bound, capped growing waits, the cache, and one retry layer.
+     - **Gap 1:** no jitter.
+     - **Gap 2:** the daily or per-minute blocks (10003, 10004, 10044, 10045) are mapped to `quota` like the
+       per-second codes, so they are retried although a retry cannot succeed (it costs about 2 s more).
+       - **Expected use** (owner, 2026-11-17: use stays small). A personal key has about 5,000 basic searches a month,
+         about 160 a day (item 7).
+         - A 2–3 day plan costs about 10–16 lookups (one per stop).
+         - An added or swapped stop costs 1.
+         - A cached place costs 0.
+         - Another voice place search costs about 1.
+
+         A heavy day is about 50–80 searches, so the daily block is not expected in normal use. Only a lookup loop or a
+         shared key would reach it.
+       - **Decision:** gap 2 is not built; it only makes a failure on a blocked day about 2 s slower, never a wrong
+         answer.
+       - **Unknown:** whether 高德 counts the requests it refused as over the per-second limit against the monthly
+         total; if so, it adds a few per plan.
+   - **Name match.** A review of POI matching methods ([arXiv 2310.15320](https://arxiv.org/pdf/2310.15320)) groups
+     name similarity into four kinds: direct string comparison, preprocessing then scoring, phonetic, and embeddings.
+     A study of Chinese POI data ([MDPI IJGI 13(4) 138](https://www.mdpi.com/2220-9964/13/4/138/html)) finds name,
+     location and category together match best, better than name alone. Tools such as
+     [fuzzychinese](https://pypi.tcis.de/data/web/json/fuzzychinese) do fuzzy matching on Chinese proper names.
+     - Item 6 is "preprocessing then scoring": it removes regions and place-type words, then requires a shared run of
+       at least 3 characters.
+     - **Gap 3:** only the name is checked. Location is bounded only by `cityLimit` when a city is given, and the
+       place type (food vs. sight) is not compared.
+   - Gap 2 is skipped (decision above). Gaps 1 and 3 are not built yet; they wait for the owner's go-ahead.
 
 ## 5. Tools (F-09 catalog)
 
@@ -526,6 +586,11 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
 | 34 | 20 saved, `save` a new name; two names contain the asked one | `PLANS_FULL`; `AMBIGUOUS` | unit |
 | 35 | Device, 模拟导航, parked: 「规划天津两天的行程」, 「做个打卡清单」 (two days), cards with photos, ✕ one card, 「存成天津周末」, close and reopen the app, 「打开天津周末」, 「开始第一天的导航」 | She makes two days; the cards show photos or placeholders; the ✕ removes the stop and she knows it; after reopening the plan is there; guidance runs through day 1's stops with 途经 labels; the record has the `trip` lines | D |
 | 36 | One `make_trip_list days=[[古文化街,五大道],[天津之眼,古文化街],[瓷房子,盘山]]` over a 4-day plan | 3 days, day 1 current, name cleared; 古文化街 a duplicate, 盘山 not found; `next` says 第1天2个，第2天1个，第3天1个 | unit |
+| 40 | `pick`: 路环安德鲁葡挞 over [安德鲁饼店(路环店)]; 澳门旅游塔 over [澳门旅游局, 澳门旅游塔会展娱乐中心]; 盘山 over [饭店] | 安德鲁饼店; the 2nd result; none | unit |
+| 41 | The first 2 searches refused `quota` | All 3 found after retries; 2 lookups at once | unit |
+| 42 | Every search refused `quota` | `NO_CANDIDATES`; `trip lookup index=1 ok=no reason=busy` | unit |
+| 43 | The same names again with 高德 refusing everything | Found from the cache; no new search | unit |
+| 44 | Device: 「帮我准备一个澳门两天游」, then 「加上路环的安德鲁」 | Every stop found; 安德鲁饼店 added | D |
 | 36b | `days=[[盘山],[五大道]]`, then `days=[[盘山],[盘山]]` | Day 1 stays empty and day 2 is current; nothing found is `NO_CANDIDATES`, plan unchanged | unit |
 | 37 | `days` with `places`, `days` with `day`, 6 groups, an empty group, no field | `invalidFields` | unit |
 | 38 | The `make_trip_list` text | Says to pick places herself and not ask, and `days` for several days | unit |

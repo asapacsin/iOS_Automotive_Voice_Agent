@@ -106,12 +106,66 @@ public struct TripList: Sendable, Hashable {
     }
 }
 
-/// F-15b §4 item 2: the first search result is accepted only when one normalized name contains the other.
+/// F-15b §4 item 2: a search result is accepted when one normalized name contains the other. §4 item 6 (device
+/// 2026-11-17: 「路环安德鲁葡挞」 is 高德's 「安德鲁饼店」): the first of the top 5 results that matches so; otherwise the
+/// first result when it shares a run of at least 3 characters with the asked name.
 public enum TripNameMatch {
+    public static let scanned = 5
+    public static let sharedRun = 3
+
     public static func accepts(asked: String, found: String) -> Bool {
         let a = TranscriptText.normalize(asked), f = TranscriptText.normalize(found)
         guard !a.isEmpty, !f.isEmpty else { return false }
         return f.contains(a) || a.contains(f)
+    }
+
+    /// Place-type words that say nothing about which place it is; removed before the shared run is measured.
+    static let typeWords = ["购物中心", "国际机场", "博物馆", "博物院", "机场", "国际", "医院", "大学", "大饭店", "饭店", "酒店", "公园", "广场", "景区", "大街", "中心", "饼店", "车站", "站", "店"]
+
+    public static func pick(asked: String, from places: [Place], city: String? = nil) -> Place? {
+        if let match = places.prefix(scanned).first(where: { accepts(asked: asked, found: $0.name) }) { return match }
+        guard let first = places.first else { return nil }
+        let regions = [city, first.city, first.district].compactMap { $0 }
+        let (a, f) = cores(TranscriptText.normalize(asked), TranscriptText.normalize(first.name), regions: regions)
+        return longestRun(a, f) >= sharedRun ? first : nil
+    }
+
+    /// Review 2026-11-17: the city argument and the result's own city and district (「哈尔滨中央大街」/「哈尔滨站」,
+    /// with and without 市/区/县/省) and place-type words (「天津博物馆」/「天津自然博物馆」) are removed, so only the
+    /// distinctive part is compared. A shared start that is not a region still counts (「安德鲁葡挞」/「安德鲁饼店」).
+    static func cores(_ asked: String, _ found: String, regions: [String]) -> (String, String) {
+        var a = asked, f = found
+        var names = Set<String>()
+        for region in regions.map(TranscriptText.normalize) where !region.isEmpty {
+            names.insert(region)
+            for suffix in ["特别行政区", "自治区"] where region.hasSuffix(suffix) && region.count > suffix.count + 1 {
+                names.insert(String(region.dropLast(suffix.count)))
+            }
+            if let last = region.last, "市区县省".contains(last), region.count > 2 { names.insert(String(region.dropLast())) }
+        }
+        for name in names.sorted(by: { $0.count > $1.count }) {
+            a = a.replacingOccurrences(of: name, with: ""); f = f.replacingOccurrences(of: name, with: "")
+        }
+        for word in typeWords {
+            a = a.replacingOccurrences(of: word, with: ""); f = f.replacingOccurrences(of: word, with: "")
+        }
+        return (a, f)
+    }
+
+    /// Length of the longest run of characters the two strings share.
+    static func longestRun(_ a: String, _ b: String) -> Int {
+        let x = Array(a), y = Array(b)
+        guard !x.isEmpty, !y.isEmpty else { return 0 }
+        var previous = [Int](repeating: 0, count: y.count + 1), best = 0
+        for i in 1...x.count {
+            var row = [Int](repeating: 0, count: y.count + 1)
+            for j in 1...y.count where x[i - 1] == y[j - 1] {
+                row[j] = previous[j - 1] + 1
+                best = max(best, row[j])
+            }
+            previous = row
+        }
+        return best
     }
 }
 

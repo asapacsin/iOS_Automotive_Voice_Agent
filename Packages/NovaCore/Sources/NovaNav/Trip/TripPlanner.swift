@@ -31,8 +31,11 @@ public enum TripTap: Sendable, Hashable {
 
 public struct TripTuning: Sendable, Hashable {
     /// §4 item 4: lookups at once, and the limit of a whole `make_trip_list`.
-    public var parallelLookups = 4
+    /// Device 2026-11-17: 2 of 5 lookups failed with 4 at once (高德's per-second limit); now 2 at once, and a busy,
+    /// timed-out or failed lookup is tried up to twice more (`retryDelay`, then twice that).
+    public var parallelLookups = 2
     public var resolveLimit = NovaDuration.seconds(15)
+    public var retryDelay = NovaDuration.milliseconds(600)
     public init() {}
 }
 
@@ -52,6 +55,11 @@ public actor TripPlanner: ToolExecutor {
     private let onPlans: @Sendable (TripPlansSummary) -> Void
     /// §15: the current plan; `list` is its current day.
     private var plan = TripPlan()
+    /// §4 item 7: places already found this launch, by city and asked name (高德 quota and per-second limits:
+    /// re-adding or re-making a plan costs no lookup). At most `cacheLimit` entries, oldest dropped.
+    private var foundCache: [String: Place] = [:]
+    private var cacheOrder: [String] = []
+    static let cacheLimit = 64
     private var list: TripList {
         get { plan.current }
         set { plan.current = newValue }
@@ -439,7 +447,25 @@ public actor TripPlanner: ToolExecutor {
     /// Each name through `PlaceSearch.text`, at most `parallelLookups` at once, all within `resolveLimit`; a lookup
     /// still running then is `timeout`. Results are in `names` order.
     private func resolve(_ names: [String], city: String?) async -> [Lookup] {
-        let search = search, limit = tuning.parallelLookups, clock = clock
+        let keys = names.map { "\(city ?? "")|\($0)" }
+        let cached = keys.map { foundCache[$0] }
+        let missing = names.indices.filter { cached[$0] == nil }
+        let fetched = missing.isEmpty ? [] : await fetch(missing.map { names[$0] }, city: city)
+        var results = cached.map { $0.map(Lookup.found) ?? .missing("timeout") }
+        for (slot, index) in missing.enumerated() {
+            results[index] = fetched[slot]
+            if case .found(let place) = fetched[slot] { remember(keys[index], place) }
+        }
+        return results
+    }
+
+    private func remember(_ key: String, _ place: Place) {
+        if foundCache.updateValue(place, forKey: key) == nil { cacheOrder.append(key) }
+        while cacheOrder.count > Self.cacheLimit { foundCache[cacheOrder.removeFirst()] = nil }
+    }
+
+    private func fetch(_ names: [String], city: String?) async -> [Lookup] {
+        let search = search, limit = tuning.parallelLookups, clock = clock, retry = tuning.retryDelay
         let deadline = clock.now + tuning.resolveLimit
         let (stream, feed) = AsyncStream.makeStream(of: (Int, Lookup)?.self)
         let work = Task {
@@ -449,7 +475,7 @@ public actor TripPlanner: ToolExecutor {
                     guard next < names.count else { return }
                     let i = next
                     next += 1
-                    _ = group.addTaskUnlessCancelled { feed.yield((i, await Self.lookup(names[i], city: city, search: search))) }
+                    _ = group.addTaskUnlessCancelled { feed.yield((i, await Self.lookup(names[i], city: city, search: search, retryDelay: retry))) }
                 }
                 for _ in 0..<min(limit, names.count) { add() }
                 while await group.next() != nil { add() }
@@ -471,17 +497,35 @@ public actor TripPlanner: ToolExecutor {
         return results.map { $0 ?? .missing("timeout") }
     }
 
-    private static func lookup(_ name: String, city: String?, search: any PlaceSearch) async -> Lookup {
+    private static func lookup(_ name: String, city: String?, search: any PlaceSearch, retryDelay: NovaDuration) async -> Lookup {
+        // §4 item 7: up to 2 retries, waiting retryDelay then twice that (高德 rejects requests over the per-second
+        // limit and answers those within it).
+        var result = await lookupOnce(name, city: city, search: search)
+        for attempt in 0..<2 {
+            guard case .missing(let reason) = result, reason != "nomatch", !Task.isCancelled else { return result }
+            try? await Task.sleep(for: .milliseconds(retryDelay.milliseconds << attempt))
+            if Task.isCancelled { return result }
+            result = await lookupOnce(name, city: city, search: search)
+        }
+        return result
+    }
+
+    private static func lookupOnce(_ name: String, city: String?, search: any PlaceSearch) async -> Lookup {
         do {
             let places = try await search.text(name, city: city, cityLimit: city != nil)
-            guard let first = places.first, TripNameMatch.accepts(asked: name, found: first.name) else { return .missing("nomatch") }
-            return .found(first)
+            guard let place = TripNameMatch.pick(asked: name, from: places, city: city) else { return .missing("nomatch") }
+            return .found(place)
         } catch let error as AmapWebError where error == .keyMissing || error == .keyRejected {
             return .keyMissing
+        } catch AmapWebError.quota {
+            return .missing("busy")
+        } catch AmapWebError.timeout {
+            return .missing("timeout")
         } catch {
             return .missing("failed")
         }
     }
+
 
     // MARK: Results
 
