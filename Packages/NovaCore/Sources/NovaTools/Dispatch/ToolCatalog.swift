@@ -238,8 +238,6 @@ public enum ToolCatalog {
     /// F-18 §23 item 1, §26 item 8: the sentence her search-on `query_live_info` text adds (a tool description, not the search prompt).
     public static let officialFirst = "现在的气温和天气预报（今后10天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。"
 
-    /// F-18 §16 item 9 as changed by §23 item 1: with search on, `query_live_info` keeps every kind, argument and
-    /// line; only the no-data-source sentence goes, and `officialFirst` is added.
     /// F-15b §22 item 4 (T-040m): 「把页面关掉」 also calls it and hides the trip cards; a checked replace of the
     /// Android text.
     static let exitCardsText = "「把页面关掉」「关掉这个页面」「收起来」也调用它：没有导航时收起行程卡片，行程还在。每次说关掉都要调用，没调用不要说已关闭。按 status 答：trip_cards_hidden=已收起行程卡片，"
@@ -249,6 +247,8 @@ public enum ToolCatalog {
         return text.replacingOccurrences(of: cut, with: exitCardsText)
     }
 
+    /// F-18 §16 item 9 as changed by §23 item 1: with search on, `query_live_info` keeps every kind, argument and
+    /// line; only the no-data-source sentence goes, and `officialFirst` is added.
     static func searchOnLiveInfo(_ spec: ToolSpec) -> ToolSpec {
         let d = spec.declaration
         let cut = "新闻、股票、油价、汇率无数据源，不要调用，如实说无法回答。"

@@ -23,6 +23,9 @@ struct TripCardsView: View {
                     Spacer()
                 }
             }
+        case .strip where model.tripCardsHidden:
+            // §22 item 1: no strip while the cards are put away (and no 「行程」 button: taps do nothing while moving).
+            EmptyView()
         case .strip(let text):
             Text(text)
                 .font(.subheadline.weight(.semibold))
