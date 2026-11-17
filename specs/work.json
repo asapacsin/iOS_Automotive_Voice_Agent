@@ -2816,8 +2816,8 @@
     },
     {
       "id": "T-040n",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "owner": "AUTONOMOUS",
+      "status": "IN_PROGRESS",
       "priority": 30,
       "action": "F-15b phase 3 (§25-§34): plan ordered by real driving time from the current position or a named start (高德 /v3/distance), reorganize and move to_day with the same place set checked in code, trip_next one stop at a time with arrival marks; route_trip and trip 途经点 removed; rows 65-83.",
       "depends_on": [
@@ -2829,8 +2829,7 @@
           "Change the spec first"
         ]
       },
-      "notes": "Spec only (owner 2026-11-17: \"the mutlti point routing is actually a nonsense function ... based on the plan to call next desitination\"; \"write the spec here\"). Build starts on the owner's go.",
-      "blocked_by": "owner's go to build (spec only, 2026-11-17)"
+      "notes": "Spec only (owner 2026-11-17: \"the mutlti point routing is actually a nonsense function ... based on the plan to call next desitination\"; \"write the spec here\"). Build starts on the owner's go. Owner go 2026-11-17: \"claude/youthful-curie-vuit5r pull and implement the work\"."
     },
     {
       "id": "T-031j",

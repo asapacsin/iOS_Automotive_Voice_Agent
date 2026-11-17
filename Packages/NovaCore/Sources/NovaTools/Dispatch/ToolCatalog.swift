@@ -150,13 +150,13 @@ public enum ToolCatalog {
 
     public static let maxTripStops = 16
     public static let maxTripName = 40
-    public static let tripEditActions = ["remove", "add", "replace", "move", "clear", "read"]
-    public static let tripOrders = ["nearest", "as_listed"]
+    public static let tripEditActions = ["remove", "add", "replace", "move", "clear", "read", "reorganize", "visited", "skip"]
 
-    public static let makeTripListDescription = "做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点名（最多16个，每个只写地名，不写介绍；吃东西的地方写店名，比如「安德鲁饼店」，不写「安德鲁葡挞」）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[[\"广州塔\",\"陈家祠\"],[\"长隆野生动物世界\"]]。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。结果稍后回来：先只说一句在排，结果回来前不要说清单里有什么。按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。"
-    public static let editTripListDescription = "修改打卡清单（结果稍后回来：先只说一句在改，结果回来前不要说清单里有什么）：「去掉第二个」→remove index=2；「不去古文化街了」→remove name；「加上天津之眼」→add（name 写高德上的正式名称：景点的正式名或店名，比如「路环那家葡挞」→安德鲁饼店）；「第三个换成五大道」→replace；「把瓷房子放到第一个」→move；「清单里有什么」「打开行程」「看看行程」→read；「清空清单」→clear。第几个按她最后说的清单顺序。按结果答：一句话说改了什么和现在几个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，TRIP_TOO_LONG=最多16个地点，AMBIGUOUS=有多个匹配请说第几个。说到第几天时填 day，不说就是刚才那一天。"
-    public static let routeTripDescription = "把打卡清单串成一条自驾路线（多个途经点）：「串成自驾路线」「规划一下路线」→start=false；看过路线后「开始导航」「出发」→start=true；「按清单顺序走」→order=as_listed，默认 nearest（就近排序，清单会按路线顺序重新编号）。只有一个地点时用 navigate_to。按结果答：按 next 说；不要念每个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，TRIP_TOO_SHORT=至少要两个地点，ROUTE_CALCULATION_FAILED=路线规划失败，START_FAILED=导航没有启动，不要说已开始，TRIP_WHILE_NAVIGATING=导航中不能串路线。「开始第二天的导航」→day=2, start=true。"
-    public static let tripPlansDescription = "保存、打开、列出、删除、改名行程：「把这个行程存成天津一日游」→save name=天津一日游；「打开天津一日游」→open；「我存了哪些行程」→list；「删掉天津那个行程」→delete；「改名叫周末出游」→rename。打开后要导航就再调用 route_trip。按结果答：一句话说做了什么；list 只说有几个和名字；ok=false 按 error：NO_TRIP_LIST=还没有清单，PLAN_NOT_FOUND=没有这个行程，PLANS_FULL=最多存20个，AMBIGUOUS=有多个请说全名。"
+    public static let makeTripListDescription = "做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点名（最多16个，每个只写地名，不写介绍；吃东西的地方写店名，比如「安德鲁饼店」，不写「安德鲁葡挞」）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[[\"广州塔\",\"陈家祠\"],[\"长隆野生动物世界\"]]。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。结果稍后回来：先只说一句在排，结果回来前不要说清单里有什么。按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。清单会按司机现在的位置和真实车程自动排好顺序、分好天。"
+    public static let editTripListDescription = "修改打卡清单（结果稍后回来：先只说一句在改，结果回来前不要说清单里有什么）：「去掉第二个」→remove index=2；「不去古文化街了」→remove name；「加上天津之眼」→add（name 写高德上的正式名称：景点的正式名或店名，比如「路环那家葡挞」→安德鲁饼店）；「第三个换成五大道」→replace；「把瓷房子放到第一个」→move；「清单里有什么」「打开行程」「看看行程」→read；「清空清单」→clear。第几个按她最后说的清单顺序。按结果答：一句话说改了什么和现在几个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，TRIP_TOO_LONG=最多16个地点，AMBIGUOUS=有多个匹配请说第几个。说到第几天时填 day，不说就是刚才那一天。「重新排一下」「从横琴开始重新排」→reorganize（start 填清单里的地点名，days 填天数）；「把X放到第二天」→move 加 to_day；「已经去过了」→visited；「跳过这个」→skip。按结果的 plan 说每天去哪。NO_START=问司机从哪里出发。"
+    /// F-15b §29 item 1, §31 (T-040n): one stop at a time.
+    public static let tripNextDescription = "行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。"
+    public static let tripPlansDescription = "保存、打开、列出、删除、改名行程：「把这个行程存成天津一日游」→save name=天津一日游；「打开天津一日游」→open；「我存了哪些行程」→list；「删掉天津那个行程」→delete；「改名叫周末出游」→rename。打开后要导航就调用 trip_next。按结果答：一句话说做了什么；list 只说有几个和名字；ok=false 按 error：NO_TRIP_LIST=还没有清单，PLAN_NOT_FOUND=没有这个行程，PLANS_FULL=最多存20个，AMBIGUOUS=有多个请说全名。"
     public static let tripPlanActions = ["save", "open", "list", "delete", "rename"]
     public static let tripDay: JSONValue = ["type": "integer", "minimum": 1, "maximum": 5]
 
@@ -187,18 +187,20 @@ public enum ToolCatalog {
                     "name": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
                     "to_index": ["type": "integer", "minimum": 1],
                     "day": tripDay,
+                    "start": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
+                    "days": tripDay,
+                    "to_day": tripDay,
                 ],
                 "required": ["action"],
                 "additionalProperties": false,
             ])),
         ToolSpec(domain: "navigation", repeatSensitive: true, declaration: ToolDeclaration(
-            name: "route_trip", description: routeTripDescription,
+            name: "trip_next", description: tripNextDescription,
             parametersJSONSchema: [
                 "type": "object",
                 "properties": [
-                    "order": ["type": "string", "enum": .array(tripOrders.map { .string($0) })],
-                    "start": ["type": "boolean"],
                     "day": tripDay,
+                    "stop": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
                 ],
                 "additionalProperties": false,
             ])),
@@ -347,9 +349,14 @@ public enum ToolCatalog {
         case "edit_trip_list":
             // F-15b §5.2: the fields each action needs.
             guard let action = str("action"), tripEditActions.contains(action) else { return .invalidFields }
-            guard keys.isSubset(of: ["action", "index", "name", "to_index", "day"]) else { return .invalidFields }
-            if keys.contains("day"), !isDay(a["day"]) { return .invalidFields }
+            guard keys.isSubset(of: ["action", "index", "name", "to_index", "day", "start", "days", "to_day"]) else { return .invalidFields }
+            for k in ["day", "days", "to_day"] where keys.contains(k) && !isDay(a[k]) { return .invalidFields }
+            if keys.contains("start") {
+                guard let n = str("start"), !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
+            }
             let keys = keys.subtracting(["day"])
+            if action != "reorganize", !keys.isDisjoint(with: ["start", "days"]) { return .invalidFields }
+            if action != "move", keys.contains("to_day") { return .invalidFields }
             func integer(_ k: String) -> Bool {
                 switch a[k] {
                 case .int: true
@@ -365,15 +372,21 @@ public enum ToolCatalog {
             case "remove": keys.contains("index") != keys.contains("name") && !keys.contains("to_index")
             case "add": keys.contains("name") && !keys.contains("to_index")
             case "replace": keys == ["action", "index", "name"]
-            case "move": keys == ["action", "index", "to_index"]
+            case "move": keys == ["action", "index", "to_index"] || keys == ["action", "index", "to_day"]
+            // §28 item 3: start and days optional.
+            case "reorganize": keys.isSubset(of: ["action", "start", "days"])
+            // §29 item 2: the stop of the current day.
+            case "visited", "skip": keys == ["action", "index"]
             default: keys == ["action"]
             }
             if !needs { return .invalidFields }
-        case "route_trip":
-            guard keys.isSubset(of: ["order", "start", "day"]) else { return .invalidFields }
+        case "trip_next":
+            // §29 item 1: optional day 1–5 and stop (a name in the plan or its number in the day).
+            guard keys.isSubset(of: ["day", "stop"]) else { return .invalidFields }
             if keys.contains("day"), !isDay(a["day"]) { return .invalidFields }
-            if keys.contains("order"), !(str("order").map(tripOrders.contains) ?? false) { return .invalidFields }
-            if keys.contains("start"), case .bool? = a["start"] {} else if keys.contains("start") { return .invalidFields }
+            if keys.contains("stop") {
+                guard let n = str("stop"), !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
+            }
         case "trip_plans":
             // F-15b §16 item 5: the fields each action needs, 1–20 characters.
             guard let action = str("action"), tripPlanActions.contains(action) else { return .invalidFields }
@@ -511,6 +524,11 @@ public enum ToolFailureAdvice {
         .planNotFound: "没有这个行程，什么都没有改。请用一句话如实说没有这个行程。",
         .tripWhileNavigating: "正在导航，清单没有串成路线，导航还在继续。请用一句话说导航中不能串路线，要先结束导航。",
         .plansFull: "最多存20个行程，这次没有存。请用一句话如实说明，可以先删掉一个。",
+        // F-15b §26–§29 (T-040n).
+        .routeTimesUnavailable: "没有查到地点之间的车程，行程没有重新排。请用一句话如实说明，可以稍后再试。",
+        .noStart: "不知道从哪里出发，行程没有重新排。请只问一句：从哪里出发？",
+        .planChanged: "重新排的结果和原来的地点对不上，行程没有改。请用一句话如实说没排成功。",
+        .dayDone: "这一天的地点都去过或跳过了。请问司机要不要开始下一天。",
         .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }

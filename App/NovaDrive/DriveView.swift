@@ -178,9 +178,7 @@ private struct DriveContent: View {
                 header
                 if model.nav.navigating { hud }
                 Spacer()
-                // F-15b §5.3: a kept trip route is not a route choice; the trip row offers 开始导航.
-                let keptTrip = model.nav.tripRoute && model.nav.phase == .awaitingRouteSelection
-                if !keptTrip, model.nav.listOpen || model.nav.phase == .calculatingRoute || model.nav.phase == .resolvingDestination {
+                if model.nav.listOpen || model.nav.phase == .calculatingRoute || model.nav.phase == .resolvingDestination {
                     choices
                 }
                 // F-15b §11 (T-040j): the trip list's cards, or the strip while moving.
@@ -271,8 +269,8 @@ private struct DriveContent: View {
             // F-15b §13 item 5: numbered pins at the stops; 途经k and 终点 on a trip route; passed stops greyed.
             // Labels and grey only when the list's stops are the trip route's (an opened plan or another day is not).
             // F-15b §22 item 1: no trip pins while the cards are put away.
-            ForEach(model.tripCardsHidden ? [] : TripPin.pins(model.tripList, routed: model.nav.tripRoute && model.nav.tripStopIDs == model.tripList.stops.map(\.place.id),
-                                 passed: TripScreen.passed(model.tripList, routeStops: model.nav.tripStopIDs, passed: model.nav.tripStopsPassed))) { pin in
+            // F-15b §29 item 4: numbered pins, no 途经 labels; visited and skipped stops greyed.
+            ForEach(model.tripCardsHidden ? [] : TripPin.pins(model.tripList)) { pin in
                 Annotation(pin.label, coordinate: CLLocationCoordinate2D(pin.coordinate)) {
                     Text("\(pin.index)")
                         .font(.caption.weight(.heavy)).foregroundStyle(.white)

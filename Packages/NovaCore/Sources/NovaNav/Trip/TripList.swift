@@ -3,6 +3,11 @@ import NovaKit
 import NovaPorts
 import NovaTools
 
+/// F-15b §29 item 2 (T-040n): a stop marked done.
+public enum TripMark: String, Sendable, Hashable, Codable {
+    case visited, skipped
+}
+
 /// One stop of the trip list (F-15b §3 item 1): the name asked and the place 高德 resolved it to.
 public struct TripStop: Sendable, Hashable {
     /// 1-based, renumbered 1…n after every change.
@@ -11,23 +16,31 @@ public struct TripStop: Sendable, Hashable {
     public let place: Place
     /// Great-circle distance from the origin when it was resolved; nil when the origin was unknown.
     public let distanceMeters: Int?
+    /// §29 item 2: visited or skipped; kept in `current.json`.
+    public var mark: TripMark?
+    /// §29 item 4: driving seconds from the stop before (from the start for the first), when known.
+    public var legSeconds: Int?
 
-    public init(index: Int, asked: String, place: Place, distanceMeters: Int?) {
+    public init(index: Int, asked: String, place: Place, distanceMeters: Int?, mark: TripMark? = nil,
+                legSeconds: Int? = nil) {
         self.index = index
         self.asked = asked
         self.place = place
         self.distanceMeters = distanceMeters
+        self.mark = mark
+        self.legSeconds = legSeconds
     }
 
     func renumbered(_ index: Int) -> TripStop {
-        TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters)
+        TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds)
     }
 }
 
 /// F-15b §3 (T-040i): the ordered list of 1–16 stops the app owns. Pure. Every change raises `generation`; a resolve
 /// that finishes after a newer change is dropped by its caller (`OPTIONS_STALE`).
 public struct TripList: Sendable, Hashable {
-    public static let maxStops = RouteRequest.maxWaypoints
+    /// At most 16 stops (高德 `/v3/distance` makes one request per stop, §26 item 1).
+    public static let maxStops = 16
 
     public private(set) var stops: [TripStop] = []
     public private(set) var generation = 0
@@ -73,12 +86,21 @@ public struct TripList: Sendable, Hashable {
         changed()
     }
 
-    /// `route_trip order=nearest`: the list takes the route's order (`order` holds 0-based indexes). An unchanged
-    /// order is no change.
-    public mutating func reorder(_ order: [Int]) {
-        guard order != Array(stops.indices), Set(order) == Set(stops.indices) else { return }
-        stops = order.map { stops[$0] }
+    /// §28 (T-040n): the list becomes `new` (an ordering of stops); always a change.
+    public mutating func arrange(_ new: [TripStop]) {
+        stops = Array(new.prefix(Self.maxStops))
         changed()
+    }
+
+    /// §29 item 2: marks stop `index` (1-based, 1…count); a change.
+    public mutating func setMark(at index: Int, _ mark: TripMark?) {
+        stops[index - 1].mark = mark
+        changed()
+    }
+
+    /// §29 item 4: driving seconds per stop (nil unknown), in list order. Not a change (as a photo link).
+    public mutating func setLegs(_ legs: [Int?]) {
+        for i in stops.indices where i < legs.count { stops[i].legSeconds = legs[i] }
     }
 
     public func contains(placeID: String) -> Bool { stops.contains { $0.place.id == placeID } }
@@ -87,104 +109,25 @@ public struct TripList: Sendable, Hashable {
     /// resolve stale.
     public mutating func setPhoto(placeID: String, url: URL?) {
         stops = stops.map { $0.place.id == placeID
-            ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters)
+            ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters,
+                       mark: $0.mark, legSeconds: $0.legSeconds)
             : $0 }
     }
 
     /// §5.2: stops whose resolved or asked name contains `name`, after normalize (1-based indexes).
     public func matches(_ name: String) -> [Int] {
+        stops.filter { Self.matches($0, name) }.map(\.index)
+    }
+
+    /// §5.2: the stop's resolved or asked name contains `name`, after normalize.
+    public static func matches(_ stop: TripStop, _ name: String) -> Bool {
         let wanted = TranscriptText.normalize(name)
-        guard !wanted.isEmpty else { return [] }
-        return stops.filter {
-            TranscriptText.normalize($0.place.name).contains(wanted) || TranscriptText.normalize($0.asked).contains(wanted)
-        }.map(\.index)
+        guard !wanted.isEmpty else { return false }
+        return TranscriptText.normalize(stop.place.name).contains(wanted) || TranscriptText.normalize(stop.asked).contains(wanted)
     }
 
     private mutating func changed() {
         stops = stops.enumerated().map { $0.element.renumbered($0.offset + 1) }
         generation += 1
-    }
-}
-
-/// F-15b §5.3 item 2: from the origin, repeatedly the closest unvisited stop (great-circle distance).
-public enum TripOrder {
-    /// 0-based indexes of `stops` in visiting order. Without an origin, the first stop starts the chain.
-    public static func nearest(from origin: GeoCoordinate?, _ stops: [GeoCoordinate]) -> [Int] {
-        guard !stops.isEmpty else { return [] }
-        var left = Array(stops.indices)
-        var order: [Int] = []
-        var here: GeoCoordinate
-        if let origin {
-            here = origin
-        } else {
-            order.append(left.removeFirst())
-            here = stops[order[0]]
-        }
-        while !left.isEmpty {
-            let best = left.indices.min { a, b in
-                SelfPosition.distanceMeters(here, stops[left[a]]) < SelfPosition.distanceMeters(here, stops[left[b]])
-            }!
-            let next = left.remove(at: best)
-            order.append(next)
-            here = stops[next]
-        }
-        return order
-    }
-}
-
-/// F-15b §6 item 3 (T-040i): which waypoints the car has passed. A waypoint is passed when the car's matched
-/// position along the route goes past the polyline point closest to it, or the car comes within 100 m of it.
-/// Passed stops never become unpassed. Pure.
-public struct TripStopTracker: Sendable {
-    public static let nearMeters = 100.0
-
-    public struct Waypoint: Sendable, Hashable {
-        /// 1-based, the stop's index in route order (kept across a reroute that drops passed ones).
-        public let index: Int
-        public let coordinate: GeoCoordinate
-        public init(index: Int, coordinate: GeoCoordinate) {
-            self.index = index
-            self.coordinate = coordinate
-        }
-    }
-
-    private let waypoints: [(Waypoint, Double)]
-    public private(set) var passed: Set<Int> = []
-
-    /// `points`: the route polyline; `waypoints`: the not yet passed stops on it.
-    public init(points: [GeoCoordinate], waypoints: [Waypoint], passed: Set<Int> = []) {
-        var cumulative = [0.0]
-        for i in points.indices.dropFirst() {
-            cumulative.append(cumulative[i - 1] + SelfPosition.distanceMeters(points[i - 1], points[i]))
-        }
-        // Stops are in route order: each one's closest point is searched from the previous stop's point on, so a stop
-        // that lies near an earlier leg (out and back, a route that crosses itself) is not passed early.
-        var from = 0
-        var located: [(Waypoint, Double)] = []
-        for wp in waypoints {
-            guard from < points.count else {
-                located.append((wp, .infinity))
-                continue
-            }
-            let closest = (from..<points.count).min {
-                SelfPosition.distanceMeters(points[$0], wp.coordinate) < SelfPosition.distanceMeters(points[$1], wp.coordinate)
-            }!
-            located.append((wp, cumulative[closest]))
-            from = closest
-        }
-        self.waypoints = located
-        self.passed = passed
-    }
-
-    /// The car at `along` metres on the route, at `position`: the stops passed by this update, in order.
-    public mutating func update(along: Double, position: GeoCoordinate) -> [Int] {
-        var fresh: [Int] = []
-        for (wp, at) in waypoints where !passed.contains(wp.index) {
-            if along > at || SelfPosition.distanceMeters(position, wp.coordinate) <= Self.nearMeters {
-                passed.insert(wp.index)
-                fresh.append(wp.index)
-            }
-        }
-        return fresh.sorted()
     }
 }

@@ -14,7 +14,7 @@ struct TripCardsView: View {
     let runtime: AgentRuntime
 
     var body: some View {
-        switch TripScreen.of(model.tripList, passed: TripScreen.passed(model.tripList, routeStops: model.nav.tripStopIDs, passed: model.nav.tripStopsPassed), moving: model.tripMoving) {
+        switch TripScreen.of(model.tripList, moving: model.tripMoving) {
         case .none:
             // §16 item 6: the saved plans stay reachable with an empty current plan (not moving).
             if !model.tripMoving, let plans = model.tripPlans, !plans.saved.isEmpty {
@@ -78,16 +78,12 @@ struct TripCardsView: View {
                     .padding(.horizontal, 2)
                 }
                 HStack(spacing: 8) {
-                    // Owner 2026-11-16: no trip route while guidance runs.
-                    if model.tripList.count >= 2 && !model.nav.navigating {
-                        Button("串成路线") { Task { await runtime.tripTap(.route(start: false)) } }
-                            .buttonStyle(.bordered)
-                            .accessibilityIdentifier("trip-route")
-                    }
-                    if model.nav.tripRoute && model.nav.phase == .awaitingRouteSelection && model.nav.tripStopIDs == model.tripList.stops.map(\.place.id) {
-                        Button("开始导航") { Task { await runtime.tripTap(.route(start: true)) } }
+                    // F-15b §29 item 4: one button to the next stop not visited or skipped (`trip_next`).
+                    if let next = model.tripList.stops.first(where: { $0.mark == nil }) {
+                        Button("去下一站：\(next.place.name)") { Task { await runtime.tripTap(.next) } }
                             .buttonStyle(.borderedProminent)
-                            .accessibilityIdentifier("trip-start")
+                            .lineLimit(1)
+                            .accessibilityIdentifier("trip-next")
                     }
                     Spacer()
                     plansButton
@@ -212,7 +208,9 @@ private struct TripCardView: View {
             HStack(spacing: 4) {
                 if let district = card.district { Text(district) }
                 if let km = card.km { Text(String(format: "%.1f 公里", km)) }
-                if card.passed { Text("已到").foregroundStyle(.green) }
+                if let minutes = card.minutes { Text("车程\(minutes)分钟") }
+                if card.mark == .visited { Text("已到").foregroundStyle(.green) }
+                if card.mark == .skipped { Text("跳过").foregroundStyle(.secondary) }
             }
             .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }

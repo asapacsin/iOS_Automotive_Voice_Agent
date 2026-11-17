@@ -107,6 +107,25 @@ public struct TripPlan: Sendable, Hashable {
         }
     }
 
+    /// §28 item 3 (T-040n): the days ordered again; the name is kept, day 1 becomes current. Always a change.
+    public mutating func arrange(days lists: [TripList]) {
+        days = lists.isEmpty ? [TripList()] : Array(lists.prefix(Self.maxDays))
+        currentDay = min(max(currentDay, 1), days.count)
+        revision += 1
+    }
+
+    /// §29 item 2: marks stop `index` (1-based) of `day` (1-based); a change.
+    public mutating func mark(day: Int, index: Int, _ mark: TripMark?) {
+        guard days.indices.contains(day - 1), (1...days[day - 1].count).contains(index) else { return }
+        days[day - 1].setMark(at: index, mark)
+        revision += 1
+    }
+
+    /// Every stop of the plan, by day.
+    public var allStops: [(day: Int, stop: TripStop)] {
+        days.enumerated().flatMap { d, list in list.stops.map { (d + 1, $0) } }
+    }
+
     /// Replaces this plan with `other` (open); always a change.
     public mutating func load(_ other: TripPlan) {
         name = other.name
@@ -130,6 +149,10 @@ public enum TripPlanFile {
         var lat: Double
         var lng: Double
         var photo: String?
+        /// T-040n §29 item 2 (optional, so older files still read): visited / skipped, driving seconds, city.
+        var mark: TripMark?
+        var leg: Int?
+        var city: String?
     }
 
     struct Plan: Codable, Hashable {
@@ -153,7 +176,7 @@ public enum TripPlanFile {
                  day.stops.map { s in
                      Stop(asked: s.asked, id: s.place.id, name: s.place.name, address: s.place.address,
                           district: s.place.district, lat: s.place.coordinate.latitude, lng: s.place.coordinate.longitude,
-                          photo: s.place.photoURL?.absoluteString)
+                          photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city)
                  }
              },
              savedAt: savedAt?.timeIntervalSince1970)
@@ -162,10 +185,13 @@ public enum TripPlanFile {
     static func decode(_ plan: Plan) -> TripPlan {
         let days = plan.days.prefix(TripPlan.maxDays).map { stops in
             var list = TripList()
-            list.replace(stops.prefix(TripList.maxStops).map { s in
-                (s.asked, Place(id: s.id, name: s.name, address: s.address,
-                                coordinate: GeoCoordinate(latitude: s.lat, longitude: s.lng, datum: .gcj02),
-                                distanceMeters: nil, district: s.district, photoURL: TripPhotoLink.secure(s.photo)), nil)
+            list.arrange(stops.prefix(TripList.maxStops).map { s in
+                TripStop(index: 0, asked: s.asked,
+                         place: Place(id: s.id, name: s.name, address: s.address,
+                                      coordinate: GeoCoordinate(latitude: s.lat, longitude: s.lng, datum: .gcj02),
+                                      distanceMeters: nil, city: s.city, district: s.district,
+                                      photoURL: TripPhotoLink.secure(s.photo)),
+                         distanceMeters: nil, mark: s.mark, legSeconds: s.leg)
             })
             return list
         }

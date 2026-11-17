@@ -32,6 +32,11 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     /// F-15b §5.3 (owner 2026-11-16): no trip route while guidance runs; the running guidance goes on.
     case tripWhileNavigating = "TRIP_WHILE_NAVIGATING"
     case plansFull = "PLANS_FULL"
+    /// F-15b §26–§29 (T-040n): ordering by driving time and one stop at a time.
+    case routeTimesUnavailable = "ROUTE_TIMES_UNAVAILABLE"
+    case noStart = "NO_START"
+    case planChanged = "PLAN_CHANGED"
+    case dayDone = "DAY_DONE"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

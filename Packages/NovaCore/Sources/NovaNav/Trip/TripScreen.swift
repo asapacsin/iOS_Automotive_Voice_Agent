@@ -54,8 +54,11 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public let photoURL: URL?
     /// The first character of the name, for the placeholder.
     public let initial: String
-    /// §11 item 2: greyed and marked 已到.
+    /// §29 item 4: greyed and marked 已到 (visited) or 跳过 (skipped).
     public let passed: Bool
+    public var mark: TripMark? = nil
+    /// §29 item 4: driving minutes from the stop before, when known.
+    public var minutes: Int? = nil
     /// §21 item 3: the stop's city (高德 `cityname`), for the introduction query.
     public var city: String? = nil
 }
@@ -72,12 +75,7 @@ public enum TripScreen: Sendable, Hashable {
     /// §11 item 4: the strip is at most 2 lines.
     public static let stripLimit = 48
 
-    /// The route's passed stops, only when `routeStops` (the trip route's place ids) are this list's stops.
-    public static func passed(_ list: TripList, routeStops: [String], passed: Set<Int>) -> Set<Int> {
-        routeStops == list.stops.map(\.place.id) ? passed : []
-    }
-
-    public static func of(_ list: TripList, passed: Set<Int>, moving: Bool) -> TripScreen {
+    public static func of(_ list: TripList, moving: Bool) -> TripScreen {
         guard !list.isEmpty else { return .none }
         if moving {
             let full = list.stops.map { "\($0.index) \($0.place.name)" }.joined(separator: " · ")
@@ -86,7 +84,8 @@ public enum TripScreen: Sendable, Hashable {
         return .cards(list.stops.map { stop in
             TripCard(index: stop.index, placeID: stop.place.id, name: stop.place.name, district: stop.place.district,
                      km: stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 }, photoURL: stop.place.photoURL,
-                     initial: String(stop.place.name.prefix(1)), passed: passed.contains(stop.index), city: stop.place.city)
+                     initial: String(stop.place.name.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
+                     minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city)
         })
     }
 }
@@ -96,16 +95,14 @@ public struct TripPin: Sendable, Hashable, Identifiable {
     public var id: Int { index }
     public let index: Int
     public let coordinate: GeoCoordinate
-    /// The number before routing; 途经k and 终点 on a kept or running trip route.
+    /// The stop's number (§29 item 4: no 途经 labels).
     public let label: String
     public let passed: Bool
 
-    /// Pins 1…n at the stops; on a trip route the stops are 途经1…途经n−1 and 终点; passed stops greyed.
-    public static func pins(_ list: TripList, routed: Bool, passed: Set<Int>) -> [TripPin] {
+    /// Pins 1…n at the stops; visited and skipped stops greyed.
+    public static func pins(_ list: TripList) -> [TripPin] {
         list.stops.map { stop in
-            let label = !routed ? "\(stop.index)" : stop.index == list.count ? "终点" : "途经\(stop.index)"
-            return TripPin(index: stop.index, coordinate: stop.place.coordinate, label: label,
-                           passed: routed && passed.contains(stop.index))
+            TripPin(index: stop.index, coordinate: stop.place.coordinate, label: "\(stop.index)", passed: stop.mark != nil)
         }
     }
 }

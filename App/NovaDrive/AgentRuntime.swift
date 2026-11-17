@@ -1486,7 +1486,19 @@ final class AgentRuntime {
                                   files: AppTripFiles(), onLine: tripLine,
                                   onChange: { list in Task { @MainActor in model.tripList = list } },
                                   onPlans: { plans in Task { @MainActor in model.tripPlans = plans } },
-                                  onHidden: { hidden in Task { @MainActor in model.tripCardsHidden = hidden } })
+                                  onHidden: { hidden in Task { @MainActor in model.tripCardsHidden = hidden } },
+                                  // F-15b §26 (T-040n): driving times from 高德 /v3/distance, kept 30 minutes.
+                                  times: TripTimes(service: web, clock: navigationClock),
+                                  // §32: the start is the demo point when there is no usable fix.
+                                  startLabel: {
+                                      guard let fix = await location.latestFix(),
+                                            LocationQuality.of(fix, at: navigationClock.now) != nil else { return "demo" }
+                                      return "here"
+                                  },
+                                  // §29 item 3: the arrival note goes to a connected session, as a screen note.
+                                  onNote: { [weak self] note in
+                                      Task { @MainActor in if let core = self?.core { await core.send(.screenNote(note)) } }
+                                  })
         await planner.restore()
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).

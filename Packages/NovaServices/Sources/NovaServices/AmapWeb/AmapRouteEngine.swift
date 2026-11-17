@@ -60,10 +60,6 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         var latest = Generation.initial
         /// The destination of the last calculation, for an off-route recalculation.
         var destination: GeoCoordinate?
-        /// F-15b §6 (T-040i): the trip's waypoints (stop k is `waypoints[k-1]`) and those passed; a recalculation
-        /// sends only the unpassed ones, so a reroute never drops or repeats a stop.
-        var waypoints: [GeoCoordinate] = []
-        var passed: Set<Int> = []
         /// A route-change calculation (`recalculateFromHere`), not yet driven; its ids start above every earlier one.
         var candidates: [PlannedRoute] = []
         var nextCandidateID = 100
@@ -92,17 +88,13 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
             s.request += 1
             s.candidates = []
             s.destination = request.destination
-            s.waypoints = request.waypoints
-            s.passed = []
             return s.request
         }
         let event: NaviEngineEvent
         do {
-            // §6 item 2: more than 高德's 16 is a programming error; nothing is sent.
-            guard request.waypoints.count <= RouteRequest.maxWaypoints else { throw AmapWebError.failed }
             guard let key = key(), !key.isEmpty else { throw AmapWebError.keyMissing }
             guard let from = await origin() else { throw AmapWebError.failed }
-            let routes = try await fetch(from: from, to: request.destination, waypoints: request.waypoints, key: key)
+            let routes = try await fetch(from: from, to: request.destination, key: key)
             let geometry = state.withLock { s -> RouteGeometry? in
                 guard s.request == token else { return nil }
                 s.routes = routes
@@ -187,8 +179,6 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
             s.request += 1
             s.routes = []
             s.candidates = []
-            s.waypoints = []
-            s.passed = []
             s.geometry = RouteGeometry()
             return s.geometry
         }
@@ -214,11 +204,9 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         let secondsPerMeter = Double(route.summary.durationSeconds) / total
         var travelled = 0.0
         var spokenStep = -1
-        var stops = tracker(points)
         while !Task.isCancelled {
             let index = cumulative.lastIndex { $0 <= travelled } ?? 0
             let car = Self.interpolate(points, cumulative, index: index, at: travelled)
-            passed(stops.update(along: travelled, position: car), generation: generation)
             let stepIndex = route.steps.lastIndex { $0.startIndex <= index } ?? 0
             if stepIndex != spokenStep, stepIndex + 1 < route.steps.count || spokenStep == -1 {
                 spokenStep = stepIndex
@@ -279,7 +267,6 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         }
         var route = initial
         var progress = makeProgress(route)
-        var stops = tracker(route.points)
         var spokenStep = -1
         var lastReroute: NovaInstant?
         var lastFixTime: NovaInstant?
@@ -295,8 +282,6 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
                                       speedMetersPerSecond: raw.speedMetersPerSecond, courseDegrees: raw.courseDegrees)
                 lastFixTime = fix.timestamp
                 guard let snap = progress.update(fix) else { continue }
-                if snap.onRoute { passed(stops.update(along: snap.alongMeters, position: snap.matched), generation: generation) }
-                else { passed(stops.update(along: -1, position: fix.coordinate), generation: generation) }
                 let stepIndex = snap.stepIndex
                 // As the simulation: entering a step announces the next manoeuvre.
                 if stepIndex != spokenStep, stepIndex + 1 < route.steps.count || spokenStep == -1, !route.steps.isEmpty {
@@ -339,7 +324,6 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
                 }
                 route = fresh
                 progress = makeProgress(fresh)
-                stops = tracker(fresh.points)
                 spokenStep = -1
                 let geometry = state.withLock { s -> RouteGeometry in
                     s.routes = [fresh]
@@ -350,27 +334,6 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
                 onGeometry(geometry)
                 continuation.yield(NaviEngineEnvelope(generation: generation, event: .rerouted(fresh.summary)))
             }
-        }
-    }
-
-    /// The not yet passed waypoints on `points` (F-15b §6 item 3).
-    private func tracker(_ points: [GeoCoordinate]) -> TripStopTracker {
-        let (waypoints, passed) = state.withLock { ($0.waypoints, $0.passed) }
-        let left = waypoints.enumerated().filter { !passed.contains($0.offset + 1) }
-            .map { TripStopTracker.Waypoint(index: $0.offset + 1, coordinate: $0.element) }
-        return TripStopTracker(points: points, waypoints: left, passed: passed)
-    }
-
-    private func passed(_ fresh: [Int], generation: Generation) {
-        guard !fresh.isEmpty else { return }
-        let total = state.withLock { s -> Int? in
-            guard s.latest == generation else { return nil }
-            s.passed.formUnion(fresh)
-            return s.waypoints.count + 1
-        }
-        guard let total else { return }
-        for index in fresh {
-            continuation.yield(NaviEngineEnvelope(generation: generation, event: .stopPassed(index: index, of: total)))
         }
     }
 
@@ -390,9 +353,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     /// One recalculation to the same destination; nil when it fails (no key, network, no route).
     private func recalculate(from: GeoCoordinate) async -> [PlannedRoute]? {
         guard let key = key(), !key.isEmpty, let destination = state.withLock({ $0.destination }) else { return nil }
-        // F-15b §6 item 4: only the stops not yet passed.
-        let left = state.withLock { s in s.waypoints.enumerated().filter { !s.passed.contains($0.offset + 1) }.map(\.element) }
-        guard let routes = try? await fetch(from: from, to: destination, waypoints: left, key: key), !routes.isEmpty else { return nil }
+        guard let routes = try? await fetch(from: from, to: destination, key: key), !routes.isEmpty else { return nil }
         return routes
     }
 
@@ -416,7 +377,7 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
 
     // MARK: Request
 
-    private func fetch(from: GeoCoordinate, to: GeoCoordinate, waypoints: [GeoCoordinate] = [], key: String) async throws -> [PlannedRoute] {
+    private func fetch(from: GeoCoordinate, to: GeoCoordinate, key: String) async throws -> [PlannedRoute] {
         var components = URLComponents(string: AmapWebClient.host + "/v3/direction/driving")!
         components.queryItems = [
             URLQueryItem(name: "key", value: key),
@@ -425,10 +386,6 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
             URLQueryItem(name: "strategy", value: "10"),
             URLQueryItem(name: "extensions", value: "base"),
         ]
-        // F-15b §6 item 2: `lng,lat;lng,lat;…` in order; none leaves the request as it was.
-        if !waypoints.isEmpty {
-            components.queryItems?.append(URLQueryItem(name: "waypoints", value: waypoints.map(AmapWebClient.lngLat).joined(separator: ";")))
-        }
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = 8
         let response = try await transport.send(request)

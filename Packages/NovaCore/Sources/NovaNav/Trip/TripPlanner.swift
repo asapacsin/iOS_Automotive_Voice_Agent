@@ -7,7 +7,8 @@ import NovaTools
 public enum TripTap: Sendable, Hashable {
     case remove(index: Int)
     case move(from: Int, to: Int)
-    case route(start: Bool)
+    /// §29 item 4: 「去下一站：名字」 (`trip_next`).
+    case next
     /// 「加入清单」 on a row of an open destination list: that already-found place, no new lookup.
     case add(Place)
     /// §11 item 5, §15: a day tab (`edit_trip_list action=read day`).
@@ -20,7 +21,7 @@ public enum TripTap: Sendable, Hashable {
         switch self {
         case .remove: "remove"
         case .move: "move"
-        case .route(let start): start ? "start" : "route"
+        case .next: "next"
         case .add: "add"
         case .day: "day"
         case .openPlan: "open"
@@ -47,7 +48,7 @@ public struct TripTuning: Sendable, Hashable {
 /// the model's names through 高德 (§4, never taken as places), and routes the list through `NavigationController`
 /// (§5.3). Record lines are codes and numbers only (§7, I-8).
 public actor TripPlanner: ToolExecutor {
-    public static let tools: Set<String> = ["make_trip_list", "edit_trip_list", "route_trip", "trip_plans"]
+    public static let tools: Set<String> = ["make_trip_list", "edit_trip_list", "trip_next", "trip_plans"]
 
     private let search: any PlaceSearch
     /// §4 item 6: nil picks 高德's first result.
@@ -67,6 +68,15 @@ public actor TripPlanner: ToolExecutor {
     /// §22 (T-040m): the cards are put away (not saved: a restart shows them).
     public private(set) var cardsHidden = false
     private let onHidden: @Sendable (Bool) -> Void
+    /// §26 (T-040n): the driving-time table; nil orders nothing (`ROUTE_TIMES_UNAVAILABLE`).
+    private let times: TripTimes?
+    /// §32: `here` or `demo` (模拟导航's demo point) for the `trip order` line.
+    private let startLabel: @Sendable () async -> String
+    /// §29 item 3: the arrival note for a connected session.
+    private let onNote: @Sendable (String) -> Void
+    /// Tests only (row 69): changes an ordering before the place check.
+    private var tamper: (@Sendable ([TripList]) -> [TripList])?
+    func setTamper(_ tamper: @escaping @Sendable ([TripList]) -> [TripList]) { self.tamper = tamper }
     /// §15: the current plan; `list` is its current day.
     private var plan = TripPlan()
     /// §4 item 7: places already found this launch, by city and asked name (高德 quota and per-second limits:
@@ -101,7 +111,13 @@ public actor TripPlanner: ToolExecutor {
                 onLine: @escaping @Sendable (String) -> Void = { _ in },
                 onChange: @escaping @Sendable (TripList) -> Void = { _ in },
                 onPlans: @escaping @Sendable (TripPlansSummary) -> Void = { _ in },
-                onHidden: @escaping @Sendable (Bool) -> Void = { _ in }) {
+                onHidden: @escaping @Sendable (Bool) -> Void = { _ in },
+                times: TripTimes? = nil,
+                startLabel: @escaping @Sendable () async -> String = { "here" },
+                onNote: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.times = times
+        self.startLabel = startLabel
+        self.onNote = onNote
         self.onPlans = onPlans
         self.onHidden = onHidden
         self.files = files
@@ -165,6 +181,7 @@ public actor TripPlanner: ToolExecutor {
     /// §22: `exit_navigation_mode` puts the cards away through this.
     public func connectCards() async {
         await navigation.setTripCards { [weak self] in await self?.hideCards() ?? false }
+        await navigation.setTripArrival { [weak self] id in await self?.arrived(id) }
     }
 
     /// §22 item 2: hides shown cards of a plan with stops; false when there is nothing to hide.
@@ -194,7 +211,7 @@ public actor TripPlanner: ToolExecutor {
             await waitFor { $0.make }
             return await tracked(call, make: false)
         default:
-            // §4 item 9: route_trip and trip_plans use the finished list: they wait until no change is running.
+            // §4 item 9: trip_next and trip_plans use the finished list: they wait until no change is running.
             await waitFor { _ in true }
             return await run(call)
         }
@@ -223,23 +240,13 @@ public actor TripPlanner: ToolExecutor {
     private func run(_ call: ToolCall) async -> ToolResult {
         // The dispatcher validated the call (ToolCatalog.validate); this is the backstop for direct callers.
         if let code = ToolCatalog.validate(call) { return .failure(code) }
-        let before = plan.revision
-        let result: ToolResult
         switch call.name {
-        case "make_trip_list": result = await make(call.arguments)
-        case "edit_trip_list": result = await edit(call.arguments)
-        case "route_trip": return await route(call.arguments)
-        case "trip_plans": result = await plans(call.arguments)
+        case "make_trip_list": return await make(call.arguments)
+        case "edit_trip_list": return await edit(call.arguments)
+        case "trip_next": return await next(call.arguments)
+        case "trip_plans": return await plans(call.arguments)
         default: return .failure(.unknownTool)
         }
-        await listChanged(since: before)
-        return result
-    }
-
-    /// §5.3 item 5: a kept trip route is kept only until the list changes.
-    private func listChanged(since before: Int) async {
-        guard plan.revision != before else { return }
-        await navigation.dropKeptTrip(unless: plan.revision)
     }
 
     // MARK: make_trip_list
@@ -285,12 +292,16 @@ public actor TripPlanner: ToolExecutor {
         }
         var made = TripList()
         made.replace(entries)
+        // §28 item 2: the new list ordered by driving time; when that fails it stays in the order asked.
+        let arranged = await ordered([made], dayCount: 1, named: String?.none)
+        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
+        if case .success(let o) = arranged, let first = o.days.first { made = first }
         if let day { _ = plan.replaceDay(day, with: made) } else { plan.replaceAll(with: made) }
         changed()
         line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
         return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
-                          next: "只说一句：清单有\(list.count)个地点\(missed)。不要念整张清单，司机问时再念。")
+                          next: "只说一句：清单有\(list.count)个地点\(missed)\(Self.unordered(arranged))。不要念整张清单，司机问时再念。")
     }
 
     /// §15 item 6: a whole plan of several days in one call (parallel per-day calls would race on `revision`).
@@ -339,15 +350,17 @@ public actor TripPlanner: ToolExecutor {
             line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
             return .failure(.noCandidates, advice: "清单里的地点都没有找到，清单没有改。请如实说没找到这些地方。")
         }
+        // §28 item 2: the whole plan ordered and cut into as many days as asked.
+        let arranged = await ordered(lists, dayCount: lists.count, named: String?.none)
+        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
+        if case .success(let o) = arranged { lists = o.days }
         plan.replaceAll(withDays: lists)
         changed()
         line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
         let perDay = plan.days.enumerated().map { "第\($0.offset + 1)天\($0.element.count)个" }.joined(separator: "，")
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
-        let summary: [JSONValue] = plan.days.map { day in .array(day.stops.map { .string($0.place.name) }) }
         return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
-                          next: "用一两句话说：\(plan.dayCount)天的行程做好了（\(perDay)），每天只说一两个主要地方\(missed)。不要念整张清单，司机问时再念。",
-                          extra: ["plan": .array(summary)])
+                          next: "用一两句话说：\(plan.dayCount)天的行程做好了（\(perDay)），每天只说一两个主要地方\(missed)\(Self.unordered(arranged))。不要念整张清单，司机问时再念。")
     }
 
     // MARK: edit_trip_list
@@ -403,6 +416,18 @@ public actor TripPlanner: ToolExecutor {
             changed()
             return listResult(changed: "removed", next: "只说一句：去掉了\(removed)，现在清单有\(list.count)个地点。",
                               extra: ["removed": .string(removed)])
+        case "move" where args["to_day"] != nil:
+            return await moveToDay(index: index, toDay: Self.int(args["to_day"]) ?? 0)
+        case "reorganize":
+            return await reorganize(start: args["start"]?.stringValue, days: Self.int(args["days"]))
+        case "visited", "skip":
+            guard let index, (1...n).contains(index) else { return outOfRange() }
+            let mark: TripMark = action == "visited" ? .visited : .skipped
+            let name = list.stops[index - 1].place.name
+            list.setMark(at: index, mark)
+            changed()
+            onLine("trip visit index=\(index) day=\(plan.currentDay) by=\(action == "visited" ? "voice" : "skip")")
+            return listResult(changed: action, next: "只说一句：\(name)\(action == "visited" ? "记为去过了" : "跳过了")。")
         case "move":
             guard let index, let toIndex, (1...n).contains(index), (1...n).contains(toIndex) else { return outOfRange() }
             let moved = list.stops[index - 1].place.name
@@ -451,66 +476,217 @@ public actor TripPlanner: ToolExecutor {
         }
     }
 
-    // MARK: route_trip
+    // MARK: Ordering (§26–§28, T-040n)
 
-    private func route(_ args: JSONValue) async -> ToolResult {
+    private struct Ordered {
+        let days: [TripList]
+    }
+
+    private enum OrderResult {
+        case success(Ordered)
+        case failed(ToolErrorCode)
+    }
+
+    /// §28 item 2: what `next` adds when the new plan could not be ordered.
+    private static func unordered(_ result: OrderResult) -> String {
+        if case .failed = result { return "；还没按车程排好顺序" }
+        return ""
+    }
+
+    /// §27–§28: `source` ordered again by driving time. Marked stops keep their days (in front, in order); the stops
+    /// still to go go on one path from the start (the named stop `named`, else the car) and are cut into `dayCount`
+    /// days. The same place ids, always (§27 item 4).
+    private func ordered(_ source: [TripList], dayCount: Int, named: String?) async -> OrderResult {
         let started = clock.now
-        let start = args["start"]?.boolValue ?? false
-        // §15 item 4: one route is one day.
+        let all = source.enumerated().flatMap { d, list in list.stops.map { (day: d, stop: $0) } }
+        var pending = all.filter { $0.stop.mark == nil }.map(\.stop)
+        let total = pending.count
+        var label = "none"
+        func log(_ ok: Bool, requests: Int = 0, cached: Int = 0, days: Int = 0) {
+            onLine("trip order ok=\(ok ? "yes" : "no") stops=\(total) days=\(days) start=\(label) requests=\(requests) cached=\(cached) ms=\(ms(since: started))")
+        }
+        guard !pending.isEmpty else { return .success(Ordered(days: source)) }
+        // §28 item 1: the named stop, else the car (or 模拟导航's demo point), else nothing.
+        var startNode: TripTimes.Node?
+        var first: TripStop?
+        if let named, let i = pending.firstIndex(where: { $0.place.id == named }) {
+            first = pending.remove(at: i)
+            label = "named"
+        } else if let named, let stop = all.first(where: { $0.stop.place.id == named })?.stop {
+            startNode = TripTimes.Node(key: stop.place.id, coordinate: stop.place.coordinate)
+            label = "named"
+        } else if let here = await origin() {
+            startNode = .here(here)
+            label = await startLabel()
+        } else {
+            log(false)
+            return .failed(.noStart)
+        }
+        let stops = (first.map { [$0] } ?? []) + pending
+        let nodes = stops.map { TripTimes.Node(key: $0.place.id, coordinate: $0.place.coordinate) }
+        guard let times, let table = await times.table(start: startNode, stops: nodes) else {
+            log(false)
+            return .failed(.routeTimesUnavailable)
+        }
+        // Node 0 is the start when there is one; the stops follow.
+        let offset = startNode == nil ? 0 : 1
+        let time: (Int, Int) -> Int = { table.time($0, $1) }
+        let path: [Int]
+        let origin: Int
+        if first != nil {
+            origin = 0
+            path = [0] + TripOptimizer.path(Array(1..<stops.count), from: 0, time: time)
+        } else {
+            origin = 0
+            path = TripOptimizer.path(Array(offset..<(offset + stops.count)), from: 0, time: time)
+        }
+        let cut = TripOptimizer.cut(path, from: origin, days: dayCount, time: time)
+        func stop(_ node: Int, after previous: Int?) -> TripStop {
+            var s = stops[node - offset]
+            // §29 item 4: minutes from the stop before; none into a named start (the car is not counted).
+            s.legSeconds = previous.map { table.time($0, node) } ?? (first == nil ? table.time(0, node) : nil)
+            return s
+        }
+        var previous: Int? = first == nil ? 0 : nil
+        var cutStops: [[TripStop]] = []
+        for day in cut {
+            var out: [TripStop] = []
+            for node in day {
+                out.append(stop(node, after: node == path.first && first != nil ? nil : previous))
+                previous = node
+            }
+            cutStops.append(out)
+        }
+        let markedDays = (all.filter { $0.stop.mark != nil }.map(\.day).max() ?? -1) + 1
+        let dayTotal = min(TripPlan.maxDays, max(cutStops.count, markedDays))
+        var days: [TripList] = []
+        for d in 0..<dayTotal {
+            let kept = all.filter { $0.stop.mark != nil && min($0.day, dayTotal - 1) == d }.map(\.stop)
+            var list = TripList()
+            list.arrange(kept + (d < cutStops.count ? cutStops[d] : []))
+            days.append(list)
+        }
+        if let tamper { days = tamper(days) }
+        // §27 item 4: exactly the place ids given, the same count.
+        let before = all.map(\.stop.place.id).sorted(), after = days.flatMap { $0.stops.map(\.place.id) }.sorted()
+        guard before == after else {
+            log(false, requests: table.requests, cached: table.cached)
+            return .failed(.planChanged)
+        }
+        log(true, requests: table.requests, cached: table.cached, days: days.count)
+        return .success(Ordered(days: days))
+    }
+
+    /// §28 item 3: the whole plan ordered again, from a named stop of the plan or the car.
+    private func reorganize(start: String?, days: Int?) async -> ToolResult {
+        var named: String?
+        if let start {
+            // Matched as `remove` by name, over the whole plan; never searched on 高德.
+            let found = plan.allStops.filter { TripList.matches($0.stop, start) }
+            guard found.count <= 1 else { return failure(.ambiguous) }
+            guard let only = found.first else { return failure(.notFound) }
+            named = only.stop.place.id
+        }
+        let generation = plan.revision
+        let result = await ordered(plan.days, dayCount: days ?? plan.dayCount, named: named)
+        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
+        switch result {
+        case .failed(let code): return failure(code)
+        case .success(let o):
+            plan.arrange(days: o.days)
+            changed()
+            return listResult(changed: "reorganized",
+                              next: "用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。")
+        }
+    }
+
+    /// §28 item 4: stop `index` of the current day to the end of day `toDay`, then that day ordered from its first stop.
+    private func moveToDay(index: Int?, toDay: Int) async -> ToolResult {
+        guard let index, (1...list.count).contains(index) else { return outOfRange() }
+        guard (1...plan.dayCount).contains(toDay) else { return dayOutOfRange() }
+        let from = plan.currentDay
+        var days = plan.days
+        let moved = days[from - 1].stops[index - 1]
+        guard toDay != from else {
+            return listResult(changed: "none", next: "只说一句：\(moved.place.name)已经在第\(toDay)天了。")
+        }
+        days[from - 1].remove(at: index)
+        days[toDay - 1].insert(moved)
+        let generation = plan.revision
+        let target = days[toDay - 1]
+        let result = await ordered([target], dayCount: 1, named: target.stops.first?.place.id)
+        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
+        switch result {
+        case .failed(let code): return failure(code)
+        case .success(let o):
+            days[toDay - 1] = o.days.first ?? target
+            let before = plan.allStops.map(\.stop.place.id).sorted()
+            guard before == days.flatMap({ $0.stops.map(\.place.id) }).sorted() else { return failure(.planChanged) }
+            plan.arrange(days: days)
+            changed()
+            return listResult(changed: "moved",
+                              next: "只说一句：\(moved.place.name)放到了第\(toDay)天，第\(toDay)天按车程排好了。")
+        }
+    }
+
+    // MARK: trip_next (§29)
+
+    private func next(_ args: JSONValue) async -> ToolResult {
         if let day = Self.int(args["day"]) {
             guard plan.select(day) else { return dayOutOfRange() }
             onChange(list)
             persist()
         }
         guard !list.isEmpty else { return failure(.noTripList) }
-        guard list.count >= 2 else {
-            return .failure(.tripTooShort, advice: "清单里只有一个地点，串不成路线。请如实说明；要去这一个地方就用 navigate_to。")
-        }
-        // 「开始导航」 after 「按清单顺序走」: with no order given, the kept route of this list keeps its order.
-        let keptThisList = await navigation.keptTripList == plan.revision
-        let asListed = args["order"]?.stringValue == "as_listed" || (args["order"] == nil && keptThisList)
-        if !asListed {
-            let order = TripOrder.nearest(from: await origin(), list.stops.map(\.place.coordinate))
-            list.reorder(order)
-            changed()
-        }
-        let generation = plan.revision
-        let stops = list.stops.map(\.place)
-        let outcome = await navigation.routeTrip(stops, list: generation, start: start)
-        let order = asListed ? "as_listed" : "nearest"
-        func logLine(_ route: RouteSummary?, started yes: Bool) {
-            let km = route.map { NavigationController.km($0.lengthMeters) } ?? 0
-            let min = route.map { max(1, $0.durationSeconds / 60) } ?? 0
-            onLine("trip route stops=\(stops.count) order=\(order) km=\(km) min=\(min) started=\(yes ? "yes" : "no") ms=\(ms(since: started))")
-        }
-        switch outcome {
-        case .failed(let result):
-            logLine(nil, started: false)
-            return result
-        case .kept(let route):
-            // §3 item 4: the list changed while the route was calculated: the route is not this list's.
-            guard plan.revision == generation else {
-                await navigation.dropKeptTrip(unless: plan.revision)
-                logLine(nil, started: false)
-                return .failure(.optionsStale, advice: "清单在规划时改了，这条路线不算数。请如实说明，需要时再说串成路线。")
+        let target: TripStop
+        if let asked = args["stop"]?.stringValue {
+            if let n = Int(asked) {
+                guard (1...list.count).contains(n) else { return outOfRange() }
+                target = list.stops[n - 1]
+            } else {
+                let found = list.matches(asked)
+                guard found.count <= 1 else { return failure(.ambiguous) }
+                guard let only = found.first else { return failure(.notFound) }
+                target = list.stops[only - 1]
             }
-            logLine(route, started: false)
-            let (km, time) = Self.distanceAndTime(route)
-            return routeResult(route, started: false,
-                               next: "只说一句：经过\(stops.count)个地点，全程约\(km)公里，大约\(time)，问要不要开始导航；不要念每个地点，司机问时再念。")
-        case .started(let route, let mode), .alreadyRunning(let route, let mode):
-            // B3: the list changed while this trip started; it is not this list's, so its guidance stops.
-            guard plan.revision == generation else {
-                await navigation.stopTrip(list: generation)
-                logLine(nil, started: false)
-                return .failure(.optionsStale, advice: "清单在启动导航时改了，导航没有开始。请如实说明，需要时再说开始导航。")
-            }
-            logLine(route, started: true)
-            let (km, _) = Self.distanceAndTime(route)
-            let said = mode == .emulator ? "已开始模拟导航" : "已开始导航"
-            return routeResult(route, started: true,
-                               next: "只说一句：\(said)，第一站是\(stops[0].name)，全程约\(km)公里。")
+        } else if let open = list.stops.first(where: { $0.mark == nil }) {
+            target = open
+        } else {
+            onLine("trip next index=0 day=\(plan.currentDay) ok=no code=DAY_DONE")
+            let more = plan.currentDay < plan.dayCount
+            return .failure(.dayDone, advice: more ? "第\(plan.currentDay)天的地点都去过或跳过了。请问司机要不要开始第\(plan.currentDay + 1)天。"
+                            : "行程里的地点都去过或跳过了。请用一句话说今天的行程走完了。")
         }
+        let result = await navigation.tripNext(target.place)
+        onLine("trip next index=\(target.index) day=\(plan.currentDay) ok=\(result.ok ? "yes" : "no") code=\(result.code?.rawValue ?? "none")")
+        guard result.ok else { return result }
+        let after = list.stops.first { $0.index > target.index && $0.mark == nil }
+        var data = result.data
+        data["status"] = "trip_next"
+        data["index"] = .int(Int64(target.index))
+        data["name"] = .string(target.place.name)
+        data["day"] = .int(Int64(plan.currentDay))
+        data["after"] = after.map { .string($0.place.name) } ?? .null
+        let minutes = data["duration_min"]?.intValue.map { "，大约\($0)分钟" } ?? ""
+        data["next"] = .string("只说一句：去第\(target.index)站\(target.place.name)\(minutes)。不要念其他路线。")
+        return .success(data)
+    }
+
+    /// §29 items 2–3: guidance arrived at a plan stop: it is visited, and a connected session gets the note.
+    func arrived(_ placeID: String) {
+        guard let (day, stop) = plan.allStops.first(where: { $0.stop.place.id == placeID && $0.stop.mark == nil }) else { return }
+        plan.mark(day: day, index: stop.index, .visited)
+        changed()
+        onLine("trip visit index=\(stop.index) day=\(day) by=arrival")
+        let rest = plan.days[day - 1].stops.first { $0.index > stop.index && $0.mark == nil }
+        let note: String
+        if let rest {
+            let minutes = rest.legSeconds.map { "，约\(max(1, ($0 + 59) / 60))分钟" } ?? ""
+            note = "[系统] 已到达第\(stop.index)站\(stop.place.name)。下一站是\(rest.place.name)\(minutes)。问司机要不要现在去下一站。"
+        } else {
+            note = "[系统] 已到达第\(stop.index)站\(stop.place.name)。这一天的地点都去完了。问司机要不要开始下一天。"
+        }
+        onNote(note)
     }
 
     // MARK: Resolving (§4)
@@ -702,23 +878,18 @@ public actor TripPlanner: ToolExecutor {
         if let changed { data["changed"] = .string(changed) }
         data["day"] = .int(Int64(plan.currentDay))
         data["days"] = .int(Int64(plan.dayCount))
+        data["plan"] = planValue()
         data.merge(extra) { _, new in new }
         return .success(data)
     }
 
-    private func routeResult(_ route: RouteSummary, started: Bool, next: String) -> ToolResult {
-        .success([
-            "status": "trip_route",
-            "stops": .array(list.stops.map { .object(["index": .int(Int64($0.index)), "name": .string($0.place.name)]) }),
-            "count": .int(Int64(list.count)),
-            "distance_km": .double(NavigationController.km(route.lengthMeters)),
-            "duration_min": .int(Int64(max(1, route.durationSeconds / 60))),
-            "tolls_yuan": .int(Int64(route.tollYuan)),
-            "started": .bool(started),
-            "day": .int(Int64(plan.currentDay)),
-            "days": .int(Int64(plan.dayCount)),
-            "next": .string(next),
-        ])
+    /// §28 item 6: each day's stop names in order, with the visited / skipped marks.
+    private func planValue() -> JSONValue {
+        .array(plan.days.map { day in
+            .array(day.stops.map { s in
+                .string(s.place.name + (s.mark == .visited ? "（已去过）" : s.mark == .skipped ? "（跳过）" : ""))
+            })
+        })
     }
 
     static func distanceAndTime(_ route: RouteSummary) -> (String, String) {
@@ -841,8 +1012,8 @@ public actor TripPlanner: ToolExecutor {
         changed()
         let note = kept ? "原来的清单已经存为「上一个清单」，" : ""
         return .success(["status": "plan_opened", "name": .string(name), "kept_previous": .bool(kept),
-                         "days": .int(Int64(plan.dayCount)), "stops": .int(Int64(plan.stopCount)),
-                         "next": .string("只说一句：打开了「\(name)」，\(note)有\(plan.dayCount)天\(plan.stopCount)个地点。要导航就说开始导航。")])
+                         "days": .int(Int64(plan.dayCount)), "stops": .int(Int64(plan.stopCount)), "plan": planValue(),
+                         "next": .string("只说一句：打开了「\(name)」，\(note)有\(plan.dayCount)天\(plan.stopCount)个地点。要导航就说去下一站。")])
     }
 
     // MARK: Screen taps (§13)
@@ -862,8 +1033,8 @@ public actor TripPlanner: ToolExecutor {
             case .move(let from, let to):
                 result = await execute(ToolCall(id: CallID("ui-trip")!, name: "edit_trip_list",
                                                 arguments: ["action": "move", "index": .int(Int64(from)), "to_index": .int(Int64(to))]))
-            case .route(let start):
-                result = await execute(ToolCall(id: CallID("ui-trip")!, name: "route_trip", arguments: ["start": .bool(start)]))
+            case .next:
+                result = await execute(ToolCall(id: CallID("ui-trip")!, name: "trip_next", arguments: [:]))
             case .day(let day):
                 result = await execute(ToolCall(id: CallID("ui-trip")!, name: "edit_trip_list",
                                                 arguments: ["action": "read", "day": .int(Int64(day))]))
@@ -874,9 +1045,7 @@ public actor TripPlanner: ToolExecutor {
                 result = await execute(ToolCall(id: CallID("ui-trip")!, name: "trip_plans",
                                                 arguments: ["action": "delete", "name": .string(name)]))
             case .add(let place):
-                let before = plan.revision
                 result = add(place)
-                await listChanged(since: before)
             }
         }
         onLine("trip tap action=\(tap.action) ok=\(result.ok ? "yes" : "no")")
@@ -889,7 +1058,7 @@ public actor TripPlanner: ToolExecutor {
         case .openPlan(let name): what = "打开了行程「\(result.data["name"]?.stringValue ?? name)」"
         case .remove(let index): what = "去掉了第\(index)个：\(Self.removedName(result) ?? "")"
         case .move(let from, let to): what = "把第\(from)个移到了第\(to)个"
-        case .route(let start): what = start ? "开始了导航" : "串成了路线"
+        case .next: what = "开始了去\(result.data["name"]?.stringValue ?? "下一站")的导航"
         case .add(let place):
             // An already listed place changed nothing: no note.
             if result.data["changed"] == "none" { return (result, nil) }

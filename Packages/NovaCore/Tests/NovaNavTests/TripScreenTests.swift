@@ -59,9 +59,9 @@ struct TripScreenTests {
     @Test("F-15b row 16: a list of 5, not moving: 5 cards in index order with number, name, district, km; empty list: no row")
     func row16() async {
         let rig = await PhotoRig()
-        #expect(TripScreen.of(await rig.planner.current, passed: [], moving: false) == .none)
+        #expect(TripScreen.of(await rig.planner.current, moving: false) == .none)
         await rig.make(["古文化街", "五大道", "天津之眼", "瓷房子", "意式风情区"])
-        guard case .cards(let cards) = TripScreen.of(await rig.planner.current, passed: [], moving: false) else {
+        guard case .cards(let cards) = TripScreen.of(await rig.planner.current, moving: false) else {
             Issue.record("no cards"); return
         }
         #expect(cards.map(\.index) == [1, 2, 3, 4, 5])
@@ -87,10 +87,10 @@ struct TripScreenTests {
         #expect(moving.update(speedKmh: nil, gpsNavigating: true, at: t0 + .seconds(7)) == true)
         var list = TripList()
         list.replace([("古文化街", spot("古文化街", lat: 39.1, lng: 117.2), 1000), ("五大道", spot("五大道", lat: 39.0, lng: 117.2), nil)])
-        #expect(TripScreen.of(list, passed: [], moving: true) == .strip("1 古文化街 · 2 五大道"))
-        guard case .cards = TripScreen.of(list, passed: [], moving: false) else { Issue.record("cards"); return }
+        #expect(TripScreen.of(list, moving: true) == .strip("1 古文化街 · 2 五大道"))
+        guard case .cards = TripScreen.of(list, moving: false) else { Issue.record("cards"); return }
         let long = TripList.withStops((1...16).map { "很长很长的景点名字\($0)" })
-        guard case .strip(let text) = TripScreen.of(long, passed: [], moving: true) else { Issue.record("strip"); return }
+        guard case .strip(let text) = TripScreen.of(long, moving: true) else { Issue.record("strip"); return }
         #expect(text.count == TripScreen.stripLimit && text.hasSuffix("…"))
     }
 
@@ -161,14 +161,15 @@ struct TripScreenTests {
         #expect(await rig.planner.current.stops.last?.place.name == "天津之眼")
     }
 
-    @Test("F-15b row 25: pins 1-4; on a kept trip route 途经1-3 and 终点; stop 1 passed is greyed")
+    @Test("F-15b row 25 (§29 item 4): pins 1-4 without 途经 labels; a visited stop is greyed")
     func row25() async {
-        let list = TripList.withStops(["古文化街", "五大道", "天津之眼", "瓷房子"])
-        #expect(TripPin.pins(list, routed: false, passed: []).map(\.label) == ["1", "2", "3", "4"])
-        let routed = TripPin.pins(list, routed: true, passed: [1])
-        #expect(routed.map(\.label) == ["途经1", "途经2", "途经3", "终点"])
-        #expect(routed.map(\.passed) == [true, false, false, false])
-        #expect(TripPin.pins(list, routed: false, passed: [1]).allSatisfy { !$0.passed })
+        var list = TripList.withStops(["古文化街", "五大道", "天津之眼", "瓷房子"])
+        #expect(TripPin.pins(list).map(\.label) == ["1", "2", "3", "4"])
+        #expect(TripPin.pins(list).allSatisfy { !$0.passed })
+        list.setMark(at: 1, .visited)
+        #expect(TripPin.pins(list).map(\.passed) == [true, false, false, false])
+        guard case .cards(let cards) = TripScreen.of(list, moving: false) else { Issue.record("cards"); return }
+        #expect(cards[0].mark == .visited && cards[0].passed && cards[1].mark == nil)
     }
 
     @Test("F-15b §12 item 4: the disk cache drops the oldest until 20 MB fit")

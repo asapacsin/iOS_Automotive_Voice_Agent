@@ -8,7 +8,7 @@ import NovaPorts
 
 /// Amap Web service REST (`restapi.amap.com`, contracts/api-contracts.md): place search, reverse
 /// geocoding and weather. All coordinates are GCJ-02. Status codes only reach diagnostics (I-8).
-public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup {
+public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup, DrivingTimes {
     public static let host = "https://restapi.amap.com"
 
     private let key: @Sendable () -> String?
@@ -67,6 +67,31 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup {
 
     public func detail(id: String) async throws -> Place? {
         Self.places(try await get("/v3/place/detail", ["id": id, "extensions": "all"])).first
+    }
+
+    // MARK: DrivingTimes (F-15b §26)
+
+    /// `/v3/distance type=1` (driving): many origins (`|`) to one destination; `distance` (m) and `duration` (s) per
+    /// origin, matched by `origin_id` (1-based).
+    public func drivingTimes(origins: [GeoCoordinate], destination: GeoCoordinate) async throws -> [DrivingTime?] {
+        guard !origins.isEmpty else { return [] }
+        let body = try await get("/v3/distance", [
+            "origins": origins.map(Self.lngLat).joined(separator: "|"),
+            "destination": Self.lngLat(destination), "type": "1",
+        ])
+        return Self.drivingTimes(body, count: origins.count)
+    }
+
+    static func drivingTimes(_ body: [String: Any], count: Int) -> [DrivingTime?] {
+        var out = [DrivingTime?](repeating: nil, count: count)
+        for (offset, raw) in ((body["results"] as? [[String: Any]]) ?? []).enumerated() {
+            let id = (raw["origin_id"] as? String).flatMap(Int.init) ?? (offset + 1)
+            guard (1...count).contains(id),
+                  let meters = (raw["distance"] as? String).flatMap(Int.init),
+                  let seconds = (raw["duration"] as? String).flatMap(Int.init) else { continue }
+            out[id - 1] = DrivingTime(meters: meters, seconds: seconds)
+        }
+        return out
     }
 
     // MARK: ReverseGeocoder

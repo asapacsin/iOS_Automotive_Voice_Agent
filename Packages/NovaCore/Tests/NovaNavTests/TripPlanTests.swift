@@ -51,24 +51,22 @@ struct PlanRig {
 
 @Suite("T-040l F-15b phase 2b saved plans and days")
 struct TripPlanTests {
-    @Test("F-15b row 26: a changed plan comes back from the file in a new controller: same days and stops, no lookups, no passed stops, no kept route")
+    @Test("F-15b row 26: a changed plan comes back from the file in a new controller: same days and stops, no lookups, no trip stop driven")
     func row26() async {
         let files = MemoryTripFiles()
         let first = await PlanRig(files: files)
         _ = await first.run("make_trip_list", ["places": names(["古文化街", "五大道"]), "day": 1])
         _ = await first.run("make_trip_list", ["places": names(["天津之眼", "瓷房子", "海河"]), "day": 2])
         _ = await first.run("edit_trip_list", ["action": "remove", "index": 3, "day": 2])
-        _ = await first.run("route_trip", ["day": 2])
-        #expect(await first.nav.current.tripRoute)
 
         let second = await PlanRig(files: files)
         await second.planner.restore()
         let plan = await second.planner.currentPlan
         #expect(plan.dayCount == 2 && plan.currentDay == 2)
-        #expect(plan.days.map { $0.stops.map(\.place.name) } == [["古文化街", "五大道"], ["瓷房子", "天津之眼"]])
+        #expect(plan.days.map { $0.stops.map(\.place.name) } == [["古文化街", "五大道"], ["天津之眼", "瓷房子"]])
         #expect(second.search.asked.withLock { $0 }.isEmpty)
         let flow = await second.nav.current
-        #expect(!flow.tripRoute && flow.tripStopsPassed.isEmpty)
+        #expect(flow.tripStopID == nil)
         #expect(second.lines.withLock { $0 }.contains("trip load ok=yes days=2 stops=4"))
     }
 
@@ -94,7 +92,7 @@ struct TripPlanTests {
         let rig = await PlanRig()
         _ = await rig.run("make_trip_list", ["places": names(["古文化街", "五大道", "盘山"])])
         _ = await rig.run("edit_trip_list", ["action": "remove", "name": "五大道"])
-        _ = await rig.run("route_trip", ["start": true])
+        _ = await rig.run("trip_next", [:])
         _ = await rig.run("trip_plans", ["action": "save", "name": "天津一日游"])
         _ = await rig.planner.tap(.remove(index: 1), moving: false)
         let lines = rig.lines.withLock { $0 }
@@ -115,21 +113,6 @@ struct TripPlanTests {
         // Without a day the whole plan becomes one day (phase 1).
         _ = await rig.run("make_trip_list", ["places": names(["海河"])])
         #expect(await rig.planner.currentPlan.dayCount == 1)
-    }
-
-    @Test("F-15b row 30: route_trip day=2 start=true routes only day 2's stops and makes day 2 current")
-    func row30() async {
-        let rig = await PlanRig()
-        _ = await rig.run("make_trip_list", ["places": names(["古文化街", "五大道"]), "day": 1])
-        _ = await rig.run("make_trip_list", ["places": names(["天津之眼", "瓷房子"]), "day": 2])
-        _ = await rig.run("edit_trip_list", ["action": "read", "day": 1])
-        #expect(await rig.planner.currentPlan.currentDay == 1)
-        let r = await rig.run("route_trip", ["day": 2, "start": true])
-        #expect(r.ok && r.data["day"] == .int(2))
-        // Nearest from the origin: 瓷房子 (39.02) then 天津之眼 (39.16); day 1's stops are not in the route.
-        let request = rig.engine.requests.withLock { $0.last }
-        #expect(request?.destinationName == "天津之眼" && request?.waypoints.map(\.latitude) == [39.02])
-        #expect(await rig.planner.currentPlan.currentDay == 2)
     }
 
     @Test("F-15b row 31: clear day=1 on 3 days leaves 2; the old day 2 is now day 1")
@@ -204,20 +187,6 @@ struct TripPlanTests {
         _ = await rig.run("trip_plans", ["action": "delete", "name": "行程11"])
         _ = await rig.run("trip_plans", ["action": "save", "name": "天津西"])
         #expect(await rig.run("trip_plans", ["action": "open", "name": "天津"]).code == .ambiguous)
-    }
-
-    @Test("F-15b §16 item 7: opening a plan drops a kept trip route; guidance on a running route goes on")
-    func openWhileRouting() async {
-        let rig = await PlanRig()
-        _ = await rig.run("make_trip_list", ["places": names(["古文化街", "五大道"])])
-        _ = await rig.run("trip_plans", ["action": "save", "name": "天津一日游"])
-        _ = await rig.run("route_trip", [:])
-        #expect(await rig.nav.current.tripRoute)
-        _ = await rig.run("trip_plans", ["action": "open", "name": "天津一日游"])
-        #expect(await !rig.nav.current.tripRoute)
-        _ = await rig.run("route_trip", ["start": true])
-        _ = await rig.run("trip_plans", ["action": "open", "name": "天津一日游"])
-        #expect(await rig.nav.current.navigating)
     }
 
     @Test("F-15b §11 item 5: a day tab is edit_trip_list read day; open from 我的行程 sends the open note; while moving both are refused")
@@ -299,35 +268,6 @@ struct TripReviewFixTests {
         #expect(search.details.withLock { $0 }.count == 3)
     }
 
-    @Test("F-15b row 10: a photo arriving after the route was kept does not make the start recalculate")
-    func photoAfterKept() async {
-        let search = HeldPhotoSearch(hold: true)
-        let (nav, planner, engine, _) = await rig(search)
-        _ = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        _ = await planner.execute(trip("route_trip", [:]))
-        search.release()
-        await planner.photosSettled()
-        #expect(await planner.execute(trip("route_trip", ["start": true])).ok)
-        #expect(engine.calls.withLock { $0 }.filter { $0.hasPrefix("calculate") }.count == 1)
-        #expect(await nav.current.navigating)
-    }
-
-    @Test("F-15b §15: another day is a plan change: its route is nearest, a day tab drops the other day's kept route, a slow add of day 1 is stale after switching")
-    func dayIsAChange() async {
-        let search = HeldPhotoSearch(hold: false)
-        let (nav, planner, engine, _) = await rig(search)
-        _ = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道"]), "day": 1]))
-        _ = await planner.execute(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子"]), "day": 2]))
-        _ = await planner.execute(trip("route_trip", ["day": 1]))
-        _ = await planner.execute(trip("route_trip", ["day": 2, "start": true]))
-        #expect(engine.requests.withLock { $0.last?.destinationName } == "天津之眼")
-        _ = await nav.execute(tool("exit_navigation_mode"))
-        _ = await planner.execute(trip("route_trip", ["day": 1]))
-        #expect(await nav.current.tripRoute)
-        _ = await planner.tap(.day(2), moving: false)
-        #expect(await !nav.current.tripRoute)
-    }
-
     @Test("F-15b §14 item 4: an unreadable plans.json logs trip load ok=no")
     func badPlans() async {
         let files = MemoryTripFiles()
@@ -338,35 +278,10 @@ struct TripReviewFixTests {
         #expect(files.read("plans.bad.json") != nil)
     }
 
-    @Test("F-15b §13 item 5: an opened plan's pins are not labelled or greyed from the running route")
-    func pinsOnlyForTheRoute() {
-        let list = TripList.withStops(["古文化街", "五大道"])
-        #expect(TripScreen.passed(list, routeStops: ["天津之眼", "瓷房子"], passed: [1]).isEmpty)
-        #expect(TripScreen.passed(list, routeStops: ["古文化街", "五大道"], passed: [1]) == [1])
-    }
 }
 
 @Suite("T-040l F-15b review fixes 2")
 struct TripReviewFix2Tests {
-    @Test("F-15b §15: a look at day 2 during day 1's guidance, then start day 1 again: already running, no new calculation; tripStopIDs follow the route")
-    func lookAtOtherDay() async {
-        let rig = await PlanRig()
-        _ = await rig.run("make_trip_list", ["places": names(["古文化街", "五大道"]), "day": 1])
-        _ = await rig.run("make_trip_list", ["places": names(["天津之眼", "瓷房子"]), "day": 2])
-        _ = await rig.run("route_trip", ["day": 1])
-        let ids = await rig.planner.current.stops.map(\.place.id)
-        #expect(await rig.nav.current.tripStopIDs == ids)
-        _ = await rig.run("route_trip", ["day": 1, "start": true])
-        #expect(await rig.nav.current.tripStopIDs == ids)
-        _ = await rig.run("edit_trip_list", ["action": "read", "day": 2])
-        let again = await rig.run("route_trip", ["day": 1, "start": true])
-        #expect(again.ok)
-        #expect(rig.engine.calls.withLock { $0 }.filter { $0.hasPrefix("calculate") }.count == 1)
-        #expect(!rig.engine.calls.withLock { $0 }.contains("stop"))
-        _ = await rig.nav.execute(tool("exit_navigation_mode"))
-        #expect(await rig.nav.current.tripStopIDs.isEmpty)
-    }
-
     @Test("F-15b row 36: one make_trip_list days=[[…],[…],[…]] makes a new 3-day plan, replaces an older 4-day one, day 1 current, a place twice is a duplicate")
     func row36() async {
         let rig = await PlanRig(files: MemoryTripFiles())

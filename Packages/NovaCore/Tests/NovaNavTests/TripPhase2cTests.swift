@@ -83,17 +83,19 @@ struct TripPhase2cTests {
         #expect(await empty.nav.execute(exit()).data["status"] == "no_navigation_active")
     }
 
-    @Test("F-15b row 60: a route choice open over a plan: navigation_selection_cancelled and the cards hidden")
+    @Test("F-15b row 60: a destination list open over a plan: navigation_selection_cancelled and the cards hidden")
     func row60() async {
-        let rig = await TripRig()
+        var table = tianjin
+        table["车站"] = [spot("天津站", lat: 39.13, lng: 117.21), spot("天津西站", lat: 39.16, lng: 117.16)]
+        let rig = await TripRig(search: TripSearch(table))
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        _ = await rig.run(trip("route_trip"))
-        #expect(await rig.nav.current.phase == .awaitingRouteSelection)
+        _ = await rig.nav.execute(trip("navigate_to", ["destination": "车站"]))
+        #expect(await rig.nav.current.phase == .awaitingDestinationSelection)
         #expect(await rig.nav.execute(exit()).data["status"] == "navigation_selection_cancelled")
         #expect(await rig.planner.cardsHidden)
     }
 
-    @Test("F-15b row 61: hidden, then edit_trip_list read shows; hidden again, then route_trip shows")
+    @Test("F-15b row 61: hidden, then edit_trip_list read shows; hidden again, then trip_next shows")
     func row61() async {
         let rig = await TripRig()
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
@@ -102,10 +104,11 @@ struct TripPhase2cTests {
         #expect(await !rig.planner.cardsHidden)
         _ = await rig.nav.execute(exit())
         #expect(await rig.planner.cardsHidden)
-        _ = await rig.run(trip("route_trip"))
+        _ = await rig.run(trip("trip_next"))
         #expect(await !rig.planner.cardsHidden)
         #expect(rig.lines.withLock { $0 }.filter { $0 == "trip cards hidden=no" }.count == 2)
-        // trip_plans other than open does not show them.
+        // trip_plans other than open does not show them (the first exit stops the guidance trip_next started).
+        #expect(await rig.nav.execute(exit()).data["status"] == "navigation_stopped")
         _ = await rig.nav.execute(exit())
         _ = await rig.run(trip("trip_plans", ["action": "list"]))
         #expect(await rig.planner.cardsHidden)
@@ -115,7 +118,7 @@ struct TripPhase2cTests {
     func row62() async {
         let rig = await TripRig()
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        #expect(await rig.run(trip("route_trip", ["start": true])).ok)
+        #expect(await rig.run(trip("trip_next")).ok)
         #expect(await rig.nav.execute(exit()).data["status"] == "navigation_stopped")
         #expect(await !rig.planner.cardsHidden)
     }

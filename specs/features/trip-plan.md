@@ -964,4 +964,4 @@ sentence.
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040n | §25–§32, rows 65–83 | Spec written 2026-11-17; waiting for the owner's go |
+| T-040n | §25–§32, rows 65–83 | Built 2026-11-17 (`TripOptimizer`, `TripTimes`, `AmapWebClient.drivingTimes`, `trip_next`; `route_trip`, 途经点 and `TripStopTracker` removed); rows 81–83 device |
