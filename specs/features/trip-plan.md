@@ -78,11 +78,8 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
    `PlaceSearch.text(name, city:, cityLimit:)`:
    - `city` is the tool's `city` argument when given (`cityLimit: true`);
    - otherwise no city, as for `navigate_to` text search.
-2. **Match rule.**
-   - The first result is accepted only when, after `TranscriptText.normalize`, its name contains the asked name or
-     the asked name contains its name.
-   - Otherwise the name is **not found**. No guess, no sound-alike pick: the names come from the model as text, not
-     from speech.
+2. **Choice rule** (owner 2026-11-17, replaces the name match): a text model picks among 高德's results (item 6).
+   No name rule of the app's own decides which result is the place.
 3. **Duplicates.** A result whose `Place.id` is already in the list is dropped. Its name is reported in `duplicates`.
 4. **Limits.**
    - At most 2 lookups run at once (item 7; was 4).
@@ -91,11 +88,43 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
      `reason=timeout` in the record.
 5. **No key.** A missing or rejected key returns `AMAP_WEB_KEY_MISSING`. Any other lookup failure counts as not found
    (after item 7's retries).
-6. **Name check, widened** (device 2026-11-17: 「路环安德鲁葡挞」 and 「路环玛嘉烈蛋挞」 were `nomatch`; 高德 knows the shops
-   by their shop names). The first of the top 5 results whose name contains, or is contained in, the asked name is
-   taken. If none is, the first result is taken when it shares a run of at least 3 characters with the asked name
-   (「安德鲁」), counted after removing the city and the result's own city names (with short forms: 「西双版纳傣族自治州」 also 「西双版纳」) and place-type words such as 博物馆, 动物园, 美术馆, 风景名胜区 or 站; a run that lies inside a region name (city or district) never counts, but the district is not removed, so 「广州白云山」 still takes 「白云山风景名胜区」 in 白云区 (review 2 2026-11-17: 「西双版纳野象谷」 never takes 「西双版纳嘎洒国际机场」, 「上海野生动物园」 never 「上海动物园」); also taken when what is left of the asked name (at least 2 characters, and no place-type word was removed from it) is inside what is left of the found name once full region names are removed from it, never the other way round (review 4: 「南京中山陵」 never takes 「中山大学」, 「北京中山公园」 never 「中山医院」, 「沙坪坝磁器口」 never 「沙坪坝站」): 「北京故宫」 takes 「故宫博物院」, 「杭州西湖」 takes 「西湖风景名胜区」, 「深圳南山」 never takes 「南山区人民医院」; the short forms of an autonomous prefecture are every 2+ character start before the people's name, alone and with 州 (「恩施州大峡谷」 never takes 「恩施州中心医院」) (review 3); a shared start that is not a region still counts (「安德鲁葡挞」 takes 「安德鲁饼店」) (review: 「哈尔滨中央大街」 never takes 「哈尔滨站」). 「盘山」 still never takes 「饭店」. The catalog texts ask for shop names, not dish names
-   (「安德鲁饼店」).
+6. **Qwen picks the place** (owner 2026-11-17; replaces the name rules of reviews 1–4 and the `check` field).
+   - **Evidence** (probe 2026-11-17, `scripts/amap_trip_name_probe.py`, 28 names, the app's request with `city` and
+     `citylimit=true`): 高德 returned results for all 28, and its first result was the right place for 26. The model's
+     everyday names do not contain 高德's official names (「北京故宫」 vs 「故宫博物院」, 「兵马俑」 vs 「秦始皇兵马俑博物馆」),
+     so any rule that compares the two texts rejects or skips right answers: the contain rule took
+     「北京故宫博物院北院区(建设中)」 over 「故宫博物院」. The two wrong first results were a vague name (「路环那家葡挞」 →
+     「不是葡挞」) and a station ranked first (「陈家祠」 → 「陈家祠(地铁站)」).
+   - **Pattern** (community): the voice model talks; a text model does the work behind the tool
+     ([OpenAI realtime agents, chat-supervisor](https://github.com/openai/openai-realtime-agents),
+     [LiveKit subagent delegation](https://docs.livekit.io/agents/logic/patterns/subagent-delegation/)); candidates
+     go to a model that chooses, rather than taking the first API result
+     ([SpatialWebAgent, ACL 2025 demo](https://preview.aclanthology.org/display_plenaries/2025.acl-demo.25.pdf));
+     高德's own MCP search returns the whole list for the model to choose
+     ([amap-mcp-server maps_text_search](https://glama.ai/mcp/servers/sugarforever/amap-mcp-server/tools/maps_text_search)).
+   - **Flow.**
+     1. Each name: 高德 text search as item 1, the top 5 results kept (`TripTuning.candidates`).
+     2. One result: taken. None: not found (`nomatch`). Two or more: the name goes to the picker.
+     3. **One picker call per tool call**, for every name with two or more results: `PlacePicker.pick` (NovaPorts),
+        implemented by `QwenPlacePicker` (NovaRealtime): `qwen3.7-flash`, the same endpoint and Keychain key as
+        `QwenWebSearchClient`, `enable_search=false`, `enable_thinking=false`, not streamed.
+     4. **Prompt, copied:** EntGPT's multiple-choice form ([arXiv 2402.06738](https://arxiv.org/pdf/2402.06738v2)):
+        per name, the mention with its city, the numbered candidates (name, address, district) and a "None of the
+        above" option, under EntGPT's instruction 「Select the entity which best describes the mention」. Answer: one
+        line per name, `name number: option number`, `0` for none. OneNet's advice to use the place clues in the
+        context ([arXiv 2410.07549](https://arxiv.org/pdf/2410.07549)) is met by sending the city and each candidate's
+        address. No wording of our own beyond the answer format.
+     5. **Answer used:** the chosen result; "none" → not found with record reason `none`.
+     6. **Fallback:** no Qwen key, an error, an unreadable answer, or no answer within **2.5 s** (`TripTuning.pickLimit`,
+        Ultravox's default tool timeout, [docs](https://docs.ultravox.ai/tools/async-tools)): every open name takes
+        高德's first result. A list is never blocked by the picker.
+   - **Cache:** the chosen place is cached by city and asked name (item 7), so a cached name is neither searched nor
+     picked again.
+   - **Removed:** `TripNameMatch`, the `check` field and its `next` note, and the catalog lines about `check`. The
+     catalog still asks for shop and official names (「安德鲁饼店」), which help both 高德 and the picker.
+   - **Record:** `trip pick names=<n> none=<n> ok=<yes|no> ms=<n>`; `ok=no` with `reason=<nokey|timeout|failed>`.
+     Codes and numbers only (I-8).
+   - The Qwen prompt is not the search prompt, but it is copied all the same (owner rule: review the community first).
 7. **高德's request limits** (device 2026-11-17: 2 of 5 lookups failed with 4 at once). 高德's error codes 10019–10021
    mean the per-second limit was exceeded: requests over it are rejected, those within it still answer
    ([错误码说明](https://lbs.amap.com/api/webservice/guide/tools/info)). The per-second limit of a key is shown only in
@@ -150,6 +179,18 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
      - **Gap 3:** only the name is checked. Location is bounded only by `cityLimit` when a city is given, and the
        place type (food vs. sight) is not compared.
    - Gap 2 is skipped (decision above). Gaps 1 and 3 are not built yet; they wait for the owner's go-ahead.
+
+9. **Runs in the background** (owner 2026-11-17). `make_trip_list` and `edit_trip_list` join `AsyncTool`: declared
+   `behavior: NON_BLOCKING`, answered with `scheduling: WHEN_IDLE`, as `web_search` and `query_live_info` already are
+   (F-18 §27; Gemini Live
+   [asynchronous function calling](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/live-api/asynchronous-function-calling)).
+   - She says one short line (「好，我排一下」) and keeps talking; when the result comes back she explains it once the
+     driver is quiet.
+   - **One at a time:** the trip tools (`make_trip_list`, `edit_trip_list`, `route_trip`, `trip_plans`, and taps) run
+     in the order called, each after the one before has finished. A `route_trip` called while a list is still being
+     made routes the finished list, not a half-made one, and the list is not dropped as stale.
+   - Catalog line on both tools: 「结果稍后回来：先只说一句在排，结果回来前不要说清单里有什么。」
+   - **Not verified:** that `gemini-3.8-live` honours `WHEN_IDLE` for these tools on the device (device row).
 
 ## 5. Tools (F-09 catalog)
 
@@ -586,11 +627,17 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
 | 34 | 20 saved, `save` a new name; two names contain the asked one | `PLANS_FULL`; `AMBIGUOUS` | unit |
 | 35 | Device, 模拟导航, parked: 「规划天津两天的行程」, 「做个打卡清单」 (two days), cards with photos, ✕ one card, 「存成天津周末」, close and reopen the app, 「打开天津周末」, 「开始第一天的导航」 | She makes two days; the cards show photos or placeholders; the ✕ removes the stop and she knows it; after reopening the plan is there; guidance runs through day 1's stops with 途经 labels; the record has the `trip` lines | D |
 | 36 | One `make_trip_list days=[[古文化街,五大道],[天津之眼,古文化街],[瓷房子,盘山]]` over a 4-day plan | 3 days, day 1 current, name cleared; 古文化街 a duplicate, 盘山 not found; `next` says 第1天2个，第2天1个，第3天1个 | unit |
-| 40 | `pick`: 路环安德鲁葡挞 over [安德鲁饼店(路环店)]; 澳门旅游塔 over [澳门旅游局, 澳门旅游塔会展娱乐中心]; 盘山 over [饭店] | 安德鲁饼店; the 2nd result; none | unit |
+| 40 | Picker (fake): 北京故宫 with [北院区(建设中), 故宫博物院] answered 2; 陈家祠 with [地铁站, 陈家祠堂] answered 2; 路环那家葡挞 answered 0 | 故宫博物院 and 陈家祠堂 listed; 路环那家葡挞 in `not_found`; one picker call for the whole list; no `check` field | unit |
 | 41 | The first 2 searches refused `quota` | All 3 found after retries; 2 lookups at once | unit |
 | 42 | Every search refused `quota` | `NO_CANDIDATES`; `trip lookup index=1 ok=no reason=busy` | unit |
 | 43 | The same names again with 高德 refusing everything | Found from the cache; no new search | unit |
 | 44 | Device: 「帮我准备一个澳门两天游」, then 「加上路环的安德鲁」 | Every stop found; 安德鲁饼店 added | D |
+| 45 | Picker fails, has no key, or answers after 2.5 s (manual clock) | Every name takes 高德's first result; `trip pick ... ok=no` | unit |
+| 46 | A name with one result, and a cached name | No picker call for them | unit |
+| 47 | `QwenPlacePicker` request and parse (fake send) | Body: `qwen3.7-flash`, `enable_search=false`, the copied EntGPT prompt with the candidates; answer lines parsed, `0` → none, unreadable → error | unit |
+| 48 | `make_trip_list` and `edit_trip_list` declarations and responses | `NON_BLOCKING`; responses carry `WHEN_IDLE` | unit |
+| 49 | `route_trip` called while `make_trip_list` still waits on its lookups | The route runs after the list is made, on the new list; the list is not `OPTIONS_STALE` | unit |
+| 50 | Device: 「规划北京一日游，去故宫和陈家祠…」 style request, then 「串成路线」 | She says one line, keeps talking, explains the list when quiet; 故宫博物院 listed; the route uses the finished list | D |
 | 36b | `days=[[盘山],[五大道]]`, then `days=[[盘山],[盘山]]` | Day 1 stays empty and day 2 is current; nothing found is `NO_CANDIDATES`, plan unchanged | unit |
 | 37 | `days` with `places`, `days` with `day`, 6 groups, an empty group, no field | `invalidFields` | unit |
 | 38 | The `make_trip_list` text | Says to pick places herself and not ask, and `days` for several days | unit |
