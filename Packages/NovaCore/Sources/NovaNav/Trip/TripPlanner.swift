@@ -176,7 +176,11 @@ public actor TripPlanner: ToolExecutor {
     private func waitFor(_ which: ((make: Bool, task: Task<ToolResult, Never>)) -> Bool) async {
         waiting += 1
         defer { waiting -= 1 }
-        while let next = changes.values.first(where: which) { _ = await next.task.value }
+        var done = Set<Int>()
+        while let next = changes.first(where: { !done.contains($0.key) && which($0.value) }) {
+            _ = await next.value.task.value
+            done.insert(next.key)
+        }
     }
 
     private func tracked(_ call: ToolCall, make: Bool) async -> ToolResult {
