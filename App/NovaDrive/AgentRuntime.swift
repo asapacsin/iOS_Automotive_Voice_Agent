@@ -1468,7 +1468,9 @@ final class AgentRuntime {
         await navigation.start()
         // F-15b (T-040i): the app's one trip list, next to the navigation controller; it outlives voice sessions.
         // F-15b §14 (T-040l): the plan and the saved plans live in Application Support/trip/.
-        let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock,
+        // F-15b §4 item 6: Qwen picks among 高德's results with the search model's key; no key → 高德's first result.
+        let picker = QwenPlacePicker(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) })
+        let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock, picker: picker,
                                   files: AppTripFiles(), onLine: tripLine,
                                   onChange: { list in Task { @MainActor in model.tripList = list } },
                                   onPlans: { plans in Task { @MainActor in model.tripPlans = plans } })

@@ -249,6 +249,30 @@ public enum PlaceSort: String, Sendable {
 }
 
 /// Amap Web REST place endpoints (`/v3/place/text`, `/around`, `/polygon`, detail).
+/// F-15b §4 item 6: one name the model asked for, and 高德's results for it (at most 5).
+public struct PlaceChoice: Sendable, Hashable {
+    public let asked: String
+    public let city: String?
+    public let candidates: [Place]
+    public init(asked: String, city: String?, candidates: [Place]) {
+        self.asked = asked
+        self.city = city
+        self.candidates = candidates
+    }
+}
+
+/// Thrown by a `PlacePicker` with no key: recorded as `reason=nokey`.
+public struct PlacePickerNotConfigured: Error, Equatable {
+    public init() {}
+}
+
+/// F-15b §4 item 6 (owner 2026-11-17): a text model picks which result each asked name means.
+public protocol PlacePicker: Sendable {
+    /// One answer per choice, in order: the 0-based candidate index, or nil for none of them. Throws when there is
+    /// no usable answer.
+    func pick(_ choices: [PlaceChoice]) async throws -> [Int?]
+}
+
 public protocol PlaceSearch: Sendable {
     func text(_ keywords: String, city: String?) async throws -> [Place]
     func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place]

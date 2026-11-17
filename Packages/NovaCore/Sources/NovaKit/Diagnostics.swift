@@ -80,6 +80,9 @@ public enum StateNoteReason: String, Sendable, Hashable, CaseIterable {
 public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     case webSearch = "web_search"
     case queryLiveInfo = "query_live_info"
+    /// F-15b §4 item 9: trip lists are made and changed in the background.
+    case makeTripList = "make_trip_list"
+    case editTripList = "edit_trip_list"
 
     public init?(name: String) { self.init(rawValue: name) }
     /// The `scheduling` their response carries (F-18 §27 item 3).

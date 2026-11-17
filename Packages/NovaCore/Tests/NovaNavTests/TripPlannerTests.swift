@@ -101,6 +101,26 @@ final class HeldStartEngine: NaviEngine, @unchecked Sendable {
     }
 }
 
+/// §4 item 6: answers from a table of asked name → 0-based pick (nil = none); a name not in it gets 0. `hang` never
+/// answers; `fail` throws.
+final class FakePicker: PlacePicker, @unchecked Sendable {
+    let answers: [String: Int?]
+    let hang: Bool
+    let fail: Bool
+    let calls = Mutex<[[String]]>([])
+    init(_ answers: [String: Int?] = [:], hang: Bool = false, fail: Bool = false) {
+        self.answers = answers
+        self.hang = hang
+        self.fail = fail
+    }
+    func pick(_ choices: [PlaceChoice]) async throws -> [Int?] {
+        calls.withLock { $0.append(choices.map(\.asked)) }
+        if hang { try await Task.sleep(for: .seconds(3600)) }
+        if fail { throw AmapWebError.timeout }
+        return choices.map { answers[$0.asked] ?? 0 }
+    }
+}
+
 struct TripRig {
     let search: TripSearch
     let engine: ScriptedNaviEngine
@@ -109,7 +129,8 @@ struct TripRig {
     let lines = TripLines()
 
     init(search: TripSearch = TripSearch(tianjin), engine: ScriptedNaviEngine? = nil, tuning: NovaNav.NavigationTuning = NovaNav.NavigationTuning(),
-         clock: any NovaClock = ManualClock(), resolveLimit: NovaDuration = .seconds(15), other: (any NaviEngine)? = nil) async {
+         clock: any NovaClock = ManualClock(), resolveLimit: NovaDuration = .seconds(15), other: (any NaviEngine)? = nil,
+         picker: (any PlacePicker)? = nil) async {
         self.search = search
         let engine = engine ?? ScriptedNaviEngine(routes: [route(1, meters: 156_000, seconds: 14_640, toll: 20)])
         self.engine = engine
@@ -119,7 +140,7 @@ struct TripRig {
         await nav.start()
         var t = TripTuning()
         t.resolveLimit = resolveLimit
-        planner = TripPlanner(search: search, navigation: nav, origin: { origin }, clock: clock, tuning: t,
+        planner = TripPlanner(search: search, navigation: nav, origin: { origin }, clock: clock, tuning: t, picker: picker,
                               onLine: { line in lines.append(line) })
     }
 
@@ -417,31 +438,79 @@ struct TripPlannerTests {
         #expect(list.stops.map(\.place.name) == ["C", "A", "B"] && list.stops.map(\.index) == [1, 2, 3] && list.generation == 2)
         list.reorder([0, 1, 2])
         #expect(list.generation == 2)
-        #expect(TripNameMatch.accepts(asked: "海河", found: "海河观光") && !TripNameMatch.accepts(asked: "盘山", found: "饭店"))
     }
 }
 
 @Suite("F-15b §4 item 6 device 2026-11-17 lookups")
 struct TripLookupTests {
-    @Test("F-15b row 40 (owner 2026-11-17): 高德's answer is taken; a containing name in the top 5 wins; an unrelated first result is taken and shown in check")
+    static let beijing: [String: [Place]] = [
+        "北京故宫": [spot("北京故宫博物院北院区(建设中)", lat: 40.05, lng: 116.2), spot("故宫博物院", lat: 39.92, lng: 116.4)],
+        "陈家祠": [spot("陈家祠(地铁站)", lat: 23.13, lng: 113.24), spot("陈家祠堂", lat: 23.13, lng: 113.25)],
+        "路环那家葡挞": [spot("不是葡挞", lat: 22.12, lng: 113.55), spot("路环岛", lat: 22.12, lng: 113.56)],
+        "天坛": [spot("天坛公园", lat: 39.88, lng: 116.41)],
+    ]
+
+    @Test("F-15b row 40 (owner 2026-11-17): Qwen picks among 高德's results in one call; 0 is not found; no check field")
     func row40() async {
-        let andrew = spot("安德鲁饼店(路环店)", lat: 22.12, lng: 113.55)
-        #expect(TripNameMatch.pick(asked: "路环安德鲁葡挞", from: [andrew]) == andrew)
-        #expect(TripNameMatch.unsure(asked: "路环安德鲁葡挞", found: andrew))
-        let bureau = spot("澳门旅游局", lat: 22.19, lng: 113.54), tower = spot("澳门旅游塔(观光)", lat: 22.18, lng: 113.53)
-        #expect(TripNameMatch.pick(asked: "澳门旅游塔", from: [bureau, tower]) == tower)
-        #expect(!TripNameMatch.unsure(asked: "澳门旅游塔", found: tower))
-        #expect(TripNameMatch.pick(asked: "大三巴", from: []) == nil)
-        let rig = await TripRig()
-        let r = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "盘山风景区"]), "city": "天津"]))
-        #expect(r.ok && r.data["count"] == .int(2) && r.data["not_found"] == names([]))
-        #expect(r.data["check"] == names(["盘山风景区 → 蓟州农家饭店"]))
-        #expect(r.data["next"]?.stringValue?.hasPrefix("先自己核对：盘山风景区→蓟州农家饭店") == true)
-        #expect(r.data["next"]?.stringValue?.contains("edit_trip_list replace") == true)
-        let sure = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"]), "city": "天津"]))
-        #expect(sure.data["check"] == nil && sure.data["next"]?.stringValue?.hasPrefix("只说一句") == true)
-        let added = await rig.run(trip("edit_trip_list", ["action": "add", "name": "盘山风景区"]))
-        #expect(added.ok && added.data["check"] == names(["盘山风景区 → 蓟州农家饭店"]))
+        let picker = FakePicker(["北京故宫": 1, "陈家祠": 1, "路环那家葡挞": nil])
+        let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
+        let r = await rig.run(trip("make_trip_list", ["places": names(["北京故宫", "陈家祠", "路环那家葡挞", "天坛"])]))
+        #expect(r.ok && r.data["count"] == .int(3) && r.data["not_found"] == names(["路环那家葡挞"]))
+        #expect(await rig.order() == ["故宫博物院", "陈家祠堂", "天坛公园"])
+        #expect(r.data["check"] == nil && r.data["next"]?.stringValue?.hasPrefix("只说一句") == true)
+        #expect(picker.calls.withLock { $0 } == [["北京故宫", "陈家祠", "路环那家葡挞"]])
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=3 none=1 ok=yes") })
+        let added = await rig.run(trip("edit_trip_list", ["action": "add", "name": "陈家祠"]))
+        #expect(added.data["duplicates"] == names(["陈家祠"]))
+    }
+
+    @Test("F-15b row 45: picker fails, has no key, or never answers within 2.5 s: 高德's first result")
+    func row45() async {
+        for (picker, reason) in [(FakePicker(fail: true), "failed"), (nil, "nokey")] as [(FakePicker?, String)] {
+            let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
+            let r = await rig.run(trip("make_trip_list", ["places": names(["北京故宫", "陈家祠"])]))
+            #expect(r.ok && r.data["count"] == .int(2))
+            #expect(await rig.order() == ["北京故宫博物院北院区(建设中)", "陈家祠(地铁站)"])
+            #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=2 none=0 ok=no reason=\(reason)") })
+        }
+        let clock = ManualClock()
+        let picker = FakePicker(hang: true)
+        let rig = await TripRig(search: TripSearch(Self.beijing), clock: clock, picker: picker)
+        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["北京故宫", "天坛"])])) }
+        while picker.calls.withLock({ $0.isEmpty }) || clock.pendingSleepers == 0 { await Task.yield() }
+        clock.advance(by: .milliseconds(2500))
+        let r = await made.value
+        #expect(r.ok && r.data["count"] == .int(2))
+        #expect(await rig.order() == ["北京故宫博物院北院区(建设中)", "天坛公园"])
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=1 none=0 ok=no reason=timeout") })
+    }
+
+    @Test("F-15b row 46: a name with one result and a cached name never go to the picker")
+    func row46() async {
+        let picker = FakePicker()
+        let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
+        _ = await rig.run(trip("make_trip_list", ["places": names(["天坛"])]))
+        #expect(picker.calls.withLock { $0 }.isEmpty)
+        _ = await rig.run(trip("make_trip_list", ["places": names(["北京故宫"])]))
+        _ = await rig.run(trip("make_trip_list", ["places": names(["北京故宫", "天坛"])]))
+        #expect(picker.calls.withLock { $0 } == [["北京故宫"]])
+    }
+
+    @Test("F-15b row 49: route_trip called while make_trip_list waits on 高德 runs after it, on the new list")
+    func row49() async {
+        let search = TripSearch(tianjin, slow: ["瓷房子"])
+        let rig = await TripRig(search: search)
+        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子", "海河"])])) }
+        while search.waiting == 0 { await Task.yield() }
+        let routed = Task { await rig.run(trip("route_trip")) }
+        for _ in 0..<50 { await Task.yield() }
+        search.release()
+        let r = await made.value
+        let route = await routed.value
+        #expect(r.ok && r.data["count"] == .int(3))
+        let stops: Int = if case .array(let a)? = route.data["stops"] { a.count } else { 0 }
+        #expect(route.ok && stops == 3)
     }
 
     @Test("F-15b row 41: two lookups refused as busy (高德 per-second limit) are tried once more and found; 2 at once")

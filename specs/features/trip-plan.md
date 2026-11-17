@@ -186,9 +186,9 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
    [asynchronous function calling](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/live-api/asynchronous-function-calling)).
    - She says one short line (「好，我排一下」) and keeps talking; when the result comes back she explains it once the
      driver is quiet.
-   - **One at a time:** the trip tools (`make_trip_list`, `edit_trip_list`, `route_trip`, `trip_plans`, and taps) run
-     in the order called, each after the one before has finished. A `route_trip` called while a list is still being
-     made routes the finished list, not a half-made one, and the list is not dropped as stale.
+   - **Route waits for the list:** a `route_trip` called while `make_trip_list` or `edit_trip_list` is still running
+     waits until they finish, then routes the finished list, so the list is not dropped as stale. List changes do
+     not wait for each other: a newer change still wins (§3 item 4).
    - Catalog line on both tools: 「结果稍后回来：先只说一句在排，结果回来前不要说清单里有什么。」
    - **Not verified:** that `gemini-3.8-live` honours `WHEN_IDLE` for these tools on the device (device row).
 

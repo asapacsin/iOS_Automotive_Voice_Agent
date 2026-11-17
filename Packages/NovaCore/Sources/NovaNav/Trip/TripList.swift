@@ -106,27 +106,6 @@ public struct TripList: Sendable, Hashable {
     }
 }
 
-/// F-15b §4 item 6 (owner 2026-11-17, replaces the name rules of reviews 1–4): the model names the place as 高德
-/// lists it, and 高德's answer is taken. Of the top 5 results the first whose name contains, or is contained in, the
-/// asked name wins; otherwise the first result is taken, and the tool result shows the asked and found names side by
-/// side (`check`) so the model can see a wrong place and replace it.
-public enum TripNameMatch {
-    public static let scanned = 5
-
-    public static func accepts(asked: String, found: String) -> Bool {
-        let a = TranscriptText.normalize(asked), f = TranscriptText.normalize(found)
-        guard !a.isEmpty, !f.isEmpty else { return false }
-        return f.contains(a) || a.contains(f)
-    }
-
-    public static func pick(asked: String, from places: [Place]) -> Place? {
-        places.prefix(scanned).first { accepts(asked: asked, found: $0.name) } ?? places.first
-    }
-
-    /// Whether the found place should be shown to the model to check (its name does not contain the asked one).
-    public static func unsure(asked: String, found: Place) -> Bool { !accepts(asked: asked, found: found.name) }
-}
-
 /// F-15b §5.3 item 2: from the origin, repeatedly the closest unvisited stop (great-circle distance).
 public enum TripOrder {
     /// 0-based indexes of `stops` in visiting order. Without an origin, the first stop starts the chain.

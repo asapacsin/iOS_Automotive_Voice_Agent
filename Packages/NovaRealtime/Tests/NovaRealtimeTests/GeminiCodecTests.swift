@@ -297,3 +297,22 @@ struct AsyncToolCodecTests {
         #expect(rs[2]["response"] == ["ok": true])
     }
 }
+
+/// F-15b §4 item 9 row 48: trip lists are made and changed in the background.
+@Suite("F-15b row 48 trip tools NON_BLOCKING and WHEN_IDLE")
+struct TripAsyncCodecTests {
+    @Test("make_trip_list and edit_trip_list carry NON_BLOCKING and WHEN_IDLE; route_trip neither")
+    func trip() {
+        let config = SessionConfig(systemInstruction: "p", tools: ["make_trip_list", "edit_trip_list", "route_trip"].map {
+            ToolDeclaration(name: $0, description: "d", parametersJSONSchema: ["type": "object"])
+        })
+        guard case .array(let tools)? = GeminiCodec.setup(config, resume: nil)["setup"]?["tools"],
+              case .array(let decls)? = tools.first?["functionDeclarations"] else { Issue.record("no tools"); return }
+        #expect(decls.map { $0["behavior"] } == ["NON_BLOCKING", "NON_BLOCKING", nil])
+        guard case .array(let rs)? = GeminiCodec.toolResponses([
+            ToolResponse(id: CallID("a")!, name: "make_trip_list", result: .success([:])),
+            ToolResponse(id: CallID("b")!, name: "route_trip", result: .success([:])),
+        ])["toolResponse"]?["functionResponses"], rs.count == 2 else { Issue.record("no responses"); return }
+        #expect(rs[0]["response"]?["scheduling"] == "WHEN_IDLE" && rs[1]["response"]?["scheduling"] == nil)
+    }
+}

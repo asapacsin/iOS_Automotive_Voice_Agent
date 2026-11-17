@@ -36,6 +36,10 @@ public struct TripTuning: Sendable, Hashable {
     public var parallelLookups = 2
     public var resolveLimit = NovaDuration.seconds(15)
     public var retryDelay = NovaDuration.milliseconds(600)
+    /// §4 item 6: 高德 results kept per name for the picker, and how long the picker may take (Ultravox's default
+    /// tool timeout); after that every open name takes 高德's first result.
+    public var candidates = 5
+    public var pickLimit = NovaDuration.milliseconds(2500)
     public init() {}
 }
 
@@ -46,6 +50,11 @@ public actor TripPlanner: ToolExecutor {
     public static let tools: Set<String> = ["make_trip_list", "edit_trip_list", "route_trip", "trip_plans"]
 
     private let search: any PlaceSearch
+    /// §4 item 6: nil picks 高德's first result.
+    private let picker: (any PlacePicker)?
+    /// §4 item 9: list changes still running (`make_trip_list`, `edit_trip_list`); `route_trip` waits for them.
+    private var changes: [Int: Task<ToolResult, Never>] = [:]
+    private var nextChange = 0
     private let navigation: NavigationController
     private let origin: @Sendable () async -> GeoCoordinate?
     private let clock: any NovaClock
@@ -81,7 +90,8 @@ public actor TripPlanner: ToolExecutor {
 
     /// `origin`: the same as `navigate_to`'s (the usable fix, or the demo origin in 模拟导航), GCJ-02.
     public init(search: any PlaceSearch, navigation: NavigationController, origin: @escaping @Sendable () async -> GeoCoordinate?,
-                clock: any NovaClock, tuning: TripTuning = TripTuning(), files: (any TripFiles)? = nil,
+                clock: any NovaClock, tuning: TripTuning = TripTuning(), picker: (any PlacePicker)? = nil,
+                files: (any TripFiles)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() },
                 onLine: @escaping @Sendable (String) -> Void = { _ in },
                 onChange: @escaping @Sendable (TripList) -> Void = { _ in },
@@ -90,6 +100,7 @@ public actor TripPlanner: ToolExecutor {
         self.files = files
         self.now = now
         self.search = search
+        self.picker = picker
         self.navigation = navigation
         self.origin = origin
         self.clock = clock
@@ -145,6 +156,25 @@ public actor TripPlanner: ToolExecutor {
     }
 
     public func execute(_ call: ToolCall) async -> ToolResult {
+        switch call.name {
+        case "route_trip":
+            // §4 item 9: a list being made or changed (in the background) is finished before it is routed.
+            for change in Array(changes.values) { _ = await change.value }
+            return await run(call)
+        case "make_trip_list", "edit_trip_list":
+            let id = nextChange
+            nextChange += 1
+            let task = Task { await self.run(call) }
+            changes[id] = task
+            let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+            changes[id] = nil
+            return result
+        default:
+            return await run(call)
+        }
+    }
+
+    private func run(_ call: ToolCall) async -> ToolResult {
         // The dispatcher validated the call (ToolCatalog.validate); this is the backstop for direct callers.
         if let code = ToolCatalog.validate(call) { return .failure(code) }
         let before = plan.revision
@@ -189,7 +219,6 @@ public actor TripPlanner: ToolExecutor {
         var entries: [(asked: String, place: Place, distanceMeters: Int?)] = []
         var notFound: [String] = []
         var duplicates: [String] = []
-        var checks: [(String, String)] = []
         for (offset, lookup) in lookups.enumerated() {
             switch lookup {
             case .found(let place):
@@ -197,12 +226,11 @@ public actor TripPlanner: ToolExecutor {
                     duplicates.append(names[offset])
                 } else {
                     entries.append((names[offset], place, distance(here, place)))
-                    if TripNameMatch.unsure(asked: names[offset], found: place) { checks.append((names[offset], place.name)) }
                 }
             case .missing(let reason):
                 notFound.append(names[offset])
                 onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)")
-            case .keyMissing: break
+            case .keyMissing, .candidates: break
             }
         }
         guard !entries.isEmpty else {
@@ -215,7 +243,7 @@ public actor TripPlanner: ToolExecutor {
         changed()
         line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
-        return listResult(changed: nil, notFound: notFound, duplicates: duplicates, checks: checks,
+        return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
                           next: "只说一句：清单有\(list.count)个地点\(missed)。不要念整张清单，司机问时再念。")
     }
 
@@ -236,7 +264,6 @@ public actor TripPlanner: ToolExecutor {
             return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有做成清单。")
         }
         var seen = Set<String>()
-        var checks: [(String, String)] = []
         var notFound: [String] = []
         var duplicates: [String] = []
         var lists: [TripList] = []
@@ -249,14 +276,13 @@ public actor TripPlanner: ToolExecutor {
                 case .found(let place):
                     if seen.insert(place.id).inserted {
                         entries.append((name, place, distance(here, place)))
-                        if TripNameMatch.unsure(asked: name, found: place) { checks.append((name, place.name)) }
                     } else {
                         duplicates.append(name)
                     }
                 case .missing(let reason):
                     notFound.append(name)
                     onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)")
-                case .keyMissing: break
+                case .keyMissing, .candidates: break
                 }
             }
             var made = TripList()
@@ -273,7 +299,7 @@ public actor TripPlanner: ToolExecutor {
         let perDay = plan.days.enumerated().map { "第\($0.offset + 1)天\($0.element.count)个" }.joined(separator: "，")
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
         let summary: [JSONValue] = plan.days.map { day in .array(day.stops.map { .string($0.place.name) }) }
-        return listResult(changed: nil, notFound: notFound, duplicates: duplicates, checks: checks,
+        return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
                           next: "用一两句话说：\(plan.dayCount)天的行程做好了（\(perDay)），每天只说一两个主要地方\(missed)。不要念整张清单，司机问时再念。",
                           extra: ["plan": .array(summary)])
     }
@@ -353,6 +379,7 @@ public actor TripPlanner: ToolExecutor {
             let place: Place
             switch lookup {
             case .found(let found): place = found
+            case .candidates: return failure(.notFound)
             case .keyMissing: return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有改清单。")
             case .missing(let reason):
                 // The stop's place in the list: the add position (the end when none) or the replaced index.
@@ -365,15 +392,14 @@ public actor TripPlanner: ToolExecutor {
                                   next: "只说一句：\(place.name)已经在清单里了，现在清单有\(list.count)个地点。")
             }
             let stop = TripStop(index: 0, asked: name, place: place, distanceMeters: distance(here, place))
-            let checks = TripNameMatch.unsure(asked: name, found: place) ? [(name, place.name)] : []
             if let replacing {
                 list.set(stop, at: replacing)
                 changed()
-                return listResult(changed: "replaced", checks: checks, next: "只说一句：第\(replacing)个换成了\(place.name)，现在清单有\(list.count)个地点。")
+                return listResult(changed: "replaced", next: "只说一句：第\(replacing)个换成了\(place.name)，现在清单有\(list.count)个地点。")
             }
             list.insert(stop, at: index)
             changed()
-            return listResult(changed: "added", checks: checks, next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
+            return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
         default:
             return .failure(.invalidFields)
         }
@@ -445,6 +471,8 @@ public actor TripPlanner: ToolExecutor {
 
     enum Lookup: Sendable {
         case found(Place)
+        /// 高德's top results for a name, before the picker (§4 item 6); never returned by `resolve`.
+        case candidates([Place])
         case missing(String)
         case keyMissing
     }
@@ -457,11 +485,74 @@ public actor TripPlanner: ToolExecutor {
         let missing = names.indices.filter { cached[$0] == nil }
         let fetched = missing.isEmpty ? [] : await fetch(missing.map { names[$0] }, city: city)
         var results = cached.map { $0.map(Lookup.found) ?? .missing("timeout") }
-        for (slot, index) in missing.enumerated() {
-            results[index] = fetched[slot]
-            if case .found(let place) = fetched[slot] { remember(keys[index], place) }
+        for (slot, index) in missing.enumerated() { results[index] = fetched[slot] }
+        results = await choose(names, results, city: city)
+        for index in missing {
+            if case .found(let place) = results[index] { remember(keys[index], place) }
         }
         return results
+    }
+
+    /// §4 item 6: one result is taken; names with two or more go to the picker in one call. No picker, an error, an
+    /// unreadable answer or no answer within `pickLimit`: 高德's first result. "None" is not found (`none`).
+    private func choose(_ names: [String], _ lookups: [Lookup], city: String?) async -> [Lookup] {
+        var out = lookups
+        var open: [(index: Int, places: [Place])] = []
+        for (i, lookup) in lookups.enumerated() {
+            guard case .candidates(let places) = lookup else { continue }
+            out[i] = .found(places[0])
+            if places.count > 1 { open.append((i, places)) }
+        }
+        guard !open.isEmpty, !Task.isCancelled else { return out }
+        let started = clock.now
+        guard let picker else {
+            onLine("trip pick names=\(open.count) none=0 ok=no reason=nokey ms=0")
+            return out
+        }
+        let choices = open.map { PlaceChoice(asked: names[$0.index], city: city, candidates: $0.places) }
+        let (stream, feed) = AsyncStream.makeStream(of: PickAnswer.self)
+        let work = Task {
+            do { feed.yield(.picks(try await picker.pick(choices))) } catch is PlacePickerNotConfigured {
+                feed.yield(.nokey)
+            } catch { feed.yield(.failed) }
+        }
+        let clock = clock, limit = tuning.pickLimit
+        let timer = Task {
+            try? await clock.sleep(until: started + limit)
+            if !Task.isCancelled { feed.yield(.timeout) }
+        }
+        var answer = PickAnswer.timeout
+        for await a in stream {
+            answer = a
+            break
+        }
+        work.cancel()
+        timer.cancel()
+        feed.finish()
+        let elapsed = ms(since: started)
+        guard case .picks(let picks) = answer, picks.count == open.count else {
+            let reason = switch answer { case .timeout: "timeout"; case .nokey: "nokey"; default: "failed" }
+            onLine("trip pick names=\(open.count) none=0 ok=no reason=\(reason) ms=\(elapsed)")
+            return out
+        }
+        var none = 0
+        for (slot, pick) in zip(open, picks) {
+            if let pick {
+                if slot.places.indices.contains(pick) { out[slot.index] = .found(slot.places[pick]) }
+            } else {
+                out[slot.index] = .missing("none")
+                none += 1
+            }
+        }
+        onLine("trip pick names=\(open.count) none=\(none) ok=yes ms=\(elapsed)")
+        return out
+    }
+
+    private enum PickAnswer: Sendable {
+        case picks([Int?])
+        case failed
+        case nokey
+        case timeout
     }
 
     private func remember(_ key: String, _ place: Place) {
@@ -470,7 +561,7 @@ public actor TripPlanner: ToolExecutor {
     }
 
     private func fetch(_ names: [String], city: String?) async -> [Lookup] {
-        let search = search, limit = tuning.parallelLookups, clock = clock, retry = tuning.retryDelay
+        let search = search, limit = tuning.parallelLookups, clock = clock, retry = tuning.retryDelay, kept = tuning.candidates
         let deadline = clock.now + tuning.resolveLimit
         let (stream, feed) = AsyncStream.makeStream(of: (Int, Lookup)?.self)
         let work = Task {
@@ -480,7 +571,7 @@ public actor TripPlanner: ToolExecutor {
                     guard next < names.count else { return }
                     let i = next
                     next += 1
-                    _ = group.addTaskUnlessCancelled { feed.yield((i, await Self.lookup(names[i], city: city, search: search, retryDelay: retry))) }
+                    _ = group.addTaskUnlessCancelled { feed.yield((i, await Self.lookup(names[i], city: city, search: search, retryDelay: retry, kept: kept))) }
                 }
                 for _ in 0..<min(limit, names.count) { add() }
                 while await group.next() != nil { add() }
@@ -502,24 +593,25 @@ public actor TripPlanner: ToolExecutor {
         return results.map { $0 ?? .missing("timeout") }
     }
 
-    private static func lookup(_ name: String, city: String?, search: any PlaceSearch, retryDelay: NovaDuration) async -> Lookup {
+    private static func lookup(_ name: String, city: String?, search: any PlaceSearch, retryDelay: NovaDuration,
+                               kept: Int) async -> Lookup {
         // §4 item 7: up to 2 retries, waiting retryDelay then twice that (高德 rejects requests over the per-second
         // limit and answers those within it).
-        var result = await lookupOnce(name, city: city, search: search)
+        var result = await lookupOnce(name, city: city, search: search, kept: kept)
         for attempt in 0..<2 {
             guard case .missing(let reason) = result, reason != "nomatch", !Task.isCancelled else { return result }
             try? await Task.sleep(for: .milliseconds(retryDelay.milliseconds << attempt))
             if Task.isCancelled { return result }
-            result = await lookupOnce(name, city: city, search: search)
+            result = await lookupOnce(name, city: city, search: search, kept: kept)
         }
         return result
     }
 
-    private static func lookupOnce(_ name: String, city: String?, search: any PlaceSearch) async -> Lookup {
+    private static func lookupOnce(_ name: String, city: String?, search: any PlaceSearch, kept: Int) async -> Lookup {
         do {
             let places = try await search.text(name, city: city, cityLimit: city != nil)
-            guard let place = TripNameMatch.pick(asked: name, from: places) else { return .missing("nomatch") }
-            return .found(place)
+            guard !places.isEmpty else { return .missing("nomatch") }
+            return .candidates(Array(places.prefix(max(kept, 1))))
         } catch let error as AmapWebError where error == .keyMissing || error == .keyRejected {
             return .keyMissing
         } catch AmapWebError.quota {
@@ -534,16 +626,8 @@ public actor TripPlanner: ToolExecutor {
 
     // MARK: Results
 
-    /// §4 item 6: a place 高德 gave for a name it does not contain is listed in `check` ("asked → found") and
-    /// `next` asks the model to replace it if it is not the place meant.
-    static func checkNote(_ checks: [(String, String)]) -> String {
-        guard !checks.isEmpty else { return "" }
-        let pairs = checks.map { "\($0.0)→\($0.1)" }.joined(separator: "、")
-        return "先自己核对：\(pairs)。高德按名字找到的就是这些地方；是想去的地方就不用提，不是就用 edit_trip_list replace 换成准确的名字（店名或景点的正式名称），不要问司机。"
-    }
-
     private func listResult(changed: String?, notFound: [String] = [], duplicates: [String] = [],
-                            checks: [(String, String)] = [], next: String,
+                            next: String,
                             extra: [String: JSONValue] = [:]) -> ToolResult {
         var data: [String: JSONValue] = [
             "status": "trip_list",
@@ -556,9 +640,8 @@ public actor TripPlanner: ToolExecutor {
             }),
             "not_found": .array(notFound.map { .string($0) }),
             "duplicates": .array(duplicates.map { .string($0) }),
-            "next": .string(Self.checkNote(checks) + next),
+            "next": .string(next),
         ]
-        if !checks.isEmpty { data["check"] = .array(checks.map { .string("\($0.0) → \($0.1)") }) }
         if let changed { data["changed"] = .string(changed) }
         data["day"] = .int(Int64(plan.currentDay))
         data["days"] = .int(Int64(plan.dayCount))
