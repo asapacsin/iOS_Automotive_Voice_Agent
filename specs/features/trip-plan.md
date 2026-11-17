@@ -98,8 +98,10 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
 **Arguments:**
 - `places`: 1–16 strings, each 1–40 characters.
 - `city`: optional, ≤ 20 characters.
+- `days` (§15 item 6): instead of `places`, 1–5 groups of 1–16 strings.
 
-**Use.** 「做个打卡清单」「把这些地方列出来」. The model passes the places it just suggested.
+**Use.** 「做个打卡清单」「把这些地方列出来」「规划天津三天的行程」. The model passes the places it just suggested;
+with none suggested, it picks well-known places itself and does not ask where (§15 item 6).
 
 **Result:** `trip_list` with:
 - `count`;
@@ -113,7 +115,9 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
 - More than 16 names, or a blank name: `invalidFields`.
 
 **Catalog text:**
-> 把刚才推荐的地点做成打卡清单：「做个打卡清单」「列个清单」「把这些地方存下来」。places 填地点名（最多16个，每个只写地名，不写介绍），知道城市时填 city。会替换旧清单。按结果答：只说清单有几个地点；not_found 里的地点说没找到；不要念整张清单，司机问时再念。
+> 做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点名（最多16个，每个只写地名，不写介绍）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[["广州塔","陈家祠"],["长隆野生动物世界"]]。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。
+>
+> (Revised 2026-11-16, §15 item 6: the old text began 「把刚才推荐的地点做成打卡清单」, and on the device she asked which places instead of planning.)
 
 ### 5.2 `edit_trip_list`
 
@@ -422,6 +426,19 @@ list (§11 sources).
    - `make_trip_list`: 「多天的行程按天分别调用，day 填第几天：「第一天去古文化街和五大道」→day=1。」
    - `edit_trip_list`: 「说到第几天时填 day，不说就是刚才那一天。」
    - `route_trip`: 「「开始第二天的导航」→day=2, start=true。」
+   (Item 7 replaces the `make_trip_list` addition above; the edit and route additions stay.)
+6. **A whole plan in one call** (device 2026-11-16, eeb8763). 「帮我做一个天津打卡清单」 and 「准备一个三天的广东旅游行程」
+   both got a question back (「您想把哪些地方加入…」「广东很大，您想去哪些城市」), because the text said to list the places
+   just recommended. And three per-day calls arrive together and run at once, so all but one would end
+   `OPTIONS_STALE` (§4: a change while lookups run). So:
+   - `make_trip_list` takes `days` instead of `places`: 1–5 groups of 1–16 names. It replaces the whole plan
+     (name cleared); the first day with stops is current. A place twice anywhere in the plan is a duplicate. A day where nothing was
+     found stays as an empty day. All found nothing: `NO_CANDIDATES`. `days` with `places` or with `day`, more than
+     5 groups, or an empty group: `invalidFields`.
+   - `next` says the day count and each day's count, and asks for one or two main places a day. The result also has
+     `plan`: each day's stop names. The `trip list stops=` record line counts the whole plan here.
+   - The text (§5.1) says: with nothing recommended, pick well-known places herself without asking; for a
+     province, its well-known cities; across cities no `city`, the city in front of the name (「潮州广济桥」).
 
 ## 16. Saved plans: the `trip_plans` tool (T-040l)
 
@@ -508,6 +525,11 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
 | 33 | An unnamed current plan, then `open` another | The old one is kept as 「上一个清单」 | unit |
 | 34 | 20 saved, `save` a new name; two names contain the asked one | `PLANS_FULL`; `AMBIGUOUS` | unit |
 | 35 | Device, 模拟导航, parked: 「规划天津两天的行程」, 「做个打卡清单」 (two days), cards with photos, ✕ one card, 「存成天津周末」, close and reopen the app, 「打开天津周末」, 「开始第一天的导航」 | She makes two days; the cards show photos or placeholders; the ✕ removes the stop and she knows it; after reopening the plan is there; guidance runs through day 1's stops with 途经 labels; the record has the `trip` lines | D |
+| 36 | One `make_trip_list days=[[古文化街,五大道],[天津之眼,古文化街],[瓷房子,盘山]]` over a 4-day plan | 3 days, day 1 current, name cleared; 古文化街 a duplicate, 盘山 not found; `next` says 第1天2个，第2天1个，第3天1个 | unit |
+| 36b | `days=[[盘山],[五大道]]`, then `days=[[盘山],[盘山]]` | Day 1 stays empty and day 2 is current; nothing found is `NO_CANDIDATES`, plan unchanged | unit |
+| 37 | `days` with `places`, `days` with `day`, 6 groups, an empty group, no field | `invalidFields` | unit |
+| 38 | The `make_trip_list` text | Says to pick places herself and not ask, and `days` for several days | unit |
+| 39 | Device: 「帮我准备一个三天的广东旅游行程」 with nothing said before | One `make_trip_list days=…` call, no question; 3 day tabs | D |
 
 ## 20. Implementation notes (T-040i, T-040j)
 
@@ -559,4 +581,8 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
     is calculated again only on `route_trip` after guidance ends.
 12. **Build handoff** (owner 2026-11-16): the app build (Codemagic), the device rows 15 and 35 and the on-screen
     checks of phase 2 go to the owner's local agent. This session does not build or install.
-
+13. **Reconnect after a lost socket** (device 2026-11-16, eeb8763; F-24 recovery, not a trip change). After a ping
+    loss every resumed setup was closed 1008 「BidiGenerateContent session is already connected to an existing client」
+    until the driver gave up, so nothing she heard got an answer. `GeminiCloseClassifier` now maps that close on a
+    resumed setup to `RESUME_UNAVAILABLE`, like 「session not found」: the handle is dropped and the next attempt is
+    a fresh session.

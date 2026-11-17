@@ -152,7 +152,7 @@ public enum ToolCatalog {
     public static let tripEditActions = ["remove", "add", "replace", "move", "clear", "read"]
     public static let tripOrders = ["nearest", "as_listed"]
 
-    public static let makeTripListDescription = "把刚才推荐的地点做成打卡清单：「做个打卡清单」「列个清单」「把这些地方存下来」。places 填地点名（最多16个，每个只写地名，不写介绍），知道城市时填 city。会替换旧清单。按结果答：只说清单有几个地点；not_found 里的地点说没找到；不要念整张清单，司机问时再念。多天的行程按天分别调用，day 填第几天：「第一天去古文化街和五大道」→day=1。"
+    public static let makeTripListDescription = "做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点名（最多16个，每个只写地名，不写介绍）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[[\"广州塔\",\"陈家祠\"],[\"长隆野生动物世界\"]]。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。"
     public static let editTripListDescription = "修改打卡清单：「去掉第二个」→remove index=2；「不去古文化街了」→remove name；「加上天津之眼」→add；「第三个换成五大道」→replace；「把瓷房子放到第一个」→move；「清单里有什么」→read；「清空清单」→clear。第几个按她最后说的清单顺序。按结果答：一句话说改了什么和现在几个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，TRIP_TOO_LONG=最多16个地点，AMBIGUOUS=有多个匹配请说第几个。说到第几天时填 day，不说就是刚才那一天。"
     public static let routeTripDescription = "把打卡清单串成一条自驾路线（多个途经点）：「串成自驾路线」「规划一下路线」→start=false；看过路线后「开始导航」「出发」→start=true；「按清单顺序走」→order=as_listed，默认 nearest（就近排序，清单会按路线顺序重新编号）。只有一个地点时用 navigate_to。按结果答：按 next 说；不要念每个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，TRIP_TOO_SHORT=至少要两个地点，ROUTE_CALCULATION_FAILED=路线规划失败，START_FAILED=导航没有启动，不要说已开始，TRIP_WHILE_NAVIGATING=导航中不能串路线。「开始第二天的导航」→day=2, start=true。"
     public static let tripPlansDescription = "保存、打开、列出、删除、改名行程：「把这个行程存成天津一日游」→save name=天津一日游；「打开天津一日游」→open；「我存了哪些行程」→list；「删掉天津那个行程」→delete；「改名叫周末出游」→rename。打开后要导航就再调用 route_trip。按结果答：一句话说做了什么；list 只说有几个和名字；ok=false 按 error：NO_TRIP_LIST=还没有清单，PLAN_NOT_FOUND=没有这个行程，PLANS_FULL=最多存20个，AMBIGUOUS=有多个请说全名。"
@@ -167,10 +167,12 @@ public enum ToolCatalog {
                 "properties": [
                     "places": ["type": "array", "minItems": 1, "maxItems": .int(Int64(maxTripStops)),
                                "items": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))]],
+                    "days": ["type": "array", "minItems": 1, "maxItems": 5,
+                             "items": ["type": "array", "minItems": 1, "maxItems": .int(Int64(maxTripStops)),
+                                       "items": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))]]],
                     "city": ["type": "string", "maxLength": 20],
                     "day": tripDay,
                 ],
-                "required": ["places"],
                 "additionalProperties": false,
             ])),
         // Not repeat-sensitive: 「去掉第一个和第二个」 is two identical remove index=1 calls, since the list renumbers.
@@ -309,11 +311,25 @@ public enum ToolCatalog {
             }
         case "make_trip_list":
             // F-15b §5.1: 1–16 names of 1–40 characters, optional city ≤ 20.
-            guard keys.contains("places"), keys.isSubset(of: ["places", "city", "day"]) else { return .invalidFields }
+            // §15 item 6: either places (optional day) or days (1–5 groups of 1–16 names, no day).
+            guard keys.isSubset(of: ["places", "days", "city", "day"]), keys.contains("places") != keys.contains("days"),
+                  !(keys.contains("days") && keys.contains("day")) else { return .invalidFields }
             if keys.contains("day"), !isDay(a["day"]) { return .invalidFields }
-            guard case .array(let places)? = a["places"], (1...maxTripStops).contains(places.count) else { return .invalidFields }
-            for place in places {
-                guard let n = place.stringValue, !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
+            var groups: [[JSONValue]] = []
+            if case .array(let places)? = a["places"] { groups = [places] }
+            if case .array(let days)? = a["days"] {
+                guard (1...5).contains(days.count) else { return .invalidFields }
+                for day in days {
+                    guard case .array(let places) = day else { return .invalidFields }
+                    groups.append(places)
+                }
+            }
+            guard !groups.isEmpty else { return .invalidFields }
+            for places in groups {
+                guard (1...maxTripStops).contains(places.count) else { return .invalidFields }
+                for place in places {
+                    guard let n = place.stringValue, !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
+                }
             }
             if keys.contains("city") {
                 guard let c = str("city"), !trimmed(c).isEmpty, c.utf16.count <= 20 else { return .invalidFields }

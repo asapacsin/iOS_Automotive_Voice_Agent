@@ -162,6 +162,7 @@ public actor TripPlanner: ToolExecutor {
 
     private func make(_ args: JSONValue) async -> ToolResult {
         let started = clock.now
+        if case .array(let raw)? = args["days"] { return await makeDays(raw, city: args["city"]?.stringValue, started: started) }
         guard case .array(let raw)? = args["places"] else { return .failure(.invalidFields) }
         let names = raw.compactMap(\.stringValue).map(TranscriptText.normalize)
         let city = args["city"]?.stringValue
@@ -206,6 +207,63 @@ public actor TripPlanner: ToolExecutor {
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
         return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
                           next: "只说一句：清单有\(list.count)个地点\(missed)。不要念整张清单，司机问时再念。")
+    }
+
+    /// §15 item 6: a whole plan of several days in one call (parallel per-day calls would race on `revision`).
+    /// The same place twice anywhere in the plan is a duplicate; a day where nothing was found stays as an empty day.
+    private func makeDays(_ raw: [JSONValue], city: String?, started: NovaInstant) async -> ToolResult {
+        let dayNames: [[String]] = raw.map { day in
+            guard case .array(let places) = day else { return [] }
+            return places.compactMap(\.stringValue).map(TranscriptText.normalize)
+        }
+        let flat = dayNames.flatMap { $0 }
+        let generation = plan.revision
+        let here = await origin()
+        let lookups = await resolve(flat, city: city)
+        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
+        if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
+            line(stops: list.count, notFound: flat.count, duplicates: 0, since: started)
+            return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有做成清单。")
+        }
+        var seen = Set<String>()
+        var notFound: [String] = []
+        var duplicates: [String] = []
+        var lists: [TripList] = []
+        var offset = 0
+        for names in dayNames {
+            var entries: [(asked: String, place: Place, distanceMeters: Int?)] = []
+            for name in names {
+                defer { offset += 1 }
+                switch lookups[offset] {
+                case .found(let place):
+                    if seen.insert(place.id).inserted {
+                        entries.append((name, place, distance(here, place)))
+                    } else {
+                        duplicates.append(name)
+                    }
+                case .missing(let reason):
+                    notFound.append(name)
+                    onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)")
+                case .keyMissing: break
+                }
+            }
+            var made = TripList()
+            made.replace(entries)
+            lists.append(made)
+        }
+        guard lists.contains(where: { $0.count > 0 }) else {
+            line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
+            return .failure(.noCandidates, advice: "清单里的地点都没有找到，清单没有改。请如实说没找到这些地方。")
+        }
+        plan.replaceAll(withDays: lists)
+        changed()
+        line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
+        let perDay = plan.days.enumerated().map { "第\($0.offset + 1)天\($0.element.count)个" }.joined(separator: "，")
+        let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
+        let summary: [JSONValue] = plan.days.map { day in .array(day.stops.map { .string($0.place.name) }) }
+        return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
+                          next: "用一两句话说：\(plan.dayCount)天的行程做好了（\(perDay)），每天只说一两个主要地方\(missed)。不要念整张清单，司机问时再念。",
+                          extra: ["plan": .array(summary)])
     }
 
     // MARK: edit_trip_list

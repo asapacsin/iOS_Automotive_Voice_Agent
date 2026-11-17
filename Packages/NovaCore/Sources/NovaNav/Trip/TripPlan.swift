@@ -62,6 +62,16 @@ public struct TripPlan: Sendable, Hashable {
         return true
     }
 
+    /// §15 item 6: `make_trip_list days=[[…],[…]]`: a new plan of those days (at most 5), the first day with stops current; the name goes
+    /// with the old plan.
+    public mutating func replaceAll(withDays lists: [TripList]) {
+        days = lists.isEmpty ? [TripList()] : Array(lists.prefix(Self.maxDays))
+        // The first day with stops is current (a day where nothing was found stays, empty).
+        currentDay = (days.firstIndex { $0.count > 0 } ?? 0) + 1
+        name = nil
+        revision += 1
+    }
+
     /// `make_trip_list` without `day`: the whole plan becomes one day (phase 1); the name goes with the old plan.
     public mutating func replaceAll(with list: TripList) {
         days = [list]

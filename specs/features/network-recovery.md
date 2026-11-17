@@ -137,7 +137,8 @@ This section changes the online retry budget in §5, §9 and §14 item 2 ("5 att
 7. **The ready sound.** F-01 §14 item 9 applies when the wake word starts this new session. Automatic reconnects inside the window have no sound.
 8. **Seeing what happened.** Record lines: `session gave-up ms=<since first failure> attempts=<n> code=<last code>`, and `session resume handle=<yes|no> result=<resumed|rejected|none>` in the next session's record. `RuntimeLog` gets the same numbers and codes, never the handle (I-7).
 9. **What this does not fix.**
-   - A silently dead connection still takes 20–40 s to notice (`pingInterval` 20 s, plus up to 20 s for the pong). Until then the app counts as connected, so the wake word does not run.
+   - A silently dead connection usually takes up to about 15 s to notice (about 20 s if it dies during a wait in which a frame already arrived) (`pingInterval` 10 s, plus `pongTimeout` 5 s; it was 20 s + 20 s until the device record of 2026-11-16, where she stayed silent for 30–40 s after a stall). Until then the app counts as connected, so the wake word does not run.
+   - A resumed setup refused with 1008 「session is already connected to an existing client」 is `RESUME_UNAVAILABLE` (trip-plan.md §20 item 13): the next attempt is a fresh session.
    - With no working internet it still cannot connect. Saying 你好小诺 again later is the way back.
    - The wake word runs only with the app on screen (F-01 §13). In the background, the existing policy applies.
    - Words said while reconnecting are not replayed.

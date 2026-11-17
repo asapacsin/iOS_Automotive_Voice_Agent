@@ -200,6 +200,8 @@ public final class GeminiLiveProvider: RealtimeProvider {
                 socket.written()
             }
         }
+        // Frames received so far: a pong queued behind a long reply on a slow link is late, not lost.
+        let received = FrameCount()
         let reader = Task {
             var assembler = GeminiTurnAssembler()
             while !Task.isCancelled {
@@ -208,18 +210,21 @@ public final class GeminiLiveProvider: RealtimeProvider {
                     socket.fail(error)
                     return
                 }
+                received.add()
                 guard let parts = GeminiCodec.decode(frame) else { continue }
                 for event in assembler.consume(parts) { socket.emit(event) }
             }
         }
-        let interval = tuning.pingInterval
+        let interval = tuning.pingInterval, pongWait = tuning.pongTimeout
         let pinger = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(interval.milliseconds))
                 if Task.isCancelled { return }
-                // A ping that fails or gets no pong within one interval means a dead socket (W4).
-                let alive = await Self.ping(connection, within: interval)
-                if !alive {
+                // A ping that fails or gets no pong within `pongTimeout`, with no frame received meanwhile, means a
+                // dead socket (W4). Any frame during the wait proves the socket alive (device 2026-11-16 review).
+                let before = received.value
+                let alive = await Self.ping(connection, within: pongWait)
+                if !alive, received.value == before {
                     socket.fail(WebSocketClosed(code: 1006, reason: "ping"))
                     return
                 }
@@ -360,4 +365,11 @@ private final class PingRace: Sendable {
         }
         if first { done.resume(returning: alive) }
     }
+}
+
+/// Frames a socket's reader has received; the pinger reads it (shared by two tasks).
+private final class FrameCount: Sendable {
+    private let count = Mutex<UInt64>(0)
+    func add() { count.withLock { $0 &+= 1 } }
+    var value: UInt64 { count.withLock { $0 } }
 }

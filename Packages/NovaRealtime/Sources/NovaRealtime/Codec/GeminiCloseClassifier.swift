@@ -21,6 +21,9 @@ public enum GeminiCloseClassifier {
             if text.contains("model") && text.contains("not found") { return .invalidModel }
             // Recorded: an unknown handle closes 1008 "BidiGenerateContent session not found".
             if resumedSetup && text.contains("session not found") { return .resumeUnavailable }
+            // Recorded 2026-11-16 (device, eeb8763): after a ping loss every resumed setup closed 1008 "BidiGenerateContent
+            // session is already connected to an existing client" until the driver gave up; the handle is unusable.
+            if resumedSetup && text.contains("already connected") { return .resumeUnavailable }
             return .connectionClosed
         case 1011, 1013:
             return .unavailable

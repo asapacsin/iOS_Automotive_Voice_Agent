@@ -190,6 +190,10 @@ struct GeminiCloseTests {
         #expect(close.code == 1008)
         #expect(GeminiCloseClassifier.classify(code: close.code, reason: close.reason, resumedSetup: true) == .resumeUnavailable)
         #expect(GeminiCloseClassifier.classify(code: 1008, reason: "Policy violation", resumedSetup: false) == .connectionClosed)
+        // Device 2026-11-16: a resumed setup refused because the old socket still holds the session.
+        let held = "BidiGenerateContent session is already connected to an existing client"
+        #expect(GeminiCloseClassifier.classify(code: 1008, reason: held, resumedSetup: true) == .resumeUnavailable)
+        #expect(GeminiCloseClassifier.classify(code: 1008, reason: held, resumedSetup: false) == .connectionClosed)
         #expect(GeminiCloseClassifier.classify(code: 1008, reason: "API key not valid", resumedSetup: false) == .auth)
         #expect(GeminiCloseClassifier.classify(code: 1008, reason: "Quota exceeded", resumedSetup: false) == .quota)
         #expect(GeminiCloseClassifier.classify(code: 1000, reason: "", resumedSetup: false) == nil)

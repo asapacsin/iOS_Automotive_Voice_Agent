@@ -356,4 +356,46 @@ struct TripReviewFix2Tests {
         _ = await rig.nav.execute(tool("exit_navigation_mode"))
         #expect(await rig.nav.current.tripStopIDs.isEmpty)
     }
+
+    @Test("F-15b row 36: one make_trip_list days=[[…],[…],[…]] makes a new 3-day plan, replaces an older 4-day one, day 1 current, a place twice is a duplicate")
+    func row36() async {
+        let rig = await PlanRig(files: MemoryTripFiles())
+        for d in 1...4 { _ = await rig.run("make_trip_list", ["places": names(["海河"]), "day": .int(Int64(d))]) }
+        let r = await rig.run("make_trip_list", ["days": .array([names(["古文化街", "五大道"]), names(["天津之眼", "古文化街"]),
+                                                                 names(["瓷房子", "盘山"])])])
+        #expect(r.ok && r.data["days"] == .int(3) && r.data["day"] == .int(1))
+        #expect(r.data["duplicates"] == names(["古文化街"]) && r.data["not_found"] == names(["盘山"]))
+        let plan = await rig.planner.currentPlan
+        #expect(plan.days.map { $0.stops.map(\.place.name) } == [["古文化街", "五大道"], ["天津之眼"], ["瓷房子"]])
+        #expect(plan.name == nil)
+        #expect(r.data["next"]?.stringValue?.contains("3天的行程做好了（第1天2个，第2天1个，第3天1个）") == true)
+    }
+
+    @Test("F-15b row 36b: day 1 found nothing: it stays as an empty day and day 2 is current; nothing found anywhere is NO_CANDIDATES")
+    func row36b() async {
+        let rig = await PlanRig(files: MemoryTripFiles())
+        let r = await rig.run("make_trip_list", ["days": .array([names(["盘山"]), names(["五大道"])])])
+        #expect(r.ok && r.data["day"] == .int(2) && r.data["count"] == .int(1))
+        let none = await rig.run("make_trip_list", ["days": .array([names(["盘山"]), names(["盘山"])])])
+        #expect(none.code == .noCandidates)
+        #expect(await rig.planner.currentPlan.days.count == 2)
+    }
+
+    @Test("F-15b row 37: days and places together, days with day, 6 days, or an empty day are invalidFields")
+    func row37() {
+        let ok = trip("make_trip_list", ["days": .array([names(["古文化街"]), names(["五大道"])])])
+        #expect(ToolCatalog.validate(ok) == nil)
+        #expect(ToolCatalog.validate(trip("make_trip_list", ["days": .array([names(["古文化街"])]), "places": names(["五大道"])])) == .invalidFields)
+        #expect(ToolCatalog.validate(trip("make_trip_list", ["days": .array([names(["古文化街"])]), "day": 1])) == .invalidFields)
+        #expect(ToolCatalog.validate(trip("make_trip_list", ["days": .array(Array(repeating: names(["古文化街"]), count: 6))])) == .invalidFields)
+        #expect(ToolCatalog.validate(trip("make_trip_list", ["days": .array([names(["古文化街"]), .array([])])])) == .invalidFields)
+        #expect(ToolCatalog.validate(trip("make_trip_list", [:])) == .invalidFields)
+    }
+
+    @Test("F-15b row 38: the make_trip_list text says to pick places herself and not ask, and to use days for a multi-day plan")
+    func row38() {
+        let d = ToolCatalog.makeTripListDescription
+        #expect(d.contains("没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里"))
+        #expect(d.contains("几天的行程一次调用，用 days 代替 places"))
+    }
 }

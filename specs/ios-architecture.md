@@ -426,7 +426,7 @@ settings) is assembled provider-neutrally in `NovaTools`. `NovaRealtime` encodes
 | `GeminiCodec` | yes | Encode `setup`, `realtimeInput.audio` (base64 16 kHz), `audioStreamEnd`, `clientContent`, `toolResponse`; decode server messages |
 | `GeminiTurnAssembler` | yes | The six ordering rules of contracts/voice-agent.md §4; duplicate-call marking; reject calls during a guidance turn |
 | `GeminiErrorClassifier` | yes | Close codes 1007 (clear handle, `RESUME_UNAVAILABLE`) and 1008; retryable vs terminal |
-| `GeminiTransport` | no | `URLSessionWebSocketTask`, connect timeout 10 s, ping every 20 s |
+| `GeminiTransport` | no | `URLSessionWebSocketTask`, connect timeout 10 s, ping every 10 s, 5 s pong wait (a received frame counts as alive) |
 | `GeminiLiveProvider` | no | Implements `RealtimeProvider`; drops Gemini audio while revoicing |
 
 The pure parts are tested on macOS by replaying `fixtures/gemini/*.jsonl` (the contract gate). The
