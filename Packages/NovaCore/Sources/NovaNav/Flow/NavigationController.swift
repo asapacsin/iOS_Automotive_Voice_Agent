@@ -764,6 +764,15 @@ public actor NavigationController: ToolExecutor {
         }
         forgetConfirmations()
         asked = nil
+        // §29 item 1: replaces running guidance as 「换成X」 does: stop the old route first.
+        if snapshot.navigating || snapshot.phase == .arrived || snapshot.alongRouteList {
+            let generation = snapshot.generation
+            snapshot.alongRouteList = false
+            await engine.stop(generation: generation)
+            guard generation == snapshot.generation else { return .failure(.optionsStale) }
+            snapshot.routes = []
+            snapshot.info = nil
+        }
         let result = await route(to: place)
         if result.ok, snapshot.navigating, snapshot.destination?.id == place.id {
             snapshot.tripStopID = place.id

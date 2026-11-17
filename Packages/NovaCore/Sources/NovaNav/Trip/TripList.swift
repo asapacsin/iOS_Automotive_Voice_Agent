@@ -65,17 +65,20 @@ public struct TripList: Sendable, Hashable {
     /// `at` is 1-based. Precondition: 1…count.
     public mutating func remove(at index: Int) {
         stops.remove(at: index - 1)
+        dropLegs()
         changed()
     }
 
     /// Inserts at the 1-based `position` (1…count+1), or appends when nil.
     public mutating func insert(_ stop: TripStop, at position: Int? = nil) {
         stops.insert(stop, at: (position ?? stops.count + 1) - 1)
+        dropLegs()
         changed()
     }
 
     public mutating func set(_ stop: TripStop, at index: Int) {
         stops[index - 1] = stop
+        dropLegs()
         changed()
     }
 
@@ -83,6 +86,7 @@ public struct TripList: Sendable, Hashable {
     public mutating func move(from: Int, to: Int) {
         let stop = stops.remove(at: from - 1)
         stops.insert(stop, at: to - 1)
+        dropLegs()
         changed()
     }
 
@@ -95,12 +99,19 @@ public struct TripList: Sendable, Hashable {
     /// §29 item 2: marks stop `index` (1-based, 1…count); a change.
     public mutating func setMark(at index: Int, _ mark: TripMark?) {
         stops[index - 1].mark = mark
+        // A skipped stop is no longer the one driven from: the next stop's time is from elsewhere.
+        if mark == .skipped, index < stops.count { stops[index].legSeconds = nil }
         changed()
     }
 
     /// §29 item 4: driving seconds per stop (nil unknown), in list order. Not a change (as a photo link).
     public mutating func setLegs(_ legs: [Int?]) {
         for i in stops.indices where i < legs.count { stops[i].legSeconds = legs[i] }
+    }
+
+    /// A hand edit changes which stop comes before which, so known driving times no longer hold.
+    private mutating func dropLegs() {
+        for i in stops.indices { stops[i].legSeconds = nil }
     }
 
     public func contains(placeID: String) -> Bool { stops.contains { $0.place.id == placeID } }

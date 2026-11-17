@@ -77,10 +77,11 @@ public actor TripTimes {
                 next += 1
                 let origins = ask.origins.map { nodes[$0].coordinate }, dest = nodes[ask.dest].coordinate
                 group.addTask {
-                    for attempt in 0..<2 {
+                    // §26 item 3 as §4 item 7: busy, timed out or failed is tried up to twice more (600 ms, 1.2 s).
+                    for attempt in 0..<3 {
                         do { return (ask.dest, try await service.drivingTimes(origins: origins, destination: dest)) }
-                        catch AmapWebError.quota where attempt == 0 {
-                            try? await Task.sleep(for: .milliseconds(retry.milliseconds))
+                        catch let e as AmapWebError where attempt < 2 && [.quota, .timeout, .failed].contains(e) {
+                            try? await Task.sleep(for: .milliseconds(retry.milliseconds * Int64(attempt + 1)))
                         } catch { return (ask.dest, nil) }
                     }
                     return (ask.dest, nil)

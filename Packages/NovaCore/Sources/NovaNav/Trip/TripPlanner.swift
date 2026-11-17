@@ -44,16 +44,16 @@ public struct TripTuning: Sendable, Hashable {
     public init() {}
 }
 
-/// F-15b (T-040i): `make_trip_list`, `edit_trip_list` and `route_trip`. Owns the app's one trip list (§3), resolves
+/// F-15b (T-040i): `make_trip_list`, `edit_trip_list`, `trip_next` and `trip_plans`. Owns the app's one trip list (§3), resolves
 /// the model's names through 高德 (§4, never taken as places), and routes the list through `NavigationController`
-/// (§5.3). Record lines are codes and numbers only (§7, I-8).
+/// one stop at a time (§29). Record lines are codes and numbers only (§7, I-8).
 public actor TripPlanner: ToolExecutor {
     public static let tools: Set<String> = ["make_trip_list", "edit_trip_list", "trip_next", "trip_plans"]
 
     private let search: any PlaceSearch
     /// §4 item 6: nil picks 高德's first result.
     private let picker: (any PlacePicker)?
-    /// §4 item 9: list changes still running (`make_trip_list`, `edit_trip_list`); `route_trip` waits for them.
+    /// §4 item 9: list changes still running (`make_trip_list`, `edit_trip_list`); `trip_next` waits for them.
     private var changes: [Int: (make: Bool, task: Task<ToolResult, Never>)] = [:]
     private var nextChange = 0
     /// §4 item 9: calls waiting for running list changes (tests read it).
@@ -595,8 +595,10 @@ public actor TripPlanner: ToolExecutor {
         case .success(let o):
             plan.arrange(days: o.days)
             changed()
+            // A visited or skipped stop keeps its day, so fewer days than that can't be kept: say so.
+            let kept = days.map { $0 < plan.dayCount ? "已去过或跳过的站留在原来那天，所以还是\(plan.dayCount)天。" : "" } ?? ""
             return listResult(changed: "reorganized",
-                              next: "用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。")
+                              next: "\(kept)用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。")
         }
     }
 

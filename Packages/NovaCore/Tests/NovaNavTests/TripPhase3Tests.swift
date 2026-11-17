@@ -248,4 +248,49 @@ struct TripPhase3Tests {
         #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": "remove", "index": 1, "start": "x"])) == .invalidFields)
         #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": "visited"])) == .invalidFields)
     }
+
+    // MARK: review fixes
+
+    @Test("F-15b §29 item 1: trip_next while guiding stops the old guidance first, as 换成X")
+    func nextReplacesGuidance() async {
+        let rig = await TripRig()
+        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(trip("trip_next"))
+        #expect(await rig.nav.current.navigating)
+        rig.engine.calls.withLock { $0.removeAll() }
+        _ = await rig.run(trip("edit_trip_list", ["action": "skip", "index": 1]))
+        let r = await rig.run(trip("trip_next"))
+        #expect(r.ok && r.data["name"] == "五大道")
+        let calls = rig.engine.calls.withLock { $0 }
+        #expect(calls.first == "stop")
+        #expect(await rig.nav.current.destination?.name == "五大道")
+    }
+
+    @Test("F-15b §26 item 3: a timed-out or failed request is tried up to twice more")
+    func timesRetry() async {
+        final class Flaky: DrivingTimes, @unchecked Sendable {
+            let fails = Mutex(0)
+            func drivingTimes(origins: [GeoCoordinate], destination: GeoCoordinate) async throws -> [DrivingTime?] {
+                let n = fails.withLock { $0 += 1; return $0 }
+                if n == 1 { throw AmapWebError.timeout }
+                if n == 2 { throw AmapWebError.failed }
+                return origins.map { _ in DrivingTime(meters: 10, seconds: 1) }
+            }
+        }
+        let flaky = Flaky()
+        let times = TripTimes(service: flaky, clock: ManualClock(), parallel: 1, retryDelay: .milliseconds(1))
+        let a = spot("古文化街", lat: 39.10, lng: 117.20)
+        let table = await times.table(start: .here(spot("五大道", lat: 39.04, lng: 117.20).coordinate), stops: [TripTimes.Node(key: a.id, coordinate: a.coordinate)])
+        #expect(table != nil)
+        #expect(flaky.fails.withLock { $0 } == 3)
+    }
+
+    @Test("F-15b §29 item 4: a hand edit drops the known driving times")
+    func editDropsLegs() {
+        let p = spot("古文化街", lat: 39.10, lng: 117.20), q = spot("五大道", lat: 39.04, lng: 117.20)
+        var list = TripList()
+        list.arrange([TripStop(index: 1, asked: "a", place: p, distanceMeters: nil, legSeconds: 60), TripStop(index: 2, asked: "b", place: q, distanceMeters: nil, legSeconds: 120)])
+        list.move(from: 2, to: 1)
+        #expect(list.stops.allSatisfy { $0.legSeconds == nil })
+    }
 }
