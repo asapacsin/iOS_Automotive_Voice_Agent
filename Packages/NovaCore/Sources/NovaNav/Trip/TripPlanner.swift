@@ -53,8 +53,10 @@ public actor TripPlanner: ToolExecutor {
     /// §4 item 6: nil picks 高德's first result.
     private let picker: (any PlacePicker)?
     /// §4 item 9: list changes still running (`make_trip_list`, `edit_trip_list`); `route_trip` waits for them.
-    private var changes: [Int: Task<ToolResult, Never>] = [:]
+    private var changes: [Int: (make: Bool, task: Task<ToolResult, Never>)] = [:]
     private var nextChange = 0
+    /// §4 item 9: calls waiting for running list changes (tests read it).
+    private(set) var waiting = 0
     private let navigation: NavigationController
     private let origin: @Sendable () async -> GeoCoordinate?
     private let clock: any NovaClock
@@ -157,21 +159,34 @@ public actor TripPlanner: ToolExecutor {
 
     public func execute(_ call: ToolCall) async -> ToolResult {
         switch call.name {
-        case "route_trip":
-            // §4 item 9: a list being made or changed (in the background) is finished before it is routed.
-            for change in Array(changes.values) { _ = await change.value }
-            return await run(call)
-        case "make_trip_list", "edit_trip_list":
-            let id = nextChange
-            nextChange += 1
-            let task = Task { await self.run(call) }
-            changes[id] = task
-            let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
-            changes[id] = nil
-            return result
+        case "make_trip_list":
+            // §3 item 4: a new list replaces any change still running, so it waits for none.
+            return await tracked(call, make: true)
+        case "edit_trip_list":
+            // §4 item 9: an edit changes the list being made, so it waits for running makes first.
+            await waitFor { $0.make }
+            return await tracked(call, make: false)
         default:
+            // §4 item 9: route_trip and trip_plans use the finished list: they wait until no change is running.
+            await waitFor { _ in true }
             return await run(call)
         }
+    }
+
+    private func waitFor(_ which: ((make: Bool, task: Task<ToolResult, Never>)) -> Bool) async {
+        waiting += 1
+        defer { waiting -= 1 }
+        while let next = changes.values.first(where: which) { _ = await next.task.value }
+    }
+
+    private func tracked(_ call: ToolCall, make: Bool) async -> ToolResult {
+        let id = nextChange
+        nextChange += 1
+        let task = Task { await self.run(call) }
+        changes[id] = (make, task)
+        let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        changes[id] = nil
+        return result
     }
 
     private func run(_ call: ToolCall) async -> ToolResult {
@@ -486,28 +501,33 @@ public actor TripPlanner: ToolExecutor {
         let fetched = missing.isEmpty ? [] : await fetch(missing.map { names[$0] }, city: city)
         var results = cached.map { $0.map(Lookup.found) ?? .missing("timeout") }
         for (slot, index) in missing.enumerated() { results[index] = fetched[slot] }
-        results = await choose(names, results, city: city)
-        for index in missing {
-            if case .found(let place) = results[index] { remember(keys[index], place) }
+        let (chosen, sure) = await choose(names, results, city: city)
+        // §4 item 6 cache: only a place that is the only result or the picker's choice; a fallback is asked again.
+        for index in missing where sure.contains(index) {
+            if case .found(let place) = chosen[index] { remember(keys[index], place) }
         }
-        return results
+        return chosen
     }
 
     /// §4 item 6: one result is taken; names with two or more go to the picker in one call. No picker, an error, an
     /// unreadable answer or no answer within `pickLimit`: 高德's first result. "None" is not found (`none`).
-    private func choose(_ names: [String], _ lookups: [Lookup], city: String?) async -> [Lookup] {
+    private func choose(_ names: [String], _ lookups: [Lookup], city: String?) async -> ([Lookup], Set<Int>) {
         var out = lookups
+        var sure = Set(lookups.indices)
         var open: [(index: Int, places: [Place])] = []
         for (i, lookup) in lookups.enumerated() {
             guard case .candidates(let places) = lookup else { continue }
             out[i] = .found(places[0])
-            if places.count > 1 { open.append((i, places)) }
+            if places.count > 1 {
+                open.append((i, places))
+                sure.remove(i)
+            }
         }
-        guard !open.isEmpty, !Task.isCancelled else { return out }
+        guard !open.isEmpty, !Task.isCancelled else { return (out, sure) }
         let started = clock.now
         guard let picker else {
             onLine("trip pick names=\(open.count) none=0 ok=no reason=nokey ms=0")
-            return out
+            return (out, sure)
         }
         let choices = open.map { PlaceChoice(asked: names[$0.index], city: city, candidates: $0.places) }
         let (stream, feed) = AsyncStream.makeStream(of: PickAnswer.self)
@@ -521,7 +541,7 @@ public actor TripPlanner: ToolExecutor {
             try? await clock.sleep(until: started + limit)
             if !Task.isCancelled { feed.yield(.timeout) }
         }
-        var answer = PickAnswer.timeout
+        var answer = PickAnswer.cancelled
         for await a in stream {
             answer = a
             break
@@ -531,21 +551,26 @@ public actor TripPlanner: ToolExecutor {
         feed.finish()
         let elapsed = ms(since: started)
         guard case .picks(let picks) = answer, picks.count == open.count else {
-            let reason = switch answer { case .timeout: "timeout"; case .nokey: "nokey"; default: "failed" }
+            let reason = switch answer {
+            case .timeout: "timeout"; case .nokey: "nokey"; case .cancelled: "cancelled"; default: "failed"
+            }
             onLine("trip pick names=\(open.count) none=0 ok=no reason=\(reason) ms=\(elapsed)")
-            return out
+            return (out, sure)
         }
         var none = 0
         for (slot, pick) in zip(open, picks) {
             if let pick {
-                if slot.places.indices.contains(pick) { out[slot.index] = .found(slot.places[pick]) }
+                if slot.places.indices.contains(pick) {
+                    out[slot.index] = .found(slot.places[pick])
+                    sure.insert(slot.index)
+                }
             } else {
                 out[slot.index] = .missing("none")
                 none += 1
             }
         }
         onLine("trip pick names=\(open.count) none=\(none) ok=yes ms=\(elapsed)")
-        return out
+        return (out, sure)
     }
 
     private enum PickAnswer: Sendable {
@@ -553,6 +578,7 @@ public actor TripPlanner: ToolExecutor {
         case failed
         case nokey
         case timeout
+        case cancelled
     }
 
     private func remember(_ key: String, _ place: Place) {

@@ -504,13 +504,37 @@ struct TripLookupTests {
         let made = Task { await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子", "海河"])])) }
         while search.waiting == 0 { await Task.yield() }
         let routed = Task { await rig.run(trip("route_trip")) }
-        for _ in 0..<50 { await Task.yield() }
+        while await rig.planner.waiting == 0 { await Task.yield() }
         search.release()
         let r = await made.value
         let route = await routed.value
         #expect(r.ok && r.data["count"] == .int(3))
         let stops: Int = if case .array(let a)? = route.data["stops"] { a.count } else { 0 }
         #expect(route.ok && stops == 3)
+    }
+
+    @Test("F-15b row 51: an edit called while make_trip_list waits on 高德 runs after it; the new list is kept")
+    func row51() async {
+        let search = TripSearch(tianjin, slow: ["瓷房子"])
+        let rig = await TripRig(search: search)
+        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子"])])) }
+        while search.waiting == 0 { await Task.yield() }
+        let edited = Task { await rig.run(trip("edit_trip_list", ["action": "add", "name": "海河"])) }
+        while await rig.planner.waiting == 0 { await Task.yield() }
+        search.release()
+        let r = await made.value
+        let e = await edited.value
+        #expect(r.ok && r.data["count"] == .int(2))
+        #expect(e.ok && e.data["count"] == .int(3))
+    }
+
+    @Test("F-15b row 52: a first result taken because the picker failed is not cached; the next list asks again")
+    func row52() async {
+        let picker = FakePicker(fail: true)
+        let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
+        _ = await rig.run(trip("make_trip_list", ["places": names(["北京故宫"])]))
+        _ = await rig.run(trip("make_trip_list", ["places": names(["北京故宫"])]))
+        #expect(picker.calls.withLock { $0 }.count == 2)
     }
 
     @Test("F-15b row 41: two lookups refused as busy (高德 per-second limit) are tried once more and found; 2 at once")

@@ -113,16 +113,19 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
         above" option, under EntGPT's instruction 「Select the entity which best describes the mention」. Answer: one
         line per name, `name number: option number`, `0` for none. OneNet's advice to use the place clues in the
         context ([arXiv 2410.07549](https://arxiv.org/pdf/2410.07549)) is met by sending the city and each candidate's
-        address. No wording of our own beyond the answer format.
+        address. Copied verbatim: the instruction sentence (EntGPT-I's instruction-tuning instruction). Our own
+        layout around it: `Mention n:`, `(city: …)`, ` — address, district`, `(0) None of the above` (EntGPT writes
+        its none option as the last number) and the answer format.
      5. **Answer used:** the chosen result; "none" → not found with record reason `none`.
      6. **Fallback:** no Qwen key, an error, an unreadable answer, or no answer within **2.5 s** (`TripTuning.pickLimit`,
         Ultravox's default tool timeout, [docs](https://docs.ultravox.ai/tools/async-tools)): every open name takes
         高德's first result. A list is never blocked by the picker.
-   - **Cache:** the chosen place is cached by city and asked name (item 7), so a cached name is neither searched nor
-     picked again.
+   - **Cache:** a place that was the only result or the picker's choice is cached by city and asked name (item 7), so
+     a cached name is neither searched nor picked again. A fallback first result is not cached: the next list asks
+     again.
    - **Removed:** `TripNameMatch`, the `check` field and its `next` note, and the catalog lines about `check`. The
      catalog still asks for shop and official names (「安德鲁饼店」), which help both 高德 and the picker.
-   - **Record:** `trip pick names=<n> none=<n> ok=<yes|no> ms=<n>`; `ok=no` with `reason=<nokey|timeout|failed>`.
+   - **Record:** `trip pick names=<n> none=<n> ok=<yes|no> ms=<n>`; `ok=no` with `reason=<nokey|timeout|failed|cancelled>`.
      Codes and numbers only (I-8).
    - The Qwen prompt is not the search prompt, but it is copied all the same (owner rule: review the community first).
 7. **高德's request limits** (device 2026-11-17: 2 of 5 lookups failed with 4 at once). 高德's error codes 10019–10021
@@ -186,9 +189,10 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
    [asynchronous function calling](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/live-api/asynchronous-function-calling)).
    - She says one short line (「好，我排一下」) and keeps talking; when the result comes back she explains it once the
      driver is quiet.
-   - **Route waits for the list:** a `route_trip` called while `make_trip_list` or `edit_trip_list` is still running
-     waits until they finish, then routes the finished list, so the list is not dropped as stale. List changes do
-     not wait for each other: a newer change still wins (§3 item 4).
+   - **Waiting for the list:** `route_trip` and `trip_plans` wait until no `make_trip_list` or `edit_trip_list` is
+     running (including one that starts while they wait), then use the finished list. `edit_trip_list` (a spoken
+     change or a card tap) waits for a running `make_trip_list`, so an edit never makes a new list stale. A new
+     `make_trip_list` waits for nothing: it still replaces a running change (§3 item 4, row 6).
    - Catalog line on both tools: 「结果稍后回来：先只说一句在排，结果回来前不要说清单里有什么。」
    - **Not verified:** that `gemini-3.8-live` honours `WHEN_IDLE` for these tools on the device (device row).
 
@@ -638,6 +642,8 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
 | 48 | `make_trip_list` and `edit_trip_list` declarations and responses | `NON_BLOCKING`; responses carry `WHEN_IDLE` | unit |
 | 49 | `route_trip` called while `make_trip_list` still waits on its lookups | The route runs after the list is made, on the new list; the list is not `OPTIONS_STALE` | unit |
 | 50 | Device: 「规划北京一日游，去故宫和陈家祠…」 style request, then 「串成路线」 | She says one line, keeps talking, explains the list when quiet; 故宫博物院 listed; the route uses the finished list | D |
+| 51 | `edit_trip_list add` called while `make_trip_list` still waits on its lookups | The edit runs after the list is made and adds to it; neither is `OPTIONS_STALE` | unit |
+| 52 | The picker fails for a name, then the same name is listed again | The second list asks the picker again (the fallback was not cached) | unit |
 | 36b | `days=[[盘山],[五大道]]`, then `days=[[盘山],[盘山]]` | Day 1 stays empty and day 2 is current; nothing found is `NO_CANDIDATES`, plan unchanged | unit |
 | 37 | `days` with `places`, `days` with `day`, 6 groups, an empty group, no field | `invalidFields` | unit |
 | 38 | The `make_trip_list` text | Says to pick places herself and not ask, and `days` for several days | unit |
@@ -646,7 +652,7 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
 ## 20. Implementation notes (T-040i, T-040j)
 
 1. **Code.**
-   - `TripList`, `TripOrder`, `TripNameMatch` and `TripStopTracker` are in `NovaNav/Trip/TripList.swift`.
+   - `TripList`, `TripOrder` and `TripStopTracker` are in `NovaNav/Trip/TripList.swift`.
    - `TripPlanner` (the three tools, taps, photos) is in `TripPlanner.swift`.
    - `TripMoving`, `TripScreen`, `TripPin`, `TripPhotoLink` and `TripPhotoCachePolicy` are in `TripScreen.swift`.
    - The trip route is `NavigationController.routeTrip`.
