@@ -133,13 +133,15 @@ public enum TripNameMatch {
         let cities = variants([city, first.city].compactMap { $0 })
         let regions = cities.union(variants([first.district].compactMap { $0 }))
         let (a, f) = cores(TranscriptText.normalize(asked), TranscriptText.normalize(first.name), cities: cities)
-        // Review 3: a two-character sight with the city in front (「北京故宫」/「故宫博物院」, 「杭州西湖」/「西湖风景名胜区」).
-        let (short, long) = a.count <= f.count ? (a, f) : (f, a)
-        // It must still be there once full region names are taken out of the longer one (「南山区人民」 is only 南山区).
+        // Review 3/4: a two-character sight with the city in front (「北京故宫」/「故宫博物院」, 「杭州西湖」/「西湖风景名胜区」):
+        // the asked remainder (2+ characters) inside the found one once full region names are taken out of it, and only
+        // when the asked name had no place-type word (「北京中山公园」 never takes 「中山医院」); never the other way round
+        // (「南京中山陵」 never takes 「中山大学」).
+        let (askedBare, _) = cores(TranscriptText.normalize(asked), "", cities: cities, typeWords: [])
         let fullRegions = [city, first.city, first.district].compactMap { $0 }.map(TranscriptText.normalize)
             .filter { !$0.isEmpty }.sorted { $0.count > $1.count }
-        let bare = fullRegions.reduce(long) { $0.replacingOccurrences(of: $1, with: "") }
-        if short.count >= 2, bare.contains(short) { return first }
+        let bare = fullRegions.reduce(f) { $0.replacingOccurrences(of: $1, with: "") }
+        if a.count >= 2, askedBare == a, bare.contains(a) { return first }
         return sharesRun(a, f, outside: regions) ? first : nil
     }
 
@@ -175,7 +177,7 @@ public enum TripNameMatch {
     /// Review 2026-11-17: the city argument and the result's own city (「哈尔滨中央大街」/「哈尔滨站」) and place-type words
     /// (「天津博物馆」/「天津自然博物馆」, 「上海野生动物园」/「上海动物园」) are removed, so only the distinctive part is compared.
     /// The district is not removed (「广州白云山」/「白云山风景名胜区」 in 白云区); a run inside a region name never counts instead.
-    static func cores(_ asked: String, _ found: String, cities: Set<String>) -> (String, String) {
+    static func cores(_ asked: String, _ found: String, cities: Set<String>, typeWords: [String] = typeWords) -> (String, String) {
         var a = asked, f = found
         for name in cities.sorted(by: { $0.count > $1.count }) {
             a = a.replacingOccurrences(of: name, with: ""); f = f.replacingOccurrences(of: name, with: "")
