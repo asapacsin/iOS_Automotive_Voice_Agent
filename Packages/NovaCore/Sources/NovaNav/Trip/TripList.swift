@@ -106,12 +106,12 @@ public struct TripList: Sendable, Hashable {
     }
 }
 
-/// F-15b §4 item 2: a search result is accepted when one normalized name contains the other. §4 item 6 (device
-/// 2026-11-17: 「路环安德鲁葡挞」 is 高德's 「安德鲁饼店」): the first of the top 5 results that matches so; otherwise the
-/// first result when it shares a run of at least 3 characters with the asked name.
+/// F-15b §4 item 6 (owner 2026-11-17, replaces the name rules of reviews 1–4): the model names the place as 高德
+/// lists it, and 高德's answer is taken. Of the top 5 results the first whose name contains, or is contained in, the
+/// asked name wins; otherwise the first result is taken, and the tool result shows the asked and found names side by
+/// side (`check`) so the model can see a wrong place and replace it.
 public enum TripNameMatch {
     public static let scanned = 5
-    public static let sharedRun = 3
 
     public static func accepts(asked: String, found: String) -> Bool {
         let a = TranscriptText.normalize(asked), f = TranscriptText.normalize(found)
@@ -119,110 +119,12 @@ public enum TripNameMatch {
         return f.contains(a) || a.contains(f)
     }
 
-    /// Place-type words that say nothing about which place it is; removed before the shared run is measured.
-    /// Longest first, so 「国际机场」 goes before 「机场」 (review 2026-11-17: the three-character kinds were missing).
-    static let typeWords = ["风景名胜区", "购物中心", "国际机场", "博物馆", "博物院", "美术馆", "纪念馆", "展览馆", "科技馆",
-                            "海洋馆", "水族馆", "图书馆", "动物园", "植物园", "游乐园", "主题公园", "步行街", "商业街",
-                            "风景区", "旅游区", "度假区", "名胜区", "古镇", "机场", "国际", "医院", "大学", "大饭店", "饭店",
-                            "酒店", "宾馆", "公园", "广场", "景区", "大街", "中心", "饼店", "车站", "站", "店"]
-        .sorted { $0.count > $1.count }
-
-    public static func pick(asked: String, from places: [Place], city: String? = nil) -> Place? {
-        if let match = places.prefix(scanned).first(where: { accepts(asked: asked, found: $0.name) }) { return match }
-        guard let first = places.first else { return nil }
-        let cities = variants([city, first.city].compactMap { $0 })
-        let regions = cities.union(variants([first.district].compactMap { $0 }))
-        let (a, f) = cores(TranscriptText.normalize(asked), TranscriptText.normalize(first.name), cities: cities)
-        // Review 3/4: a two-character sight with the city in front (「北京故宫」/「故宫博物院」, 「杭州西湖」/「西湖风景名胜区」):
-        // the asked remainder (2+ characters) inside the found one once full region names are taken out of it, and only
-        // when the asked name had no place-type word (「北京中山公园」 never takes 「中山医院」); never the other way round
-        // (「南京中山陵」 never takes 「中山大学」).
-        let (askedBare, _) = cores(TranscriptText.normalize(asked), "", cities: cities, typeWords: [])
-        let fullRegions = [city, first.city, first.district].compactMap { $0 }.map(TranscriptText.normalize)
-            .filter { !$0.isEmpty }.sorted { $0.count > $1.count }
-        let bare = fullRegions.reduce(f) { $0.replacingOccurrences(of: $1, with: "") }
-        if a.count >= 2, askedBare == a, bare.contains(a) { return first }
-        return sharesRun(a, f, outside: regions) ? first : nil
+    public static func pick(asked: String, from places: [Place]) -> Place? {
+        places.prefix(scanned).first { accepts(asked: asked, found: $0.name) } ?? places.first
     }
 
-    /// A region's full name and its short forms (「西双版纳傣族自治州」 also 「西双版纳」, 「广州市」 also 「广州」).
-    static func variants(_ regions: [String]) -> Set<String> {
-        var names = Set<String>()
-        for region in regions.map(TranscriptText.normalize) where !region.isEmpty {
-            names.insert(region)
-            for suffix in ["特别行政区", "自治区", "自治州", "自治县", "地区", "盟"] where region.hasSuffix(suffix) {
-                var core = String(region.dropLast(suffix.count))
-                // The people's names in front of 自治州/自治县 have 2 or 3 characters (「西双版纳傣族」, 「恩施土家族」,
-                // 「黔西南布依族」): every prefix of 2+ characters before the first 族 is a short form, and each with 州
-                // (「恩施州」), as people say it (review 3 2026-11-17).
-                if let zu = core.firstIndex(of: "族") {
-                    names.insert(core)
-                    let head = Array(core[..<zu])
-                    if head.count >= 2 {
-                        for length in 2..<head.count {
-                            let short = String(head.prefix(length))
-                            names.insert(short)
-                            names.insert(short + "州")
-                        }
-                    }
-                    core = String(head)
-                }
-                if core.count >= 2 { names.insert(core) }
-            }
-            if let last = region.last, "市区县省州".contains(last), region.count > 2 { names.insert(String(region.dropLast())) }
-        }
-        return names
-    }
-
-    /// Review 2026-11-17: the city argument and the result's own city (「哈尔滨中央大街」/「哈尔滨站」) and place-type words
-    /// (「天津博物馆」/「天津自然博物馆」, 「上海野生动物园」/「上海动物园」) are removed, so only the distinctive part is compared.
-    /// The district is not removed (「广州白云山」/「白云山风景名胜区」 in 白云区); a run inside a region name never counts instead.
-    static func cores(_ asked: String, _ found: String, cities: Set<String>, typeWords: [String] = typeWords) -> (String, String) {
-        var a = asked, f = found
-        for name in cities.sorted(by: { $0.count > $1.count }) {
-            a = a.replacingOccurrences(of: name, with: ""); f = f.replacingOccurrences(of: name, with: "")
-        }
-        for word in typeWords {
-            a = a.replacingOccurrences(of: word, with: ""); f = f.replacingOccurrences(of: word, with: "")
-        }
-        return (a, f)
-    }
-
-    /// Whether the two share a run of at least `sharedRun` characters that is not part of a region name
-    /// (「西双版纳野象谷」/「西双版纳嘎洒国际机场」 share only 西双版纳; 「路环安德鲁葡挞」/「安德鲁饼店」 share 安德鲁).
-    static func sharesRun(_ a: String, _ b: String, outside regions: Set<String>) -> Bool {
-        let x = Array(a), y = Array(b)
-        guard !x.isEmpty, !y.isEmpty else { return false }
-        var previous = [Int](repeating: 0, count: y.count + 1)
-        for i in 1...x.count {
-            var row = [Int](repeating: 0, count: y.count + 1)
-            for j in 1...y.count where x[i - 1] == y[j - 1] {
-                row[j] = previous[j - 1] + 1
-                if row[j] >= sharedRun {
-                    let run = String(x[(i - row[j])..<i])
-                    if !regions.contains(where: { $0.contains(run) }) { return true }
-                }
-            }
-            previous = row
-        }
-        return false
-    }
-
-    /// Length of the longest run of characters the two strings share.
-    static func longestRun(_ a: String, _ b: String) -> Int {
-        let x = Array(a), y = Array(b)
-        guard !x.isEmpty, !y.isEmpty else { return 0 }
-        var previous = [Int](repeating: 0, count: y.count + 1), best = 0
-        for i in 1...x.count {
-            var row = [Int](repeating: 0, count: y.count + 1)
-            for j in 1...y.count where x[i - 1] == y[j - 1] {
-                row[j] = previous[j - 1] + 1
-                best = max(best, row[j])
-            }
-            previous = row
-        }
-        return best
-    }
+    /// Whether the found place should be shown to the model to check (its name does not contain the asked one).
+    public static func unsure(asked: String, found: Place) -> Bool { !accepts(asked: asked, found: found.name) }
 }
 
 /// F-15b §5.3 item 2: from the origin, repeatedly the closest unvisited stop (great-circle distance).

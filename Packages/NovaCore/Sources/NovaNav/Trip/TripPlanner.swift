@@ -189,6 +189,7 @@ public actor TripPlanner: ToolExecutor {
         var entries: [(asked: String, place: Place, distanceMeters: Int?)] = []
         var notFound: [String] = []
         var duplicates: [String] = []
+        var checks: [(String, String)] = []
         for (offset, lookup) in lookups.enumerated() {
             switch lookup {
             case .found(let place):
@@ -196,6 +197,7 @@ public actor TripPlanner: ToolExecutor {
                     duplicates.append(names[offset])
                 } else {
                     entries.append((names[offset], place, distance(here, place)))
+                    if TripNameMatch.unsure(asked: names[offset], found: place) { checks.append((names[offset], place.name)) }
                 }
             case .missing(let reason):
                 notFound.append(names[offset])
@@ -213,7 +215,7 @@ public actor TripPlanner: ToolExecutor {
         changed()
         line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
-        return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
+        return listResult(changed: nil, notFound: notFound, duplicates: duplicates, checks: checks,
                           next: "只说一句：清单有\(list.count)个地点\(missed)。不要念整张清单，司机问时再念。")
     }
 
@@ -234,6 +236,7 @@ public actor TripPlanner: ToolExecutor {
             return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有做成清单。")
         }
         var seen = Set<String>()
+        var checks: [(String, String)] = []
         var notFound: [String] = []
         var duplicates: [String] = []
         var lists: [TripList] = []
@@ -246,6 +249,7 @@ public actor TripPlanner: ToolExecutor {
                 case .found(let place):
                     if seen.insert(place.id).inserted {
                         entries.append((name, place, distance(here, place)))
+                        if TripNameMatch.unsure(asked: name, found: place) { checks.append((name, place.name)) }
                     } else {
                         duplicates.append(name)
                     }
@@ -269,7 +273,7 @@ public actor TripPlanner: ToolExecutor {
         let perDay = plan.days.enumerated().map { "第\($0.offset + 1)天\($0.element.count)个" }.joined(separator: "，")
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
         let summary: [JSONValue] = plan.days.map { day in .array(day.stops.map { .string($0.place.name) }) }
-        return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
+        return listResult(changed: nil, notFound: notFound, duplicates: duplicates, checks: checks,
                           next: "用一两句话说：\(plan.dayCount)天的行程做好了（\(perDay)），每天只说一两个主要地方\(missed)。不要念整张清单，司机问时再念。",
                           extra: ["plan": .array(summary)])
     }
@@ -361,14 +365,15 @@ public actor TripPlanner: ToolExecutor {
                                   next: "只说一句：\(place.name)已经在清单里了，现在清单有\(list.count)个地点。")
             }
             let stop = TripStop(index: 0, asked: name, place: place, distanceMeters: distance(here, place))
+            let checks = TripNameMatch.unsure(asked: name, found: place) ? [(name, place.name)] : []
             if let replacing {
                 list.set(stop, at: replacing)
                 changed()
-                return listResult(changed: "replaced", next: "只说一句：第\(replacing)个换成了\(place.name)，现在清单有\(list.count)个地点。")
+                return listResult(changed: "replaced", checks: checks, next: "只说一句：第\(replacing)个换成了\(place.name)，现在清单有\(list.count)个地点。")
             }
             list.insert(stop, at: index)
             changed()
-            return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
+            return listResult(changed: "added", checks: checks, next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
         default:
             return .failure(.invalidFields)
         }
@@ -513,7 +518,7 @@ public actor TripPlanner: ToolExecutor {
     private static func lookupOnce(_ name: String, city: String?, search: any PlaceSearch) async -> Lookup {
         do {
             let places = try await search.text(name, city: city, cityLimit: city != nil)
-            guard let place = TripNameMatch.pick(asked: name, from: places, city: city) else { return .missing("nomatch") }
+            guard let place = TripNameMatch.pick(asked: name, from: places) else { return .missing("nomatch") }
             return .found(place)
         } catch let error as AmapWebError where error == .keyMissing || error == .keyRejected {
             return .keyMissing
@@ -529,7 +534,16 @@ public actor TripPlanner: ToolExecutor {
 
     // MARK: Results
 
-    private func listResult(changed: String?, notFound: [String] = [], duplicates: [String] = [], next: String,
+    /// §4 item 6: a place 高德 gave for a name it does not contain is listed in `check` ("asked → found") and
+    /// `next` asks the model to replace it if it is not the place meant.
+    static func checkNote(_ checks: [(String, String)]) -> String {
+        guard !checks.isEmpty else { return "" }
+        let pairs = checks.map { "\($0.0)→\($0.1)" }.joined(separator: "、")
+        return "先自己核对：\(pairs)。高德按名字找到的就是这些地方；是想去的地方就不用提，不是就用 edit_trip_list replace 换成准确的名字（店名或景点的正式名称），不要问司机。"
+    }
+
+    private func listResult(changed: String?, notFound: [String] = [], duplicates: [String] = [],
+                            checks: [(String, String)] = [], next: String,
                             extra: [String: JSONValue] = [:]) -> ToolResult {
         var data: [String: JSONValue] = [
             "status": "trip_list",
@@ -542,8 +556,9 @@ public actor TripPlanner: ToolExecutor {
             }),
             "not_found": .array(notFound.map { .string($0) }),
             "duplicates": .array(duplicates.map { .string($0) }),
-            "next": .string(next),
+            "next": .string(Self.checkNote(checks) + next),
         ]
+        if !checks.isEmpty { data["check"] = .array(checks.map { .string("\($0.0) → \($0.1)") }) }
         if let changed { data["changed"] = .string(changed) }
         data["day"] = .int(Int64(plan.currentDay))
         data["days"] = .int(Int64(plan.dayCount))

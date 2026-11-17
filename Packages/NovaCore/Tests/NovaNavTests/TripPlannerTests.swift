@@ -63,7 +63,8 @@ let tianjin: [String: [Place]] = [
     "水上公园": [spot("天津水上公园", lat: 39.20, lng: 117.20)],
     "南开大学": [spot("南开大学", lat: 39.25, lng: 117.20)],
     "西开教堂": [spot("五大道", lat: 39.05, lng: 117.20)],
-    "盘山": [spot("蓟州农家饭店", lat: 39.30, lng: 117.20)],
+    "盘山": [],
+    "盘山风景区": [spot("蓟州农家饭店", lat: 39.30, lng: 117.20)],
     "古文化街旅游区": [spot("古文化街", lat: 39.10, lng: 117.20)],
 ]
 
@@ -128,7 +129,7 @@ struct TripRig {
 
 @Suite("T-040i F-15b phase 1 trip list")
 struct TripPlannerTests {
-    @Test("F-15b row 1: 8 names, 7 found, the 8th's first result has an unrelated name: count 7, not_found, one nomatch line")
+    @Test("F-15b row 1: 8 names, 7 found, 高德 has nothing for the 8th: count 7, not_found, one nomatch line")
     func row1() async {
         let rig = await TripRig()
         let r = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼", "瓷房子", "意式风情区",
@@ -422,64 +423,25 @@ struct TripPlannerTests {
 
 @Suite("F-15b §4 item 6 device 2026-11-17 lookups")
 struct TripLookupTests {
-    @Test("F-15b row 40: 路环安德鲁葡挞 takes 安德鲁饼店 (a shared run of 3); 澳门旅游塔 takes the 2nd result 澳门旅游塔(观光) over a first 澳门旅游局; 盘山 never takes 饭店")
-    func nameCheck() {
+    @Test("F-15b row 40 (owner 2026-11-17): 高德's answer is taken; a containing name in the top 5 wins; an unrelated first result is taken and shown in check")
+    func row40() async {
         let andrew = spot("安德鲁饼店(路环店)", lat: 22.12, lng: 113.55)
         #expect(TripNameMatch.pick(asked: "路环安德鲁葡挞", from: [andrew]) == andrew)
-        let bureau = spot("澳门旅游局", lat: 22.19, lng: 113.54), tower = spot("澳门旅游塔会展娱乐中心", lat: 22.18, lng: 113.54)
+        #expect(TripNameMatch.unsure(asked: "路环安德鲁葡挞", found: andrew))
+        let bureau = spot("澳门旅游局", lat: 22.19, lng: 113.54), tower = spot("澳门旅游塔(观光)", lat: 22.18, lng: 113.53)
         #expect(TripNameMatch.pick(asked: "澳门旅游塔", from: [bureau, tower]) == tower)
-        #expect(TripNameMatch.pick(asked: "盘山", from: [spot("饭店", lat: 39, lng: 117)]) == nil)
+        #expect(!TripNameMatch.unsure(asked: "澳门旅游塔", found: tower))
         #expect(TripNameMatch.pick(asked: "大三巴", from: []) == nil)
-        // Review counterexamples: a shared city prefix, a place-type word or the city argument is not a match.
-        func place(_ name: String, city: String) -> Place {
-            Place(id: name, name: name, address: nil, coordinate: GeoCoordinate(latitude: 30, longitude: 110, datum: .gcj02),
-                  distanceMeters: nil, city: city, district: nil)
-        }
-        #expect(TripNameMatch.pick(asked: "哈尔滨中央大街", from: [place("哈尔滨站", city: "哈尔滨市")]) == nil)
-        #expect(TripNameMatch.pick(asked: "天津博物馆", from: [place("天津自然博物馆", city: "天津市")]) == nil)
-        #expect(TripNameMatch.pick(asked: "XX购物中心", from: [spot("YY购物中心", lat: 39, lng: 117)]) == nil)
-        #expect(TripNameMatch.pick(asked: "澳门旅游塔", from: [place("澳门旅游局", city: "澳门特别行政区")]) == nil)
-        let shop = place("安德鲁饼店", city: "澳门特别行政区")
-        #expect(TripNameMatch.pick(asked: "安德鲁葡挞", from: [shop]) == shop)
-        #expect(TripNameMatch.pick(asked: "乌鲁木齐红山", from: [spot("乌鲁木齐站", lat: 43.8, lng: 87.6)], city: "乌鲁木齐") == nil)
-        #expect(TripNameMatch.longestRun("路环安德鲁葡挞", "安德鲁饼店路环店") == 3)
-        // Review 2026-11-17: a run that is only a region name, or only a place type, never counts; a district named like
-        // the place does not hide it.
-        func at(_ name: String, city: String, district: String) -> Place {
-            Place(id: name, name: name, address: nil, coordinate: GeoCoordinate(latitude: 30, longitude: 110, datum: .gcj02),
-                  distanceMeters: nil, city: city, district: district)
-        }
-        #expect(TripNameMatch.pick(asked: "西双版纳野象谷", from: [at("西双版纳嘎洒国际机场", city: "西双版纳傣族自治州", district: "景洪市")]) == nil)
-        #expect(TripNameMatch.pick(asked: "黔东南西江千户苗寨", from: [at("黔东南州人民医院", city: "黔东南苗族侗族自治州", district: "凯里市")]) == nil)
-        #expect(TripNameMatch.pick(asked: "上海野生动物园", from: [at("上海动物园", city: "上海市", district: "长宁区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "天津美术馆", from: [at("天津现代美术馆", city: "天津市", district: "河西区")], city: "天津") == nil)
-        let baiyun = at("白云山风景名胜区", city: "广州市", district: "白云区")
-        #expect(TripNameMatch.pick(asked: "广州白云山", from: [baiyun]) == baiyun)
-        let laoshan = at("崂山风景区", city: "青岛市", district: "崂山区")
-        #expect(TripNameMatch.pick(asked: "青岛崂山", from: [laoshan]) == laoshan)
-        let gugong = at("故宫博物院", city: "北京市", district: "东城区")
-        #expect(TripNameMatch.pick(asked: "北京故宫", from: [gugong]) == gugong)
-        let xihu = at("西湖风景名胜区", city: "杭州市", district: "西湖区")
-        #expect(TripNameMatch.pick(asked: "杭州西湖", from: [xihu]) == xihu)
-        #expect(TripNameMatch.pick(asked: "恩施州大峡谷", from: [at("恩施州中心医院", city: "恩施土家族苗族自治州", district: "恩施市")]) == nil)
-        #expect(TripNameMatch.pick(asked: "黔西南州万峰林", from: [at("黔西南州人民医院", city: "黔西南布依族苗族自治州", district: "兴义市")]) == nil)
-        #expect(TripNameMatch.pick(asked: "深圳南山", from: [at("南山区人民医院", city: "深圳市", district: "南山区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "南京中山陵", from: [at("中山大学", city: "广州市", district: "海珠区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "南京中山陵", from: [at("中山公园", city: "上海市", district: "长宁区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "上海东方明珠", from: [at("东方医院", city: "上海市", district: "浦东新区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "天津国家海洋博物馆", from: [at("国家图书馆", city: "北京市", district: "海淀区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "重庆解放碑", from: [at("解放公园", city: "武汉市", district: "江岸区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "青岛中山路", from: [at("中山公园", city: "青岛市", district: "市南区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "武汉解放公园", from: [at("解放军医院", city: "武汉市", district: "武昌区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "北京中山公园", from: [at("中山医院", city: "北京市", district: "东城区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "北京朝阳公园", from: [at("朝阳医院", city: "北京市", district: "朝阳区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "上海人民广场", from: [at("人民医院", city: "上海市", district: "黄浦区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "成都人民公园", from: [at("四川省人民医院", city: "成都市", district: "青羊区")]) == nil)
-        #expect(TripNameMatch.pick(asked: "沙坪坝磁器口", from: [at("沙坪坝站", city: "重庆市", district: "沙坪坝区")]) == nil)
-        let tiantan = at("天坛公园", city: "北京市", district: "东城区")
-        #expect(TripNameMatch.pick(asked: "北京天坛", from: [tiantan]) == tiantan)
-        let andrewLuhuan = at("安德鲁饼店(路环店)", city: "澳门特别行政区", district: "路环")
-        #expect(TripNameMatch.pick(asked: "路环安德鲁葡挞", from: [andrewLuhuan]) == andrewLuhuan)
+        let rig = await TripRig()
+        let r = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "盘山风景区"]), "city": "天津"]))
+        #expect(r.ok && r.data["count"] == .int(2) && r.data["not_found"] == names([]))
+        #expect(r.data["check"] == names(["盘山风景区 → 蓟州农家饭店"]))
+        #expect(r.data["next"]?.stringValue?.hasPrefix("先自己核对：盘山风景区→蓟州农家饭店") == true)
+        #expect(r.data["next"]?.stringValue?.contains("edit_trip_list replace") == true)
+        let sure = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"]), "city": "天津"]))
+        #expect(sure.data["check"] == nil && sure.data["next"]?.stringValue?.hasPrefix("只说一句") == true)
+        let added = await rig.run(trip("edit_trip_list", ["action": "add", "name": "盘山风景区"]))
+        #expect(added.ok && added.data["check"] == names(["盘山风景区 → 蓟州农家饭店"]))
     }
 
     @Test("F-15b row 41: two lookups refused as busy (高德 per-second limit) are tried once more and found; 2 at once")
