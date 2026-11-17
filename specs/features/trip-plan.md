@@ -94,7 +94,7 @@ NovaDrive (code at a429e99, after F-09b) can only take one destination:
 6. **Name check, widened** (device 2026-11-17: 「路环安德鲁葡挞」 and 「路环玛嘉烈蛋挞」 were `nomatch`; 高德 knows the shops
    by their shop names). The first of the top 5 results whose name contains, or is contained in, the asked name is
    taken. If none is, the first result is taken when it shares a run of at least 3 characters with the asked name
-   (「安德鲁」), counted after removing the city and the result's own city and district names and place-type words such as 博物馆 or 站; a shared start that is not a region still counts (「安德鲁葡挞」 takes 「安德鲁饼店」) (review: 「哈尔滨中央大街」 never takes 「哈尔滨站」). 「盘山」 still never takes 「饭店」. The catalog texts ask for shop names, not dish names
+   (「安德鲁」), counted after removing the city and the result's own city names (with short forms: 「西双版纳傣族自治州」 also 「西双版纳」) and place-type words such as 博物馆, 动物园, 美术馆, 风景名胜区 or 站; a run that lies inside a region name (city or district) never counts, but the district is not removed, so 「广州白云山」 still takes 「白云山风景名胜区」 in 白云区 (review 2 2026-11-17: 「西双版纳野象谷」 never takes 「西双版纳嘎洒国际机场」, 「上海野生动物园」 never 「上海动物园」); a shared start that is not a region still counts (「安德鲁葡挞」 takes 「安德鲁饼店」) (review: 「哈尔滨中央大街」 never takes 「哈尔滨站」). 「盘山」 still never takes 「饭店」. The catalog texts ask for shop names, not dish names
    (「安德鲁饼店」).
 7. **高德's request limits** (device 2026-11-17: 2 of 5 lookups failed with 4 at once). 高德's error codes 10019–10021
    mean the per-second limit was exceeded: requests over it are rejected, those within it still answer

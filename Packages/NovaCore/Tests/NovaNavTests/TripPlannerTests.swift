@@ -443,6 +443,22 @@ struct TripLookupTests {
         #expect(TripNameMatch.pick(asked: "安德鲁葡挞", from: [shop]) == shop)
         #expect(TripNameMatch.pick(asked: "乌鲁木齐红山", from: [spot("乌鲁木齐站", lat: 43.8, lng: 87.6)], city: "乌鲁木齐") == nil)
         #expect(TripNameMatch.longestRun("路环安德鲁葡挞", "安德鲁饼店路环店") == 3)
+        // Review 2026-11-17: a run that is only a region name, or only a place type, never counts; a district named like
+        // the place does not hide it.
+        func at(_ name: String, city: String, district: String) -> Place {
+            Place(id: name, name: name, address: nil, coordinate: GeoCoordinate(latitude: 30, longitude: 110, datum: .gcj02),
+                  distanceMeters: nil, city: city, district: district)
+        }
+        #expect(TripNameMatch.pick(asked: "西双版纳野象谷", from: [at("西双版纳嘎洒国际机场", city: "西双版纳傣族自治州", district: "景洪市")]) == nil)
+        #expect(TripNameMatch.pick(asked: "黔东南西江千户苗寨", from: [at("黔东南州人民医院", city: "黔东南苗族侗族自治州", district: "凯里市")]) == nil)
+        #expect(TripNameMatch.pick(asked: "上海野生动物园", from: [at("上海动物园", city: "上海市", district: "长宁区")]) == nil)
+        #expect(TripNameMatch.pick(asked: "天津美术馆", from: [at("天津现代美术馆", city: "天津市", district: "河西区")], city: "天津") == nil)
+        let baiyun = at("白云山风景名胜区", city: "广州市", district: "白云区")
+        #expect(TripNameMatch.pick(asked: "广州白云山", from: [baiyun]) == baiyun)
+        let laoshan = at("崂山风景区", city: "青岛市", district: "崂山区")
+        #expect(TripNameMatch.pick(asked: "青岛崂山", from: [laoshan]) == nil, "崂山 is only 2 characters: not a run of 3")
+        let andrewLuhuan = at("安德鲁饼店(路环店)", city: "澳门特别行政区", district: "路环")
+        #expect(TripNameMatch.pick(asked: "路环安德鲁葡挞", from: [andrewLuhuan]) == andrewLuhuan)
     }
 
     @Test("F-15b row 41: two lookups refused as busy (高德 per-second limit) are tried once more and found; 2 at once")

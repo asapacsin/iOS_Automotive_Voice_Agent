@@ -230,7 +230,7 @@ public actor TripPlanner: ToolExecutor {
         let lookups = await resolve(flat, city: city)
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
-            line(stops: list.count, notFound: flat.count, duplicates: 0, since: started)
+            line(stops: plan.stopCount, notFound: flat.count, duplicates: 0, since: started)
             return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有做成清单。")
         }
         var seen = Set<String>()
@@ -260,7 +260,7 @@ public actor TripPlanner: ToolExecutor {
             lists.append(made)
         }
         guard lists.contains(where: { $0.count > 0 }) else {
-            line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
+            line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
             return .failure(.noCandidates, advice: "清单里的地点都没有找到，清单没有改。请如实说没找到这些地方。")
         }
         plan.replaceAll(withDays: lists)
@@ -767,7 +767,7 @@ public actor TripPlanner: ToolExecutor {
         }
     }
 
-    /// After a change: one detail call per stop without a photo link, at most 4 at once, after the tool result,
+    /// After a change: one detail call per stop without a photo link, `parallelLookups` (2) at once, after the tool result,
     /// so it never delays her reply. A stop that already has a link (a saved plan) makes no call.
     private func photos() {
         // §12 item 5: only failures count toward the one retry per launch.
