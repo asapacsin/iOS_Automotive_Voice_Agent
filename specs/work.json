@@ -2792,6 +2792,24 @@
       ]
     },
     {
+      "id": "T-040m",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 30,
+      "action": "F-15b phase 2c (device 2026-11-17, ecd94e6): card tap opens the details; spot introduction from the Qwen web search on the details sheet; 「把页面关掉」 puts the trip cards away (exit_navigation_mode), 「行程」 button and trip calls show them again; rows 54-64.",
+      "depends_on": [
+        "T-040l"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 54-64)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-17: \"you just write the spec for the former two problems\"). Build starts on the owner's go. Uncommitted edits from before the spec (card Button, tripCardsHidden, 行程 button) are a start, untested.",
+      "blocked_by": "owner's go to build (spec only, 2026-11-17)"
+    },
+    {
       "id": "T-031j",
       "owner": "AUTONOMOUS",
       "status": "PASS",

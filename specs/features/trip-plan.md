@@ -443,7 +443,8 @@ the screen" (2026-11-16).
    - Day tabs 「第1天」「第2天」… when the plan has more than one day (§15).
    - 「我的行程」 opens the saved plans sheet (§16 item 6).
 6. **Card details (not moving).** A tap on a card opens a sheet with the photo, address, opening hours and phone from
-   the place detail (the same fields as F-18 place_details). Nothing is spoken.
+   the place detail (the same fields as F-18 place_details). Nothing is spoken. (§21 adds an introduction of the spot
+   and fixes the tap.)
 
 ## 12. Place photos (T-040j)
 
@@ -704,3 +705,92 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
     until the driver gave up, so nothing she heard got an answer. `GeminiCloseClassifier` now maps that close on a
     resumed setup to `RESUME_UNAVAILABLE`, like 「session not found」: the handle is dropped and the next attempt is
     a fresh session.
+
+---
+
+# Phase 2c: device fixes 2026-11-17 (T-040m)
+
+Device run ecd94e6 (ipa142, record 20261117-163436). The owner listed three problems; this phase covers the first two.
+
+## 21. Spot introduction on the card details
+
+**Why.** 「点卡片应该显示景点信息」. Two faults:
+- A tap on a card opened nothing. The record has no detail line, while ✕ and day taps worked. The card used
+  `.onTapGesture` next to `.draggable` inside a horizontal `ScrollView`.
+- Even when it opens, the sheet shows only 高德's listing: photo, address, hours, phone. A tourist wants to know what
+  the place is and why to go. 高德 has no such text.
+
+1. **The tap.** The card is a plain `Button` that opens the sheet. Long-press drag (§13 item 2) and ✕ stay as they
+   are. Not moving only, as before.
+2. **What the sheet shows, top to bottom:**
+   - photo and 「n 名字」, as now;
+   - 「介绍」: the introduction (item 3);
+   - address, opening hours, phone from 高德, as now.
+3. **Where the introduction comes from.** One call to the existing `WebSearchService` (Qwen, F-18 §16) with the
+   query 「介绍一下<城市><名字>」. `<城市>` is the stop's `city`, left out when unknown or already at the start of the
+   name. The answer text is shown as it comes back. The search system text is not changed and no new prompt is
+   written (owner rule 2026-11-05): only the query is new.
+4. **While waiting and on failure.**
+   - Waiting: 「正在查介绍…」 under the name; the 高德 lines show as soon as they arrive.
+   - Failure, timeout, no key, or an empty answer: 「没有查到介绍」. The 高德 lines still show.
+   - A saved 家/公司 stop (`saved_` id): no search, no 「介绍」 section.
+5. **Only once.** An answer is kept in memory per place id for the app's life. Opening the same card again makes no
+   new search. A failure is not kept, so the next open tries again.
+6. **Nothing is spoken**, as before. The sheet is closed by swiping down.
+7. **Privacy (I-8).** The place name goes to Qwen in the query, as `web_search` already sends what she searches. The
+   log gets codes only: `trip intro ok=<yes|no|cached> ms=<ms>`.
+8. **Code.** The search is made by `AgentRuntime.openTripDetail` next to the 高德 detail call, both started at once;
+   the sheet is `TripDetailSheet` in `TripCardsView.swift`.
+
+## 22. 「把页面关掉」 puts the trip cards away
+
+**Why.** At 295219 「你先把这个页面给我关掉吧」 called `exit_navigation_mode`. It cancelled the route just made, but the
+cards, day tabs, 「串成路线」 and pins stayed: nothing could hide them except clearing the plan. At 308839
+「我是说你这个导航这个页面关掉」 she called nothing and said 「已经退出导航模式，页面已关闭」, which was false.
+
+1. **Hidden means:** no card row or strip, no day tabs, no 「串成路线」「开始导航」「我的行程」 buttons, no trip pins. One
+   small 「行程」 button stays at the bottom of the map. The plan is not changed: `current.json` and saved plans stay.
+2. **What `exit_navigation_mode` does, by state:**
+
+   | State | Effect | status |
+   |---|---|---|
+   | Guidance running | Stops guidance, as now. The cards stay. | `navigation_stopped` |
+   | A list or route choice is open | Cancels it, as now, and hides the cards when the plan has stops. | `navigation_selection_cancelled` |
+   | Nothing open, cards shown | Hides the cards. | `trip_cards_hidden` |
+   | Nothing open, cards already hidden, or no plan | Nothing changes. | `no_navigation_active` |
+
+   `next` for `trip_cards_hidden`: 「只说一句：行程卡片先收起来了，行程还在，说「打开行程」就再拿出来。」
+3. **Shown again by:**
+   - a tap on 「行程」 (the §13 day tap of the current day: `edit_trip_list action=read`);
+   - any trip tool call: `make_trip_list`, `edit_trip_list` (read included), `route_trip`, `trip_plans open`;
+   - an app restart (hidden is not saved).
+4. **Catalog text.**
+   - `exit_navigation_mode`: 「按 status 答：」 is replaced with
+     「「把页面关掉」「关掉这个页面」「收起来」也调用它：没有导航时收起行程卡片，行程还在。每次说关掉都要调用，没调用不要说已关闭。按 status 答：trip_cards_hidden=已收起行程卡片，」.
+     This is an iOS change to an Android-generated text, made with a checked replace as `searchOnLiveInfo` does (F-09).
+   - `edit_trip_list`: 「「清单里有什么」→read」 becomes 「「清单里有什么」「打开行程」「看看行程」→read」.
+5. **She must not claim it without the call.** The text above tells her to call it every time. When nothing is open,
+   the result is `no_navigation_active` and she says so truthfully.
+6. **Log:** `trip cards hidden=<yes|no>` when the cards are put away or shown again.
+
+## 23. Phase 2c acceptance (iOS)
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 54 | Card tap with a fake search answering 「广州塔是…」 | The sheet shows the answer under 「介绍」 and the 高德 lines; the query was 「介绍一下广州广州塔」 | unit (runtime) |
+| 55 | The search fails; then the card is opened again and it answers | 「没有查到介绍」 with the 高德 lines; the second open searches again and shows the answer; a third open makes no search, `trip intro ok=cached` | unit |
+| 56 | A saved 家 stop | No search; no 「介绍」 section | unit |
+| 57 | A stop named 「珠海环宇城」 with city 珠海 | Query 「介绍一下珠海环宇城」 (city not doubled) | unit |
+| 58 | Device, parked: tap three cards | Each opens the sheet with an introduction that says what the place is; drag and ✕ still work | D |
+| 59 | A plan with stops, nothing open: `exit_navigation_mode` | `trip_cards_hidden`; the snapshot says hidden; the plan unchanged; a second call gives `no_navigation_active` | unit |
+| 60 | A route choice open over a plan: `exit_navigation_mode` | `navigation_selection_cancelled` and the cards hidden | unit |
+| 61 | Cards hidden; then `edit_trip_list read`; hidden again, then `route_trip` | Shown after each call; `trip cards hidden=no` | unit |
+| 62 | Guidance running: `exit_navigation_mode` | `navigation_stopped`; cards not hidden | unit |
+| 63 | The `exit_navigation_mode` and `edit_trip_list` texts | Contain the §22 item 4 sentences; the rest of the Android text is unchanged | unit |
+| 64 | Device: plan on screen, 「把页面关掉」, then 「关掉」 again, then 「打开行程」 | Cards, tabs, buttons and pins go, the 「行程」 button stays; the second time she calls the tool and says it is already closed or that there is no navigation; 「打开行程」 brings them back | D |
+
+## 24. Phase 2c tasks
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040m | §21 and §22, rows 54–64 | Spec written 2026-11-17; not started |
