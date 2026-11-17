@@ -2794,7 +2794,7 @@
     {
       "id": "T-040m",
       "owner": "AUTONOMOUS",
-      "status": "IN_PROGRESS",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b phase 2c (device 2026-11-17, ecd94e6): card tap opens the details; spot introduction from the Qwen web search on the details sheet; 「把页面关掉」 puts the trip cards away (exit_navigation_mode), 「行程」 button and trip calls show them again; rows 54-64.",
       "depends_on": [
@@ -2806,7 +2806,13 @@
           "Change the spec first"
         ]
       },
-      "notes": "Spec only (owner 2026-11-17: \"you just write the spec for the former two problems\"). Build starts on the owner's go. Uncommitted edits from before the spec (card Button, tripCardsHidden, 行程 button) are a start, untested. Owner go 2026-11-17: \"claude/youthful-curie-vuit5r pull and implement\"."
+      "notes": "Spec only (owner 2026-11-17: \"you just write the spec for the former two problems\"). Build starts on the owner's go. Uncommitted edits from before the spec (card Button, tripCardsHidden, 行程 button) are a start, untested. Owner go 2026-11-17: \"claude/youthful-curie-vuit5r pull and implement\".",
+      "evidence": [
+        "gates PASS at 70178b4 (NovaCore 848 tests, 1 known issue pre-existing in NoiseCorpusTests; ios-spec-check PASS; spec-trace 132 ids, 0 missing); 350f825 changes only the App view and a comment",
+        "independent read-only review (high effort): FAIL at 70178b4 (strip shown while cards hidden), PASS at 350f825",
+        "unit rows 54-57, 59-63: TripPhase2cTests",
+        "NOT_VERIFIED: App build (Codemagic); rows 58, 64 device"
+      ]
     },
     {
       "id": "T-031j",
