@@ -25,6 +25,10 @@ final class DriveModel: ObservableObject {
     @Published var tripDetail: TripCard?
     @Published var tripDetailPlace: Place?
     @Published var tripDetailLoading = false
+    /// F-15b §21 (T-040m): the introduction of the open card; nil while it is being looked up.
+    @Published var tripIntro: TripIntro.Answer?
+    /// F-15b §22: the trip cards are put away (「行程」 brings them back).
+    @Published var tripCardsHidden = false
     /// F-15b §11 item 5, §16 item 6 (T-040l): the plan's days and the saved plans; the 「我的行程」 sheet.
     @Published var tripPlans: TripPlansSummary?
     @Published var tripPlansOpen = false
@@ -635,10 +639,18 @@ final class AgentRuntime {
         model.tripDetail = card
         model.tripDetailPlace = nil
         model.tripDetailLoading = true
+        model.tripIntro = nil
+        // §21 item 8: the 高德 detail and the introduction start at once; each shows when it arrives.
+        let intro = trip?.intro
+        let introTask = Task { await intro?.answer(for: card) ?? .failed }
         let place = card.placeID.hasPrefix("saved_") ? nil : try? await trip?.web.detail(id: card.placeID)
+        if model.tripDetail?.placeID == card.placeID {
+            model.tripDetailPlace = place ?? nil
+            model.tripDetailLoading = false
+        }
+        let answer = await introTask.value
         guard model.tripDetail?.placeID == card.placeID else { return }
-        model.tripDetailPlace = place ?? nil
-        model.tripDetailLoading = false
+        model.tripIntro = answer
     }
 
     /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the
@@ -1473,8 +1485,13 @@ final class AgentRuntime {
         let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock, picker: picker,
                                   files: AppTripFiles(), onLine: tripLine,
                                   onChange: { list in Task { @MainActor in model.tripList = list } },
-                                  onPlans: { plans in Task { @MainActor in model.tripPlans = plans } })
+                                  onPlans: { plans in Task { @MainActor in model.tripPlans = plans } },
+                                  onHidden: { hidden in Task { @MainActor in model.tripCardsHidden = hidden } })
         await planner.restore()
+        await planner.connectCards()
+        // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
+        let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
+                              clock: navigationClock, onLine: tripLine)
         // F-15b §11 item 4: moving at ≥ 8 km/h or while 真实导航 runs; still after 3 s below 3 km/h; a stale fix's
         // speed is unknown. `trip strip moving=<yes|no>` on each change.
         tripMonitor?.cancel()
@@ -1494,7 +1511,7 @@ final class AgentRuntime {
             }
         }
         let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners,
-                           session: tripSession, planner: planner)
+                           session: tripSession, planner: planner, intro: intro)
         self.trip = trip
         return trip
     }
@@ -2064,6 +2081,7 @@ struct AppTrip {
     let listeners: TripListeners
     let session: TripSession
     let planner: TripPlanner
+    let intro: TripIntro
 }
 
 /// F-16 §14 (T-042c): the running session's core (its driver-turn count) and record, for the trip's search.

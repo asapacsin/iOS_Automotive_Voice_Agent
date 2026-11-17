@@ -196,7 +196,7 @@ private struct DriveContent: View {
             if model.cameraOpen { CameraWindow(model: model, runtime: runtime) }
         }
         // F-15b §11 item 6: a card's details, not moving only.
-        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading) }
+        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading, intro: model.tripIntro) }
         // T-044c: 我的位置 and the camera follow the policy (F-16b); the view only applies its commands.
         .onChange(of: model.geometry) { _, geometry in position.navigation(model.nav, geometry: geometry) }
         .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }
@@ -270,7 +270,8 @@ private struct DriveContent: View {
             }
             // F-15b §13 item 5: numbered pins at the stops; 途经k and 终点 on a trip route; passed stops greyed.
             // Labels and grey only when the list's stops are the trip route's (an opened plan or another day is not).
-            ForEach(TripPin.pins(model.tripList, routed: model.nav.tripRoute && model.nav.tripStopIDs == model.tripList.stops.map(\.place.id),
+            // F-15b §22 item 1: no trip pins while the cards are put away.
+            ForEach(model.tripCardsHidden ? [] : TripPin.pins(model.tripList, routed: model.nav.tripRoute && model.nav.tripStopIDs == model.tripList.stops.map(\.place.id),
                                  passed: TripScreen.passed(model.tripList, routeStops: model.nav.tripStopIDs, passed: model.nav.tripStopsPassed))) { pin in
                 Annotation(pin.label, coordinate: CLLocationCoordinate2D(pin.coordinate)) {
                     Text("\(pin.index)")

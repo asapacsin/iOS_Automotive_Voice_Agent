@@ -32,6 +32,14 @@ struct TripCardsView: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("trip-strip")
+        case .cards where model.tripCardsHidden:
+            // §22 item 1: one 「行程」 button; a tap is the current day's read (shows the cards again).
+            HStack {
+                Button("行程") { Task { await runtime.tripTap(.day(model.tripPlans?.currentDay ?? 1)) } }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("trip-show")
+                Spacer()
+            }
         case .cards(let cards):
             VStack(alignment: .leading, spacing: 6) {
                 // §11 item 5: day tabs when the plan has more than one day.
@@ -49,8 +57,11 @@ struct TripCardsView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(cards) { card in
-                            TripCardView(card: card) { Task { await runtime.tripTap(.remove(index: card.index)) } }
-                                .onTapGesture { Task { await runtime.openTripDetail(card) } }
+                            // §21 item 1: a plain Button (a tap gesture next to .draggable in the ScrollView never fired).
+                            Button { Task { await runtime.openTripDetail(card) } } label: {
+                                TripCardView(card: card) { Task { await runtime.tripTap(.remove(index: card.index)) } }
+                            }
+                            .buttonStyle(.plain)
                                 // §13 item 2: long-press and drag; the drop is one move.
                                 .draggable(String(card.index))
                                 .dropDestination(for: String.self) { items, _ in
@@ -319,13 +330,25 @@ struct TripDetailSheet: View {
     let place: Place?
     /// False once the detail lookup ended without a place (failed, or a saved 家/公司 stop).
     let loading: Bool
+    /// §21 item 2: nil while looking up.
+    let intro: TripIntro.Answer?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        ScrollView { VStack(alignment: .leading, spacing: 10) {
             TripPhotoView(url: place?.photoURL ?? card.photoURL, initial: card.initial)
                 .frame(height: 180)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             Text("\(card.index) \(card.name)").font(.title3.weight(.bold))
+            // §21 items 2, 4: 「介绍」 under the name; none for a saved 家/公司 stop.
+            if !card.placeID.hasPrefix("saved_") {
+                Text("介绍").font(.headline)
+                switch intro {
+                case .text(let text)?: Text(text)
+                case .failed?: Text("没有查到介绍").foregroundStyle(.secondary)
+                case .none?: EmptyView()
+                case nil: Text("正在查介绍…").foregroundStyle(.secondary)
+                }
+            }
             if let place {
                 if let address = place.address { Label(address, systemImage: "mappin.and.ellipse") }
                 if let hours = place.openingHours { Label(hours, systemImage: "clock") }
@@ -335,10 +358,9 @@ struct TripDetailSheet: View {
             } else {
                 Text("没有查到详情").foregroundStyle(.secondary)
             }
-            Spacer()
         }
         .font(.subheadline)
-        .padding()
-        .presentationDetents([.medium])
+        .padding() }
+        .presentationDetents([.medium, .large])
     }
 }

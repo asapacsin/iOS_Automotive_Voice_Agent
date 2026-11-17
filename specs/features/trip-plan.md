@@ -777,7 +777,7 @@ cards, day tabs, 「串成路线」 and pins stayed: nothing could hide them exc
 
 | # | Given / when | Then | Test |
 |---|---|---|---|
-| 54 | Card tap with a fake search answering 「广州塔是…」 | The sheet shows the answer under 「介绍」 and the 高德 lines; the query was 「介绍一下广州广州塔」 | unit (runtime) |
+| 54 | Card tap on 陈家祠 (city 广州) with a fake search answering 「陈家祠是…」 | The sheet shows the answer under 「介绍」 and the 高德 lines; the query was 「介绍一下广州陈家祠」 (fixed 2026-11-17: the first example, 广州塔, starts with its city, so item 3 gives 「介绍一下广州塔」) | unit |
 | 55 | The search fails; then the card is opened again and it answers | 「没有查到介绍」 with the 高德 lines; the second open searches again and shows the answer; a third open makes no search, `trip intro ok=cached` | unit |
 | 56 | A saved 家 stop | No search; no 「介绍」 section | unit |
 | 57 | A stop named 「珠海环宇城」 with city 珠海 | Query 「介绍一下珠海环宇城」 (city not doubled) | unit |
@@ -793,4 +793,4 @@ cards, day tabs, 「串成路线」 and pins stayed: nothing could hide them exc
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040m | §21 and §22, rows 54–64 | Spec written 2026-11-17; not started |
+| T-040m | §21 and §22, rows 54–64 | Built 2026-11-17 (`TripIntro`, `TripPlanner.cardsHidden`, `exit_navigation_mode` hides the cards); rows 58, 64 device |

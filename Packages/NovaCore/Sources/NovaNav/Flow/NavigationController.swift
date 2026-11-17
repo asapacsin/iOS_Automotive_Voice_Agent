@@ -152,6 +152,10 @@ public actor NavigationController: ToolExecutor {
     private var trip: (list: Int, stops: [Place], route: RouteSummary, running: Bool)?
     /// F-15b §7: `trip stop-passed index=<k> of=<n>`.
     private let onTripLine: @Sendable (String) -> Void
+    /// F-15b §22 (T-040m): hides the trip cards; true when they were shown over a plan with stops and are now hidden.
+    private var hideTripCards: (@Sendable () async -> Bool)?
+
+    public func setTripCards(hide: @escaping @Sendable () async -> Bool) { hideTripCards = hide }
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
                 clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(), saved: SavedPlaces? = nil,
@@ -870,6 +874,8 @@ public actor NavigationController: ToolExecutor {
 
     // MARK: exit_navigation_mode
 
+    public static let cardsHiddenNext = "只说一句：行程卡片先收起来了，行程还在，说「打开行程」就再拿出来。"
+
     private func exit() async -> ToolResult {
         if snapshot.alongRouteList {
             // Cancel with a list over kept guidance closes the list only.
@@ -886,8 +892,13 @@ public actor NavigationController: ToolExecutor {
             let generation = snapshot.generation
             reset()
             await engine.stop(generation: generation)
+            _ = await hideTripCards?()
             return .success(["status": "navigation_selection_cancelled", "next": "说一句：好的，已取消。"])
         case .idle, .error:
+            // F-15b §22 item 2: nothing open, the cards shown: they are put away; the plan stays.
+            if await hideTripCards?() == true {
+                return .success(["status": "trip_cards_hidden", "next": .string(Self.cardsHiddenNext)])
+            }
             return .success(["status": "no_navigation_active", "next": "如实说当前没有在导航。"])
         }
     }

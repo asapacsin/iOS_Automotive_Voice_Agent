@@ -142,6 +142,7 @@ struct TripRig {
         t.resolveLimit = resolveLimit
         planner = TripPlanner(search: search, navigation: nav, origin: { origin }, clock: clock, tuning: t, picker: picker,
                               onLine: { line in lines.append(line) })
+        await planner.connectCards()
     }
 
     func run(_ call: ToolCall) async -> ToolResult { await planner.execute(call) }

@@ -64,6 +64,9 @@ public actor TripPlanner: ToolExecutor {
     private let onLine: @Sendable (String) -> Void
     private let onChange: @Sendable (TripList) -> Void
     private let onPlans: @Sendable (TripPlansSummary) -> Void
+    /// §22 (T-040m): the cards are put away (not saved: a restart shows them).
+    public private(set) var cardsHidden = false
+    private let onHidden: @Sendable (Bool) -> Void
     /// §15: the current plan; `list` is its current day.
     private var plan = TripPlan()
     /// §4 item 7: places already found this launch, by city and asked name (高德 quota and per-second limits:
@@ -97,8 +100,10 @@ public actor TripPlanner: ToolExecutor {
                 now: @escaping @Sendable () -> Date = { Date() },
                 onLine: @escaping @Sendable (String) -> Void = { _ in },
                 onChange: @escaping @Sendable (TripList) -> Void = { _ in },
-                onPlans: @escaping @Sendable (TripPlansSummary) -> Void = { _ in }) {
+                onPlans: @escaping @Sendable (TripPlansSummary) -> Void = { _ in },
+                onHidden: @escaping @Sendable (Bool) -> Void = { _ in }) {
         self.onPlans = onPlans
+        self.onHidden = onHidden
         self.files = files
         self.now = now
         self.search = search
@@ -157,7 +162,29 @@ public actor TripPlanner: ToolExecutor {
         onPlans(TripPlansSummary(plan, saved))
     }
 
+    /// §22: `exit_navigation_mode` puts the cards away through this.
+    public func connectCards() async {
+        await navigation.setTripCards { [weak self] in await self?.hideCards() ?? false }
+    }
+
+    /// §22 item 2: hides shown cards of a plan with stops; false when there is nothing to hide.
+    public func hideCards() -> Bool {
+        guard !cardsHidden, plan.stopCount > 0 else { return false }
+        setHidden(true)
+        return true
+    }
+
+    private func setHidden(_ hidden: Bool) {
+        guard cardsHidden != hidden else { return }
+        cardsHidden = hidden
+        onLine("trip cards hidden=\(hidden ? "yes" : "no")")
+        onHidden(hidden)
+    }
+
     public func execute(_ call: ToolCall) async -> ToolResult {
+        // §22 item 3: any trip tool call shows the cards again.
+        if Self.tools.contains(call.name),
+           call.name != "trip_plans" || call.arguments["action"]?.stringValue == "open" { setHidden(false) }
         switch call.name {
         case "make_trip_list":
             // §3 item 4: a new list replaces any change still running, so it waits for none.

@@ -56,6 +56,8 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public let initial: String
     /// §11 item 2: greyed and marked 已到.
     public let passed: Bool
+    /// §21 item 3: the stop's city (高德 `cityname`), for the introduction query.
+    public var city: String? = nil
 }
 
 /// §11: what the 导航 tab shows of the trip list.
@@ -84,7 +86,7 @@ public enum TripScreen: Sendable, Hashable {
         return .cards(list.stops.map { stop in
             TripCard(index: stop.index, placeID: stop.place.id, name: stop.place.name, district: stop.place.district,
                      km: stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 }, photoURL: stop.place.photoURL,
-                     initial: String(stop.place.name.prefix(1)), passed: passed.contains(stop.index))
+                     initial: String(stop.place.name.prefix(1)), passed: passed.contains(stop.index), city: stop.place.city)
         })
     }
 }
