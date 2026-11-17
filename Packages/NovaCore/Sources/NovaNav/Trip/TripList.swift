@@ -133,6 +133,13 @@ public enum TripNameMatch {
         let cities = variants([city, first.city].compactMap { $0 })
         let regions = cities.union(variants([first.district].compactMap { $0 }))
         let (a, f) = cores(TranscriptText.normalize(asked), TranscriptText.normalize(first.name), cities: cities)
+        // Review 3: a two-character sight with the city in front (「北京故宫」/「故宫博物院」, 「杭州西湖」/「西湖风景名胜区」).
+        let (short, long) = a.count <= f.count ? (a, f) : (f, a)
+        // It must still be there once full region names are taken out of the longer one (「南山区人民」 is only 南山区).
+        let fullRegions = [city, first.city, first.district].compactMap { $0 }.map(TranscriptText.normalize)
+            .filter { !$0.isEmpty }.sorted { $0.count > $1.count }
+        let bare = fullRegions.reduce(long) { $0.replacingOccurrences(of: $1, with: "") }
+        if short.count >= 2, bare.contains(short) { return first }
         return sharesRun(a, f, outside: regions) ? first : nil
     }
 
@@ -143,10 +150,20 @@ public enum TripNameMatch {
             names.insert(region)
             for suffix in ["特别行政区", "自治区", "自治州", "自治县", "地区", "盟"] where region.hasSuffix(suffix) {
                 var core = String(region.dropLast(suffix.count))
-                // 「西双版纳傣族」→「西双版纳」, 「黔东南苗族侗族」→「黔东南」: the people's names in front of 自治州/自治县.
-                if let zu = core.firstIndex(of: "族"), core.distance(from: core.startIndex, to: zu) >= 3 {
+                // The people's names in front of 自治州/自治县 have 2 or 3 characters (「西双版纳傣族」, 「恩施土家族」,
+                // 「黔西南布依族」): every prefix of 2+ characters before the first 族 is a short form, and each with 州
+                // (「恩施州」), as people say it (review 3 2026-11-17).
+                if let zu = core.firstIndex(of: "族") {
                     names.insert(core)
-                    core = String(core[..<core.index(before: zu)])
+                    let head = Array(core[..<zu])
+                    if head.count >= 2 {
+                        for length in 2..<head.count {
+                            let short = String(head.prefix(length))
+                            names.insert(short)
+                            names.insert(short + "州")
+                        }
+                    }
+                    core = String(head)
                 }
                 if core.count >= 2 { names.insert(core) }
             }
