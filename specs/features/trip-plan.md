@@ -4,7 +4,7 @@
 remot"; phase 2 "you just create a spec including this function and also other thing that tailored from the movie
 and push to remtoe", after the community review of poster cards, screen editing and saved plans). iOS only.
 Phase 1 (§3–§9) is voice only. Phase 2 (§11–§17) adds the poster cards, editing on screen, map pins, saved plans
-and days. Phase 3 (§10, T-040k) is not started: it needs the owner's request.
+and days. Phase 3 (§25–§34, T-040n) replaces the 途经点 trip route with a plan ordered by location and one stop at a time.
 **Depends on:** F-15 (navigation flow, `NaviEngine`, `RouteRequest`), F-15a §2.5 and §9 (start on the recommended
 route, no start guard, one trip at a time), F-16 (`PlaceSearch`, origin rule), F-09 (catalog, dispatch,
 argument validation), F-06 (reply pipeline), contracts/navigation.md, contracts/api-contracts.md (Amap)
@@ -397,7 +397,7 @@ phone is not moving (§11 item 4), as the community rules require.
 | T-040i | Phase 1: `TripList` and name resolving (§3–4), the three tools in the catalog with validation (§5), `RouteRequest.waypoints` and `AmapRouteEngine` (§6 items 1–2), stops passed and recalculation (§6 items 3–4), record lines (§7); rows 1–15 | unit, build, D |
 | T-040j | Phase 2a: poster cards and the moving strip (§11), place photos (§12), editing on screen (§13), numbered pins and 途经1…N on the map (§13 item 5), the tap note (§13 item 4); rows 16–25 | unit, build, D |
 | T-040l | Phase 2b: the trip saved on the phone (§14), named plans and days (§15), the `trip_plans` tool (§16), record lines (§17); rows 26–35 | unit, build, D |
-| T-040k | Phase 3: during guidance, 「加一个加油站」 (inserted at the best place), 「跳过下一站」, 「先去X」, next-stop questions and per-stop arrival, re-routed from here. Not started: needs the owner's request | — |
+| T-040k | Withdrawn 2026-11-17: replaced by T-040n (§25–§34, one stop at a time) | — |
 
 Trace ids: T-040i, T-040j and T-040l are each added to `specs/trace-ids.txt` (F-15b) with their tests, not before, so
 spec-trace stays green.
@@ -794,3 +794,174 @@ cards, day tabs, 「串成路线」 and pins stayed: nothing could hide them exc
 | Task | Scope | Status |
 |---|---|---|
 | T-040m | §21 and §22, rows 54–64 | Built 2026-11-17 (`TripIntro`, `TripPlanner.cardsHidden`, `exit_navigation_mode` hides the cards); rows 58, 64 device |
+
+---
+
+# Phase 3: the plan ordered by location, one stop at a time (T-040n)
+
+Owner decision 2026-11-17: "the multi point routing is actually a nonsense function, you only need to make the travel
+plan based on the location, then later you can just based on the plan to call next destination". This phase replaces
+the 途经点 trip route (§5.3, §6, §13 route taps) and T-040k.
+
+## 25. Why
+
+Device run 7fdcdd6 (records 20261117-174009 and -174419):
+- 「你应该把珠海那个行程放到第一天，然后重新排一下」 → `make_trip_list {}` → `INVALID_FIELDS`, then 「我无法重新安排行程，请告诉我完整的地点名单」.
+  - She did not know the plan's places: `trip_plans open` returns only counts.
+  - No tool moves a day or a stop to another day, or starts from a chosen stop.
+- `route_trip start=true` drove 长隆(横琴) → 环宇城 → 渔女, 45.1 km, 97 min: backwards from 香洲.
+  - `order=nearest` is straight-line distance one stop at a time ([TripList.swift](../../Packages/NovaCore/Sources/NovaNav/Trip/TripList.swift) `TripOrder`), never driving time.
+  - The order matches what the code does with no position (start at stop 1). The record has no line saying which start was used.
+  - 高德 drives the 途经点 in the order sent and never reorders them.
+
+**Sources (read 2026-11-17).**
+- Self-drive practice: group nearby places into one day each, then order them
+  ([V2EX](https://www.v2ex.com/t/1013580), [知乎](https://www.zhihu.com/question/29689371)); 途经点 mostly steer which
+  highway is taken ([V2EX](https://www.v2ex.com/t/1013580), [少数派](https://sspai.com/post/88227)).
+- Navigation apps go one leg at a time: Apple Maps treats each stop as the next destination with a 「Next」 control
+  ([Gadget Hacks](https://ios.gadgethacks.com/how-to/your-complete-guide-planning-multi-stop-trips-apple-maps-your-iphone-0385152/));
+  a route is one leg per stop ([afi.io](https://blog.afi.io/blog/plan-a-route-with-multiple-stops-using-the-routes-api/)).
+- Multi-stop routes drop stops after a detour
+  ([MyRoute forum](https://forum.myrouteapp.com/topic/6782/issues-system-automatically-skipping-waypoints-and-therefore-changing-the-whole-route?page=1),
+  [mapbox-navigation-ios #4509](https://github.com/mapbox/mapbox-navigation-ios/issues/4509)).
+- Ordering by travel time is what Google's waypoint optimization does
+  ([Google Routes](https://developers.google.com/maps/documentation/routes/opt-way)); nearest-neighbour then 2-opt is
+  the usual small-tour method ([2-opt](https://jmsallan.netlify.app/blog/2-opt-local-search-for-the-tsp)).
+- Multi-day: group places into days, then order each day, balancing the days
+  ([journai](https://pypi.org/project/journai-lib), [Springer](https://link.springer.com/chapter/10.1007/978-3-030-94751-4_17),
+  [dev.to](https://dev.to/jinglescode/holiday-itinerary-with-machine-learning-2gbo)).
+- 高德 distance: `/v3/distance`, `type=1` driving, many `origins` separated by `|` to one `destination`; it returns
+  `distance` (m) and `duration` (s) per origin ([高德 距离测量](https://lbs.amap.com/api/webservice/guide/api/direction#distance),
+  [apifox copy](https://apifox.com/apidoc/docs-site/759159)).
+
+## 26. Driving times
+
+1. **Table.** For a start S and stops P1…Pn of the plan, the driving time between every pair is read from 高德
+   `/v3/distance type=1`: one request per stop as `destination`, with S and all other stops as `origins`. n stops make
+   n requests (16 at most). The time from a stop back to S is not needed.
+2. **Cache.** A pair's time is kept for 30 minutes in memory (keyed by the two place ids, or `here` rounded to
+   ~100 m). A reorganize within that time makes no new request.
+3. **At most 4 requests at once**; a `quota` refusal is retried as §4's lookups are.
+4. **Failure.** Any pair missing after retries: nothing is reordered, the plan is unchanged, and the result is
+   `ROUTE_TIMES_UNAVAILABLE`. Straight-line distance is never used to order a plan.
+5. **Code.** `AmapWebClient.drivingTimes(origins:destination:)` (NovaServices) behind a NovaPorts protocol
+   `DrivingTimes`; the table and ordering are pure NovaCore.
+
+## 27. Ordering (pure, `TripOptimizer`)
+
+1. **One day.** An open path from the start through every stop of the day, with the smallest total driving time.
+   - 8 stops or fewer: every order is tried (8! = 40,320).
+   - More: nearest neighbour by driving time, then 2-opt until no swap shortens it.
+   - Equal totals keep the current order.
+2. **Named start.** When the driver names a stop to start from, that stop is fixed first and the path starts there
+   (the time from the car to it is not counted).
+3. **Days.** All stops of the plan are put on one path as in item 1, then cut into D consecutive days.
+   - D is the asked number of days, else the plan's current number of days.
+   - The cut keeps each day at least 1 stop and makes the longest day as short as possible. A day counts its driving
+     minutes plus 90 minutes per stop (a fixed visit time).
+   - Day 1 starts at the start. Day k starts at day k−1's last stop.
+4. **The same places, always.** The optimizer only returns an order of the place ids it was given. The caller checks
+   that the plan's place ids after the change are exactly the ones before (same set, same count). If not, nothing is
+   changed and the result is `PLAN_CHANGED` (a bug guard; it should never happen).
+
+## 28. Where the plan is ordered
+
+1. **The start.**
+   - The stop the driver named, if any (item 3).
+   - Else the phone's position (the same usable fix as `navigate_to`, or the demo point in 模拟导航).
+   - Else nothing: no change, result `NO_START`, and she asks 「从哪里出发？」.
+2. **`make_trip_list`** orders the new plan: after its lookups, the whole plan is ordered and cut into days as §27
+   item 3, with D = the number of `days` groups (1 for `places`). When the times fail, the plan is kept in the order
+   asked and `next` says it is not ordered yet.
+3. **`edit_trip_list action=reorganize`** (new) orders the whole current plan again.
+   - Optional `start`: a name of a stop **in the plan**, matched as `remove` by name (§5.2). No match →
+     `NOT_FOUND`; several → `AMBIGUOUS`. A name not in the plan is never searched on 高德.
+   - Optional `days`: 1–5.
+   - Visited and skipped stops (§29) are left out and keep their days; only the stops still to go are reordered.
+   - No 高德 place search, no new place, no place removed or replaced (§27 item 4).
+4. **`edit_trip_list action=move` with `to_day`** (new): moves stop `index` of the current day to the end of day
+   `to_day`, then that day is ordered as §27 item 1 from its first stop. 「把珠海那个放到第一天」 is a `reorganize`
+   with `start`, or moves, as she chooses.
+5. **Saved plans are not changed.** Only the current plan changes; a saved plan changes on `trip_plans save`.
+6. **She sees the places.** The results of `trip_plans open`, `edit_trip_list` and `make_trip_list` carry `plan`:
+   each day's stop names in order, with `visited` / `skipped` marks.
+
+## 29. One stop at a time
+
+1. **`trip_next`** (new tool, replaces `route_trip`):
+   - Optional `day` (1–5); optional `stop`: a stop name in the plan or its number in that day.
+   - It starts guidance to one stop: the next one of the current day that is not visited or skipped, or the one asked.
+     The route is a normal single-destination route from here, through the same route start as a chosen
+     `navigate_to` place (F-15a), with no 高德 place search.
+   - A running guidance is replaced, as 「换成X」 does today.
+   - Result: `status: trip_next`, the stop's index, name, `distance_km`, `duration_min`, and the stop after it.
+   - All of the day done: `DAY_DONE`, `next` asks whether to start the next day.
+2. **Visited.**
+   - Guidance that ends `arrived` at the stop marks it `visited`.
+   - Guidance ended early does not mark it.
+   - `edit_trip_list action=visited index` (「已经去过了」) and `action=skip index` (「跳过这个」) mark it by voice. Marks
+     are kept in `current.json`; `reorganize` and `trip_plans open` keep them; `make_trip_list` starts with none.
+3. **On arrival** a silent note in the §13 item 4 form is sent when a session is connected:
+   > [系统] 已到达第k站名字。下一站是名字，约x分钟。问司机要不要现在去下一站。
+4. **Screen.**
+   - The card row stays as §11, with each card showing the driving minutes from the stop before (from §26, when
+     known). Visited cards are greyed and marked 已到; skipped ones 跳过.
+   - 「串成路线」 and 「开始导航」 are replaced by one button 「去下一站：名字」 (`trip_next`). Not moving only, as §11.
+   - Pins as §13 item 5, without 途经 labels; visited pins are greyed.
+
+## 30. Removed
+
+- `route_trip`, its `order`, the kept trip route and its drop rules (§5.3, §20 items 2, 3, 9).
+- Trip 途经点 in `RouteRequest.waypoints` and `TripStopTracker` (§6). `navigate_to` is unchanged.
+- `TripOrder.nearest` (straight-line ordering).
+- T-040k (phase 3 during guidance) is withdrawn: 「先去X」 and 「跳过」 are §29.
+
+## 31. Catalog text
+
+- `make_trip_list`, appended: 「清单会按司机现在的位置和真实车程自动排好顺序、分好天。」
+- `edit_trip_list`, appended: 「「重新排一下」「从横琴开始重新排」→reorganize（start 填清单里的地点名，days 填天数）；「把X放到第二天」→move 加 to_day；「已经去过了」→visited；「跳过这个」→skip。按结果的 plan 说每天去哪。NO_START=问司机从哪里出发。」
+- `trip_next`: 「行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。」
+- `trip_plans`: 「打开后要导航就调用 trip_next。」 replaces 「打开后要导航就再调用 route_trip。」
+
+## 32. Record and log
+
+Codes and numbers only (I-8).
+
+| Line | When |
+|---|---|
+| `trip order ok=<yes\|no> stops=<n> days=<n> start=<here\|named\|demo\|none> requests=<n> cached=<n> ms=<ms>` | After each ordering (make, reorganize, move to a day). |
+| `trip next index=<k> day=<d> ok=<yes\|no> code=<c>` | After `trip_next`. |
+| `trip visit index=<k> day=<d> by=<arrival\|voice\|skip>` | When a stop is marked. |
+
+New error codes: `ROUTE_TIMES_UNAVAILABLE`, `NO_START`, `PLAN_CHANGED`, `DAY_DONE`. Each gets a `ToolFailureAdvice`
+sentence.
+
+## 33. Phase 3 acceptance (iOS)
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 65 | 4 stops with a fixed time table where straight-line order differs from driving order | The order with the smallest total driving time; equal totals keep the current order | unit |
+| 66 | 10 stops (fixed table) | Nearest + 2-opt result no longer than nearest alone; every stop once | unit |
+| 67 | Named start 长隆 among 3 stops | 长隆 first; the rest by driving time from it | unit |
+| 68 | 6 stops, 3 days | Consecutive days of ≥ 1 stop; the longest day (driving + 90 min per stop) is the smallest possible | unit |
+| 69 | Any reorganize | The place ids before and after are the same set and count; a faked optimizer returning another id → `PLAN_CHANGED`, plan unchanged | unit |
+| 70 | `reorganize start=环宇城` on a plan without it; with two stops containing it | `NOT_FOUND` with no 高德 search; `AMBIGUOUS` | unit |
+| 71 | No position, no `start` | `NO_START`, plan unchanged, no 高德 request | unit |
+| 72 | One pair's time fails after retries | `ROUTE_TIMES_UNAVAILABLE`, plan unchanged | unit |
+| 73 | Reorganize twice within 30 min | The second makes no 高德 request; `trip order ... cached=` | unit |
+| 74 | `make_trip_list days=[[A,B],[C]]` with a table that puts A and C close | The plan comes back ordered and cut into 2 days by §27; `plan` in the result | unit |
+| 75 | `move index=2 to_day=1` | The stop ends on day 1, ordered; the place set unchanged | unit |
+| 76 | `trip_next` on a day with stop 1 visited | Guidance to stop 2, single destination, no waypoints; result names stop 3 as the one after | unit |
+| 77 | Guidance ends `arrived` at the stop; guidance stopped early | First: `visited`, the arrival note sent; second: no mark | unit |
+| 78 | All of the day visited or skipped: `trip_next` | `DAY_DONE` | unit |
+| 79 | `trip_plans open` | Result has `plan` with every day's names and marks | unit |
+| 80 | The declarations | No `route_trip`; `trip_next` declared; the §31 texts present | unit |
+| 81 | Device, 模拟导航 at 香洲: 「规划珠海一日游，去长隆、环宇城、渔女」 | Ordered by driving time from 香洲 (not 长隆 first); record line `trip order ... start=demo` | D |
+| 82 | Device: 「从横琴开始重新排一下」, then 「开始第一天」, arrive, 「去下一站」 | 长隆 first; guidance to one stop at a time; she asks about the next stop on arrival; no place added, lost or changed | D |
+| 83 | Device: a 3-day plan, 「把珠海那个放到第一天，然后重新排一下」 | One `reorganize` (or moves) call; 珠海's stops on day 1; she says each day's places | D |
+
+## 34. Phase 3 tasks
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040n | §25–§32, rows 65–83 | Spec written 2026-11-17; waiting for the owner's go |
