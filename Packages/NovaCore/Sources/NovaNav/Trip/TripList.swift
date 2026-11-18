@@ -9,8 +9,11 @@ public enum TripMark: String, Sendable, Hashable, Codable {
 }
 
 /// F-15b §37 item 2 (T-040o): what a stop is in the trip's frame. nil on older stops counts as `sight`.
+/// §45 item 12 (T-040q): `rental_pickup` (day 1, right after the start) and `rental_return` (last day, just before the end).
 public enum TripRole: String, Sendable, Hashable, Codable {
     case start, sight, hotel, end
+    case rentalPickup = "rental_pickup"
+    case rentalReturn = "rental_return"
 }
 
 /// One stop of the trip list (F-15b §3 item 1): the name asked and the place 高德 resolved it to.

@@ -45,6 +45,8 @@ public struct TripTuning: Sendable, Hashable {
     public var startRadiusMeters = 300_000
     /// §37 item 4: hotel search radii around a night's midpoint, tried in turn.
     public var hotelRadii = [3_000, 10_000]
+    /// §45 items 2–3 (T-040q): rental search radii around the start and the end, tried in turn.
+    public var rentalRadii = [3_000, 10_000]
     /// §36 item 2: Apple's region around the first found name.
     public var abroadRegionMeters = 100_000
     public init() {}
@@ -296,7 +298,7 @@ public actor TripPlanner: ToolExecutor {
         if let day, !(1...min(plan.dayCount + 1, TripPlan.maxDays)).contains(day) { return dayOutOfRange() }
         // §37 (T-040o): without `day` the places are a one-day trip with its frame (start, hotels, end).
         if day == nil { return await makeTrip([names], single: true, city: city, args: args, started: started) }
-        let ignored = ["start", "end", "hotels", "abroad"].contains { args[$0] != nil }
+        let ignored = ["start", "end", "hotels", "abroad", "rental"].contains { args[$0] != nil }
         let generation = plan.revision
         let here = await origin()
         let lookups = await resolve(names, city: city, abroad: plan.abroad)
@@ -417,10 +419,23 @@ public actor TripPlanner: ToolExecutor {
         let startStop = frameStop(startName, .start)
         let endStop = frameStop(endName, .end)
         let hotels = hotelNames.map { frameStop($0, .hotel) }
-        let source = Self.layout(lists, start: startStop, end: endStop, hotels: hotels)
+        // §45 items 2–5 (T-040q): a rental pickup near the start and a return near the end, picked by code.
+        let rentalAsked = args["rental"]?.boolValue ?? false
+        var rentalNotes: [String] = []
+        var pickup: TripStop?
+        var dropoff: TripStop?
+        if rentalAsked {
+            let rentals = await pickRentals(start: startStop, end: endStop, here: here,
+                                            lastSight: lists.last(where: { $0.count > 0 })?.stops.last, abroad: searched.abroad)
+            guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
+            pickup = rentals.pickup
+            dropoff = rentals.dropoff
+            rentalNotes = rentals.notes
+        }
+        let source = Self.layout(lists, start: startStop, end: endStop, hotels: hotels, pickup: pickup, dropoff: dropoff)
         // §28 item 2, §37 items 3–5: ordered by driving time between the fixed ends, hotels picked when none named.
         let arranged = await ordered(source, dayCount: dayCount, named: String?.none, pickHotels: hotelNames.isEmpty,
-                                     abroad: searched.abroad)
+                                     abroad: searched.abroad, rentalAsked: rentalAsked)
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         var extra: [String: JSONValue] = [:]
         var notes: [String] = []
@@ -439,9 +454,12 @@ public actor TripPlanner: ToolExecutor {
             } else {
                 // §42: the frame as built, unordered.
                 frameLine(start: startStop != nil ? "named" : "none", end: endStop != nil,
-                          hotels: hotels.contains { $0 != nil } ? "named" : "none", nights: max(dayCount - 1, 0), picked: 0)
+                          hotels: hotels.contains { $0 != nil } ? "named" : "none", nights: max(dayCount - 1, 0), picked: 0,
+                          rental: Self.rentalLabel(source, asked: rentalAsked))
             }
         }
+        // §45 items 5 and 8: a rental place not found is said once; booking is the driver's.
+        if rentalAsked { notes += rentalNotes + ["租车需要提前在网上预订"] }
         plan.replaceAll(withDays: lists)
         plan.abroad = searched.abroad
         plan.city = searched.abroad ? city?.trimmingCharacters(in: .whitespaces) : nil
@@ -466,7 +484,9 @@ public actor TripPlanner: ToolExecutor {
     /// §37 item 2: the frame put round the days in the asked order (used before ordering, and kept when it fails):
     /// day 1 from `start`, night k's hotel last on day k and first on day k+1, `end` last on the last day.
     /// `hotels`: one for every night, or one per night (nil where it was not found).
-    static func layout(_ days: [TripList], start: TripStop?, end: TripStop?, hotels: [TripStop?]) -> [TripList] {
+    /// §45 item 4 (T-040q): `pickup` right after `start` on day 1, `dropoff` just before `end` on the last day.
+    static func layout(_ days: [TripList], start: TripStop?, end: TripStop?, hotels: [TripStop?],
+                       pickup: TripStop? = nil, dropoff: TripStop? = nil) -> [TripList] {
         let nights = max(days.count - 1, 0)
         func hotel(_ night: Int) -> TripStop? {
             guard night < nights else { return nil }
@@ -476,9 +496,11 @@ public actor TripPlanner: ToolExecutor {
         return days.enumerated().map { d, day in
             var stops: [TripStop] = []
             if d == 0, let start { stops.append(start) }
+            if d == 0, let pickup { stops.append(pickup) }
             if d > 0, let h = hotel(d - 1) { stops.append(h) }
             stops += day.stops
             if d < nights, let h = hotel(d) { stops.append(h) }
+            if d == days.count - 1, let dropoff { stops.append(dropoff) }
             if d == days.count - 1, let end { stops.append(end) }
             var list = TripList()
             list.arrange(stops)
@@ -598,9 +620,10 @@ public actor TripPlanner: ToolExecutor {
                 changed()
                 return listResult(changed: "replaced", next: "只说一句：第\(replacing)个换成了\(place.name)，现在清单有\(list.count)个地点。")
             }
-            // Without an index a sight goes before the day's closing hotel or end.
-            let closing = list.stops.last.map { $0.role == .hotel || $0.role == .end } ?? false
-            list.insert(stop, at: index ?? (closing && n > 1 ? n : nil))
+            // Without an index a sight goes before the day's closing hotel or end (and a rental return before it, §45).
+            let closingRoles: Set<TripRole> = [.hotel, .end, .rentalReturn]
+            let closing = list.stops.reversed().prefix { closingRoles.contains($0.role) }.count
+            list.insert(stop, at: index ?? (closing > 0 && n > closing ? n - closing + 1 : nil))
             changed()
             return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
         default:
@@ -642,8 +665,9 @@ public actor TripPlanner: ToolExecutor {
     /// else the trip's start, else the car within `startRadiusMeters`) to the end, are cut into `dayCount` days, and
     /// each day is ordered again between its fixed ends. With `pickHotels` and no hotels, a 2–5 day trip gets one per
     /// night near the night's midpoint. The same place ids and roles, always (§27 item 4).
+    /// §45 item 4 (T-040q): a rental pickup stays right after day 1's head, a return just before the last day's tail.
     private func ordered(_ source: [TripList], dayCount: Int, named: String?, pickHotels: Bool = false,
-                         abroad: Bool? = nil) async -> OrderResult {
+                         abroad: Bool? = nil, rentalAsked: Bool = false) async -> OrderResult {
         let started = clock.now
         let abroad = abroad ?? plan.abroad
         let all = source.enumerated().flatMap { d, list in list.stops.map { (day: d, stop: $0) } }
@@ -653,6 +677,9 @@ public actor TripPlanner: ToolExecutor {
         var label = "none"
         var startStop = all.first { $0.stop.role == .start }?.stop
         let endStop = all.last { $0.stop.role == .end }?.stop
+        let pickupStop = all.first { $0.stop.role == .rentalPickup }?.stop
+        let dropoffStop = all.last { $0.stop.role == .rentalReturn }?.stop
+        let rental = Self.rentalLabel(source, asked: rentalAsked)
         func log(_ ok: Bool, requests: Int = 0, cached: Int = 0, days: Int = 0) {
             onLine("trip order ok=\(ok ? "yes" : "no") stops=\(total) days=\(days) start=\(label) requests=\(requests) cached=\(cached) ms=\(ms(since: started))")
         }
@@ -684,7 +711,7 @@ public actor TripPlanner: ToolExecutor {
             label = await startLabel()
         } else {
             log(false)
-            frameLine(start: "none", end: endStop != nil, hotels: "none", nights: 0, picked: 0)
+            frameLine(start: "none", end: endStop != nil, hotels: "none", nights: 0, picked: 0, rental: rental)
             return .failed(.noStart)
         }
         // §36 item 2c: abroad the table is OSRM's, else the straight-line estimate; at home 高德's (§26 item 4).
@@ -712,6 +739,8 @@ public actor TripPlanner: ToolExecutor {
         if let first { addNode(first) }
         pending.forEach(addNode)
         if let endStop { addNode(endStop) }
+        if let pickupStop { addNode(pickupStop) }
+        if let dropoffStop { addNode(dropoffStop) }
         anyHotel.forEach(addNode)
         // §42: `trip times vendor=<amap|osrm|estimate> pairs= ms=` after each table.
         func timeTable(_ start: TripTimes.Node?, _ list: [TripTimes.Node]) async -> TripTimes.Table? {
@@ -787,18 +816,27 @@ public actor TripPlanner: ToolExecutor {
             }
             let head: TripStop? = d == 0 ? (first == nil ? fixed(startStop) : nil) : fixed(nightHotel[d - 1])
             let tail: TripStop? = d == dayTotal - 1 ? fixed(endStop) : fixed(nightHotel[d])
+            // §45 item 4: the rental stops, fixed beside the day's ends.
+            let rentalHead: TripStop? = d == 0 ? fixed(pickupStop) : nil
+            let rentalTail: TripStop? = d == dayTotal - 1 ? fixed(dropoffStop) : nil
             let kept = sights.filter { $0.stop.mark != nil && min($0.day, dayTotal - 1) == d }.map(\.stop)
             var daySights = d < cut.count ? cut[d] : []
             var leading: [Int] = []
             if d == 0, let first, daySights.first == idx(first) {
                 leading = [daySights.removeFirst()]
             }
-            let from = leading.first ?? head.map(idx) ?? previous ?? origin
-            let order = leading + TripOptimizer.path(daySights, from: from, to: tail.map(idx), time: { table.time($0, $1) })
+            let from = leading.first ?? rentalHead.map(idx) ?? head.map(idx) ?? previous ?? origin
+            let to = (rentalTail ?? tail).map(idx)
+            let order = leading + TripOptimizer.path(daySights, from: from, to: to, time: { table.time($0, $1) })
             var out: [TripStop] = []
             if let head {
                 out.append(head)
                 previous = idx(head)
+            }
+            if var pick = rentalHead {
+                pick.legSeconds = previous.map { table.time($0, idx(pick)) }
+                out.append(pick)
+                previous = idx(pick)
             }
             out += kept
             for node in order {
@@ -808,6 +846,11 @@ public actor TripPlanner: ToolExecutor {
                 if node == leading.first, d == 0 { s.legSeconds = nil }
                 out.append(s)
                 previous = node
+            }
+            if var back = rentalTail {
+                back.legSeconds = previous.map { table.time($0, idx(back)) }
+                out.append(back)
+                previous = idx(back)
             }
             if var tail {
                 tail.legSeconds = previous.map { table.time($0, idx(tail)) }
@@ -823,6 +866,8 @@ public actor TripPlanner: ToolExecutor {
         var expected = sights.map { "\($0.stop.place.id)|sight" }
         if first == nil, let startStop { expected.append("\(startStop.place.id)|start") }
         if let endStop { expected.append("\(endStop.place.id)|end") }
+        if let pickupStop { expected.append("\(pickupStop.place.id)|rental_pickup") }
+        if let dropoffStop { expected.append("\(dropoffStop.place.id)|rental_return") }
         for hotel in plannedHotels.compactMap({ $0 }) { expected += Array(repeating: "\(hotel.place.id)|hotel", count: 2) }
         let after = days.flatMap { $0.stops.map { "\($0.place.id)|\($0.role.rawValue)" } }
         guard expected.sorted() == after.sorted() else {
@@ -833,13 +878,78 @@ public actor TripPlanner: ToolExecutor {
         let named = plannedHotels.contains { $0 != nil && $0?.picked == false }
         frameLine(start: first != nil || startStop != nil ? "named" : label, end: endStop != nil,
                   hotels: named ? "named" : picked > 0 || plannedHotels.contains { $0?.picked == true } ? "picked" : "none",
-                  nights: nights, picked: picked)
+                  nights: nights, picked: picked, rental: rental)
         return .success(Ordered(days: days, picked: picked, nightsWithoutHotel: withoutHotel, estimated: table.estimated))
     }
 
-    /// §42: `trip frame start= end= hotels= nights= picked=`.
-    private func frameLine(start: String, end: Bool, hotels: String, nights: Int, picked: Int) {
-        onLine("trip frame start=\(start) end=\(end ? "named" : "none") hotels=\(hotels) nights=\(nights) picked=\(picked)")
+    /// §42: `trip frame start= end= hotels= nights= picked=`, and §45 item 11's `rental=` when the plan has or asked
+    /// for a rental (a plan without one logs as before, row 102).
+    private func frameLine(start: String, end: Bool, hotels: String, nights: Int, picked: Int, rental: String? = nil) {
+        let r = rental.map { " rental=\($0)" } ?? ""
+        onLine("trip frame start=\(start) end=\(end ? "named" : "none") hotels=\(hotels) nights=\(nights) picked=\(picked)\(r)")
+    }
+
+    /// §45 item 11: `both`, `pickup`, `return`, `missing` (asked, none found); nil when not asked and none in the plan.
+    static func rentalLabel(_ days: [TripList], asked: Bool) -> String? {
+        let roles = Set(days.flatMap { $0.stops.map(\.role) })
+        switch (roles.contains(.rentalPickup), roles.contains(.rentalReturn)) {
+        case (true, true): return "both"
+        case (true, false): return "pickup"
+        case (false, true): return "return"
+        case (false, false): return asked ? "missing" : nil
+        }
+    }
+
+    /// §45 item 3: a rental brand: the name before 「レンタカー」/「租车」/"Rent", else the whole name.
+    static func rentalBrand(_ name: String) -> String {
+        var brand = name
+        for marker in ["レンタカー", "租车", "rent"] {
+            if let r = brand.range(of: marker, options: .caseInsensitive) { brand = String(brand[..<r.lowerBound]) }
+        }
+        let trimmed = brand.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? name : trimmed
+    }
+
+    /// §45 item 2: 「租车」 places around `center`, nearest first, within 3 km, else 10 km (Photon's amenity:car_rental
+    /// tag abroad, 高德's category search at home).
+    private func rentalPlaces(near center: GeoCoordinate, abroad: Bool) async -> [Place] {
+        let vendor = abroad ? (abroadSearch ?? search) : search
+        for radius in tuning.rentalRadii {
+            guard !Task.isCancelled else { return [] }
+            let found = (try? await vendor.aroundOnly("租车", center: center, radiusMeters: radius, sort: .distance)) ?? []
+            let usable = abroad ? found.filter { $0.countryCode == nil || !TripRegion.isChina($0.countryCode) } : found
+            if !usable.isEmpty { return usable }
+        }
+        return []
+    }
+
+    /// §45 items 2, 3 and 5: the pickup near the start (named, else the phone), the return near the end (else the last
+    /// day's last sight as asked), preferring the pickup's brand; one search when both are around the same point.
+    private func pickRentals(start: TripStop?, end: TripStop?, here: GeoCoordinate?, lastSight: TripStop?,
+                             abroad: Bool) async -> (pickup: TripStop?, dropoff: TripStop?, notes: [String]) {
+        var notes: [String] = []
+        let startCenter = start?.place.coordinate ?? here
+        let startName = start?.place.name ?? "出发点"
+        var startFound: [Place] = []
+        if let startCenter { startFound = await rentalPlaces(near: startCenter, abroad: abroad) }
+        let pickup = startFound.first.map {
+            TripStop(index: 0, asked: "租车", place: $0, distanceMeters: nil, role: .rentalPickup, picked: true)
+        }
+        if pickup == nil { notes.append("\(startName)附近没找到租车点") }
+        let endPoint = end ?? lastSight
+        let endName = endPoint?.place.name ?? "终点"
+        var endFound: [Place] = []
+        if let endCenter = endPoint?.place.coordinate {
+            endFound = endCenter == startCenter ? startFound : await rentalPlaces(near: endCenter, abroad: abroad)
+        }
+        let brand = pickup.map { Self.rentalBrand($0.place.name) }
+        let chosen = endFound.first { brand != nil && Self.rentalBrand($0.name) == brand } ?? endFound.first
+        let dropoff = chosen.map {
+            TripStop(index: 0, asked: "租车", place: $0, distanceMeters: nil, role: .rentalReturn, picked: true)
+        }
+        // Said once: the same place as the start is not named twice.
+        if dropoff == nil, !(pickup == nil && endName == startName) { notes.append("\(endName)附近没找到租车点") }
+        return (pickup, dropoff, notes)
     }
 
     /// §37 item 4: the first 「酒店」 within 3 km of `center`, else 10 km (高德 at home, Apple abroad); nil when none.
@@ -1363,6 +1473,8 @@ public actor TripPlanner: ToolExecutor {
         case .start: "（出发）"
         case .hotel: "（酒店）"
         case .end: "（结束）"
+        case .rentalPickup: "（取车）"
+        case .rentalReturn: "（还车）"
         case .sight: ""
         }
     }
