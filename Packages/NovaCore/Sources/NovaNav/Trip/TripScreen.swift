@@ -61,6 +61,18 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public var minutes: Int? = nil
     /// §21 item 3: the stop's city (高德 `cityname`), for the introduction query.
     public var city: String? = nil
+    /// §37 item 8 (T-040o): 住 on a hotel, 机场 on an airport start or end; nil otherwise.
+    public var tag: String? = nil
+
+    static func tag(_ stop: TripStop) -> String? {
+        switch stop.role {
+        case .hotel: return "住"
+        case .start, .end:
+            let name = stop.place.name
+            return name.contains("机场") || name.contains("空港") || name.localizedCaseInsensitiveContains("airport") ? "机场" : nil
+        case .sight: return nil
+        }
+    }
 }
 
 /// §11: what the 导航 tab shows of the trip list.
@@ -85,7 +97,8 @@ public enum TripScreen: Sendable, Hashable {
             TripCard(index: stop.index, placeID: stop.place.id, name: stop.place.name, district: stop.place.district,
                      km: stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 }, photoURL: stop.place.photoURL,
                      initial: String(stop.place.name.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
-                     minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city)
+                     minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
+                     tag: TripCard.tag(stop))
         })
     }
 }

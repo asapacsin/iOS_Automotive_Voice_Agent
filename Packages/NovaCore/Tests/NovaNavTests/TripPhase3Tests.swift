@@ -21,10 +21,12 @@ final class FakeDrivingTimes: DrivingTimes, @unchecked Sendable {
 let byLine: @Sendable (GeoCoordinate, GeoCoordinate) -> Int? = { Int((abs($0.latitude - $1.latitude) * 10_000).rounded()) }
 
 func timesRig(_ seconds: @escaping @Sendable (GeoCoordinate, GeoCoordinate) -> Int? = byLine, noOrigin: Bool = false,
-              table: [String: [Place]] = tianjin, notes: TripLines? = nil) async -> (TripRig, FakeDrivingTimes) {
+              table: [String: [Place]] = tianjin, notes: TripLines? = nil, search: TripSearch? = nil,
+              here: GeoCoordinate? = nil, abroad: (any PlaceSearch)? = nil,
+              handoff: (@Sendable (Place) async -> Bool)? = nil) async -> (TripRig, FakeDrivingTimes) {
     let service = FakeDrivingTimes(seconds)
-    let rig = await TripRig(search: TripSearch(table), times: TripTimes(service: service, clock: ManualClock(), retryDelay: .milliseconds(1)),
-                            noOrigin: noOrigin, notes: notes)
+    let rig = await TripRig(search: search ?? TripSearch(table), times: TripTimes(service: service, clock: ManualClock(), retryDelay: .milliseconds(1)),
+                            noOrigin: noOrigin, notes: notes, here: here, abroad: abroad, handoff: handoff)
     return (rig, service)
 }
 
@@ -110,7 +112,7 @@ struct TripPhase3Tests {
         #expect(await dayNames(rig) == before)
     }
 
-    @Test("F-15b row 70: reorganize start not in the plan is NOT_FOUND with no 高德 search; two matches AMBIGUOUS")
+    @Test("F-15b row 70: reorganize start not in the plan is searched once (§37 item 5), NOT_FOUND when nothing; two matches AMBIGUOUS")
     func row70() async {
         var table = tianjin
         table["五大道博物馆"] = [spot("五大道博物馆", lat: 39.045, lng: 117.2)]
@@ -118,7 +120,7 @@ struct TripPhase3Tests {
         _ = await rig.run(trip("make_trip_list", ["places": names(["五大道", "五大道博物馆", "古文化街"])]))
         let asked = rig.search.asked.withLock { $0.count }
         #expect(await rig.run(trip("edit_trip_list", ["action": "reorganize", "start": "环宇城"])).code == .notFound)
-        #expect(rig.search.asked.withLock { $0.count } == asked)
+        #expect(rig.search.asked.withLock { $0.count } == asked + 1)
         #expect(await rig.run(trip("edit_trip_list", ["action": "reorganize", "start": "五大道"])).code == .ambiguous)
     }
 
@@ -239,9 +241,9 @@ struct TripPhase3Tests {
         let declared = ToolCatalog.declarations(webSearch: false).map(\.name)
         #expect(!declared.contains("route_trip") && declared.contains("trip_next"))
         func text(_ n: String) -> String { ToolCatalog.spec(n)!.declaration.description }
-        #expect(text("make_trip_list").hasSuffix("清单会按司机现在的位置和真实车程自动排好顺序、分好天。"))
+        #expect(text("make_trip_list").contains("清单会按司机现在的位置和真实车程自动排好顺序、分好天。"))
         #expect(text("edit_trip_list").contains("「重新排一下」「从横琴开始重新排」→reorganize（start 填清单里的地点名，days 填天数）；「把X放到第二天」→move 加 to_day；「已经去过了」→visited；「跳过这个」→skip。按结果的 plan 说每天去哪。NO_START=问司机从哪里出发。"))
-        #expect(text("trip_next") == "行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。")
+        #expect(text("trip_next").hasPrefix("行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。"))
         #expect(text("trip_plans").contains("打开后要导航就调用 trip_next。") && !text("trip_plans").contains("route_trip"))
         #expect(ToolCatalog.validate(trip("trip_next", ["day": 2, "stop": "长隆"])) == nil)
         #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": "reorganize", "start": "横琴", "days": 2])) == nil)

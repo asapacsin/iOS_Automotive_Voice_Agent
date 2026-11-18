@@ -8,6 +8,11 @@ public enum TripMark: String, Sendable, Hashable, Codable {
     case visited, skipped
 }
 
+/// F-15b §37 item 2 (T-040o): what a stop is in the trip's frame. nil on older stops counts as `sight`.
+public enum TripRole: String, Sendable, Hashable, Codable {
+    case start, sight, hotel, end
+}
+
 /// One stop of the trip list (F-15b §3 item 1): the name asked and the place 高德 resolved it to.
 public struct TripStop: Sendable, Hashable {
     /// 1-based, renumbered 1…n after every change.
@@ -20,9 +25,15 @@ public struct TripStop: Sendable, Hashable {
     public var mark: TripMark?
     /// §29 item 4: driving seconds from the stop before (from the start for the first), when known.
     public var legSeconds: Int?
+    /// §37 item 2: start, sight, hotel or end.
+    public var role: TripRole
+    /// §37 item 4: a hotel the app picked (not named by the driver).
+    public var picked: Bool
 
     public init(index: Int, asked: String, place: Place, distanceMeters: Int?, mark: TripMark? = nil,
-                legSeconds: Int? = nil) {
+                legSeconds: Int? = nil, role: TripRole = .sight, picked: Bool = false) {
+        self.role = role
+        self.picked = picked
         self.index = index
         self.asked = asked
         self.place = place
@@ -32,7 +43,8 @@ public struct TripStop: Sendable, Hashable {
     }
 
     func renumbered(_ index: Int) -> TripStop {
-        TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds)
+        TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds,
+                 role: role, picked: picked)
     }
 }
 
@@ -92,7 +104,8 @@ public struct TripList: Sendable, Hashable {
 
     /// §28 (T-040n): the list becomes `new` (an ordering of stops); always a change.
     public mutating func arrange(_ new: [TripStop]) {
-        stops = Array(new.prefix(Self.maxStops))
+        // §37 item 1 (T-040o): a day's start / hotel / end are not counted in the 16.
+        stops = Array(new.prefix(Self.maxStops + 2))
         changed()
     }
 
@@ -121,7 +134,7 @@ public struct TripList: Sendable, Hashable {
     public mutating func setPhoto(placeID: String, url: URL?) {
         stops = stops.map { $0.place.id == placeID
             ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters,
-                       mark: $0.mark, legSeconds: $0.legSeconds)
+                       mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role, picked: $0.picked)
             : $0 }
     }
 

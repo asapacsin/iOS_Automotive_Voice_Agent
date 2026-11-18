@@ -11,6 +11,8 @@ public struct TripPlan: Sendable, Hashable {
     public static let maxName = 20
 
     public var name: String?
+    /// §36 item 1 (T-040o): the trip is outside China; its names are searched on Apple.
+    public var abroad = false
     public private(set) var days: [TripList] = [TripList()]
     /// 1-based.
     public private(set) var currentDay = 1
@@ -129,6 +131,7 @@ public struct TripPlan: Sendable, Hashable {
     /// Replaces this plan with `other` (open); always a change.
     public mutating func load(_ other: TripPlan) {
         name = other.name
+        abroad = other.abroad
         days = other.days
         currentDay = other.currentDay
         revision += 1
@@ -153,6 +156,10 @@ public enum TripPlanFile {
         var mark: TripMark?
         var leg: Int?
         var city: String?
+        /// T-040o §37 (optional): role, a picked hotel, Apple's country code.
+        var role: TripRole?
+        var picked: Bool?
+        var country: String?
     }
 
     struct Plan: Codable, Hashable {
@@ -160,6 +167,8 @@ public enum TripPlanFile {
         var currentDay: Int
         var days: [[Stop]]
         var savedAt: Double?
+        /// T-040o §36 item 1 (optional).
+        var abroad: Bool?
     }
 
     struct Current: Codable { var version: Int; var plan: Plan }
@@ -176,26 +185,29 @@ public enum TripPlanFile {
                  day.stops.map { s in
                      Stop(asked: s.asked, id: s.place.id, name: s.place.name, address: s.place.address,
                           district: s.place.district, lat: s.place.coordinate.latitude, lng: s.place.coordinate.longitude,
-                          photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city)
+                          photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city,
+                          role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode)
                  }
              },
-             savedAt: savedAt?.timeIntervalSince1970)
+             savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil)
     }
 
     static func decode(_ plan: Plan) -> TripPlan {
         let days = plan.days.prefix(TripPlan.maxDays).map { stops in
             var list = TripList()
-            list.arrange(stops.prefix(TripList.maxStops).map { s in
+            list.arrange(stops.prefix(TripList.maxStops + 2).map { s in
                 TripStop(index: 0, asked: s.asked,
                          place: Place(id: s.id, name: s.name, address: s.address,
                                       coordinate: GeoCoordinate(latitude: s.lat, longitude: s.lng, datum: .gcj02),
                                       distanceMeters: nil, city: s.city, district: s.district,
-                                      photoURL: TripPhotoLink.secure(s.photo)),
-                         distanceMeters: nil, mark: s.mark, legSeconds: s.leg)
+                                      photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country),
+                         distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false)
             })
             return list
         }
-        return TripPlan(name: plan.name, days: Array(days), currentDay: plan.currentDay)
+        var out = TripPlan(name: plan.name, days: Array(days), currentDay: plan.currentDay)
+        out.abroad = plan.abroad ?? false
+        return out
     }
 
     public static func current(_ plan: TripPlan) -> Data {

@@ -227,11 +227,14 @@ public struct Place: Sendable, Hashable {
     public let district: String?
     /// F-15b §12 item 1 (T-040j): the first `photos[].url` of the place detail; nil when there is none.
     public let photoURL: URL?
+    /// F-15b §41 (T-040o): ISO 3166 code from Apple's search (`placemark.isoCountryCode`); nil from 高德.
+    public let countryCode: String?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
                 openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil,
-                photoURL: URL? = nil) {
+                photoURL: URL? = nil, countryCode: String? = nil) {
         self.photoURL = photoURL
+        self.countryCode = countryCode
         self.city = city
         self.district = district
         self.openingHours = openingHours
@@ -248,7 +251,7 @@ extension Place {
     /// The same place with `photoURL` (F-15b §12).
     public func with(photoURL: URL?) -> Place {
         Place(id: id, name: name, address: address, coordinate: coordinate, distanceMeters: distanceMeters,
-              openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL)
+              openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL, countryCode: countryCode)
     }
 }
 
@@ -279,6 +282,21 @@ public protocol PlacePicker: Sendable {
     /// One answer per choice, in order: the 0-based candidate index, or nil for none of them. Throws when there is
     /// no usable answer.
     func pick(_ choices: [PlaceChoice]) async throws -> [Int?]
+}
+
+/// F-15b §36 (T-040o): which place search a trip uses. China here is the mainland, Hong Kong, Macau and Taiwan
+/// (高德's coverage); everything else is `abroad` (Apple's search).
+public enum TripRegion: String, Sendable, Hashable, Codable {
+    case china, abroad
+
+    /// §36 item 3: country codes that count as China.
+    public static let chinaCodes: Set<String> = ["CN", "HK", "MO", "TW"]
+
+    /// nil (高德 gives no code) counts as China.
+    public static func isChina(_ countryCode: String?) -> Bool {
+        guard let code = countryCode?.uppercased(), !code.isEmpty else { return true }
+        return chinaCodes.contains(code)
+    }
 }
 
 public protocol PlaceSearch: Sendable {

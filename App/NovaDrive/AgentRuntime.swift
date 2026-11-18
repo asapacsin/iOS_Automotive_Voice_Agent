@@ -1498,7 +1498,10 @@ final class AgentRuntime {
                                   // §29 item 3: the arrival note goes to a connected session, as a screen note.
                                   onNote: { [weak self] note in
                                       Task { @MainActor in if let core = self?.core { await core.send(.screenNote(note)) } }
-                                  })
+                                  },
+                                  // F-15b §36 (T-040o): trips abroad search Apple; §38 item 2: Apple Maps when 高德 fails there.
+                                  abroadSearch: ApplePlaceSearch(),
+                                  onHandoff: { place in await AppleMapsHandoff.open(place) })
         await planner.restore()
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).

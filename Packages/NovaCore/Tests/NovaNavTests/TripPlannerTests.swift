@@ -131,7 +131,8 @@ struct TripRig {
     init(search: TripSearch = TripSearch(tianjin), engine: ScriptedNaviEngine? = nil, tuning: NovaNav.NavigationTuning = NovaNav.NavigationTuning(),
          clock: any NovaClock = ManualClock(), resolveLimit: NovaDuration = .seconds(15), other: (any NaviEngine)? = nil,
          picker: (any PlacePicker)? = nil, times: TripTimes? = nil, noOrigin: Bool = false,
-         notes: TripLines? = nil) async {
+         notes: TripLines? = nil, here: GeoCoordinate? = nil, abroad: (any PlaceSearch)? = nil,
+         handoff: (@Sendable (Place) async -> Bool)? = nil) async {
         self.search = search
         let engine = engine ?? ScriptedNaviEngine(routes: [route(1, meters: 156_000, seconds: 14_640, toll: 20)])
         self.engine = engine
@@ -141,9 +142,10 @@ struct TripRig {
         await nav.start()
         var t = TripTuning()
         t.resolveLimit = resolveLimit
-        planner = TripPlanner(search: search, navigation: nav, origin: { noOrigin ? nil : origin }, clock: clock, tuning: t,
+        let start = here ?? origin
+        planner = TripPlanner(search: search, navigation: nav, origin: { noOrigin ? nil : start }, clock: clock, tuning: t,
                               picker: picker, onLine: { line in lines.append(line) }, times: times,
-                              onNote: { note in notes?.append(note) })
+                              onNote: { note in notes?.append(note) }, abroadSearch: abroad, onHandoff: handoff)
         await planner.connectCards()
     }
 

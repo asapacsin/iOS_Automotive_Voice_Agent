@@ -152,10 +152,10 @@ public enum ToolCatalog {
     public static let maxTripName = 40
     public static let tripEditActions = ["remove", "add", "replace", "move", "clear", "read", "reorganize", "visited", "skip"]
 
-    public static let makeTripListDescription = "做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点名（最多16个，每个只写地名，不写介绍；吃东西的地方写店名，比如「安德鲁饼店」，不写「安德鲁葡挞」）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[[\"广州塔\",\"陈家祠\"],[\"长隆野生动物世界\"]]。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。结果稍后回来：先只说一句在排，结果回来前不要说清单里有什么。按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。清单会按司机现在的位置和真实车程自动排好顺序、分好天。"
-    public static let editTripListDescription = "修改打卡清单（结果稍后回来：先只说一句在改，结果回来前不要说清单里有什么）：「去掉第二个」→remove index=2；「不去古文化街了」→remove name；「加上天津之眼」→add（name 写高德上的正式名称：景点的正式名或店名，比如「路环那家葡挞」→安德鲁饼店）；「第三个换成五大道」→replace；「把瓷房子放到第一个」→move；「清单里有什么」「打开行程」「看看行程」→read；「清空清单」→clear。第几个按她最后说的清单顺序。按结果答：一句话说改了什么和现在几个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，TRIP_TOO_LONG=最多16个地点，AMBIGUOUS=有多个匹配请说第几个。说到第几天时填 day，不说就是刚才那一天。「重新排一下」「从横琴开始重新排」→reorganize（start 填清单里的地点名，days 填天数）；「把X放到第二天」→move 加 to_day；「已经去过了」→visited；「跳过这个」→skip。按结果的 plan 说每天去哪。NO_START=问司机从哪里出发。"
+    public static let makeTripListDescription = "做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点名（最多16个，每个只写地名，不写介绍；吃东西的地方写店名，比如「安德鲁饼店」，不写「安德鲁葡挞」）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[[\"广州塔\",\"陈家祠\"],[\"长隆野生动物世界\"]]。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。结果稍后回来：先只说一句在排，结果回来前不要说清单里有什么。按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。清单会按司机现在的位置和真实车程自动排好顺序、分好天。行程在中国以外（不含港澳台）时填 abroad=true。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。"
+    public static let editTripListDescription = "修改打卡清单（结果稍后回来：先只说一句在改，结果回来前不要说清单里有什么）：「去掉第二个」→remove index=2；「不去古文化街了」→remove name；「加上天津之眼」→add（name 写高德上的正式名称：景点的正式名或店名，比如「路环那家葡挞」→安德鲁饼店）；「第三个换成五大道」→replace；「把瓷房子放到第一个」→move；「清单里有什么」「打开行程」「看看行程」→read；「清空清单」→clear。第几个按她最后说的清单顺序。按结果答：一句话说改了什么和现在几个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，TRIP_TOO_LONG=最多16个地点，AMBIGUOUS=有多个匹配请说第几个。说到第几天时填 day，不说就是刚才那一天。「重新排一下」「从横琴开始重新排」→reorganize（start 填清单里的地点名，days 填天数）；「把X放到第二天」→move 加 to_day；「已经去过了」→visited；「跳过这个」→skip。按结果的 plan 说每天去哪。NO_START=问司机从哪里出发。司机回答从哪里出发→reorganize 填 start。"
     /// F-15b §29 item 1, §31 (T-040n): one stop at a time.
-    public static let tripNextDescription = "行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。"
+    public static let tripNextDescription = "行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。已在苹果地图打开=告诉司机，到了说「已经到了」。"
     public static let tripPlansDescription = "保存、打开、列出、删除、改名行程：「把这个行程存成天津一日游」→save name=天津一日游；「打开天津一日游」→open；「我存了哪些行程」→list；「删掉天津那个行程」→delete；「改名叫周末出游」→rename。打开后要导航就调用 trip_next。按结果答：一句话说做了什么；list 只说有几个和名字；ok=false 按 error：NO_TRIP_LIST=还没有清单，PLAN_NOT_FOUND=没有这个行程，PLANS_FULL=最多存20个，AMBIGUOUS=有多个请说全名。"
     public static let tripPlanActions = ["save", "open", "list", "delete", "rename"]
     public static let tripDay: JSONValue = ["type": "integer", "minimum": 1, "maximum": 5]
@@ -173,6 +173,12 @@ public enum ToolCatalog {
                                        "items": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))]]],
                     "city": ["type": "string", "maxLength": 20],
                     "day": tripDay,
+                    // F-15b §36–§37 (T-040o).
+                    "abroad": ["type": "boolean"],
+                    "start": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
+                    "end": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
+                    "hotels": ["type": "array", "minItems": 1, "maxItems": 4,
+                               "items": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))]],
                 ],
                 "additionalProperties": false,
             ])),
@@ -324,7 +330,8 @@ public enum ToolCatalog {
         case "make_trip_list":
             // F-15b §5.1: 1–16 names of 1–40 characters, optional city ≤ 20.
             // §15 item 6: either places (optional day) or days (1–5 groups of 1–16 names, no day).
-            guard keys.isSubset(of: ["places", "days", "city", "day"]), keys.contains("places") != keys.contains("days"),
+            guard keys.isSubset(of: ["places", "days", "city", "day", "abroad", "start", "end", "hotels"]),
+                  keys.contains("places") != keys.contains("days"),
                   !(keys.contains("days") && keys.contains("day")) else { return .invalidFields }
             if keys.contains("day"), !isDay(a["day"]) { return .invalidFields }
             var groups: [[JSONValue]] = []
@@ -345,6 +352,19 @@ public enum ToolCatalog {
             }
             if keys.contains("city") {
                 guard let c = str("city"), !trimmed(c).isEmpty, c.utf16.count <= 20 else { return .invalidFields }
+            }
+            // §36 item 1, §37 item 1 (T-040o): the flag, the trip's ends, 1–4 hotels (their count is checked against the days).
+            if keys.contains("abroad"), a["abroad"]?.boolValue == nil { return .invalidFields }
+            for k in ["start", "end"] where keys.contains(k) {
+                guard let n = str(k), !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
+            }
+            if keys.contains("hotels") {
+                guard case .array(let hotels)? = a["hotels"], (1...4).contains(hotels.count) else { return .invalidFields }
+                // One for every night, or one per night (days − 1).
+                guard hotels.count == 1 || hotels.count == groups.count - 1 else { return .invalidFields }
+                for h in hotels {
+                    guard let n = h.stringValue, !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
+                }
             }
         case "edit_trip_list":
             // F-15b §5.2: the fields each action needs.

@@ -53,19 +53,23 @@ public enum ReplyLanguageCheck {
 /// F-05a §15 item 7: the record and log lines of the language check. Codes and numbers only, never words (I-8).
 public enum ReplyLanguageLine: Sendable, Hashable {
     public enum Reached: String, Sendable, Hashable { case allowed, blocked, released }
+    public enum HeardSource: String, Sendable, Hashable { case local, gemini }
     public enum FallbackReason: String, Sendable, Hashable { case blockedAgain = "blocked_again", noReply = "no_reply" }
 
     /// `lang-check turn= verdict= lang= p= held_ms=`; `language` nil writes `none`.
     case check(turn: Int, verdict: Reached, language: String?, probability: Double, heldMs: Int)
     /// `correction WRONG_LANGUAGE heard=none` (F-05a §16 item 5: the re-ask never carries heard words).
     case correction
+    /// F-15b §40 (T-040o): the re-ask carried the driver's words from the streaming local final or Gemini's input
+    /// transcript: `correction WRONG_LANGUAGE heard=<local|gemini>`. The words themselves never reach the line.
+    case correctionHeard(HeardSource)
     /// `fallback-line turn= reason=`.
     case fallback(turn: Int, reason: FallbackReason)
 
     public var kind: String {
         switch self {
         case .check: "lang-check"
-        case .correction: "correction"
+        case .correction, .correctionHeard: "correction"
         case .fallback: "fallback-line"
         }
     }
@@ -75,6 +79,7 @@ public enum ReplyLanguageLine: Sendable, Hashable {
         case .check(let turn, let verdict, let language, let p, let ms):
             "turn=\(turn) verdict=\(verdict.rawValue) lang=\(language.map(Self.code) ?? "none") p=\(Self.twoDecimals(p)) held_ms=\(ms)"
         case .correction: "WRONG_LANGUAGE heard=none"
+        case .correctionHeard(let source): "WRONG_LANGUAGE heard=\(source.rawValue)"
         case .fallback(let turn, let reason): "turn=\(turn) reason=\(reason.rawValue)"
         }
     }

@@ -12,32 +12,35 @@ public enum TripOptimizer {
 
     /// The open path from `start` through every node of `stops` with the smallest total time. `stops` is the current
     /// order: equal totals keep it.
-    public static func path(_ stops: [Int], from start: Int, time: (Int, Int) -> Int) -> [Int] {
+    /// §37 item 3 (T-040o): `end`, when given, is a fixed last node after the path (a night's hotel, the trip's
+    /// end); its drive counts in the total but it is not in the result.
+    public static func path(_ stops: [Int], from start: Int, to end: Int? = nil, time: (Int, Int) -> Int) -> [Int] {
         guard stops.count > 1 else { return stops }
-        if stops.count <= exhaustiveLimit { return exhaustive(stops, from: start, time: time) }
-        var best = twoOpt(nearest(stops, from: start, time: time), from: start, time: time)
-        if cost(best, from: start, time: time) >= cost(stops, from: start, time: time) { best = stops }
+        if stops.count <= exhaustiveLimit { return exhaustive(stops, from: start, to: end, time: time) }
+        var best = twoOpt(nearest(stops, from: start, time: time), from: start, to: end, time: time)
+        if cost(best, from: start, to: end, time: time) >= cost(stops, from: start, to: end, time: time) { best = stops }
         return best
     }
 
-    public static func cost(_ path: [Int], from start: Int, time: (Int, Int) -> Int) -> Int {
+    public static func cost(_ path: [Int], from start: Int, to end: Int? = nil, time: (Int, Int) -> Int) -> Int {
         var total = 0
         var here = start
         for node in path {
             total += time(here, node)
             here = node
         }
+        if let end { total += time(here, end) }
         return total
     }
 
     /// Every order in lexicographic sequence from the current one; only a strictly shorter one replaces the best.
-    static func exhaustive(_ stops: [Int], from start: Int, time: (Int, Int) -> Int) -> [Int] {
+    static func exhaustive(_ stops: [Int], from start: Int, to end: Int? = nil, time: (Int, Int) -> Int) -> [Int] {
         var perm = Array(stops.indices)
         var best = stops
-        var bestCost = cost(stops, from: start, time: time)
+        var bestCost = cost(stops, from: start, to: end, time: time)
         while nextPermutation(&perm) {
             let order = perm.map { stops[$0] }
-            let c = cost(order, from: start, time: time)
+            let c = cost(order, from: start, to: end, time: time)
             if c < bestCost {
                 best = order
                 bestCost = c
@@ -74,9 +77,9 @@ public enum TripOptimizer {
     }
 
     /// Reverses segments of the open path while that shortens it.
-    static func twoOpt(_ path: [Int], from start: Int, time: (Int, Int) -> Int) -> [Int] {
+    static func twoOpt(_ path: [Int], from start: Int, to end: Int? = nil, time: (Int, Int) -> Int) -> [Int] {
         var best = path
-        var bestCost = cost(path, from: start, time: time)
+        var bestCost = cost(path, from: start, to: end, time: time)
         var improved = true
         while improved {
             improved = false
@@ -84,7 +87,7 @@ public enum TripOptimizer {
                 for k in (i + 1)..<best.count {
                     var candidate = best
                     candidate[i...k].reverse()
-                    let c = cost(candidate, from: start, time: time)
+                    let c = cost(candidate, from: start, to: end, time: time)
                     if c < bestCost {
                         best = candidate
                         bestCost = c

@@ -2834,8 +2834,8 @@
     },
     {
       "id": "T-040o",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "BLOCKED_EXTERNAL",
+      "owner": "AUTONOMOUS",
+      "status": "IN_PROGRESS",
       "priority": 30,
       "action": "F-15b phase 4 (§35-§44): trips abroad via Apple place search chosen by the abroad flag, wrong-country guard and wrong-flag backstop, start/hotels/end frame with code-picked hotels, 300 km start rule, Apple Maps hand-off when 高德 guidance fails abroad, WRONG_LANGUAGE re-ask with the driver's words; rows 84-98.",
       "depends_on": [
@@ -2847,8 +2847,7 @@
           "Change the spec first"
         ]
       },
-      "notes": "Spec only (owner 2026-11-18: \"ok i trust you write the spec and push to remote\"). Build starts on the owner's go.",
-      "blocked_by": "waiting for the owner's go to build (spec only)"
+      "notes": "Owner go 2026-11-18 (\"claude/youthful-curie-vuit5r pull and implement the function based on spec\"). Built; review pending."
     },
     {
       "id": "T-031j",

@@ -315,6 +315,11 @@ public struct AgentState: Sendable {
     private var detector: any LanguageIdentifier = NoLanguageIdentifier()
     /// F-05a §16 item 1: Gemini's input transcript of the current utterance (partials are deltas).
     private var geminiHeard = ""
+    /// F-15b §40 (T-040o): this utterance's streaming local final, and Gemini's final input transcript, for the
+    /// WRONG_LANGUAGE re-ask; the source the last re-ask used, for its record line.
+    private var localFinal = ""
+    private var geminiFinal = ""
+    private var reaskHeard: ReplyLanguageLine.HeardSource?
 
     /// F-18 §21 item 2 (T-046i): silent destination notes (on with the search setting; off sends none).
     private var destinationNotes = false
@@ -520,6 +525,8 @@ public struct AgentState: Sendable {
             noUtteranceSinceStop = false
             // F-05a §16 item 1: a new utterance's line starts empty and stays empty without Gemini text.
             geminiHeard = ""
+            localFinal = ""
+            geminiFinal = ""
             if !view.driverLine.isEmpty {
                 view.driverLine = ""
                 cleared.append(.publish(view))
@@ -552,6 +559,7 @@ public struct AgentState: Sendable {
             switch words {
             case .partial(let text): return heard(text, isFinal: false, at: now)
             case .final(let text):
+                localFinal = text
                 return heard(text, isFinal: true, at: now)
             case .unclear:
                 // S4: shown as 「（没听清）」 only; no stop-phrase check.
@@ -755,6 +763,7 @@ public struct AgentState: Sendable {
     /// `screen-hidden kind=driver`. Display only: the stop phrase, the echo filter and the guards never read it.
     private mutating func driverLine(_ text: String, isFinal: Bool) -> [AgentEffect] {
         if isFinal { geminiHeard = text } else { geminiHeard += text }
+        if isFinal { geminiFinal = text }
         let shown = ScreenLanguage.driverDisplay(geminiHeard, final: isFinal, detector: detector)
         var effects: [AgentEffect] = []
         if shown.hidden, isFinal { effects.append(.screenHidden(.driver, geminiHeard)) }
@@ -1342,10 +1351,23 @@ public struct AgentState: Sendable {
                 answerOwed = true
                 effects.append(.provider(.text([TextTurn(role: .user, text: reason.instruction)], turnComplete: true)))
             case .languageReask:
-                // F-05a §15 item 4: sent at once, not after the correction grace; §16 item 5: no heard words.
+                // F-05a §15 item 4: sent at once, not after the correction grace. F-15b §40 (T-040o): with the
+                // driver's words when there are any (local final, then Gemini's); the bare form only without text.
                 answerOwed = true
-                effects.append(.provider(.text([TextTurn(role: .user, text: CorrectionReason.wrongLanguage.instruction)],
-                                               turnComplete: true)))
+                let local = localFinal.trimmingCharacters(in: .whitespacesAndNewlines)
+                let gemini = geminiFinal.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text: String
+                if !local.isEmpty {
+                    reaskHeard = .local
+                    text = CorrectionReason.wrongLanguage(heard: local)
+                } else if !gemini.isEmpty {
+                    reaskHeard = .gemini
+                    text = CorrectionReason.wrongLanguage(heard: gemini)
+                } else {
+                    reaskHeard = nil
+                    text = CorrectionReason.wrongLanguage.instruction
+                }
+                effects.append(.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)))
             case .fallbackLine:
                 // F-05a §15 item 5: the app's own line, in the system voice on the guidance lane, shown as hers.
                 answerOwed = false
@@ -1355,7 +1377,11 @@ public struct AgentState: Sendable {
                 effects.append(.publish(view))
                 effects.append(.speakGuidance(DriverTurnPipeline.fallbackLineText, GuidanceID(UInt64.max - fallbackLines)))
             case .languageLine(let line):
-                effects.append(.languageLine(line))
+                if case .correction = line, let source = reaskHeard {
+                    effects.append(.languageLine(.correctionHeard(source)))
+                } else {
+                    effects.append(.languageLine(line))
+                }
             case .reask(let text):
                 answerOwed = true
                 effects.append(.diagnostic(.turnUnanswered(turn: closedTurns)))  // F-04 §14 item 7

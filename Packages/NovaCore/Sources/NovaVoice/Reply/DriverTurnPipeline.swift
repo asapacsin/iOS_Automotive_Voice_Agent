@@ -26,6 +26,11 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         case .wrongLanguage: "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
         }
     }
+
+    /// F-15b §40 (T-040o): the re-ask when the driver's words are known: she answers them, no 「再说一遍」.
+    public static func wrongLanguage(heard words: String) -> String {
+        "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。司机刚才说的是「\(words)」。请用中文回答这句话。"
+    }
 }
 
 public enum PipelineInput: Sendable, Hashable {

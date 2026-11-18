@@ -41,6 +41,12 @@ public struct TripTuning: Sendable, Hashable {
     /// tool timeout); after that every open name takes 高德's first result.
     public var candidates = 5
     public var pickLimit = NovaDuration.milliseconds(2500)
+    /// §37 item 5 (T-040o): the phone's position is a start only this close to a sight.
+    public var startRadiusMeters = 300_000
+    /// §37 item 4: hotel search radii around a night's midpoint, tried in turn.
+    public var hotelRadii = [3_000, 10_000]
+    /// §36 item 2: Apple's region around the first found name.
+    public var abroadRegionMeters = 100_000
     public init() {}
 }
 
@@ -51,6 +57,10 @@ public actor TripPlanner: ToolExecutor {
     public static let tools: Set<String> = ["make_trip_list", "edit_trip_list", "trip_next", "trip_plans"]
 
     private let search: any PlaceSearch
+    /// §36 item 2 (T-040o): Apple's place search for trips abroad; nil keeps every trip on 高德.
+    private let abroadSearch: (any PlaceSearch)?
+    /// §38 item 2: opens Apple Maps to a stop when 高德's route fails abroad; true when it opened.
+    private let onHandoff: (@Sendable (Place) async -> Bool)?
     /// §4 item 6: nil picks 高德's first result.
     private let picker: (any PlacePicker)?
     /// §4 item 9: list changes still running (`make_trip_list`, `edit_trip_list`); `trip_next` waits for them.
@@ -114,7 +124,11 @@ public actor TripPlanner: ToolExecutor {
                 onHidden: @escaping @Sendable (Bool) -> Void = { _ in },
                 times: TripTimes? = nil,
                 startLabel: @escaping @Sendable () async -> String = { "here" },
-                onNote: @escaping @Sendable (String) -> Void = { _ in }) {
+                onNote: @escaping @Sendable (String) -> Void = { _ in },
+                abroadSearch: (any PlaceSearch)? = nil,
+                onHandoff: (@Sendable (Place) async -> Bool)? = nil) {
+        self.abroadSearch = abroadSearch
+        self.onHandoff = onHandoff
         self.times = times
         self.startLabel = startLabel
         self.onNote = onNote
@@ -253,16 +267,24 @@ public actor TripPlanner: ToolExecutor {
 
     private func make(_ args: JSONValue) async -> ToolResult {
         let started = clock.now
-        if case .array(let raw)? = args["days"] { return await makeDays(raw, city: args["city"]?.stringValue, started: started) }
+        if case .array(let raw)? = args["days"] {
+            let dayNames: [[String]] = raw.map { day in
+                guard case .array(let places) = day else { return [] }
+                return places.compactMap(\.stringValue).map(TranscriptText.normalize)
+            }
+            return await makeTrip(dayNames, single: false, city: args["city"]?.stringValue, args: args, started: started)
+        }
         guard case .array(let raw)? = args["places"] else { return .failure(.invalidFields) }
         let names = raw.compactMap(\.stringValue).map(TranscriptText.normalize)
         let city = args["city"]?.stringValue
         let day = Self.int(args["day"])
         // §15 item 2: a day may be at most the number of days + 1.
         if let day, !(1...min(plan.dayCount + 1, TripPlan.maxDays)).contains(day) { return dayOutOfRange() }
+        // §37 (T-040o): without `day` the places are a one-day trip with its frame (start, hotels, end).
+        if day == nil { return await makeTrip([names], single: true, city: city, args: args, started: started) }
         let generation = plan.revision
         let here = await origin()
-        let lookups = await resolve(names, city: city)
+        let lookups = await resolve(names, city: city, abroad: plan.abroad)
         // A cancelled call (barge-in) or a newer change while the lookups ran: this one changes nothing.
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
@@ -304,17 +326,28 @@ public actor TripPlanner: ToolExecutor {
                           next: "只说一句：清单有\(list.count)个地点\(missed)\(Self.unordered(arranged))。不要念整张清单，司机问时再念。")
     }
 
-    /// §15 item 6: a whole plan of several days in one call (parallel per-day calls would race on `revision`).
-    /// The same place twice anywhere in the plan is a duplicate; a day where nothing was found stays as an empty day.
-    private func makeDays(_ raw: [JSONValue], city: String?, started: NovaInstant) async -> ToolResult {
-        let dayNames: [[String]] = raw.map { day in
-            guard case .array(let places) = day else { return [] }
-            return places.compactMap(\.stringValue).map(TranscriptText.normalize)
+    /// §15 item 6 and §37 (T-040o): a whole plan of one or several days in one call (parallel per-day calls would race
+    /// on `revision`), with its frame: `start`, `hotels` and `end` are searched with the places (§36) and are not
+    /// counted in the 16. The same place twice anywhere in the plan is a duplicate; a day where nothing was found stays
+    /// as an empty day.
+    private func makeTrip(_ dayNames: [[String]], single: Bool, city: String?, args: JSONValue,
+                          started: NovaInstant) async -> ToolResult {
+        let startName = args["start"]?.stringValue.map(TranscriptText.normalize).flatMap { $0.isEmpty ? nil : $0 }
+        let endName = args["end"]?.stringValue.map(TranscriptText.normalize).flatMap { $0.isEmpty ? nil : $0 }
+        let hotelNames: [String] = if case .array(let h)? = args["hotels"] {
+            h.compactMap(\.stringValue).map(TranscriptText.normalize).filter { !$0.isEmpty }
+        } else { [] }
+        let dayCount = max(1, dayNames.count)
+        // §37 item 1: one hotel for every night, or one per night.
+        if !hotelNames.isEmpty, hotelNames.count != 1, hotelNames.count != dayCount - 1 {
+            return .failure(.invalidFields, advice: "hotels 只能填一个（每晚都住），或者每晚一个（\(dayCount)天=\(max(dayCount - 1, 1))个）。请重新调用。")
         }
         let flat = dayNames.flatMap { $0 }
+        let extras = [startName, endName].compactMap { $0 } + hotelNames
         let generation = plan.revision
         let here = await origin()
-        let lookups = await resolve(flat, city: city)
+        let searched = await resolveTrip(flat + extras, city: city, abroad: args["abroad"]?.boolValue ?? false)
+        let lookups = searched.lookups
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
             line(stops: plan.stopCount, notFound: flat.count, duplicates: 0, since: started)
@@ -350,17 +383,79 @@ public actor TripPlanner: ToolExecutor {
             line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
             return .failure(.noCandidates, advice: "清单里的地点都没有找到，清单没有改。请如实说没找到这些地方。")
         }
-        // §28 item 2: the whole plan ordered and cut into as many days as asked.
-        let arranged = await ordered(lists, dayCount: lists.count, named: String?.none)
+        // §37 item 1: a frame name not found is left out and named in not_found.
+        func frameStop(_ name: String?, _ role: TripRole) -> TripStop? {
+            guard let name else { return nil }
+            defer { offset += 1 }
+            guard case .found(let place) = lookups[offset] else {
+                notFound.append(name)
+                if case .missing(let reason) = lookups[offset] { onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)") }
+                return nil
+            }
+            return TripStop(index: 0, asked: name, place: place, distanceMeters: distance(here, place), role: role)
+        }
+        let startStop = frameStop(startName, .start)
+        let endStop = frameStop(endName, .end)
+        let hotels = hotelNames.map { frameStop($0, .hotel) }
+        let source = Self.layout(lists, start: startStop, end: endStop, hotels: hotels)
+        // §28 item 2, §37 items 3–5: ordered by driving time between the fixed ends, hotels picked when none named.
+        let arranged = await ordered(source, dayCount: dayCount, named: String?.none, pickHotels: hotelNames.isEmpty,
+                                     abroad: searched.abroad)
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-        if case .success(let o) = arranged { lists = o.days }
+        var extra: [String: JSONValue] = [:]
+        var notes: [String] = []
+        switch arranged {
+        case .success(let o):
+            lists = o.days
+            if !o.nightsWithoutHotel.isEmpty {
+                notes.append("第\(o.nightsWithoutHotel.map(String.init).joined(separator: "、"))晚附近没找到酒店")
+            }
+            if o.picked > 0 { notes.append("酒店是自动挑的，司机可以换") }
+        case .failed(let code):
+            lists = source
+            if code == .noStart { extra["order"] = .string(ToolErrorCode.noStart.rawValue) }
+        }
         plan.replaceAll(withDays: lists)
+        plan.abroad = searched.abroad
         changed()
         line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
-        let perDay = plan.days.enumerated().map { "第\($0.offset + 1)天\($0.element.count)个" }.joined(separator: "，")
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
+        let more = notes.isEmpty ? "" : "；" + notes.joined(separator: "；")
+        let ask = extra["order"] != nil ? "。NO_START：然后只问一句：「从哪里出发？机场还是酒店？」" : ""
+        let unordered = extra["order"] != nil ? "" : Self.unordered(arranged)
+        if single, plan.dayCount == 1 {
+            return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
+                              next: "只说一句：清单有\(list.count)个地点\(missed)\(unordered)\(more)\(ask)。不要念整张清单，司机问时再念。",
+                              extra: extra)
+        }
+        let perDay = plan.days.enumerated().map { "第\($0.offset + 1)天\($0.element.stops.filter { $0.role == .sight }.count)个" }
+            .joined(separator: "，")
         return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
-                          next: "用一两句话说：\(plan.dayCount)天的行程做好了（\(perDay)），每天只说一两个主要地方\(missed)\(Self.unordered(arranged))。不要念整张清单，司机问时再念。")
+                          next: "用一两句话说：\(plan.dayCount)天的行程做好了（\(perDay)），每天只说一两个主要地方\(missed)\(unordered)\(more)\(ask)。不要念整张清单，司机问时再念。",
+                          extra: extra)
+    }
+
+    /// §37 item 2: the frame put round the days in the asked order (used before ordering, and kept when it fails):
+    /// day 1 from `start`, night k's hotel last on day k and first on day k+1, `end` last on the last day.
+    /// `hotels`: one for every night, or one per night (nil where it was not found).
+    static func layout(_ days: [TripList], start: TripStop?, end: TripStop?, hotels: [TripStop?]) -> [TripList] {
+        let nights = max(days.count - 1, 0)
+        func hotel(_ night: Int) -> TripStop? {
+            guard night < nights else { return nil }
+            if hotels.count == 1 { return hotels[0] }
+            return night < hotels.count ? hotels[night] : nil
+        }
+        return days.enumerated().map { d, day in
+            var stops: [TripStop] = []
+            if d == 0, let start { stops.append(start) }
+            if d > 0, let h = hotel(d - 1) { stops.append(h) }
+            stops += day.stops
+            if d < nights, let h = hotel(d) { stops.append(h) }
+            if d == days.count - 1, let end { stops.append(end) }
+            var list = TripList()
+            list.arrange(stops)
+            return list
+        }
     }
 
     // MARK: edit_trip_list
@@ -444,7 +539,7 @@ public actor TripPlanner: ToolExecutor {
             }
             let generation = plan.revision
             let here = await origin()
-            let lookup = await resolve([name], city: nil).first ?? .missing("failed")
+            let lookup = await resolve([name], city: nil, abroad: plan.abroad).first ?? .missing("failed")
             // §3 item 4: a newer change while this lookup ran wins; this one changes nothing.
             guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
             let place: Place
@@ -480,6 +575,9 @@ public actor TripPlanner: ToolExecutor {
 
     private struct Ordered {
         let days: [TripList]
+        /// §37 item 4: hotels the app picked this time, and the nights (1-based) where none was found.
+        var picked = 0
+        var nightsWithoutHotel: [Int] = []
     }
 
     private enum OrderResult {
@@ -493,102 +591,242 @@ public actor TripPlanner: ToolExecutor {
         return ""
     }
 
-    /// §27–§28: `source` ordered again by driving time. Marked stops keep their days (in front, in order); the stops
-    /// still to go go on one path from the start (the named stop `named`, else the car) and are cut into `dayCount`
-    /// days. The same place ids, always (§27 item 4).
-    private func ordered(_ source: [TripList], dayCount: Int, named: String?) async -> OrderResult {
+    /// §27–§28 and §37 (T-040o): `source` ordered again by driving time. The frame comes from the stops' roles: the
+    /// trip's `start` (day 1 first), each night's hotel (day k last, day k+1 first) and `end` (last day last).
+    /// Marked sights keep their days; the sights still to go go on one path from the start (the named stop `named`,
+    /// else the trip's start, else the car within `startRadiusMeters`) to the end, are cut into `dayCount` days, and
+    /// each day is ordered again between its fixed ends. With `pickHotels` and no hotels, a 2–5 day trip gets one per
+    /// night near the night's midpoint. The same place ids and roles, always (§27 item 4).
+    private func ordered(_ source: [TripList], dayCount: Int, named: String?, pickHotels: Bool = false,
+                         abroad: Bool? = nil) async -> OrderResult {
         let started = clock.now
+        let abroad = abroad ?? plan.abroad
         let all = source.enumerated().flatMap { d, list in list.stops.map { (day: d, stop: $0) } }
-        var pending = all.filter { $0.stop.mark == nil }.map(\.stop)
+        let sights = all.filter { $0.stop.role == .sight }
+        var pending = sights.filter { $0.stop.mark == nil }.map(\.stop)
         let total = pending.count
         var label = "none"
+        var startStop = all.first { $0.stop.role == .start }?.stop
+        let endStop = all.last { $0.stop.role == .end }?.stop
         func log(_ ok: Bool, requests: Int = 0, cached: Int = 0, days: Int = 0) {
             onLine("trip order ok=\(ok ? "yes" : "no") stops=\(total) days=\(days) start=\(label) requests=\(requests) cached=\(cached) ms=\(ms(since: started))")
         }
         guard !pending.isEmpty else { return .success(Ordered(days: source)) }
-        // §28 item 1: the named stop, else the car (or 模拟导航's demo point), else nothing.
+        // Marks of the frame stops, kept where the same stop lands on the same day again.
+        var frameMarks: [String: TripMark] = [:]
+        for (d, stop) in all where stop.role != .sight {
+            if let mark = stop.mark { frameMarks["\(d)|\(stop.place.id)|\(stop.role.rawValue)"] = mark }
+        }
+        // §28 item 1 and §37 item 5: the named stop, else the trip's start, else the car near a sight, else nothing.
         var startNode: TripTimes.Node?
         var first: TripStop?
         if let named, let i = pending.firstIndex(where: { $0.place.id == named }) {
             first = pending.remove(at: i)
+            // A sight named as the start replaces the trip's start.
+            startStop = nil
             label = "named"
         } else if let named, let stop = all.first(where: { $0.stop.place.id == named })?.stop {
             startNode = TripTimes.Node(key: stop.place.id, coordinate: stop.place.coordinate)
             label = "named"
-        } else if let here = await origin() {
+        } else if let startStop {
+            startNode = TripTimes.Node(key: startStop.place.id, coordinate: startStop.place.coordinate)
+            label = "named"
+        } else if let here = await origin(),
+                  pending.contains(where: { SelfPosition.distanceMeters(here, $0.place.coordinate) <= Double(tuning.startRadiusMeters) }) {
             startNode = .here(here)
             label = await startLabel()
         } else {
             log(false)
+            frameLine(start: "none", end: endStop != nil, hotels: "none", nights: 0, picked: 0)
             return .failed(.noStart)
         }
-        let stops = (first.map { [$0] } ?? []) + pending
-        let nodes = stops.map { TripTimes.Node(key: $0.place.id, coordinate: $0.place.coordinate) }
-        guard let times, let table = await times.table(start: startNode, stops: nodes) else {
+        guard let times else {
             log(false)
             return .failed(.routeTimesUnavailable)
         }
-        // Node 0 is the start when there is one; the stops follow.
+        // Night k's hotel as the plan has it (positional), else the one hotel of every night.
+        let sourceNights = max(source.count - 1, 0)
+        var plannedHotels: [TripStop?] = (0..<sourceNights).map { k in
+            source[k].stops.last.flatMap { $0.role == .hotel ? $0 : nil }
+        }
+        let anyHotel = plannedHotels.compactMap { $0 }
+        // Nodes: the start (node 0) when there is one, then every other place once.
+        var nodes: [TripTimes.Node] = []
+        var nodeIndex: [String: Int] = [:]
         let offset = startNode == nil ? 0 : 1
+        if let startNode { nodeIndex[startNode.key] = 0 }
+        func addNode(_ stop: TripStop) {
+            guard nodeIndex[stop.place.id] == nil else { return }
+            nodeIndex[stop.place.id] = nodes.count + offset
+            nodes.append(TripTimes.Node(key: stop.place.id, coordinate: stop.place.coordinate))
+        }
+        if let first { addNode(first) }
+        pending.forEach(addNode)
+        if let endStop { addNode(endStop) }
+        anyHotel.forEach(addNode)
+        guard var table = await times.table(start: startNode, stops: nodes) else {
+            log(false)
+            return .failed(.routeTimesUnavailable)
+        }
+        var requests = table.requests, cached = table.cached
+        func idx(_ stop: TripStop) -> Int { nodeIndex[stop.place.id] ?? 0 }
+        let origin = first.map(idx) ?? 0
+        let endIdx = endStop.map(idx)
         let time: (Int, Int) -> Int = { table.time($0, $1) }
-        let path: [Int]
-        let origin: Int
-        if first != nil {
-            origin = 0
-            path = [0] + TripOptimizer.path(Array(1..<stops.count), from: 0, time: time)
-        } else {
-            origin = 0
-            path = TripOptimizer.path(Array(offset..<(offset + stops.count)), from: 0, time: time)
-        }
+        let rest = pending.map(idx)
+        let path = (first.map { [idx($0)] } ?? []) + TripOptimizer.path(rest, from: origin, to: endIdx, time: time)
         let cut = TripOptimizer.cut(path, from: origin, days: dayCount, time: time)
-        func stop(_ node: Int, after previous: Int?) -> TripStop {
-            var s = stops[node - offset]
-            // §29 item 4: minutes from the stop before; none into a named start (the car is not counted).
-            s.legSeconds = previous.map { table.time($0, node) } ?? (first == nil ? table.time(0, node) : nil)
-            return s
+        let markedDays = (sights.filter { $0.stop.mark != nil }.map(\.day).max() ?? -1) + 1
+        let dayTotal = min(TripPlan.maxDays, max(cut.count, markedDays))
+        let nights = max(dayTotal - 1, 0)
+        // §37 item 1: one hotel for every night, or one per night.
+        var nightHotel: [TripStop?] = (0..<nights).map { k in
+            if anyHotel.count == 1 { return anyHotel[0] }
+            return k < plannedHotels.count ? plannedHotels[k] : anyHotel.first
         }
-        var previous: Int? = first == nil ? 0 : nil
-        var cutStops: [[TripStop]] = []
-        for day in cut {
+        var picked = 0
+        var withoutHotel: [Int] = []
+        let stopOf = Dictionary((pending + (first.map { [$0] } ?? [])).map { (idx($0), $0) }, uniquingKeysWith: { a, _ in a })
+        if pickHotels, anyHotel.isEmpty, (2...5).contains(dayTotal) {
+            for k in 0..<nights {
+                guard k + 1 < cut.count, let last = cut[k].last.flatMap({ stopOf[$0] }),
+                      let next = cut[k + 1].first.flatMap({ stopOf[$0] }) else { withoutHotel.append(k + 1); continue }
+                let mid = GeoCoordinate(latitude: (last.place.coordinate.latitude + next.place.coordinate.latitude) / 2,
+                                        longitude: (last.place.coordinate.longitude + next.place.coordinate.longitude) / 2,
+                                        datum: last.place.coordinate.datum)
+                if let hotel = await pickHotel(near: mid, abroad: abroad) {
+                    nightHotel[k] = TripStop(index: 0, asked: "酒店", place: hotel, distanceMeters: nil, role: .hotel, picked: true)
+                    picked += 1
+                } else {
+                    withoutHotel.append(k + 1)
+                }
+            }
+            guard !Task.isCancelled else { return .failed(.optionsStale) }
+            if picked > 0 {
+                nightHotel.compactMap { $0 }.forEach(addNode)
+                guard let again = await times.table(start: startNode, stops: nodes) else {
+                    log(false, requests: requests, cached: cached)
+                    return .failed(.routeTimesUnavailable)
+                }
+                table = again
+                requests += again.requests
+                cached += again.cached
+            }
+        }
+        plannedHotels = nightHotel
+        // Each day between its fixed ends (§37 item 3).
+        var days: [TripList] = []
+        var previous: Int? = startNode == nil ? nil : 0
+        for d in 0..<dayTotal {
+            func fixed(_ stop: TripStop?) -> TripStop? {
+                guard var stop else { return nil }
+                stop.mark = frameMarks["\(d)|\(stop.place.id)|\(stop.role.rawValue)"]
+                stop.legSeconds = nil
+                return stop
+            }
+            let head: TripStop? = d == 0 ? (first == nil ? fixed(startStop) : nil) : fixed(nightHotel[d - 1])
+            let tail: TripStop? = d == dayTotal - 1 ? fixed(endStop) : fixed(nightHotel[d])
+            let kept = sights.filter { $0.stop.mark != nil && min($0.day, dayTotal - 1) == d }.map(\.stop)
+            var daySights = d < cut.count ? cut[d] : []
+            var leading: [Int] = []
+            if d == 0, let first, daySights.first == idx(first) {
+                leading = [daySights.removeFirst()]
+            }
+            let from = leading.first ?? head.map(idx) ?? previous ?? origin
+            let order = leading + TripOptimizer.path(daySights, from: from, to: tail.map(idx), time: { table.time($0, $1) })
             var out: [TripStop] = []
-            for node in day {
-                out.append(stop(node, after: node == path.first && first != nil ? nil : previous))
+            if let head {
+                out.append(head)
+                previous = idx(head)
+            }
+            out += kept
+            for node in order {
+                guard var s = stopOf[node] else { continue }
+                // §29 item 4: minutes from the stop before; none into a named start (the car is not counted).
+                s.legSeconds = previous.map { table.time($0, node) }
+                if node == leading.first, d == 0 { s.legSeconds = nil }
+                out.append(s)
                 previous = node
             }
-            cutStops.append(out)
-        }
-        let markedDays = (all.filter { $0.stop.mark != nil }.map(\.day).max() ?? -1) + 1
-        let dayTotal = min(TripPlan.maxDays, max(cutStops.count, markedDays))
-        var days: [TripList] = []
-        for d in 0..<dayTotal {
-            let kept = all.filter { $0.stop.mark != nil && min($0.day, dayTotal - 1) == d }.map(\.stop)
+            if var tail {
+                tail.legSeconds = previous.map { table.time($0, idx(tail)) }
+                out.append(tail)
+                previous = idx(tail)
+            }
             var list = TripList()
-            list.arrange(kept + (d < cutStops.count ? cutStops[d] : []))
+            list.arrange(out)
             days.append(list)
         }
         if let tamper { days = tamper(days) }
-        // §27 item 4: exactly the place ids given, the same count.
-        let before = all.map(\.stop.place.id).sorted(), after = days.flatMap { $0.stops.map(\.place.id) }.sorted()
-        guard before == after else {
-            log(false, requests: table.requests, cached: table.cached)
+        // §27 item 4 with §37 item 2: exactly the places and roles decided, the same count.
+        var expected = sights.map { "\($0.stop.place.id)|sight" }
+        if first == nil, let startStop { expected.append("\(startStop.place.id)|start") }
+        if let endStop { expected.append("\(endStop.place.id)|end") }
+        for hotel in plannedHotels.compactMap({ $0 }) { expected += Array(repeating: "\(hotel.place.id)|hotel", count: 2) }
+        let after = days.flatMap { $0.stops.map { "\($0.place.id)|\($0.role.rawValue)" } }
+        guard expected.sorted() == after.sorted() else {
+            log(false, requests: requests, cached: cached)
             return .failed(.planChanged)
         }
-        log(true, requests: table.requests, cached: table.cached, days: days.count)
-        return .success(Ordered(days: days))
+        log(true, requests: requests, cached: cached, days: days.count)
+        let named = plannedHotels.contains { $0 != nil && $0?.picked == false }
+        frameLine(start: first != nil || startStop != nil ? "named" : label, end: endStop != nil,
+                  hotels: named ? "named" : picked > 0 || plannedHotels.contains { $0?.picked == true } ? "picked" : "none",
+                  nights: nights, picked: picked)
+        return .success(Ordered(days: days, picked: picked, nightsWithoutHotel: withoutHotel))
     }
 
-    /// §28 item 3: the whole plan ordered again, from a named stop of the plan or the car.
+    /// §42: `trip frame start= end= hotels= nights= picked=`.
+    private func frameLine(start: String, end: Bool, hotels: String, nights: Int, picked: Int) {
+        onLine("trip frame start=\(start) end=\(end ? "named" : "none") hotels=\(hotels) nights=\(nights) picked=\(picked)")
+    }
+
+    /// §37 item 4: the first 「酒店」 within 3 km of `center`, else 10 km (高德 at home, Apple abroad); nil when none.
+    private func pickHotel(near center: GeoCoordinate, abroad: Bool) async -> Place? {
+        let vendor = abroad ? (abroadSearch ?? search) : search
+        for radius in tuning.hotelRadii {
+            guard !Task.isCancelled else { return nil }
+            let found = (try? await vendor.aroundOnly("酒店", center: center, radiusMeters: radius, sort: .distance)) ?? []
+            let usable = abroad ? found.filter { $0.countryCode == nil || !TripRegion.isChina($0.countryCode) } : found
+            if let hotel = usable.first { return hotel }
+        }
+        return nil
+    }
+
+    /// §28 item 3 and §37 item 5: the whole plan ordered again, from a named stop of the plan, a start searched as a
+    /// place of the trip (added with `role: start`), the plan's start, or the car.
     private func reorganize(start: String?, days: Int?) async -> ToolResult {
         var named: String?
+        var source = plan.days
+        let generation = plan.revision
         if let start {
-            // Matched as `remove` by name, over the whole plan; never searched on 高德.
+            // Matched as `remove` by name, over the whole plan.
             let found = plan.allStops.filter { TripList.matches($0.stop, start) }
             guard found.count <= 1 else { return failure(.ambiguous) }
-            guard let only = found.first else { return failure(.notFound) }
-            named = only.stop.place.id
+            if let only = found.first {
+                named = only.stop.place.id
+            } else {
+                // §37 item 5: not in the plan: searched once, as a place of the trip.
+                let asked = TranscriptText.normalize(start)
+                let lookup = await resolve([asked], city: nil, abroad: plan.abroad).first ?? .missing("failed")
+                guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
+                guard case .found(let place) = lookup else {
+                    if case .missing(let reason) = lookup { onLine("trip lookup index=0 ok=no reason=\(reason)") }
+                    return failure(.notFound)
+                }
+                // The new start replaces the old one on day 1.
+                source = source.map { day in
+                    var list = TripList()
+                    list.arrange(day.stops.filter { $0.role != .start })
+                    return list
+                }
+                if var day1 = source.first {
+                    day1.arrange([TripStop(index: 0, asked: asked, place: place, distanceMeters: nil, role: .start)] + day1.stops)
+                    source[0] = day1
+                }
+            }
         }
-        let generation = plan.revision
-        let result = await ordered(plan.days, dayCount: days ?? plan.dayCount, named: named)
+        let result = await ordered(source, dayCount: days ?? plan.dayCount, named: named, pickHotels: true)
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         switch result {
         case .failed(let code): return failure(code)
@@ -597,8 +835,9 @@ public actor TripPlanner: ToolExecutor {
             changed()
             // A visited or skipped stop keeps its day, so fewer days than that can't be kept: say so.
             let kept = days.map { $0 < plan.dayCount ? "已去过或跳过的站留在原来那天，所以还是\(plan.dayCount)天。" : "" } ?? ""
+            let hotels = o.nightsWithoutHotel.isEmpty ? "" : "第\(o.nightsWithoutHotel.map(String.init).joined(separator: "、"))晚附近没找到酒店。"
             return listResult(changed: "reorganized",
-                              next: "\(kept)用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。")
+                              next: "\(kept)\(hotels)用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。")
         }
     }
 
@@ -616,12 +855,25 @@ public actor TripPlanner: ToolExecutor {
         days[toDay - 1].insert(moved)
         let generation = plan.revision
         let target = days[toDay - 1]
-        let result = await ordered([target], dayCount: 1, named: target.stops.first?.place.id)
+        // §37 item 3: a day's fixed ends (start or hotel first, hotel or end last) stay; it is ordered between them.
+        var framed = target.stops
+        let head = framed.first.flatMap { $0.role != .sight ? $0 : nil }
+        let tail = framed.count > 1 ? framed.last.flatMap { $0.role != .sight ? $0 : nil } : nil
+        if var h = head { h.role = .start; framed[0] = h }
+        if var t = tail { t.role = .end; framed[framed.count - 1] = t }
+        var asOne = TripList()
+        asOne.arrange(framed)
+        let result = await ordered([asOne], dayCount: 1, named: head == nil ? target.stops.first?.place.id : nil)
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         switch result {
         case .failed(let code): return failure(code)
         case .success(let o):
-            days[toDay - 1] = o.days.first ?? target
+            var back = o.days.first?.stops ?? target.stops
+            if let head, let i = back.firstIndex(where: { $0.role == .start }) { back[i].role = head.role; back[i].picked = head.picked }
+            if let tail, let i = back.lastIndex(where: { $0.role == .end }) { back[i].role = tail.role; back[i].picked = tail.picked }
+            var list = TripList()
+            list.arrange(back)
+            days[toDay - 1] = list
             let before = plan.allStops.map(\.stop.place.id).sorted()
             guard before == days.flatMap({ $0.stops.map(\.place.id) }).sorted() else { return failure(.planChanged) }
             plan.arrange(days: days)
@@ -661,6 +913,7 @@ public actor TripPlanner: ToolExecutor {
         }
         let result = await navigation.tripNext(target.place)
         onLine("trip next index=\(target.index) day=\(plan.currentDay) ok=\(result.ok ? "yes" : "no") code=\(result.code?.rawValue ?? "none")")
+        if !result.ok, let handed = await handoff(target, after: result) { return handed }
         guard result.ok else { return result }
         let after = list.stops.first { $0.index > target.index && $0.mark == nil }
         var data = result.data
@@ -674,10 +927,29 @@ public actor TripPlanner: ToolExecutor {
         return .success(data)
     }
 
+    /// §38 item 2 (T-040o): abroad, a failed 高德 route opens Apple Maps to the stop instead. nil when this does not
+    /// apply (at home, a refusal that is not a route failure, or no hand-off).
+    private func handoff(_ target: TripStop, after result: ToolResult) async -> ToolResult? {
+        guard let onHandoff, plan.abroad || !TripRegion.isChina(target.place.countryCode),
+              result.code != .optionsNotReady, result.code != .optionsStale, !Task.isCancelled else { return nil }
+        guard await onHandoff(target.place) else { return nil }
+        onLine("trip handoff vendor=apple_maps reason=route_failed")
+        return .success(["status": "apple_maps", "index": .int(Int64(target.index)), "name": .string(target.place.name),
+                         "day": .int(Int64(plan.currentDay)),
+                         "next": .string("只说一句：已在苹果地图打开导航，去第\(target.index)站\(target.place.name)。到了请说「已经到了」。")])
+    }
+
     /// §29 items 2–3: guidance arrived at a plan stop: it is visited, and a connected session gets the note.
     func arrived(_ placeID: String) {
-        guard let (day, stop) = plan.allStops.first(where: { $0.stop.place.id == placeID && $0.stop.mark == nil }) else { return }
+        // The current day first: a trip that starts and ends at the same airport has it on day 1 and the last day.
+        let open = plan.allStops.filter { $0.stop.place.id == placeID && $0.stop.mark == nil }
+        guard let (day, stop) = open.first(where: { $0.day == plan.currentDay }) ?? open.first else { return }
         plan.mark(day: day, index: stop.index, .visited)
+        // §37 item 7: a night's hotel ends the day; the next morning starts there, so it is reached too.
+        if stop.role == .hotel, day < plan.dayCount, let morning = plan.days[day].stops.first,
+           morning.place.id == placeID, morning.role == .hotel, morning.mark == nil {
+            plan.mark(day: day + 1, index: morning.index, .visited)
+        }
         changed()
         onLine("trip visit index=\(stop.index) day=\(day) by=arrival")
         let rest = plan.days[day - 1].stops.first { $0.index > stop.index && $0.mark == nil }
@@ -686,7 +958,9 @@ public actor TripPlanner: ToolExecutor {
             let minutes = rest.legSeconds.map { "，约\(max(1, ($0 + 59) / 60))分钟" } ?? ""
             note = "[系统] 已到达第\(stop.index)站\(stop.place.name)。下一站是\(rest.place.name)\(minutes)。问司机要不要现在去下一站。"
         } else {
-            note = "[系统] 已到达第\(stop.index)站\(stop.place.name)。这一天的地点都去完了。问司机要不要开始下一天。"
+            note = stop.role == .hotel
+                ? "[系统] 已到达酒店\(stop.place.name)，今天的行程结束了。用一句话告诉司机，明天说「开始第\(min(day + 1, plan.dayCount))天」。"
+                : "[系统] 已到达第\(stop.index)站\(stop.place.name)。这一天的地点都去完了。问司机要不要开始下一天。"
         }
         onNote(note)
     }
@@ -701,21 +975,81 @@ public actor TripPlanner: ToolExecutor {
         case keyMissing
     }
 
-    /// Each name through `PlaceSearch.text`, at most `parallelLookups` at once, all within `resolveLimit`; a lookup
-    /// still running then is `timeout`. Results are in `names` order.
-    private func resolve(_ names: [String], city: String?) async -> [Lookup] {
-        let keys = names.map { "\(city ?? "")|\($0)" }
+    /// §36 items 2–4 (T-040o): a trip's names on 高德, or on Apple when `abroad`; with `abroad=false` and fewer than
+    /// half found on 高德, the missing names are tried on Apple, and when most of what Apple finds is outside China the
+    /// trip becomes `abroad` and every name is searched again there. `trip search …` after the lookups.
+    private func resolveTrip(_ names: [String], city: String?, abroad asked: Bool) async -> (lookups: [Lookup], abroad: Bool) {
+        let started = clock.now
+        var abroad = asked && abroadSearch != nil
+        var switched = false
+        var lookups: [Lookup]
+        var dropped = 0
+        func found(_ l: [Lookup]) -> Int { l.filter { if case .found = $0 { true } else { false } }.count }
+        if abroad {
+            (lookups, dropped) = await resolveCounting(names, city: nil, abroad: true)
+        } else {
+            lookups = await resolve(names, city: city)
+            let keyMissing = lookups.contains { if case .keyMissing = $0 { true } else { false } }
+            if abroadSearch != nil, !keyMissing, !names.isEmpty, found(lookups) * 2 < names.count, !Task.isCancelled {
+                let missed = names.indices.filter { if case .found = lookups[$0] { false } else { true } }
+                let (probe, _) = await resolveCounting(missed.map { names[$0] }, city: nil, abroad: true, guardCountry: false)
+                let places = probe.compactMap { if case .found(let p) = $0 { p } else { nil } }
+                let outside = places.filter { !TripRegion.isChina($0.countryCode) }.count
+                if !places.isEmpty, outside * 2 > places.count, !Task.isCancelled {
+                    switched = true
+                    abroad = true
+                    (lookups, dropped) = await resolveCounting(names, city: nil, abroad: true)
+                }
+            }
+        }
+        onLine("trip search vendor=\(abroad ? "apple" : "amap") abroad=\(abroad ? "yes" : "no") switched=\(switched ? "yes" : "no") names=\(names.count) found=\(found(lookups)) country_dropped=\(dropped) ms=\(ms(since: started))")
+        return (lookups, abroad)
+    }
+
+    private func resolve(_ names: [String], city: String?, abroad: Bool = false) async -> [Lookup] {
+        await resolveCounting(names, city: city, abroad: abroad).0
+    }
+
+    /// Each name through `PlaceSearch.text` (Apple's around the first found name when `abroad`, §36 item 2), at
+    /// most `parallelLookups` at once, all within `resolveLimit`; a lookup still running then is `timeout`. Results
+    /// are in `names` order; the count is the results dropped by the wrong-country guard (§36 item 3).
+    private func resolveCounting(_ names: [String], city: String?, abroad: Bool, guardCountry: Bool = true) async -> ([Lookup], Int) {
+        let vendor: any PlaceSearch = abroad ? (abroadSearch ?? search) : search
+        let keys = names.map { "\(abroad ? "apple|" : "")\(city ?? "")|\($0)" }
         let cached = keys.map { foundCache[$0] }
         let missing = names.indices.filter { cached[$0] == nil }
-        let fetched = missing.isEmpty ? [] : await fetch(missing.map { names[$0] }, city: city)
+        var fetched: [(Lookup, Int)] = []
+        if !missing.isEmpty {
+            if abroad {
+                // The region of the first found name (a cached one counts), else no region.
+                var near = cached.compactMap { $0 }.first?.coordinate
+                var done = 0
+                while near == nil, done < missing.count {
+                    let one = await fetch([names[missing[done]]], city: nil, search: vendor, guardCountry: guardCountry, near: nil)
+                    fetched += one
+                    done += 1
+                    if case .candidates(let places) = one[0].0 { near = places.first?.coordinate }
+                }
+                if done < missing.count {
+                    fetched += await fetch(missing[done...].map { names[$0] }, city: nil, search: vendor,
+                                           guardCountry: guardCountry, near: near)
+                }
+            } else {
+                fetched = await fetch(missing.map { names[$0] }, city: city, search: vendor, guardCountry: false, near: nil)
+            }
+        }
         var results = cached.map { $0.map(Lookup.found) ?? .missing("timeout") }
-        for (slot, index) in missing.enumerated() { results[index] = fetched[slot] }
+        var dropped = 0
+        for (slot, index) in missing.enumerated() where slot < fetched.count {
+            results[index] = fetched[slot].0
+            dropped += fetched[slot].1
+        }
         let (chosen, sure) = await choose(names, results, city: city)
         // §4 item 6 cache: only a place that is the only result or the picker's choice; a fallback is asked again.
         for index in missing where sure.contains(index) {
-            if case .found(let place) = chosen[index] { remember(keys[index], place) }
+            if guardCountry || !abroad, case .found(let place) = chosen[index] { remember(keys[index], place) }
         }
-        return chosen
+        return (chosen, dropped)
     }
 
     /// §4 item 6: one result is taken; names with two or more go to the picker in one call. No picker, an error, an
@@ -795,10 +1129,12 @@ public actor TripPlanner: ToolExecutor {
         while cacheOrder.count > Self.cacheLimit { foundCache[cacheOrder.removeFirst()] = nil }
     }
 
-    private func fetch(_ names: [String], city: String?) async -> [Lookup] {
-        let search = search, limit = tuning.parallelLookups, clock = clock, retry = tuning.retryDelay, kept = tuning.candidates
+    private func fetch(_ names: [String], city: String?, search: any PlaceSearch, guardCountry: Bool,
+                       near: GeoCoordinate?) async -> [(Lookup, Int)] {
+        let limit = tuning.parallelLookups, clock = clock, retry = tuning.retryDelay, kept = tuning.candidates
+        let region = near.map { ($0, tuning.abroadRegionMeters) }
         let deadline = clock.now + tuning.resolveLimit
-        let (stream, feed) = AsyncStream.makeStream(of: (Int, Lookup)?.self)
+        let (stream, feed) = AsyncStream.makeStream(of: (Int, Lookup, Int)?.self)
         let work = Task {
             await withTaskGroup(of: Void.self) { group in
                 var next = 0
@@ -806,7 +1142,11 @@ public actor TripPlanner: ToolExecutor {
                     guard next < names.count else { return }
                     let i = next
                     next += 1
-                    _ = group.addTaskUnlessCancelled { feed.yield((i, await Self.lookup(names[i], city: city, search: search, retryDelay: retry, kept: kept))) }
+                    _ = group.addTaskUnlessCancelled {
+                        let (lookup, dropped) = await Self.lookup(names[i], city: city, search: search, retryDelay: retry, kept: kept,
+                                                                  guardCountry: guardCountry, region: region)
+                        feed.yield((i, lookup, dropped))
+                    }
                 }
                 for _ in 0..<min(limit, names.count) { add() }
                 while await group.next() != nil { add() }
@@ -817,44 +1157,58 @@ public actor TripPlanner: ToolExecutor {
             try? await clock.sleep(until: deadline)
             if !Task.isCancelled { feed.yield(nil) }
         }
-        var results = [Lookup?](repeating: nil, count: names.count)
+        var results = [(Lookup, Int)?](repeating: nil, count: names.count)
         for await item in stream {
-            guard let (i, lookup) = item else { break }
-            results[i] = lookup
+            guard let (i, lookup, dropped) = item else { break }
+            results[i] = (lookup, dropped)
         }
         work.cancel()
         timer.cancel()
         feed.finish()
-        return results.map { $0 ?? .missing("timeout") }
+        return results.map { $0 ?? (.missing("timeout"), 0) }
     }
 
     private static func lookup(_ name: String, city: String?, search: any PlaceSearch, retryDelay: NovaDuration,
-                               kept: Int) async -> Lookup {
+                               kept: Int, guardCountry: Bool = false, region: (GeoCoordinate, Int)? = nil) async -> (Lookup, Int) {
         // §4 item 7: up to 2 retries, waiting retryDelay then twice that (高德 rejects requests over the per-second
         // limit and answers those within it).
-        var result = await lookupOnce(name, city: city, search: search, kept: kept)
+        var result = await lookupOnce(name, city: city, search: search, kept: kept, guardCountry: guardCountry, region: region)
         for attempt in 0..<2 {
-            guard case .missing(let reason) = result, reason != "nomatch", !Task.isCancelled else { return result }
+            guard case .missing(let reason) = result.0, reason != "nomatch", reason != "country", !Task.isCancelled else { return result }
             try? await Task.sleep(for: .milliseconds(retryDelay.milliseconds << attempt))
             if Task.isCancelled { return result }
-            result = await lookupOnce(name, city: city, search: search, kept: kept)
+            result = await lookupOnce(name, city: city, search: search, kept: kept, guardCountry: guardCountry, region: region)
         }
         return result
     }
 
-    private static func lookupOnce(_ name: String, city: String?, search: any PlaceSearch, kept: Int) async -> Lookup {
+    private static func lookupOnce(_ name: String, city: String?, search: any PlaceSearch, kept: Int, guardCountry: Bool,
+                                   region: (GeoCoordinate, Int)?) async -> (Lookup, Int) {
         do {
-            let places = try await search.text(name, city: city, cityLimit: city != nil)
-            guard !places.isEmpty else { return .missing("nomatch") }
-            return .candidates(Array(places.prefix(max(kept, 1))))
+            var places: [Place]
+            if let (center, radius) = region {
+                places = try await search.around(name, center: center, radiusMeters: radius, sort: .weight)
+            } else {
+                places = try await search.text(name, city: city, cityLimit: city != nil)
+            }
+            guard !places.isEmpty else { return (.missing("nomatch"), 0) }
+            var dropped = 0
+            if guardCountry {
+                // §36 item 3: a result in China (CN, HK, MO, TW) is dropped in a trip abroad.
+                let kept = places.filter { $0.countryCode == nil || !TripRegion.isChina($0.countryCode) }
+                dropped = places.count - kept.count
+                places = kept
+                guard !places.isEmpty else { return (.missing("country"), dropped) }
+            }
+            return (.candidates(Array(places.prefix(max(kept, 1)))), dropped)
         } catch let error as AmapWebError where error == .keyMissing || error == .keyRejected {
-            return .keyMissing
+            return (.keyMissing, 0)
         } catch AmapWebError.quota {
-            return .missing("busy")
+            return (.missing("busy"), 0)
         } catch AmapWebError.timeout {
-            return .missing("timeout")
+            return (.missing("timeout"), 0)
         } catch {
-            return .missing("failed")
+            return (.missing("failed"), 0)
         }
     }
 
@@ -870,6 +1224,9 @@ public actor TripPlanner: ToolExecutor {
             "stops": .array(list.stops.map { stop in
                 var o: [String: JSONValue] = ["index": .int(Int64(stop.index)), "name": .string(stop.place.name)]
                 o["district"] = stop.place.district.map(JSONValue.string) ?? .null
+                // §37 item 2: the frame's stops say what they are; a picked hotel says so.
+                if stop.role != .sight { o["role"] = .string(stop.role.rawValue) }
+                if stop.picked { o["picked"] = .bool(true) }
                 o["distance_km"] = stop.distanceMeters.map { .double(NavigationController.km($0)) } ?? .null
                 return .object(o)
             }),
@@ -889,9 +1246,18 @@ public actor TripPlanner: ToolExecutor {
     private func planValue() -> JSONValue {
         .array(plan.days.map { day in
             .array(day.stops.map { s in
-                .string(s.place.name + (s.mark == .visited ? "（已去过）" : s.mark == .skipped ? "（跳过）" : ""))
+                .string(s.place.name + Self.roleNote(s.role) + (s.mark == .visited ? "（已去过）" : s.mark == .skipped ? "（跳过）" : ""))
             })
         })
+    }
+
+    static func roleNote(_ role: TripRole) -> String {
+        switch role {
+        case .start: "（出发）"
+        case .hotel: "（酒店）"
+        case .end: "（结束）"
+        case .sight: ""
+        }
     }
 
     static func distanceAndTime(_ route: RouteSummary) -> (String, String) {
@@ -1098,7 +1464,8 @@ public actor TripPlanner: ToolExecutor {
     private func photos() {
         // §12 item 5: only failures count toward the one retry per launch.
         let asked = plan.days.flatMap(\.stops).map(\.place).filter { place in
-            place.photoURL == nil && !place.id.hasPrefix("saved_") && !photoNone.contains(place.id)
+            // §36 item 7 (T-040o): 高德 has no photos abroad.
+            place.photoURL == nil && !place.id.hasPrefix("saved_") && !photoNone.contains(place.id) && TripRegion.isChina(place.countryCode)
                 && !photoPending.contains(place.id) && (photoTries[place.id] ?? 0) < 2
         }
         let unique = Dictionary(asked.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }).values.map { $0 }

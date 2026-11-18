@@ -23,6 +23,7 @@ OWNERS = {
     "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"}, "AudioToolbox": {"NovaAudio"},
     "AVFoundation": {"NovaPlatform"},
     "NaturalLanguage": {"NovaPlatform"},  # F-05a §15 item 1 (T-016m)
+    "MapKit": {"NovaPlatform", "App"},  # F-15b §41 (T-040o): MKLocalSearch, MKMapItem.openMaps
     "CoreLocation": {"NovaPlatform"}, "Network": {"NovaPlatform"}, "Contacts": {"NovaPlatform"},
     "Security": {"NovaServices"},
     "UIKit": {"App", "NovaNavAmap"}, "SwiftUI": {"App", "NovaNavAmap"},

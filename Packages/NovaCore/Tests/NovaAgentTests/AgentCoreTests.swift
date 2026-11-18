@@ -158,8 +158,24 @@ struct AgentWalkthroughTests {
         d.realtime(.responseStarted(t1))
         let out = d.realtime(.replyText(t1, "Привет, я нашла 5 мест."))
         #expect(spoken(out).isEmpty)
+        // F-15b §40: Gemini's input transcript is the driver's words when there is no local final.
+        #expect(out.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.wrongLanguage(heard: "你好"))],
+                                             turnComplete: true))))
+        #expect(out.contains(.languageLine(.correctionHeard(.gemini))))
+    }
+
+    @Test("F-15b row 95 (§40): no words at all: the bare 「再说一遍」 re-ask, heard=none")
+    func reaskWithoutWords() {
+        var d = Drive()
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        let t1 = TurnID(1)
+        d.realtime(.responseStarted(t1))
+        let out = d.realtime(.replyText(t1, "Привет, я нашла 5 мест."))
         #expect(out.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.wrongLanguage.instruction)],
                                              turnComplete: true))))
+        #expect(out.contains(.languageLine(.correction)))
     }
 
     @Test("W3 timeout: one re-ask at 6 s, silent give-up at 10 s, and a late tool call of that turn is dropped")
