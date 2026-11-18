@@ -204,12 +204,12 @@ private struct TripCardView: View {
                 }
                 .padding(4)
             }
+            // F-15b §37 item 8 (T-040o): 住 / 机场, a small label under the poster.
+            if let tag = card.tag { Text(tag).font(.caption2.bold()).foregroundStyle(.orange) }
             Text(card.name).font(.subheadline.weight(.semibold)).lineLimit(1)
             HStack(spacing: 4) {
                 if let district = card.district { Text(district) }
                 if let km = card.km { Text(String(format: "%.1f 公里", km)) }
-                // F-15b §37 item 8 (T-040o): 住 / 机场.
-                if let tag = card.tag { Text(tag).font(.caption2.bold()).foregroundStyle(.orange) }
                 if let minutes = card.minutes { Text("车程\(minutes)分钟") }
                 if card.mark == .visited { Text("已到").foregroundStyle(.green) }
                 if card.mark == .skipped { Text("跳过").foregroundStyle(.secondary) }

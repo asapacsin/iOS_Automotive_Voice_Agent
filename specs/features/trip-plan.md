@@ -1082,6 +1082,9 @@ carries the driver's words from, in order: the SenseVoice final, the streaming l
 input transcript (`heard-gemini`): 「…司机刚才说的是「<文字>」。请用中文回答这句话。」. The record line becomes
 `correction WRONG_LANGUAGE heard=<sensevoice|local|gemini|none>`. F-05a's own rows keep passing (the SenseVoice form
 is unchanged).
+Build note (T-040o): SenseVoice is removed from the app (F-05a §16 row 7, enforced by `check_imports.py`), so no
+utterance has a SenseVoice final and `heard=sensevoice` is never written; the sources in use are `local` and
+`gemini`.
 
 ## 41. Code
 

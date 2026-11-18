@@ -289,4 +289,43 @@ struct TripPhase4Tests {
         #expect(back?.days.map { $0.stops.map(\.role) } == plan.days.map { $0.stops.map(\.role) })
         #expect(back?.days[0].stops.first?.place.countryCode == "JP")
     }
+
+    // MARK: review fixes
+
+    @Test("F-15b §37 item 4: replace a night's hotel: role kept, not picked, both copies of the night changed")
+    func replaceHotel() async {
+        let (rig, _) = await timesRig(abroad: FakeApple(tokyo, hotels: true))
+        _ = await rig.run(trip("make_trip_list", ["days": days([["浅草寺"], ["东京塔"]]), "abroad": true, "start": "成田机场"]))
+        let n = await rig.planner.current.count
+        #expect(await rig.planner.current.stops.last?.picked == true)
+        let r = await rig.run(trip("edit_trip_list", ["action": "replace", "index": .int(Int64(n)), "name": "酒店B", "day": 1]))
+        #expect(r.ok)
+        let d: [[TripStop]] = await rig.planner.currentPlan.days.map { $0.stops }
+        #expect(d[0].last?.place.name == "酒店B" && d[0].last?.role == .hotel && d[0].last?.picked == false)
+        #expect(d[1].first?.place.name == "酒店B" && d[1].first?.role == .hotel)
+    }
+
+    @Test("F-15b §37 item 7: 「已经到了」 at the hotel by voice ends the day and marks the next morning too")
+    func visitedHotelByVoice() async {
+        let (rig, _) = await timesRig(abroad: FakeApple(tokyo))
+        _ = await rig.run(trip("make_trip_list", ["days": days([["浅草寺"], ["东京塔"]]), "abroad": true,
+                                                  "start": "成田机场", "hotels": names(["酒店A"])]))
+        let n = await rig.planner.current.count
+        for i in 1...n { _ = await rig.run(trip("edit_trip_list", ["action": "visited", "index": .int(Int64(i)), "day": 1])) }
+        let d: [[TripStop]] = await rig.planner.currentPlan.days.map { $0.stops }
+        #expect(d[1].first?.place.name == "酒店A" && d[1].first?.mark == .visited)
+        let next = await rig.run(trip("trip_next", ["day": 2]))
+        #expect(next.data["name"] == "东京塔")
+    }
+
+    @Test("F-15b §37 item 1: hotels=[A,B] with B not found: night 2 has no hotel (A is not used every night)")
+    func partlyFoundHotels() async {
+        let (rig, _) = await timesRig(abroad: FakeApple(tokyo))
+        let r = await rig.run(trip("make_trip_list", ["days": days([["浅草寺"], ["东京塔"], ["皇居"]]), "abroad": true,
+                                                      "start": "成田机场", "hotels": names(["酒店A", "没有这家"])]))
+        #expect(r.ok && r.data["not_found"] == names(["没有这家"]))
+        let d: [[TripStop]] = await rig.planner.currentPlan.days.map { $0.stops }
+        #expect(d[0].last?.place.name == "酒店A" && d[1].first?.place.name == "酒店A")
+        #expect(d[1].last?.role == .sight && d[2].first?.role == .sight)
+    }
 }

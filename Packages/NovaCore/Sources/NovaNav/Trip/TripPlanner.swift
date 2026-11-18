@@ -282,6 +282,7 @@ public actor TripPlanner: ToolExecutor {
         if let day, !(1...min(plan.dayCount + 1, TripPlan.maxDays)).contains(day) { return dayOutOfRange() }
         // §37 (T-040o): without `day` the places are a one-day trip with its frame (start, hotels, end).
         if day == nil { return await makeTrip([names], single: true, city: city, args: args, started: started) }
+        let ignored = ["start", "end", "hotels", "abroad"].contains { args[$0] != nil }
         let generation = plan.revision
         let here = await origin()
         let lookups = await resolve(names, city: city, abroad: plan.abroad)
@@ -323,7 +324,7 @@ public actor TripPlanner: ToolExecutor {
         line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
         return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
-                          next: "只说一句：清单有\(list.count)个地点\(missed)\(Self.unordered(arranged))。不要念整张清单，司机问时再念。")
+                          next: "只说一句：清单有\(list.count)个地点\(missed)\(Self.unordered(arranged))\(ignored ? "（只改一天时不改出发、酒店和结束）" : "")。不要念整张清单，司机问时再念。")
     }
 
     /// §15 item 6 and §37 (T-040o): a whole plan of one or several days in one call (parallel per-day calls would race
@@ -413,7 +414,13 @@ public actor TripPlanner: ToolExecutor {
             if o.picked > 0 { notes.append("酒店是自动挑的，司机可以换") }
         case .failed(let code):
             lists = source
-            if code == .noStart { extra["order"] = .string(ToolErrorCode.noStart.rawValue) }
+            if code == .noStart {
+                extra["order"] = .string(ToolErrorCode.noStart.rawValue)
+            } else {
+                // §42: the frame as built, unordered.
+                frameLine(start: startStop != nil ? "named" : "none", end: endStop != nil,
+                          hotels: hotels.contains { $0 != nil } ? "named" : "none", nights: max(dayCount - 1, 0), picked: 0)
+            }
         }
         plan.replaceAll(withDays: lists)
         plan.abroad = searched.abroad
@@ -520,6 +527,8 @@ public actor TripPlanner: ToolExecutor {
             let mark: TripMark = action == "visited" ? .visited : .skipped
             let name = list.stops[index - 1].place.name
             list.setMark(at: index, mark)
+            // §37 item 7: a night's hotel is one place on two days; 「已经到了」 there ends the day.
+            if action == "visited" { markOtherCopy(day: plan.currentDay, index: index, mark) }
             changed()
             onLine("trip visit index=\(index) day=\(plan.currentDay) by=\(action == "visited" ? "voice" : "skip")")
             return listResult(changed: action, next: "只说一句：\(name)\(action == "visited" ? "记为去过了" : "跳过了")。")
@@ -533,13 +542,14 @@ public actor TripPlanner: ToolExecutor {
             guard let name else { return .failure(.invalidFields) }
             if action == "add" {
                 if let index, !(1...(n + 1)).contains(index) { return outOfRange() }
-                guard n < TripList.maxStops else { return failure(.tripTooLong) }
+                // §37 item 1: the frame (start, hotels, end) is not counted in the 16.
+                guard list.stops.filter({ $0.role == .sight }).count < TripList.maxStops else { return failure(.tripTooLong) }
             } else {
                 guard let index, (1...n).contains(index) else { return outOfRange() }
             }
             let generation = plan.revision
             let here = await origin()
-            let lookup = await resolve([name], city: nil, abroad: plan.abroad).first ?? .missing("failed")
+            let lookup = await resolve([name], city: nil, abroad: plan.abroad, near: regionHint()).first ?? .missing("failed")
             // §3 item 4: a newer change while this lookup ran wins; this one changes nothing.
             guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
             let place: Place
@@ -557,13 +567,19 @@ public actor TripPlanner: ToolExecutor {
                 return listResult(changed: "none", duplicates: [name],
                                   next: "只说一句：\(place.name)已经在清单里了，现在清单有\(list.count)个地点。")
             }
-            let stop = TripStop(index: 0, asked: name, place: place, distanceMeters: distance(here, place))
+            var stop = TripStop(index: 0, asked: name, place: place, distanceMeters: distance(here, place))
             if let replacing {
+                // §37 items 2 and 4: a replaced start, hotel or end keeps its role; the driver chose it (not picked).
+                let old = list.stops[replacing - 1]
+                stop.role = old.role
                 list.set(stop, at: replacing)
+                if old.role == .hotel { replaceOtherCopy(day: plan.currentDay, index: replacing, of: old, with: stop) }
                 changed()
                 return listResult(changed: "replaced", next: "只说一句：第\(replacing)个换成了\(place.name)，现在清单有\(list.count)个地点。")
             }
-            list.insert(stop, at: index)
+            // Without an index a sight goes before the day's closing hotel or end.
+            let closing = list.stops.last.map { $0.role == .hotel || $0.role == .end } ?? false
+            list.insert(stop, at: index ?? (closing && n > 1 ? n : nil))
             changed()
             return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
         default:
@@ -627,6 +643,8 @@ public actor TripPlanner: ToolExecutor {
             label = "named"
         } else if let named, let stop = all.first(where: { $0.stop.place.id == named })?.stop {
             startNode = TripTimes.Node(key: stop.place.id, coordinate: stop.place.coordinate)
+            // A hotel, end or visited sight named as the start: the plan is ordered from it and shown from it.
+            if stop.role != .start, startStop?.place.id != named { startStop = nil }
             label = "named"
         } else if let startStop {
             startNode = TripTimes.Node(key: startStop.place.id, coordinate: startStop.place.coordinate)
@@ -680,9 +698,12 @@ public actor TripPlanner: ToolExecutor {
         let dayTotal = min(TripPlan.maxDays, max(cut.count, markedDays))
         let nights = max(dayTotal - 1, 0)
         // §37 item 1: one hotel for every night, or one per night.
+        // Same nights as the plan: as they are (a hotel not found stays left out). Other nights: one hotel of every
+        // night only when the plan had one hotel on every night.
+        let oneBase = Set(anyHotel.map(\.place.id)).count == 1 && anyHotel.count == plannedHotels.count
         var nightHotel: [TripStop?] = (0..<nights).map { k in
-            if anyHotel.count == 1 { return anyHotel[0] }
-            return k < plannedHotels.count ? plannedHotels[k] : anyHotel.first
+            if nights != plannedHotels.count, oneBase { return anyHotel[0] }
+            return k < plannedHotels.count ? plannedHotels[k] : nil
         }
         var picked = 0
         var withoutHotel: [Int] = []
@@ -808,7 +829,7 @@ public actor TripPlanner: ToolExecutor {
             } else {
                 // §37 item 5: not in the plan: searched once, as a place of the trip.
                 let asked = TranscriptText.normalize(start)
-                let lookup = await resolve([asked], city: nil, abroad: plan.abroad).first ?? .missing("failed")
+                let lookup = await resolve([asked], city: nil, abroad: plan.abroad, near: regionHint()).first ?? .missing("failed")
                 guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
                 guard case .found(let place) = lookup else {
                     if case .missing(let reason) = lookup { onLine("trip lookup index=0 ok=no reason=\(reason)") }
@@ -927,6 +948,45 @@ public actor TripPlanner: ToolExecutor {
         return .success(data)
     }
 
+    /// The other day's copy of night k's hotel: day d's last stop is day d+1's first, day d's first is day d−1's last.
+    private func otherCopy(day: Int, index: Int) -> (day: Int, index: Int)? {
+        let stops = plan.days[day - 1].stops
+        guard stops.indices.contains(index - 1), stops[index - 1].role == .hotel else { return nil }
+        let id = stops[index - 1].place.id
+        if index == stops.count, day < plan.dayCount, let morning = plan.days[day].stops.first,
+           morning.role == .hotel, morning.place.id == id { return (day + 1, 1) }
+        if index == 1, day > 1, let evening = plan.days[day - 2].stops.last,
+           evening.role == .hotel, evening.place.id == id { return (day - 1, plan.days[day - 2].count) }
+        return nil
+    }
+
+    private func markOtherCopy(day: Int, index: Int, _ mark: TripMark) {
+        guard let other = otherCopy(day: day, index: index), plan.days[other.day - 1].stops[other.index - 1].mark == nil else { return }
+        plan.mark(day: other.day, index: other.index, mark)
+    }
+
+    /// §37 item 4: `replace` of a night's hotel changes both copies of that night.
+    private func replaceOtherCopy(day: Int, index: Int, of old: TripStop, with new: TripStop) {
+        var days = plan.days
+        let stops = days[day - 1].stops
+        // Find the copy as it was before the replace: same old place id, at the far end of the next or previous day.
+        if index == stops.count, day < days.count, let morning = days[day].stops.first, morning.role == .hotel,
+           morning.place.id == old.place.id {
+            days[day].set(new, at: 1)
+        } else if index == 1, day > 1, let evening = days[day - 2].stops.last, evening.role == .hotel,
+                  evening.place.id == old.place.id {
+            days[day - 2].set(new, at: days[day - 2].count)
+        } else { return }
+        let current = plan.currentDay
+        plan.arrange(days: days)
+        _ = plan.select(current)
+    }
+
+    /// §36 item 2: Apple's region for one more name of a trip abroad: the plan's first place.
+    private func regionHint() -> GeoCoordinate? {
+        plan.abroad ? plan.allStops.first?.stop.place.coordinate : nil
+    }
+
     /// §38 item 2 (T-040o): abroad, a failed 高德 route opens Apple Maps to the stop instead. nil when this does not
     /// apply (at home, a refusal that is not a route failure, or no hand-off).
     private func handoff(_ target: TripStop, after result: ToolResult) async -> ToolResult? {
@@ -946,10 +1006,7 @@ public actor TripPlanner: ToolExecutor {
         guard let (day, stop) = open.first(where: { $0.day == plan.currentDay }) ?? open.first else { return }
         plan.mark(day: day, index: stop.index, .visited)
         // §37 item 7: a night's hotel ends the day; the next morning starts there, so it is reached too.
-        if stop.role == .hotel, day < plan.dayCount, let morning = plan.days[day].stops.first,
-           morning.place.id == placeID, morning.role == .hotel, morning.mark == nil {
-            plan.mark(day: day + 1, index: morning.index, .visited)
-        }
+        markOtherCopy(day: day, index: stop.index, .visited)
         changed()
         onLine("trip visit index=\(stop.index) day=\(day) by=arrival")
         let rest = plan.days[day - 1].stops.first { $0.index > stop.index && $0.mark == nil }
@@ -1006,14 +1063,15 @@ public actor TripPlanner: ToolExecutor {
         return (lookups, abroad)
     }
 
-    private func resolve(_ names: [String], city: String?, abroad: Bool = false) async -> [Lookup] {
-        await resolveCounting(names, city: city, abroad: abroad).0
+    private func resolve(_ names: [String], city: String?, abroad: Bool = false, near: GeoCoordinate? = nil) async -> [Lookup] {
+        await resolveCounting(names, city: city, abroad: abroad, near: near).0
     }
 
     /// Each name through `PlaceSearch.text` (Apple's around the first found name when `abroad`, §36 item 2), at
     /// most `parallelLookups` at once, all within `resolveLimit`; a lookup still running then is `timeout`. Results
     /// are in `names` order; the count is the results dropped by the wrong-country guard (§36 item 3).
-    private func resolveCounting(_ names: [String], city: String?, abroad: Bool, guardCountry: Bool = true) async -> ([Lookup], Int) {
+    private func resolveCounting(_ names: [String], city: String?, abroad: Bool, guardCountry: Bool = true,
+                                 near hint: GeoCoordinate? = nil) async -> ([Lookup], Int) {
         let vendor: any PlaceSearch = abroad ? (abroadSearch ?? search) : search
         let keys = names.map { "\(abroad ? "apple|" : "")\(city ?? "")|\($0)" }
         let cached = keys.map { foundCache[$0] }
@@ -1022,7 +1080,7 @@ public actor TripPlanner: ToolExecutor {
         if !missing.isEmpty {
             if abroad {
                 // The region of the first found name (a cached one counts), else no region.
-                var near = cached.compactMap { $0 }.first?.coordinate
+                var near = hint ?? cached.compactMap { $0 }.first?.coordinate
                 var done = 0
                 while near == nil, done < missing.count {
                     let one = await fetch([names[missing[done]]], city: nil, search: vendor, guardCountry: guardCountry, near: nil)
