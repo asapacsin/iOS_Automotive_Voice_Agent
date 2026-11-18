@@ -2707,7 +2707,7 @@
     {
       "id": "T-013m",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-04b §18: playback bar: while her reply plays or in echoTail, the speaker lock needs score >= playbackThreshold (4.0) for the early stop and the whole-sentence verdict; rows 70-72.",
       "depends_on": [
@@ -2894,7 +2894,7 @@
     {
       "id": "T-040q",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b §45: car rental in a trip: make_trip_list rental=true, code picks a pickup near the start and a return near the end (same brand preferred), fixed in the day order, 租 label; rows 99-104.",
       "depends_on": [
@@ -2912,7 +2912,7 @@
     {
       "id": "T-040r",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b §46: photos abroad from Wikipedia (search by the English name, used only within 2 km of the stop), and a kind-of-place icon placeholder home and abroad; rows 105-110.",
       "depends_on": [
@@ -2930,7 +2930,7 @@
     {
       "id": "T-040s",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b §47: guidance abroad inside the app on OSRM routes (RouteSource, OSRM route + recalculation, zh-Hans osrm-text-instructions templates, attribution); Apple Maps only when OSRM fails; rows 111-116.",
       "depends_on": [
