@@ -26,7 +26,8 @@ public final class WikipediaPhotos: PlacePhotoSource, @unchecked Sendable {
 
     public func photo(asked: String, near: GeoCoordinate) async throws -> URL? {
         let query = PhotonPlaceSearch.split(asked).query
-        guard !query.isEmpty else { return nil }
+        // §46 item 1: only an English name is searched; a name with no Latin letters (租车, a Chinese-only name) asks nothing.
+        guard query.unicodeScalars.contains(where: { ("A"..."Z").contains($0) || ("a"..."z").contains($0) }) else { return nil }
         var components = URLComponents(string: Self.host + "/w/rest.php/v1/search/page")!
         components.queryItems = [URLQueryItem(name: "q", value: query), URLQueryItem(name: "limit", value: String(Self.results))]
         let found = try await get(components.url!)

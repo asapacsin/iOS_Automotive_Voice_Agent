@@ -626,8 +626,10 @@ public actor TripPlanner: ToolExecutor {
             }
             // Without an index a sight goes before the day's closing hotel or end (and a rental return before it, §45).
             let closingRoles: Set<TripRole> = [.hotel, .end, .rentalReturn]
-            let closing = list.stops.reversed().prefix { closingRoles.contains($0.role) }.count
-            list.insert(stop, at: index ?? (closing > 0 && n > closing ? n - closing + 1 : nil))
+            // The day's first stop is its head (a morning hotel copy is also a hotel), never part of the closing run.
+            let head = [TripRole.start, .hotel].contains(list.stops.first?.role) ? 1 : 0
+            let closing = min(list.stops.reversed().prefix { closingRoles.contains($0.role) }.count, max(n - head, 0))
+            list.insert(stop, at: index ?? (closing > 0 ? n - closing + 1 : nil))
             changed()
             return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
         default:

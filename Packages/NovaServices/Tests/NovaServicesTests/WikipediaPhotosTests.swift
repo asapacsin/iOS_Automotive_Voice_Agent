@@ -51,6 +51,14 @@ struct WikipediaPhotosTests {
         #expect(t.requests.allSatisfy { $0.timeoutInterval == 5 && $0.value(forHTTPHeaderField: "User-Agent") == "NovaDrive/1.0 (iOS)" })
     }
 
+    @Test("F-15b §46 item 1: a name with no English part (租车) asks Wikipedia nothing")
+    func noEnglishName() async throws {
+        let t = WikiTransport()
+        let url = try await WikipediaPhotos(transport: t).photo(asked: "租车", near: Self.senso)
+        #expect(url == nil)
+        #expect(t.requests.isEmpty)
+    }
+
     @Test("F-15b row 106: first result without coordinates, second 370 km away, third 0.5 km: the third's photo")
     func row106() async throws {
         let t = WikiTransport()

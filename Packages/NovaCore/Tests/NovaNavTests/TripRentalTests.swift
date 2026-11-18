@@ -73,6 +73,22 @@ struct TripRentalTests {
         #expect(TripPlanner.roleNote(.rentalPickup) == "（取车）" && TripPlanner.roleNote(.rentalReturn) == "（还车）")
     }
 
+    @Test("F-15b §45 / §37 item 3: add on a last day left with only [hotel, rental return, end] goes before the closing rental return and end")
+    func addOnEmptiedLastDay() async {
+        let photon = FakeRentals(rentalTable, rentals: [(narita, [nissan, toyotaNarita])])
+        let (rig, _) = await timesRig(abroad: photon)
+        _ = await rig.run(trip("make_trip_list", ["days": threeDays, "abroad": true, "start": "成田机场",
+                                                  "end": "成田机场", "rental": true]))
+        while let i = await stops(rig)[2].firstIndex(where: { $0.role == .sight }) {
+            _ = await rig.run(trip("edit_trip_list", ["action": "remove", "index": .int(Int64(i + 1)), "day": 3]))
+        }
+        let before = await stops(rig)[2].map(\.role)
+        _ = await rig.run(trip("edit_trip_list", ["action": "add", "name": "银座", "day": 3]))
+        let after = await stops(rig)[2].map(\.role)
+        #expect(after.count == before.count + 1)
+        #expect(after.suffix(3) == [.sight, .rentalReturn, .end])
+    }
+
     @Test("F-15b row 100: two rentals near the end, the farther one shares the pickup's brand: it is the return")
     func row100() async {
         let nippon = jp("Nippon Rent-A-Car Haneda", lat: 35.552, lng: 139.78)
