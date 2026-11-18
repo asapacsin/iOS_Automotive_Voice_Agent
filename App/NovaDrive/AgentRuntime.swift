@@ -1897,6 +1897,8 @@ final class GateBox: @unchecked Sendable {
             speaker.scoreUnsent = true
             // §17 item 2: the open not-sent utterance is a live candidate while BargeInLive keeps it.
             speaker.earlyCandidate = live.enabled && live.keeping
+            // F-04b §18 items 1, 7: her reply playing or its echo tail: the playback bar applies to what starts now.
+            speaker.playback = gate.muteReason == .reply || gate.muteReason == .echoTail
             let sp = speaker.frame(r)
             let (fed, released) = speakerAfter(sp)
             let step = liveStep(raw: r, hold.frame(fed), frame: true, speaker: sp)

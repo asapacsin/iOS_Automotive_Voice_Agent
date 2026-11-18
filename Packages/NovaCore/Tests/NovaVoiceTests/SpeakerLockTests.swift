@@ -58,7 +58,7 @@ struct SpeakerHoldTests {
         let check = try! #require(hold.takeChecks().first)
         #expect(check.result == .accepted && check.speechMs == 1500 && check.scoreMs == 30)
         #expect(check.logLine.hasPrefix(
-            "speaker-check utterance=1 kind=speech score=0.8 raw=none norm=0.8 cohort=none threshold=0.5 result=accepted"))
+            "speaker-check utterance=1 kind=speech score=0.8 raw=none norm=0.8 cohort=none bar=cohort threshold=0.5 result=accepted"))
     }
 
     /// Runs the utterance with a result after 1 s (or none) and returns everything forwarded.

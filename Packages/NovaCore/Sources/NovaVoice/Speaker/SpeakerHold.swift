@@ -12,14 +12,22 @@ public struct SpeakerTuning: Sendable, Hashable {
     /// The gate's pre-roll (`UplinkGateTuning.preRoll`): at most this many frames of an utterance's opening burst are
     /// pre-roll, not counted as speech for the early check (§17 item 2).
     public var preRoll: NovaDuration
+    /// F-04b §18 item 1 (T-013m): while her reply plays or in its `echoTail`, a voice passes the lock only with an
+    /// AS-norm score at or above this too (the higher of this and the cohort threshold decides). A tuning value
+    /// between her leaked echo (≤ 2.184) and the driver (≥ 6.298) in record 20261118-133726 (§18 item 4).
+    public var playbackThreshold: Double
 
     public init(minScoreSpeech: NovaDuration = .milliseconds(500), earlyScoreSpeech: NovaDuration = .seconds(1),
-                preRoll: NovaDuration = UplinkGateTuning().preRoll) {
+                preRoll: NovaDuration = UplinkGateTuning().preRoll, playbackThreshold: Double = 4.0) {
         self.minScoreSpeech = minScoreSpeech
         self.earlyScoreSpeech = earlyScoreSpeech
         self.preRoll = preRoll
+        self.playbackThreshold = playbackThreshold
     }
 }
+
+/// F-04b §18 item 6: which bar a check was held to: the cohort threshold, or the higher playback bar.
+public enum SpeakerBar: String, Sendable, Hashable { case cohort, playback }
 
 /// `early` (§17 item 2): the first second of a live candidate, deciding only whether she stops.
 public enum SpeakerCheckKind: String, Sendable, Hashable { case speech, wake, stop, early }
@@ -40,9 +48,13 @@ public struct SpeakerCheckLine: Sendable, Hashable {
     public var speechMs: Int
     public var scoreMs: Int
     public var waitMs: Int
+    /// §18 item 6: `threshold` is the value of this bar.
+    public var bar: SpeakerBar
 
     public init(utterance: Int, kind: SpeakerCheckKind, score: Double?, threshold: Double, result: SpeakerCheckResult,
-                speechMs: Int, scoreMs: Int, waitMs: Int, raw: Double? = nil, cohort: Int? = nil) {
+                speechMs: Int, scoreMs: Int, waitMs: Int, raw: Double? = nil, cohort: Int? = nil,
+                bar: SpeakerBar = .cohort) {
+        self.bar = bar
         self.utterance = utterance
         self.kind = kind
         self.score = score
@@ -58,13 +70,13 @@ public struct SpeakerCheckLine: Sendable, Hashable {
     /// A non-finite threshold (the fail-closed lock with no cohort, §16 item 7) is written `none`.
     static func number(_ v: Double) -> String { v.isFinite ? String((v * 1000).rounded() / 1000) : "none" }
 
-    /// `utterance=3 kind=speech score=2.1 raw=0.712 norm=2.1 cohort=797 threshold=1.5 result=accepted speechMs=2400
+    /// `utterance=3 kind=speech score=2.1 raw=0.712 norm=2.1 cohort=797 bar=cohort threshold=1.5 result=accepted speechMs=2400
     /// scoreMs=40 waitMs=60`. Numbers only (I-8).
     public var fields: String {
         let norm = score.map(Self.number) ?? "none"
         return "utterance=\(utterance) kind=\(kind.rawValue) score=\(norm) raw=\(raw.map(Self.number) ?? "none") "
             + "norm=\(norm) cohort=\(cohort.map(String.init) ?? "none") "
-            + "threshold=\(Self.number(threshold)) result=\(result.rawValue) speechMs=\(speechMs) scoreMs=\(scoreMs) "
+            + "bar=\(bar.rawValue) threshold=\(Self.number(threshold)) result=\(result.rawValue) speechMs=\(speechMs) scoreMs=\(scoreMs) "
             + "waitMs=\(waitMs)"
     }
 
@@ -148,6 +160,8 @@ public struct SpeakerHold: Sendable {
         var skip = 0
         var earlyFrames: [PCMFrame16k] = []
         var early = Early.none
+        /// §18 item 1: it started while her reply played or in its `echoTail`: the playback bar applies.
+        var playback = false
     }
 
     private enum State: Sendable {
@@ -179,6 +193,9 @@ public struct SpeakerHold: Sendable {
     public var scoreUnsent = false
     /// §17 item 2: `BargeInLive` is keeping the open not-sent utterance as a candidate (her reply playing).
     public var earlyCandidate = false
+    /// §18 items 1, 7: her reply plays or is in its `echoTail` (the uplink gate's `muteReason` is `.reply` or
+    /// `.echoTail`); an utterance that starts now is held to the playback bar. Set before each `frame`.
+    public var playback = false
 
     public init(tuning: SpeakerTuning = SpeakerTuning()) { self.tuning = tuning }
 
@@ -331,7 +348,8 @@ public struct SpeakerHold: Sendable {
                 step.outputs.append(output)
                 return
             }
-            state = .holding(Held(id: utterance, sent: sent, since: now, buffer: sent ? [output] : [], skip: burstSkip))
+            state = .holding(Held(id: utterance, sent: sent, since: now, buffer: sent ? [output] : [], skip: burstSkip,
+                                  playback: playback))
             if !sent { step.outputs.append(output) }
             return
         }
@@ -390,11 +408,21 @@ public struct SpeakerHold: Sendable {
 
     private var earlyFrameCount: Int { max(1, Int(tuning.earlyScoreSpeech.milliseconds / 10)) }
 
+    /// §18 item 1: the bar an utterance's checks are held to and its value (the higher of the two while she spoke).
+    private func bar(_ h: Held, _ base: Double) -> (SpeakerBar, Double) {
+        guard h.playback, base.isFinite else { return (.cohort, base) }
+        return tuning.playbackThreshold > base ? (.playback, tuning.playbackThreshold) : (.cohort, base)
+    }
+
+    /// The whole-sentence threshold for `h` (§16 item 4 with §18 item 1).
+    private func wholeThreshold(_ h: Held, _ base: Double) -> Double { bar(h, base).1 }
+
     private func earlyLine(_ h: Held, score: Double?, raw: Double?, cohort: Int?, result: SpeakerCheckResult,
                            scoreMs: Int) -> SpeakerCheckLine {
-        SpeakerCheckLine(utterance: h.id, kind: .early, score: score, threshold: earlyThreshold ?? .nan, result: result,
-                         speechMs: earlyFrameCount * 10, scoreMs: scoreMs, waitMs: Int((now - h.since).milliseconds),
-                         raw: raw, cohort: cohort)
+        let (b, t) = earlyThreshold.map { bar(h, $0) } ?? (.cohort, .nan)
+        return SpeakerCheckLine(utterance: h.id, kind: .early, score: score, threshold: t, result: result,
+                                speechMs: earlyFrameCount * 10, scoreMs: scoreMs,
+                                waitMs: Int((now - h.since).milliseconds), raw: raw, cohort: cohort, bar: b)
     }
 
     /// The background queue's answer. A result for another utterance, kind or generation is dropped (§6 item 5).
@@ -408,7 +436,7 @@ public struct SpeakerHold: Sendable {
             // §17 item 4: a kept utterance's verdict applies to it alone.
             let h = awaiting.remove(at: k)
             switch outcome {
-            case .score(let score, let ms, let raw, let cohort) where score >= threshold:
+            case .score(let score, let ms, let raw, let cohort) where score >= wholeThreshold(h, threshold):
                 unavailable = false
                 checks.append(line(h, score: score, raw: raw, cohort: cohort, result: .accepted, scoreMs: ms))
                 if h.sent { step.outputs = h.buffer }
@@ -433,7 +461,7 @@ public struct SpeakerHold: Sendable {
         case .failed(let ms):
             unavailable = true
             drop(score: nil, scoreMs: ms, into: &step)
-        case .score(let score, let ms, let raw, let cohort) where score >= threshold:
+        case .score(let score, let ms, let raw, let cohort) where score >= wholeThreshold(h, threshold):
             unavailable = false
             checks.append(line(h, score: score, raw: raw, cohort: cohort, result: .accepted, scoreMs: ms))
             if h.sent { step.outputs += h.buffer }
@@ -459,7 +487,7 @@ public struct SpeakerHold: Sendable {
         let result: SpeakerCheckResult
         switch outcome {
         case .score(let score, let ms, let raw, let cohort):
-            result = earlyThreshold.map { score >= $0 ? .accepted : .rejected } ?? .unknown
+            result = earlyThreshold.map { score >= bar(h, $0).1 ? .accepted : .rejected } ?? .unknown
             checks.append(earlyLine(h, score: score, raw: raw, cohort: cohort, result: result, scoreMs: ms))
         case .failed(let ms):
             result = .unknown
@@ -474,9 +502,10 @@ public struct SpeakerHold: Sendable {
 
     private func line(_ h: Held, score: Double?, raw: Double?, cohort: Int?, result: SpeakerCheckResult,
                       scoreMs: Int) -> SpeakerCheckLine {
-        SpeakerCheckLine(utterance: h.id, kind: .speech, score: score, threshold: threshold ?? 0, result: result,
-                         speechMs: h.speech * 10, scoreMs: scoreMs, waitMs: Int((now - h.since).milliseconds), raw: raw,
-                         cohort: cohort)
+        let (b, t) = bar(h, threshold ?? 0)
+        return SpeakerCheckLine(utterance: h.id, kind: .speech, score: score, threshold: t, result: result,
+                                speechMs: h.speech * 10, scoreMs: scoreMs, waitMs: Int((now - h.since).milliseconds),
+                                raw: raw, cohort: cohort, bar: b)
     }
 
     /// A rejected or unknown utterance: its record line and verdict, and what of it goes up (marks only, not sent).

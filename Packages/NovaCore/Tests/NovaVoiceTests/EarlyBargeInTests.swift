@@ -92,7 +92,7 @@ struct EarlyBargeInTests {
         let lines = hold.takeChecks()
         let line = try #require(lines.first)
         #expect(line.kind == .early && line.result == .accepted && line.speechMs == 1000)
-        #expect(line.logLine.contains("kind=early score=0.9 raw=0.6 norm=0.9 cohort=800 threshold=0.3 result=accepted"))
+        #expect(line.logLine.contains("kind=early score=0.9 raw=0.6 norm=0.9 cohort=800 bar=cohort threshold=0.3 result=accepted"))
         // The whole sentence decides the words.
         let w = try #require(whole.first)
         #expect(w.kind == .speech && w.frames.count == 250)
@@ -161,7 +161,7 @@ struct EarlyBargeInTests {
         }
         #expect(sawUnknown)
         let bareLine = bare.takeChecks().first?.logLine ?? ""
-        #expect(bareLine.contains("kind=early score=none raw=none norm=none cohort=none threshold=none result=unknown"))
+        #expect(bareLine.contains("kind=early score=none raw=none norm=none cohort=none bar=cohort threshold=none result=unknown"))
         // A cohort without threshold1s gives none; a finite one is used.
         let meta = SpeakerCohortMeta(source: "s", license: "l", model: "m", modelSha256: "x", speakers: 1, dimension: 1,
                                      topN: 1, threshold: 1.5, eer: 0.1, trials: 1)
