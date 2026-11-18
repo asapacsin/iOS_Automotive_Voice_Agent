@@ -70,7 +70,8 @@ struct TripPhase4bTests {
         // From 35.70: up to 浅草寺 (35.71) first, then south 皇居, 银座, 东京塔 (0.062 against 0.094 the other way).
         #expect(await rig.order() == ["浅草寺", "皇居", "银座", "东京塔"])
         #expect(r.data["times"] == nil)
-        #expect(!(r.data["next"]?.stringValue ?? "").contains("时间是估算的"))
+        let next = r.data["next"]?.stringValue ?? ""
+        #expect(next.contains("时间是估算的") == false)
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip times vendor=osrm pairs=20 ms=") })
     }
 
