@@ -1386,6 +1386,7 @@ each day costs to be estimated and the plan adjusted to it, without a fixed time
    in order (§26 times, §36 item 2c abroad) plus the visit minutes of its stops, from its first stop (start, or last
    night's hotel) to its last (that night's hotel, or `end`).
 4. **Fit (pure NovaCore `TripFitter`; replaces §27 item 3 for `make_trip_list` and `reorganize`).**
+   Steps 2–3 are replaced by §49 item 3 (2026-11-18): a score per day and exchanges between days.
    1. Required places (`optional=false`) are put on one path and cut into D days as §27 item 3, with each stop's
       visit minutes instead of 90.
    2. Optional places are then tried one at a time in the model's order. Each goes to the cheapest place in any day
@@ -1436,4 +1437,108 @@ each day costs to be estimated and the plan adjusted to it, without a fixed time
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040t | §48, rows 117–126 | NOT_RUN |
+| T-040t | §48, rows 117–126 | PASS (a02e9c6); row 126 device NOT_VERIFIED |
+
+## 49. The model revises the plan after code checks it (owner request 2026-11-18)
+
+**Why (owner and mentor 2026-11-18).** After §48 the model drafts and code fits, but code still settles the hard
+cases by fixed rules: the first hotel within 3 km (§37 item 4), the lowest-ranked extras dropped (§48 item 4), and a
+place not found only reported (§4). The owner asked for these to be decided by the model, following published
+practice.
+
+**Published practice this copies.**
+- Google's AI trip ideas in Search (research.google/blog/optimizing-llm-based-trip-planning, 2025): the LLM drafts
+  activities "along with relevant details, such as the suggested duration and level of importance"; code grounds them
+  with opening hours and travel times and retrieves substitutes; an optimizer looks for a plan "similar to the initial
+  plan that also ensures feasibility": a score per day (an infeasible day scores zero), then local search
+  "exchanging activities between pairs of days so long as this would increase the total score", until no exchange
+  helps.
+- LLM-Modulo (Gundawar et al., arxiv.org/html/2405.20625): binary critics, each with a back-prompt; a metacontroller
+  concatenates the back-prompts of all failed critics and sends them to the LLM, which revises; at most 10 rounds or
+  until all critics pass. On TravelPlanner, GPT-4-Turbo went from 4.4% to 20.6% final pass rate.
+- Here the rounds are capped at 2 (item 6), not 10: each round costs a model turn plus new lookups (about 5–15 s) on
+  top of the 30–60 s a plan already takes, in a car.
+
+1. **Importance instead of `optional` (replaces §48 item 1's `optional`).** Each `places` item is
+   `{name, minutes, importance}`:
+   - `importance` 3 = must-see (the driver named it, or the trip is about it); 2 = worth it; 1 = extra.
+   - 3 is never dropped by code (as `optional=false` in §48). `optional` is still read: `false` → 3, `true` → 1.
+     A plain string → 3.
+2. **Wishes (new `make_trip_list` field `wishes`, ≤ 60 characters, optional).** What the driver said about the
+   trip that code cannot measure: 「酒店靠近车站」「便宜一点」「不要太多寺庙」. Code does not read it; it is echoed back to
+   the model with the hotel candidates (item 5).
+3. **Fit by score (replaces §48 item 4 steps 2–3).**
+   - Score of a day: the sum of the importance of its places when the day is within budget (§48 item 3), else 0.
+     Ties: less driving, then more places on the day the model put them (`days` groups, else none).
+   - Start: §48 item 4 step 1 (importance-3 places cut into D days), then insertion of the others as §48 item 4 step 2,
+     highest importance first, the model's order within one importance.
+   - Then exchanges: for every pair of days, moving one place from one day to the other, or swapping one place of each,
+     is kept when the plan's total score rises (each day reordered as §27 item 1 to judge it). Repeated until no move
+     helps, at most 50 kept moves. A place left out may also be swapped in for a lower-importance one.
+   - Deterministic: days, places and moves are tried in a fixed order.
+4. **Checks (code, after every fit).** Each is pass or fail; a failure carries one line for the model:
+   - `not_found`: a place was not found → 「<名字>没找到，换一个附近类似的或者去掉」.
+   - `over`: a day is over budget with only importance-3 places → 「第N天超了约X小时，减少或换掉一个必去的地方」.
+   - `driving`: a day's driving is more than 40% of its cost → 「第N天大半时间在开车，考虑把这天换到一个区域」.
+   - `under`: a day is under half its budget and `spare` is empty → 「第N天还空约X小时，在<区名>附近加1到2个」.
+   - `hotel`: only when `wishes` is set: for each night, up to 3 hotels found as §37 item 4 (高德 at home, Photon
+     `tourism=hotel` abroad), each with its distance to that day's last place → 「第N晚从这几个里挑一个：A（0.8公里）、
+     B（1.5公里）、C（2.4公里）」. Without `wishes` the first hotel is taken as §37 item 4, with no round.
+5. **Feedback (LLM-Modulo).** When any check fails, the result is `status: trip_needs_fix` with `round` (1 or 2),
+   `issues` (all failed lines together, in the order of item 4), `wishes` (echoed), and
+   `next`: 「先不要跟司机说话，直接调用 revise_trip_list 按 issues 改，改完会再检查。」 The plan is kept as fitted so far.
+6. **Rounds.** At most 2 `trip_needs_fix` results per request (a `make_trip_list`, or a driver change in item 8).
+   After round 2, or when every check passes, the result is the normal `trip_list` (§48 item 7) and any issue still
+   failing goes into `next` as §48 item 7 says it today.
+7. **New tool `revise_trip_list`.** Arguments, all optional, at least one:
+   - `replace`: `[{name, with: {name, minutes, importance}}]`: a plan or not-found name by another place;
+   - `add`: `[{name, minutes, importance}]`;
+   - `drop`: names;
+   - `hotels`: `[{night, pick}]` with `pick` one of the candidate names of that night;
+   - `pace`: as §48 item 1.
+   New and replacing names are searched as places of the trip (§36 item 2); then the plan is fitted (item 3) and
+   checked (item 4) again. A `pick` not among that night's candidates, or a name not in the plan: `invalidFields`.
+   Without an open request (no `trip_needs_fix` waiting and no item 8 change): `NO_REVISION`.
+8. **The driver's changes.** 「第二天太赶了」「换个便宜点的酒店」「多加点吃的」 are a `revise_trip_list` call by the model
+   (with `pace`, `drop`, `add` or `hotels`). Such a call opens a request of its own: fit, checks and up to 2 rounds as
+   above. The §5.2 `edit_trip_list` actions stay for exact edits (「删掉第3个」).
+9. **What she says.** Nothing between rounds. Once at the end, as §48 item 7, plus one line per change the model made
+   from a check: 「X没找到，换成了Y」「第2晚住A，离车站近」.
+10. **Catalog text.**
+    - `make_trip_list`, appended (replaces §48 item 11's `optional` wording): 「places 每项写 {name, minutes,
+      importance}：importance 3=必去（司机点名的、这趟就是为它来的），2=值得去，1=可去可不去。司机对行程有要求但不是地点的
+      （酒店靠近车站、便宜一点、少一点寺庙）写进 wishes。结果是 trip_needs_fix 时先不要说话，直接按 issues 调用
+      revise_trip_list。」
+    - `revise_trip_list`: 「修改已经排好的行程：按 trip_needs_fix 的 issues 改，或者司机说某天太赶、想换酒店、想多加点什么
+      时用。replace 把一个地方换成另一个，add 加，drop 去掉，hotels 从候选里挑酒店，pace 改节奏。删掉第几个这种准确的改动
+      仍用 edit_trip_list。」
+11. **Record.**
+    - `trip check round=<0|1|2> not_found=<n> over=<n> driving=<n> under=<n> hotel=<n> ms=<ms>` after every check;
+    - `trip revise round=<n> replace=<n> add=<n> drop=<n> hotels=<n> ok=<yes|no> code=<code|none> ms=<ms>`;
+    - `trip fit … moves=<n>` (§48 item 12 gains the kept exchanges). Numbers and enums only (I-8).
+12. **Code.** The score and exchanges in `TripFitter` (NovaNav, pure); the checks as a pure `TripChecks` beside it;
+    `importance` and `wishes` on the plan (`TripList.swift`, saved with §14); `revise_trip_list` in
+    `ToolCatalog.swift` and its executor beside `edit_trip_list`; hotel candidates from the §37 item 4 search in
+    `TripPlanner`; the round count per request in `TripPlanner`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 127 | Plain strings; `optional=false`/`true` items | importance 3; 3 / 1 | unit |
+| 128 | 2 days; importance-3 places on both days and an importance-1 place that only fits by moving a 2 across days | The exchange is made; the total score rises; `moves=1` | unit |
+| 129 | An importance-2 place left out and an importance-1 place kept on a full day | They are swapped | unit |
+| 130 | One place not found | `trip_needs_fix round=1`, `issues` has its line; `next` says to call `revise_trip_list`; nothing spoken by code | unit |
+| 131 | Same, then `revise_trip_list replace` with a found place | Fitted and checked again; all pass → `trip_list`; `next` names the change | unit |
+| 132 | Checks still fail after round 2 | No round 3: `trip_list` with the issue in `next` | unit |
+| 133 | A day with 70% driving; a day at 30% budget with empty `spare` | `driving` and `under` lines, both in one result | unit |
+| 134 | `wishes` set, 2 nights | `hotel` issue with up to 3 candidates per night and distances; `hotels pick` sets them; a pick not listed → `invalidFields` | unit |
+| 135 | No `wishes` | First hotel taken as §37 item 4; no `hotel` issue, no round for it | unit |
+| 136 | `revise_trip_list pace=relaxed` with no request open | Opens a request: fit, checks, rounds as above | unit |
+| 137 | `revise_trip_list` with an empty call, or a name not in the plan | `invalidFields`; plan unchanged | unit |
+| 138 | Device: 「东京三天自驾，成田机场进出，酒店要靠近车站」 | Hotels chosen near stations (she says why once); no 「没找到」 left in the plan; one spoken summary | D |
+| 139 | Device: then 「第二天太赶了」 | Day 2 gets lighter; she says what changed | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040u | §49, rows 127–139 | NOT_RUN |

@@ -2965,6 +2965,24 @@
       "evidence": "Spec at the commit that adds §48."
     },
     {
+      "id": "T-040u",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 30,
+      "action": "F-15b §49: the model revises the plan after code checks it: importance 1-3 and wishes; fit by score with exchanges between days (Google); checks not_found/over/driving/under/hotel fed back together (LLM-Modulo); new revise_trip_list; at most 2 silent rounds; rows 127-139.",
+      "depends_on": [
+        "T-040t"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 127-139)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner 2026-11-18 (mentor: more LLM, less fixed workflow); proposal held first, then \"you write the spec and push to remote\". Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §49."
+    },
+    {
       "id": "T-031j",
       "owner": "AUTONOMOUS",
       "status": "PASS",
