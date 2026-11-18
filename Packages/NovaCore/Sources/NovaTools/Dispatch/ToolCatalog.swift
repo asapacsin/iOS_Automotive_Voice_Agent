@@ -175,13 +175,29 @@ public enum ToolCatalog {
             "name": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
             "minutes": ["type": "integer", "minimum": 15, "maximum": 600],
             "optional": ["type": "boolean"],
+            // §49 item 1 (T-040u).
+            "importance": ["type": "integer", "minimum": 1, "maximum": 3],
         ],
         "required": ["name"],
         "additionalProperties": false,
     ]
     public static let tripEditActions = ["remove", "add", "replace", "move", "clear", "read", "reorganize", "visited", "skip"]
 
-    public static let makeTripListDescription = "做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点（最多24个，name 只写地名，不写介绍；吃东西的地方写店名，比如「安德鲁饼店」，不写「安德鲁葡挞」）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[[\"广州塔\",\"陈家祠\"],[\"长隆野生动物世界\"]]。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。结果稍后回来：先只说一句在排，结果回来前不要说清单里有什么。按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。清单会按司机现在的位置和真实车程自动排好顺序、分好天。行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 \"Tokyo, Japan\"；地名（包括 start、end、hotels）都写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」「成田机场 (Narita International Airport)」。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。司机要租车就填 rental=true，会自动在起点附近找取车点、在终点附近找还车点。places 每项写 {name, minutes, optional}：minutes 是一般游玩要多少分钟（你估计，比如迪士尼 480、寺庙 60）；司机点名的和必去的 optional=false，其余 optional=true。多给一些，大约是排满几天所需的 1.5 倍，最重要的放前面，排不下的会自动去掉。几天的行程填 day_count；司机说轻松一点填 pace=relaxed，排紧一点填 pace=packed。"
+    public static let makeTripListDescription = "做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点（最多24个，name 只写地名，不写介绍；吃东西的地方写店名，比如「安德鲁饼店」，不写「安德鲁葡挞」）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[[\"广州塔\",\"陈家祠\"],[\"长隆野生动物世界\"]]。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。结果稍后回来：先只说一句在排，结果回来前不要说清单里有什么。按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。清单会按司机现在的位置和真实车程自动排好顺序、分好天。行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 \"Tokyo, Japan\"；地名（包括 start、end、hotels）都写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」「成田机场 (Narita International Airport)」。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。司机要租车就填 rental=true，会自动在起点附近找取车点、在终点附近找还车点。places 每项写 {name, minutes, importance}：minutes 是一般游玩要多少分钟（你估计，比如迪士尼 480、寺庙 60）；importance 3=必去（司机点名的、这趟就是为它来的），2=值得去，1=可去可不去。多给一些，大约是排满几天所需的 1.5 倍，最重要的放前面，排不下的会自动去掉。几天的行程填 day_count；司机说轻松一点填 pace=relaxed，排紧一点填 pace=packed。司机对行程有要求但不是地点的（酒店靠近车站、便宜一点、少一点寺庙）写进 wishes。结果是 trip_needs_fix 时先不要说话，直接按 issues 调用 revise_trip_list。"
+    /// F-15b §49 item 10 (T-040u).
+    public static let reviseTripListDescription = "修改已经排好的行程：按 trip_needs_fix 的 issues 改，或者司机说某天太赶、想换酒店、想多加点什么时用。replace 把一个地方换成另一个，add 加，drop 去掉，hotels 从候选里挑酒店，pace 改节奏。删掉第几个这种准确的改动仍用 edit_trip_list。"
+    public static let maxTripWishes = 60
+    /// §49 item 7: a place of `add` / `replace.with`.
+    public static let tripReviseItem: JSONValue = [
+        "type": "object",
+        "properties": [
+            "name": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
+            "minutes": ["type": "integer", "minimum": 15, "maximum": 600],
+            "importance": ["type": "integer", "minimum": 1, "maximum": 3],
+        ],
+        "required": ["name"],
+        "additionalProperties": false,
+    ]
     public static let editTripListDescription = "修改打卡清单（结果稍后回来：先只说一句在改，结果回来前不要说清单里有什么）：「去掉第二个」→remove index=2；「不去古文化街了」→remove name；「加上天津之眼」→add（name 写高德上的正式名称：景点的正式名或店名，比如「路环那家葡挞」→安德鲁饼店）；「第三个换成五大道」→replace；「把瓷房子放到第一个」→move；「清单里有什么」「打开行程」「看看行程」→read；「清空清单」→clear。第几个按她最后说的清单顺序。按结果答：一句话说改了什么和现在几个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，TRIP_TOO_LONG=最多16个地点，AMBIGUOUS=有多个匹配请说第几个。说到第几天时填 day，不说就是刚才那一天。「重新排一下」「从横琴开始重新排」→reorganize（start 填清单里的地点名，days 填天数）；「把X放到第二天」→move 加 to_day；「已经去过了」→visited；「跳过这个」→skip。按结果的 plan 说每天去哪。NO_START=问司机从哪里出发。司机回答从哪里出发→reorganize 填 start。"
     /// F-15b §29 item 1, §31 (T-040n): one stop at a time.
     public static let tripNextDescription = "行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。已在苹果地图打开=告诉司机，到了说「已经到了」。"
@@ -213,6 +229,8 @@ public enum ToolCatalog {
                                "items": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))]],
                     // F-15b §45 item 1 (T-040q).
                     "rental": ["type": "boolean"],
+                    // F-15b §49 item 2 (T-040u).
+                    "wishes": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripWishes))],
                 ],
                 "additionalProperties": false,
             ])),
@@ -232,6 +250,29 @@ public enum ToolCatalog {
                     "to_day": tripDay,
                 ],
                 "required": ["action"],
+                "additionalProperties": false,
+            ])),
+        // F-15b §49 item 7 (T-040u).
+        ToolSpec(domain: "navigation", repeatSensitive: false, declaration: ToolDeclaration(
+            name: "revise_trip_list", description: reviseTripListDescription,
+            parametersJSONSchema: [
+                "type": "object",
+                "properties": [
+                    "replace": ["type": "array", "minItems": 1, "maxItems": .int(Int64(maxTripCandidates)),
+                                "items": ["type": "object",
+                                          "properties": ["name": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
+                                                         "with": tripReviseItem],
+                                          "required": ["name", "with"], "additionalProperties": false]],
+                    "add": ["type": "array", "minItems": 1, "maxItems": .int(Int64(maxTripCandidates)), "items": tripReviseItem],
+                    "drop": ["type": "array", "minItems": 1, "maxItems": .int(Int64(maxTripCandidates)),
+                             "items": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))]],
+                    "hotels": ["type": "array", "minItems": 1, "maxItems": 4,
+                               "items": ["type": "object",
+                                         "properties": ["night": ["type": "integer", "minimum": 1, "maximum": 4],
+                                                        "pick": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))]],
+                                         "required": ["night", "pick"], "additionalProperties": false]],
+                    "pace": ["type": "string", "enum": .array(tripPaces.map { .string($0) })],
+                ],
                 "additionalProperties": false,
             ])),
         ToolSpec(domain: "navigation", repeatSensitive: true, declaration: ToolDeclaration(
@@ -370,7 +411,7 @@ public enum ToolCatalog {
             // F-15b §5.1: 1–16 names of 1–40 characters, optional city ≤ 20.
             // §15 item 6: either places (optional day) or days (1–5 groups of 1–16 names, no day).
             guard keys.isSubset(of: ["places", "days", "city", "day", "abroad", "start", "end", "hotels", "rental",
-                                     "day_count", "pace"]),
+                                     "day_count", "pace", "wishes"]),
                   keys.contains("places") != keys.contains("days"),
                   !(keys.contains("days") && keys.contains("day")) else { return .invalidFields }
             if keys.contains("day"), !isDay(a["day"]) { return .invalidFields }
@@ -379,6 +420,10 @@ public enum ToolCatalog {
                 guard isDay(a["day_count"]), keys.contains("places"), !keys.contains("day") else { return .invalidFields }
             }
             if keys.contains("pace"), !(str("pace").map(tripPaces.contains) ?? false) { return .invalidFields }
+            // §49 item 2 (T-040u): wishes 1–60 characters.
+            if keys.contains("wishes") {
+                guard let w = str("wishes"), !trimmed(w).isEmpty, w.count <= maxTripWishes else { return .invalidFields }
+            }
             var groups: [[JSONValue]] = []
             if case .array(let places)? = a["places"] { groups = [places] }
             if case .array(let days)? = a["days"] {
@@ -395,7 +440,8 @@ public enum ToolCatalog {
                     // §48 item 1: a name, or {name, minutes, optional} (minutes outside 15–600 is clamped, not refused).
                     let n: String?
                     if case .object(let o) = place {
-                        guard Set(o.keys).isSubset(of: ["name", "minutes", "optional"]),
+                        guard Set(o.keys).isSubset(of: ["name", "minutes", "optional", "importance"]),
+                              o["importance"] == nil || (o["importance"]?.intValue.map { (1...3).contains($0) } ?? false),
                               o["minutes"] == nil || o["minutes"]?.intValue != nil,
                               o["optional"] == nil || o["optional"]?.boolValue != nil else { return .invalidFields }
                         n = o["name"]?.stringValue
@@ -458,6 +504,37 @@ public enum ToolCatalog {
             default: keys == ["action"]
             }
             if !needs { return .invalidFields }
+        case "revise_trip_list":
+            // F-15b §49 item 7 (T-040u): at least one of replace, add, drop, hotels, pace; each well formed.
+            guard !keys.isEmpty, keys.isSubset(of: ["replace", "add", "drop", "hotels", "pace"]) else { return .invalidFields }
+            if keys.contains("pace"), !(str("pace").map(tripPaces.contains) ?? false) { return .invalidFields }
+            func name(_ v: JSONValue?) -> Bool {
+                guard let n = v?.stringValue else { return false }
+                return !trimmed(n).isEmpty && n.utf16.count <= maxTripName
+            }
+            func place(_ v: JSONValue) -> Bool {
+                guard case .object(let o) = v, Set(o.keys).isSubset(of: ["name", "minutes", "importance"]), name(o["name"]),
+                      o["minutes"] == nil || o["minutes"]?.intValue != nil,
+                      o["importance"] == nil || (o["importance"]?.intValue.map { (1...3).contains($0) } ?? false) else { return false }
+                return true
+            }
+            func list(_ k: String) -> [JSONValue]? {
+                guard keys.contains(k) else { return [] }
+                guard case .array(let l)? = a[k], (1...maxTripCandidates).contains(l.count) else { return nil }
+                return l
+            }
+            guard let replace = list("replace"), let add = list("add"), let drop = list("drop"),
+                  let hotels = list("hotels") else { return .invalidFields }
+            for r in replace {
+                guard case .object(let o) = r, Set(o.keys) == ["name", "with"], name(o["name"]), let w = o["with"], place(w) else { return .invalidFields }
+            }
+            for p in add where !place(p) { return .invalidFields }
+            for d in drop where !name(d) { return .invalidFields }
+            guard hotels.count <= 4 else { return .invalidFields }
+            for h in hotels {
+                guard case .object(let o) = h, Set(o.keys) == ["night", "pick"], name(o["pick"]),
+                      let night = o["night"]?.intValue, (1...4).contains(night) else { return .invalidFields }
+            }
         case "trip_next":
             // §29 item 1: optional day 1–5 and stop (a name in the plan or its number in the day).
             guard keys.isSubset(of: ["day", "stop"]) else { return .invalidFields }
@@ -607,6 +684,8 @@ public enum ToolFailureAdvice {
         .noStart: "不知道从哪里出发，行程没有重新排。请只问一句：从哪里出发？",
         .planChanged: "重新排的结果和原来的地点对不上，行程没有改。请用一句话如实说没排成功。",
         .dayDone: "这一天的地点都去过或跳过了。请问司机要不要开始下一天。",
+        // F-15b §49 item 7 (T-040u).
+        .noRevision: "还没有排好的行程可以改，什么都没有改。请用一句话如实说还没有行程，可以先做一个。",
         .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }

@@ -83,6 +83,8 @@ public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     /// F-15b §4 item 9: trip lists are made and changed in the background.
     case makeTripList = "make_trip_list"
     case editTripList = "edit_trip_list"
+    /// F-15b §49 item 7 (T-040u): a revision fits and checks again in the background.
+    case reviseTripList = "revise_trip_list"
 
     public init?(name: String) { self.init(rawValue: name) }
     /// The `scheduling` their response carries (F-18 §27 item 3).

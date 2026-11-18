@@ -160,6 +160,8 @@ enum ToolPromptCoverage: Sendable {
         // F-15b §5 (T-040i): the trip list is 要去的地方 in the strict scope; the tool texts carry the wording.
         "make_trip_list": .phrase("要去的地方"),
         "edit_trip_list": .phrase("要去的地方"),
+        // F-15b §49 (T-040u).
+        "revise_trip_list": .phrase("要去的地方"),
         "trip_next": .phrase("导航"),
         // F-15b §16 (T-040l): saved trips are 要去的地方 too.
         "trip_plans": .phrase("要去的地方"),

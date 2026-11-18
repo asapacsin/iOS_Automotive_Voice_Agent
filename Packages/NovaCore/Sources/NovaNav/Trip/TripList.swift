@@ -35,13 +35,19 @@ public struct TripStop: Sendable, Hashable {
     /// §48 item 1 (T-040t): the model's visit estimate (15–600), nil = by kind and role (`visitMinutes`).
     public var minutes: Int?
     /// §48 item 1: an extra the fit may leave out (kept as `spare`); the driver's and the must-see places are false.
-    public var optional: Bool
+    /// §49 item 1 (T-040u): replaced by `importance` (false = 3, true = 1).
+    public var optional: Bool {
+        get { importance < 3 }
+        set { importance = newValue ? 1 : 3 }
+    }
+    /// §49 item 1: 3 = must-see (never dropped by code), 2 = worth it, 1 = extra.
+    public var importance: Int
 
     public init(index: Int, asked: String, place: Place, distanceMeters: Int?, mark: TripMark? = nil,
                 legSeconds: Int? = nil, role: TripRole = .sight, picked: Bool = false,
-                minutes: Int? = nil, optional: Bool = false) {
+                minutes: Int? = nil, optional: Bool = false, importance: Int? = nil) {
         self.minutes = minutes
-        self.optional = optional
+        self.importance = importance.map(Self.clampImportance) ?? (optional ? 1 : 3)
         self.role = role
         self.picked = picked
         self.index = index
@@ -54,8 +60,11 @@ public struct TripStop: Sendable, Hashable {
 
     func renumbered(_ index: Int) -> TripStop {
         TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds,
-                 role: role, picked: picked, minutes: minutes, optional: optional)
+                 role: role, picked: picked, minutes: minutes, importance: importance)
     }
+
+    /// §49 item 1: importance is 1–3.
+    public static func clampImportance(_ i: Int) -> Int { min(max(i, 1), 3) }
 
     /// §48 item 2: the visit minutes the fit counts: the model's, else by kind (sights) or role (the frame).
     public var visitMinutes: Int {
@@ -167,7 +176,7 @@ public struct TripList: Sendable, Hashable {
         stops = stops.map { $0.place.id == placeID
             ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters,
                        mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role, picked: $0.picked,
-                       minutes: $0.minutes, optional: $0.optional)
+                       minutes: $0.minutes, importance: $0.importance)
             : $0 }
     }
 

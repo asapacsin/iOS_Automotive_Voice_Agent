@@ -17,7 +17,12 @@ final class TripSearch: PlaceSearch, @unchecked Sendable {
     /// The first `failFirst` text searches throw `quota` (高德's per-second limit), then it answers.
     private let failing: Mutex<Int>
 
-    init(_ table: [String: [Place]], slow: Set<String> = [], error: AmapWebError? = nil, failFirst: Int = 0) {
+    /// F-15b §49 (T-040u): what 「酒店」 around a point answers; nil = nothing.
+    let hotels: (@Sendable (GeoCoordinate) -> [Place])?
+
+    init(_ table: [String: [Place]], slow: Set<String> = [], error: AmapWebError? = nil, failFirst: Int = 0,
+         hotels: (@Sendable (GeoCoordinate) -> [Place])? = nil) {
+        self.hotels = hotels
         self.table = table
         self.slow = slow
         self.error = error
@@ -35,7 +40,9 @@ final class TripSearch: PlaceSearch, @unchecked Sendable {
         defer { returned.withLock { $0 += 1 } }
         return table[keywords] ?? []
     }
-    func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] { [] }
+    func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {
+        keywords == "酒店" ? (hotels?(center) ?? []) : []
+    }
     func polygon(_ keywords: String, vertices: [GeoCoordinate]) async throws -> [Place] { [] }
     func detail(id: String) async throws -> Place? { nil }
 }

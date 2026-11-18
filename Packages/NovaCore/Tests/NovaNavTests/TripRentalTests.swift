@@ -52,8 +52,8 @@ struct TripRentalTests {
     func row99() async {
         let photon = FakeRentals(rentalTable, rentals: [(narita, [nissan, toyotaNarita])])
         let (rig, _) = await timesRig(abroad: photon)
-        let r = await rig.run(trip("make_trip_list", ["days": threeDays, "abroad": true, "start": "成田机场",
-                                                      "end": "成田机场", "rental": true]))
+        let r = await settle(rig, await rig.run(trip("make_trip_list", ["days": threeDays, "abroad": true, "start": "成田机场",
+                                                      "end": "成田机场", "rental": true])))
         #expect(r.ok)
         #expect(photon.rentalSearches == 1)
         let d = await stops(rig)
@@ -112,8 +112,8 @@ struct TripRentalTests {
     func row101() async {
         let photon = FakeRentals(rentalTable, rentals: [])
         let (rig, _) = await timesRig(abroad: photon)
-        let r = await rig.run(trip("make_trip_list", ["days": threeDays, "abroad": true, "start": "成田机场",
-                                                      "end": "成田机场", "rental": true]))
+        let r = await settle(rig, await rig.run(trip("make_trip_list", ["days": threeDays, "abroad": true, "start": "成田机场",
+                                                      "end": "成田机场", "rental": true])))
         #expect(r.ok)
         let next = r.data["next"]?.stringValue ?? ""
         #expect(next.contains("成田机场附近没找到租车点"))

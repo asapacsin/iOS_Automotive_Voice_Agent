@@ -37,6 +37,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case noStart = "NO_START"
     case planChanged = "PLAN_CHANGED"
     case dayDone = "DAY_DONE"
+    /// F-15b §49 item 7 (T-040u): `revise_trip_list` with no plan to revise.
+    case noRevision = "NO_REVISION"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

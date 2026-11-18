@@ -23,6 +23,9 @@ public struct TripPlan: Sendable, Hashable {
     public var spare: [TripStop] = []
     /// §48 item 3: the day budget in minutes the plan was fitted to; nil for a plan never fitted.
     public var budgetMinutes: Int?
+    /// §49 item 2 (T-040u): what the driver said about the trip that code cannot measure (≤ 60 characters); echoed to
+    /// the model with the hotel choices, never read by code.
+    public var wishes: String?
 
     public init() {}
 
@@ -79,6 +82,7 @@ public struct TripPlan: Sendable, Hashable {
         name = nil
         spare = []
         budgetMinutes = nil
+        wishes = nil
         revision += 1
     }
 
@@ -89,6 +93,7 @@ public struct TripPlan: Sendable, Hashable {
         name = nil
         spare = []
         budgetMinutes = nil
+        wishes = nil
         revision += 1
     }
 
@@ -109,6 +114,7 @@ public struct TripPlan: Sendable, Hashable {
         name = nil
         spare = []
         budgetMinutes = nil
+        wishes = nil
         revision += 1
     }
 
@@ -149,6 +155,7 @@ public struct TripPlan: Sendable, Hashable {
         currentDay = other.currentDay
         spare = other.spare
         budgetMinutes = other.budgetMinutes
+        wishes = other.wishes
         revision += 1
     }
 }
@@ -180,6 +187,8 @@ public enum TripPlanFile {
         /// T-040t §48 (optional): the model's visit minutes and the optional flag.
         var minutes: Int?
         var optional: Bool?
+        /// T-040u §49 item 1 (optional): importance 1–3; nil reads from `optional` (false = 3, true = 1).
+        var importance: Int?
     }
 
     struct Plan: Codable, Hashable {
@@ -194,6 +203,8 @@ public enum TripPlanFile {
         /// T-040t §48 (optional): the spare places and the day budget.
         var spare: [Stop]?
         var budget: Int?
+        /// T-040u §49 item 2 (optional): the driver's wishes.
+        var wishes: String?
     }
 
     struct Current: Codable { var version: Int; var plan: Plan }
@@ -209,14 +220,14 @@ public enum TripPlanFile {
              district: s.place.district, lat: s.place.coordinate.latitude, lng: s.place.coordinate.longitude,
              photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city,
              role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode, kind: s.place.kind?.rawValue,
-             minutes: s.minutes, optional: s.optional ? true : nil)
+             minutes: s.minutes, optional: s.optional ? true : nil, importance: s.importance == 3 || s.importance == 1 ? nil : s.importance)
     }
 
     static func encode(_ plan: TripPlan, savedAt: Date? = nil) -> Plan {
         Plan(name: plan.name, currentDay: plan.currentDay,
              days: plan.days.map { day in day.stops.map(encode) },
              savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.abroad ? plan.city : nil,
-             spare: plan.spare.isEmpty ? nil : plan.spare.map(encode), budget: plan.budgetMinutes)
+             spare: plan.spare.isEmpty ? nil : plan.spare.map(encode), budget: plan.budgetMinutes, wishes: plan.wishes)
     }
 
     static func decode(_ s: Stop) -> TripStop {
@@ -226,7 +237,7 @@ public enum TripPlanFile {
                               distanceMeters: nil, city: s.city, district: s.district,
                               photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country, kind: s.kind.flatMap(PlaceKind.init(rawValue:))),
                  distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false,
-                 minutes: s.minutes, optional: s.optional ?? false)
+                 minutes: s.minutes, optional: s.optional ?? false, importance: s.importance)
     }
 
     static func decode(_ plan: Plan) -> TripPlan {
@@ -240,6 +251,7 @@ public enum TripPlanFile {
         out.city = out.abroad ? plan.city : nil
         out.spare = (plan.spare ?? []).prefix(TripFitter.maxCandidates).map(decode)
         out.budgetMinutes = plan.budget
+        out.wishes = plan.wishes
         return out
     }
 

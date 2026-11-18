@@ -7,7 +7,7 @@ import Testing
 /// §48 (T-040t): places in one area north of the origin; every drive between two different points is 20 minutes.
 private let area: [String: [Place]] = {
     var t: [String: [Place]] = [:]
-    for (i, n) in ["R1", "R2", "R3", "O1", "O2", "O3", "O4", "O5", "O6"].enumerated() {
+    for (i, n) in ["R1", "R2", "R3", "O1", "O2", "O3", "O4", "O5", "O6", "O7"].enumerated() {
         t[n] = [spot(n, lat: 39.01 + Double(i) * 0.001, lng: 117.20)]
     }
     t["博物馆"] = [Place(id: "museum", name: "博物馆", address: nil,
@@ -22,7 +22,7 @@ private func item(_ name: String, _ minutes: Int, optional: Bool = false) -> JSO
     ["name": .string(name), "minutes": .int(Int64(minutes)), "optional": .bool(optional)]
 }
 /// Row 117's places: 3 required of 60 minutes, then 6 optional of 90.
-private let mixed: JSONValue = .array(["R1", "R2", "R3"].map { item($0, 60) } + (1...6).map { item("O\($0)", 90, optional: true) })
+private let mixed: JSONValue = .array(["R1", "R2", "R3"].map { item($0, 60) } + (1...7).map { item("O\($0)", 90, optional: true) })
 
 private func ints(_ v: JSONValue?) -> [Int] {
     guard case .array(let a)? = v else { return [] }
@@ -45,16 +45,16 @@ struct TripFitTests {
         #expect(r.ok)
         let all = await planNames(rig)
         #expect(["R1", "R2", "R3"].allSatisfy(all.contains))
-        // Day costs before the optional: 160 and 80; each optional adds 110: 2 on day 1, 3 on day 2, O6 left.
-        #expect(strings(r.data["spare"]) == ["O6"])
-        #expect(all.filter { $0.hasPrefix("O") }.sorted() == ["O1", "O2", "O3", "O4", "O5"])
+        // Each stop costs 20 + its visit: R 80, O 110. §49 exchanges reach 460 + 440 (3 R + 2 O, 4 O); O7 (ranked last) is left.
+        #expect(strings(r.data["spare"]) == ["O7"])
+        #expect(all.filter { $0.hasPrefix("O") }.sorted() == ["O1", "O2", "O3", "O4", "O5", "O6"])
         #expect(r.data["budget_minutes"] == .int(480))
         let minutes = ints(r.data["day_minutes"])
         #expect(minutes.count == 2 && minutes.allSatisfy { $0 <= 480 })
         let line = rig.lines.withLock { $0 }.first { $0.hasPrefix("trip fit ") } ?? ""
-        #expect(line.contains("days=2 pace=normal budget=480 required=3 optional=6 kept=5 dropped=1"))
+        #expect(line.contains("days=2 pace=normal budget=480 required=3 optional=7 kept=6 dropped=1"))
         let next = r.data["next"]?.stringValue ?? ""
-        #expect(next.contains("时间不够，没排进：O6"))
+        #expect(next.contains("时间不够，没排进：O7"))
         #expect(next.contains("每天大约"))
         // Stops say their minutes.
         guard case .array(let stops)? = r.data["stops"] else { Issue.record("stops"); return }
@@ -65,7 +65,7 @@ struct TripFitTests {
     @Test("F-15b row 118: a required place of 480 min plus one of 60 on 1 day: both kept, over=1, 比较紧 in next")
     func row118() async {
         let (rig, _) = await timesRig(twenty, table: area)
-        let r = await rig.run(trip("make_trip_list", ["places": [item("R480", 480), item("R1", 60)]]))
+        let r = await settle(rig, await rig.run(trip("make_trip_list", ["places": [item("R480", 480), item("R1", 60)]])))
         #expect(r.ok)
         #expect(await planNames(rig).sorted() == ["R1", "R480"])
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip fit ") && $0.contains(" over=1 ") })
@@ -90,7 +90,7 @@ struct TripFitTests {
     @Test("F-15b row 120: optional places only enough to fill a day halfway: kept; 第1天还空大约…小时 in next")
     func row120() async {
         let (rig, _) = await timesRig(twenty, table: area)
-        let r = await rig.run(trip("make_trip_list", ["places": [item("O1", 60, optional: true), item("O2", 60, optional: true)]]))
+        let r = await settle(rig, await rig.run(trip("make_trip_list", ["places": [item("O1", 60, optional: true), item("O2", 60, optional: true)]])))
         #expect(r.ok)
         #expect(await planNames(rig).sorted() == ["O1", "O2"])
         #expect(strings(r.data["spare"]).isEmpty)
@@ -152,14 +152,14 @@ struct TripFitTests {
         let (rig, _) = await timesRig(twenty, table: area)
         _ = await rig.run(trip("make_trip_list", ["places": mixed, "day_count": 2]))
         let asked = rig.search.asked.withLock { $0 }.count
-        let added = await rig.run(trip("edit_trip_list", ["action": "add", "name": "O6", "day": 2]))
+        let added = await rig.run(trip("edit_trip_list", ["action": "add", "name": "O7", "day": 2]))
         #expect(added.ok && added.data["changed"] == "added")
         #expect(rig.search.asked.withLock { $0 }.count == asked)
         #expect(strings(added.data["spare"]).isEmpty)
-        #expect(await rig.planner.current.stops.contains { $0.place.name == "O6" && $0.optional && $0.minutes == 90 })
+        #expect(await rig.planner.current.stops.contains { $0.place.name == "O7" && $0.optional && $0.minutes == 90 })
         let before = ints(added.data["day_minutes"])
         let count = await rig.planner.currentPlan.stopCount
-        let removed = await rig.run(trip("edit_trip_list", ["action": "remove", "name": "O6", "day": 2]))
+        let removed = await rig.run(trip("edit_trip_list", ["action": "remove", "name": "O7", "day": 2]))
         #expect(removed.ok)
         #expect(await rig.planner.currentPlan.stopCount == count - 1)
         let after = ints(removed.data["day_minutes"])
@@ -204,7 +204,7 @@ struct TripFitTests {
         _ = await rig.run(trip("make_trip_list", ["places": mixed, "day_count": 2]))
         let plan = await rig.planner.currentPlan
         let back = TripPlanFile.current(from: TripPlanFile.current(plan))
-        #expect(back?.spare.map(\.place.name) == ["O6"])
+        #expect(back?.spare.map(\.place.name) == ["O7"])
         #expect(back?.budgetMinutes == 480)
         #expect(back?.allStops.map(\.stop.optional) == plan.allStops.map(\.stop.optional))
         #expect(back?.allStops.map(\.stop.minutes) == plan.allStops.map(\.stop.minutes))
