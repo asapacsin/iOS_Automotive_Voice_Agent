@@ -7,25 +7,13 @@ import NovaPorts
 import NovaNav
 import Synchronization
 
-/// One planned route with its geometry, for the map. GCJ-02.
-public struct PlannedRoute: Sendable, Hashable {
-    public struct Step: Sendable, Hashable {
-        public let instruction: String
-        public let road: String?
-        /// Index into `points` where this step begins.
-        public let startIndex: Int
-    }
-
-    public let summary: RouteSummary
-    public let points: [GeoCoordinate]
-    public let steps: [Step]
-}
-
 /// What the map draws: the routes on offer, the chosen one, and the simulated car position.
 public struct RouteGeometry: Sendable, Hashable {
     public var routes: [PlannedRoute] = []
     public var selected: RouteID?
     public var car: GeoCoordinate?
+    /// F-15b §47 item 8: the route source's attribution while its route is used (OSRM abroad), else nil.
+    public var attribution: String?
     public init() {}
 }
 
@@ -33,6 +21,8 @@ public struct RouteGeometry: Sendable, Hashable {
 /// instead of the Amap Navi SDK. `.emulator`: simulated movement along the chosen route, labelled so on screen
 /// (demo-recording.md REC-006). `.gps` (F-15a 真实导航): the phone's fixes matched to the route by
 /// `RouteProgress`, with off-route recalculation; `RouteGeometry.car` stays nil.
+/// F-15b §47 (T-040s): a request marked `abroad` takes its routes (and its recalculations) from `abroadSource`
+/// (OSRM) instead; everything after the route is the same.
 public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     public let events: AsyncStream<NaviEngineEnvelope>
     private let continuation: AsyncStream<NaviEngineEnvelope>.Continuation
@@ -46,6 +36,8 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     private let location: (any LocationUpdates)?
     private let clock: any NovaClock
     private let progressTuning: RouteProgressTuning
+    private let abroadSource: (any RouteSource)?
+    private let onLine: @Sendable (String) -> Void
     private let state = Mutex(State())
 
     private struct State {
@@ -60,6 +52,9 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         var latest = Generation.initial
         /// The destination of the last calculation, for an off-route recalculation.
         var destination: GeoCoordinate?
+        var destinationName = ""
+        /// §47: the source of the last calculation; its recalculations go to the same one. nil: 高德.
+        var source: (any RouteSource)?
         /// A route-change calculation (`recalculateFromHere`), not yet driven; its ids start above every earlier one.
         var candidates: [PlannedRoute] = []
         var nextCandidateID = 100
@@ -69,6 +64,8 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
                 transport: any HTTPTransport = URLSessionTransport(), speedKmh: Double = 60,
                 location: (any LocationUpdates)? = nil, clock: any NovaClock = SystemClock(),
                 progressTuning: RouteProgressTuning = RouteProgressTuning(),
+                abroadSource: (any RouteSource)? = nil,
+                onLine: @escaping @Sendable (String) -> Void = { _ in },
                 onGeometry: @escaping @Sendable (RouteGeometry) -> Void = { _ in }) {
         (events, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(64))
         self.key = key
@@ -78,23 +75,30 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         self.location = location
         self.clock = clock
         self.progressTuning = progressTuning
+        self.abroadSource = abroadSource
+        self.onLine = onLine
         self.onGeometry = onGeometry
     }
 
     public func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
         stopDriving()
+        // §47 item 1: abroad, OSRM; at home (or without an abroad source), 高德 as before.
+        let source: (any RouteSource)? = request.abroad ? abroadSource : nil
         let token = state.withLock { s -> Int in
             s.latest = max(s.latest, generation)
             s.request += 1
             s.candidates = []
             s.destination = request.destination
+            s.destinationName = request.destinationName
+            s.source = source
             return s.request
         }
         let event: NaviEngineEvent
+        let started = clock.now
         do {
-            guard let key = key(), !key.isEmpty else { throw AmapWebError.keyMissing }
             guard let from = await origin() else { throw AmapWebError.failed }
-            let routes = try await fetch(from: from, to: request.destination, key: key)
+            let routes = try await routes(source, from: from, to: request.destination, name: request.destinationName)
+            onLine("route plan vendor=\(source?.vendor ?? "amap") routes=\(routes.count) ms=\(elapsed(since: started))")
             let geometry = state.withLock { s -> RouteGeometry? in
                 guard s.request == token else { return nil }
                 s.routes = routes
@@ -102,12 +106,14 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
                 s.geometry.routes = routes
                 s.geometry.selected = routes.first?.summary.id
                 s.geometry.car = from
+                s.geometry.attribution = source?.attribution
                 return s.geometry
             }
             guard let geometry else { return }
             onGeometry(geometry)
             event = routes.isEmpty ? .routeCalculationFailed(code: 0) : .routesReady(routes.map(\.summary))
         } catch {
+            onLine("route plan vendor=\(source?.vendor ?? "amap") routes=0 ms=\(elapsed(since: started))")
             guard state.withLock({ $0.request == token }) else { return }
             event = .routeCalculationFailed(code: (error as? AmapWebError) == .keyMissing ? 1 : 2)
         }
@@ -350,12 +356,27 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
         continuation.yield(NaviEngineEnvelope(generation: generation, event: .guidanceText(text, id)))
     }
 
-    /// One recalculation to the same destination; nil when it fails (no key, network, no route).
+    /// One recalculation to the same destination, from the same source as the trip's calculation (§47 item 3: one
+    /// OSRM request abroad); nil when it fails (no key, network, no route).
     private func recalculate(from: GeoCoordinate) async -> [PlannedRoute]? {
-        guard let key = key(), !key.isEmpty, let destination = state.withLock({ $0.destination }) else { return nil }
-        guard let routes = try? await fetch(from: from, to: destination, key: key), !routes.isEmpty else { return nil }
+        guard let (destination, name, source) = state.withLock({ s in s.destination.map { ($0, s.destinationName, s.source) } })
+        else { return nil }
+        let started = clock.now
+        let routes = try? await routes(source, from: from, to: destination, name: name)
+        onLine("route recalc vendor=\(source?.vendor ?? "amap") ms=\(elapsed(since: started))")
+        guard let routes, !routes.isEmpty else { return nil }
         return routes
     }
+
+    /// `source` nil: 高德 with the key (`keyMissing` without one).
+    private func routes(_ source: (any RouteSource)?, from: GeoCoordinate, to: GeoCoordinate,
+                        name: String) async throws -> [PlannedRoute] {
+        if let source { return try await source.routes(from: from, to: to, destinationName: name) }
+        guard let key = key(), !key.isEmpty else { throw AmapWebError.keyMissing }
+        return try await fetch(from: from, to: to, key: key)
+    }
+
+    private func elapsed(since started: NovaInstant) -> Int64 { max(0, (clock.now - started).milliseconds) }
 
     static func interpolate(_ points: [GeoCoordinate], _ cumulative: [Double], index: Int, at d: Double) -> GeoCoordinate {
         guard index + 1 < points.count else { return points[points.count - 1] }

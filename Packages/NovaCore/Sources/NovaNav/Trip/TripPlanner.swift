@@ -1089,7 +1089,8 @@ public actor TripPlanner: ToolExecutor {
             return .failure(.dayDone, advice: more ? "第\(plan.currentDay)天的地点都去过或跳过了。请问司机要不要开始第\(plan.currentDay + 1)天。"
                             : "行程里的地点都去过或跳过了。请用一句话说今天的行程走完了。")
         }
-        let result = await navigation.tripNext(target.place)
+        // §47 item 1 (T-040s): an `abroad` trip's stop is routed by OSRM inside the app.
+        let result = await navigation.tripNext(target.place, abroad: plan.abroad)
         onLine("trip next index=\(target.index) day=\(plan.currentDay) ok=\(result.ok ? "yes" : "no") code=\(result.code?.rawValue ?? "none")")
         if !result.ok, let handed = await handoff(target, after: result) { return handed }
         guard result.ok else { return result }
@@ -1144,8 +1145,8 @@ public actor TripPlanner: ToolExecutor {
         plan.abroad ? plan.allStops.first?.stop.place.coordinate : nil
     }
 
-    /// §38 item 2 (T-040o): abroad, a failed 高德 route opens Apple Maps to the stop instead. nil when this does not
-    /// apply (at home, a refusal that is not a route failure, or no hand-off).
+    /// §38 item 2 (T-040o), §47 item 6: abroad, a failed route (OSRM) opens Apple Maps to the stop instead. nil when
+    /// this does not apply (at home, a refusal that is not a route failure, or no hand-off).
     private func handoff(_ target: TripStop, after result: ToolResult) async -> ToolResult? {
         guard let onHandoff, plan.abroad || !TripRegion.isChina(target.place.countryCode),
               result.code != .optionsNotReady, result.code != .optionsStale, !Task.isCancelled else { return nil }

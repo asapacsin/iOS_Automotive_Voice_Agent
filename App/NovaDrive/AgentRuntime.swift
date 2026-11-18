@@ -1441,11 +1441,19 @@ final class AgentRuntime {
             }
             return CoordinateConverter.gcj02(fix.coordinate)
         }
-        let engine = AmapRouteEngine(key: amapKey, origin: routeOrigin,
-                                     location: location, clock: navigationClock,
-                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         let listeners = TripListeners()
         let tripSession = TripSession()
+        // F-15b §47 (T-040s): abroad, routes and recalculations from OSRM inside the app; one OSRM request per second
+        // shared with the §36 item 2c table. `route plan` / `route recalc` lines, numbers and enums only (I-8).
+        let osrmThrottle = OsrmThrottle()
+        let engine = AmapRouteEngine(key: amapKey, origin: routeOrigin,
+                                     location: location, clock: navigationClock,
+                                     abroadSource: OsrmRouteSource(throttle: osrmThrottle),
+                                     onLine: { line in
+                                         RuntimeLog.agent.notice("\(line, privacy: .public)")
+                                         tripSession.record()?.submit(.trip(line))
+                                     },
+                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         // F-16 §14 (T-042c): near-first search; the turn count is the uplink gate's (F-04a), never a transcript.
         let nearFirst = NearFirstSearch(
             match: DestinationMatch(pinyin: FoundationPinyinConverter()), geocoder: web,
@@ -1511,7 +1519,7 @@ final class AgentRuntime {
                                   },
                                   // §36 item 2c (T-040p): abroad driving times from OSRM (高德 refuses them); a failure
                                   // orders on the straight-line estimate.
-                                  abroadTimes: TripTimes(service: OsrmDrivingTimes(), clock: navigationClock),
+                                  abroadTimes: TripTimes(service: OsrmDrivingTimes(throttle: osrmThrottle), clock: navigationClock),
                                   // §46 (T-040r): photos abroad from English Wikipedia, within 2 km of the stop.
                                   abroadPhotos: WikipediaPhotos())
         await planner.restore()

@@ -289,6 +289,17 @@ private struct DriveContent: View {
         // resets itself when a touch is cancelled, so the next touch always counts.
         .onChange(of: dragging) { position.userGesture() }
         .onChange(of: magnifying) { position.userGesture() }
+        // F-15b §47 item 8: OSRM / OpenStreetMap attribution in small text while an OSRM route is used.
+        .overlay(alignment: .bottomLeading) {
+            if let attribution = model.geometry.attribution, !model.geometry.routes.isEmpty {
+                Text(attribution)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(6)
+                    .accessibilityIdentifier("route-attribution")
+            }
+        }
     }
 
     /// Applies a `MapCameraPolicy` command; the resulting camera change is not a driver gesture.
