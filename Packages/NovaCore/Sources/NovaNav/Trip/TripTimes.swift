@@ -134,14 +134,15 @@ public actor TripTimes {
             return seconds
         }
         if let seconds = fromCache() { return Table(seconds: seconds, requests: 0, cached: nodes.count) }
-        while let running = inFlight {
-            await running.value
-            if inFlight == running { inFlight = nil }
-        }
-        if let seconds = fromCache() { return Table(seconds: seconds, requests: 0, cached: nodes.count) }
-        // Hold the slot while waiting out the gap, so a third caller queues behind this one.
         let gap = Duration.milliseconds(minGap.milliseconds)
-        if let last = lastSent, ContinuousClock.now < last + gap {
+        while true {
+            while let running = inFlight {
+                await running.value
+                if inFlight == running { inFlight = nil }
+            }
+            if let seconds = fromCache() { return Table(seconds: seconds, requests: 0, cached: nodes.count) }
+            guard let last = lastSent, ContinuousClock.now < last + gap else { break }
+            // Hold the slot while waiting out the gap; afterwards check the queue again (another may have gone).
             let wait = Task<Void, Never> { try? await Task.sleep(until: last + gap, clock: .continuous) }
             inFlight = wait
             await wait.value

@@ -2853,7 +2853,7 @@
     {
       "id": "T-040p",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b §36 items 2b-2d: abroad place search on Photon (OpenStreetMap), abroad driving times on OSRM with a straight-line estimate fallback, navigate_to abroad/city on Photon; rows 84b-84f, row 96 again on device.",
       "depends_on": [
