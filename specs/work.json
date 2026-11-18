@@ -2892,6 +2892,24 @@
       ]
     },
     {
+      "id": "T-040q",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 30,
+      "action": "F-15b §45: car rental in a trip: make_trip_list rental=true, code picks a pickup near the start and a return near the end (same brand preferred), fixed in the day order, 租 label; rows 99-104.",
+      "depends_on": [
+        "T-040p"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 99-104)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Device 2026-11-18 record 20261118-133726: the driver asked for 租车 and the plan had none. Spec only (owner 2026-11-18: \"write down this also\"). Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §45."
+    },
+    {
       "id": "T-031j",
       "owner": "AUTONOMOUS",
       "status": "PASS",

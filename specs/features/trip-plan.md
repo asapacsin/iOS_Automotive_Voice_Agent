@@ -1179,4 +1179,56 @@ Codes and numbers only (I-8).
 | Task | Scope | Status |
 |---|---|---|
 | T-040o | §35–§42, rows 84–98 | PASS (56c5b5e); rows 96–98 device NOT_VERIFIED |
-| T-040p | §36 items 2b–2d (OpenStreetMap search, OSRM times, plain searches abroad), rows 84b–84f; row 96 again on device | RUNNING |
+| T-040p | §36 items 2b–2d (OpenStreetMap search, OSRM times, plain searches abroad), rows 84b–84f; row 96 again on device | PASS (21b82ef); row 96 device NOT_VERIFIED |
+
+## 45. Car rental in a trip (owner request 2026-11-18)
+
+**Why (device 2026-11-18, record 20261118-133726).** The driver asked 「帮我安排一下那些租车、酒店还有景点」 for a
+Tokyo self-drive trip. The plan had sights and hotels but no rental, and she said 「租车服务需要您在机场或相关平台自行
+办理」. Rental places exist in the map data: Photon `osm_tag=amenity:car_rental` around Narita airport returned
+日産レンタカー 1.7 km away, then Toyota, Nippon and ORIX offices (checked 2026-11-18). Booking is not offered: car
+booking APIs (Expedia Rapid Car, Booking.com Demand cars) need an approved partner account.
+
+1. **New `make_trip_list` field `rental`** (bool, default `false`): `true` when the driver asks for a rental car
+   (租车、租个车、取车). It does not count against the 16.
+2. **Pickup stop (code).** With `rental=true`, code searches 「租车」 around the trip's start (§37 item 5: named
+   `start`, else the phone, else none):
+   - abroad on Photon by tag `amenity:car_rental` (§36 item 2b), at home on 高德 as §4's category search;
+   - within 3 km, else 10 km; the nearest result is taken;
+   - it becomes day 1's second stop, `role: rental_pickup`, right after `start` (the first stop when there is no
+     `start`), marked `picked: true`.
+3. **Return stop (code).** Searched the same way around the trip's `end` (else the last day's last sight). A result
+   whose name shares the pickup's brand (the name before 「レンタカー」/「租车」/"Rent", else the whole name) is preferred
+   over a nearer one. It becomes the last day's second-to-last stop, `role: rental_return`, just before `end` (the
+   last stop when there is no `end`). With `start` = `end`, the pickup place is used for the return when it is found
+   again.
+4. **Ordering.** Pickup and return are fixed like the frame (§37 item 3): day 1 is start → pickup → sights → hotel;
+   the last day is hotel → sights → return → end.
+5. **Not found.** No result within 10 km: that stop is left out and `next` says so once: 「<起点>附近没找到租车点」.
+   The plan is built without it.
+6. **Driver changes.** `edit_trip_list replace` on a rental stop searches the new name as a place of the trip and
+   keeps the role. `remove` drops it.
+7. **Navigation.** `trip_next` goes to the pickup and the return like any stop (§37 item 7). A plain
+   「导航去最近的租车点」 is `navigate_to` (§36 item 2d abroad), unchanged.
+8. **Booking.** Not done by the app. When `rental=true`, `next` adds once: 「租车需要提前在网上预订」.
+9. **Screen.** Rental cards carry the label 租 under the poster (as 住 / 机场, §37 item 8).
+10. **Catalog text, `make_trip_list` appended:** 「司机要租车就填 rental=true，会自动在起点附近找取车点、在终点附近找还车点。」
+11. **Record.** `trip frame …` gains `rental=<none|both|pickup|return|missing>`. Numbers and enums only (I-8).
+12. **Code.** `TripRole` gains `rental_pickup`, `rental_return` (NovaNav, `TripList.swift`); the search and placement
+    in `TripPlanner` beside hotel picking (§37 item 4); the catalog field and validation in `ToolCatalog.swift`; the
+    label in `App/NovaDrive/TripCardsView.swift`. Saved plans (§14) keep the role.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 99 | `abroad=true start=成田机场 end=成田机场 rental=true`, 3 days (fake Photon: a rental 1.7 km from the start) | One tag search `amenity:car_rental` around the start; day 1 = 成田 → rental → sights; last day ends rental → 成田; roles set; `trip frame rental=both` | unit |
+| 100 | Same, two rentals near the end, the farther one shares the pickup's brand | The same-brand one is the return | unit |
+| 101 | `rental=true`, no rental within 10 km of the start | Pickup left out, 「…附近没找到租车点」 in `next`; plan built | unit |
+| 102 | `rental=false` (default) | No rental search; outputs as before | unit |
+| 103 | Saved plan with rental stops, reopened; `replace` the pickup | Roles kept; the new pickup keeps `rental_pickup` | unit |
+| 104 | Device: 「东京五天自驾，成田机场进出，租车、酒店都帮我安排」 | Day 1 goes 成田 → a rental place → sights; the last day ends at a rental place → 成田; 租 labels on screen | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040q | §45, rows 99–104 | NOT_RUN |
