@@ -714,15 +714,15 @@ public actor TripPlanner: ToolExecutor {
         if let endStop { addNode(endStop) }
         anyHotel.forEach(addNode)
         // §42: `trip times vendor=<amap|osrm|estimate> pairs= ms=` after each table.
-        func timeTable() async -> TripTimes.Table? {
+        func timeTable(_ start: TripTimes.Node?, _ list: [TripTimes.Node]) async -> TripTimes.Table? {
             let asked = clock.now
-            var got = await tableTimes?.table(start: startNode, stops: nodes)
-            if got == nil, abroad { got = TripTimes.estimate(start: startNode, stops: nodes) }
+            var got = await tableTimes?.table(start: start, stops: list)
+            if got == nil, abroad { got = TripTimes.estimate(start: start, stops: list) }
             let vendor = got?.estimated == true ? "estimate" : abroad && abroadTimes != nil ? "osrm" : "amap"
             onLine("trip times vendor=\(vendor) pairs=\(got?.pairs ?? 0) ms=\(ms(since: asked))")
             return got
         }
-        guard var table = await timeTable() else {
+        guard var table = await timeTable(startNode, nodes) else {
             log(false)
             return .failed(.routeTimesUnavailable)
         }
@@ -765,7 +765,7 @@ public actor TripPlanner: ToolExecutor {
             guard !Task.isCancelled else { return .failed(.optionsStale) }
             if picked > 0 {
                 nightHotel.compactMap { $0 }.forEach(addNode)
-                guard let again = await timeTable() else {
+                guard let again = await timeTable(startNode, nodes) else {
                     log(false, requests: requests, cached: cached)
                     return .failed(.routeTimesUnavailable)
                 }
