@@ -184,7 +184,7 @@ private struct TripCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             ZStack(alignment: .topLeading) {
-                TripPhotoView(url: card.photoURL, initial: card.initial)
+                TripPhotoView(url: card.photoURL, kind: card.kind)
                     .frame(width: 132, height: 84)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 Text("\(card.index)")
@@ -223,25 +223,21 @@ private struct TripCardView: View {
     }
 }
 
-/// §12: the place photo, or the placeholder (the name's first character on a plain colour).
+/// §12: the place photo, or the §46 item 6 placeholder (the kind's icon on a soft two-colour gradient).
 struct TripPhotoView: View {
     let url: URL?
-    let initial: String
+    let kind: PlaceKind
     @State private var image: UIImage?
-
-    /// A plain colour fixed by the character, the same on every launch.
-    private var tint: Color {
-        let value = initial.unicodeScalars.first.map { Int($0.value) } ?? 0
-        return Color(hue: Double(value % 360) / 360, saturation: 0.35, brightness: 0.85)
-    }
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack {
             if let image {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
-                Rectangle().fill(tint)
-                Text(initial).font(.largeTitle.weight(.bold)).foregroundStyle(.white)
+                let pair = TripKindTheme.colors(kind, dark: scheme == .dark)
+                Rectangle().fill(LinearGradient(colors: [pair.0, pair.1], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: kind.symbol).font(.system(size: 30, weight: .semibold)).foregroundStyle(.white)
             }
         }
         .task(id: url) {
@@ -338,7 +334,7 @@ struct TripDetailSheet: View {
 
     var body: some View {
         ScrollView { VStack(alignment: .leading, spacing: 10) {
-            TripPhotoView(url: place?.photoURL ?? card.photoURL, initial: card.initial)
+            TripPhotoView(url: place?.photoURL ?? card.photoURL, kind: card.kind)
                 .frame(height: 180)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             Text("\(card.index) \(card.name)").font(.title3.weight(.bold))
@@ -365,5 +361,33 @@ struct TripDetailSheet: View {
         .font(.subheadline)
         .padding() }
         .presentationDetents([.medium, .large])
+    }
+}
+
+/// §46 item 6 (T-040r): the placeholder's gradient colour pair per kind of place, light and dark.
+enum TripKindTheme {
+    /// (hue 0–360, saturation, brightness) of the gradient's first colour; the second is shifted by 30°.
+    private static func base(_ kind: PlaceKind) -> (Double, Double, Double) {
+        switch kind {
+        case .temple: return (20, 0.45, 0.85)
+        case .tower: return (210, 0.45, 0.85)
+        case .park: return (130, 0.40, 0.75)
+        case .museum: return (270, 0.35, 0.80)
+        case .hotel: return (40, 0.40, 0.85)
+        case .airport: return (195, 0.45, 0.85)
+        case .rental: return (0, 0.40, 0.80)
+        case .shop: return (320, 0.35, 0.85)
+        case .food: return (30, 0.50, 0.90)
+        case .other: return (220, 0.15, 0.70)
+        }
+    }
+
+    static func colors(_ kind: PlaceKind, dark: Bool) -> (Color, Color) {
+        let (hue, saturation, brightness) = base(kind)
+        let b = dark ? brightness * 0.6 : brightness
+        let first = Color(hue: hue / 360, saturation: saturation, brightness: b)
+        let second = Color(hue: (hue + 30).truncatingRemainder(dividingBy: 360) / 360, saturation: saturation * 0.8,
+                           brightness: b * 0.9)
+        return (first, second)
     }
 }

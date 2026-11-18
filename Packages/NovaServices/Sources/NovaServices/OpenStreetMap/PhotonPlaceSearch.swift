@@ -54,7 +54,7 @@ public final class PhotonPlaceSearch: PlaceSearch, @unchecked Sendable {
             guard d <= Double(radiusMeters) else { return nil }
             return Place(id: place.id, name: place.name, address: place.address, coordinate: place.coordinate,
                          distanceMeters: Int(d.rounded()), city: place.city, district: place.district,
-                         countryCode: place.countryCode)
+                         countryCode: place.countryCode, kind: place.kind)
         }.sorted { ($0.distanceMeters ?? 0) < ($1.distanceMeters ?? 0) }
     }
 
@@ -100,7 +100,7 @@ public final class PhotonPlaceSearch: PlaceSearch, @unchecked Sendable {
         guard let shown, Self.tags[query] == nil else { return places }
         return places.map { p in
             Place(id: p.id, name: shown, address: p.address ?? p.name, coordinate: p.coordinate, distanceMeters: nil,
-                  city: p.city, district: p.district, countryCode: p.countryCode)
+                  city: p.city, district: p.district, countryCode: p.countryCode, kind: p.kind)
         }
     }
 
@@ -120,7 +120,9 @@ public final class PhotonPlaceSearch: PlaceSearch, @unchecked Sendable {
             return Place(id: "osm_\(type)\(osmID)", name: name, address: address.isEmpty ? nil : address,
                          coordinate: GeoCoordinate(latitude: xy[1], longitude: xy[0], datum: .gcj02), distanceMeters: nil,
                          city: props["city"] as? String, district: props["district"] as? String,
-                         countryCode: (props["countrycode"] as? String)?.uppercased())
+                         countryCode: (props["countrycode"] as? String)?.uppercased(),
+                         // §46 item 6 (T-040r): the kind from the OpenStreetMap tag.
+                         kind: PlaceKindMap.osm(key: props["osm_key"] as? String, value: props["osm_value"] as? String))
         }
     }
 

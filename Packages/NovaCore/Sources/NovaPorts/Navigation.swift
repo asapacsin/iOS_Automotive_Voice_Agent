@@ -239,10 +239,13 @@ public struct Place: Sendable, Hashable {
     public let photoURL: URL?
     /// F-15b §41 (T-040o): ISO 3166 code from Apple's search (`placemark.isoCountryCode`); nil from 高德.
     public let countryCode: String?
+    /// F-15b §46 item 6 (T-040r): the kind of place, from Photon's `osm_key`/`osm_value` or 高德's `type`; nil when unknown.
+    public let kind: PlaceKind?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
                 openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil,
-                photoURL: URL? = nil, countryCode: String? = nil) {
+                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil) {
+        self.kind = kind
         self.photoURL = photoURL
         self.countryCode = countryCode
         self.city = city
@@ -261,8 +264,36 @@ extension Place {
     /// The same place with `photoURL` (F-15b §12).
     public func with(photoURL: URL?) -> Place {
         Place(id: id, name: name, address: address, coordinate: coordinate, distanceMeters: distanceMeters,
-              openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL, countryCode: countryCode)
+              openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL, countryCode: countryCode,
+              kind: kind)
     }
+}
+
+/// F-15b §46 item 6 (T-040r): the kind of a place, for the card placeholder's icon and colours.
+public enum PlaceKind: String, Sendable, Hashable, Codable, CaseIterable {
+    case temple, tower, park, museum, hotel, airport, rental, shop, food, other
+
+    /// The SF Symbol of the placeholder (§46 item 6).
+    public var symbol: String {
+        switch self {
+        case .temple: return "building.columns"
+        case .tower: return "binoculars"
+        case .park: return "leaf"
+        case .museum: return "building.2"
+        case .hotel: return "bed.double"
+        case .airport: return "airplane"
+        case .rental: return "car"
+        case .shop: return "bag"
+        case .food: return "fork.knife"
+        case .other: return "mappin.and.ellipse"
+        }
+    }
+}
+
+/// F-15b §46 items 1–3 (T-040r): a photo link for a stop abroad. nil when no page fits; throws when unreachable.
+public protocol PlacePhotoSource: Sendable {
+    /// `asked` is the name as written (「中文名 (English name)」); `near` is the stop.
+    func photo(asked: String, near: GeoCoordinate) async throws -> URL?
 }
 
 public enum PlaceSort: String, Sendable {

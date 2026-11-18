@@ -104,7 +104,7 @@ struct TripScreenTests {
         let list = await rig.planner.current
         #expect(list.stops.map { $0.place.photoURL?.absoluteString } == ["https://store.is.autonavi.com/a.jpg", nil, nil])
         #expect(list.generation == 1)
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip photo ok=1 none=1 failed=1 ms=") })
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip photo vendor=amap ok=1 none=1 failed=1 ms=") })
         #expect(TripPhotoLink.secure("http://a.cn/x.jpg")?.absoluteString == "https://a.cn/x.jpg")
         #expect(TripPhotoLink.secure("ftp://a.cn/x.jpg") == nil && TripPhotoLink.secure("") == nil)
         // §12 item 5: the failed one is tried once more after the next change, the no-photo one is not.

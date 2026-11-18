@@ -85,6 +85,8 @@ public actor TripPlanner: ToolExecutor {
     private let times: TripTimes?
     /// §36 item 2c (T-040p): the table for `abroad` trips (OSRM); when it fails the plan is ordered on an estimate.
     private let abroadTimes: TripTimes?
+    /// §46 (T-040r): photos for stops abroad (Wikipedia); nil keeps abroad stops without photos (§36 item 7).
+    private let abroadPhotos: (any PlacePhotoSource)?
     /// §32: `here` or `demo` (模拟导航's demo point) for the `trip order` line.
     private let startLabel: @Sendable () async -> String
     /// §29 item 3: the arrival note for a connected session.
@@ -133,7 +135,9 @@ public actor TripPlanner: ToolExecutor {
                 abroadSearch: (any PlaceSearch)? = nil,
                 onHandoff: (@Sendable (Place) async -> Bool)? = nil,
                 abroadCenter: (@Sendable (String) async -> GeoCoordinate?)? = nil,
-                abroadTimes: TripTimes? = nil) {
+                abroadTimes: TripTimes? = nil,
+                abroadPhotos: (any PlacePhotoSource)? = nil) {
+        self.abroadPhotos = abroadPhotos
         self.abroadTimes = abroadTimes
         self.abroadSearch = abroadSearch
         self.abroadCenter = abroadCenter
@@ -1570,37 +1574,48 @@ public actor TripPlanner: ToolExecutor {
     /// so it never delays her reply. A stop that already has a link (a saved plan) makes no call.
     private func photos() {
         // §12 item 5: only failures count toward the one retry per launch.
-        let asked = plan.days.flatMap(\.stops).map(\.place).filter { place in
-            // §36 item 7 (T-040o): 高德 has no photos abroad.
-            place.photoURL == nil && !place.id.hasPrefix("saved_") && !photoNone.contains(place.id) && TripRegion.isChina(place.countryCode)
+        let abroadPhotos = abroadPhotos
+        let asked = plan.days.flatMap(\.stops).filter { stop in
+            let place = stop.place
+            // §36 item 7 (T-040o): 高德 has no photos abroad; §46 (T-040r): Wikipedia there instead.
+            return place.photoURL == nil && !place.id.hasPrefix("saved_") && !photoNone.contains(place.id)
+                && (TripRegion.isChina(place.countryCode) || abroadPhotos != nil)
                 && !photoPending.contains(place.id) && (photoTries[place.id] ?? 0) < 2
         }
-        let unique = Dictionary(asked.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }).values.map { $0 }
+        let unique = Dictionary(asked.map { ($0.place.id, $0) }, uniquingKeysWith: { a, _ in a }).values.map { $0 }
         guard !unique.isEmpty else { return }
-        let wanted2 = unique
-        for place in wanted2 {
-            photoTries[place.id, default: 0] += 1
-            photoPending.insert(place.id)
+        for stop in unique {
+            photoTries[stop.place.id, default: 0] += 1
+            photoPending.insert(stop.place.id)
         }
         let search = search, clock = clock, limit = tuning.parallelLookups
         let previous = photoTask
-        let wanted = wanted2
+        let wanted = unique
         photoTask = Task { [weak self] in
             await previous?.value
             let started = clock.now
-            var found: [(String, URL?, Bool)] = []
-            await withTaskGroup(of: (String, URL?, Bool).self) { group in
+            var found: [PhotoFound] = []
+            await withTaskGroup(of: PhotoFound.self) { group in
                 var next = 0
                 func add() {
                     guard next < wanted.count else { return }
-                    let place = wanted[next]
+                    let stop = wanted[next]
                     next += 1
                     group.addTask {
+                        let place = stop.place
+                        if TripRegion.isChina(place.countryCode) {
+                            do {
+                                let detail = try await search.detail(id: place.id)
+                                return PhotoFound(id: place.id, url: detail?.photoURL, reached: true, vendor: "amap")
+                            } catch {
+                                return PhotoFound(id: place.id, url: nil, reached: false, vendor: "amap")
+                            }
+                        }
                         do {
-                            let detail = try await search.detail(id: place.id)
-                            return (place.id, detail?.photoURL, true)
+                            let url = try await abroadPhotos?.photo(asked: stop.asked, near: place.coordinate)
+                            return PhotoFound(id: place.id, url: url, reached: true, vendor: "wikipedia")
                         } catch {
-                            return (place.id, nil, false)
+                            return PhotoFound(id: place.id, url: nil, reached: false, vendor: "wikipedia")
                         }
                     }
                 }
@@ -1614,11 +1629,24 @@ public actor TripPlanner: ToolExecutor {
         }
     }
 
-    private func photosArrived(_ found: [(String, URL?, Bool)], since started: NovaInstant) {
-        var ok = 0, none = 0, failed = 0
-        for (id, url, reached) in found {
+    struct PhotoFound: Sendable {
+        let id: String
+        let url: URL?
+        let reached: Bool
+        let vendor: String
+    }
+
+    private func photosArrived(_ found: [PhotoFound], since started: NovaInstant) {
+        var counts: [String: (ok: Int, none: Int, failed: Int)] = [:]
+        for item in found {
+            let id = item.id, url = item.url
             photoPending.remove(id)
-            if !reached {
+            var ok = 0, none = 0, failed = 0
+            defer {
+                let c = counts[item.vendor] ?? (0, 0, 0)
+                counts[item.vendor] = (c.ok + ok, c.none + none, c.failed + failed)
+            }
+            if !item.reached {
                 failed += 1
                 photoFailed.insert(id)
             } else if let url {
@@ -1633,9 +1661,14 @@ public actor TripPlanner: ToolExecutor {
                 photoNone.insert(id)
             }
         }
-        onLine("trip photo ok=\(ok) none=\(none) failed=\(failed) ms=\(ms(since: started))")
+        // §46 item 8: one line per vendor.
+        let elapsed = ms(since: started)
+        for vendor in counts.keys.sorted() {
+            let c = counts[vendor]!
+            onLine("trip photo vendor=\(vendor) ok=\(c.ok) none=\(c.none) failed=\(c.failed) ms=\(elapsed)")
+        }
         // Saved plans keep the link, not the image (§12 item 4).
-        if ok > 0 { persist() }
+        if counts.values.contains(where: { $0.ok > 0 }) { persist() }
         onChange(list)
     }
 
