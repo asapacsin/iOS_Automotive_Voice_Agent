@@ -2948,7 +2948,7 @@
     {
       "id": "T-040t",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b §48: fit each day to a time budget: model gives visit minutes and optional per place and ~1.5x places; code (TripFitter) keeps required, inserts optional within the day budget, keeps the rest as spare, says the load; rows 117-126.",
       "depends_on": [
