@@ -75,6 +75,21 @@ struct TripPhase4bTests {
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip times vendor=osrm pairs=20 ms=") })
     }
 
+    @Test("F-15b §36 item 2c: two different OSRM tables back to back are at least 1 request per second apart")
+    func osrmRate() async {
+        let osrm = FakeOsrm()
+        let times = TripTimes(service: osrm, clock: ManualClock(), minGap: .milliseconds(300))
+        let a = TripTimes.Node(key: "a", coordinate: tokyoHere)
+        let b = TripTimes.Node(key: "b", coordinate: GeoCoordinate(latitude: 35.71, longitude: 139.8, datum: .gcj02))
+        let c = TripTimes.Node(key: "c", coordinate: GeoCoordinate(latitude: 35.72, longitude: 139.8, datum: .gcj02))
+        let began = ContinuousClock.now
+        let first = await times.table(start: a, stops: [b])
+        let second = await times.table(start: a, stops: [c])
+        #expect(first != nil && second != nil)
+        #expect(osrm.tables.withLock { $0 } == [2, 2])
+        #expect(ContinuousClock.now - began >= .milliseconds(300))
+    }
+
     @Test("F-15b row 84c: abroad trip, OSRM times out: straight-line order, times estimated, 「时间是估算的」 in next; vendor=estimate; no retry")
     func row84c() async {
         let osrm = FakeOsrm(fail: true)

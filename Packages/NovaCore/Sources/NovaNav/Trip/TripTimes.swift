@@ -46,9 +46,13 @@ public actor TripTimes {
     private var known: [String: (DrivingTime, NovaInstant)] = [:]
     /// §36 item 2c: the one whole-table request in flight; a second waits for it (never more than one at once).
     private var inFlight: Task<Void, Never>?
+    /// §36 item 2c: OSRM's usage policy, at most one whole-table request per `minGap` (1 s), by the wall clock.
+    private let minGap: NovaDuration
+    private var lastSent: ContinuousClock.Instant?
 
     public init(service: any DrivingTimes, clock: any NovaClock, keep: NovaDuration = .minutes(30), parallel: Int = 4,
-                retryDelay: NovaDuration = .milliseconds(600)) {
+                retryDelay: NovaDuration = .milliseconds(600), minGap: NovaDuration = .seconds(1)) {
+        self.minGap = minGap
         self.service = service
         self.clock = clock
         self.keep = keep
@@ -135,6 +139,15 @@ public actor TripTimes {
             if inFlight == running { inFlight = nil }
         }
         if let seconds = fromCache() { return Table(seconds: seconds, requests: 0, cached: nodes.count) }
+        // Hold the slot while waiting out the gap, so a third caller queues behind this one.
+        let gap = Duration.milliseconds(minGap.milliseconds)
+        if let last = lastSent, ContinuousClock.now < last + gap {
+            let wait = Task<Void, Never> { try? await Task.sleep(until: last + gap, clock: .continuous) }
+            inFlight = wait
+            await wait.value
+            if inFlight == wait { inFlight = nil }
+        }
+        lastSent = ContinuousClock.now
         let service = service, points = nodes.map(\.coordinate)
         let ask = Task<[[DrivingTime?]]?, Never> { try? await service.table(points) }
         let mine = Task<Void, Never> { _ = await ask.value }
