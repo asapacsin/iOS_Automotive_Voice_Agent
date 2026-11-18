@@ -2967,7 +2967,7 @@
     {
       "id": "T-040u",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b §49: the model revises the plan after code checks it: importance 1-3 and wishes; fit by score with exchanges between days (Google); checks not_found/over/driving/under/hotel fed back together (LLM-Modulo); new revise_trip_list; at most 2 silent rounds; rows 127-139.",
       "depends_on": [
