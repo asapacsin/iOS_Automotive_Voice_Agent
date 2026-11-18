@@ -15,9 +15,13 @@ public final class OsrmDrivingTimes: DrivingTimes, @unchecked Sendable {
     public static let host = "https://router.project-osrm.org/table/v1/driving/"
     public static let timeoutSeconds: Double = 8
     private let transport: any HTTPTransport
+    /// F-15b §47 item 2: shared with `OsrmRouteSource` (1 request per second in all).
+    private let throttle: OsrmThrottle?
 
-    public init(transport: any HTTPTransport = URLSessionTransport(connectTimeout: .seconds(8))) {
+    public init(transport: any HTTPTransport = URLSessionTransport(connectTimeout: .seconds(8)),
+                throttle: OsrmThrottle? = nil) {
         self.transport = transport
+        self.throttle = throttle
     }
 
     public var answersWholeTable: Bool { true }
@@ -37,6 +41,7 @@ public final class OsrmDrivingTimes: DrivingTimes, @unchecked Sendable {
         var request = URLRequest(url: url)
         request.timeoutInterval = Self.timeoutSeconds
         request.setValue("NovaDrive/1.0 (iOS)", forHTTPHeaderField: "User-Agent")
+        await throttle?.admit()
         let response: (status: Int, body: Data)
         do {
             response = try await transport.send(request)

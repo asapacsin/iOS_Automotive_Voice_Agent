@@ -28,10 +28,14 @@ public struct RouteID: Sendable, Hashable {
 public struct RouteRequest: Sendable, Hashable {
     public let destination: GeoCoordinate
     public let destinationName: String
+    /// F-15b §47 item 1 (T-040s): from an `abroad` trip or `navigate_to abroad=true`; the route then comes from
+    /// OSRM instead of 高德.
+    public let abroad: Bool
 
-    public init(destination: GeoCoordinate, destinationName: String) {
+    public init(destination: GeoCoordinate, destinationName: String, abroad: Bool = false) {
         self.destination = destination
         self.destinationName = destinationName
+        self.abroad = abroad
     }
 }
 

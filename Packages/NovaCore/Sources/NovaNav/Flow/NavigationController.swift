@@ -158,6 +158,9 @@ public actor NavigationController: ToolExecutor {
     private var abroadSearch: (any PlaceSearch)?
     private var abroadCenter: (@Sendable (String) async -> GeoCoordinate?)?
     private var abroadTripCity: (@Sendable () async -> String?)?
+    /// F-15b §47 item 1 (T-040s): the places on offer came from `navigate_to abroad` (or an `abroad` trip's
+    /// `trip_next`), so their route request is marked `abroad` (OSRM). A home search clears it.
+    private var routeAbroad = false
     public func setAbroad(search: any PlaceSearch, center: @escaping @Sendable (String) async -> GeoCoordinate?,
                           tripCity: @escaping @Sendable () async -> String?) {
         abroadSearch = search
@@ -230,6 +233,7 @@ public actor NavigationController: ToolExecutor {
     /// to the candidate list as `navigate_to`'s do. `nav search vendor=photon abroad=yes found= ms=`.
     private func navigateAbroad(_ destination: String, city: String?) async -> ToolResult {
         confirm = nil
+        routeAbroad = true
         guard let city, let abroadSearch else {
             return .failure(.invalidFields, advice: "abroad=true 时必须填 city：英文城市名加国家，比如 \"Tokyo, Japan\"。请马上重新调用，不要告诉司机。")
         }
@@ -286,6 +290,7 @@ public actor NavigationController: ToolExecutor {
 
     private func navigate(_ destination: String) async -> ToolResult {
         confirm = nil
+        routeAbroad = false
         // F-05a §6 (replaces the P61 word guard): while guiding, a new place is listed over the running route;
         // the route changes only when the driver picks one.
         if snapshot.navigating {
@@ -675,7 +680,8 @@ public actor NavigationController: ToolExecutor {
         snapshot.destination = place
         snapshot.places = []
         publish()
-        await engine.calculateRoutes(RouteRequest(destination: place.coordinate, destinationName: place.name),
+        await engine.calculateRoutes(RouteRequest(destination: place.coordinate, destinationName: place.name,
+                                                  abroad: routeAbroad),
                                      generation: generation)
         // A newer request took over while the engine was busy: its event is not ours to wait for.
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
@@ -857,10 +863,12 @@ public actor NavigationController: ToolExecutor {
 
     /// One plan stop as a normal single-destination route from here, started as a chosen `navigate_to` place
     /// (F-15a), with no place search. A running guidance is replaced. On `arrived` the arrival hook gets its id.
-    public func tripNext(_ place: Place) async -> ToolResult {
+    /// `abroad`: the stop belongs to an `abroad` trip; its route then comes from OSRM (F-15b §47 item 1).
+    public func tripNext(_ place: Place, abroad: Bool = false) async -> ToolResult {
         if startInFlight {
             return .failure(.optionsNotReady, advice: "导航正在启动。请如实说正在启动，稍等一下。")
         }
+        routeAbroad = abroad
         forgetConfirmations()
         asked = nil
         // §29 item 1: replaces running guidance as 「换成X」 does: stop the old route first.
