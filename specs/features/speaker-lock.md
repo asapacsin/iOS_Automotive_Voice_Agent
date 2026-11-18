@@ -392,3 +392,50 @@ Owner 2026-11-16: only the driver may interrupt her; a passenger talking over he
 | Task | Scope | Verify |
 |---|---|---|
 | T-013l | Amendment items 1-2; rows 63-64 updated | unit, build, D |
+
+## 18. A higher bar while she speaks (owner request 2026-11-18)
+
+**Why (device 2026-11-18, record 20261118-133726, ipa147 21b82ef, lock on, 「可以打断她」 on).** Her own reply came
+back past the echo cancellation (`voiceProcessing=on`) and passed the lock. The early check of utterance 2 scored
+1.152 against the whole-sentence threshold -0.092 (§17 amendment item 1), was accepted, and stopped her
+(`barge-in stopped`, `reply-out turn=2 stopped reason=barge_in`). The leak then reached Gemini as 「연남동」 and she
+answered about Seoul. Scores in that record: the driver 6.298-10.093 (5 utterances); her echo and noise -1.736,
+0.637, 1.152, 2.184. The same symptom is reported for Gemini Live (discuss.ai.google.dev/t/144332: the model's own
+output picked up as user speech fires `interrupted`); the usual remedy is a stricter rule for interrupting while the
+agent speaks than for a new turn (LiveKit `interruption.min_duration` 0.5 s, docs.livekit.io/agents/logic/turns/tuning).
+A word-count minimum is not used: it waits for the transcript and slows every real interruption
+(github.com/livekit/agents/issues/4450).
+
+1. **Playback bar.** While her reply plays and during its `echoTail`, an utterance passes the lock only with a §16
+   AS-norm score ≥ `playbackThreshold` (`SpeakerTuning`, 4.0). This applies to the early check (§17 items 2-3:
+   below the bar = rejected, she plays on) and to the whole-sentence verdict of an utterance that started in that
+   time (below the bar = not sent, `mute=speaker`). The cohort threshold must also be passed (the higher of the two
+   decides).
+2. **Silent.** An utterance that starts while she is silent keeps the cohort threshold, unchanged.
+3. **Minimum speech.** Unchanged: the early check needs `earlyScoreSpeech` (1.0 s) of speech, which is above
+   LiveKit's 0.5 s default; shorter sounds never stop her early.
+4. **Why 4.0.** Between the highest leak score (2.184) and the lowest driver score (6.298) in the record above.
+   It is a tuning value, not a measured EER threshold; row 72 re-checks it on more drives.
+5. **Lock off.** Nothing changes (§6 item 12).
+6. **Record.** `speaker-check …` gains `bar=<cohort|playback>`, and `threshold=` shows the value used. Numbers and
+   enums only (I-8).
+7. **Code.** `SpeakerTuning.playbackThreshold` and the verdict in `SpeakerHold` (`Packages/NovaCore/Sources/NovaVoice/Speaker/`);
+   whether an utterance started during playback or `echoTail` comes from the uplink gate's existing `muteReason`.
+
+**Not verified.** How often the driver's own score falls below 4.0 (a cold, a whisper, wind). Then he repeats louder
+or taps; row 72 counts it.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 70 | Lock on, her reply playing, cohort threshold -0.092: early score 1.152 | Rejected (`bar=playback threshold=4.0`); no `.stop`; `.dip(false)`; she plays on | unit |
+| 71 | Same, early score 6.3; and a whole-sentence score 2.2 of an utterance that started in `echoTail` | First accepted, she stops; second not sent, `mute=speaker`, `bar=playback` | unit |
+| 71a | Lock on, she is silent: score 0.6 | Accepted on the cohort threshold, `bar=cohort` (unchanged) | unit |
+| 72 | Device, lock on, 「可以打断她」 on: 10 long replies, the driver interrupts 5 of them, stays quiet in 5 | The 5 interruptions stop her; the 5 quiet replies are never cut (`reason=barge_in` only on the 5); note the `bar=playback` scores | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-013m | §18 items 1-7; rows 70-72 | unit, build, D |
