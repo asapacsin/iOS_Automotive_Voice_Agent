@@ -2910,6 +2910,24 @@
       "evidence": "Spec at the commit that adds §45."
     },
     {
+      "id": "T-040r",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 30,
+      "action": "F-15b §46: photos abroad from Wikipedia (search by the English name, used only within 2 km of the stop), and a kind-of-place icon placeholder home and abroad; rows 105-110.",
+      "depends_on": [
+        "T-040p"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 105-110)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Device 2026-11-18 ipa147: every abroad card showed the one-character placeholder. Spec only (owner 2026-11-18: \"good write down this\"). Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §46."
+    },
+    {
       "id": "T-031j",
       "owner": "AUTONOMOUS",
       "status": "PASS",

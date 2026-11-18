@@ -1232,3 +1232,61 @@ booking APIs (Expedia Rapid Car, Booking.com Demand cars) need an approved partn
 | Task | Scope | Status |
 |---|---|---|
 | T-040q | §45, rows 99–104 | NOT_RUN |
+
+## 46. Photos abroad and a better placeholder (owner request 2026-11-18)
+
+**Why (device 2026-11-18, ipa147).** Abroad every card showed the §11 placeholder (the name's first character on a
+plain colour): §36 item 7 skips §12 photos abroad because 高德 has none there, and OpenStreetMap has none either. The
+owner called it ugly. Wikipedia has a page photo for well-known places (checked 2026-11-18: `page/summary` gave a
+photo for Sensō-ji, Tokyo Tower and zh 淺草寺; the exact title "Tsukiji Outer Market" had no page, so search is used).
+
+1. **Source abroad: Wikipedia, no key.** For a stop of an `abroad` trip, the English part of 「中文名 (英文名)」
+   (§36 item 2b) is searched: `en.wikipedia.org/w/rest.php/v1/search/page?q=<英文名>&limit=3`. For each result in
+   order, its `page/summary/<key>` is read; the first one that passes item 2 gives `photoURL` = its
+   `thumbnail.source` (an `https://` link, about 330 px).
+2. **The right place only.** A summary is used only when it has `coordinates` and they are within 2 km of the stop.
+   No coordinates (a song, a film), or farther (a namesake elsewhere) → the next result; none passes → no photo.
+3. **When and how much.** As §12 item 2: after the tool result, at most 4 stops at once, a stop that already has
+   `photoURL` makes no request. At most 1 search + 3 summaries per stop; 5 s limit per request; `User-Agent`
+   `NovaDrive/1.0 (iOS)` (Wikimedia's API policy asks for one).
+4. **Kept like §12.** `photoURL` is saved with the plan (§14), images use §12 item 4's caches, a failure is tried
+   again at most once per app launch, and the list never changes because of a photo.
+5. **Reach.** Wikipedia is blocked in mainland China; on such a network every lookup fails fast and the card keeps
+   the item 6 placeholder. Not a fault, not retried within the launch.
+6. **New placeholder (home and abroad).** Instead of one character on a plain colour: an icon for the kind of place
+   on a soft two-colour gradient, the name below as today. Kinds and SF Symbols:
+   - temple, shrine, church (`building.columns`);
+   - tower, viewpoint (`binoculars`);
+   - park, garden, nature (`leaf`);
+   - museum, gallery (`building.2`);
+   - hotel (`bed.double`);
+   - airport (`airplane`);
+   - car rental (`car`);
+   - shop, market (`bag`);
+   - food (`fork.knife`);
+   - other (`mappin.and.ellipse`).
+   The kind comes from the place itself: abroad from Photon's `osm_key`/`osm_value` (for example
+   `amenity:place_of_worship`, `tourism:museum`, `aeroway:aerodrome`), at home from 高德's `type`. `Place` gains
+   `kind: PlaceKind?` (NovaPorts), saved with the plan. The gradient colour pair follows the kind; the colours are
+   tokens in the app's theme, light and dark.
+7. **Home unchanged otherwise.** In China §12 (高德 photos) stays as it is; only the placeholder changes.
+8. **Record.** The phase 2 line `trip photo ok=<n> none=<n> failed=<n> ms=<ms>` gains `vendor=<amap|wikipedia>`.
+   Numbers and enums only (I-8).
+9. **Code.** `WikipediaPhotos` in NovaServices (`HTTPTransport`), behind the §12 photo lookup that `TripPlanner`
+   already calls; the kind mapping in NovaServices (Photon, 高德 adapters); `PlaceKind` in NovaPorts; the placeholder
+   in `App/NovaDrive/TripCardsView.swift`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 105 | `abroad` stop 「浅草寺 (Senso-ji)」 at 35.7148,139.7967 (fake Wikipedia: first result Sensō-ji at 0.2 km with a thumbnail) | One search for `Senso-ji`, one summary; `photoURL` = the thumbnail; `trip photo vendor=wikipedia ok=1` | unit |
+| 106 | First result has no coordinates, second is 370 km away, third 0.5 km | The third result's photo | unit |
+| 107 | No result within 2 km; and the search times out | No photo, placeholder; no more than 4 requests for that stop; the list unchanged | unit |
+| 108 | Saved abroad plan with `photoURL`, reopened | No Wikipedia request | unit |
+| 109 | Photon `amenity:place_of_worship`, `tourism:hotel`, `aeroway:aerodrome`, `amenity:car_rental`, unknown | `PlaceKind` temple, hotel, airport, rental, other; saved and read back | unit |
+| 110 | Device, VPN on: the Tokyo trip | Most sight cards show real photos; the rest show kind icons, none a single character | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040r | §46, rows 105–110 | NOT_RUN |
