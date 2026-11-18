@@ -1511,7 +1511,9 @@ final class AgentRuntime {
                                   },
                                   // §36 item 2c (T-040p): abroad driving times from OSRM (高德 refuses them); a failure
                                   // orders on the straight-line estimate.
-                                  abroadTimes: TripTimes(service: OsrmDrivingTimes(), clock: navigationClock))
+                                  abroadTimes: TripTimes(service: OsrmDrivingTimes(), clock: navigationClock),
+                                  // §46 (T-040r): photos abroad from English Wikipedia, within 2 km of the stop.
+                                  abroadPhotos: WikipediaPhotos())
         await planner.restore()
         // §36 item 2d (T-040p): navigate_to abroad searches Photon; an abroad trip in progress gives its city.
         await navigation.setAbroad(search: photon, center: { city in

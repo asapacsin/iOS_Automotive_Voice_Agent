@@ -163,6 +163,8 @@ public enum TripPlanFile {
         var role: TripRole?
         var picked: Bool?
         var country: String?
+        /// T-040r §46 item 6 (optional): the kind of place (a raw value; an unknown one reads as nil, not a broken file).
+        var kind: String?
     }
 
     struct Plan: Codable, Hashable {
@@ -191,7 +193,7 @@ public enum TripPlanFile {
                      Stop(asked: s.asked, id: s.place.id, name: s.place.name, address: s.place.address,
                           district: s.place.district, lat: s.place.coordinate.latitude, lng: s.place.coordinate.longitude,
                           photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city,
-                          role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode)
+                          role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode, kind: s.place.kind?.rawValue)
                  }
              },
              savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.abroad ? plan.city : nil)
@@ -205,7 +207,7 @@ public enum TripPlanFile {
                          place: Place(id: s.id, name: s.name, address: s.address,
                                       coordinate: GeoCoordinate(latitude: s.lat, longitude: s.lng, datum: .gcj02),
                                       distanceMeters: nil, city: s.city, district: s.district,
-                                      photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country),
+                                      photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country, kind: s.kind.flatMap(PlaceKind.init(rawValue:))),
                          distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false)
             })
             return list

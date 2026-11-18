@@ -63,6 +63,8 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public var city: String? = nil
     /// §37 item 8 (T-040o): 住 on a hotel, 机场 on an airport start or end, 租 on a rental stop (§45); nil otherwise.
     public var tag: String? = nil
+    /// §46 item 6 (T-040r): the placeholder's icon and colours; `.other` when the kind is unknown.
+    public var kind: PlaceKind = .other
 
     static func tag(_ stop: TripStop) -> String? {
         switch stop.role {
@@ -100,7 +102,7 @@ public enum TripScreen: Sendable, Hashable {
                      km: stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 }, photoURL: stop.place.photoURL,
                      initial: String(stop.place.name.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
                      minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
-                     tag: TripCard.tag(stop))
+                     tag: TripCard.tag(stop), kind: stop.place.kind ?? .other)
         })
     }
 }

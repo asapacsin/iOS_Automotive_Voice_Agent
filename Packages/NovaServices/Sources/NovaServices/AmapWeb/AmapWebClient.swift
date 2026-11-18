@@ -202,7 +202,9 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup, DrivingT
                          phone: text(poi["tel"]), city: text(poi["cityname"]), district: text(poi["adname"]),
                          // F-15b §12 items 1 and 3 (T-040j): the first `photos[].url` (older docs spell the title
                          // `titile`; only `url` is read), secure links only.
-                         photoURL: TripPhotoLink.secure(((poi["photos"] as? [[String: Any]])?.first)?["url"] as? String))
+                         photoURL: TripPhotoLink.secure(((poi["photos"] as? [[String: Any]])?.first)?["url"] as? String),
+                         // F-15b §46 item 6 (T-040r): the kind from 高德's `type`.
+                         kind: PlaceKindMap.amap(type: text(poi["type"])))
         }
     }
 }
