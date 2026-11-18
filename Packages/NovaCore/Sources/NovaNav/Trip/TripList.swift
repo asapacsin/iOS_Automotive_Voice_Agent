@@ -32,9 +32,16 @@ public struct TripStop: Sendable, Hashable {
     public var role: TripRole
     /// §37 item 4: a hotel the app picked (not named by the driver).
     public var picked: Bool
+    /// §48 item 1 (T-040t): the model's visit estimate (15–600), nil = by kind and role (`visitMinutes`).
+    public var minutes: Int?
+    /// §48 item 1: an extra the fit may leave out (kept as `spare`); the driver's and the must-see places are false.
+    public var optional: Bool
 
     public init(index: Int, asked: String, place: Place, distanceMeters: Int?, mark: TripMark? = nil,
-                legSeconds: Int? = nil, role: TripRole = .sight, picked: Bool = false) {
+                legSeconds: Int? = nil, role: TripRole = .sight, picked: Bool = false,
+                minutes: Int? = nil, optional: Bool = false) {
+        self.minutes = minutes
+        self.optional = optional
         self.role = role
         self.picked = picked
         self.index = index
@@ -47,8 +54,30 @@ public struct TripStop: Sendable, Hashable {
 
     func renumbered(_ index: Int) -> TripStop {
         TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds,
-                 role: role, picked: picked)
+                 role: role, picked: picked, minutes: minutes, optional: optional)
     }
+
+    /// §48 item 2: the visit minutes the fit counts: the model's, else by kind (sights) or role (the frame).
+    public var visitMinutes: Int {
+        switch role {
+        case .start, .end, .hotel: return 0
+        case .rentalPickup: return minutes ?? 30
+        case .rentalReturn: return minutes ?? 20
+        case .sight: return minutes ?? Self.defaultMinutes(place.kind)
+        }
+    }
+
+    /// §48 item 2: temple 60, tower/viewpoint 60, park 90, museum 120, shop/market 90, food 60, other 90.
+    public static func defaultMinutes(_ kind: PlaceKind?) -> Int {
+        switch kind {
+        case .temple, .tower, .food: return 60
+        case .museum: return 120
+        default: return 90
+        }
+    }
+
+    /// §48 item 1: outside 15–600 is clamped.
+    public static func clampMinutes(_ m: Int) -> Int { min(max(m, 15), 600) }
 }
 
 /// F-15b §3 (T-040i): the ordered list of 1–16 stops the app owns. Pure. Every change raises `generation`; a resolve
@@ -137,7 +166,8 @@ public struct TripList: Sendable, Hashable {
     public mutating func setPhoto(placeID: String, url: URL?) {
         stops = stops.map { $0.place.id == placeID
             ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters,
-                       mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role, picked: $0.picked)
+                       mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role, picked: $0.picked,
+                       minutes: $0.minutes, optional: $0.optional)
             : $0 }
     }
 

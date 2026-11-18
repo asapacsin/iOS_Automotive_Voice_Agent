@@ -102,14 +102,17 @@ public enum TripOptimizer {
     /// §27 item 3: `path` cut into `days` consecutive days of at least one stop (fewer days when there are fewer
     /// stops), the longest day as short as possible. A day counts the drive into its first stop (day 1 from `start`,
     /// day k from day k−1's last stop), the drives inside it, and `visitSeconds` per stop.
-    public static func cut(_ path: [Int], from start: Int, days: Int, time: (Int, Int) -> Int) -> [[Int]] {
+    /// §48 item 4.1 (T-040t): `visit` gives each node's visit seconds instead of the flat `visitSeconds`.
+    public static func cut(_ path: [Int], from start: Int, days: Int, visit: ((Int) -> Int)? = nil,
+                           time: (Int, Int) -> Int) -> [[Int]] {
+        let visitOf: (Int) -> Int = visit ?? { _ in visitSeconds }
         let m = path.count
         let d = max(1, min(days, m))
         guard m > 0 else { return [[]] }
         guard d > 1 else { return [path] }
         func dayCost(_ a: Int, _ b: Int) -> Int {
-            var total = time(a == 0 ? start : path[a - 1], path[a]) + visitSeconds
-            for i in stride(from: a + 1, through: b, by: 1) { total += time(path[i - 1], path[i]) + visitSeconds }
+            var total = time(a == 0 ? start : path[a - 1], path[a]) + visitOf(path[a])
+            for i in stride(from: a + 1, through: b, by: 1) { total += time(path[i - 1], path[i]) + visitOf(path[i]) }
             return total
         }
         // best[k][j]: the smallest longest day covering path[0..<j] in k days; from[k][j]: where day k starts.

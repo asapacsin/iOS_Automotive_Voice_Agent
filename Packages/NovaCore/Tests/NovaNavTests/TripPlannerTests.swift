@@ -179,11 +179,11 @@ struct TripPlannerTests {
         #expect(r.data["duplicates"] == names(["古文化街旅游区"]))
     }
 
-    @Test("F-15b row 3: 17 names or a blank name are invalidFields; the list is unchanged")
+    @Test("F-15b row 3: 25 names (§48: places takes up to 24) or a blank name are invalidFields; the list is unchanged")
     func row3() async {
         let rig = await TripRig()
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        let many = await rig.run(trip("make_trip_list", ["places": names((1...17).map { "地点\($0)" })]))
+        let many = await rig.run(trip("make_trip_list", ["places": names((1...25).map { "地点\($0)" })]))
         #expect(many.code == .invalidFields)
         #expect(ToolCatalog.validate(trip("make_trip_list", ["places": names(["古文化街", "  "])])) == .invalidFields)
         let blank = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "  "])]))

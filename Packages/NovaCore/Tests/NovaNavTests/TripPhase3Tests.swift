@@ -156,15 +156,16 @@ struct TripPhase3Tests {
         #expect(rig.lines.withLock { $0 }.last { $0.hasPrefix("trip order") }?.contains("requests=0 cached=3") == true)
     }
 
-    @Test("F-15b row 74: make_trip_list days=[[A,B],[C]] comes back ordered by driving time and cut into 2 days, with plan")
+    @Test("F-15b row 74 (with §48 item 4.4): make_trip_list days=[[A,B],[C]] comes back ordered by driving time, each place on its group's day, with plan")
     func row74() async {
         let (rig, _) = await timesRig()
         let r = await rig.run(trip("make_trip_list", ["days": [names(["天津之眼", "瓷房子"]), names(["五大道"])]]))
         #expect(r.ok)
-        // From the origin (39.00) north: 瓷房子 39.02, 五大道 39.04, then 天津之眼 39.16.
-        #expect(await dayNames(rig) == [["瓷房子", "五大道"], ["天津之眼"]])
-        #expect(r.data["plan"] == [names(["瓷房子", "五大道"]), names(["天津之眼"])])
-        #expect(await rig.order() == ["瓷房子", "五大道"])
+        // §48 item 4.4 (T-040t) replaces the re-cut of §27 item 3: each group stays a day, ordered from the origin
+        // (39.00) north: 瓷房子 39.02, then 天津之眼 39.16; day 2 is 五大道.
+        #expect(await dayNames(rig) == [["瓷房子", "天津之眼"], ["五大道"]])
+        #expect(r.data["plan"] == [names(["瓷房子", "天津之眼"]), names(["五大道"])])
+        #expect(await rig.order() == ["瓷房子", "天津之眼"])
     }
 
     @Test("F-15b row 75: move index=1 to_day=1 puts the stop on day 1, ordered; the place set unchanged")

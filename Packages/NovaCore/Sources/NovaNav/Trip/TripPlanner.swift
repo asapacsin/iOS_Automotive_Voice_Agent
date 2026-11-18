@@ -288,20 +288,21 @@ public actor TripPlanner: ToolExecutor {
     private func make(_ args: JSONValue) async -> ToolResult {
         let started = clock.now
         if case .array(let raw)? = args["days"] {
-            let dayNames: [[String]] = raw.map { day in
+            let dayItems: [[PlaceItem]] = raw.map { day in
                 guard case .array(let places) = day else { return [] }
-                return places.compactMap(\.stringValue).map(TranscriptText.normalize)
+                return Self.items(places)
             }
-            return await makeTrip(dayNames, single: false, city: args["city"]?.stringValue, args: args, started: started)
+            return await makeTrip(dayItems, single: false, city: args["city"]?.stringValue, args: args, started: started)
         }
         guard case .array(let raw)? = args["places"] else { return .failure(.invalidFields) }
-        let names = raw.compactMap(\.stringValue).map(TranscriptText.normalize)
+        let placeItems = Self.items(raw)
+        let names = placeItems.map(\.name)
         let city = args["city"]?.stringValue
         let day = Self.int(args["day"])
         // §15 item 2: a day may be at most the number of days + 1.
         if let day, !(1...min(plan.dayCount + 1, TripPlan.maxDays)).contains(day) { return dayOutOfRange() }
         // §37 (T-040o): without `day` the places are a one-day trip with its frame (start, hotels, end).
-        if day == nil { return await makeTrip([names], single: true, city: city, args: args, started: started) }
+        if day == nil { return await makeTrip([placeItems], single: true, city: city, args: args, started: started) }
         let ignored = ["start", "end", "hotels", "abroad", "rental"].contains { args[$0] != nil }
         let generation = plan.revision
         let here = await origin()
@@ -351,14 +352,34 @@ public actor TripPlanner: ToolExecutor {
     /// on `revision`), with its frame: `start`, `hotels` and `end` are searched with the places (§36) and are not
     /// counted in the 16. The same place twice anywhere in the plan is a duplicate; a day where nothing was found stays
     /// as an empty day.
-    private func makeTrip(_ dayNames: [[String]], single: Bool, city: String?, args: JSONValue,
+    /// §48 item 1 (T-040t): a place as the model gave it: a name, or `{name, minutes, optional}`.
+    struct PlaceItem: Sendable, Hashable {
+        let name: String
+        let minutes: Int?
+        let optional: Bool
+    }
+
+    /// §48 item 1: a plain string is a required place with no minutes; minutes are clamped to 15–600.
+    static func items(_ raw: [JSONValue]) -> [PlaceItem] {
+        raw.compactMap { v in
+            if let name = v.stringValue { return PlaceItem(name: TranscriptText.normalize(name), minutes: nil, optional: false) }
+            guard let name = v["name"]?.stringValue else { return nil }
+            return PlaceItem(name: TranscriptText.normalize(name), minutes: v["minutes"]?.intValue.map { TripStop.clampMinutes(Int($0)) },
+                             optional: v["optional"]?.boolValue ?? false)
+        }
+    }
+
+    private func makeTrip(_ dayItems: [[PlaceItem]], single: Bool, city: String?, args: JSONValue,
                           started: NovaInstant) async -> ToolResult {
+        let dayNames = dayItems.map { $0.map(\.name) }
         let startName = args["start"]?.stringValue.map(TranscriptText.normalize).flatMap { $0.isEmpty ? nil : $0 }
         let endName = args["end"]?.stringValue.map(TranscriptText.normalize).flatMap { $0.isEmpty ? nil : $0 }
         let hotelNames: [String] = if case .array(let h)? = args["hotels"] {
             h.compactMap(\.stringValue).map(TranscriptText.normalize).filter { !$0.isEmpty }
         } else { [] }
-        let dayCount = max(1, dayNames.count)
+        // §48 item 1: `day_count` with places, else one day per group.
+        let dayCount = single ? min(max(Self.int(args["day_count"]) ?? 1, 1), TripPlan.maxDays) : max(1, dayNames.count)
+        let pace = args["pace"]?.stringValue.flatMap(TripFitter.Pace.init(rawValue:)) ?? .normal
         // §37 item 1: one hotel for every night, or one per night.
         if !hotelNames.isEmpty, hotelNames.count != 1, hotelNames.count != dayCount - 1 {
             return .failure(.invalidFields, advice: "hotels 只能填一个（每晚都住），或者每晚一个（\(dayCount)天=\(max(dayCount - 1, 1))个）。请重新调用。")
@@ -383,29 +404,38 @@ public actor TripPlanner: ToolExecutor {
         var notFound: [String] = []
         var duplicates: [String] = []
         var lists: [TripList] = []
+        // §48: optional places go to the fit beside the plan (with their group's day when there are groups).
+        var optionalStops: [(day: Int?, stop: TripStop)] = []
         var offset = 0
-        for names in dayNames {
-            var entries: [(asked: String, place: Place, distanceMeters: Int?)] = []
-            for name in names {
+        for (g, items) in dayItems.enumerated() {
+            var required: [TripStop] = []
+            for item in items {
                 defer { offset += 1 }
                 switch lookups[offset] {
                 case .found(let place):
                     if seen.insert(place.id).inserted {
-                        entries.append((name, place, distance(here, place)))
+                        let stop = TripStop(index: 0, asked: item.name, place: place, distanceMeters: distance(here, place),
+                                            minutes: item.minutes, optional: item.optional)
+                        if item.optional { optionalStops.append((single ? nil : g, stop)) } else { required.append(stop) }
                     } else {
-                        duplicates.append(name)
+                        duplicates.append(item.name)
                     }
                 case .missing(let reason):
-                    notFound.append(name)
+                    notFound.append(item.name)
                     onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)")
                 case .keyMissing, .candidates: break
                 }
             }
-            var made = TripList()
-            made.replace(entries)
-            lists.append(made)
+            // `places` over several days: the required places in the asked order, 16 a day, before the fit.
+            let chunks = single ? max(1, min(dayCount, (required.count + TripList.maxStops - 1) / TripList.maxStops)) : 1
+            for c in 0..<chunks {
+                var made = TripList()
+                made.arrange(Array(required.dropFirst(c * TripList.maxStops).prefix(TripList.maxStops)))
+                lists.append(made)
+            }
         }
-        guard lists.contains(where: { $0.count > 0 }) else {
+        if single { while lists.count < dayCount { lists.append(TripList()) } }
+        guard lists.contains(where: { $0.count > 0 }) || !optionalStops.isEmpty else {
             line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
             return .failure(.noCandidates, advice: "清单里的地点都没有找到，清单没有改。请如实说没找到这些地方。")
         }
@@ -438,21 +468,33 @@ public actor TripPlanner: ToolExecutor {
         }
         let source = Self.layout(lists, start: startStop, end: endStop, hotels: hotels, pickup: pickup, dropoff: dropoff)
         // §28 item 2, §37 items 3–5: ordered by driving time between the fixed ends, hotels picked when none named.
+        // §48 item 4: fitted to the day budget.
+        let fit = FitRequest(pace: pace, groups: !single, extra: optionalStops)
         let arranged = await ordered(source, dayCount: dayCount, named: String?.none, pickHotels: hotelNames.isEmpty,
-                                     abroad: searched.abroad, rentalAsked: rentalAsked)
+                                     abroad: searched.abroad, rentalAsked: rentalAsked, fit: fit)
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         var extra: [String: JSONValue] = [:]
         var notes: [String] = []
+        var spare: [TripStop] = []
+        var fitted = false
         switch arranged {
         case .success(let o):
             lists = o.days
+            spare = o.spare
+            if let m = o.dayMinutes {
+                fitted = true
+                notes += Self.fitNotes(m, budget: pace.budgetMinutes, spare: spare.map(\.place.name))
+            }
             if o.estimated { extra["times"] = "estimated" }
             if !o.nightsWithoutHotel.isEmpty {
                 notes.append("第\(o.nightsWithoutHotel.map(String.init).joined(separator: "、"))晚附近没找到酒店")
             }
             if o.picked > 0 { notes.append("酒店是自动挑的，司机可以换") }
         case .failed(let code):
-            lists = source
+            // §48 item 10: nothing fitted or dropped: the model's order and groups, the required places first.
+            let unfitted = Self.withOptional(lists, optionalStops)
+            lists = Self.layout(unfitted.days, start: startStop, end: endStop, hotels: hotels, pickup: pickup, dropoff: dropoff)
+            spare = unfitted.spare
             if code == .noStart {
                 extra["order"] = .string(ToolErrorCode.noStart.rawValue)
             } else {
@@ -465,6 +507,8 @@ public actor TripPlanner: ToolExecutor {
         // §45 items 5 and 8: a rental place not found is said once; booking is the driver's.
         if rentalAsked { notes += rentalNotes + ["租车需要提前在网上预订"] }
         plan.replaceAll(withDays: lists)
+        plan.spare = spare
+        plan.budgetMinutes = fitted ? pace.budgetMinutes : nil
         plan.abroad = searched.abroad
         plan.city = searched.abroad ? city?.trimmingCharacters(in: .whitespaces) : nil
         changed()
@@ -489,6 +533,22 @@ public actor TripPlanner: ToolExecutor {
     /// day 1 from `start`, night k's hotel last on day k and first on day k+1, `end` last on the last day.
     /// `hotels`: one for every night, or one per night (nil where it was not found).
     /// §45 item 4 (T-040q): `pickup` right after `start` on day 1, `dropoff` just before `end` on the last day.
+    /// §48 item 10: the optional places after the required ones, on their group's day (else the first day with room),
+    /// at most 16 a day; the ones with no room are spare.
+    static func withOptional(_ days: [TripList], _ optional: [(day: Int?, stop: TripStop)]) -> (days: [TripList], spare: [TripStop]) {
+        var stops = days.map(\.stops)
+        var spare: [TripStop] = []
+        for o in optional {
+            let d = o.day.map { min($0, stops.count - 1) } ?? stops.firstIndex { $0.count < TripList.maxStops }
+            if let d, stops[d].count < TripList.maxStops { stops[d].append(o.stop) } else { spare.append(o.stop) }
+        }
+        return (stops.map { s in
+            var list = TripList()
+            list.arrange(s)
+            return list
+        }, spare)
+    }
+
     static func layout(_ days: [TripList], start: TripStop?, end: TripStop?, hotels: [TripStop?],
                        pickup: TripStop? = nil, dropoff: TripStop? = nil) -> [TripList] {
         let nights = max(days.count - 1, 0)
@@ -563,7 +623,7 @@ public actor TripPlanner: ToolExecutor {
             let removed = list.stops[target - 1].place.name
             list.remove(at: target)
             changed()
-            return listResult(changed: "removed", next: "只说一句：去掉了\(removed)，现在清单有\(list.count)个地点。",
+            return listResult(changed: "removed", next: "只说一句：去掉了\(removed)，现在清单有\(list.count)个地点。\(overNote())",
                               extra: ["removed": .string(removed)])
         case "move" where args["to_day"] != nil:
             return await moveToDay(index: index, toDay: Self.int(args["to_day"]) ?? 0)
@@ -596,7 +656,11 @@ public actor TripPlanner: ToolExecutor {
             }
             let generation = plan.revision
             let here = await origin()
-            let lookup = await resolve([name], city: nil, abroad: plan.abroad, near: regionHint()).first ?? .missing("failed")
+            // §48 item 6 (T-040t): 「把X也加上」 with X spare takes that place, with no new search.
+            let spareIndex = action == "add" ? plan.spare.firstIndex(where: { TripList.matches($0, name) }) : nil
+            let lookup: Lookup = if let spareIndex { .found(plan.spare[spareIndex].place) } else {
+                await resolve([name], city: nil, abroad: plan.abroad, near: regionHint()).first ?? .missing("failed")
+            }
             // §3 item 4: a newer change while this lookup ran wins; this one changes nothing.
             guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
             let place: Place
@@ -615,6 +679,11 @@ public actor TripPlanner: ToolExecutor {
                                   next: "只说一句：\(place.name)已经在清单里了，现在清单有\(list.count)个地点。")
             }
             var stop = TripStop(index: 0, asked: name, place: place, distanceMeters: distance(here, place))
+            if let spareIndex {
+                let kept = plan.spare.remove(at: spareIndex)
+                stop.minutes = kept.minutes
+                stop.optional = kept.optional
+            }
             if let replacing {
                 // §37 items 2 and 4: a replaced start, hotel or end keeps its role; the driver chose it (not picked).
                 let old = list.stops[replacing - 1]
@@ -622,7 +691,7 @@ public actor TripPlanner: ToolExecutor {
                 list.set(stop, at: replacing)
                 if old.role == .hotel { replaceOtherCopy(day: plan.currentDay, index: replacing, of: old, with: stop) }
                 changed()
-                return listResult(changed: "replaced", next: "只说一句：第\(replacing)个换成了\(place.name)，现在清单有\(list.count)个地点。")
+                return listResult(changed: "replaced", next: "只说一句：第\(replacing)个换成了\(place.name)，现在清单有\(list.count)个地点。\(overNote())")
             }
             // Without an index a sight goes before the day's closing hotel or end (and a rental return before it, §45).
             let closingRoles: Set<TripRole> = [.hotel, .end, .rentalReturn]
@@ -631,7 +700,7 @@ public actor TripPlanner: ToolExecutor {
             let closing = min(list.stops.reversed().prefix { closingRoles.contains($0.role) }.count, max(n - head, 0))
             list.insert(stop, at: index ?? (closing > 0 ? n - closing + 1 : nil))
             changed()
-            return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
+            return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。\(overNote())")
         default:
             return .failure(.invalidFields)
         }
@@ -646,6 +715,18 @@ public actor TripPlanner: ToolExecutor {
         var nightsWithoutHotel: [Int] = []
         /// §36 item 2c: the times are the straight-line estimate.
         var estimated = false
+        /// §48 (T-040t): the optional places left out, in the model's order, and each day's minutes (nil unfitted).
+        var spare: [TripStop] = []
+        var dayMinutes: [Int]?
+    }
+
+    /// §48 item 4 (T-040t): what the fit needs: the day budget, whether the places stay on their day groups, and the
+    /// optional places not yet in the plan (the model's extras, or the plan's spare places on `reorganize`).
+    private struct FitRequest {
+        let pace: TripFitter.Pace
+        var groups = false
+        var extra: [(day: Int?, stop: TripStop)] = []
+        var budgetSeconds: Int { pace.budgetMinutes * 60 }
     }
 
     private enum OrderResult {
@@ -672,8 +753,10 @@ public actor TripPlanner: ToolExecutor {
     /// each day is ordered again between its fixed ends. With `pickHotels` and no hotels, a 2–5 day trip gets one per
     /// night near the night's midpoint. The same place ids and roles, always (§27 item 4).
     /// §45 item 4 (T-040q): a rental pickup stays right after day 1's head, a return just before the last day's tail.
+    /// §48 (T-040t): with `fit`, the cut into days is replaced by `TripFitter` (visit minutes, a day budget, optional
+    /// places inserted where they fit), and a day the frame makes over budget drops its last-ranked optional places.
     private func ordered(_ source: [TripList], dayCount: Int, named: String?, pickHotels: Bool = false,
-                         abroad: Bool? = nil, rentalAsked: Bool = false) async -> OrderResult {
+                         abroad: Bool? = nil, rentalAsked: Bool = false, fit: FitRequest? = nil) async -> OrderResult {
         let started = clock.now
         let abroad = abroad ?? plan.abroad
         let all = source.enumerated().flatMap { d, list in list.stops.map { (day: d, stop: $0) } }
@@ -689,7 +772,10 @@ public actor TripPlanner: ToolExecutor {
         func log(_ ok: Bool, requests: Int = 0, cached: Int = 0, days: Int = 0) {
             onLine("trip order ok=\(ok ? "yes" : "no") stops=\(total) days=\(days) start=\(label) requests=\(requests) cached=\(cached) ms=\(ms(since: started))")
         }
-        guard !pending.isEmpty else { return .success(Ordered(days: source)) }
+        // §48: the day of each sight as the plan has it (the driver's groups), and the extras not in the plan yet.
+        let sourceDay = Dictionary(sights.map { ($0.stop.place.id, $0.day) }, uniquingKeysWith: { a, _ in a })
+        let extras = (fit?.extra ?? []).filter { e in !all.contains { $0.stop.place.id == e.stop.place.id } }
+        guard !pending.isEmpty || !extras.isEmpty else { return .success(Ordered(days: source)) }
         // Marks of the frame stops, kept where the same stop lands on the same day again.
         var frameMarks: [String: TripMark] = [:]
         for (d, stop) in all where stop.role != .sight {
@@ -712,7 +798,7 @@ public actor TripPlanner: ToolExecutor {
             startNode = TripTimes.Node(key: startStop.place.id, coordinate: startStop.place.coordinate)
             label = "named"
         } else if let here = await origin(),
-                  pending.contains(where: { SelfPosition.distanceMeters(here, $0.place.coordinate) <= Double(tuning.startRadiusMeters) }) {
+                  (pending + extras.map(\.stop)).contains(where: { SelfPosition.distanceMeters(here, $0.place.coordinate) <= Double(tuning.startRadiusMeters) }) {
             startNode = .here(here)
             label = await startLabel()
         } else {
@@ -744,6 +830,7 @@ public actor TripPlanner: ToolExecutor {
         }
         if let first { addNode(first) }
         pending.forEach(addNode)
+        extras.map(\.stop).forEach(addNode)
         if let endStop { addNode(endStop) }
         if let pickupStop { addNode(pickupStop) }
         if let dropoffStop { addNode(dropoffStop) }
@@ -766,9 +853,41 @@ public actor TripPlanner: ToolExecutor {
         let origin = first.map(idx) ?? 0
         let endIdx = endStop.map(idx)
         let time: (Int, Int) -> Int = { table.time($0, $1) }
-        let rest = pending.map(idx)
-        let path = (first.map { [idx($0)] } ?? []) + TripOptimizer.path(rest, from: origin, to: endIdx, time: time)
-        let cut = TripOptimizer.cut(path, from: origin, days: dayCount, time: time)
+        let stopOf = Dictionary((pending + extras.map(\.stop) + (first.map { [$0] } ?? [])).map { (idx($0), $0) },
+                                uniquingKeysWith: { a, _ in a })
+        var cut: [[Int]]
+        // §48 item 5: the rank of each optional place (the model's order); last-ranked are dropped first.
+        var rank: [Int: Int] = [:]
+        var spareNodes: [Int] = []
+        let fitStarted = clock.now
+        if let fit {
+            let days = min(TripPlan.maxDays, max(1, dayCount))
+            let visit: (Int) -> Int = { (stopOf[$0]?.visitMinutes ?? 0) * 60 }
+            let required = pending.filter { !$0.optional }
+            let optional = pending.filter(\.optional).map { (day: sourceDay[$0.place.id], stop: $0) } + extras
+            for (i, o) in optional.enumerated() where rank[idx(o.stop)] == nil { rank[idx(o.stop)] = i }
+            var requiredDays: [[Int]]
+            if fit.groups {
+                requiredDays = (0..<days).map { d in required.filter { min(sourceDay[$0.place.id] ?? 0, days - 1) == d }.map(idx) }
+            } else {
+                let path = TripOptimizer.path(required.map(idx), from: origin, to: endIdx, time: time)
+                requiredDays = TripOptimizer.cut(path, from: origin, days: days, visit: visit, time: time)
+                if path.isEmpty { requiredDays = [] }
+            }
+            while requiredDays.count < days { requiredDays.append([]) }
+            var group: [Int: Int] = [:]
+            if fit.groups { for o in optional { group[idx(o.stop)] = min(o.day ?? 0, days - 1) } }
+            let fitted = TripFitter.fit(required: requiredDays, optional: optional.map { idx($0.stop) }, group: group,
+                                        from: origin, to: endIdx, budgetSeconds: fit.budgetSeconds,
+                                        maxPerDay: TripList.maxStops, visit: visit, time: time)
+            cut = fitted.days
+            if let first { cut[0].insert(idx(first), at: 0) }
+            spareNodes = fitted.spare
+        } else {
+            let rest = pending.map(idx)
+            let path = (first.map { [idx($0)] } ?? []) + TripOptimizer.path(rest, from: origin, to: endIdx, time: time)
+            cut = TripOptimizer.cut(path, from: origin, days: dayCount, time: time)
+        }
         let markedDays = (sights.filter { $0.stop.mark != nil }.map(\.day).max() ?? -1) + 1
         let dayTotal = min(TripPlan.maxDays, max(cut.count, markedDays))
         let nights = max(dayTotal - 1, 0)
@@ -782,7 +901,6 @@ public actor TripPlanner: ToolExecutor {
         }
         var picked = 0
         var withoutHotel: [Int] = []
-        let stopOf = Dictionary((pending + (first.map { [$0] } ?? [])).map { (idx($0), $0) }, uniquingKeysWith: { a, _ in a })
         if pickHotels, anyHotel.isEmpty, (2...5).contains(dayTotal) {
             for k in 0..<nights {
                 guard k + 1 < cut.count, let last = cut[k].last.flatMap({ stopOf[$0] }),
@@ -833,7 +951,28 @@ public actor TripPlanner: ToolExecutor {
             }
             let from = leading.first ?? rentalHead.map(idx) ?? head.map(idx) ?? previous ?? origin
             let to = (rentalTail ?? tail).map(idx)
-            let order = leading + TripOptimizer.path(daySights, from: from, to: to, time: { table.time($0, $1) })
+            var order = leading + TripOptimizer.path(daySights, from: from, to: to, time: { table.time($0, $1) })
+            // §48 item 5: a day the frame (hotels, rental) made over budget drops its last-ranked optional places.
+            if let fit {
+                let frame = [head, rentalHead, rentalTail, tail].compactMap { $0 }
+                func dayCost(_ order: [Int]) -> Int {
+                    let seq = [rentalHead].compactMap { $0.map(idx) } + order + [rentalTail, tail].compactMap { $0.map(idx) }
+                    var here = head.map(idx) ?? previous ?? origin
+                    var total = 0
+                    for node in seq {
+                        let stop = stopOf[node] ?? frame.first { idx($0) == node }
+                        total += table.time(here, node) + (stop?.visitMinutes ?? 0) * 60
+                        here = node
+                    }
+                    return total
+                }
+                while dayCost(order) > fit.budgetSeconds,
+                      let worst = daySights.filter({ rank[$0] != nil }).max(by: { rank[$0]! < rank[$1]! }) {
+                    daySights.removeAll { $0 == worst }
+                    spareNodes.append(worst)
+                    order = leading + TripOptimizer.path(daySights, from: from, to: to, time: { table.time($0, $1) })
+                }
+            }
             var out: [TripStop] = []
             if let head {
                 out.append(head)
@@ -868,8 +1007,16 @@ public actor TripPlanner: ToolExecutor {
             days.append(list)
         }
         if let tamper { days = tamper(days) }
+        // §48 item 6: the spare places in the model's order.
+        let spare = spareNodes.sorted { (rank[$0] ?? 0) < (rank[$1] ?? 0) }.compactMap { node -> TripStop? in
+            guard var s = stopOf[node] else { return nil }
+            s.legSeconds = nil
+            return s
+        }
+        let spareIDs = Set(spare.map(\.place.id))
         // §27 item 4 with §37 item 2: exactly the places and roles decided, the same count.
-        var expected = sights.map { "\($0.stop.place.id)|sight" }
+        var expected = (sights.map(\.stop) + extras.map(\.stop)).filter { !spareIDs.contains($0.place.id) }
+            .map { "\($0.place.id)|sight" }
         if first == nil, let startStop { expected.append("\(startStop.place.id)|start") }
         if let endStop { expected.append("\(endStop.place.id)|end") }
         if let pickupStop { expected.append("\(pickupStop.place.id)|rental_pickup") }
@@ -885,7 +1032,48 @@ public actor TripPlanner: ToolExecutor {
         frameLine(start: first != nil || startStop != nil ? "named" : label, end: endStop != nil,
                   hotels: named ? "named" : picked > 0 || plannedHotels.contains { $0?.picked == true } ? "picked" : "none",
                   nights: nights, picked: picked, rental: rental)
-        return .success(Ordered(days: days, picked: picked, nightsWithoutHotel: withoutHotel, estimated: table.estimated))
+        var minutes: [Int]?
+        if let fit {
+            let m = days.map(Self.dayMinutes)
+            minutes = m
+            let budget = fit.pace.budgetMinutes
+            let optionalCount = pending.filter(\.optional).count + extras.count
+            // §48 item 12: numbers and enums only (I-8).
+            onLine("trip fit days=\(days.count) pace=\(fit.pace.rawValue) budget=\(budget) required=\(total - pending.filter(\.optional).count) optional=\(optionalCount) kept=\(optionalCount - spare.count) dropped=\(spare.count) over=\(m.filter { $0 > budget }.count) under=\(m.filter { $0 * 2 < budget }.count) max_day=\(m.max() ?? 0) min_day=\(m.min() ?? 0) ms=\(ms(since: fitStarted))")
+        }
+        return .success(Ordered(days: days, picked: picked, nightsWithoutHotel: withoutHotel, estimated: table.estimated,
+                                spare: spare, dayMinutes: minutes))
+    }
+
+    /// §48 item 3 (T-040t): a day's minutes: the known drives into and between its stops plus their visit minutes.
+    static func dayMinutes(_ day: TripList) -> Int {
+        let seconds = day.stops.reduce(0) { $0 + ($1.legSeconds ?? 0) + $1.visitMinutes * 60 }
+        return Int((Double(seconds) / 60).rounded())
+    }
+
+    static func hours(_ minutes: Int) -> Int { Int((Double(minutes) / 60).rounded()) }
+
+    /// §48 item 7: what she says once per fitted plan: the load, the places left out, a day too full, a day half empty.
+    static func fitNotes(_ dayMinutes: [Int], budget: Int, spare: [String]) -> [String] {
+        guard let lo = dayMinutes.min(), let hi = dayMinutes.max() else { return [] }
+        var notes: [String] = []
+        let (a, b) = (hours(lo), hours(hi))
+        notes.append(a == b ? "每天大约\(a)小时" : "每天大约\(a)到\(b)小时")
+        if !spare.isEmpty { notes.append("时间不够，没排进：\(spare.joined(separator: "、"))") }
+        for (d, m) in dayMinutes.enumerated() where m > budget { notes.append("第\(d + 1)天大约\(hours(m))小时，比较紧") }
+        if spare.isEmpty {
+            for (d, m) in dayMinutes.enumerated() where m * 2 < budget {
+                notes.append("第\(d + 1)天还空大约\(max(1, hours(budget - m)))小时，可以再加几个地方")
+            }
+        }
+        return notes
+    }
+
+    /// §48 item 9: after an edit, the current day over its budget is said; nothing is dropped.
+    private func overNote() -> String {
+        guard let budget = plan.budgetMinutes else { return "" }
+        let m = Self.dayMinutes(list)
+        return m > budget ? "第\(plan.currentDay)天大约\(Self.hours(m))小时，比较紧。" : ""
     }
 
     /// §42: `trip frame start= end= hotels= nights= picked=`, and §45 item 11's `rental=` when the plan has or asked
@@ -1003,19 +1191,28 @@ public actor TripPlanner: ToolExecutor {
                 }
             }
         }
-        let result = await ordered(source, dayCount: days ?? plan.dayCount, named: named, pickHotels: true)
+        // §48 item 9 (T-040t): fitted again over the plan's places plus the spare ones.
+        let pace = TripFitter.Pace(budgetMinutes: plan.budgetMinutes)
+        let fit = FitRequest(pace: pace, extra: plan.spare.map { (day: nil, stop: $0) })
+        let result = await ordered(source, dayCount: days ?? plan.dayCount, named: named, pickHotels: true, fit: fit)
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         switch result {
         case .failed(let code): return failure(code)
         case .success(let o):
             plan.arrange(days: o.days)
+            var fitNote = ""
+            if let m = o.dayMinutes {
+                plan.spare = o.spare
+                plan.budgetMinutes = pace.budgetMinutes
+                fitNote = Self.fitNotes(m, budget: pace.budgetMinutes, spare: o.spare.map(\.place.name)).joined(separator: "；") + "。"
+            }
             changed()
             // A visited or skipped stop keeps its day, so fewer days than that can't be kept: say so.
             let kept = days.map { $0 < plan.dayCount ? "已去过或跳过的站留在原来那天，所以还是\(plan.dayCount)天。" : "" } ?? ""
             let hotels = o.nightsWithoutHotel.isEmpty ? "" : "第\(o.nightsWithoutHotel.map(String.init).joined(separator: "、"))晚附近没找到酒店。"
             let estimated = o.estimated ? "时间是估算的。" : ""
             return listResult(changed: "reorganized",
-                              next: "\(kept)\(hotels)\(estimated)用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。",
+                              next: "\(kept)\(hotels)\(estimated)\(fitNote)用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。",
                               extra: o.estimated ? ["times": "estimated"] : [:])
         }
     }
@@ -1451,6 +1648,8 @@ public actor TripPlanner: ToolExecutor {
                 // §37 item 2: the frame's stops say what they are; a picked hotel says so.
                 if stop.role != .sight { o["role"] = .string(stop.role.rawValue) }
                 if stop.picked { o["picked"] = .bool(true) }
+                // §48 item 8 (T-040t): the visit minutes counted.
+                o["minutes"] = .int(Int64(stop.visitMinutes))
                 o["distance_km"] = stop.distanceMeters.map { .double(NavigationController.km($0)) } ?? .null
                 return .object(o)
             }),
@@ -1462,6 +1661,12 @@ public actor TripPlanner: ToolExecutor {
         data["day"] = .int(Int64(plan.currentDay))
         data["days"] = .int(Int64(plan.dayCount))
         data["plan"] = planValue()
+        // §48 item 8: the budget, each day's minutes and the spare places of a fitted plan.
+        if let budget = plan.budgetMinutes {
+            data["budget_minutes"] = .int(Int64(budget))
+            data["day_minutes"] = .array(plan.days.map { .int(Int64(Self.dayMinutes($0))) })
+            data["spare"] = .array(plan.spare.map { .string($0.place.name) })
+        }
         data.merge(extra) { _, new in new }
         return .success(data)
     }

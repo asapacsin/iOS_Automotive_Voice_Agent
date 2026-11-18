@@ -19,6 +19,10 @@ public struct TripPlan: Sendable, Hashable {
     /// 1-based.
     public private(set) var currentDay = 1
     public private(set) var revision = 0
+    /// §48 item 6 (T-040t): optional places the fit left out, resolved, not shown as cards.
+    public var spare: [TripStop] = []
+    /// §48 item 3: the day budget in minutes the plan was fitted to; nil for a plan never fitted.
+    public var budgetMinutes: Int?
 
     public init() {}
 
@@ -73,6 +77,8 @@ public struct TripPlan: Sendable, Hashable {
         // The first day with stops is current (a day where nothing was found stays, empty).
         currentDay = (days.firstIndex { $0.count > 0 } ?? 0) + 1
         name = nil
+        spare = []
+        budgetMinutes = nil
         revision += 1
     }
 
@@ -81,6 +87,8 @@ public struct TripPlan: Sendable, Hashable {
         days = [list]
         currentDay = 1
         name = nil
+        spare = []
+        budgetMinutes = nil
         revision += 1
     }
 
@@ -99,6 +107,8 @@ public struct TripPlan: Sendable, Hashable {
         days = [TripList()]
         currentDay = 1
         name = nil
+        spare = []
+        budgetMinutes = nil
         revision += 1
     }
 
@@ -137,6 +147,8 @@ public struct TripPlan: Sendable, Hashable {
         city = other.city
         days = other.days
         currentDay = other.currentDay
+        spare = other.spare
+        budgetMinutes = other.budgetMinutes
         revision += 1
     }
 }
@@ -165,6 +177,9 @@ public enum TripPlanFile {
         var country: String?
         /// T-040r §46 item 6 (optional): the kind of place (a raw value; an unknown one reads as nil, not a broken file).
         var kind: String?
+        /// T-040t §48 (optional): the model's visit minutes and the optional flag.
+        var minutes: Int?
+        var optional: Bool?
     }
 
     struct Plan: Codable, Hashable {
@@ -176,6 +191,9 @@ public enum TripPlanFile {
         var abroad: Bool?
         /// T-040p §36 item 2d (optional).
         var city: String?
+        /// T-040t §48 (optional): the spare places and the day budget.
+        var spare: [Stop]?
+        var budget: Int?
     }
 
     struct Current: Codable { var version: Int; var plan: Plan }
@@ -186,35 +204,42 @@ public enum TripPlanFile {
         var previous: Plan?
     }
 
+    static func encode(_ s: TripStop) -> Stop {
+        Stop(asked: s.asked, id: s.place.id, name: s.place.name, address: s.place.address,
+             district: s.place.district, lat: s.place.coordinate.latitude, lng: s.place.coordinate.longitude,
+             photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city,
+             role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode, kind: s.place.kind?.rawValue,
+             minutes: s.minutes, optional: s.optional ? true : nil)
+    }
+
     static func encode(_ plan: TripPlan, savedAt: Date? = nil) -> Plan {
         Plan(name: plan.name, currentDay: plan.currentDay,
-             days: plan.days.map { day in
-                 day.stops.map { s in
-                     Stop(asked: s.asked, id: s.place.id, name: s.place.name, address: s.place.address,
-                          district: s.place.district, lat: s.place.coordinate.latitude, lng: s.place.coordinate.longitude,
-                          photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city,
-                          role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode, kind: s.place.kind?.rawValue)
-                 }
-             },
-             savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.abroad ? plan.city : nil)
+             days: plan.days.map { day in day.stops.map(encode) },
+             savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.abroad ? plan.city : nil,
+             spare: plan.spare.isEmpty ? nil : plan.spare.map(encode), budget: plan.budgetMinutes)
+    }
+
+    static func decode(_ s: Stop) -> TripStop {
+        TripStop(index: 0, asked: s.asked,
+                 place: Place(id: s.id, name: s.name, address: s.address,
+                              coordinate: GeoCoordinate(latitude: s.lat, longitude: s.lng, datum: .gcj02),
+                              distanceMeters: nil, city: s.city, district: s.district,
+                              photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country, kind: s.kind.flatMap(PlaceKind.init(rawValue:))),
+                 distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false,
+                 minutes: s.minutes, optional: s.optional ?? false)
     }
 
     static func decode(_ plan: Plan) -> TripPlan {
         let days = plan.days.prefix(TripPlan.maxDays).map { stops in
             var list = TripList()
-            list.arrange(stops.prefix(TripList.maxStops + 2).map { s in
-                TripStop(index: 0, asked: s.asked,
-                         place: Place(id: s.id, name: s.name, address: s.address,
-                                      coordinate: GeoCoordinate(latitude: s.lat, longitude: s.lng, datum: .gcj02),
-                                      distanceMeters: nil, city: s.city, district: s.district,
-                                      photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country, kind: s.kind.flatMap(PlaceKind.init(rawValue:))),
-                         distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false)
-            })
+            list.arrange(stops.prefix(TripList.maxStops + 2).map(decode))
             return list
         }
         var out = TripPlan(name: plan.name, days: Array(days), currentDay: plan.currentDay)
         out.abroad = plan.abroad ?? false
         out.city = out.abroad ? plan.city : nil
+        out.spare = (plan.spare ?? []).prefix(TripFitter.maxCandidates).map(decode)
+        out.budgetMinutes = plan.budget
         return out
     }
 

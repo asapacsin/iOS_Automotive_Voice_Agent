@@ -166,7 +166,7 @@ struct TripRentalTests {
                                                   "end": "成田机场", "rental": true]))
         guard case .cards(let cards) = TripScreen.of(await rig.planner.current, moving: false) else { Issue.record("cards"); return }
         #expect(cards.prefix(2).map(\.tag) == ["机场", "租"])
-        #expect(ToolCatalog.makeTripListDescription.hasSuffix("司机要租车就填 rental=true，会自动在起点附近找取车点、在终点附近找还车点。"))
+        #expect(ToolCatalog.makeTripListDescription.contains("司机要租车就填 rental=true，会自动在起点附近找取车点、在终点附近找还车点。"))
         #expect(ToolCatalog.validate(trip("make_trip_list", ["places": names(["浅草寺"]), "rental": true])) == nil)
         #expect(ToolCatalog.validate(trip("make_trip_list", ["places": names(["浅草寺"]), "rental": "yes"])) == .invalidFields)
     }
