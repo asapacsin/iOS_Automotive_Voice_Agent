@@ -453,6 +453,7 @@ Code can guarantee what is shown. It cannot guarantee what Gemini hears or write
    - On the first `blocked` reply of an utterance, the app sends one text turn. `CorrectionReason.notMandarin` is replaced by `.wrongLanguage` (`WRONG_LANGUAGE`), sent at once, not after the correction grace:
      - when the utterance has a SenseVoice final with `lang` zh, en or ja: 「[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。司机刚才说的是「<SenseVoice 文字>」。请用<中文|英文|日语>回答这句话。」;
      - otherwise: 「[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。」.
+     - (2026-11-18, F-15b §40, T-040o: before the 「再说一遍」 form, the streaming local final and then Gemini's input transcript are used as the driver's words.)
    - The SenseVoice words go to the model only in this text turn. No tool reads them (§6 unchanged).
    - The re-ask's reply goes through items 2–3 again.
 5. **The fallback line.**

@@ -137,6 +137,7 @@ NovaDriveIOS/
 | `AVFAudio` (engine, session, player nodes, `AVSpeechSynthesizer`) | NovaAudio |
 | `AVFoundation` capture (`AVCaptureSession`), `CoreLocation`, `Contacts`, `MusicKit` | NovaPlatform |
 | `Security` (Keychain) | NovaServices |
+| `MapKit` (`MKLocalSearch`, `MKMapItem.openMaps`; F-15b §41, T-040o) | NovaPlatform, App |
 | `UIKit`, `SwiftUI` | App, and NovaNavAmap (it wraps the UIKit map view) |
 | `URLSessionWebSocketTask` | NovaRealtime (plain HTTP `URLSession` is allowed in NovaServices) |
 

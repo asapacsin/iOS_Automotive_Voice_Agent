@@ -5,6 +5,7 @@ remot"; phase 2 "you just create a spec including this function and also other t
 and push to remtoe", after the community review of poster cards, screen editing and saved plans). iOS only.
 Phase 1 (§3–§9) is voice only. Phase 2 (§11–§17) adds the poster cards, editing on screen, map pins, saved plans
 and days. Phase 3 (§25–§34, T-040n) replaces the 途经点 trip route with a plan ordered by location and one stop at a time.
+Phase 4 (§35–§44, T-040o) adds trips abroad (Apple place search), a start, hotels and an end.
 **Depends on:** F-15 (navigation flow, `NaviEngine`, `RouteRequest`), F-15a §2.5 and §9 (start on the recommended
 route, no start guard, one trip at a time), F-16 (`PlaceSearch`, origin rule), F-09 (catalog, dispatch,
 argument validation), F-06 (reply pipeline), contracts/navigation.md, contracts/api-contracts.md (Amap)
@@ -965,3 +966,168 @@ sentence.
 | Task | Scope | Status |
 |---|---|---|
 | T-040n | §25–§32, rows 65–83 | Built 2026-11-17 (`TripOptimizer`, `TripTimes`, `AmapWebClient.drivingTimes`, `trip_next`; `route_trip`, 途经点 and `TripStopTracker` removed); rows 81–83 device |
+
+# Phase 4: trips abroad, airport and hotels (T-040o)
+
+Owner decisions 2026-11-18, after device run 079f455 (record 20261118-085853): place search abroad goes to Apple's own
+search, picked by code from a China / outside-China flag ("probably the place belong to china and outside china
+only"); a trip has a start, hotels and an end; the start is what the driver names, else the current position ("if
+user dont mentioned would be using current location otherwise use what user mentioned"). "ok i trust you write the
+spec and push to remote".
+
+## 35. Why
+
+「帮我安排一个东京五天的自驾游行程，我在成田机场下飞机，之后也在成田机场上飞机，酒店、机场到酒店都给我安排一下」
+(heard correctly by both recognizers):
+- `make_trip_list days=[[浅草寺,东京晴空塔],…]` (11 Tokyo names): 9 `not_found` (`nomatch` 4, picker `none` 5). The 2
+  "found" were places in China.
+  - 高德 Web search has no Japan places. Checked 2026-11-18 with an owner test key: `/v5/place/text` and
+    `/v3/place/text` for 东京晴空塔, Tokyo Skytree, 浅草寺, 新宿御苑, 成田机场 all return `count=0`; `/v3/geocode/geo`
+    returns `ENGINE_RESPONSE_DATA_ERROR`.
+  - 高德 driving routes do cover Japan: `/v3/direction/driving` 成田机场 → 浅草 returned 63.1 km, 3,881 s.
+- No airport, no hotel: `make_trip_list` has no field for a start, an end or a night's stay; she dropped them.
+- `trip order … start=here`: the Tokyo plan was ordered from the phone in 珠海.
+- Her first reply drifted into Thai mid-sentence (`correction WRONG_LANGUAGE heard=none`); the re-ask then made her say
+  「请您用中文再说一遍您的需求」 although both recognizers had the words (F-05a §4 item 4 has no text when there is no
+  SenseVoice final; this run used `asr=stream`).
+
+**Sources (read 2026-11-18).**
+- Code builds the frame and the order; the model only names places and writes the speech:
+  [TravelPlanner](https://arxiv.org/pdf/2402.01622) (language agents alone 0.6 % success),
+  [ChinaTravel](https://arxiv.org/pdf/2412.13682v3) (neuro-symbolic 27.9 % vs 2.6 % constraint pass),
+  [ItiNera](https://alphaxiv.org/abs/2402.07204) (LLM–solver–LLM).
+- The hotel as each day's anchor, placed near the day's places: [TourPlanner](https://arxiv.org/html/2601.04698v1)
+  (accommodation around the POI centroid), [ItinerAI](https://ai.google.dev/competition/projects/itinerai).
+- Apple place search: `MKLocalSearch` with `naturalLanguageQuery` and a `region`; results are `MKMapItem` with
+  `placemark.isoCountryCode` ([Apple MKLocalSearch](https://developer.apple.com/documentation/mapkit/mklocalsearch)).
+  No key, no fee; Apple throttles heavy use (`MKError.loadingThrottled`).
+- Apple Maps hand-off: `MKMapItem.openMaps(with:launchOptions:)` with `MKLaunchOptionsDirectionsModeDriving`
+  ([Apple](https://developer.apple.com/documentation/mapkit/mkmapitem/openmaps(with:launchoptions:))).
+- 高德 abroad: 高德 announced a developer 世界地图 service (2025-07, upgraded 2026-07,
+  [IT之家](https://www.ithome.com/0/869/240.htm), [新浪](https://finance.sina.com.cn/tob/2026-07-07/doc-inifyzkw5093066.shtml));
+  the owner's Web key does not have its place search (above). If 高德 opens it later, only §36 item 2 changes.
+
+## 36. China or abroad
+
+1. **`abroad`** (new, `make_trip_list`): `true` when the trip is outside China, `false` (default) otherwise. China
+   here is the mainland, Hong Kong, Macau and Taiwan (高德's coverage); a 珠海 → 澳门 trip is `false`. The model sets
+   it from the request; the vendor is never named to the model.
+2. **Search by flag (code).** `abroad=false`: 高德 as today (§4). `abroad=true`: every name (places, `start`, `end`,
+   `hotels`) goes to `ApplePlaceSearch` (§41), with the region of the first found name, else no region.
+3. **Wrong-country guard.** In an `abroad` trip, an Apple result whose `isoCountryCode` is CN, HK, MO or TW is
+   dropped (`reason=country`). Several results for a name go to the picker as §4 item 6.
+4. **Wrong-flag backstop.** `abroad=false` and 高德 finds fewer than half of the names: those names are searched on
+   Apple. If most Apple results are outside China, the trip becomes `abroad`, every name is searched again as item 2,
+   and the record line says `switched=yes`.
+5. **Coordinates.** Outside China, GCJ-02 equals WGS-84; Apple results are used as they are. Inside China nothing
+   changes (高德 only).
+6. **Driving times** stay on 高德 `/v3/distance` (§26) in both cases. Abroad, if 高德 does not answer every pair,
+   §26 item 4 applies (`ROUTE_TIMES_UNAVAILABLE`, kept in the asked order); straight-line ordering is still never used.
+7. **Photos and introductions.** Abroad, §12 photos are skipped (高德 has none there); the §21 introduction from the
+   Qwen web search works as it does at home.
+
+## 37. Start, hotels and end
+
+1. **New `make_trip_list` fields:**
+   - `start`: optional name, ≤ 40 characters (「成田机场」).
+   - `end`: optional name, ≤ 40 characters.
+   - `hotels`: optional, 1–4 names; one name is the base for every night; D−1 names are one per night, night k
+     after day k. Any other count → `invalidFields`.
+   They are searched as places (§36 item 2) and are not counted in the 16. One not found → it is left out, named in
+   `not_found`, and the plan is built without it.
+2. **Roles.** Each plan stop gets `role`: `start`, `sight` (today's stops), `hotel` or `end`. `start` is day 1's first
+   stop; `end` is the last day's last stop; night k's hotel is day k's last stop and day k+1's first stop (the same
+   place id on both days). §27 item 4's same-place check counts the roles too.
+3. **Ordering with fixed ends (§27 extended).** Each day is an open path with a fixed first stop (`start`, or the
+   hotel of the night before) and, when there is one, a fixed last stop (that night's hotel, or `end` on the last day).
+   - The sights are first put on one path and cut into D days as §27 item 3, with `start` fixed first and `end`
+     fixed last.
+   - Then each day is ordered again between its fixed ends (§27 item 1).
+4. **Hotels picked by code.** A trip of 2–5 days with no `hotels`: for each night k, code searches 「酒店」 within
+   3 km of the midpoint of day k's last sight and day k+1's first sight (高德 at home, Apple abroad), takes the first
+   result, and reorders days k and k+1 as item 3. None within 3 km → 10 km → no hotel for that night, and `next`
+   says so. Picked hotels are marked `picked: true`; the driver changes one with `edit_trip_list replace`.
+5. **The start rule** (replaces §28 item 1 for `make_trip_list`):
+   - `start` named → there.
+   - Else the phone's position (or the demo point), **when it is within 300 km of a sight**.
+   - Else `NO_START`: the plan is kept unordered and she asks one question: 「从哪里出发？机场还是酒店？」.
+     The answer comes back as `edit_trip_list reorganize start=…`; a `start` not in the plan is searched once (as a
+     place of the trip, §36 item 2) and added with `role: start`.
+   `reorganize` keeps the plan's `start` unless a new one is named; with neither, §28 item 1 applies with the same
+   300 km rule.
+6. **End rule.** `end` named → the last day ends there. Else the last day ends at its last sight.
+7. **`trip_next`** goes to every stop in order, hotels and `end` included; arriving at a night's hotel ends the day
+   (`DAY_DONE` on the next `trip_next` of that day).
+8. **Screen.** Hotel and airport cards carry a small label 住 / 机场 under the poster; day 1's first card and the last
+   day's last card are the start and the end.
+
+## 38. Guidance abroad
+
+1. `trip_next` and `navigate_to` start 高德 guidance as today.
+2. Abroad (`abroad=true` trips, or a destination whose coordinates are outside China), if 高德's route calculation fails,
+   the app opens Apple Maps with driving directions to that stop (`MKMapItem.openMaps`) and says 「已在苹果地图打开导航」.
+   The stop is not marked visited by the app; 「已经到了」 marks it (§29 item 2).
+3. Device row 97 settles whether 高德 guidance works in Japan. If it does, item 2 never fires.
+
+## 39. Catalog text
+
+- `make_trip_list`, appended: 「行程在中国以外（不含港澳台）时填 abroad=true。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。」
+- `edit_trip_list`, appended: 「司机回答从哪里出发→reorganize 填 start。」
+- `trip_next`, appended: 「已在苹果地图打开=告诉司机，到了说「已经到了」。」
+
+## 40. The re-ask when the reply drifts (F-05a §4 item 4)
+
+The 「请用中文简短地请司机再说一遍」 form is used only when the utterance has no text at all. Otherwise the re-ask
+carries the driver's words from, in order: the SenseVoice final, the streaming local final (`heard-local`), Gemini's
+input transcript (`heard-gemini`): 「…司机刚才说的是「<文字>」。请用中文回答这句话。」. The record line becomes
+`correction WRONG_LANGUAGE heard=<sensevoice|local|gemini|none>`. F-05a's own rows keep passing (the SenseVoice form
+is unchanged).
+
+## 41. Code
+
+- **NovaPorts:** `PlaceSearch` gains a second implementation; a `TripRegion` value (`china`, `abroad`) chooses it in
+  NovaNav. `Place` gains `countryCode: String?`.
+- **NovaPlatform:** `ApplePlaceSearch` (`MKLocalSearch`, 8 s limit, at most 2 at once, one retry on
+  `loadingThrottled` after 1 s). `MapKit` is added to §3.2 of ios-architecture.md as NovaPlatform and App only;
+  `check_imports.py` enforces it.
+- **App:** `AppleMapsHandoff` (`MKMapItem.openMaps`).
+- **NovaNav:** `TripPlanner` roles, `TripOptimizer` fixed last stop, hotel picking, the 300 km start rule.
+- **NovaVoice:** §40.
+
+## 42. Record and log
+
+Codes and numbers only (I-8).
+
+| Line | When |
+|---|---|
+| `trip search vendor=<amap\|apple> abroad=<yes\|no> switched=<yes\|no> names=<n> found=<n> country_dropped=<n> ms=<ms>` | After a trip's lookups. |
+| `trip frame start=<named\|here\|demo\|none> end=<named\|none> hotels=<named\|picked\|none> nights=<n> picked=<n>` | After a plan is built or reorganized. |
+| `trip handoff vendor=apple_maps reason=<route_failed>` | When §38 item 2 opens Apple Maps. |
+
+`trip lookup … reason=` gains `country`. `trip order … start=` keeps its values. New code: none (`NO_START` is §32's).
+
+## 43. Phase 4 acceptance (iOS)
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 84 | `make_trip_list abroad=true` with 3 names (fake Apple search) | All lookups go to Apple, none to 高德; `trip search vendor=apple` | unit |
+| 85 | `abroad=true`, Apple returns a CN result and a JP result for one name | The CN one is dropped (`reason=country`); the JP one is kept | unit |
+| 86 | `abroad=false`, 高德 finds 2 of 11, Apple finds 10 of 11 in JP | The trip switches to abroad; every name searched on Apple; `switched=yes` | unit |
+| 87 | `abroad=false` 珠海 → 澳门 names, 高德 finds them all | No Apple search | unit |
+| 88 | `start=成田机场 end=成田机场 hotels=[A]`, 5 days, 10 sights (fixed table) | Day 1 starts at 成田 and ends at A; days 2–4 start and end at A; day 5 starts at A and ends at 成田; every sight once | unit |
+| 89 | 3 days, `hotels=[A,B]` | Night 1 = A (day 1 last, day 2 first); night 2 = B | unit |
+| 90 | `hotels` with 3 names on a 3-day trip | `invalidFields` | unit |
+| 91 | 3 days, no `hotels` (fake search returns a hotel within 3 km) | Two hotels picked, `picked: true`; days reordered with them fixed; `trip frame hotels=picked picked=2` | unit |
+| 92 | No `start`, phone 2,500 km from every sight | `NO_START`, plan unordered, no `/v3/distance` request | unit |
+| 93 | No `start`, phone 20 km from a sight | Ordered from here, as phase 3 | unit |
+| 94 | `NO_START`, then `reorganize start=成田机场` (not in the plan) | One search; added with `role: start`; plan ordered from it; the sights unchanged | unit |
+| 95 | Reply blocked as Thai, no SenseVoice final, `heard-local` text present | The re-ask carries the local text; `heard=local`; no 「再说一遍」 | unit |
+| 96 | Device, 模拟导航 off, in 珠海: the 2026-11-18 sentence (东京五天, 成田机场进出, 酒店都安排) | Every sight in Tokyo; day 1 from 成田, last day to 成田, a hotel each night; no 「再说一遍」 | D |
+| 97 | Device: 「开始第一天」 on that plan | 高德 guidance to 成田 → first stop starts, or Apple Maps opens with `trip handoff` | D |
+| 98 | Device: 「规划珠海一日游，去长隆、环宇城、渔女」 | Unchanged from row 81: 高德 only, `trip search vendor=amap abroad=no` | D |
+
+## 44. Phase 4 tasks
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040o | §35–§42, rows 84–98 | Spec only; build on the owner's go |
