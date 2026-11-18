@@ -2835,7 +2835,7 @@
     {
       "id": "T-040o",
       "owner": "AUTONOMOUS",
-      "status": "IN_PROGRESS",
+      "status": "RUNNING",
       "priority": 30,
       "action": "F-15b phase 4 (§35-§44): trips abroad via Apple place search chosen by the abroad flag, wrong-country guard and wrong-flag backstop, start/hotels/end frame with code-picked hotels, 300 km start rule, Apple Maps hand-off when 高德 guidance fails abroad, WRONG_LANGUAGE re-ask with the driver's words; rows 84-98.",
       "depends_on": [
