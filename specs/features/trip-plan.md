@@ -1014,6 +1014,12 @@ spec and push to remote".
    it from the request; the vendor is never named to the model.
 2. **Search by flag (code).** `abroad=false`: 高德 as today (§4). `abroad=true`: every name (places, `start`, `end`,
    `hotels`) goes to `ApplePlaceSearch` (§41), with the region of the first found name, else no region.
+2a. **The trip's city (device 2026-11-18, record 20261118-102820).** Apple searches near the phone when no area is
+   given: all 41 results for 11 Tokyo names were places in China (`country_dropped=41`). So `abroad=true` needs `city`
+   as an English city and country (「Tokyo, Japan」); without it the call is `invalidFields` and she calls again at
+   once. Code finds the city's centre (`AppleCityCenter`: Apple's geocoder, then Apple's address search; a result in
+   China is never used) and every lookup is an Apple search within `abroadRegionMeters` of it with
+   `regionPriority = .required`. `trip search … center=<yes|no>`.
 3. **Wrong-country guard.** In an `abroad` trip, an Apple result whose `isoCountryCode` is CN, HK, MO or TW is
    dropped (`reason=country`). Several results for a name go to the picker as §4 item 6.
 4. **Wrong-flag backstop.** `abroad=false` and 高德 finds fewer than half of the names: those names are searched on
@@ -1071,7 +1077,7 @@ spec and push to remote".
 
 ## 39. Catalog text
 
-- `make_trip_list`, appended: 「行程在中国以外（不含港澳台）时填 abroad=true。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。」
+- `make_trip_list`, appended: 「行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 "Tokyo, Japan"，地名照常写中文。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。」
 - `edit_trip_list`, appended: 「司机回答从哪里出发→reorganize 填 start。」
 - `trip_next`, appended: 「已在苹果地图打开=告诉司机，到了说「已经到了」。」
 
@@ -1114,6 +1120,7 @@ Codes and numbers only (I-8).
 | # | Given / when | Then | Test |
 |---|---|---|---|
 | 84 | `make_trip_list abroad=true` with 3 names (fake Apple search) | All lookups go to Apple, none to 高德; `trip search vendor=apple` | unit |
+| 84a | `abroad=true` without `city`; then with `city=Tokyo, Japan` (fake centre) | First `invalidFields`, no lookup; then every name searched around the centre, `center=yes` | unit |
 | 85 | `abroad=true`, Apple returns a CN result and a JP result for one name | The CN one is dropped (`reason=country`); the JP one is kept | unit |
 | 86 | `abroad=false`, 高德 finds 2 of 11, Apple finds 10 of 11 in JP | The trip switches to abroad; every name searched on Apple; `switched=yes` | unit |
 | 87 | `abroad=false` 珠海 → 澳门 names, 高德 finds them all | No Apple search | unit |

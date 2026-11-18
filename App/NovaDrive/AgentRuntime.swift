@@ -1501,7 +1501,9 @@ final class AgentRuntime {
                                   },
                                   // F-15b §36 (T-040o): trips abroad search Apple; §38 item 2: Apple Maps when 高德 fails there.
                                   abroadSearch: ApplePlaceSearch(),
-                                  onHandoff: { place in await AppleMapsHandoff.open(place) })
+                                  onHandoff: { place in await AppleMapsHandoff.open(place) },
+                                  // §36 item 2a: abroad lookups search around the trip city's centre.
+                                  abroadCenter: { city in await AppleCityCenter.find(city) })
         await planner.restore()
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).

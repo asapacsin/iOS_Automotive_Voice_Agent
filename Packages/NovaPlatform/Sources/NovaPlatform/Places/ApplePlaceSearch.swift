@@ -57,7 +57,11 @@ public final class ApplePlaceSearch: PlaceSearch, @unchecked Sendable {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
         request.resultTypes = .pointOfInterest
-        if let region { request.region = region }
+        if let region {
+            request.region = region
+            // §36 item 2a: without this Apple still prefers places near the phone (in China) over the trip's city.
+            request.regionPriority = .required
+        }
         // MKLocalSearch is not Sendable; it is only started and cancelled here, as Apple documents.
         nonisolated(unsafe) let search = MKLocalSearch(request: request)
         return try await withThrowingTaskGroup(of: [Place].self) { group in

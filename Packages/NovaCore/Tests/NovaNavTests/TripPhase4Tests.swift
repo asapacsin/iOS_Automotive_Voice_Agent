@@ -11,6 +11,7 @@ final class FakeApple: PlaceSearch, @unchecked Sendable {
     let table: [String: [Place]]
     let hotels: Bool
     let asked = Mutex<[String]>([])
+    let centers = Mutex<[GeoCoordinate]>([])
     init(_ table: [String: [Place]], hotels: Bool = false) {
         self.table = table
         self.hotels = hotels
@@ -21,6 +22,7 @@ final class FakeApple: PlaceSearch, @unchecked Sendable {
     }
     func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {
         asked.withLock { $0.append(keywords) }
+        centers.withLock { $0.append(center) }
         if keywords == "酒店" {
             guard hotels else { return [] }
             return [hotelAt(center, country: "JP")]
@@ -86,6 +88,23 @@ struct TripPhase4Tests {
         #expect(apple.asked.withLock { $0 }.sorted() == ["浅草寺", "东京塔", "皇居"].sorted())
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip search vendor=apple abroad=yes switched=no names=3 found=3 country_dropped=0 ms=") })
         #expect(await rig.planner.currentPlan.abroad)
+    }
+
+    @Test("F-15b row 84a (2026-11-18): abroad with a city centre: no city → invalidFields, no lookup; with city every name searched around the centre")
+    func row84a() async {
+        let apple = FakeApple(tokyo)
+        let centre = GeoCoordinate(latitude: 35.68, longitude: 139.76, datum: .gcj02)
+        let asked = Mutex<[String]>([])
+        let (rig, _) = await timesRig(here: GeoCoordinate(latitude: 22.27, longitude: 113.58, datum: .gcj02), abroad: apple,
+                                      center: { city in asked.withLock { $0.append(city) }; return centre })
+        let bad = await rig.run(trip("make_trip_list", ["places": names(["浅草寺", "东京塔"]), "abroad": true]))
+        #expect(bad.code == .invalidFields)
+        #expect(apple.asked.withLock { $0 }.isEmpty)
+        let r = await rig.run(trip("make_trip_list", ["places": names(["浅草寺", "东京塔"]), "abroad": true, "city": "Tokyo, Japan"]))
+        #expect(r.ok && r.data["count"] == .int(2))
+        #expect(asked.withLock { $0 } == ["Tokyo, Japan"])
+        #expect(apple.centers.withLock { $0 }.count == 2 && apple.centers.withLock { $0 }.allSatisfy { $0 == centre })
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip search vendor=apple abroad=yes") && $0.hasSuffix("center=yes") })
     }
 
     @Test("F-15b row 85: abroad=true, a CN and a JP result for one name: the CN one dropped, the JP one kept")
@@ -273,7 +292,7 @@ struct TripPhase4Tests {
         guard case .cards(let cards) = TripScreen.of(await rig.planner.current, moving: false) else { Issue.record("cards"); return }
         #expect(cards.first?.tag == "机场" && cards.last?.tag == "住")
         func text(_ n: String) -> String { ToolCatalog.spec(n)!.declaration.description }
-        #expect(text("make_trip_list").hasSuffix("行程在中国以外（不含港澳台）时填 abroad=true。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。"))
+        #expect(text("make_trip_list").hasSuffix("行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 \"Tokyo, Japan\"，地名照常写中文。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。"))
         #expect(text("edit_trip_list").hasSuffix("司机回答从哪里出发→reorganize 填 start。"))
         #expect(text("trip_next").hasSuffix("已在苹果地图打开=告诉司机，到了说「已经到了」。"))
     }

@@ -59,6 +59,9 @@ public actor TripPlanner: ToolExecutor {
     private let search: any PlaceSearch
     /// §36 item 2 (T-040o): Apple's place search for trips abroad; nil keeps every trip on 高德.
     private let abroadSearch: (any PlaceSearch)?
+    /// §36 item 2a (2026-11-18): the centre of an abroad trip's `city` ("Tokyo, Japan"), outside China, else nil.
+    /// Apple searches near the phone when no area is given, so every Tokyo name came back as a place in China.
+    private let abroadCenter: (@Sendable (String) async -> GeoCoordinate?)?
     /// §38 item 2: opens Apple Maps to a stop when 高德's route fails abroad; true when it opened.
     private let onHandoff: (@Sendable (Place) async -> Bool)?
     /// §4 item 6: nil picks 高德's first result.
@@ -126,8 +129,10 @@ public actor TripPlanner: ToolExecutor {
                 startLabel: @escaping @Sendable () async -> String = { "here" },
                 onNote: @escaping @Sendable (String) -> Void = { _ in },
                 abroadSearch: (any PlaceSearch)? = nil,
-                onHandoff: (@Sendable (Place) async -> Bool)? = nil) {
+                onHandoff: (@Sendable (Place) async -> Bool)? = nil,
+                abroadCenter: (@Sendable (String) async -> GeoCoordinate?)? = nil) {
         self.abroadSearch = abroadSearch
+        self.abroadCenter = abroadCenter
         self.onHandoff = onHandoff
         self.times = times
         self.startLabel = startLabel
@@ -342,6 +347,11 @@ public actor TripPlanner: ToolExecutor {
         // §37 item 1: one hotel for every night, or one per night.
         if !hotelNames.isEmpty, hotelNames.count != 1, hotelNames.count != dayCount - 1 {
             return .failure(.invalidFields, advice: "hotels 只能填一个（每晚都住），或者每晚一个（\(dayCount)天=\(max(dayCount - 1, 1))个）。请重新调用。")
+        }
+        // §36 item 2a: a trip abroad needs its city to search in.
+        let abroadAsked = args["abroad"]?.boolValue ?? false
+        if abroadAsked, abroadSearch != nil, abroadCenter != nil, (city ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+            return .failure(.invalidFields, advice: "abroad=true 时必须填 city：英文城市名加国家，比如 \"Tokyo, Japan\"。请马上重新调用，不要告诉司机。")
         }
         let flat = dayNames.flatMap { $0 }
         let extras = [startName, endName].compactMap { $0 } + hotelNames
@@ -1042,24 +1052,30 @@ public actor TripPlanner: ToolExecutor {
         var lookups: [Lookup]
         var dropped = 0
         func found(_ l: [Lookup]) -> Int { l.filter { if case .found = $0 { true } else { false } }.count }
+        // §36 item 2a: every abroad lookup is searched around the city's centre.
+        var center: GeoCoordinate?
+        if abroadSearch != nil, let abroadCenter, let city, !city.isEmpty, asked {
+            center = await abroadCenter(city)
+        }
         if abroad {
-            (lookups, dropped) = await resolveCounting(names, city: nil, abroad: true)
+            (lookups, dropped) = await resolveCounting(names, city: nil, abroad: true, near: center)
         } else {
             lookups = await resolve(names, city: city)
             let keyMissing = lookups.contains { if case .keyMissing = $0 { true } else { false } }
             if abroadSearch != nil, !keyMissing, !names.isEmpty, found(lookups) * 2 < names.count, !Task.isCancelled {
                 let missed = names.indices.filter { if case .found = lookups[$0] { false } else { true } }
-                let (probe, _) = await resolveCounting(missed.map { names[$0] }, city: nil, abroad: true, guardCountry: false)
+                let (probe, _) = await resolveCounting(missed.map { names[$0] }, city: nil, abroad: true, guardCountry: false,
+                                                       near: center)
                 let places = probe.compactMap { if case .found(let p) = $0 { p } else { nil } }
                 let outside = places.filter { !TripRegion.isChina($0.countryCode) }.count
                 if !places.isEmpty, outside * 2 > places.count, !Task.isCancelled {
                     switched = true
                     abroad = true
-                    (lookups, dropped) = await resolveCounting(names, city: nil, abroad: true)
+                    (lookups, dropped) = await resolveCounting(names, city: nil, abroad: true, near: center)
                 }
             }
         }
-        onLine("trip search vendor=\(abroad ? "apple" : "amap") abroad=\(abroad ? "yes" : "no") switched=\(switched ? "yes" : "no") names=\(names.count) found=\(found(lookups)) country_dropped=\(dropped) ms=\(ms(since: started))")
+        onLine("trip search vendor=\(abroad ? "apple" : "amap") abroad=\(abroad ? "yes" : "no") switched=\(switched ? "yes" : "no") names=\(names.count) found=\(found(lookups)) country_dropped=\(dropped) ms=\(ms(since: started)) center=\(center == nil ? "no" : "yes")")
         return (lookups, abroad)
     }
 

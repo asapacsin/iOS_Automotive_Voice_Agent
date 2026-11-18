@@ -23,10 +23,11 @@ let byLine: @Sendable (GeoCoordinate, GeoCoordinate) -> Int? = { Int((abs($0.lat
 func timesRig(_ seconds: @escaping @Sendable (GeoCoordinate, GeoCoordinate) -> Int? = byLine, noOrigin: Bool = false,
               table: [String: [Place]] = tianjin, notes: TripLines? = nil, search: TripSearch? = nil,
               here: GeoCoordinate? = nil, abroad: (any PlaceSearch)? = nil,
-              handoff: (@Sendable (Place) async -> Bool)? = nil) async -> (TripRig, FakeDrivingTimes) {
+              handoff: (@Sendable (Place) async -> Bool)? = nil,
+              center: (@Sendable (String) async -> GeoCoordinate?)? = nil) async -> (TripRig, FakeDrivingTimes) {
     let service = FakeDrivingTimes(seconds)
     let rig = await TripRig(search: search ?? TripSearch(table), times: TripTimes(service: service, clock: ManualClock(), retryDelay: .milliseconds(1)),
-                            noOrigin: noOrigin, notes: notes, here: here, abroad: abroad, handoff: handoff)
+                            noOrigin: noOrigin, notes: notes, here: here, abroad: abroad, handoff: handoff, center: center)
     return (rig, service)
 }
 
