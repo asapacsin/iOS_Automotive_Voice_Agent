@@ -59,3 +59,22 @@ struct PhotonPlaceSearchTests {
         await #expect(throws: AmapWebError.failed) { try await s.text("x", city: nil) }
     }
 }
+
+@Suite("F-15b row 84f Photon")
+struct PhotonRow84fTests {
+    @Test("F-15b row 84f: 「浅草寺 (Senso-ji)」 searched as Senso-ji, shown 浅草寺; 429 → quota; a CN result is never the centre")
+    func row84f() async throws {
+        let t = StubTransport()
+        t.body = Data(PhotonPlaceSearchTests.senso.utf8)
+        let s = PhotonPlaceSearch(transport: t)
+        let found = try await s.text("浅草寺 (Senso-ji)", city: nil)
+        #expect(found.first?.name == "浅草寺")
+        let url = try #require(t.requests.first?.url?.absoluteString.removingPercentEncoding)
+        #expect(url.contains("q=Senso-ji") && !url.contains("浅草寺"))
+        t.status = 429
+        await #expect(throws: AmapWebError.quota) { try await s.around("浅草寺 (Senso-ji)", center: GeoCoordinate(latitude: 35.7, longitude: 139.8, datum: .gcj02), radiusMeters: 1_000, sort: .weight) }
+        t.status = 200
+        t.body = Data(#"{"features":[{"properties":{"name":"东京","countrycode":"CN"},"geometry":{"coordinates":[113.0,23.0]}}]}"#.utf8)
+        #expect(await s.center("Tokyo, Japan") == nil)
+    }
+}

@@ -13,6 +13,8 @@ public struct TripPlan: Sendable, Hashable {
     public var name: String?
     /// §36 item 1 (T-040o): the trip is outside China; its names are searched on Apple.
     public var abroad = false
+    /// §36 item 2d (T-040p): an `abroad` trip's city ("Tokyo, Japan"), the default of `navigate_to` while it runs.
+    public var city: String?
     public private(set) var days: [TripList] = [TripList()]
     /// 1-based.
     public private(set) var currentDay = 1
@@ -132,6 +134,7 @@ public struct TripPlan: Sendable, Hashable {
     public mutating func load(_ other: TripPlan) {
         name = other.name
         abroad = other.abroad
+        city = other.city
         days = other.days
         currentDay = other.currentDay
         revision += 1
@@ -169,6 +172,8 @@ public enum TripPlanFile {
         var savedAt: Double?
         /// T-040o §36 item 1 (optional).
         var abroad: Bool?
+        /// T-040p §36 item 2d (optional).
+        var city: String?
     }
 
     struct Current: Codable { var version: Int; var plan: Plan }
@@ -189,7 +194,7 @@ public enum TripPlanFile {
                           role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode)
                  }
              },
-             savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil)
+             savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.abroad ? plan.city : nil)
     }
 
     static func decode(_ plan: Plan) -> TripPlan {
@@ -207,6 +212,7 @@ public enum TripPlanFile {
         }
         var out = TripPlan(name: plan.name, days: Array(days), currentDay: plan.currentDay)
         out.abroad = plan.abroad ?? false
+        out.city = out.abroad ? plan.city : nil
         return out
     }
 

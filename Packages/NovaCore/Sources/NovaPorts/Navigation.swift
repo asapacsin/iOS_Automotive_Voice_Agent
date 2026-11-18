@@ -49,6 +49,16 @@ public struct DrivingTime: Sendable, Hashable {
 /// none. Throws `AmapWebError` (`.quota` is retried by the caller).
 public protocol DrivingTimes: Sendable {
     func drivingTimes(origins: [GeoCoordinate], destination: GeoCoordinate) async throws -> [DrivingTime?]
+    /// §36 item 2c (T-040p): true when one `table(_:)` request gives every pair (OSRM); then `TripTimes` makes that
+    /// one request instead of one per destination.
+    var answersWholeTable: Bool { get }
+    /// Every pair of `points` in one request: `[from][to]`, nil where the vendor gave none. Throws `AmapWebError`.
+    func table(_ points: [GeoCoordinate]) async throws -> [[DrivingTime?]]
+}
+
+public extension DrivingTimes {
+    var answersWholeTable: Bool { false }
+    func table(_ points: [GeoCoordinate]) async throws -> [[DrivingTime?]] { throw AmapWebError.failed }
 }
 
 public struct RouteSummary: Sendable, Hashable {

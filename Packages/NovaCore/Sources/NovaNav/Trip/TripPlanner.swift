@@ -83,6 +83,8 @@ public actor TripPlanner: ToolExecutor {
     private let onHidden: @Sendable (Bool) -> Void
     /// §26 (T-040n): the driving-time table; nil orders nothing (`ROUTE_TIMES_UNAVAILABLE`).
     private let times: TripTimes?
+    /// §36 item 2c (T-040p): the table for `abroad` trips (OSRM); when it fails the plan is ordered on an estimate.
+    private let abroadTimes: TripTimes?
     /// §32: `here` or `demo` (模拟导航's demo point) for the `trip order` line.
     private let startLabel: @Sendable () async -> String
     /// §29 item 3: the arrival note for a connected session.
@@ -130,7 +132,9 @@ public actor TripPlanner: ToolExecutor {
                 onNote: @escaping @Sendable (String) -> Void = { _ in },
                 abroadSearch: (any PlaceSearch)? = nil,
                 onHandoff: (@Sendable (Place) async -> Bool)? = nil,
-                abroadCenter: (@Sendable (String) async -> GeoCoordinate?)? = nil) {
+                abroadCenter: (@Sendable (String) async -> GeoCoordinate?)? = nil,
+                abroadTimes: TripTimes? = nil) {
+        self.abroadTimes = abroadTimes
         self.abroadSearch = abroadSearch
         self.abroadCenter = abroadCenter
         self.onHandoff = onHandoff
@@ -152,6 +156,11 @@ public actor TripPlanner: ToolExecutor {
     }
 
     public var current: TripList { list }
+    /// §36 item 2d (T-040p): the city of an `abroad` trip in progress, for `navigate_to`; nil when there is none.
+    public var abroadCity: String? {
+        guard plan.abroad, !plan.isEmpty, let city = plan.city, !city.isEmpty else { return nil }
+        return city
+    }
     public var currentPlan: TripPlan { plan }
     public var savedPlans: SavedTripPlans { saved }
 
@@ -418,6 +427,7 @@ public actor TripPlanner: ToolExecutor {
         switch arranged {
         case .success(let o):
             lists = o.days
+            if o.estimated { extra["times"] = "estimated" }
             if !o.nightsWithoutHotel.isEmpty {
                 notes.append("第\(o.nightsWithoutHotel.map(String.init).joined(separator: "、"))晚附近没找到酒店")
             }
@@ -434,6 +444,7 @@ public actor TripPlanner: ToolExecutor {
         }
         plan.replaceAll(withDays: lists)
         plan.abroad = searched.abroad
+        plan.city = searched.abroad ? city?.trimmingCharacters(in: .whitespaces) : nil
         changed()
         line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
         let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
@@ -604,6 +615,8 @@ public actor TripPlanner: ToolExecutor {
         /// §37 item 4: hotels the app picked this time, and the nights (1-based) where none was found.
         var picked = 0
         var nightsWithoutHotel: [Int] = []
+        /// §36 item 2c: the times are the straight-line estimate.
+        var estimated = false
     }
 
     private enum OrderResult {
@@ -614,6 +627,12 @@ public actor TripPlanner: ToolExecutor {
     /// §28 item 2: what `next` adds when the new plan could not be ordered.
     private static func unordered(_ result: OrderResult) -> String {
         if case .failed = result { return "；还没按车程排好顺序" }
+        return estimateNote(result)
+    }
+
+    /// §36 item 2c: said once when the times are estimated.
+    private static func estimateNote(_ result: OrderResult) -> String {
+        if case .success(let o) = result, o.estimated { return "；时间是估算的" }
         return ""
     }
 
@@ -668,7 +687,9 @@ public actor TripPlanner: ToolExecutor {
             frameLine(start: "none", end: endStop != nil, hotels: "none", nights: 0, picked: 0)
             return .failed(.noStart)
         }
-        guard let times else {
+        // §36 item 2c: abroad the table is OSRM's, else the straight-line estimate; at home 高德's (§26 item 4).
+        let tableTimes = abroad ? (abroadTimes ?? times) : times
+        guard abroad || tableTimes != nil else {
             log(false)
             return .failed(.routeTimesUnavailable)
         }
@@ -692,7 +713,16 @@ public actor TripPlanner: ToolExecutor {
         pending.forEach(addNode)
         if let endStop { addNode(endStop) }
         anyHotel.forEach(addNode)
-        guard var table = await times.table(start: startNode, stops: nodes) else {
+        // §42: `trip times vendor=<amap|osrm|estimate> pairs= ms=` after each table.
+        func timeTable() async -> TripTimes.Table? {
+            let asked = clock.now
+            var got = await tableTimes?.table(start: startNode, stops: nodes)
+            if got == nil, abroad { got = TripTimes.estimate(start: startNode, stops: nodes) }
+            let vendor = got?.estimated == true ? "estimate" : abroad && abroadTimes != nil ? "osrm" : "amap"
+            onLine("trip times vendor=\(vendor) pairs=\(got?.pairs ?? 0) ms=\(ms(since: asked))")
+            return got
+        }
+        guard var table = await timeTable() else {
             log(false)
             return .failed(.routeTimesUnavailable)
         }
@@ -735,7 +765,7 @@ public actor TripPlanner: ToolExecutor {
             guard !Task.isCancelled else { return .failed(.optionsStale) }
             if picked > 0 {
                 nightHotel.compactMap { $0 }.forEach(addNode)
-                guard let again = await times.table(start: startNode, stops: nodes) else {
+                guard let again = await timeTable() else {
                     log(false, requests: requests, cached: cached)
                     return .failed(.routeTimesUnavailable)
                 }
@@ -804,7 +834,7 @@ public actor TripPlanner: ToolExecutor {
         frameLine(start: first != nil || startStop != nil ? "named" : label, end: endStop != nil,
                   hotels: named ? "named" : picked > 0 || plannedHotels.contains { $0?.picked == true } ? "picked" : "none",
                   nights: nights, picked: picked)
-        return .success(Ordered(days: days, picked: picked, nightsWithoutHotel: withoutHotel))
+        return .success(Ordered(days: days, picked: picked, nightsWithoutHotel: withoutHotel, estimated: table.estimated))
     }
 
     /// §42: `trip frame start= end= hotels= nights= picked=`.
@@ -867,8 +897,10 @@ public actor TripPlanner: ToolExecutor {
             // A visited or skipped stop keeps its day, so fewer days than that can't be kept: say so.
             let kept = days.map { $0 < plan.dayCount ? "已去过或跳过的站留在原来那天，所以还是\(plan.dayCount)天。" : "" } ?? ""
             let hotels = o.nightsWithoutHotel.isEmpty ? "" : "第\(o.nightsWithoutHotel.map(String.init).joined(separator: "、"))晚附近没找到酒店。"
+            let estimated = o.estimated ? "时间是估算的。" : ""
             return listResult(changed: "reorganized",
-                              next: "\(kept)\(hotels)用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。")
+                              next: "\(kept)\(hotels)\(estimated)用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。",
+                              extra: o.estimated ? ["times": "estimated"] : [:])
         }
     }
 
@@ -910,7 +942,8 @@ public actor TripPlanner: ToolExecutor {
             plan.arrange(days: days)
             changed()
             return listResult(changed: "moved",
-                              next: "只说一句：\(moved.place.name)放到了第\(toDay)天，第\(toDay)天按车程排好了。")
+                              next: "只说一句：\(moved.place.name)放到了第\(toDay)天，第\(toDay)天按车程排好了\(Self.estimateNote(result))。",
+                              extra: o.estimated ? ["times": "estimated"] : [:])
         }
     }
 

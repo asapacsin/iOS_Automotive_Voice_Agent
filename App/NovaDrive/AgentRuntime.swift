@@ -1508,8 +1508,16 @@ final class AgentRuntime {
                                   abroadCenter: { city in
                                       if let c = await photon.center(city) { return c }
                                       return await AppleCityCenter.find(city)
-                                  })
+                                  },
+                                  // §36 item 2c (T-040p): abroad driving times from OSRM (高德 refuses them); a failure
+                                  // orders on the straight-line estimate.
+                                  abroadTimes: TripTimes(service: OsrmDrivingTimes(), clock: navigationClock))
         await planner.restore()
+        // §36 item 2d (T-040p): navigate_to abroad searches Photon; an abroad trip in progress gives its city.
+        await navigation.setAbroad(search: photon, center: { city in
+            if let c = await photon.center(city) { return c }
+            return await AppleCityCenter.find(city)
+        }, tripCity: { [weak planner] in await planner?.abroadCity })
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
         let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),

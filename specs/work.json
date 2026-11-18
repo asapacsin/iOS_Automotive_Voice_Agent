@@ -2866,7 +2866,12 @@
         ]
       },
       "notes": "Device 2026-11-18 (record 20261118-105448): Apple on a China-region iPhone finds only China. 高德 refuses abroad times (20011, 10045). Owner 2026-11-18: \"write the spec and push to remote\"; Linux (WSL) work on cloud (\"if you need to use wsl i prefer you to handle that on cloud\").",
-      "evidence": "Photon search code and 4 NovaServices tests at the spec commit; OSRM and navigate_to pending."
+      "evidence": [
+        "be697eb: PhotonPlaceSearch + 4 NovaServices tests",
+        "cloud session 2026-11-18: OsrmDrivingTimes (NovaServices) behind DrivingTimes (answersWholeTable/table), TripTimes one-request table with cache and one in flight, TripPlanner abroadTimes with the straight-line estimate (times=estimated, 时间是估算的), trip times line; navigate_to abroad/city on Photon (NavigationController.setAbroad, trip city default), nav search line, §39 catalog text, schema and validator; AgentRuntime wiring; tests TripPhase4bTests (rows 84b-84e), OsrmDrivingTimesTests, PhotonRow84fTests",
+        "static gates PASS (run_static.sh, ios_spec_check, spec_trace); NOT RUN: swift build/test (download.swift.org blocked by the auto-mode permission check in the cloud session), so no gate evidence and no review yet; status stays RUNNING",
+        "NOT_VERIFIED: row 96 (device)"
+      ]
     },
     {
       "id": "T-031j",
