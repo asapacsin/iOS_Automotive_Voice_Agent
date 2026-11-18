@@ -1482,6 +1482,7 @@ final class AgentRuntime {
         // F-15b §14 (T-040l): the plan and the saved plans live in Application Support/trip/.
         // F-15b §4 item 6: Qwen picks among 高德's results with the search model's key; no key → 高德's first result.
         let picker = QwenPlacePicker(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) })
+        let photon = PhotonPlaceSearch()
         let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock, picker: picker,
                                   files: AppTripFiles(), onLine: tripLine,
                                   onChange: { list in Task { @MainActor in model.tripList = list } },
@@ -1499,11 +1500,15 @@ final class AgentRuntime {
                                   onNote: { [weak self] note in
                                       Task { @MainActor in if let core = self?.core { await core.send(.screenNote(note)) } }
                                   },
-                                  // F-15b §36 (T-040o): trips abroad search Apple; §38 item 2: Apple Maps when 高德 fails there.
-                                  abroadSearch: ApplePlaceSearch(),
+                                  // F-15b §36 item 2b: trips abroad search OpenStreetMap (Photon); Apple's search on a
+                                  // China-region phone returns only places in China. §38 item 2: Apple Maps when 高德 fails there.
+                                  abroadSearch: photon,
                                   onHandoff: { place in await AppleMapsHandoff.open(place) },
                                   // §36 item 2a: abroad lookups search around the trip city's centre.
-                                  abroadCenter: { city in await AppleCityCenter.find(city) })
+                                  abroadCenter: { city in
+                                      if let c = await photon.center(city) { return c }
+                                      return await AppleCityCenter.find(city)
+                                  })
         await planner.restore()
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).

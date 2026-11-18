@@ -2851,6 +2851,24 @@
       "evidence": "56c5b5e: scripts/gates/run_all.sh PASS (clean clone, NovaCore 870 tests, 1 pre-existing known issue); independent high-effort read-only review FAIL at c77e17d (hotel replace, voice arrival at hotel, partly found hotels, named start, region, add count), fixed, PASS at 56c5b5e. App/NovaPlatform (MapKit) not compiled on Linux: local agent build. Rows 96-98 device NOT_VERIFIED."
     },
     {
+      "id": "T-040p",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 30,
+      "action": "F-15b §36 items 2b-2d: abroad place search on Photon (OpenStreetMap), abroad driving times on OSRM with a straight-line estimate fallback, navigate_to abroad/city on Photon; rows 84b-84f, row 96 again on device.",
+      "depends_on": [
+        "T-040o"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 84b-84f)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Device 2026-11-18 (record 20261118-105448): Apple on a China-region iPhone finds only China. 高德 refuses abroad times (20011, 10045). Owner 2026-11-18: \"write the spec and push to remote\"; Linux (WSL) work on cloud (\"if you need to use wsl i prefer you to handle that on cloud\").",
+      "evidence": "Photon search code and 4 NovaServices tests at the spec commit; OSRM and navigate_to pending."
+    },
+    {
       "id": "T-031j",
       "owner": "AUTONOMOUS",
       "status": "PASS",

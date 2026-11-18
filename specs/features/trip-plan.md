@@ -1020,6 +1020,34 @@ spec and push to remote".
    once. Code finds the city's centre (`AppleCityCenter`: Apple's geocoder, then Apple's address search; a result in
    China is never used) and every lookup is an Apple search within `abroadRegionMeters` of it with
    `regionPriority = .required`. `trip search … center=<yes|no>`.
+2b. **OpenStreetMap search abroad (device 2026-11-18, record 20261118-105448).** With the city given, Apple still
+   found no centre for "Tokyo, Japan" and all 66 results were in China: Apple's search on a China-region iPhone has
+   only China. Abroad lookups and the city centre therefore go to Photon, the OpenStreetMap search
+   (`photon.komoot.io/api`, no key; checked 2026-11-18 from China: Senso-ji, Tokyo Skytree, Narita International
+   Airport, Imperial Palace Tokyo, Kawaguchiko, Hakone Shrine, Ginza all first result, JP). OpenStreetMap has few
+   Chinese names, so abroad names are written 「中文名 (英文名)」: the English part is searched, the Chinese part shown.
+   「酒店」「租车」「加油站」「停车场」 are searched by OpenStreetMap tag. Apple's geocoder stays as the centre's fallback.
+   Community check (2026-11-18): from mainland China without a proxy, photon.komoot.io answered in ~1.0 s while
+   nominatim.openstreetmap.org timed out (github.com/shortcuts/locationjoystick/issues/97); the public instance is
+   throttled under heavy use and has no availability guarantee (wiki.openstreetmap.org/wiki/Photon).
+2c. **Driving times abroad from OSRM (checked 2026-11-18).** 高德 refuses abroad times: `/v3/distance` with Japan
+   points returns `INSUFFICIENT_ABROAD_PRIVILEGES` (20011), and `/v3/direction/driving` returns
+   `USER_ABROAD_DAILY_QUERY_OVER_LIMIT` (10045) after a few calls. Abroad, the §26 table therefore comes from the
+   OSRM table service (`router.project-osrm.org/table/v1/driving/<lng,lat;…>?annotations=duration,distance`, no key):
+   one request returns every pair (16 stops: 256 times in ~1.1 s). Usage policy: at most 1 request per second,
+   reasonable non-commercial use, ODbL/OSRM attribution, no guarantee
+   (github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy); one request per plan or reorganize, §26 item 2's
+   cache applies, never more than one request in flight. 8 s limit, no retry.
+   **If OSRM fails** (error, timeout, a `null` pair): the plan is ordered on straight-line distance (haversine ×
+   1.3 at 50 km/h) and every time is marked estimated; she says 「时间是估算的」 once. This replaces §26 item 4 for
+   `abroad` trips only; at home §26 item 4 is unchanged.
+2d. **Plain searches abroad.** `navigate_to` gains the optional `abroad` and `city` of item 1/2a with the same
+   meaning (「东京哪里租车」「导航去浅草寺 (Senso-ji)」「附近的加油站」 in Japan). `abroad=true`: the destination is
+   searched on Photon as item 2b (category words by tag), around the phone when it is outside China
+   (`CoordinateConverter.outOfChina`) and the destination says 附近/最近, else around the city's centre; `city`
+   missing → `invalidFields`, as 2a. No 高德 request. Results go to the existing candidate list (F-16); a found
+   destination opens guidance as §38 (Apple Maps when 高德 guidance fails). An `abroad` trip in progress makes
+   `abroad` default to `true` with the trip's city.
 3. **Wrong-country guard.** In an `abroad` trip, an Apple result whose `isoCountryCode` is CN, HK, MO or TW is
    dropped (`reason=country`). Several results for a name go to the picker as §4 item 6.
 4. **Wrong-flag backstop.** `abroad=false` and 高德 finds fewer than half of the names: those names are searched on
@@ -1027,8 +1055,8 @@ spec and push to remote".
    and the record line says `switched=yes`.
 5. **Coordinates.** Outside China, GCJ-02 equals WGS-84; Apple results are used as they are. Inside China nothing
    changes (高德 only).
-6. **Driving times** stay on 高德 `/v3/distance` (§26) in both cases. Abroad, if 高德 does not answer every pair,
-   §26 item 4 applies (`ROUTE_TIMES_UNAVAILABLE`, kept in the asked order); straight-line ordering is still never used.
+6. **Driving times.** At home 高德 `/v3/distance` (§26), unchanged. Abroad, OSRM with the straight-line fallback
+   (item 2c).
 7. **Photos and introductions.** Abroad, §12 photos are skipped (高德 has none there); the §21 introduction from the
    Qwen web search works as it does at home.
 
@@ -1077,9 +1105,10 @@ spec and push to remote".
 
 ## 39. Catalog text
 
-- `make_trip_list`, appended: 「行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 "Tokyo, Japan"，地名照常写中文。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。」
+- `make_trip_list`, appended: 「行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 "Tokyo, Japan"；地名（包括 start、end、hotels）都写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」「成田机场 (Narita International Airport)」。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。」
 - `edit_trip_list`, appended: 「司机回答从哪里出发→reorganize 填 start。」
 - `trip_next`, appended: 「已在苹果地图打开=告诉司机，到了说「已经到了」。」
+- `navigate_to`, appended (§36 item 2d): 「目的地在中国以外（不含港澳台）时填 abroad=true，city 填英文城市名加国家，比如 "Tokyo, Japan"；目的地写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」。」
 
 ## 40. The re-ask when the reply drifts (F-05a §4 item 4)
 
@@ -1100,6 +1129,8 @@ utterance has a SenseVoice final and `heard=sensevoice` is never written; the so
   `loadingThrottled` after 1 s). `MapKit` is added to §3.2 of ios-architecture.md as NovaPlatform and App only;
   `check_imports.py` enforces it.
 - **App:** `AppleMapsHandoff` (`MKMapItem.openMaps`).
+- **NovaServices:** `PhotonPlaceSearch` (§36 item 2b, `PlaceSearch` plus `center(city)`), `OsrmDrivingTimes`
+  (§36 item 2c, one `/table` request, behind the §26 `DrivingTimes` port). Both use `HTTPTransport`.
 - **NovaNav:** `TripPlanner` roles, `TripOptimizer` fixed last stop, hotel picking, the 300 km start rule.
 - **NovaVoice:** §40.
 
@@ -1112,6 +1143,8 @@ Codes and numbers only (I-8).
 | `trip search vendor=<amap\|apple> abroad=<yes\|no> switched=<yes\|no> names=<n> found=<n> country_dropped=<n> ms=<ms>` | After a trip's lookups. |
 | `trip frame start=<named\|here\|demo\|none> end=<named\|none> hotels=<named\|picked\|none> nights=<n> picked=<n>` | After a plan is built or reorganized. |
 | `trip handoff vendor=apple_maps reason=<route_failed>` | When §38 item 2 opens Apple Maps. |
+| `trip times vendor=<amap\|osrm\|estimate> pairs=<n> ms=<ms>` | After a plan's driving-time table (§36 item 2c). |
+| `nav search vendor=photon abroad=yes found=<n> ms=<ms>` | After a `navigate_to` lookup abroad (§36 item 2d). |
 
 `trip lookup … reason=` gains `country`. `trip order … start=` keeps its values. New code: none (`NO_START` is §32's).
 
@@ -1121,6 +1154,11 @@ Codes and numbers only (I-8).
 |---|---|---|---|
 | 84 | `make_trip_list abroad=true` with 3 names (fake Apple search) | All lookups go to Apple, none to 高德; `trip search vendor=apple` | unit |
 | 84a | `abroad=true` without `city`; then with `city=Tokyo, Japan` (fake centre) | First `invalidFields`, no lookup; then every name searched around the centre, `center=yes` | unit |
+| 84b | `abroad=true` trip, 4 stops (fake OSRM returns a 5×5 table) | One OSRM request, no 高德 `/v3/distance`; order from the OSRM times; `trip times vendor=osrm` | unit |
+| 84c | `abroad=true` trip, fake OSRM times out | Ordered by straight-line distance, times marked estimated, 「时间是估算的」 in `next`; `trip times vendor=estimate` | unit |
+| 84d | `navigate_to destination=附近的租车 abroad=true city=Tokyo, Japan`, phone in Tokyo (fake Photon) | One Photon tag search (`amenity:car_rental`) around the phone, no 高德 request; candidates listed; `nav search vendor=photon` | unit |
+| 84e | `navigate_to abroad=true` without `city` | `invalidFields`, no lookup | unit |
+| 84f | Photon: 「浅草寺 (Senso-ji)」 parsed; 429 → quota; result in CN skipped for the centre | Searched text `Senso-ji`, shown name 浅草寺 | unit |
 | 85 | `abroad=true`, Apple returns a CN result and a JP result for one name | The CN one is dropped (`reason=country`); the JP one is kept | unit |
 | 86 | `abroad=false`, 高德 finds 2 of 11, Apple finds 10 of 11 in JP | The trip switches to abroad; every name searched on Apple; `switched=yes` | unit |
 | 87 | `abroad=false` 珠海 → 澳门 names, 高德 finds them all | No Apple search | unit |
@@ -1141,3 +1179,4 @@ Codes and numbers only (I-8).
 | Task | Scope | Status |
 |---|---|---|
 | T-040o | §35–§42, rows 84–98 | PASS (56c5b5e); rows 96–98 device NOT_VERIFIED |
+| T-040p | §36 items 2b–2d (OpenStreetMap search, OSRM times, plain searches abroad), rows 84b–84f; row 96 again on device | RUNNING |

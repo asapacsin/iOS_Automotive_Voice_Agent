@@ -292,7 +292,7 @@ struct TripPhase4Tests {
         guard case .cards(let cards) = TripScreen.of(await rig.planner.current, moving: false) else { Issue.record("cards"); return }
         #expect(cards.first?.tag == "机场" && cards.last?.tag == "住")
         func text(_ n: String) -> String { ToolCatalog.spec(n)!.declaration.description }
-        #expect(text("make_trip_list").hasSuffix("行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 \"Tokyo, Japan\"，地名照常写中文。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。"))
+        #expect(text("make_trip_list").hasSuffix("行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 \"Tokyo, Japan\"；地名（包括 start、end、hotels）都写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」「成田机场 (Narita International Airport)」。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。"))
         #expect(text("edit_trip_list").hasSuffix("司机回答从哪里出发→reorganize 填 start。"))
         #expect(text("trip_next").hasSuffix("已在苹果地图打开=告诉司机，到了说「已经到了」。"))
     }
