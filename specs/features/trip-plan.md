@@ -1133,4 +1133,4 @@ Codes and numbers only (I-8).
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040o | §35–§42, rows 84–98 | Built (owner go 2026-11-18); rows 96–98 device |
+| T-040o | §35–§42, rows 84–98 | PASS (56c5b5e); rows 96–98 device NOT_VERIFIED |

@@ -643,7 +643,7 @@ public actor TripPlanner: ToolExecutor {
             label = "named"
         } else if let named, let stop = all.first(where: { $0.stop.place.id == named })?.stop {
             startNode = TripTimes.Node(key: stop.place.id, coordinate: stop.place.coordinate)
-            // A hotel, end or visited sight named as the start: the plan is ordered from it and shown from it.
+            // A hotel, end or visited sight named as the start: the plan is ordered from it; the old start is dropped.
             if stop.role != .start, startStop?.place.id != named { startStop = nil }
             label = "named"
         } else if let startStop {

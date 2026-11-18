@@ -2835,7 +2835,7 @@
     {
       "id": "T-040o",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 30,
       "action": "F-15b phase 4 (§35-§44): trips abroad via Apple place search chosen by the abroad flag, wrong-country guard and wrong-flag backstop, start/hotels/end frame with code-picked hotels, 300 km start rule, Apple Maps hand-off when 高德 guidance fails abroad, WRONG_LANGUAGE re-ask with the driver's words; rows 84-98.",
       "depends_on": [
@@ -2847,7 +2847,8 @@
           "Change the spec first"
         ]
       },
-      "notes": "Owner go 2026-11-18 (\"claude/youthful-curie-vuit5r pull and implement the function based on spec\"). Built; review pending."
+      "notes": "Owner go 2026-11-18 (\"claude/youthful-curie-vuit5r pull and implement the function based on spec\"). Built; review pending.",
+      "evidence": "56c5b5e: scripts/gates/run_all.sh PASS (clean clone, NovaCore 870 tests, 1 pre-existing known issue); independent high-effort read-only review FAIL at c77e17d (hotel replace, voice arrival at hotel, partly found hotels, named start, region, add count), fixed, PASS at 56c5b5e. App/NovaPlatform (MapKit) not compiled on Linux: local agent build. Rows 96-98 device NOT_VERIFIED."
     },
     {
       "id": "T-031j",
