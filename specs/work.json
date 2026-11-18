@@ -2946,6 +2946,25 @@
       "evidence": "Spec at the commit that adds §47."
     },
     {
+      "id": "T-040t",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 30,
+      "action": "F-15b §48: fit each day to a time budget: model gives visit minutes and optional per place and ~1.5x places; code (TripFitter) keeps required, inserts optional within the day budget, keeps the rest as spare, says the load; rows 117-126.",
+      "depends_on": [
+        "T-040q",
+        "T-040r"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 117-126)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner 2026-11-18: estimate each day's time and adjust the plan, too few or too much is a problem. Spec only (owner: \"write down this\"). Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §48."
+    },
+    {
       "id": "T-031j",
       "owner": "AUTONOMOUS",
       "status": "PASS",

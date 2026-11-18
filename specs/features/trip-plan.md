@@ -860,6 +860,7 @@ Device run 7fdcdd6 (records 20261117-174009 and -174419):
    - D is the asked number of days, else the plan's current number of days.
    - The cut keeps each day at least 1 stop and makes the longest day as short as possible. A day counts its driving
      minutes plus 90 minutes per stop (a fixed visit time).
+   - Replaced by §48 (2026-11-18) for `make_trip_list` and `reorganize`: visit minutes per stop and a day budget.
    - Day 1 starts at the start. Day k starts at day k−1's last stop.
 4. **The same places, always.** The optimizer only returns an order of the place ids it was given. The caller checks
    that the plan's place ids after the change are exactly the ones before (same set, same count). If not, nothing is
@@ -1349,3 +1350,90 @@ data without a key (checked 2026-11-18: Narita → Senso-ji 67.7 km, 62 min, 26 
 | Task | Scope | Status |
 |---|---|---|
 | T-040s | §47, rows 111–116 | NOT_RUN |
+
+## 48. Fitting each day to a time budget (owner request 2026-11-18)
+
+**Why (owner 2026-11-18).** A day is only balanced against the other days (§27 item 3, a flat 90 minutes per stop);
+nothing checks that it fits into a day, so a day can be far too full or nearly empty. The owner asked for the time
+each day costs to be estimated and the plan adjusted to it, without a fixed timetable.
+
+**Published practice this copies.**
+- Language models alone rarely meet the time and order rules of a trip: in the TravelPlanner benchmark GPT-4 met all
+  constraints in 0.6% of plans and o1-preview in about 10% (arxiv.org/abs/2402.01622); letting the model state the
+  problem and a solver fit it reached 93.9% (Hao et al., arxiv.org/abs/2404.11891). So the model proposes, code fits.
+- The fitting problem is the tourist trip design problem: each day is a route with a time budget, each place has a
+  visit time and a value, and places that do not fit are left out (team orienteering problem; survey
+  iaorifors.com/paper/84455). Google OR-Tools models the same thing as optional visits with a drop penalty
+  (developers.google.com/optimization/routing/penalties).
+- The fit uses the insertion step of iterated local search for this problem (Vansteenwegen, Souffriau, Vanden Berghe,
+  Van Oudheusden 2009, Computers & Operations Research 36(12)), without its random shake so results repeat.
+- No map service publishes visit times (Google Places has none), so the model estimates them.
+
+1. **What the model gives (`make_trip_list`).**
+   - `places` items become objects `{name, minutes, optional}` (a plain string is still accepted: `minutes` from
+     item 2, `optional=false`).
+     - `minutes`: the model's estimate of a usual visit, 15–600 (outside → clamped).
+     - `optional`: `false` for places the driver named and for the must-sees; `true` for extras.
+   - The model lists more than fits: about 1.5 times what the days need, most important first. `places` takes up to
+     24 items; one day still holds at most 16 stops (§3).
+   - `day_count` (new, 1–5) with `places`: the number of days to fit into. With `days` (§15) the groups say which day
+     each place is on and D is the number of groups.
+   - `pace` (new, optional): `relaxed` | `normal` (default) | `packed`.
+2. **Visit time when the model gives none:** by `PlaceKind` (§46 item 6): temple 60, tower/viewpoint 60,
+   park 90, museum 120, shop/market 90, food 60, other 90 minutes. Frame stops: start, end and hotel 0, rental
+   pickup 30, rental return 20.
+3. **Day budget.** `relaxed` 360, `normal` 480, `packed` 600 minutes. A day's cost is the driving between its stops
+   in order (§26 times, §36 item 2c abroad) plus the visit minutes of its stops, from its first stop (start, or last
+   night's hotel) to its last (that night's hotel, or `end`).
+4. **Fit (pure NovaCore `TripFitter`; replaces §27 item 3 for `make_trip_list` and `reorganize`).**
+   1. Required places (`optional=false`) are put on one path and cut into D days as §27 item 3, with each stop's
+      visit minutes instead of 90.
+   2. Optional places are then tried one at a time in the model's order. Each goes to the cheapest place in any day
+      (least added driving plus its minutes) that keeps that day within budget; if none, it is skipped.
+   3. Each day is ordered again between its ends (§27 item 1, §37 item 3), and the skipped places are tried again.
+      This repeats until nothing more fits, at most 3 rounds.
+   4. With `days` groups a place stays on its group's day.
+   5. Required places are never dropped. A day whose required places alone are over budget stays over.
+5. **Frame stops after the fit.** Hotels (§37 item 4) and rental stops (§45) are picked for the fitted days, then each
+   day is ordered between its ends as today. A day now over budget because of them drops its last-ranked optional
+   places until it fits or none is left. Empty days are not filled again at this step.
+6. **Spare places.** Optional places not used are kept with the plan as `spare` (resolved places, saved as §14, not
+   shown as cards). 「把X也加上」 adds a spare place with no new search.
+7. **What she says (`next`).** Once per plan:
+   - the load: 「每天大约7到8小时」 (the shortest and longest day, rounded to the hour);
+   - dropped places: 「时间不够，没排进：X、Y」;
+   - a day over budget: 「第N天大约11小时，比较紧」;
+   - a day under half its budget with no spare places left: 「第N天还空大约X小时，可以再加几个地方」.
+8. **Results.** `trip_list` stops gain `minutes`; the result gains `budget_minutes`, `day_minutes` (one per day) and
+   `spare` (names).
+9. **Edits.** `add`, `remove` and `replace` (§5.2) recompute the day's cost but drop nothing; over budget → `next`
+   says 「第N天大约X小时，比较紧」. `reorganize` fits again (item 4) over the plan's places plus `spare`.
+10. **Driving times.** The table (§26, §36 item 2c) now covers every candidate: up to 24 places plus the frame. When
+    times fail at home (`ROUTE_TIMES_UNAVAILABLE`), nothing is fitted or dropped: the plan keeps the model's order
+    and day groups, with the required places first, and `next` says it is not ordered yet. Abroad, the straight-line
+    estimate (§36 item 2c) is used to fit.
+11. **Catalog text, `make_trip_list` appended:** 「places 每项写 {name, minutes, optional}：minutes 是一般游玩要多少分钟（你估计，比如迪士尼 480、寺庙 60）；司机点名的和必去的 optional=false，其余 optional=true。多给一些，大约是排满几天所需的 1.5 倍，最重要的放前面，排不下的会自动去掉。几天的行程填 day_count；司机说轻松一点填 pace=relaxed，排紧一点填 pace=packed。」
+12. **Record.** `trip fit days=<D> pace=<relaxed|normal|packed> budget=<min> required=<n> optional=<n> kept=<n>
+    dropped=<n> over=<n> under=<n> max_day=<min> min_day=<min> ms=<ms>`. Numbers and enums only (I-8).
+13. **Code.** `TripFitter` beside `TripOptimizer` (NovaNav, pure); visit minutes, `optional` and `spare` on the plan
+    (`TripList.swift`, saved with §14); the catalog fields and validation in `ToolCatalog.swift`; `TripPlanner`
+    calls the fit where it orders today.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 117 | 2 days, `normal`; 3 required (60 min each) and 6 optional (90 min each) in one area (fake times 20 min) | Required all kept; optional added in order while each day stays ≤ 480; the rest in `spare`; `trip fit kept=… dropped=…` | unit |
+| 118 | A required place of 480 min plus one required of 60 on 1 day | Both kept; `over=1`; 「第1天大约…小时，比较紧」 in `next` | unit |
+| 119 | Same places, `pace=relaxed` vs `packed` | Fewer optional places kept with 360 than with 600 | unit |
+| 120 | Optional places only enough to fill a day halfway | Day kept; 「第N天还空大约X小时」 in `next` | unit |
+| 121 | `days` groups with 2 places each | Each place stays on its group's day | unit |
+| 122 | A plain string place, kind museum | `minutes=120`, `optional=false` | unit |
+| 123 | After the fit a picked hotel makes day 1 over budget | Day 1's last-ranked optional place goes to `spare`; required kept | unit |
+| 124 | 「把X也加上」 with X in `spare`; then `remove` on a stop | No new search; day cost recomputed, nothing dropped | unit |
+| 125 | Driving times fail at home | No place dropped; plan kept in the model's order; `ROUTE_TIMES_UNAVAILABLE` | unit |
+| 126 | Device: 「东京三天自驾，成田机场进出」 | Each day about 6–9 hours; she says the load once; dropped places named | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040t | §48, rows 117–126 | NOT_RUN |
