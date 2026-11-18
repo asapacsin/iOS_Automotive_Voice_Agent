@@ -2707,7 +2707,7 @@
     {
       "id": "T-013m",
       "owner": "AUTONOMOUS",
-      "status": "READY",
+      "status": "NOT_RUN",
       "priority": 30,
       "action": "F-04b §18: playback bar: while her reply plays or in echoTail, the speaker lock needs score >= playbackThreshold (4.0) for the early stop and the whole-sentence verdict; rows 70-72.",
       "depends_on": [
