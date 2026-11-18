@@ -1102,6 +1102,7 @@ spec and push to remote".
    the app opens Apple Maps with driving directions to that stop (`MKMapItem.openMaps`) and says 「已在苹果地图打开导航」.
    The stop is not marked visited by the app; 「已经到了」 marks it (§29 item 2).
 3. Device row 97 settles whether 高德 guidance works in Japan. If it does, item 2 never fires.
+   Replaced by §47 (2026-11-18): abroad routes come from OSRM inside the app; item 2 fires only when OSRM fails too.
 
 ## 39. Catalog text
 
@@ -1290,3 +1291,61 @@ photo for Sensō-ji, Tokyo Tower and zh 淺草寺; the exact title "Tsukiji Oute
 | Task | Scope | Status |
 |---|---|---|
 | T-040r | §46, rows 105–110 | NOT_RUN |
+
+## 47. Guidance abroad inside the app on OSRM routes (owner request 2026-11-18)
+
+**Why (device 2026-11-18, record 20261118-134135, ipa147).** 「第一天」 on the Tokyo plan: `trip next … code=
+ROUTE_CALCULATION_FAILED` after 133 ms, then `trip handoff vendor=apple_maps`, and the driver was sent to another
+app. The app's guidance is its own (`AmapRouteEngine`: a 高德 web route, drawn, followed by GPS, spoken, recalculated),
+so only the route request fails abroad: 高德 `/v3/direction/driving` answers `USER_ABROAD_DAILY_QUERY_OVER_LIMIT`
+(10045) after a few calls, and abroad driving data needs 高德's paid overseas service. (In that test the phone was in
+珠海, so no service could route to Narita; row 115 tests from a point in Japan.) OSRM's route service gives the same
+data without a key (checked 2026-11-18: Narita → Senso-ji 67.7 km, 62 min, 26 steps with road names, e.g.
+`turn right 空港西通り 709 m`).
+
+1. **Which source.** A guidance request is `abroad` when it comes from an `abroad` trip (§36) or from
+   `navigate_to abroad=true` (§36 item 2d). Abroad, the route comes from OSRM; otherwise from 高德 as today.
+2. **OSRM request.** `router.project-osrm.org/route/v1/driving/<lng,lat>;<lng,lat>?steps=true&overview=full&
+   geometries=geojson&alternatives=true`; up to 3 routes, 8 s limit, no retry, at most 1 request per second shared
+   with the §36 item 2c table (usage policy: github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy).
+   Coordinates are WGS-84 and used as they are abroad (§36 item 5).
+3. **Same engine.** The OSRM answer is turned into the existing `PlannedRoute` (points, steps with `road` and
+   `startIndex`, `RouteSummary` length and duration; toll and traffic lights unknown). Everything after the route is
+   unchanged: route choice, map line, `RouteProgress` GPS matching, off-route recalculation (each one OSRM request),
+   模拟导航, arrival, `trip_next`.
+4. **Spoken directions, copied, not invented.** OSRM steps carry codes (`maneuver.type`, `modifier`, `name`,
+   `exits`), not sentences. The Chinese sentence for each step is made from the published `zh-Hans` templates of
+   Project-OSRM `osrm-text-instructions` (BSD-2-Clause; the JSON is copied into the app with its licence and version
+   noted, e.g. turn right with a name → 「右转进入{way_name}」, roundabout → 「进入环岛并从第{exit}出口驶出」). A code
+   the templates do not cover uses the template's own default for its type.
+5. **Distances in the prompt** use the app's existing prompt timing and wording around the instruction (how far
+   ahead it is said), unchanged.
+6. **Failure.** OSRM error, timeout or no route: `ROUTE_CALCULATION_FAILED` as today, and only then §38 item 2
+   (Apple Maps). §38 item 3 is replaced by this section.
+7. **The map.** The route line, the car and the pins are drawn by the app on its MapKit map as today. Not verified:
+   whether MapKit's background map draws abroad on a China-region iPhone; if it is blank, the line, car and prompts
+   still work (row 116 checks it).
+8. **Attribution.** The guidance screen shows 「路线 © OSRM · 地图数据 © OpenStreetMap」 in small text while an OSRM
+   route is used (ODbL and the OSRM demo-server policy require it).
+9. **Record.** `route plan vendor=<amap|osrm> routes=<n> ms=<ms>` after each route request, and
+   `route recalc vendor=<amap|osrm> ms=<ms>` after each recalculation. Numbers and enums only (I-8).
+10. **Code.** A `RouteSource` protocol (NovaPorts) with the existing 高德 fetch and a new `OsrmRouteSource`
+    (NovaServices, `HTTPTransport`); `AmapRouteEngine` takes the source per request (the class keeps its name);
+    the template file and the step-to-sentence code in NovaServices; the abroad flag passed from `TripPlanner` and
+    `navigate_to`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 111 | `abroad` trip, `trip_next` (fake OSRM: 2 routes, 26 steps) | One OSRM request, no 高德 `/v3/direction/driving`; guidance starts in the app; no Apple Maps; `route plan vendor=osrm routes=2` | unit |
+| 112 | OSRM step `turn` `right` name `空港西通り`; `roundabout` exit 2; `arrive` | 「右转进入空港西通り」, the roundabout template with 2, the arrive template, each exactly as the copied `zh-Hans` file | unit |
+| 113 | Off route during an OSRM route | One OSRM recalculation, guidance goes on; `route recalc vendor=osrm` | unit |
+| 114 | OSRM times out | `ROUTE_CALCULATION_FAILED`, then Apple Maps as §38 item 2 | unit |
+| 114a | Home trip (`abroad=false`) | 高德 route as today, no OSRM request | unit |
+| 115 | Device, 模拟导航 on, the Tokyo plan, start set to 成田机场: 「开始第一天」 | Guidance runs inside NovaDrive to the first stop; spoken Chinese turns; no other app opens | D |
+| 116 | Device, same | Note whether the background map draws in Japan (route line and car always do) | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040s | §47, rows 111–116 | NOT_RUN |
