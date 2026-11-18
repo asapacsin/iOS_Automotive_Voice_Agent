@@ -61,7 +61,7 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public var minutes: Int? = nil
     /// §21 item 3: the stop's city (高德 `cityname`), for the introduction query.
     public var city: String? = nil
-    /// §37 item 8 (T-040o): 住 on a hotel, 机场 on an airport start or end; nil otherwise.
+    /// §37 item 8 (T-040o): 住 on a hotel, 机场 on an airport start or end, 租 on a rental stop (§45); nil otherwise.
     public var tag: String? = nil
 
     static func tag(_ stop: TripStop) -> String? {
@@ -70,6 +70,8 @@ public struct TripCard: Sendable, Hashable, Identifiable {
         case .start, .end:
             let name = stop.place.name
             return name.contains("机场") || name.contains("空港") || name.localizedCaseInsensitiveContains("airport") ? "机场" : nil
+        // §45 item 9 (T-040q): 租 on a rental pickup or return.
+        case .rentalPickup, .rentalReturn: return "租"
         case .sight: return nil
         }
     }
