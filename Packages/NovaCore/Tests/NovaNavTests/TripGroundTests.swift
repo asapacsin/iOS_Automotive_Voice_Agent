@@ -242,6 +242,50 @@ struct TripGroundTests {
         #expect(r.data["next"]?.stringValue?.contains("去掉了远方酒店") == true)
     }
 
+    @Test("T-040v F-15b row 143: a places item role=hotel, the night's last stop 「新宿附近車站」 (railway:station): not used; §37 hotel")
+    func row143Places() async {
+        #expect(ToolCatalog.validate(trip("make_trip_list", ["places": [["name": "A", "role": "hotel"]]])) == nil)
+        #expect(ToolCatalog.validate(trip("make_trip_list", ["places": [["name": "A", "role": "sight"]]])) == .invalidFields)
+        #expect(TripPlanner.items([["name": "A", "role": "hotel"], "B"]).map(\.hotel) == [true, false])
+        let rig = await GroundRig()
+        let args: [String: JSONValue] = ["days": [[item("浅草寺", 240), item("东京塔", 240),
+                                                   ["name": "新宿附近車站", "role": "hotel"]], [item("上野公园", 240)]],
+                                         "abroad": true, "city": "Tokyo, Japan"]
+        let r = await rig.run(trip("make_trip_list", args))
+        #expect(r.ok)
+        let stops = await rig.planner.currentPlan.days.flatMap(\.stops)
+        #expect(stops.allSatisfy { $0.place.name != "新宿附近車站" })
+        #expect(stops.contains { $0.role == .hotel && $0.picked })
+        let issues = strings(r.data["issues"])
+        #expect(r.data["status"] == "trip_needs_fix" && issues.contains("新宿附近車站不是酒店"))
+    }
+
+    @Test("T-040v F-15b §50 item 3: navigate_to abroad keeps to the trip area only while an abroad trip is open")
+    func navigateInArea() async {
+        func nav(open: Bool) async -> (NavigationController, FakeAreaSearch, TripLines) {
+            let search = FakeAreaSearch(areaTable)
+            let lines = TripLines()
+            let n = NavigationController(search: TripSearch([:]), engine: ScriptedNaviEngine(routes: [route(1, meters: 1_000, seconds: 60)]),
+                                         location: NoLocation(), clock: ManualClock(), onTripLine: { lines.append($0) })
+            await n.start()
+            await n.setAbroad(search: search, center: { _ in tokyoCenter }, tripCity: { open ? "Tokyo, Japan" : nil })
+            await n.setTripArea { open ? tokyoArea : nil }
+            return (n, search, lines)
+        }
+        let call = ToolCall(id: CallID("n1")!, name: "navigate_to",
+                            arguments: ["destination": "车站", "abroad": true, "city": "Tokyo, Japan"])
+        let (inTrip, boxed, lines) = await nav(open: true)
+        let r = await inTrip.execute(call)
+        #expect(r.code == .noCandidates)
+        #expect(boxed.boxes.withLock { $0 }.first?.0 == GeoBox.around(tokyoCenter))
+        #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=0 ") && $0.hasSuffix(" area_dropped=3") })
+        let (plain, plainSearch, plainLines) = await nav(open: false)
+        let p = await plain.execute(call)
+        #expect(p.ok && p.data["count"] == .int(2))
+        #expect(plainSearch.boxes.withLock { $0 }.isEmpty)
+        #expect(plainLines.withLock { $0 }.allSatisfy { !$0.contains("area_dropped") })
+    }
+
     @Test("T-040v F-15b row 148: make_trip_list and revise_trip_list say item 5's one line first")
     func row148() {
         let line = "先只说一句：好，我规划一下，大概半分钟。然后不要说话，等结果。"

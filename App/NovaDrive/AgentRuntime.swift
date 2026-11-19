@@ -1532,6 +1532,8 @@ final class AgentRuntime {
             if let c = await photon.center(city) { return c }
             return await AppleCityCenter.find(city)
         }, tripCity: { [weak planner] in await planner?.abroadCity })
+        // F-15b §50 item 3 (T-040v): while an abroad trip is open, navigate_to stays inside its area.
+        await navigation.setTripArea { [weak planner] in await planner?.openTripArea() }
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
         let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),

@@ -177,6 +177,8 @@ public enum ToolCatalog {
             "optional": ["type": "boolean"],
             // §49 item 1 (T-040u).
             "importance": ["type": "integer", "minimum": 1, "maximum": 3],
+            // F-15b §50 item 2 (T-040v): the place is a night's hotel.
+            "role": ["type": "string", "enum": ["hotel"]],
         ],
         "required": ["name"],
         "additionalProperties": false,
@@ -449,7 +451,8 @@ public enum ToolCatalog {
                     // §48 item 1: a name, or {name, minutes, optional} (minutes outside 15–600 is clamped, not refused).
                     let n: String?
                     if case .object(let o) = place {
-                        guard Set(o.keys).isSubset(of: ["name", "minutes", "optional", "importance"]),
+                        guard Set(o.keys).isSubset(of: ["name", "minutes", "optional", "importance", "role"]),
+                              o["role"] == nil || o["role"]?.stringValue == "hotel",
                               o["importance"] == nil || (o["importance"]?.intValue.map { (1...3).contains($0) } ?? false),
                               o["minutes"] == nil || o["minutes"]?.intValue != nil,
                               o["optional"] == nil || o["optional"]?.boolValue != nil else { return .invalidFields }

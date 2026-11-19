@@ -217,6 +217,12 @@ public actor TripPlanner: ToolExecutor {
         return city
     }
     public var currentPlan: TripPlan { plan }
+    /// §50 item 3 (T-040v): the area of an `abroad` trip in progress, for `navigate_to`; nil when none is open.
+    public func openTripArea() async -> TripArea? {
+        guard abroadCity != nil else { return nil }
+        if area == nil, let abroadArea, let city = plan.city { area = await abroadArea(city) }
+        return area
+    }
     public var savedPlans: SavedTripPlans { saved }
 
     // MARK: Files (§14)
@@ -408,6 +414,8 @@ public actor TripPlanner: ToolExecutor {
         let minutes: Int?
         /// §49 item 1 (T-040u): 3 must-see, 2 worth it, 1 extra.
         let importance: Int
+        /// §50 item 2 (T-040v): `role: hotel`, a night's hotel given among the places.
+        var hotel = false
         var optional: Bool { importance < 3 }
     }
 
@@ -420,7 +428,7 @@ public actor TripPlanner: ToolExecutor {
             let importance = v["importance"]?.intValue.map { TripStop.clampImportance(Int($0)) }
                 ?? ((v["optional"]?.boolValue ?? false) ? 1 : 3)
             return PlaceItem(name: TranscriptText.normalize(name), minutes: v["minutes"]?.intValue.map { TripStop.clampMinutes(Int($0)) },
-                             importance: importance)
+                             importance: importance, hotel: v["role"]?.stringValue == "hotel")
         }
     }
 
@@ -462,7 +470,8 @@ public actor TripPlanner: ToolExecutor {
                               importance: TripStop.clampImportance($0.importance))
                 }
                 // The model's day groups are kept as they are; one group (`places`) is replaced.
-                if single, !items.isEmpty { dayItems = [items] }
+                // §50 item 2: places marked `role: hotel` stay as the model gave them.
+                if single, !items.isEmpty { dayItems = [items + modelItems.flatMap { $0 }.filter(\.hotel)] }
                 groundHotels = grounded.hotels
             }
             guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
@@ -484,6 +493,10 @@ public actor TripPlanner: ToolExecutor {
         var lists: [TripList] = []
         // §48: optional places go to the fit beside the plan (with their group's day when there are groups).
         var optionalStops: [(day: Int?, stop: TripStop)] = []
+        // §50 item 2: places marked as a night's hotel: lodging ones become the night's hotel; others fail the
+        // hotel-only check (`not_found` 「<名字>不是酒店」) and are not used.
+        var placeHotels: [TripStop] = []
+        var notHotels: [String] = []
         var offset = 0
         for (g, items) in dayItems.enumerated() {
             var required: [TripStop] = []
@@ -491,7 +504,13 @@ public actor TripPlanner: ToolExecutor {
                 defer { offset += 1 }
                 switch lookups[offset] {
                 case .found(let place):
-                    if seen.insert(place.id).inserted {
+                    if item.hotel {
+                        if let kind = place.kind, kind != .hotel {
+                            notHotels.append(item.name)
+                        } else if seen.insert(place.id).inserted {
+                            placeHotels.append(TripStop(index: 0, asked: item.name, place: place, distanceMeters: nil, role: .hotel))
+                        }
+                    } else if seen.insert(place.id).inserted {
                         let stop = TripStop(index: 0, asked: item.name, place: place, distanceMeters: distance(here, place),
                                             minutes: item.minutes, importance: item.importance)
                         if item.optional { optionalStops.append((single ? nil : g, stop)) } else { required.append(stop) }
@@ -531,8 +550,10 @@ public actor TripPlanner: ToolExecutor {
         let startStop = frameStop(startName, .start)
         let endStop = frameStop(endName, .end)
         var hotels = hotelNames.map { frameStop($0, .hotel) }
+        if hotelNames.isEmpty, !placeHotels.isEmpty {
+            hotels = placeHotels.count == dayCount - 1 ? placeHotels.map { Optional($0) } : [placeHotels[0]]
+        }
         // §50 item 2 hotel-only check: a named hotel abroad whose OpenStreetMap kind is not lodging is not used.
-        var notHotels: [String] = []
         if searched.abroad {
             hotels = hotels.map { stop in
                 guard let stop, let kind = stop.place.kind, kind != .hotel else { return stop }
@@ -543,7 +564,7 @@ public actor TripPlanner: ToolExecutor {
         // §50 item 2: hotels near the named place (when the driver named no hotel).
         var nearChoices: [(place: Place, meters: Int)] = []
         var nearNote: String?
-        if let hotelNear, hotelNames.isEmpty, dayCount > 1 {
+        if let hotelNear, hotelNames.isEmpty, placeHotels.isEmpty, dayCount > 1 {
             let found = await hotelsNear(hotelNear, city: city, abroad: searched.abroad, grounded: groundHotels)
             guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
             if let found, let first = found.first {
@@ -570,7 +591,8 @@ public actor TripPlanner: ToolExecutor {
         // §28 item 2, §37 items 3–5: ordered by driving time between the fixed ends, hotels picked when none named.
         // §48 item 4: fitted to the day budget.
         let fit = FitRequest(pace: pace, groups: !single, extra: optionalStops)
-        let pickHotels = (hotelNames.isEmpty || (!notHotels.isEmpty && hotels.allSatisfy { $0 == nil })) && nearChoices.isEmpty
+        let pickHotels = ((hotelNames.isEmpty && placeHotels.isEmpty) || (!notHotels.isEmpty && hotels.allSatisfy { $0 == nil }))
+            && nearChoices.isEmpty
         let (arranged, far) = await orderedNear(source, dayCount: dayCount, pickHotels: pickHotels, abroad: searched.abroad,
                                                 rentalAsked: rentalAsked, fit: fit)
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
