@@ -181,6 +181,8 @@ private struct DriveContent: View {
                 if model.nav.listOpen || model.nav.phase == .calculatingRoute || model.nav.phase == .resolvingDestination {
                     choices
                 }
+                // F-15b §50 item 6 (T-040w): the steps while she works, where 「正在搜索地点…」 shows.
+                workSteps
                 // F-15b §11 (T-040j): the trip list's cards, or the strip while moving.
                 TripCardsView(model: model, runtime: runtime)
                 if let card = model.previewCard { PreviewCardView(card: card) }
@@ -542,6 +544,38 @@ private struct DriveContent: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// F-15b §50 item 6 (T-040w): `WorkProgress` read every 0.25 s; it shows nothing for the first second.
+    private var workSteps: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            if let panel = runtime.work.panel {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(panel.steps.enumerated()), id: \.offset) { _, step in
+                        Label(step.title, systemImage: Self.stepIcon(step.state))
+                            .font(.subheadline)
+                            .foregroundStyle(step.state == .failed ? Color.orange : step.state == .done ? Color.secondary : Color.primary)
+                    }
+                    if let failure = panel.failure {
+                        Text(failure).font(.caption).foregroundStyle(.orange)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("work-steps")
+            }
+        }
+    }
+
+    private static func stepIcon(_ state: WorkProgress.State) -> String {
+        switch state {
+        case .pending: "circle"
+        case .running: "magnifyingglass"
+        case .done: "checkmark.circle"
+        case .failed: "exclamationmark.triangle"
+        }
     }
 
     // MARK: Conversation, car and button
