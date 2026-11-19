@@ -59,11 +59,12 @@ public enum LookupReply {
         var facts = extra
         facts["what"] = .string(what)
         facts["cause"] = .string(cause.rawValue)
-        let moves: [ReplyMay] = may ?? switch cause {
+        let defaultMoves: [ReplyMay] = switch cause {
         case .keyMissing, .permissionDenied: [.nameSetting]
         case .quota, .network, .noRouteShape, .routeFailed: [.tryLater]
         case .noLocation: [.askPlace, .tryLater]
         }
+        let moves = may ?? defaultMoves
         var rules = mustNot + [.invent]
         if cause == .noLocation || cause == .permissionDenied { rules.append(.guessLocation) }
         return ToolReply.failure(code, facts: facts, may: moves, mustNot: rules).result
