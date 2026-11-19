@@ -1567,11 +1567,11 @@ practice.
 - While she works, she says one line and the screen lists the steps.
 
 1. **Places from Qwen with search (abroad trips).**
-   - **When.** `make_trip_list` (or a §49 item 8 change that adds places) for a trip abroad (§36). The code makes one Qwen request with web search on (the F-18 §16 client and key), before any map lookup.
+   - **When.** `make_trip_list` (or a §49 item 8 change that adds places) for a trip abroad (§36). The code makes one Qwen request with web search on (the F-18 §16 key, with item 9's `ground` model and settings), before any map lookup.
    - **Input**, as values: the trip city and country, the number of days, the model's `places` (name, minutes, importance), `wishes`, the start and end (for example 成田机场), and `hotel_near` (item 2).
    - **Output.** JSON only: `places` as `[{name, english, minutes, importance}]`, where `name` is the Chinese name and `english` the name on maps; `hotels` as `[{night, name, english}]`; `area` is the city.
    - **The model's names are kept.** Every importance-3 name from the model (浅草寺) must appear in the output, matched by `TripList.matches` on `name` or `english`. A missing one is added back as the model wrote it.
-   - **Fallback.** A timeout (`TripTuning.groundTimeout`, 20 s), an error or invalid JSON: the model's `places` are used, as today. Log `ground=fallback`.
+   - **Fallback.** A timeout (`TripTuning.groundTimeout`, 30 s, item 9), an error or invalid JSON: the model's `places` are used, as today. Log `ground=fallback`.
    - **Prompt.** The search prompt rule (owner, 2026-11-05) applies. The system text is copied from Alibaba Model Studio's published web-search and structured-output (JSON mode) examples, and cited in a code comment and in STATUS. Only the JSON field list and the input values are ours. Nothing is invented beyond that.
    - Trips in China are unchanged (高德 plus the §4 item 6 picker).
 2. **A hotel near a named place (new `make_trip_list` field `hotel_near`, optional).**
@@ -1616,6 +1616,34 @@ practice.
    - Photos (§46), guidance abroad (§47).
    - Gemini Live stays the voice and the tool caller. Qwen never speaks.
 
+9. **One Qwen model per job (`QwenRoute`, owner 2026-11-19).**
+   - **Rule.** Code picks the model from the job, never a router model. The job is known from the tool that runs: `live` (F-18 §16 live info and §21 introductions), `picker` (§4 item 6) and `ground` (item 1). All model names and options live in one `QwenRoute` table in NovaRealtime; the clients read it and hold no model names of their own.
+
+     | Route | Model | Search | Thinking | Time budget | Backup (item 10) |
+     |---|---|---|---|---|---|
+     | `live` | `qwen3.7-flash` (unchanged) | on, `turbo`, `forced_search`, `enable_source` (unchanged) | off | as today | `qwen3.8-flash`, same options |
+     | `picker` | `qwen3.7-flash` (unchanged) | off | off | 2.5 s (unchanged) | `qwen3.8-flash`, same options |
+     | `ground` | **`qwen3.7-plus`** | on, **`agent`**, `forced_search`, `enable_source` | off | **30 s** (`TripTuning.groundTimeout`, was 20 s) | `qwen3.7-flash` with `turbo` |
+
+   - **Why these.**
+     - `live` and `picker`: the driver is waiting, and picking 1 of 5 is a small task. Alibaba recommends flash for "fast and cost-effective" work. Their list now names `qwen3.8-flash` as the flash model; `live` and `picker` move to it only after a PC time check shows it is not slower (not part of this task).
+     - `ground`: a 3-day trip needs many places and real hotels, which one quick search doesn't give. `agent` is Model Studio's multi-round search (it can call search several times in one request), and plus is Alibaba's "balanced performance, speed, and cost" model ([Model Studio models](https://www.alibabacloud.com/help/en/model-studio/models), [web search](https://www.alibabacloud.com/help/en/model-studio/web-search)). Thinking stays off: in TravelEval (KDD 2026) reasoning strategies gave no consistent gain on travel plans while tool calls did ([arxiv 2606.01046](https://arxiv.org/abs/2606.01046)), and §48/§49's code does the fitting and checking.
+     - No automatic router (RouteLLM, FrugalGPT): its published gains are benchmark results, it adds 50–200 ms per request and more when it escalates, and here the job is already known ([routing in production](https://www.llms.blog/posts/model-routing-and-cascades-in-production-comparing-routellm-frugalgpt-embedding-classifiers-and-verifier-cascades)).
+   - **`ground` reliability settings.**
+     - **Search must have run.** F-18 §20 item 1 and §22 item 1 chose `turbo` because `agent` could skip the search. So `ground` sends `forced_search=true` and reads the answer's search results (`search_info`). An answer with no search result is not used: the model's places are used, log `ok=fallback reason=nosearch`.
+     - **JSON.** `response_format` `{"type": "json_object"}`, as in Alibaba's structured-output example, if row 160 shows it is accepted together with search; otherwise item 1's JSON-only prompt alone. The code checks the fields (item 1 output); missing or wrong fields → fallback, log `reason=json`.
+     - **Streamed**, as the F-18 client (Model Studio's multimodal endpoint requires it), read to the end before parsing.
+     - The F-18 date turn (§24) is sent too, so opening hours and seasonal places fit the trip dates.
+     - Temperature and other sampling options: the vendor's defaults. Nothing invented.
+   - **Cost.** The key's endpoint is Singapore (`dashscope-intl`), where `agent` search costs USD 10.00 per 1,000 searches plus tokens (Beijing, Tokyo, Hong Kong: USD 0.57). One trip request is one request; `agent` may search several times inside it. `live` keeps `turbo`.
+10. **Backup model when a model's budget is used up (owner 2026-11-19).**
+   - **Why.** Model Studio counts free quota per model (each dated version separately) and sets rate limits per model, for the whole account: all API keys share them ([rate limit](https://www.alibabacloud.com/help/en/model-studio/rate-limit), [free quota](https://www.alibabacloud.com/help/en/model-studio/new-free-quota)). So another model, not another key, gives more room. Gateways do the same (LiteLLM fallbacks and cooldowns, [LiteLLM reliability](https://docs.litellm.ai/docs/router/learn/reliability)).
+   - **When it switches.** Only for an HTTP 429, or a 403 whose error code contains `Quota` (free quota used up), and only before any streamed answer arrives. One switch per request, to that route's backup (item 9 table), with the same body except `model` (and `search_strategy` for `ground`).
+   - **No switch** for a timeout, a network error, any other 4xx or 5xx, a key problem (401, or a 403 without `Quota`), an error after the answer started, or when the backup also fails: the route's existing failure path runs (live: the F-18 error line; picker: 高德's first result; ground: the model's places).
+   - **Time.** The backup gets only what is left of the route's budget; the driver never waits longer than today.
+   - **Skipping a model.** After a 429 the primary is skipped for 60 s (`QwenRoute.cooldown`; Alibaba says limits usually recover within a minute). After a quota 403 it is skipped until the app restarts. While skipped, the backup is called first.
+   - **Log.** `qwen fallback route=<live|picker|ground> from=<model> to=<model> reason=<429|quota> ok=<yes|no> ms=<ms>`; numbers, enums and model names only (I-8).
+
 **Acceptance (iOS).**
 
 | # | Given / when | Then | Test |
@@ -1634,15 +1662,23 @@ practice.
 | 151 | Device: 「东京三天自驾，成田机场进出，一定要去浅草寺，酒店要靠近新宿站」 | Within ~60 s: 3 days, 浅草寺 on one, a real hotel within 1 km of 新宿站 (real name), day 1 成田 → 租 → … → 住; no place outside Japan; she said one line first and one summary at the end; steps were on screen | D |
 | 152 | Device: then 「第二天太赶了」 | Day 2 lighter; steps shown; she says what changed | D |
 | 153 | Device: 「东京天气怎么样」 | 「正在查天气…」 while waiting, then the answer | D |
+| 154 | `QwenRoute` table and request bodies (fake send) | `live` and `picker` bodies unchanged from today's tests; `ground`: `qwen3.7-plus`, `agent`, `forced_search`, `enable_source`, thinking off, streamed, date turn; no model name outside `QwenRoute` | unit |
+| 155 | `ground` answer with no search result; one with a missing `places` field | Model's places used; `ok=fallback reason=nosearch` / `reason=json` | unit |
+| 156 | `live`: first request 429 before any answer | One request to `qwen3.8-flash`, same body except `model`; its answer used; `qwen fallback … reason=429 ok=yes`; next call within 60 s goes to the backup first | unit |
+| 157 | `picker`: 403 with a `…Quota…` code; separately 403 `InvalidApiKey`, 401, 500, timeout | Quota: backup used, primary skipped until restart. Others: no switch, existing failure path | unit |
+| 158 | Error after the answer started; backup also 429 | No switch / no second switch; existing failure path | unit |
+| 159 | `picker` primary 429 at 2.0 s | Backup gets 0.5 s; at 2.5 s 高德's first result, as today | unit |
+| 160 | PC check, before the build: one `ground` request for row 151's sentence; one `live` and one `picker` request on `qwen3.8-flash` | `qwen3.7-plus` accepts `agent` with `forced_search` and search ran; whether `json_object` is accepted with search; time; backups answer on the same endpoint. Results and the request time in STATUS. If `agent` is refused: `max`, recorded in STATUS | PC |
 
 **Not verified.**
-- Qwen's search time for a 3-day trip (row 151; target under 20 s).
+- Qwen's search time for a 3-day trip with `agent` (rows 151, 160; target under 30 s).
 - Whether Qwen's hotel names match OpenStreetMap; the 1 km hotel search is the fallback.
 - The phone record of the 2026-11-19 failure; the causes above are from the code.
 
-**Trace gate.** Add `T-040v: F-15b` and `T-040w: F-15b` to `specs/trace-ids.txt` together with the first `@Test` that names each.
+**Trace gate.** Add `T-040v: F-15b`, `T-040w: F-15b` and `T-040x: F-15b` to `specs/trace-ids.txt` together with the first `@Test` that names each.
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040v | §50 items 1–5, 7–8; rows 140–148, 151–152 | NOT_RUN |
+| T-040v | §50 items 1–5, 7–9; rows 140–148, 151–152, 154–155, 160 | NOT_RUN |
 | T-040w | §50 item 6 (trip and search steps); rows 149–150, 153 | NOT_RUN |
+| T-040x | §50 item 10 (backup model on 429 or used-up quota, all three routes); rows 156–159 | NOT_RUN |
