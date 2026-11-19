@@ -22,10 +22,13 @@ public struct QwenTripGrounder: TripGrounder {
     private let send: Send
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
+    private let fallback: QwenFallback
 
     public init(key: @escaping @Sendable () -> String?, send: @escaping Send = QwenWebSearchClient.urlSession,
-                now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current }) {
+                now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current },
+                fallback: QwenFallback = .shared) {
         self.key = key
+        self.fallback = fallback
         self.send = send
         self.now = now
         self.zone = zone
@@ -65,17 +68,17 @@ public struct QwenTripGrounder: TripGrounder {
         return String(decoding: data, as: UTF8.self)
     }
 
-    public func request(_ r: TripGroundRequest, key: String) -> URLRequest {
+    public func request(_ r: TripGroundRequest, key: String, route: QwenRoute = Self.route) -> URLRequest {
         var request = URLRequest(url: URL(string: QwenRoute.endpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if Self.route.stream { request.setValue("enable", forHTTPHeaderField: "X-DashScope-SSE") }
+        if route.stream { request.setValue("enable", forHTTPHeaderField: "X-DashScope-SSE") }
         let date = now(), zone = zone()
         var extra: [String: JSONValue] = [:]
         if Self.sendsJSONMode { extra["response_format"] = ["type": "json_object"] }
         let body: JSONValue = [
-            "model": .string(Self.route.model),
+            "model": .string(route.model),
             "input": ["messages": [
                 ["role": "system", "content": [["text": .string(Self.searchSystem + " " + Self.jsonSystem)]]],
                 // F-18 §24: the date turn, so opening hours and seasonal places fit the trip dates.
@@ -83,7 +86,7 @@ public struct QwenTripGrounder: TripGrounder {
                 ["role": "assistant", "content": [["text": .string(QwenWebSearchClient.dateAnswer(now: date, zone: zone))]]],
                 ["role": "user", "content": [["text": .string(Self.input(r))]]],
             ]],
-            "parameters": Self.route.parameters(extra),
+            "parameters": route.parameters(extra),
         ]
         request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
         return request
@@ -93,12 +96,16 @@ public struct QwenTripGrounder: TripGrounder {
         guard let key = key(), !key.isEmpty else { throw TripGroundError.notConfigured }
         let status: Int, body: Data
         do {
-            (status, body) = try await send(request(r, key: key))
+            // §50 item 10 (T-040x): a 429 or a quota 403 switches once to `route.backupModel` with `turbo`.
+            (status, body) = try await fallback.run(Self.route) { route, timeout in
+                var req = request(r, key: key, route: route)
+                req.limit(timeout)
+                return try await send(req)
+            }
         } catch {
             if (error as? URLError)?.code == .timedOut || error is CancellationError { throw TripGroundError.timeout }
             throw TripGroundError.failed
         }
-        // §50 item 10 hook (T-040x): a 429 or a quota 403 would switch to `route.backupModel` here; not implemented.
         guard status == 200 else { throw TripGroundError.failed }
         return try Self.answer(body)
     }

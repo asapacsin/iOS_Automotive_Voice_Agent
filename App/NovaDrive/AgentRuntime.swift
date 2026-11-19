@@ -1489,6 +1489,8 @@ final class AgentRuntime {
         // F-15b (T-040i): the app's one trip list, next to the navigation controller; it outlives voice sessions.
         // F-15b §14 (T-040l): the plan and the saved plans live in Application Support/trip/.
         // F-15b §4 item 6: Qwen picks among 高德's results with the search model's key; no key → 高德's first result.
+        // F-15b §50 item 10 (T-040x): the `qwen fallback` line (route, models, reason, ok, ms only; I-8) to the log.
+        QwenFallback.shared.setLog { line in RuntimeLog.agent.notice("\(line, privacy: .public)") }
         let picker = QwenPlacePicker(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) })
         let photon = PhotonPlaceSearch()
         let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock, picker: picker,

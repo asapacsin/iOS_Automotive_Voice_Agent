@@ -19,9 +19,12 @@ public struct QwenPlacePicker: PlacePicker {
 
     private let key: @Sendable () -> String?
     private let send: Send
+    private let fallback: QwenFallback
 
-    public init(key: @escaping @Sendable () -> String?, send: @escaping Send = QwenWebSearchClient.urlSession) {
+    public init(key: @escaping @Sendable () -> String?, send: @escaping Send = QwenWebSearchClient.urlSession,
+                fallback: QwenFallback = .shared) {
         self.key = key
+        self.fallback = fallback
         self.send = send
     }
 
@@ -44,18 +47,18 @@ public struct QwenPlacePicker: PlacePicker {
         return parts.joined(separator: "\n\n")
     }
 
-    public func request(_ choices: [PlaceChoice], key: String) -> URLRequest {
+    public func request(_ choices: [PlaceChoice], key: String, route: QwenRoute = .picker) -> URLRequest {
         var request = URLRequest(url: URL(string: QwenRoute.endpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: JSONValue = [
-            "model": .string(QwenRoute.picker.model),
+            "model": .string(route.model),
             "input": ["messages": [
                 ["role": "system", "content": [["text": .string(Self.instruction)]]],
                 ["role": "user", "content": [["text": .string(Self.question(choices))]]],
             ]],
-            "parameters": QwenRoute.picker.parameters(),
+            "parameters": route.parameters(),
         ]
         request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
         return request
@@ -63,7 +66,12 @@ public struct QwenPlacePicker: PlacePicker {
 
     public func pick(_ choices: [PlaceChoice]) async throws -> [Int?] {
         guard let key = key(), !key.isEmpty else { throw PlacePickerNotConfigured() }
-        let (status, body) = try await send(request(choices, key: key))
+        // §50 item 10 (T-040x): a 429 or a quota 403 switches once to the backup, within what is left of 2.5 s.
+        let (status, body) = try await fallback.run(.picker) { route, timeout in
+            var req = request(choices, key: key, route: route)
+            req.limit(timeout)
+            return try await send(req)
+        }
         guard status == 200 else { throw PickError.http(status) }
         return try Self.answers(QwenWebSearchClient.parse(body).reply.answer, choices: choices)
     }
