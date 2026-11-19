@@ -201,7 +201,8 @@ struct NearCentreTests {
         let planner = await rig.tokyoTrip()
         #expect(await planner.hideCards())
         let r = await rig.nav.execute(nav(["destination": "餐厅", "near": "trip", "near_name": "浅草寺"]))
-        #expect(r.code == .tripHidden && r.advice == TripPlanner.tripHiddenNext)
+        #expect(r.code == .tripHidden && r.advice == nil && r.data["next"]?.stringValue == TripPlanner.tripHiddenNext
+              && r.data["facts"] == TripPlanner.tripHiddenResult.data["facts"])
         #expect(photon.asked.withLock { $0 }.isEmpty)
         #expect(rig.near() == ["nav near kind=trip vendor=none source=trip found=0 dropped=0 reason=trip_hidden"])
         #expect(await planner.cardsHidden)
@@ -234,6 +235,12 @@ struct NearCentreTests {
         #expect(route.code == .invalidFields)
         let unknown = await rig.nav.execute(nav(["destination": "加油站", "near": "there"]))
         #expect(unknown.code == .invalidFields)
+        // F-09b §13: facts and rules, no hand-written sentence.
+        #expect(route.advice == nil && route.data["facts"]?["navigating"] == false && route.data["may"] == ["offer_nearby"])
+        #expect(unknown.advice == nil && unknown.data["facts"]?["near"] == "there"
+                && unknown.data["facts"]?["near_allowed"] == ["here", "place", "trip", "route"])
+        let noCountry = await rig.nav.execute(nav(["destination": "便利店", "near": "place", "near_name": "东京"]))
+        #expect(noCountry.advice == nil && noCountry.data["facts"]?["missing"] == ["near_country"])
         #expect(amap.calls.withLock { $0 }.isEmpty && photon.asked.withLock { $0 }.isEmpty)
         #expect(await rig.nav.current.phase == .idle)
     }
@@ -273,11 +280,11 @@ struct NearCentreTests {
     @Test("F-15b §51 item 8: near=place with near_country MO or HK geocodes and searches on 高德, never Photon")
     func macauHongKong() async {
         for (name, country) in [("澳门", "MO"), ("香港", "HK"), ("台北", "TW")] {
-            let home = FakeApple(["酒店": [place("酒店1", 300), place("酒店2", 500)]])
-            let photon = FakeApple(["酒店": [jp("Hotel", lat: 35.69)]])
+            let home = FakeApple(["便利店": [place("全家", 300), place("7-11", 500)]])
+            let photon = FakeApple(["便利店": [jp("Hotel", lat: 35.69)]])
             let geocode = FakeGeocode(.success([LookedUpPlace(name: name, coordinate: place("x", 0).coordinate)]))
             let rig = await NearRig(phone: zhuhai, home: home, photon: photon, geocode: geocode)
-            let r = await rig.nav.execute(nav(["destination": "酒店", "near": "place", "near_name": .string(name),
+            let r = await rig.nav.execute(nav(["destination": "便利店", "near": "place", "near_name": .string(name),
                                                "near_country": .string(country)]))
             #expect(r.ok, "\(country)")
             #expect(geocode.asked.withLock { $0 } == [name])

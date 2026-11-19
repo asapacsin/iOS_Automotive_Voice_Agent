@@ -227,7 +227,7 @@ public actor NavigationController: ToolExecutor {
     /// `nav near kind= vendor= source= found= dropped= reason=`.
     private func navigateNear(_ destination: String, near raw: JSONValue, _ args: JSONValue) async -> ToolResult {
         guard let kind = raw.stringValue.flatMap(NearKind.init(rawValue:)) else {
-            return .failure(.invalidFields, advice: Self.nearInvalidAdvice)
+            return Self.nearInvalid(["near": raw])
         }
         let name = args["near_name"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
         let country = args["near_country"]?.stringValue?.trimmingCharacters(in: .whitespaces).uppercased().nonEmpty
@@ -235,7 +235,7 @@ public actor NavigationController: ToolExecutor {
         case .here: return await nearHere(destination)
         case .route:
             guard snapshot.navigating else {
-                return .failure(.invalidFields, advice: "near=route 只在导航中可用；现在没有在导航，请马上用 near=here 或 place 重新调用，不要告诉司机。")
+                return Self.nearInvalid(["near": "route", "navigating": false], may: [.offerNearby])
             }
             let r = await listOverGuidance(destination)
             let found = Self.found(r)
@@ -243,7 +243,8 @@ public actor NavigationController: ToolExecutor {
             return Self.withFacts(r, ["searched_around": "路线沿途", "vendor": "amap", "found": .int(Int64(found))])
         case .place:
             guard let name, let country else {
-                return .failure(.invalidFields, advice: "near=place 时必须填 near_name（地点，知道城市时加城市）和 near_country（ISO 国家代码，比如 JP、CN）。请马上重新调用，不要告诉司机。")
+                return Self.nearInvalid(["near": "place", "missing": .array((name == nil ? ["near_name"] : [])
+                                                                             + (country == nil ? ["near_country"] : []))])
             }
             return await nearPlace(destination, name: name, country: country)
         case .trip:
@@ -251,7 +252,12 @@ public actor NavigationController: ToolExecutor {
         }
     }
 
-    static let nearInvalidAdvice = "near 必须填 here、place、trip 或 route。请马上重新调用，不要告诉司机。"
+    /// F-09b §13: a refused `near` as facts (what was wrong, the allowed values) and rules; no sentence. Nothing searched.
+    static func nearInvalid(_ facts: [String: JSONValue], may: [ReplyMay] = []) -> ToolResult {
+        var facts = facts
+        facts["near_allowed"] = .array(NearKind.allCases.map { .string($0.rawValue) })
+        return ToolReply.notDone(.invalidFields, facts: facts, may: may, mustNot: [.invent]).result
+    }
 
     /// Whether a centre is abroad: by its country when known (HK/MO/TW are 高德's, `TripRegion.isChina`); only
     /// without a country by the China box (`CoordinateConverter.outOfChina`), which also holds Seoul or Osaka's edges.
@@ -366,7 +372,7 @@ public actor NavigationController: ToolExecutor {
         if trip.hidden {
             onTripLine("trip blocked tool=navigate_to reason=hidden")
             nearLine(.trip, vendor: "none", source: "trip", found: 0, dropped: 0, reason: "trip_hidden")
-            return .failure(.tripHidden, advice: ToolFailureAdvice.forCode(.tripHidden))
+            return TripPlanner.tripHiddenResult
         }
         let matches = trip.match(name)
         guard matches.count == 1, let stop = matches.first else {
@@ -473,7 +479,7 @@ public actor NavigationController: ToolExecutor {
         confirm = nil
         routeAbroad = true
         endTripStop()
-        guard let abroadSearch else { return (.failure(.invalidFields, advice: Self.nearInvalidAdvice), 0, 0) }
+        guard let abroadSearch else { return (Self.nearInvalid([:]), 0, 0) }
         let started = clock.now
         // F-05a §6: while guiding, the places are listed over the running route (as `listOverGuidance`).
         let guiding = snapshot.navigating
