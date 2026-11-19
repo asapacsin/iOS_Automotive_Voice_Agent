@@ -1747,7 +1747,7 @@ test trip from the day before still saved:
    - Catalog text of `edit_trip_list` gains: 「司机说「打开行程」「看看行程」时用 action=read。」
 3. **A restored trip starts hidden (changes §14 item 1).** `restore()` loads the plan and sets the cards hidden
    (`trip cards hidden=yes`, `trip load … hidden=yes`). This replaces §22 item 3's 「an app restart (hidden is not saved)」. Nothing is deleted; the plan and saved plans are as today.
-4. **Nothing found: a plain line, no 「换个说法」.** `navigate_to`'s `NO_CANDIDATES` (home and abroad) gets a `next`:
+4. **Nothing found: a plain line, no 「换个说法」.** *Moved 2026-11-19 to F-09b §13 item 3 (T-031l): facts instead of a fixed line; T-040y does not build this item.* `navigate_to`'s `NO_CANDIDATES` (home and abroad) gets a `next`:
    「附近没找到<目的地>。只说一句没找到，不要让司机换个说法；可以问要不要找远一点的，或者换成相近的地方（比如服务区、休息区）。」
    The F-16 far-result line (「附近没找到…，最近的在…公里外」) is unchanged and comes first when 高德 has one.
 5. **Logs.** §36's `nav search` line is unchanged (`abroad=yes` now only when the model passed it). New:
@@ -1758,6 +1758,12 @@ test trip from the day before still saved:
      「开始第一天」 with simulated navigation is unchanged while the trip is shown.
    - F-09b §12 (T-031k) still sends sleepy drivers to `navigate_to 附近的咖啡店/服务区`; with item 1 that is now near the
      phone.
+
+7. **Leaving the trip: nothing else starts from a trip place (owner 2026-11-19).**
+   - **What the owner saw.** After a trip drive was started from the trip (「开始第一天」), later ordinary questions and navigation kept working from the trip's start. The phone record was not pulled; the paths in the code that can do this are §36 item 2d's trip default (item 1 removes it), §50 item 3's trip box (item 1 removes it), and the trip stop guidance still running, whose simulated car is 我的位置 on the map (F-15a R1).
+   - **A plain `navigate_to` during a trip stop guidance** ends the trip stop guidance (§29), and its route starts from `routeOrigin` (the phone's fix, or the demo point in 模拟导航). It never starts from the trip's start, a trip stop, or the simulated car of a trip drive abroad.
+   - **Questions that are not trip commands** (`query_live_info` weather `here`, `current_location`, `current_time`, `navigate_to 附近…`) use the phone's fix or the demo point, also while a trip stop guidance runs. Only `along_route` uses the route, as today.
+   - **Ending the trip drive** (结束导航, a plain `navigate_to`, 「把卡片收起来」) leaves no trip place behind as a start or a search centre.
 
 **Acceptance (iOS).**
 
@@ -1775,6 +1781,9 @@ test trip from the day before still saved:
 | 170 | Device, Zhuhai, the Tokyo trip saved: start the app, say 「有点困了」 then 「我想喝点咖啡」 | Places near the phone on 高德; no Tokyo places; no 「换个说法」 | D |
 | 171 | Device: 「打开行程」, then 「开始第一天」 with simulated navigation | The Tokyo trip shows; guidance to its first stop as §47 | D |
 | 172 | Device: 「把卡片收起来」, then 「下一站」 | She says once to say 「打开行程」; no guidance starts | D |
+| 173 | 模拟导航, an abroad trip stop guidance running (simulated car in Tokyo), phone fix in Zhuhai; `navigate_to 附近的咖啡店` | Trip stop guidance ended; home search around the phone; the new route's start is `routeOrigin`, not a trip place or the simulated car | unit |
+| 174 | Same guidance running; `query_live_info` weather `here`, `current_location` | Both use the phone's fix (or the demo point), not Tokyo | unit |
+| 175 | Device, Zhuhai: 「开始第一天」 on the Tokyo trip, then 「附近有什么好吃的」, 「今天天气怎么样」, 「导航去珠海站」 | Zhuhai places and weather; the route to 珠海站 starts in Zhuhai; the trip drive has ended | D |
 
 **Not verified.**
 - Whether the model still passes `abroad=true` for a named foreign place without the trip default (row 163's sentence on
@@ -1784,4 +1793,4 @@ test trip from the day before still saved:
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040y | §51 items 1–5; rows 161–172 | NOT_RUN |
+| T-040y | §51 items 1–3, 5, 7 (item 4 moved to T-031l); rows 161–168, 170–175 | NOT_RUN |
