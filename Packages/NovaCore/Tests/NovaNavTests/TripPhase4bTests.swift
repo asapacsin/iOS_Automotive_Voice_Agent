@@ -101,7 +101,8 @@ struct TripPhase4bTests {
         // All on one longitude: the straight line orders as the latitudes do.
         #expect(await rig.order() == ["浅草寺", "皇居", "银座", "东京塔"])
         #expect(r.data["times"] == "estimated")
-        #expect((r.data["next"]?.stringValue ?? "").contains("时间是估算的"))
+        // F-09b §13 item 5 (T-031n): the estimate is a fact (`times`), not a line in next.
+        #expect((r.data["next"]?.stringValue ?? "").contains("时间是估算的") == false)
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip times vendor=estimate pairs=20 ms=") })
         // The estimate: haversine × 1.3 at 50 km/h (0.01° of latitude ≈ 1 112 m → ≈ 104 s).
         let legs = await rig.planner.current.stops.compactMap(\.legSeconds)
