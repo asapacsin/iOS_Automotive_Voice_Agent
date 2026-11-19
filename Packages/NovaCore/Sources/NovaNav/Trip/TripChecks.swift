@@ -5,7 +5,7 @@ import Foundation
 /// back-prompts a metacontroller concatenates for the LLM to revise).
 public enum TripChecks {
     public enum Kind: String, Sendable, Hashable, CaseIterable {
-        case notFound = "not_found", over, driving, under, hotel
+        case notFound = "not_found", over, driving, under, hotel, far
     }
 
     public struct Issue: Sendable, Hashable {
@@ -46,9 +46,14 @@ public enum TripChecks {
     /// The failed checks in the order of §49 item 4. `hotels` maps a 1-based night to its choices (only given when
     /// the driver has wishes and the model has not picked that night's hotel yet).
     public static func run(notFound: [String], days: [Day], budgetMinutes: Int, spareEmpty: Bool,
-                           hotels: [Int: [HotelChoice]] = [:]) -> [Issue] {
+                           hotels: [Int: [HotelChoice]] = [:], notHotels: [String] = [], far: [String] = [],
+                           city: String = "城市") -> [Issue] {
         var out: [Issue] = []
         for name in notFound { out.append(Issue(kind: .notFound, line: "\(name)没找到，换一个附近类似的或者去掉")) }
+        // F-15b §50 item 2 (T-040v): a named hotel whose map kind is not lodging.
+        for name in notHotels { out.append(Issue(kind: .notFound, line: "\(name)不是酒店")) }
+        // §50 item 4: a place no road reaches, or over 4 h on the straight-line estimate.
+        for name in far { out.append(Issue(kind: .far, line: "\(name)开车到不了或者太远，换一个\(city)附近的")) }
         for (d, day) in days.enumerated() where day.minutes > budgetMinutes && day.onlyMustSee {
             out.append(Issue(kind: .over, line: "第\(d + 1)天超了约\(hours(day.minutes - budgetMinutes))小时，减少或换掉一个必去的地方"))
         }

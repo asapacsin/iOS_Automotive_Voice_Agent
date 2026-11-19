@@ -5,20 +5,21 @@ import FoundationNetworking
 import NovaKit
 import NovaPorts
 
-/// F-18 §17 items 3-4 (T-046e): the only `WebSearchService`. One streamed request to `qwen3.7-flash` on Alibaba Cloud
+/// F-18 §17 items 3-4 (T-046e): the only `WebSearchService`. One streamed request to the `live` route (`QwenRoute`) on Alibaba Cloud
 /// Model Studio (Singapore, multimodal API) with search on, using its own Keychain key in the `Authorization` header
 /// only. The FreshPrompt system text and date turn carry the phone's date and time zone (§24) and are never sent to the voice model.
 public struct QwenWebSearchClient: WebSearchService {
-    /// One constant: changing the search model is a one-line change.
-    public static let model = "qwen3.7-flash"
-    public static let endpoint = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+    /// F-15b §50 item 9 (T-040v): the model and options come from the `live` route of `QwenRoute`.
+    public static let route = QwenRoute.live
+    public static var model: String { route.model }
+    public static var endpoint: String { QwenRoute.endpoint }
 
     public typealias Send = @Sendable (URLRequest) async throws -> (status: Int, body: Data)
 
     /// §20 item 1, §22 item 1: each search option is one constant. `turbo` searches every time; `agent` let the model skip it.
-    public static let searchStrategy = "turbo"
-    public static let enableSource = true
-    public static let forcedSearch = true
+    public static var searchStrategy: String { route.search?.strategy ?? "" }
+    public static var enableSource: Bool { route.search?.enableSource ?? false }
+    public static var forcedSearch: Bool { route.search?.forced ?? false }
 
     private let key: @Sendable () -> String?
     private let send: Send
@@ -82,14 +83,7 @@ public struct QwenWebSearchClient: WebSearchService {
                 ["role": "assistant", "content": [["text": .string(Self.dateAnswer(now: date, zone: zone))]]],
                 ["role": "user", "content": [["text": .string(query)]]],
             ]],
-            "parameters": [
-                "result_format": "message",
-                "incremental_output": true,
-                "enable_thinking": false,
-                "enable_search": true,
-                "search_options": ["search_strategy": .string(Self.searchStrategy), "enable_source": .bool(Self.enableSource),
-                                   "forced_search": .bool(Self.forcedSearch)],
-            ],
+            "parameters": Self.route.parameters(),
         ]
         request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
         return request
