@@ -315,6 +315,18 @@ public actor NavigationController: ToolExecutor {
     /// (`countryMismatch`), nothing searched. A failed geocode gives its cause, never not_found.
     private func nearPlace(_ destination: String, name: String, country: String) async -> ToolResult {
         let home = TripRegion.isChina(country)
+        // The request owns the flow before the geocode (as the old navigateAbroad): a newer navigate_to or a cancel
+        // during the geocode wins, and this one returns optionsStale with no search and no route.
+        let guiding = snapshot.navigating
+        let generation: Generation
+        if guiding {
+            generation = snapshot.generation
+        } else {
+            generation = advance(to: .resolvingDestination)
+            publish()
+        }
+        func current() -> Bool { generation == snapshot.generation && snapshot.navigating == guiding }
+        func endRefused() { if !guiding, current() { reset(); publish() } }
         var center: GeoCoordinate?
         var found: String?
         if home {
@@ -325,6 +337,8 @@ public actor NavigationController: ToolExecutor {
                     center = try await search.text(name, city: nil).first?.coordinate
                 }
             } catch {
+                guard current() else { return .failure(.optionsStale) }
+                endRefused()
                 let cause = LookupReply.cause(of: error)
                 nearLine(.place, vendor: "none", source: "geocode", found: 0, dropped: 0, reason: "failed")
                 return LookupReply.failed(LookupReply.code(for: cause), what: "place", cause: cause,
@@ -339,11 +353,14 @@ public actor NavigationController: ToolExecutor {
             // No country from a bare centre (Apple's fallback): never guessed from the box.
             center = c
         }
+        guard current() else { return .failure(.optionsStale) }
         guard let center else {
+            endRefused()
             nearLine(.place, vendor: "none", source: "geocode", found: 0, dropped: 0, reason: "not_found")
             return LookupReply.notFound(.notFound, what: name, facts: ["near_name": .string(name)], may: [.askPlace])
         }
         if let found, found != country {
+            endRefused()
             nearLine(.place, vendor: "none", source: "geocode", found: 0, dropped: 0, reason: "country_mismatch")
             return ToolReply.failure(.countryMismatch,
                                      facts: ["near_name": .string(name), "near_country": .string(country),
