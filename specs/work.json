@@ -3199,6 +3199,74 @@
       "evidence": [
         "STATUS.md 2026-11-19 T-040z row: gates green (combined), high-effort read-only review PASS, geocode race fix re-checked PASS. Rows 187 (PC eval) and 188 (device) not run."
       ]
+    },
+    {
+      "id": "T-900a",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "specs/token-budget.md item 1: scripts/spec_section.py lists a spec's sections and prints one; AGENTS.md rule; row 1.",
+      "depends_on": [],
+      "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
+      "evidence": []
+    },
+    {
+      "id": "T-900b",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "specs/token-budget.md item 2: scripts/hooks/read_guard.py PreToolUse on Read denies a file over 40 KB without offset; rows 2-4.",
+      "depends_on": [
+        "T-900a"
+      ],
+      "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
+      "evidence": []
+    },
+    {
+      "id": "T-900c",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "specs/token-budget.md item 3: .claude/agents/Explore.md (haiku, read-only) and spec-reviewer.md (inherit, read-only, section reads).",
+      "depends_on": [
+        "T-900b"
+      ],
+      "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
+      "evidence": []
+    },
+    {
+      "id": "T-900d",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "specs/token-budget.md item 4: token-budget workflow rule in AGENTS.md; row 5 gates green.",
+      "depends_on": [
+        "T-900c"
+      ],
+      "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
+      "evidence": []
+    },
+    {
+      "id": "T-900e",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "specs/token-budget.md item 5: environment setup script installs Swift 6.1.2 and pre-builds NovaCore, NovaServices, NovaRealtime; row 6 needs a fresh container.",
+      "depends_on": [],
+      "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
+      "evidence": []
+    },
+    {
+      "id": "T-900f",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 40,
+      "action": "specs/token-budget.md item 6: history archive with the model's judgment (size trigger in the Stop hook, candidate table, keep/archive/summarize, stubs, archive gate, find); row 7.",
+      "depends_on": [
+        "T-900b"
+      ],
+      "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
+      "evidence": []
     }
   ]
 }

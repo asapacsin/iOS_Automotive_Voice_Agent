@@ -3,6 +3,10 @@
   lists. Do not read other features unless the task names them. Tasks: specs/implementation-plan.md.
 - Read only the section a task names: `scripts/spec_section.py <feature>` lists sections with line ranges,
   `scripts/spec_section.py <feature> <§>` prints one (trip-plan.md is ~160 KB; §51 alone is ~19 KB).
+  A Read of a file over 40 KB without offset is refused by `scripts/hooks/read_guard.py`.
+- Token budget (specs/token-budget.md): build and fix in the main session; a subagent only for the required
+  PASS review (`spec-reviewer`, high effort); re-checks after a fix at medium effort; parallel agents only when
+  the owner asks; no `/goal` while the work waits on the owner; `/clear` between batches, not a new session.
 - Never open the Android repository unless the feature file says "allowed Android lookup" for a
   specific symbol; request it with an EVIDENCE_REQUEST (specs/ai-agent-workflow.md) instead of browsing.
 - Pure logic goes in Packages/NovaCore (no UIKit/AVFoundation). Vendor SDKs only in their adapter
