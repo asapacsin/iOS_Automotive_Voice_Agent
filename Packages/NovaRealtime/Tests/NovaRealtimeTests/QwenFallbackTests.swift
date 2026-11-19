@@ -151,7 +151,7 @@ struct QwenFallbackTests {
                                         wishes: nil, start: nil, end: nil, hotelNear: nil)
         await #expect(throws: TripGroundError.failed) { try await grounder.ground(request) }
         #expect(g.models == ["qwen3.7-plus", "qwen3.7-flash"])
-        #expect(g.sent.withLock { $0.map(\.strategy) } == ["agent", "turbo"])
+        #expect(g.sent.withLock { $0.map(\.strategy) } == ["turbo", "turbo"])
         #expect(lines3.all == ["qwen fallback route=ground from=qwen3.7-plus to=qwen3.7-flash reason=429 ok=no ms=20"])
     }
 

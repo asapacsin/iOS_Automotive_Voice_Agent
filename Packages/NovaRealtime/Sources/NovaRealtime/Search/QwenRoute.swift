@@ -8,7 +8,7 @@ import NovaKit
 /// |---|---|---|---|---|---|
 /// | `live` | qwen3.7-flash | turbo, forced, sources | off | as today | qwen3.8-flash |
 /// | `picker` | qwen3.7-flash | off | off | 2.5 s (TripTuning.pickLimit) | qwen3.8-flash |
-/// | `ground` | qwen3.7-plus | agent, forced, sources | off | 30 s (TripTuning.groundTimeout) | qwen3.7-flash + turbo |
+/// | `ground` | qwen3.7-plus | turbo (row 160), forced, sources | off | 30 s (TripTuning.groundTimeout) | qwen3.7-flash + turbo |
 public struct QwenRoute: Sendable, Hashable {
     public enum Job: String, Sendable, Hashable, CaseIterable {
         case live, picker, ground
@@ -69,10 +69,11 @@ public struct QwenRoute: Sendable, Hashable {
     public static let picker = QwenRoute(job: .picker, model: "qwen3.7-flash", search: nil, thinking: false, stream: false,
                                          backupModel: "qwen3.8-flash", backupSearch: nil,
                                          budget: .milliseconds(2500))
-    /// F-15b §50 item 1: `agent` is Model Studio's multi-round search; `forced_search` so the search must run (the
-    /// answer's `search_info` is checked); plus is the "balanced" model.
+    /// F-15b §50 item 1: `forced_search` so the search must run (the answer's `search_info` is checked); plus is the
+    /// "balanced" model. Row 160 (PC, 2026-11-19): `agent` and `max` answered with an empty `search_results`, so the
+    /// search-ran check would refuse every answer; `turbo` returned 8 sources in 6.1 s. Hence `turbo`.
     public static let ground = QwenRoute(job: .ground, model: "qwen3.7-plus",
-                                         search: Search(strategy: "agent", forced: true, enableSource: true),
+                                         search: Search(strategy: "turbo", forced: true, enableSource: true),
                                          thinking: false, stream: true,
                                          backupModel: "qwen3.7-flash",
                                          backupSearch: Search(strategy: "turbo", forced: true, enableSource: true),

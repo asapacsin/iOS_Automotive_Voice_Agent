@@ -37,7 +37,7 @@ struct QwenRouteTests {
     func row154() throws {
         #expect(QwenRoute.live.model == "qwen3.7-flash" && QwenRoute.live.search?.strategy == "turbo")
         #expect(QwenRoute.picker.model == "qwen3.7-flash" && QwenRoute.picker.search == nil && !QwenRoute.picker.stream)
-        #expect(QwenRoute.ground.model == "qwen3.7-plus" && QwenRoute.ground.search?.strategy == "agent")
+        #expect(QwenRoute.ground.model == "qwen3.7-plus" && QwenRoute.ground.search?.strategy == "turbo")
         #expect(QwenRoute.ground.backupModel == "qwen3.7-flash" && QwenRoute.live.backupModel == "qwen3.8-flash")
         #expect(QwenWebSearchClient.model == QwenRoute.live.model)
 
@@ -48,7 +48,7 @@ struct QwenRouteTests {
         #expect(body["model"] == "qwen3.7-plus")
         let p = body["parameters"]
         #expect(p?["enable_thinking"] == false && p?["enable_search"] == true && p?["incremental_output"] == true)
-        #expect(p?["search_options"]?["search_strategy"] == "agent" && p?["search_options"]?["forced_search"] == true
+        #expect(p?["search_options"]?["search_strategy"] == "turbo" && p?["search_options"]?["forced_search"] == true
                 && p?["search_options"]?["enable_source"] == true)
         #expect(p?["response_format"] == nil)
         guard case .array(let messages)? = body["input"]?["messages"] else { Issue.record("messages"); return }

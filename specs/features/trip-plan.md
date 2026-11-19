@@ -1670,6 +1670,12 @@ practice.
 | 159 | `picker` primary 429 at 2.0 s | Backup gets 0.5 s; at 2.5 s 高德's first result, as today | unit |
 | 160 | PC check, before the build: one `ground` request for row 151's sentence; one `live` and one `picker` request on `qwen3.8-flash` | `qwen3.7-plus` accepts `agent` with `forced_search` and search ran; whether `json_object` is accepted with search; time; backups answer on the same endpoint. Results and the request time in STATUS. If `agent` is refused: `max`, recorded in STATUS | PC |
 
+**Row 160 result (PC, 2026-11-19, dashscope-intl, row 151's request).**
+- `qwen3.7-plus` + `agent` + `forced_search`: HTTP 200 in 4.9–6.2 s, valid JSON (3 places, 2 hotels), but `search_info.search_results` was empty in every chunk and `usage` showed no search. `max`: the same (7.8 s). `qwen3.7-flash` + `agent`: the same.
+- `qwen3.7-plus` + `turbo` + `forced_search`: 8 sources, 6.1 s, valid JSON. So `ground` uses **`turbo`**, not `agent` (item 9's search-ran rule would otherwise refuse every answer, as F-18 §20 found for `agent` earlier).
+- `response_format: json_object` together with search: **refused**, HTTP 400 `InvalidParameter` ("does not support the json response format when using search"). It stays off; the JSON-only prompt and the field check are used.
+- Backups: `qwen3.7-flash` + `turbo` for ground 4.7 s, 8 sources; `qwen3.8-flash` live (turbo) 4.3 s, 4 sources; `qwen3.8-flash` picker 0.7 s. All answer on the same endpoint.
+
 **Not verified.**
 - Qwen's search time for a 3-day trip with `agent` (rows 151, 160; target under 30 s).
 - Whether Qwen's hotel names match OpenStreetMap; the 1 km hotel search is the fallback.
