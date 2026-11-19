@@ -18,6 +18,13 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/scripts/history.py status --hook", "timeout": 5}
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

@@ -10,6 +10,7 @@ python3 "$root/scripts/gates/check_secrets.py"
 python3 "$root/scripts/gates/check_kws_tokens.py"
 # F-09b §13 item 8: strict from the end of stage 3 (T-031n).
 python3 "$root/scripts/gates/check_scripts.py" --strict
+python3 "$root/scripts/history.py" check
 python3 "$root/scripts/ios_spec_check.py"
 python3 "$root/scripts/gates/spec_trace.py" "$@"
 echo "static gates: PASS"

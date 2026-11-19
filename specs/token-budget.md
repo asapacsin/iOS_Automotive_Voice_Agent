@@ -46,8 +46,10 @@ read it. `specs/work.json` (~190 KB) and `specs/STATUS.md` (~120 KB) grow with e
 5. **Environment setup script (T-900e).** The owner's cloud environment installs Swift 6.1.2 into `/opt/swift`,
    puts it on PATH and runs `swift build --build-tests` for NovaCore, NovaServices, NovaRealtime, so a new
    session does not rebuild by hand. Stored on the environment, not in the repo; text in §5.
-6. **History archive with the model's judgment (T-900f).** Trigger: the Stop hook reports
-   「history large: STATUS.md N/60 KB, work.json M/80 KB」 only when over. A script prints a compact candidate
+6. **History archive with the model's judgment (T-900f).** Trigger: a `UserPromptSubmit` hook
+   (`scripts/history.py status --hook`) adds one line 「history large: STATUS.md N/60 KB, …」 to the context only
+   when a file is over its limit. Not the Stop hook: a Stop-hook message makes the model continue instead of
+   stopping, the loop seen with `/goal`. A script prints a compact candidate
    table (id, status, date, one line, open dependents, pending NOT_VERIFIED/device rows, last mention); the model
    picks keep / archive / summarize per item with a one-line reason; the script applies only moves that pass:
    never an open item, a stub left in `work.json` for every archived id (frontier.py needs every dependency id),
