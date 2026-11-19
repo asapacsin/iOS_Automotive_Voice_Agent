@@ -276,6 +276,10 @@ struct TripGroundTests {
         let (inTrip, boxed, lines) = await nav(open: true)
         let r = await inTrip.execute(call)
         #expect(r.code == .noCandidates)
+        // F-09b §13 row 3 (T-031l): the abroad NO_CANDIDATES carries facts, searched in the trip area.
+        #expect(r.advice == nil && r.data["facts"]?["what"] == "车站" && r.data["facts"]?["around"] == "city")
+        #expect(r.data["facts"]?["city"] == "Tokyo, Japan" && r.data["facts"]?["found"] == .int(0))
+        #expect(r.data["facts"]?["radius_km"] != nil && r.data["must_not"] == ["ask_rephrase", "invent"])
         #expect(boxed.boxes.withLock { $0 }.first?.0 == GeoBox.around(tokyoCenter))
         #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=0 ") && $0.hasSuffix(" area_dropped=3") })
         let (plain, plainSearch, plainLines) = await nav(open: false)

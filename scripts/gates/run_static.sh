@@ -8,6 +8,8 @@ python3 "$root/scripts/gates/check_runners.py"
 python3 "$root/scripts/gates/check_imports.py"
 python3 "$root/scripts/gates/check_secrets.py"
 python3 "$root/scripts/gates/check_kws_tokens.py"
+# F-09b §13 item 8: report only until T-031n adds --strict.
+python3 "$root/scripts/gates/check_scripts.py" | tail -1
 python3 "$root/scripts/ios_spec_check.py"
 python3 "$root/scripts/gates/spec_trace.py" "$@"
 echo "static gates: PASS"

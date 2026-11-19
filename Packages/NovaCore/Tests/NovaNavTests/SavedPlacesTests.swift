@@ -128,7 +128,9 @@ struct SavedPlacesTests {
             let saved = SavedPlaces(settings: MemorySettingsStore())
             let result = await SavePlaceExecutor(places: saved, search: search)
                 .execute(tool("save_place", ["slot": "work", "address": "横琴总部"]))
-            #expect(!result.ok && result.code == code && result.advice != nil)
+            // F-09b §13 item 3 (T-031l): facts and rules instead of an advice sentence.
+            #expect(!result.ok && result.code == code && result.advice == nil)
+            #expect(result.data["facts"]?["saved"] == .bool(false) && result.data["must_not"] != nil)
             #expect(saved.setSlots.isEmpty)
         }
         let blank = await SavePlaceExecutor(places: SavedPlaces(settings: MemorySettingsStore()),
@@ -142,7 +144,7 @@ struct SavedPlacesTests {
         let result = await SavePlaceExecutor(places: SavedPlaces(settings: DroppingSettingsStore()),
                                              search: CountingSearch(places: [home]))
             .execute(tool("save_place", ["slot": "home", "address": "华发新城"]))
-        #expect(!result.ok && result.code == .placeNotSaved && result.advice != nil)
+        #expect(!result.ok && result.code == .placeNotSaved && result.advice == nil && result.data["facts"]?["saved"] == .bool(false))
     }
 }
 

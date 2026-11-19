@@ -222,7 +222,9 @@ struct ForecastWeatherTests {
     func timeout() async {
         let (ex, _, _, _, _) = forecastSetup(forecastError: .timeout)
         let r = await ex.execute(weatherCall(["where": "Oslo", "country": "NO"]))
-        #expect(r.code == .liveInfoUnavailable && r.advice == "天气没有查到。请如实说明，不要编造。")
+        // F-09b §13 item 3 (T-031l): the cause as a fact, no sentence.
+        #expect(r.code == .liveInfoUnavailable && r.advice == nil)
+        #expect(r.data["facts"]?["cause"] == .string("network") && r.data["facts"]?["what"] == .string("天气"))
     }
 
     @Test("F-18 §26 row 09: the query_live_info arguments and description are exactly items 1 and 8; 设置 credit")

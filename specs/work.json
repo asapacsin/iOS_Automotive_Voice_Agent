@@ -3065,14 +3065,16 @@
     {
       "id": "T-031l",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-031c"
       ],
       "action": "F-09b §13 items 1-3, 8 (report only), 9-11: ToolReply (facts/may/must_not, next built from them), base instruction rule changes, stage 1 not-found and failed lookups incl. navigate_to NO_CANDIDATES facts (replaces F-15b §51 item 4); rows 1-4, 9 (stage 1), 10.",
       "notes": "Owner 2026-11-19: mentor says answers sound robotic; code writes her sentence ~190 times (81 advice, 63 ToolFailureAdvice, ~48 success next, base 只说一句 / rule 3). PC A/B with Qwen stand-in: facts style gave natural, correct replies.",
-      "evidence": []
+      "evidence": [
+        "STATUS.md 2026-11-19 T-031l row: gates green (952 NovaCore / 52 / 110 tests, 1 known issue), high-effort read-only review PASS after one rework. Row 9 stage 1 (PC eval) and row 10 (device) not run."
+      ]
     },
     {
       "id": "T-031m",

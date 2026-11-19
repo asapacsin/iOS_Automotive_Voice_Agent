@@ -66,15 +66,17 @@ public struct SavePlaceExecutor: ToolExecutor {
         do {
             found = try await search.text(address, city: nil)
         } catch let error as AmapWebError {
-            if error == .keyMissing || error == .keyRejected {
-                return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，地址没有保存。请如实说明。")
-            }
-            return .failure(.liveInfoUnavailable, advice: "地址查询失败了，没有保存。请如实说明，可以请用户稍后再说一遍。")
+            // F-09b §13 item 3 (T-031l): facts and rules, no sentence; nothing was saved.
+            let cause = LookupReply.cause(of: error)
+            return LookupReply.failed(cause == .keyMissing ? .amapWebKeyMissing : .liveInfoUnavailable, what: "address",
+                                      cause: cause, facts: ["saved": false], mustNot: [.claimDone])
         } catch {
-            return .failure(.liveInfoUnavailable, advice: "地址查询失败了，没有保存。请如实说明。")
+            return LookupReply.failed(.liveInfoUnavailable, what: "address", cause: .network, facts: ["saved": false],
+                                      mustNot: [.claimDone])
         }
         guard let first = found.first else {
-            return .failure(.noCandidates, advice: "没有找到这个地址，没有保存。请如实说明，请用户换个说法。")
+            return LookupReply.notFound(.noCandidates, what: address, facts: ["saved": false], may: [.askPlace],
+                                        mustNot: [.claimDone])
         }
         let saved = Place(id: "saved_\(slot.rawValue)", name: first.name, address: first.address ?? address,
                           coordinate: first.coordinate, distanceMeters: nil)
@@ -82,7 +84,9 @@ public struct SavePlaceExecutor: ToolExecutor {
         // Claim only what the store holds now (I-1): read the slot back.
         guard let stored = places.place(slot), stored.name == saved.name,
               stored.coordinate == saved.coordinate else {
-            return .failure(.placeNotSaved, advice: "地址没有保存成功。请如实说没有保存，可以请用户稍后再试。")
+            // F-09b §13 item 3 (T-031l): facts and rules, no sentence.
+            return ToolReply.failure(.placeNotSaved, facts: ["what": "address", "saved": false], may: [.tryLater],
+                                     mustNot: [.claimDone, .invent]).result
         }
         let label = slot == .home ? "家" : "公司"
         let ask = slot == .home ? "回家" : "去公司"
