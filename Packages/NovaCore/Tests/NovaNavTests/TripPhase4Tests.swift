@@ -266,7 +266,11 @@ struct TripPhase4Tests {
         let after = await rig.planner.currentPlan.days
         #expect(after[0].stops.allSatisfy { $0.mark == .visited })
         #expect(after[1].stops.first?.place.id == hotel && after[1].stops.first?.mark == .visited)
-        #expect(await rig.run(trip("trip_next", ["day": 1])).code == .dayDone)
+        let done = await rig.run(trip("trip_next", ["day": 1]))
+        #expect(done.code == .dayDone)
+        // F-09b §13 row 7 (T-031o): day 1 of 2 is done; the next day may be offered.
+        #expect(done.advice == nil && done.data["facts"] == .object(["day": .int(1), "day_count": .int(2)]))
+        #expect(done.data["may"] == .array([.string("ask_next_day")]))
     }
 
     @Test("F-15b §38 item 2: abroad, 高德's route fails: Apple Maps opens, trip handoff line")

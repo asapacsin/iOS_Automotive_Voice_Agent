@@ -225,7 +225,12 @@ struct TripPhase3Tests {
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
         _ = await rig.run(trip("edit_trip_list", ["action": "visited", "index": 1]))
         _ = await rig.run(trip("edit_trip_list", ["action": "skip", "index": 2]))
-        #expect(await rig.run(trip("trip_next")).code == .dayDone)
+        let done = await rig.run(trip("trip_next"))
+        #expect(done.code == .dayDone)
+        // F-09b §13 row 7 (T-031o): the last day is done; no next day is offered.
+        #expect(done.advice == nil && done.data["facts"] == .object(["day": .int(1), "day_count": .int(1)]))
+        #expect(done.data["may"] == .array([]))
+        #expect(done.data["must_not"] == .array([.string("claim_started"), .string("invent")]))
     }
 
     @Test("F-15b row 79: trip_plans open has plan with every day's names and marks")

@@ -8,7 +8,7 @@ struct FailureAdviceReplyTests {
     private static let scripts = ["只说一句：", "只说这一句", "请如实说：", "请用户换个说法", "换个说法"]
 
     private func checkNext(_ next: String) {
-        #expect(next.hasPrefix("用自己的话简短地说。"))
+        #expect(next.hasPrefix("用自己的话简短地说。") || next.hasPrefix("不要："))
         for phrase in Self.scripts { #expect(!next.contains(phrase)) }
         for quote in ["「", "」", "\u{201C}", "\u{201D}", "\""] { #expect(!next.contains(quote)) }
         #expect(!next.contains("请用一句话"))
@@ -75,5 +75,29 @@ struct FailureAdviceReplyTests {
             for phrase in Self.scripts { #expect(!t.contains(phrase), "\(t)") }
             #expect(!t.contains("「") && !t.contains("」"), "\(t)")
         }
+    }
+}
+
+/// F-09b §13 item 6 (T-031o) review fixes: facts from the callers.
+@Suite("T-031o: F-09b §13 stage 4, facts from the callers")
+struct FailureAdviceFactsTests {
+    @Test("F-09b §13 row 7: NOT_A_DRIVER_TURN next has no prefix asking her to say it")
+    func notADriverTurn() {
+        let next = ToolFailureAdvice.reply(.notADriverTurn).data["next"]?.stringValue ?? ""
+        #expect(next == "不要：" + ReplyMustNot.speak.gloss + "。")
+    }
+
+    @Test("F-09b §13 row 7: TRIP_TOO_LONG, PLANS_FULL and DAY_DONE forbid inventing")
+    func inventRules() {
+        for code: ToolErrorCode in [.tripTooLong, .plansFull, .dayDone] {
+            #expect(ToolFailureAdvice.iosTable[code]?.mustNot.contains(.invent) == true, "\(code.rawValue)")
+        }
+    }
+
+    @Test("F-09b §13 row 7: a blocked vehicle action has no instruction sentence")
+    func blockedNoInstruction() {
+        let r = VehicleArgs.blocked("open_window", "speed").result
+        #expect(r.data["instruction"] == nil)
+        #expect(r.data["facts"]?["action"] == "open_window")
     }
 }
