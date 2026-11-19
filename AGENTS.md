@@ -1,5 +1,5 @@
 # NovaDriveIOS
-- Specs live in specs/. Before a task, read specs/features/<feature>.md and only the contracts it
+- Specs live in specs/. Before a task, read the sections of specs/features/<feature>.md it names and only the contracts it
   lists. Do not read other features unless the task names them. Tasks: specs/implementation-plan.md.
 - Read only the section a task names: `scripts/spec_section.py <feature>` lists sections with line ranges,
   `scripts/spec_section.py <feature> <§>` prints one (trip-plan.md is ~160 KB; §51 alone is ~19 KB).

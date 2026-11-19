@@ -14,7 +14,8 @@ TRIP = ROOT / "specs" / "features" / "trip-plan.md"
 
 
 def run(cmd, stdin=None, env=None):
-    return subprocess.run(cmd, input=stdin, capture_output=True, text=True, env={**os.environ, **(env or {})})
+    base = {k: v for k, v in os.environ.items() if k != "NOVA_READ_GUARD_KB"}
+    return subprocess.run(cmd, input=stdin, capture_output=True, text=True, env={**base, **(env or {})})
 
 
 def guard(event, env=None):
@@ -56,12 +57,18 @@ class ReadGuardTests(unittest.TestCase):
             png = Path(d) / "big.png"
             png.write_bytes(b"\0" * 50_000)
             for event in ({"tool_name": "Read", "tool_input": {"file_path": str(TRIP), "offset": 1693, "limit": 180}},
+                          {"tool_name": "Read", "tool_input": {"file_path": str(TRIP), "limit": 50}},
                           {"tool_name": "Read", "tool_input": {"file_path": str(small)}},
                           {"tool_name": "Read", "tool_input": {"file_path": str(Path(d) / "missing.md")}},
                           {"tool_name": "Read", "tool_input": {"file_path": str(png)}},
                           {"tool_name": "Grep", "tool_input": {"pattern": "x"}}):
                 self.assertEqual(guard(event), (0, ""), event)
         self.assertEqual(guard("not json"), (0, ""))
+
+    def test_relative_path_uses_event_cwd(self):
+        event = {"tool_name": "Read", "cwd": str(ROOT), "tool_input": {"file_path": "specs/features/trip-plan.md"}}
+        code, out = guard(event)
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_row4_limit_zero_turns_it_off(self):
         event = {"tool_name": "Read", "tool_input": {"file_path": str(TRIP)}}

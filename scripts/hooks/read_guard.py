@@ -19,8 +19,10 @@ def decide(event: dict, limit_kb: int):
         return None
     args = event.get("tool_input") or {}
     path = args.get("file_path")
-    if not isinstance(path, str) or args.get("offset") is not None:
+    if not isinstance(path, str) or args.get("offset") is not None or args.get("limit") is not None:
         return None
+    if not os.path.isabs(path) and isinstance(event.get("cwd"), str):
+        path = os.path.join(event["cwd"], path)
     if os.path.splitext(path)[1].lower() in NOT_TEXT:
         return None
     try:

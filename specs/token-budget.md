@@ -33,9 +33,9 @@ read it. `specs/work.json` (~190 KB) and `specs/STATUS.md` (~120 KB) grow with e
 1. **Spec section helper (T-900a).** `scripts/spec_section.py <feature>` lists sections with line ranges and
    sizes from the headings (never stale); `<feature> <§>` prints one section. AGENTS.md says to use it.
 2. **Read guard (T-900b).** `scripts/hooks/read_guard.py`, PreToolUse on `Read` in `.claude/settings.json`:
-   a file over 40 KB read without `offset` is denied with 「Grep for the section, then Read with offset/limit;
-   for specs use scripts/spec_section.py」. With `offset`, a small file, a missing file or unreadable input:
-   allowed (the guard never blocks on its own error). Images and PDFs are not text and are allowed.
+   a file over 40 KB read without `offset` or `limit` is denied; the reason names Grep, Read with offset/limit
+   and scripts/spec_section.py. With `offset` or `limit`, a small file, a missing file or unreadable input:
+   allowed (the guard never blocks on its own error). A relative path is taken from the event's `cwd`. Images and PDFs are not text and are allowed.
    The 40 KB limit is overridable by `NOVA_READ_GUARD_KB`; `0` turns the guard off.
 3. **Agent routing (T-900c).** `.claude/agents/Explore.md`: read-only search on `model: haiku` (search does not
    need the main model). `.claude/agents/spec-reviewer.md`: the independent read-only review AGENTS.md requires,
