@@ -605,8 +605,9 @@ public actor NavigationController: ToolExecutor {
         guard let nearFirst, !fromTap, let pending = confirm, pending.ids.contains(place.id) else { return nil }
         let now = await nearFirst.driverTurns()
         guard now <= pending.turn else { return nil }
-        return .failure(.confirmFirst,
-                        advice: "还没有得到司机的确认。只问一句是不是去\(place.name)，等司机回答后再选，不要说已经开始导航。")
+        // F-09b §13 item 4 (T-031m): not yet; facts and rules, no sentence.
+        return ToolReply.notDone(.confirmFirst, facts: ["name": .string(place.name), "confirmed": false],
+                                 may: [.askConfirm]).result
     }
 
     /// While guiding: the places are listed over the running route (as along-route results); nothing stops
@@ -691,18 +692,18 @@ public actor NavigationController: ToolExecutor {
         case .awaitingRouteSelection:
             if let stale = staleList() { return stale }
             if startInFlight {
-                return .failure(.optionsNotReady, advice: "导航正在启动。请如实说正在启动，稍等一下。")
+                return Self.notYet("starting")
             }
             switch pickRoute(args) {
             case .success(let index): return await startGuidance(snapshot.routes[index])
             case .failure(let box): return box.result
             }
         case .resolvingDestination, .calculatingRoute:
-            return .failure(.optionsNotReady, advice: "路线还在计算。请如实说还在计算，稍等一下。")
+            return Self.notYet("calculating_route")
         case .navigating:
             return await changeRoute(args)
         case .idle, .arrived, .error:
-            return .failure(.noOptionsOnScreen, advice: "现在屏幕上没有候选列表。请如实说明，不要假装已经选择。")
+            return ToolReply.notDone(.noOptionsOnScreen, facts: ["on_screen": 0], may: [.askDestination]).result
         }
     }
 
@@ -764,10 +765,12 @@ public actor NavigationController: ToolExecutor {
 
     private func noUsableFix() async -> ToolResult? {
         if await location.authorization() == .denied {
-            return .failure(.locationPermissionDenied, advice: "没有定位权限，真实导航不能开始。请如实说：请在设置里打开定位。")
+            return ToolReply.notDone(.locationPermissionDenied, facts: ["what": "navigation", "cause": "permission_denied"],
+                                     may: [.nameSetting], mustNot: [.guessLocation]).result
         }
         guard let fix = await location.latestFix(), LocationQuality.of(fix, at: clock.now) != nil else {
-            return .failure(.noLocation, advice: "还没有定位，真实导航不能开始。请如实说：还没有定位，暂时不能导航。")
+            return ToolReply.notDone(.noLocation, facts: ["what": "navigation", "cause": "no_location"],
+                                     may: [.tryLater], mustNot: [.guessLocation]).result
         }
         return nil
     }
@@ -795,12 +798,13 @@ public actor NavigationController: ToolExecutor {
                 publish()
                 await engine.selectRoute(old.id, generation: generation)
                 await engine.start(mode, generation: generation)
-                return .failure(.startFailed, advice: "没有换成功，继续按原路线导航。请如实说明。")
+                return ToolReply.notDone(.startFailed, facts: ["changed": false, "guidance_kept": true],
+                                         may: [.tryLater]).result
             }
             // Reset first so a request that lands while the engine stops is not wiped out.
             reset()
             await engine.stop(generation: generation)
-            return .failure(.startFailed, advice: "导航没有启动成功。请如实说明，不要说已经开始。")
+            return ToolReply.notDone(.startFailed, facts: ["started": false], may: [.tryLater]).result
         }
         snapshot.phase = .navigating
         snapshot.mode = mode
@@ -845,7 +849,7 @@ public actor NavigationController: ToolExecutor {
     /// same calculation; one trip, never a second one.
     private func changeRoute(_ args: JSONValue) async -> ToolResult {
         if startInFlight {
-            return .failure(.optionsNotReady, advice: "正在换路线。请如实说正在换，稍等一下。")
+            return Self.notYet("changing_route")
         }
         var options = calculated
         // 真实导航: the trip has moved, so the routes come from the current position (T-040h); the trip keeps
@@ -858,12 +862,14 @@ public actor NavigationController: ToolExecutor {
             guard generation == snapshot.generation else { return .failure(.optionsStale) }
             startInFlight = false
             guard let routes, !routes.isEmpty else {
-                return .failure(.routeCalculationFailed, advice: "没有换成功，继续按原路线导航。请如实说明。")
+                return ToolReply.notDone(.routeCalculationFailed, facts: ["changed": false, "guidance_kept": true],
+                                         may: [.tryLater]).result
             }
             options = Array(routes.prefix(3))
         }
         guard options.count > 1 else {
-            return .failure(.noOptionsOnScreen, advice: "这次只算出一条路线，没有别的可换。请如实说明。")
+            return ToolReply.notDone(.noOptionsOnScreen, facts: ["routes": .int(Int64(options.count)), "changed": false,
+                                                                "guidance_kept": true]).result
         }
         // Read after the recalculation: an off-route reroute may have replaced the route meanwhile.
         let current = snapshot.routes
@@ -902,7 +908,7 @@ public actor NavigationController: ToolExecutor {
     /// `abroad`: the stop belongs to an `abroad` trip; its route then comes from OSRM (F-15b §47 item 1).
     public func tripNext(_ place: Place, abroad: Bool = false) async -> ToolResult {
         if startInFlight {
-            return .failure(.optionsNotReady, advice: "导航正在启动。请如实说正在启动，稍等一下。")
+            return Self.notYet("starting")
         }
         routeAbroad = abroad
         forgetConfirmations()
@@ -960,7 +966,7 @@ public actor NavigationController: ToolExecutor {
     /// Remaining distance and time of the running guidance, from the engine's own numbers.
     public func routeStatus() -> ToolResult {
         guard snapshot.navigating, let route = snapshot.routes.first else {
-            return .failure(.notNavigating, advice: "现在没有在导航。请如实说明。")
+            return ToolReply.notDone(.notNavigating, facts: ["navigating": false], mustNot: [.invent]).result
         }
         let meters = snapshot.info?.remainingMeters ?? route.lengthMeters
         let seconds = snapshot.info?.remainingSeconds ?? route.durationSeconds
@@ -1050,10 +1056,14 @@ public actor NavigationController: ToolExecutor {
     /// Up to 5 places of `category` in the route corridor, listed over the running guidance.
     public func alongRoute(category: String?) async -> ToolResult {
         guard snapshot.navigating else {
-            return .failure(.notNavigating, advice: "现在没有在导航，不能查沿途。请如实说明，可以问附近的。")
+            // F-09b §13 item 4 (T-031m): nothing on screen to choose from; facts and rules, no sentence.
+            return ToolReply.notDone(.notNavigating, facts: ["navigating": false, "along_route": false],
+                                     may: [.offerNearby]).result
         }
         guard let category, let keywords = Self.categories[category] else {
-            return .failure(.invalidArgument, advice: "沿途只能查加油站、充电站、服务区或厕所。请如实说明。")
+            return ToolReply.failure(.invalidArgument,
+                                     facts: ["allowed": .array(["加油站", "充电站", "服务区", "厕所"])],
+                                     may: [.askWhat], mustNot: [.invent]).result
         }
         let line = snapshot.routes.first?.polyline ?? []
         let polygon = AlongRouteCorridor.polygon(line)
@@ -1095,21 +1105,22 @@ public actor NavigationController: ToolExecutor {
         switch target {
         case .string("destination"):
             guard let destination = snapshot.destination else {
-                return .failure(.noDestination, advice: "现在没有导航目的地。请如实说明。")
+                return ToolReply.notDone(.noDestination, facts: ["destination": .null],
+                                         may: [.askDestination], mustNot: [.invent]).result
             }
             place = destination
         case .some(let value):
             guard let index = Self.index(["index": value]) else {
-                return .failure(.invalidArgument, advice: "请用户说是目的地还是第几个。")
+                return Self.whichPlace(snapshot)
             }
             guard index >= 1, index <= snapshot.places.count else {
                 return snapshot.places.isEmpty
-                    ? .failure(.noOptionsOnScreen, advice: "屏幕上没有候选列表。请如实说明。")
-                    : Self.outOfRange(snapshot.places.count).result
+                    ? ToolReply.choosing(.noOptionsOnScreen, onScreen: 0, may: [.askDestination]).result
+                    : Self.outOfRange(snapshot.places.count, names: snapshot.places.map(\.name)).result
             }
             place = snapshot.places[index - 1]
         case .none:
-            return .failure(.invalidArgument, advice: "请用户说是目的地还是第几个。")
+            return Self.whichPlace(snapshot)
         }
         let detail: Place?
         do {
@@ -1197,31 +1208,39 @@ public actor NavigationController: ToolExecutor {
     private func staleList() -> ToolResult? {
         guard let listedAt, clock.now - listedAt > tuning.choiceLifetime else { return nil }
         if snapshot.alongRouteList { closeAlongRouteList() } else { reset() }
-        return .failure(.optionsStale, advice: "候选列表已经过期。请如实说明，请用户重新说目的地。")
+        // F-09b §13 item 4 (T-031m): the list was closed; nothing is on screen now.
+        return ToolReply.choosing(.optionsStale, onScreen: 0, facts: ["expired": true], may: [.askDestination]).result
     }
 
     private func pick<T>(_ items: [T], _ args: JSONValue, distance: (T) -> Int?,
                          name: (T) -> String) -> Result<Int, ToolResultBox> {
         if let index = Self.index(args) {
-            return index <= items.count ? .success(index - 1) : .failure(Self.outOfRange(items.count))
+            return index <= items.count ? .success(index - 1)
+                : .failure(Self.outOfRange(items.count, names: items.map(name)))
         }
         if let wanted = args["name"]?.stringValue {
             let matches = items.indices.filter { name(items[$0]).contains(wanted) || wanted.contains(name(items[$0])) }
             if matches.count == 1 { return .success(matches[0]) }
-            return .failure(matches.isEmpty
-                ? ToolResultBox(.failure(.noMatch, advice: "屏幕上没有这个名字。请如实说明，请用户说第几个。"))
-                : ToolResultBox(.failure(.ambiguous, advice: "有多个候选都符合这个名字。请用户说第几个。")))
+            // F-09b §13 item 4 (T-031m): what is on screen, and she may ask which one.
+            return .failure(ToolResultBox(matches.isEmpty
+                ? ToolReply.choosing(.noMatch, onScreen: items.count, names: items.map(name),
+                                     facts: ["asked_name": .string(wanted)]).result
+                : ToolReply.choosing(.ambiguous, onScreen: items.count, names: matches.map { name(items[$0]) },
+                                     facts: ["asked_name": .string(wanted)]).result))
         }
         if args["preference"]?.stringValue == "nearest" {
             let known = items.indices.compactMap { i in distance(items[i]).map { (i, $0) } }
             guard let nearest = known.min(by: { $0.1 < $1.1 }) else {
-                return .failure(ToolResultBox(.failure(.distanceUnknown, advice: "不知道距离。请用户说第几个。")))
+                return .failure(ToolResultBox(ToolReply.choosing(.distanceUnknown, onScreen: items.count,
+                                                                 names: items.map(name),
+                                                                 facts: ["distance_known": false]).result))
             }
             return .success(nearest.0)
         }
         if args["preference"] != nil {
-            return .failure(ToolResultBox(.failure(.preferenceNotForDestinations,
-                                                   advice: "这是地点列表，不能按路线偏好选。请用户说第几个。")))
+            return .failure(ToolResultBox(ToolReply.choosing(.preferenceNotForDestinations, onScreen: items.count,
+                                                             names: items.map(name),
+                                                             facts: ["list": "places"]).result))
         }
         return .failure(ToolResultBox(.failure(.invalidFields)))
     }
@@ -1232,7 +1251,8 @@ public actor NavigationController: ToolExecutor {
             return index <= routes.count ? .success(index - 1) : .failure(Self.outOfRange(routes.count))
         }
         guard let preference = args["preference"]?.stringValue else {
-            return .failure(ToolResultBox(.failure(.invalidFields, advice: "请用户说第几条路线。")))
+            return .failure(ToolResultBox(ToolReply.choosing(.invalidFields, onScreen: routes.count,
+                                                             facts: ["list": "routes"]).result))
         }
         let indices = Array(routes.indices)
         let chosen: Int? = switch preference {
@@ -1244,7 +1264,8 @@ public actor NavigationController: ToolExecutor {
         default: nil
         }
         guard let chosen else {
-            return .failure(ToolResultBox(.failure(.preferenceNotForRoutes, advice: "请用户说第几条路线。")))
+            return .failure(ToolResultBox(ToolReply.choosing(.preferenceNotForRoutes, onScreen: routes.count,
+                                                             facts: ["list": "routes"]).result))
         }
         return .success(chosen)
     }
@@ -1258,8 +1279,20 @@ public actor NavigationController: ToolExecutor {
         }
     }
 
-    private static func outOfRange(_ count: Int) -> ToolResultBox {
-        ToolResultBox(.failure(.outOfRange, advice: "没有这一项，屏幕上只有\(count)项。请如实说明。"))
+    /// F-09b §13 item 4 (T-031m): 「第五个」 with 3 on screen: the count and the names, and she may ask which.
+    private static func outOfRange(_ count: Int, names: [String] = []) -> ToolResultBox {
+        ToolResultBox(ToolReply.choosing(.outOfRange, onScreen: count, names: names).result)
+    }
+
+    /// F-09b §13 item 4 (T-031m): something is still running (`state`); nothing is picked or started yet.
+    private static func notYet(_ state: String) -> ToolResult {
+        ToolReply.notDone(.optionsNotReady, facts: ["state": .string(state)], may: [.waitBriefly]).result
+    }
+
+    /// `place_details` without a target: the destination (if any) and the places on screen; she may ask which.
+    private static func whichPlace(_ snapshot: NavigationFlowState) -> ToolResult {
+        ToolReply.choosing(.invalidArgument, onScreen: snapshot.places.count, names: snapshot.places.map(\.name),
+                           facts: ["destination": snapshot.destination.map { .string($0.name) } ?? .null]).result
     }
 
     static func km(_ meters: Int) -> Double { (Double(meters) / 100).rounded() / 10 }

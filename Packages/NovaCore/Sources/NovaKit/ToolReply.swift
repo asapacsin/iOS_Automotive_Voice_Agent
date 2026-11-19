@@ -12,6 +12,18 @@ public enum ReplyMay: String, Sendable, Hashable, CaseIterable {
     case askPlace = "ask_place"
     /// She may say the setting that would fix it (a permission or a missing key).
     case nameSetting = "name_setting"
+    /// F-09b §13 item 4 (T-031m): something is still running; she may say it takes a moment.
+    case waitBriefly = "wait_briefly"
+    /// She may ask the driver to confirm the place in `facts` (F-16 §14 item 5).
+    case askConfirm = "ask_confirm"
+    /// She may ask where the driver wants to go, or what to look up.
+    case askDestination = "ask_destination"
+    /// She may offer to look nearby instead (no guidance, so nothing along a route).
+    case offerNearby = "offer_nearby"
+    /// She may ask what the driver wants (a song, a name, an address).
+    case askWhat = "ask_what"
+    /// She may say how the driver turns it back on (the command in `facts`).
+    case nameCommand = "name_command"
 
     public var gloss: String {
         switch self {
@@ -22,6 +34,12 @@ public enum ReplyMay: String, Sendable, Hashable, CaseIterable {
         case .tryLater: "可以说稍后再试"
         case .askPlace: "可以问司机是哪个城市或地方"
         case .nameSetting: "可以说要在设置里打开或配置什么"
+        case .waitBriefly: "可以说稍等一下"
+        case .askConfirm: "可以问司机是不是 facts 里的那个"
+        case .askDestination: "可以问司机要去哪里或查哪里"
+        case .offerNearby: "可以提议查附近的"
+        case .askWhat: "可以问司机想要什么"
+        case .nameCommand: "可以说 facts 里的说法怎么打开"
         }
     }
 }
@@ -36,6 +54,8 @@ public enum ReplyMustNot: String, Sendable, Hashable, CaseIterable {
     case readList = "read_list"
     /// She must not guess where the car is.
     case guessLocation = "guess_location"
+    /// F-09b §13 item 4 (T-031m): a camera answer that has no picture.
+    case describeView = "describe_view"
 
     public var gloss: String {
         switch self {
@@ -46,6 +66,7 @@ public enum ReplyMustNot: String, Sendable, Hashable, CaseIterable {
         case .askRephrase: "不要让司机重新措辞再说"
         case .readList: "不要念屏幕上的列表"
         case .guessLocation: "不要猜位置"
+        case .describeView: "不要描述画面"
         }
     }
 }
@@ -79,6 +100,23 @@ public struct ToolReply: Sendable, Hashable {
     public static func failure(_ code: ToolErrorCode, facts: [String: JSONValue], may: [ReplyMay] = [],
                                mustNot: [ReplyMustNot] = [], extra: [String: JSONValue] = [:]) -> ToolReply {
         ToolReply(ok: false, code: code, facts: facts, may: may, mustNot: mustNot, extra: extra)
+    }
+
+    /// F-09b §13 item 4 (T-031m): not done or not yet. `must_not` always carries `claim_started` and `claim_done`.
+    public static func notDone(_ code: ToolErrorCode, facts: [String: JSONValue], may: [ReplyMay] = [],
+                               mustNot: [ReplyMustNot] = [], extra: [String: JSONValue] = [:]) -> ToolReply {
+        failure(code, facts: facts, may: may, mustNot: [.claimStarted, .claimDone] + mustNot, extra: extra)
+    }
+
+    /// F-09b §13 item 4 (T-031m): choosing. `facts` are what is on screen (`on_screen` count, the matching
+    /// `names`); `may` `ask_pick`; nothing was picked or started.
+    public static func choosing(_ code: ToolErrorCode, onScreen count: Int, names: [String] = [],
+                                facts extra: [String: JSONValue] = [:], may: [ReplyMay] = [],
+                                mustNot: [ReplyMustNot] = []) -> ToolReply {
+        var facts = extra
+        facts["on_screen"] = .int(Int64(count))
+        if !names.isEmpty { facts["names"] = .array(names.map(JSONValue.string)) }
+        return failure(code, facts: facts, may: [.askPick] + may, mustNot: [.claimStarted, .invent] + mustNot)
     }
 
     /// 「用自己的话简短地说。可以：…。不要：…。」

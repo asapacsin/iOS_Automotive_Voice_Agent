@@ -112,13 +112,13 @@ struct TripNavSeparateTests {
                      trip("edit_trip_list", ["action": "move", "index": 1, "to_index": 3])]
         for call in calls {
             let r = await rig.run(call)
-            #expect(r.code == .tripHidden && r.advice == "行程收起来了。只说一句：要用行程请说「打开行程」。", "\(call.name)")
+            #expect(r.code == .tripHidden && r.advice == nil && r == TripPlanner.tripHiddenResult, "\(call.name)")
             #expect(rig.lines.withLock { $0 }.contains("trip blocked tool=\(call.name) reason=hidden"))
         }
         #expect(await rig.order() == before)
         #expect(await rig.planner.cardsHidden)
         #expect(await !rig.nav.current.navigating)
-        #expect(ToolFailureAdvice.forCode(.tripHidden) == TripPlanner.tripHiddenNext)
+        #expect(ToolFailureAdvice.forCode(.tripHidden) == nil && TripPlanner.tripHiddenNext.hasPrefix("用自己的话简短地说。"))
         // §51 item 2: the catalog's 「打开行程」 sentence.
         #expect(ToolCatalog.editTripListDescription.contains("司机说「打开行程」「看看行程」时用 action=read。"))
     }

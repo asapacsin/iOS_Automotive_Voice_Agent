@@ -117,6 +117,7 @@ struct PreviewAdviceTests {
         }
         let bundled = MusicToolHandler(music: LanePlayer(starts: false), clock: ManualClock())
         let r = await bundled.execute(call("control_music", ["action": "play"]))
-        #expect(!r.ok && r.code == .notPlaying && r.advice == "内置音乐没有放起来。请如实说没放成，不要说正在播放。")
+        #expect(!r.ok && r.code == .notPlaying && r.advice == nil
+            && r.data["facts"]?["playing"] == .bool(false))
     }
 }

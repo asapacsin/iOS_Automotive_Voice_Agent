@@ -297,7 +297,7 @@ public actor TripPlanner: ToolExecutor {
         // nothing runs, the plan and the hidden cards stay as they are.
         if cardsHidden, Self.blockedWhileHidden(call) {
             onLine("trip blocked tool=\(call.name) reason=hidden")
-            return .failure(.tripHidden, advice: Self.tripHiddenNext)
+            return Self.tripHiddenResult
         }
         // Shows the cards (「打开行程」): make_trip_list, edit_trip_list action=read, trip_plans open.
         if Self.showsCards(call) { setHidden(false) }
@@ -316,8 +316,12 @@ public actor TripPlanner: ToolExecutor {
         }
     }
 
-    /// §51 item 2: the `next` of a trip command refused while the cards are hidden.
-    public static let tripHiddenNext = ToolFailureAdvice.forCode(.tripHidden) ?? ""
+    /// §51 item 2, F-09b §13 item 4 (T-031m): a trip command refused while the cards are hidden; nothing ran.
+    public static let tripHiddenResult = ToolReply.notDone(
+        .tripHidden, facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开行程"],
+        may: [.nameCommand]).result
+    /// The `next` of that refusal.
+    public static var tripHiddenNext: String { tripHiddenResult.data["next"]?.stringValue ?? "" }
 
     /// §51 item 2: `trip_next`, `revise_trip_list`, and `edit_trip_list` with any action but `read`.
     static func blockedWhileHidden(_ call: ToolCall) -> Bool {
@@ -2244,7 +2248,9 @@ public actor TripPlanner: ToolExecutor {
     private func failure(_ code: ToolErrorCode) -> ToolResult { .failure(code, advice: ToolFailureAdvice.forCode(code)) }
 
     private func outOfRange() -> ToolResult {
-        .failure(.outOfRange, advice: "清单里没有这一项，现在一共\(list.count)个地点。请如实说明。")
+        // F-09b §13 item 4 (T-031m): choosing; what is on the list, and she may ask which.
+        ToolReply.choosing(.outOfRange, onScreen: list.count, names: list.stops.map(\.place.name),
+                           facts: ["list": "trip"], mustNot: [.readList]).result
     }
 
     private func distance(_ here: GeoCoordinate?, _ place: Place) -> Int? {
@@ -2259,7 +2265,7 @@ public actor TripPlanner: ToolExecutor {
     }
 
     private func dayOutOfRange() -> ToolResult {
-        .failure(.outOfRange, advice: "没有这一天，现在行程有\(plan.dayCount)天。请如实说明。")
+        ToolReply.choosing(.outOfRange, onScreen: plan.dayCount, facts: ["list": "days"]).result
     }
 
     // MARK: trip_plans (§16)
@@ -2325,7 +2331,8 @@ public actor TripPlanner: ToolExecutor {
             case .success(let i):
                 let old = saved.entries[i].name
                 if let other = saved.entries.firstIndex(where: { TranscriptText.normalize($0.name) == newName }), other != i {
-                    return .failure(.invalidFields, advice: "已经有一个叫「\(newName)」的行程了，没有改名。请如实说明。")
+                    return ToolReply.notDone(.invalidFields, facts: ["renamed": false, "name_taken": .string(newName)],
+                                             may: [.askWhat]).result
                 }
                 saved.rename(at: i, to: newName)
                 if plan.name == old { plan.name = newName; persist() }
@@ -2389,7 +2396,7 @@ public actor TripPlanner: ToolExecutor {
                 // §51 item 2: an add while the cards are hidden is refused as edit_trip_list add is.
                 if cardsHidden {
                     onLine("trip blocked tool=edit_trip_list reason=hidden")
-                    result = .failure(.tripHidden, advice: Self.tripHiddenNext)
+                    result = Self.tripHiddenResult
                 } else {
                     result = add(place)
                 }

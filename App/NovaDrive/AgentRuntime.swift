@@ -783,7 +783,7 @@ final class AgentRuntime {
         guard result.code != .superseded, model.cameraOpen else { return }
         // `askCamera` already checked (and recorded) the answer; the advice is the app's own Chinese.
         let line = model.cameraAnswer
-            ?? result.advice?.components(separatedBy: "请如实").first ?? ScreenLanguage.cameraFallback
+            ?? CameraQuestionHandler.screenLine(result) ?? ScreenLanguage.cameraFallback
         model.cameraAnswer = line
         model.view.subtitle = line
         await speakLine?(line)

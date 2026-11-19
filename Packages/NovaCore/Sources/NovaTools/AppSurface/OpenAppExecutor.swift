@@ -32,7 +32,9 @@ public struct OpenAppExecutor: ToolExecutor {
             return ToolDispatcher.failure(.appNotAllowed)
         }
         guard await surfaces.show(surface) == surface else {
-            return .failure(.appNotOpened, advice: "页面没有切换过去。请如实说没有打开\(surface.label)页面。")
+            // F-09b §13 item 4 (T-031m): not done; facts and rules, no sentence.
+            return ToolReply.notDone(.appNotOpened, facts: ["page": .string(surface.label), "opened": false],
+                                     may: [.tryLater]).result
         }
         return .success(["app": .string(surface.rawValue),
                          "next": .string("已经打开\(surface.label)页面，用一句话告诉用户。")])

@@ -698,8 +698,7 @@ public enum ToolFailureAdvice {
         .dayDone: "这一天的地点都去过或跳过了。请问司机要不要开始下一天。",
         // F-15b §49 item 7 (T-040u).
         .noRevision: "还没有排好的行程可以改，什么都没有改。请用一句话如实说还没有行程，可以先做一个。",
-        // F-15b §51 item 2 (T-040y).
-        .tripHidden: "行程收起来了。只说一句：要用行程请说「打开行程」。",
+        // F-15b §51 item 2 (T-040y): moved to `TripPlanner.tripHiddenResult` (F-09b §13 item 4, T-031m).
         .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }

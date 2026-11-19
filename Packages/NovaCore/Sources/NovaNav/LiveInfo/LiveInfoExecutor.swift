@@ -396,8 +396,10 @@ public struct LiveInfoExecutor: ToolExecutor {
         }
     }
 
-    static let permissionDenied = ToolResult.failure(
-        .locationPermissionDenied, advice: "定位权限没有打开。请用一句话如实说定位权限没有打开，可以在设置里允许；不要猜位置。")
+    /// F-09b §13 item 4 (T-031m): not done; facts and rules, no sentence.
+    static let permissionDenied = ToolReply.notDone(
+        .locationPermissionDenied, facts: ["what": "location", "cause": "permission_denied"], may: [.nameSetting],
+        mustNot: [.guessLocation, .invent]).result
 
     /// F-16a §4: 「广东省珠海市香洲区…」 → 「珠海市香洲区…」. The province is dropped only when the address goes on
     /// with the city right after it; a municipality named twice (「北京市北京市朝阳区」) keeps one name. Anything

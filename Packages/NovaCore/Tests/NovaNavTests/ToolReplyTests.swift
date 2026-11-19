@@ -6,10 +6,10 @@ import NovaTools
 import Testing
 
 /// F-09b §13 item 8: phrases that script her line (the gate is T-031n's; the unit check is here from stage 1).
-private let scriptPhrases = ["只说一句：", "只说这一句", "请如实说：", "请用户换个说法", "换个说法"]
+let scriptPhrases = ["只说一句：", "只说这一句", "请如实说：", "请用户换个说法", "换个说法"]
 
 /// F-09b §13 item 9 (unit): `facts`, `may` and `must_not` present; `next` quotes no sentence and has no script phrase.
-private func expectReplyShape(_ result: ToolResult, _ label: String = "", sourceLocation: SourceLocation = #_sourceLocation) {
+func expectReplyShape(_ result: ToolResult, _ label: String = "", sourceLocation: SourceLocation = #_sourceLocation) {
     #expect(result.advice == nil, "\(label)", sourceLocation: sourceLocation)
     #expect(isObject(result.data["facts"]), "\(label)", sourceLocation: sourceLocation)
     #expect(isArray(result.data["may"]) && isArray(result.data["must_not"]), "\(label)",
@@ -20,12 +20,12 @@ private func expectReplyShape(_ result: ToolResult, _ label: String = "", source
     for phrase in scriptPhrases { #expect(!next.contains(phrase), "\(label) \(phrase)", sourceLocation: sourceLocation) }
 }
 
-private func replyValues(_ value: JSONValue?) -> [String] {
+func replyValues(_ value: JSONValue?) -> [String] {
     if case .array(let items)? = value { return items.compactMap(\.stringValue) }
     return []
 }
-private func isObject(_ value: JSONValue?) -> Bool { if case .object? = value { true } else { false } }
-private func isArray(_ value: JSONValue?) -> Bool { if case .array? = value { true } else { false } }
+func isObject(_ value: JSONValue?) -> Bool { if case .object? = value { true } else { false } }
+func isArray(_ value: JSONValue?) -> Bool { if case .array? = value { true } else { false } }
 
 @Suite("T-031l F-09b §13 stage 1: she says it in her own words; code gives the facts and the rules")
 struct ToolReplyStage1Tests {

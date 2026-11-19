@@ -56,11 +56,14 @@ public struct SavePlaceExecutor: ToolExecutor {
 
     public func execute(_ call: ToolCall) async -> ToolResult {
         guard let raw = call.arguments["slot"]?.stringValue, let slot = PlaceSlot(rawValue: raw) else {
-            return .failure(.invalidFieldValue, advice: "没有说清是家还是公司。请如实说没有保存，问用户是家还是公司。")
+            // F-09b §13 item 4 (T-031m): choosing; she may ask which slot. Nothing was saved.
+            return ToolReply.failure(.invalidFieldValue, facts: ["saved": false, "slots": .array(["家", "公司"])],
+                                     may: [.askPick], mustNot: [.claimDone]).result
         }
         let address = (call.arguments["address"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !address.isEmpty else {
-            return .failure(.invalidFieldValue, advice: "没有听到地址。请如实说没有保存，请用户再说一遍地址。")
+            return ToolReply.failure(.invalidFieldValue, facts: ["saved": false, "address": .null],
+                                     may: [.askWhat], mustNot: [.claimDone, .invent]).result
         }
         let found: [Place]
         do {

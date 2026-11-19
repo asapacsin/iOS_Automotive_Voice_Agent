@@ -57,7 +57,9 @@ public struct MusicToolHandler: ToolExecutor {
 
     private func playBundled() async -> ToolResult {
         guard await music.playBundled(), await music.isPlaying else {
-            return .failure(.notPlaying, advice: "内置音乐没有放起来。请如实说没放成，不要说正在播放。")
+            // F-09b §13 item 4 (T-031m): not done; facts and rules, no sentence.
+            return ToolReply.notDone(.notPlaying, facts: ["source": "bundled", "playing": false],
+                                     may: [.tryLater]).result
         }
         return .success(["status": "playing", "source": "bundled",
                          "next": "说一句：音乐放起来了。"])
@@ -75,7 +77,11 @@ public struct MusicToolHandler: ToolExecutor {
         let request = NamedMusicRequest(title: args["title"]?.stringValue, artist: args["artist"]?.stringValue,
                                         albumOrWork: args["album_or_work"]?.stringValue, query: args["query"]?.stringValue,
                                         mood: args["mood"]?.stringValue, excludeTitle: args["exclude_title"]?.stringValue)
-        guard !request.joined.isEmpty else { return .failure(.invalidFields, advice: "请用户说想听什么。") }
+        // F-09b §13 item 4 (T-031m): choosing; nothing is named, she may ask what to play.
+        guard !request.joined.isEmpty else {
+            return ToolReply.failure(.invalidFields, facts: ["what": "music", "named": false], may: [.askWhat],
+                                     mustNot: [.claimStarted, .invent]).result
+        }
         let exclude = request.excludeTitle
         // What played before the request is no evidence for it (music.md contract), unless it is the
         // very title asked for.

@@ -45,7 +45,7 @@ public actor CameraQuestionHandler: ToolExecutor {
         generation += 1
         let mine = generation
         guard let vision else {
-            return .failure(.notConfigured, advice: "看图功能还没有配置。请如实说明，不要描述画面。")
+            return Self.notDone(.notConfigured, cause: "not_configured")
         }
         await acquire()
         // Cancelled or superseded while waiting for a switch: never switch the lens for a dropped question.
@@ -66,13 +66,13 @@ public actor CameraQuestionHandler: ToolExecutor {
             image = try await camera.captureStill()
         } catch CameraError.permissionDenied {
             return mine == generation
-                ? .failure(.cameraPermissionDenied, advice: "摄像头没有权限，请在设置里允许。请如实说明，不要描述画面。")
+                ? Self.notDone(.cameraPermissionDenied, cause: "permission_denied")
                 : Self.dropped
         } catch {
             guard mine == generation else { return Self.dropped }
             return target == .rearView
-                ? .failure(.cameraUnavailable, advice: "后面的摄像头现在用不了。请如实说明，不要描述画面。")
-                : .failure(.cameraUnavailable, advice: "摄像头现在用不了。请如实说明，不要描述画面。")
+                ? Self.notDone(.cameraUnavailable, cause: "camera_unavailable", camera: .rearView)
+                : Self.notDone(.cameraUnavailable, cause: "camera_unavailable", camera: target)
         }
         guard mine == generation else { return Self.dropped }
         let answer = await withDeadline { await vision.ask(question, image: image) }
@@ -86,9 +86,9 @@ public actor CameraQuestionHandler: ToolExecutor {
                 "next": .string("只按 answer 回答，用一两句话，不要补充画面里没有的东西。"),
             ])
         case .notConfigured:
-            return .failure(.notConfigured, advice: "看图功能还没有配置。请如实说明，不要描述画面。")
+            return Self.notDone(.notConfigured, cause: "not_configured")
         case .authFailed:
-            return .failure(.authFailed, advice: "看图服务的密钥无效。请如实说明，不要描述画面。")
+            return Self.notDone(.authFailed, cause: "key_rejected")
         case .busy, nil:
             // F-20a §14 item 4: the deadline passing means the services were slow, not a blurry photo.
             return .failure(.visionBusy, advice: Self.busyAdvice)
@@ -146,6 +146,26 @@ public actor CameraQuestionHandler: ToolExecutor {
 
     static let busyAdvice = "识图服务现在忙或者连不上，等一下再问我。请如实说明，不要描述画面。"
     static let failedAdvice = "这次看图没有成功，再问我一次吧。请如实说明，不要描述画面。"
+
+    /// F-09b §13 item 4 (T-031m): no picture was looked at: facts and rules, no sentence; never describe the view.
+    private static func notDone(_ code: ToolErrorCode, cause: String, camera: CameraLens? = nil) -> ToolResult {
+        var facts: [String: JSONValue] = ["what": "camera", "cause": .string(cause), "looked": false]
+        if let camera { facts["camera"] = .string(camera.rawValue) }
+        let may: [ReplyMay] = code == .cameraUnavailable ? [.tryLater] : [.nameSetting]
+        return ToolReply.notDone(code, facts: facts, may: may, mustNot: [.describeView, .invent]).result
+    }
+
+    /// The app's own screen line for a camera result with no answer (the tap path with no session).
+    public static func screenLine(_ result: ToolResult) -> String? {
+        switch result.code {
+        case .notConfigured?: "看图功能还没有配置。"
+        case .cameraPermissionDenied?: "摄像头没有权限，请在设置里允许。"
+        case .cameraUnavailable?: result.data["facts"]?["camera"] == .string(CameraLens.rearView.rawValue)
+            ? "后面的摄像头现在用不了。" : "摄像头现在用不了。"
+        case .authFailed?: "看图服务的密钥无效。"
+        default: result.advice?.components(separatedBy: "请如实").first
+        }
+    }
 
     private static let dropped = ToolResult.failure(.superseded, advice: "这个问题已被新的问题取代，不要回答它。")
 

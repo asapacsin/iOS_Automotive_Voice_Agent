@@ -139,7 +139,9 @@ struct CameraLensTests {
         let handler = CameraQuestionHandler(camera: camera, vision: FixedVision(), clock: ManualClock())
         let rear = await handler.ask("后面有车吗？")
         #expect(rear.code == .cameraUnavailable)
-        #expect(rear.advice?.hasPrefix("后面的摄像头现在用不了。") == true)
+        // F-09b §13 item 4 (T-031m): the lens is a fact; the screen line is the app's own.
+        #expect(rear.data["facts"]?["camera"] == .string(CameraLens.rearView.rawValue))
+        #expect(CameraQuestionHandler.screenLine(rear) == "后面的摄像头现在用不了。")
         #expect(rear.data["answer"] == nil)
         #expect(await handler.lens == .frontView)
         #expect(await handler.switchLens() == nil)

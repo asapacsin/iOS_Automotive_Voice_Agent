@@ -125,7 +125,8 @@ struct LiveInfoExecutorTests {
             == .amapWebKeyMissing)
         let r = await ask(await executor(FakeWeather(), location: DeniedLocation()), here)
         // §8: she says permission is off and can be allowed in 设置; never an address.
-        #expect(r.advice?.contains("定位权限没有打开") == true && r.advice?.contains("设置里允许") == true)
+        // F-09b §13 item 4 (T-031m): the cause as a fact; she may name the setting.
+        #expect(r.data["facts"]?["cause"] == "permission_denied" && r.data["may"] == .array(["name_setting"]))
         #expect(r.data["address"] == nil)
     }
 
