@@ -1298,7 +1298,7 @@ public actor NavigationController: ToolExecutor {
         guard let category, let keywords = Self.categories[category] else {
             return ToolReply.failure(.invalidArgument,
                                      facts: ["allowed": .array(["加油站", "充电站", "服务区", "厕所"])],
-                                     may: [.askWhat], mustNot: [.invent]).result
+                                     may: [.askPick, .askWhat], mustNot: [.invent]).result
         }
         let line = snapshot.routes.first?.polyline ?? []
         let polygon = AlongRouteCorridor.polygon(line)
@@ -1340,6 +1340,11 @@ public actor NavigationController: ToolExecutor {
         switch target {
         case .string("destination"):
             guard let destination = snapshot.destination else {
+                // F-09b §13 item 4 (T-031m): places on screen to choose from; she may ask which one.
+                if !snapshot.places.isEmpty {
+                    return ToolReply.choosing(.noDestination, onScreen: snapshot.places.count,
+                                              names: snapshot.places.map(\.name), facts: ["destination": .null]).result
+                }
                 return ToolReply.notDone(.noDestination, facts: ["destination": .null],
                                          may: [.askDestination], mustNot: [.invent]).result
             }
