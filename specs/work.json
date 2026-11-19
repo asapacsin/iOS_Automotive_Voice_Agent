@@ -3045,14 +3045,18 @@
     {
       "id": "T-031k",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 1,
       "action": "F-09b §12 items 1-6 (rule 5 sleepy sentence -> one-sentence rest suggestion + navigate_to 附近的咖啡店/服务区, no car change; ten sleepy comfort cases expect navigate_to and are no longer silent; maxBaseCharacters fit); F-09b §12 rows 1-7.",
       "depends_on": [
         "T-031c"
       ],
       "notes": "Owner 2026-11-19, ipa150 d9d75fe: 有点困了 (demo step 1) got nothing because SpeakingStyle.swift:67 tells her to stay silent. Needed for the mentor demo.",
-      "evidence": []
+      "evidence": [
+        {"gate": "scripts/gates/run_all.sh", "result": "gates: PASS (NovaCore 930, 1 known issue T-013d)"},
+        {"review": "independent read-only high-effort review", "verdict": "PASS on b950808 after two FAIL rounds (scorer refusal words, eval navigate_to stub, unbackedClaim limited to plain non-car claims on the ten sleepy cases)"},
+        {"device": "row 3 model eval NOT_VERIFIED (PC + Gemini); rows 5-7 D NOT_VERIFIED"}
+      ]
     },
     {
       "id": "T-016p",
