@@ -370,6 +370,8 @@ Community review 2026-11-03:
 
 ## 20. Sleepy driver: she does nothing and says nothing (iOS, APPROVED 2026-11-10)
 
+**Superseded 2026-11-19 by F-09b §12 (T-031k):** a sleepy driver gets a one-sentence rest suggestion and nearby places on screen; still no car change.
+
 **Why.** On 25c4a77's parent (build 54), model mode, 11:30 record: after a barge-in Gemini heard only "Ah", took it as tiredness, called `control_climate` power_on and adjust_fan, and said 「我已经把空调打开并稍稍调大了风量，建议您找个服务区休息一下。」 Owner 2026-11-10: "why tired would open the air conditioner and wind, this is not making any sense", "probably i prefer to just abandom this approach", and, on the proposal to keep only 「累了的话找个服务区休息一下吧」: "probably i prefer don't response at all". This section replaces §15 item 7 and §19 item 1 for the sleepy driver; §2's `drowsy` row is changed for iOS by item 2.
 
 1. **Rule 5 (model mode).** In `modelComfortRule`, 困 leaves the list of feelings that get a small action, and the sleepy sentence becomes 「司机只是说累、犯困：不要调用任何工具，不要操作车辆，也不要说话，不回应。」 Direct requests (开空调, 开点窗, 放首歌) are unchanged.

@@ -213,3 +213,57 @@ T-016p. Trace ids are added with the tests (`T-031c: F-12 F-09b` and so on), not
 8. **Withdrawn (T-017c).** `CarRequestRouter`, `CarRequestArea`, the `area` timer, `NOT_A_CAR_REQUEST`, the
    `carArea` / `tiredSilenced` diagnostics and their record lines are removed; `carRequestAreas` is no longer an
    `AgentState` argument. The diagnostics `stateNote` and `summaryNote` take their place in the closed set.
+
+## 12. A sleepy driver gets a rest suggestion and nearby places (iOS, APPROVED 2026-11-19)
+
+**Why.**
+- **What happened.** Owner 2026-11-19, ipa150 (d9d75fe): 「有点困了」, demo step 1, got nothing; "the agent just don't understand what to do".
+- **The cause.** At d9d75fe, rule 5 still contains F-12 §20's sleepy sentence, 「司机只是说累、犯困：不要调用任何工具，不要操作车辆，也不要说话，不回应。」 (`PersonaInstruction.sleepySentence`, `SpeakingStyle.swift:67`). The ten sleepy comfort cases require `noTool` and `silent` (§3 item 4). She stayed silent because she was told to.
+- **Why §20 was written.** It answered a wrong car change: "Ah" → air conditioning and fan, and 「好困」 → air conditioning. That reason is still right for the car; it was never a reason to say nothing.
+- **What the owner wants.** "the llm would has more automatic action to perform this kind of task".
+
+**Sources (2026-11-19).**
+- **Mercedes ATTENTION ASSIST.** When the system warns of fatigue, the multimedia system offers to search for a rest area. The driver selects one and starts navigation to it ([Mercedes owner's manual](https://moba.i.mercedes-benz.com/baix/cars/223.9_mbux_2021_a/en_GB/page/ID_bdd61d85e3a05610354ae3652659ca25-02b35b494ffd9e61ac190d2b6b7f8385-en-GB.html)). The break symbol is a coffee cup ([Mercedes press](https://media.mercedes-benz.it/international-coffee-day---prenditi-una-pausa-lattention-assist-celebra-il-suo-decimo-anniversario/)).
+- **EU DDAW (2021/1341).** A drowsy driver must be warned, and the driver cannot switch the warning off ([EUR-Lex](https://eur-lex.europa.eu/eli/reg_del/2021/1341/oj/eng)).
+- **The common pattern.** Suggest a break, offer nearby places, let the driver choose. No source changes the climate for drowsiness, and none stays silent.
+- **Not found.** No reliable source on what NIO, XPeng or Li Auto do for 「我困了」.
+
+**Rule in plain words.** When the driver says they are tired, she says one short sentence suggesting a rest. She lists nearby coffee shops (or rest areas on a highway) on the screen with `navigate_to`. Nothing starts until the driver picks one. Nothing in the car changes.
+
+1. **The sleepy sentence (rule 5) becomes:**
+   > 司机说累、犯困：不要调空调、车窗、座椅或音乐。用一句话建议找地方休息，并调用 navigate_to，destination=附近的咖啡店（在高速上用 附近的服务区），让司机在屏幕上选；司机没选就不开始导航。
+   - It replaces `PersonaInstruction.sleepySentence` in rule 5, in the same place.
+   - The base must stay within `maxBaseCharacters`. If it doesn't fit, raise the limit to the measured length and record the number in STATUS. The sentence itself is not shortened.
+2. **`navigate_to` is unchanged.** It already handles 「附近的X」: a list of candidates on the screen, one sentence from `next`, and `choose_navigation_option` for the driver's pick. No route starts before the pick.
+   - If the search fails or finds nothing, she says one sentence suggesting a rest, with no list.
+   - During active guidance it is the same: the list shows, and the current route keeps running until the driver picks.
+3. **Comfort test (§3 item 4 changes).**
+   - The ten sleepy cases (drowsy, drowsyMusicOn, fallingAsleep, hEyelids, hDizzy, h2EyesClosing, h2Yawning, t3Exhausted, h3Nodding, h3Foggy) expect one `navigate_to` call whose `destination` contains 附近 and one of 咖啡, 服务区 or 休息.
+   - They forbid every vehicle and music facet, and are no longer `silent`. A reply of at most one sentence passes.
+   - whyDrowsy (为什么开车容易犯困) is unchanged: no tool.
+   - `ComfortEval`'s `spoke` failure for these ten cases is removed.
+4. **Superseded.** F-12 §20 items 1, 3 and 4. Its acceptance row 4 is replaced by row 5 below. F-09b §3 item 3's sentence 「The sleepy sentence … stays as it is」 now points here.
+5. **Not changed.**
+   - `VehicleActionPolicy`, the claim rules, and `undo_last_change`: if a car change happens anyway, 「不用」 restores it (§4).
+   - No word list or code-side silencing returns (§7).
+6. **Log.** No new lines. The record's existing `toolCall name=navigate_to` and comfort-eval lines show the result.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | The base instruction | Contains item 1's sentence and not 「不要说话，不回应」; length ≤ `maxBaseCharacters` | unit |
+| 2 | Comfort set definitions | The ten sleepy cases expect `navigate_to` (附近 + 咖啡/服务区/休息), forbid vehicle and music facets, and are not silent; whyDrowsy unchanged | unit |
+| 3 | Comfort eval run, model mode (PC, Gemini) | ≥ 9 of 10 sleepy cases pass, 3 runs each; no vehicle or music call in any run | unit (eval), record result in STATUS |
+| 4 | `navigate_to` fixture: 「附近的咖啡店」 with no results | One sentence suggesting a rest; no route | unit |
+| 5 | Device: 「有点困了」, 「好困」, 「我快睡着了」 | She suggests a rest in one sentence; nearby coffee shops listed on screen; nothing starts; AC, windows, seat and music unchanged | D |
+| 6 | Device: after row 5, 「第一个」 | Navigation to that place starts | D |
+| 7 | Device: 「为什么开车容易犯困」 | She answers; no list, no car change | D |
+
+**Trace gate.** Add `T-031k: F-09b` to `specs/trace-ids.txt` together with the first `@Test` that names T-031k.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031k | Items 1–6; rows 1–7 | unit, eval, build, D |
