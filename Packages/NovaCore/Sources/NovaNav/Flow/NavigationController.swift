@@ -302,6 +302,12 @@ public actor NavigationController: ToolExecutor {
     private func navigate(_ destination: String) async -> ToolResult {
         confirm = nil
         routeAbroad = false
+        // F-15b §51 item 7 (T-040y): a plain navigate_to ends the trip stop guidance (§29); nothing after it starts
+        // from a trip place (the new route's start is the engine's origin: the phone's fix or the demo point).
+        if snapshot.tripStopID != nil {
+            snapshot.tripStopID = nil
+            publish()
+        }
         // F-05a §6 (replaces the P61 word guard): while guiding, a new place is listed over the running route;
         // the route changes only when the driver picks one.
         if snapshot.navigating {

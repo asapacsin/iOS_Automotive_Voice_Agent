@@ -95,7 +95,7 @@ struct TripPhase2cTests {
         #expect(await rig.planner.cardsHidden)
     }
 
-    @Test("F-15b row 61: hidden, then edit_trip_list read shows; hidden again, then trip_next shows")
+    @Test("F-15b row 61 (§51 item 2): hidden, then edit_trip_list read shows; hidden again, trip_next is refused; trip_plans list leaves them hidden")
     func row61() async {
         let rig = await TripRig()
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
@@ -104,12 +104,9 @@ struct TripPhase2cTests {
         #expect(await !rig.planner.cardsHidden)
         _ = await rig.nav.execute(exit())
         #expect(await rig.planner.cardsHidden)
-        _ = await rig.run(trip("trip_next"))
-        #expect(await !rig.planner.cardsHidden)
-        #expect(rig.lines.withLock { $0 }.filter { $0 == "trip cards hidden=no" }.count == 2)
-        // trip_plans other than open does not show them (the first exit stops the guidance trip_next started).
-        #expect(await rig.nav.execute(exit()).data["status"] == "navigation_stopped")
-        _ = await rig.nav.execute(exit())
+        #expect(await rig.run(trip("trip_next")).code == .tripHidden)
+        #expect(await rig.planner.cardsHidden)
+        #expect(rig.lines.withLock { $0 }.filter { $0 == "trip cards hidden=no" }.count == 1)
         _ = await rig.run(trip("trip_plans", ["action": "list"]))
         #expect(await rig.planner.cardsHidden)
     }

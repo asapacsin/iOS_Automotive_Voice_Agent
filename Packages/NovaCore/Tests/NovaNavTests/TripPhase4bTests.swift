@@ -136,7 +136,7 @@ struct TripPhase4bTests {
 
     // MARK: §36 item 2d navigate_to abroad
 
-    private func navRig(photon: FakeApple, tripCity: String? = nil, phone: GeoCoordinate = GeoCoordinate(latitude: 35.68, longitude: 139.76, datum: .wgs84))
+    private func navRig(photon: FakeApple, phone: GeoCoordinate = GeoCoordinate(latitude: 35.68, longitude: 139.76, datum: .wgs84))
         async -> (NavigationController, AmapSpy, TripLines, TripLines) {
         let amap = AmapSpy()
         let lines = TripLines()
@@ -149,7 +149,7 @@ struct TripPhase4bTests {
         await nav.setAbroad(search: photon, center: { city in
             cities.append(city)
             return GeoCoordinate(latitude: 35.6812, longitude: 139.7671, datum: .gcj02)
-        }, tripCity: { tripCity })
+        })
         return (nav, amap, lines, cities)
     }
 
@@ -179,18 +179,12 @@ struct TripPhase4bTests {
         #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=1 ms=") })
     }
 
-    @Test("F-15b §36 item 2d: an abroad trip in progress makes abroad default to true with the trip's city")
-    func tripDefault() async {
+    @Test("F-15b §51 item 1: no abroad means the home search; abroad=false keeps 高德")
+    func noTripDefault() async {
         let photon = FakeApple(["加油站": [jp("ENEOS", lat: 35.70), jp("Shell", lat: 35.69)]])
-        let (nav, amap, _, cities) = await navRig(photon: photon, tripCity: "Tokyo, Japan",
-                                                  phone: GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .wgs84))
-        let r = await nav.execute(navigate(["destination": "附近的加油站"]))
-        #expect(r.ok && r.data["count"] == .int(2))
-        // The phone is in China (珠海): around the trip city's centre, not the phone.
-        #expect(cities.withLock { $0 } == ["Tokyo, Japan"])
-        #expect(amap.calls.withLock { $0 }.isEmpty)
-        // abroad=false keeps 高德 even during the trip.
-        _ = await nav.execute(navigate(["destination": "附近的加油站", "abroad": false]))
+        let (nav, amap, _, cities) = await navRig(photon: photon, phone: GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .wgs84))
+        _ = await nav.execute(navigate(["destination": "附近的加油站"]))
+        #expect(cities.withLock { $0 }.isEmpty && photon.asked.withLock { $0 }.isEmpty)
         #expect(amap.calls.withLock { $0 }.first == "加油站")
     }
 

@@ -3160,7 +3160,7 @@
     {
       "id": "T-040y",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 1,
       "action": "F-15b §51: navigate_to ignores the trip (附近 = the phone; abroad only when the model passes it with a city); trip_next/route_trip/revise_trip_list/edit_trip_list (not read) blocked while the cards are hidden; a restored trip starts hidden; NO_CANDIDATES gets a plain next with no 换个说法; rows 161-172. Amended 2026-11-19: item 4 moved to F-09b §13 (T-031l); item 7 (leaving the trip: nothing else starts from a trip place) and rows 173-175 added; rows now 161-168, 170-175.",
       "depends_on": [

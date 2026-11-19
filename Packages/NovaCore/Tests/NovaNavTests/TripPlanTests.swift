@@ -67,7 +67,7 @@ struct TripPlanTests {
         #expect(second.search.asked.withLock { $0 }.isEmpty)
         let flow = await second.nav.current
         #expect(flow.tripStopID == nil)
-        #expect(second.lines.withLock { $0 }.contains("trip load ok=yes days=2 stops=4"))
+        #expect(second.lines.withLock { $0 }.contains("trip load ok=yes days=2 stops=4 hidden=yes"))
     }
 
     @Test("F-15b row 27: an unreadable current.json starts empty, logs trip load ok=no and is moved to current.bad.json")
@@ -77,7 +77,7 @@ struct TripPlanTests {
         let rig = await PlanRig(files: files)
         await rig.planner.restore()
         #expect(await rig.planner.currentPlan.isEmpty)
-        #expect(rig.lines.withLock { $0 }.contains("trip load ok=no days=1 stops=0"))
+        #expect(rig.lines.withLock { $0 }.contains("trip load ok=no days=1 stops=0 hidden=no"))
         #expect(files.read("current.json") == nil && files.read("current.bad.json") == Data("{not json".utf8))
         // An unknown version is not read either.
         let v2 = MemoryTripFiles()

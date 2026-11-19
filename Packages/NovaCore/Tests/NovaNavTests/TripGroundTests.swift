@@ -260,7 +260,7 @@ struct TripGroundTests {
         #expect(r.data["status"] == "trip_needs_fix" && issues.contains("新宿附近車站不是酒店"))
     }
 
-    @Test("T-040v F-15b §50 item 3: navigate_to abroad keeps to the trip area only while an abroad trip is open")
+    @Test("T-040y F-15b §51 item 1: navigate_to abroad keeps to the named city's own area (country, 50 km) when it is known")
     func navigateInArea() async {
         func nav(open: Bool) async -> (NavigationController, FakeAreaSearch, TripLines) {
             let search = FakeAreaSearch(areaTable)
@@ -268,8 +268,7 @@ struct TripGroundTests {
             let n = NavigationController(search: TripSearch([:]), engine: ScriptedNaviEngine(routes: [route(1, meters: 1_000, seconds: 60)]),
                                          location: NoLocation(), clock: ManualClock(), onTripLine: { lines.append($0) })
             await n.start()
-            await n.setAbroad(search: search, center: { _ in tokyoCenter }, tripCity: { open ? "Tokyo, Japan" : nil })
-            await n.setTripArea { open ? tokyoArea : nil }
+            await n.setAbroad(search: search, center: { _ in tokyoCenter }, area: { _ in open ? tokyoArea : nil })
             return (n, search, lines)
         }
         let call = ToolCall(id: CallID("n1")!, name: "navigate_to",

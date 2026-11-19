@@ -60,7 +60,7 @@ struct TripPhase4cTests {
         await nav.start()
         await nav.setAbroad(search: FakeApple(["浅草寺 (Senso-ji)": [jp("浅草寺", lat: 35.71)]]), center: { _ in
             GeoCoordinate(latitude: 35.6812, longitude: 139.7671, datum: .gcj02)
-        }, tripCity: { nil })
+        })
         let call = { (args: [String: JSONValue]) in ToolCall(id: CallID("n1")!, name: "navigate_to", arguments: .object(args)) }
         let r = await nav.execute(call(["destination": "浅草寺 (Senso-ji)", "abroad": true, "city": "Tokyo, Japan"]))
         #expect(r.ok)
