@@ -181,6 +181,30 @@ struct TripNavSeparateTests {
         #expect(rig.engine.requests.withLock { $0 }.map(\.abroad) == [true, false])
     }
 
+    @Test("F-15b §51 row 173 (abroad): trip stop guidance, navigate_to 附近的咖啡店 abroad=true city Tokyo ends the trip stop")
+    func row173Abroad() async {
+        let photon = FakeApple(["咖啡店": [jp("Doutor", lat: 35.69), jp("Tully's", lat: 35.685)]])
+        let rig = await SeparateRig(phone: zhuhai, home: AmapSpy(), photon: photon)
+        #expect(await rig.nav.tripNext(jp("浅草寺", lat: 35.71), abroad: true).ok)
+        #expect(await rig.nav.current.tripStopID != nil)
+        _ = await rig.nav.execute(navCall(["destination": "附近的咖啡店", "abroad": true, "city": "Tokyo, Japan"]))
+        #expect(await rig.nav.current.tripStopID == nil)
+        #expect(photon.asked.withLock { $0 } == ["咖啡店"])
+    }
+
+    @Test("F-15b §51 row 165 (tap): cards hidden, 「加入清单」 tap is refused with tripHidden; list unchanged")
+    func row165Tap() async {
+        let rig = await TripRig()
+        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        #expect(await rig.planner.hideCards())
+        let before = await rig.order()
+        let (r, note) = await rig.planner.tap(.add(place("瑞幸", 300)), moving: false)
+        #expect(r.code == .tripHidden && note == nil)
+        #expect(await rig.order() == before)
+        #expect(await rig.planner.cardsHidden)
+        #expect(rig.lines.withLock { $0 }.contains("trip blocked tool=edit_trip_list reason=hidden"))
+    }
+
     @Test("F-15b §51 row 174: during an abroad trip stop guidance, here (weather here, current_location) is the phone's fix, not Tokyo")
     func row174() async {
         let rig = await SeparateRig(phone: zhuhai, home: AmapSpy(), photon: FakeApple([:]))

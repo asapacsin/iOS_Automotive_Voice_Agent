@@ -179,7 +179,7 @@ struct TripPhase4bTests {
         #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=1 ms=") })
     }
 
-    @Test("F-15b §51 item 1: no abroad means the home search; abroad=false keeps 高德")
+    @Test("F-15b §51 item 1: no abroad means the home search (高德); Photon is not asked")
     func noTripDefault() async {
         let photon = FakeApple(["加油站": [jp("ENEOS", lat: 35.70), jp("Shell", lat: 35.69)]])
         let (nav, amap, _, cities) = await navRig(photon: photon, phone: GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .wgs84))

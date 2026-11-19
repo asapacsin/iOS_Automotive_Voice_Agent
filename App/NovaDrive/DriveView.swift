@@ -502,7 +502,8 @@ private struct DriveContent: View {
                         Spacer()
                         if let meters = place.distanceMeters { Text(Self.distance(meters)).font(.caption) }
                         // F-15b §13 item 3: the already-found place joins the trip list, no new lookup.
-                        if !model.tripList.isEmpty && !model.tripMoving {
+                        // F-15b §51 item 2: not offered while the trip cards are hidden.
+                        if !model.tripList.isEmpty && !model.tripMoving && !model.tripCardsHidden {
                             Button("加入清单") { Task { await runtime.tripTap(.add(place)) } }
                                 .font(.caption).buttonStyle(.bordered)
                                 .accessibilityIdentifier("trip-add-\(index)")

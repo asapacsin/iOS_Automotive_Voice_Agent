@@ -227,6 +227,7 @@ public actor NavigationController: ToolExecutor {
     private func navigateAbroad(_ destination: String, city: String?) async -> ToolResult {
         confirm = nil
         routeAbroad = true
+        endTripStop()
         guard let city, let abroadSearch else {
             return .failure(.invalidFields, advice: "abroad=true 时必须填 city：英文城市名加国家，比如 \"Tokyo, Japan\"。请马上重新调用，不要告诉司机。")
         }
@@ -299,15 +300,23 @@ public actor NavigationController: ToolExecutor {
         return listedOverGuidance(top)
     }
 
+    /// F-15b §51 item 7 (T-040y): a plain navigate_to (home or abroad) ends the trip stop guidance (§29); nothing
+    /// after it starts from a trip place (the new route's start is the engine's origin: the phone's fix or the demo point).
+    private func endTripStop() {
+        guard snapshot.tripStopID != nil else { return }
+        snapshot.tripStopID = nil
+        publish()
+    }
+
     private func navigate(_ destination: String) async -> ToolResult {
         confirm = nil
         routeAbroad = false
-        // F-15b §51 item 7 (T-040y): a plain navigate_to ends the trip stop guidance (§29); nothing after it starts
-        // from a trip place (the new route's start is the engine's origin: the phone's fix or the demo point).
-        if snapshot.tripStopID != nil {
-            snapshot.tripStopID = nil
-            publish()
+        // F-16: an unset 家/公司 is refused before anything changes (the trip stop guidance keeps going, I-14).
+        if let saved, let slot = PlaceSlot.slot(for: destination), saved.place(slot) == nil {
+            let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
+            return .failure(code, advice: ToolFailureAdvice.forCode(code))
         }
+        endTripStop()
         // F-05a §6 (replaces the P61 word guard): while guiding, a new place is listed over the running route;
         // the route changes only when the driver picks one.
         if snapshot.navigating {

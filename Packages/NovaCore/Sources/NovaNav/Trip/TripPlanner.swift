@@ -317,7 +317,7 @@ public actor TripPlanner: ToolExecutor {
     }
 
     /// §51 item 2: the `next` of a trip command refused while the cards are hidden.
-    public static let tripHiddenNext = "行程收起来了。只说一句：要用行程请说「打开行程」。"
+    public static let tripHiddenNext = ToolFailureAdvice.forCode(.tripHidden) ?? ""
 
     /// §51 item 2: `trip_next`, `revise_trip_list`, and `edit_trip_list` with any action but `read`.
     static func blockedWhileHidden(_ call: ToolCall) -> Bool {
@@ -2380,7 +2380,13 @@ public actor TripPlanner: ToolExecutor {
                 result = await execute(ToolCall(id: CallID("ui-trip")!, name: "trip_plans",
                                                 arguments: ["action": "delete", "name": .string(name)]))
             case .add(let place):
-                result = add(place)
+                // §51 item 2: an add while the cards are hidden is refused as edit_trip_list add is.
+                if cardsHidden {
+                    onLine("trip blocked tool=edit_trip_list reason=hidden")
+                    result = .failure(.tripHidden, advice: Self.tripHiddenNext)
+                } else {
+                    result = add(place)
+                }
             }
         }
         onLine("trip tap action=\(tap.action) ok=\(result.ok ? "yes" : "no")")
