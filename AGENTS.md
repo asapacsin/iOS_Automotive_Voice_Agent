@@ -1,6 +1,8 @@
 # NovaDriveIOS
 - Specs live in specs/. Before a task, read specs/features/<feature>.md and only the contracts it
   lists. Do not read other features unless the task names them. Tasks: specs/implementation-plan.md.
+- Read only the section a task names: `scripts/spec_section.py <feature>` lists sections with line ranges,
+  `scripts/spec_section.py <feature> <§>` prints one (trip-plan.md is ~160 KB; §51 alone is ~19 KB).
 - Never open the Android repository unless the feature file says "allowed Android lookup" for a
   specific symbol; request it with an EVIDENCE_REQUEST (specs/ai-agent-workflow.md) instead of browsing.
 - Pure logic goes in Packages/NovaCore (no UIKit/AVFoundation). Vendor SDKs only in their adapter
