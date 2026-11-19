@@ -2056,13 +2056,13 @@
     {
       "id": "T-031i",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "NOT_APPLICABLE",
       "priority": 3,
       "action": "F-12 §20 items 1-4: sleepy driver gets no action and no reply (model rule 5, table base, run_scenario drowsy empty, ten eval cases silent); rows 1-3 unit, row 4 device",
       "depends_on": [
         "T-031h"
       ],
-      "notes": "Owner 2026-11-10: \"why tired would open the air conditioner and wind, this is not making any sense\" and \"probably i prefer don't response at all\"."
+      "notes": "Owner 2026-11-10: \"why tired would open the air conditioner and wind, this is not making any sense\" and \"probably i prefer don't response at all\". Superseded 2026-11-19 by F-09b §12 (T-031k): the sleepy driver now gets a rest suggestion, not silence."
     },
     {
       "id": "T-017a",
@@ -2985,7 +2985,7 @@
     {
       "id": "T-040v",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "NOT_RUN",
       "priority": 1,
       "action": "F-15b §50 items 1-5, 7-8 (Qwen web-search grounding for abroad trips; hotel_near; Photon bbox + country + 50 km + picker; hotel-only check; far check and local replacement; one spoken line first; logs; item 9 QwenRoute with ground = qwen3.7-plus, agent search, forced_search, 30 s, search-ran and JSON checks; row 160 PC check first); rows 140-148, 151-152, 154-155, 160.",
       "depends_on": [
@@ -2997,7 +2997,7 @@
     {
       "id": "T-040w",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "NOT_RUN",
       "priority": 1,
       "action": "F-15b §50 item 6 (WorkProgress in NovaKit; trip steps and query_live_info steps shown after 1 s in DriveView; failure lines; cleared by the cards or the answer); rows 149-150, 153.",
       "depends_on": [
@@ -3009,7 +3009,7 @@
     {
       "id": "T-040x",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "NOT_RUN",
       "priority": 2,
       "action": "F-15b §50 item 10 (backup Qwen model per route on 429 or quota 403 before any answer; one switch; remaining time only; 60 s skip after 429, skip until restart after quota; log line); rows 156-159.",
       "depends_on": [
@@ -3045,7 +3045,7 @@
     {
       "id": "T-031k",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "NOT_RUN",
       "priority": 1,
       "action": "F-09b §12 items 1-6 (rule 5 sleepy sentence -> one-sentence rest suggestion + navigate_to 附近的咖啡店/服务区, no car change; ten sleepy comfort cases expect navigate_to and are no longer silent; maxBaseCharacters fit); F-09b §12 rows 1-7.",
       "depends_on": [
