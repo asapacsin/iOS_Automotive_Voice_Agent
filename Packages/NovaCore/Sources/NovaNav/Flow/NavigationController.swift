@@ -227,7 +227,7 @@ public actor NavigationController: ToolExecutor {
     /// `nav near kind= vendor= source= found= dropped= reason=`.
     private func navigateNear(_ destination: String, near raw: JSONValue, _ args: JSONValue) async -> ToolResult {
         guard let kind = raw.stringValue.flatMap(NearKind.init(rawValue:)) else {
-            return .failure(.invalidFields, advice: Self.nearInvalidAdvice)
+            return Self.nearInvalid(["near": raw])
         }
         let name = args["near_name"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
         let country = args["near_country"]?.stringValue?.trimmingCharacters(in: .whitespaces).uppercased().nonEmpty
@@ -235,7 +235,7 @@ public actor NavigationController: ToolExecutor {
         case .here: return await nearHere(destination)
         case .route:
             guard snapshot.navigating else {
-                return .failure(.invalidFields, advice: "near=route 只在导航中可用；现在没有在导航，请马上用 near=here 或 place 重新调用，不要告诉司机。")
+                return Self.nearInvalid(["near": "route", "navigating": false], may: [.offerNearby])
             }
             let r = await listOverGuidance(destination)
             let found = Self.found(r)
@@ -243,7 +243,8 @@ public actor NavigationController: ToolExecutor {
             return Self.withFacts(r, ["searched_around": "路线沿途", "vendor": "amap", "found": .int(Int64(found))])
         case .place:
             guard let name, let country else {
-                return .failure(.invalidFields, advice: "near=place 时必须填 near_name（地点，知道城市时加城市）和 near_country（ISO 国家代码，比如 JP、CN）。请马上重新调用，不要告诉司机。")
+                return Self.nearInvalid(["near": "place", "missing": .array((name == nil ? ["near_name"] : [])
+                                                                             + (country == nil ? ["near_country"] : []))])
             }
             return await nearPlace(destination, name: name, country: country)
         case .trip:
@@ -251,7 +252,12 @@ public actor NavigationController: ToolExecutor {
         }
     }
 
-    static let nearInvalidAdvice = "near 必须填 here、place、trip 或 route。请马上重新调用，不要告诉司机。"
+    /// F-09b §13: a refused `near` as facts (what was wrong, the allowed values) and rules; no sentence. Nothing searched.
+    static func nearInvalid(_ facts: [String: JSONValue], may: [ReplyMay] = []) -> ToolResult {
+        var facts = facts
+        facts["near_allowed"] = .array(NearKind.allCases.map { .string($0.rawValue) })
+        return ToolReply.notDone(.invalidFields, facts: facts, may: may, mustNot: [.invent]).result
+    }
 
     /// Whether a centre is abroad: by its country when known (HK/MO/TW are 高德's, `TripRegion.isChina`); only
     /// without a country by the China box (`CoordinateConverter.outOfChina`), which also holds Seoul or Osaka's edges.
@@ -309,6 +315,18 @@ public actor NavigationController: ToolExecutor {
     /// (`countryMismatch`), nothing searched. A failed geocode gives its cause, never not_found.
     private func nearPlace(_ destination: String, name: String, country: String) async -> ToolResult {
         let home = TripRegion.isChina(country)
+        // The request owns the flow before the geocode (as the old navigateAbroad): a newer navigate_to or a cancel
+        // during the geocode wins, and this one returns optionsStale with no search and no route.
+        let guiding = snapshot.navigating
+        let generation: Generation
+        if guiding {
+            generation = snapshot.generation
+        } else {
+            generation = advance(to: .resolvingDestination)
+            publish()
+        }
+        func current() -> Bool { generation == snapshot.generation && snapshot.navigating == guiding }
+        func endRefused() { if !guiding, current() { reset(); publish() } }
         var center: GeoCoordinate?
         var found: String?
         if home {
@@ -319,6 +337,8 @@ public actor NavigationController: ToolExecutor {
                     center = try await search.text(name, city: nil).first?.coordinate
                 }
             } catch {
+                guard current() else { return .failure(.optionsStale) }
+                endRefused()
                 let cause = LookupReply.cause(of: error)
                 nearLine(.place, vendor: "none", source: "geocode", found: 0, dropped: 0, reason: "failed")
                 return LookupReply.failed(LookupReply.code(for: cause), what: "place", cause: cause,
@@ -333,11 +353,14 @@ public actor NavigationController: ToolExecutor {
             // No country from a bare centre (Apple's fallback): never guessed from the box.
             center = c
         }
+        guard current() else { return .failure(.optionsStale) }
         guard let center else {
+            endRefused()
             nearLine(.place, vendor: "none", source: "geocode", found: 0, dropped: 0, reason: "not_found")
             return LookupReply.notFound(.notFound, what: name, facts: ["near_name": .string(name)], may: [.askPlace])
         }
         if let found, found != country {
+            endRefused()
             nearLine(.place, vendor: "none", source: "geocode", found: 0, dropped: 0, reason: "country_mismatch")
             return ToolReply.failure(.countryMismatch,
                                      facts: ["near_name": .string(name), "near_country": .string(country),
@@ -366,7 +389,7 @@ public actor NavigationController: ToolExecutor {
         if trip.hidden {
             onTripLine("trip blocked tool=navigate_to reason=hidden")
             nearLine(.trip, vendor: "none", source: "trip", found: 0, dropped: 0, reason: "trip_hidden")
-            return .failure(.tripHidden, advice: ToolFailureAdvice.forCode(.tripHidden))
+            return TripPlanner.tripHiddenResult
         }
         let matches = trip.match(name)
         guard matches.count == 1, let stop = matches.first else {
@@ -473,7 +496,7 @@ public actor NavigationController: ToolExecutor {
         confirm = nil
         routeAbroad = true
         endTripStop()
-        guard let abroadSearch else { return (.failure(.invalidFields, advice: Self.nearInvalidAdvice), 0, 0) }
+        guard let abroadSearch else { return (Self.nearInvalid([:]), 0, 0) }
         let started = clock.now
         // F-05a §6: while guiding, the places are listed over the running route (as `listOverGuidance`).
         let guiding = snapshot.navigating
@@ -548,7 +571,7 @@ public actor NavigationController: ToolExecutor {
         // F-16: an unset 家/公司 is refused before anything changes (the trip stop guidance keeps going, I-14).
         if let saved, let slot = PlaceSlot.slot(for: destination), saved.place(slot) == nil {
             let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
-            return ToolFailureAdvice.reply(code)
+            return ToolFailureAdvice.reply(code, facts: ["slot": .string(slot.rawValue)])
         }
         endTripStop()
         // F-05a §6 (replaces the P61 word guard): while guiding, a new place is listed over the running route;
@@ -567,7 +590,7 @@ public actor NavigationController: ToolExecutor {
         if let saved, let slot = PlaceSlot.slot(for: destination) {
             guard let place = saved.place(slot) else {
                 let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
-                return ToolFailureAdvice.reply(code)
+                return ToolFailureAdvice.reply(code, facts: ["slot": .string(slot.rawValue)])
             }
             snapshot.routes = []
             snapshot.info = nil
@@ -844,7 +867,7 @@ public actor NavigationController: ToolExecutor {
         if let saved, let slot = PlaceSlot.slot(for: destination) {
             guard let place = saved.place(slot) else {
                 let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
-                return ToolFailureAdvice.reply(code)
+                return ToolFailureAdvice.reply(code, facts: ["slot": .string(slot.rawValue)])
             }
             top = [place]
         } else {
@@ -1298,7 +1321,7 @@ public actor NavigationController: ToolExecutor {
         guard let category, let keywords = Self.categories[category] else {
             return ToolReply.failure(.invalidArgument,
                                      facts: ["allowed": .array(["加油站", "充电站", "服务区", "厕所"])],
-                                     may: [.askWhat], mustNot: [.invent]).result
+                                     may: [.askPick, .askWhat], mustNot: [.invent]).result
         }
         let line = snapshot.routes.first?.polyline ?? []
         let polygon = AlongRouteCorridor.polygon(line)
@@ -1340,6 +1363,11 @@ public actor NavigationController: ToolExecutor {
         switch target {
         case .string("destination"):
             guard let destination = snapshot.destination else {
+                // F-09b §13 item 4 (T-031m): places on screen to choose from; she may ask which one.
+                if !snapshot.places.isEmpty {
+                    return ToolReply.choosing(.noDestination, onScreen: snapshot.places.count,
+                                              names: snapshot.places.map(\.name), facts: ["destination": .null]).result
+                }
                 return ToolReply.notDone(.noDestination, facts: ["destination": .null],
                                          may: [.askDestination], mustNot: [.invent]).result
             }

@@ -14,8 +14,8 @@ PHRASES = ["只说一句：", "只说这一句", "请如实说：", "请用户�
 ALLOW: list[tuple[str, str]] = [
     # Item 7: the tone confirmation (F-21 §17 item 3, T-034d) stays fixed; it must not promise a different voice.
     ("Packages/NovaCore/Sources/NovaAgent/Persona/SpeakingStyle.swift", 'let reply = "只说这一句：" + style.confirmation'),
-    # The catalog's working line (F-15b §50 item 5) is a tool description, not a tool result; its wording is
-    # F-15b's, so it is kept until that spec changes it (T-031n, recorded in STATUS).
+    # The catalog's working line follows F-15b §50 item 5. It is an owner-facing deviation from F-09b §13 item 8
+    # (not in the item 7 allow-list), to be recorded in STATUS (T-031n).
     ("Packages/NovaCore/Sources/NovaTools/Dispatch/ToolCatalog.swift", "public static let tripWorkingLine = "),
 ]
 

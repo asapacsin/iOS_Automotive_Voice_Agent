@@ -767,7 +767,7 @@ public enum ToolFailureAdvice {
         .nothingToUndo: Rules([], [.claimDone]),
         // F-15b §5 (T-040i).
         .noTripList: Rules([], [.claimDone]),
-        .tripTooLong: Rules([], [.claimDone]),
+        .tripTooLong: Rules([], [.claimDone, .invent]),
         .tripTooShort: Rules([.offerDirect], notDone),
         .notFound: Rules([], [.claimDone, .invent]),
         // F-15b §13 item 1 (T-040j).
@@ -775,12 +775,12 @@ public enum ToolFailureAdvice {
         // F-15b §16 (T-040l).
         .planNotFound: Rules([], [.claimDone, .invent]),
         .tripWhileNavigating: Rules([.sayEndFirst], notDone),
-        .plansFull: Rules([.offerDelete], [.claimDone]),
+        .plansFull: Rules([.offerDelete], [.claimDone, .invent]),
         // F-15b §26–§29 (T-040n).
         .routeTimesUnavailable: Rules([.tryLater], [.claimDone]),
         .noStart: Rules([.askStart], [.claimDone]),
         .planChanged: Rules([], [.claimDone]),
-        .dayDone: Rules([.askNextDay], [.claimStarted]),
+        .dayDone: Rules([.askNextDay], [.claimStarted, .invent]),
         // F-15b §49 item 7 (T-040u).
         .noRevision: Rules([.offerMake], [.claimDone]),
         .styleNotAllowed: Rules([.nameStyles], [.claimDone]),

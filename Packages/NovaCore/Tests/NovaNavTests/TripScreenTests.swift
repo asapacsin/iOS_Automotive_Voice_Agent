@@ -152,7 +152,10 @@ struct TripScreenTests {
         let rig = await PhotoRig(PhotoSearch(table))
         await rig.make((1...16).map { "景点\($0)" })
         let place = spot("天津之眼", lat: 39.16, lng: 117.2)
-        #expect(await rig.planner.tap(.add(place), moving: false).result.code == .tripTooLong)
+        let long = await rig.planner.tap(.add(place), moving: false).result
+        #expect(long.code == .tripTooLong)
+        // F-09b §13 row 7 (T-031o): the limit is a fact.
+        #expect(long.data["facts"] == .object(["max_stops": .int(16)]))
         _ = await rig.planner.execute(trip("edit_trip_list", ["action": "remove", "index": 16]))
         let lookups = rig.search.texts.withLock { $0 }
         let added = await rig.planner.tap(.add(place), moving: false)

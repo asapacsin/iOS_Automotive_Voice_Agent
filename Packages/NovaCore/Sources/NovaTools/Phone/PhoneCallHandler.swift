@@ -56,12 +56,14 @@ public actor PhoneCallHandler: ToolExecutor {
             return .success([
                 "status": "confirm_required",
                 "contact": .string(found[0].displayName),
+                "facts": ["contact": .string(found[0].displayName)],
                 "next": .string(ToolFailureAdvice.confirmCallNext),
             ])
         default:
             return .success([
                 "status": "ambiguous",
                 "candidates": .array(found.prefix(5).map { .string($0.displayName) }),
+                "facts": ["candidates": .array(found.prefix(5).map { .string($0.displayName) })],
                 "next": .string(ToolFailureAdvice.chooseContactNext),
             ])
         }

@@ -226,7 +226,8 @@ struct TripPhase4Tests {
         let (rig, service) = await timesRig(here: GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .gcj02), abroad: FakeApple(tokyo))
         let r = await rig.run(trip("make_trip_list", ["places": names(["东京塔", "浅草寺", "皇居"]), "abroad": true]))
         #expect(r.ok && r.data["order"] == "NO_START")
-        #expect((r.data["next"]?.stringValue ?? "").contains("从哪里出发？机场还是酒店？"))
+        // F-09b §13 item 5 (T-031n): asking where it starts is a `may`, not a quoted question.
+        #expect(r.data["may"] == .array([.string("ask_start")]))
         #expect(service.requests.withLock { $0 } == 0)
         #expect(await rig.order() == ["东京塔", "浅草寺", "皇居"])
     }
@@ -265,7 +266,11 @@ struct TripPhase4Tests {
         let after = await rig.planner.currentPlan.days
         #expect(after[0].stops.allSatisfy { $0.mark == .visited })
         #expect(after[1].stops.first?.place.id == hotel && after[1].stops.first?.mark == .visited)
-        #expect(await rig.run(trip("trip_next", ["day": 1])).code == .dayDone)
+        let done = await rig.run(trip("trip_next", ["day": 1]))
+        #expect(done.code == .dayDone)
+        // F-09b §13 row 7 (T-031o): day 1 of 2 is done; the next day may be offered.
+        #expect(done.advice == nil && done.data["facts"] == .object(["day": .int(1), "day_count": .int(2)]))
+        #expect(done.data["may"] == .array([.string("ask_next_day")]))
     }
 
     @Test("F-15b §38 item 2: abroad, 高德's route fails: Apple Maps opens, trip handoff line")

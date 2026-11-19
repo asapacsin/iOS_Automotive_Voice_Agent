@@ -130,7 +130,7 @@ public enum ReplyMustNot: String, Sendable, Hashable, CaseIterable {
         switch self {
         case .claimStarted: "不要说已经开始"
         case .claimDone: "不要说已经做好"
-        case .invent: "不要说 facts 里没有的地点、数字或时间"
+        case .invent: "不要说 facts 里没有的人、地点、数字或时间"
         // Item 8's phrase is kept out of the gloss: the gate scans this file and `next` must not contain it.
         case .askRephrase: "不要让司机重新措辞再说"
         case .readList: "不要念屏幕上的列表"
@@ -200,7 +200,8 @@ public struct ToolReply: Sendable, Hashable {
 
     /// 「用自己的话简短地说。可以：…。不要：…。」
     public var next: String {
-        var text = "用自己的话简短地说。"
+        // F-09b §13 item 6 (T-031o): a turn she must not answer gets no prefix asking her to say it.
+        var text = mustNot.contains(.speak) ? "" : "用自己的话简短地说。"
         if !may.isEmpty { text += "可以：" + may.map(\.gloss).joined(separator: "；") + "。" }
         if !mustNot.isEmpty { text += "不要：" + mustNot.map(\.gloss).joined(separator: "；") + "。" }
         return text

@@ -69,6 +69,26 @@ struct ToolReplyStage2Tests {
         expectChoosing(noTarget, "details target", onScreen: 3)
     }
 
+    @Test("F-09b §13 row 5: place_details target=destination with no destination and places on screen is a choice")
+    func detailsNoDestination() async {
+        let nav = await listed()
+        let r = await nav.placeDetails(target: .string("destination"))
+        #expect(r.code == .noDestination && r.data["facts"]?["destination"] == .null)
+        expectChoosing(r, "no destination", onScreen: 3, names: ["珠海站", "珠海北站", "珠海站公交站"])
+    }
+
+    @Test("F-09b §13 row 5: an along-route category not allowed: the 4 categories as facts and ask_pick")
+    func alongRouteCategory() async {
+        let nav = await listed()
+        _ = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        _ = await nav.execute(tool("choose_navigation_option", ["index": .int(1)]))
+        #expect(await nav.current.navigating)
+        let r = await nav.alongRoute(category: "咖啡")
+        #expect(r.code == .invalidArgument)
+        #expect(r.data["facts"]?["allowed"] == .array(["加油站", "充电站", "服务区", "厕所"].map(JSONValue.string)))
+        #expect(replyValues(r.data["may"]).contains("ask_pick"))
+    }
+
     @Test("F-09b §13 row 5: not-done results carry claim_started and claim_done")
     func notDoneResults() async {
         let idle = NavigationController(search: FixedSearch(places: []), engine: ScriptedNaviEngine(routes: []),

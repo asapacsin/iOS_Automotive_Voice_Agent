@@ -179,7 +179,11 @@ struct TripPlanTests {
         #expect(await rig.run("trip_plans", ["action": "save", "name": "空"]).code == .noTripList)
         _ = await rig.run("make_trip_list", ["places": names(["古文化街"])])
         for i in 1...20 { _ = await rig.run("trip_plans", ["action": "save", "name": .string("行程\(i)")]) }
-        #expect(await rig.run("trip_plans", ["action": "save", "name": "第二十一个"]).code == .plansFull)
+        let full = await rig.run("trip_plans", ["action": "save", "name": "第二十一个"])
+        #expect(full.code == .plansFull)
+        // F-09b §13 row 7 (T-031o): the limit is a fact.
+        #expect(full.data["facts"] == .object(["max_plans": .int(20)]))
+        #expect(full.data["must_not"] == .array([.string("claim_done"), .string("invent")]))
         #expect(await rig.run("trip_plans", ["action": "save", "name": "行程3"]).ok)
         #expect(await rig.run("trip_plans", ["action": "open", "name": "行程1"]).ok)
         _ = await rig.run("trip_plans", ["action": "delete", "name": "行程10"])
