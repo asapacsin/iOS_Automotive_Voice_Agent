@@ -141,6 +141,9 @@ public actor TripPlanner: ToolExecutor {
     /// Tests only (row 69): changes an ordering before the place check.
     private var tamper: (@Sendable ([TripList]) -> [TripList])?
     func setTamper(_ tamper: @escaping @Sendable ([TripList]) -> [TripList]) { self.tamper = tamper }
+    /// §50 item 6 (T-040w): the steps shown while a trip is made or revised; nil shows none.
+    private var work: WorkProgressBoard?
+    public func setWork(_ board: WorkProgressBoard?) { work = board }
     /// §15: the current plan; `list` is its current day.
     private var plan = TripPlan()
     /// §4 item 7: places already found this launch, by city and asked name (高德 quota and per-second limits:
@@ -315,8 +318,13 @@ public actor TripPlanner: ToolExecutor {
         nextChange += 1
         let task = Task { await self.run(call) }
         changes[id] = (make, task)
+        // §50 item 6: a make opens the steps; a revise round continues them.
+        let steps = call.name == "make_trip_list" || call.name == "revise_trip_list"
+        if steps { call.name == "make_trip_list" ? work?.start(.trip) : work?.continueTrip() }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         changes[id] = nil
+        // The cards replace the steps; a `trip_needs_fix` round keeps them for the revise; a failure keeps its line.
+        if steps, result.data["status"]?.stringValue != "trip_needs_fix" { result.ok ? work?.clear(.trip) : work?.end() }
         return result
     }
 
@@ -456,6 +464,7 @@ public actor TripPlanner: ToolExecutor {
                                                 TripGroundPlace(name: $0.name, minutes: $0.minutes, importance: $0.importance)
                                             },
                                             wishes: wishes, start: startName, end: endName, hotelNear: hotelNear)
+            work?.step(WorkProgress.tripFind)
             if let grounded = await ground(request, with: grounder) {
                 let items = grounded.places.map {
                     PlaceItem(name: TranscriptText.normalize(TripGround.written($0)), minutes: $0.minutes.map(TripStop.clampMinutes),
@@ -812,6 +821,7 @@ public actor TripPlanner: ToolExecutor {
             return result
         }
         // §49 item 8: with no request waiting, the call opens one of its own.
+        work?.step(WorkProgress.tripRevise)
         var request = fix ?? FixRequest()
         guard plan.budgetMinutes != nil, plan.allStops.contains(where: { $0.stop.role == .sight }) else {
             return log(failure(.noRevision), round: request.round)
@@ -1261,6 +1271,7 @@ public actor TripPlanner: ToolExecutor {
         // §42: `trip times vendor=<amap|osrm|estimate> pairs= ms=` after each table.
         func timeTable(_ start: TripTimes.Node?, _ list: [TripTimes.Node]) async -> TripTimes.Table? {
             let asked = clock.now
+            work?.step(WorkProgress.tripTimes)
             var got = await tableTimes?.table(start: start, stops: list)
             if got == nil, abroad { got = TripTimes.estimate(start: start, stops: list) }
             let vendor = got?.estimated == true ? "estimate" : abroad && abroadTimes != nil ? "osrm" : "amap"
@@ -1832,6 +1843,7 @@ public actor TripPlanner: ToolExecutor {
     /// trip becomes `abroad` and every name is searched again there. `trip search …` after the lookups.
     private func resolveTrip(_ names: [String], city: String?, abroad asked: Bool) async -> (lookups: [Lookup], abroad: Bool) {
         let started = clock.now
+        work?.step(WorkProgress.tripCheck)
         var abroad = asked && abroadSearch != nil
         var switched = false
         var lookups: [Lookup]
@@ -1869,6 +1881,7 @@ public actor TripPlanner: ToolExecutor {
         }
         // §50 item 7: with an area, the dropped results are `area_dropped`, and `picker=` names went to the picker.
         let areaPart = area == nil ? "" : " area_dropped=\(dropped) picker=\(pickerNames)"
+        if area != nil, dropped > 0 { work?.fail(WorkProgress.outOfArea(dropped)) }
         onLine("trip search vendor=\(abroad ? "apple" : "amap") abroad=\(abroad ? "yes" : "no") switched=\(switched ? "yes" : "no") names=\(names.count) found=\(found(lookups)) country_dropped=\(area == nil ? dropped : 0) ms=\(ms(since: started)) center=\(center == nil ? "no" : "yes")\(areaPart)")
         return (lookups, abroad)
     }
