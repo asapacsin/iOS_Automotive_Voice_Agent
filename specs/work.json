@@ -3108,6 +3108,24 @@
         "unit row 7: FlexibleAssistantTests row 7; row 11 suites renamed mechanically",
         "NOT_VERIFIED: App build (Codemagic); row 11 device"
       ]
+    },
+    {
+      "id": "T-040y",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-15b §51: navigate_to ignores the trip (附近 = the phone; abroad only when the model passes it with a city); trip_next/route_trip/revise_trip_list/edit_trip_list (not read) blocked while the cards are hidden; a restored trip starts hidden; NO_CANDIDATES gets a plain next with no 换个说法; rows 161-172.",
+      "depends_on": [
+        "T-040x"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 161-172)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner 2026-11-19 (records 20261119-135653, -135801: 附近的咖啡店 searched in Tokyo from Zhuhai). Owner's design: plain navigation separate from the trip; trip commands only while the trip is shown. Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §51."
     }
   ]
 }

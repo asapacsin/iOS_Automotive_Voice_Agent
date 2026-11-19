@@ -501,7 +501,8 @@ the screen" (2026-11-16).
 ## 14. The trip saved on the phone (T-040l)
 
 1. **Current plan.** The current plan (§15: its name, days and stops) is written to
-   `Application Support/trip/current.json` after every change, with an atomic write, and read at launch. It replaces
+   `Application Support/trip/current.json` after every change, with an atomic write, and read at launch (with the cards
+   hidden, §51 item 3). It replaces
    phase 1's "an app restart empties it" (§3 item 2).
 2. **What is kept per stop:** asked name, `Place` id, name, address, district, coordinate (GCJ-02), `photoURL`.
    Not kept: generations, passed stops, the kept route. A restored plan is recalculated by `route_trip`.
@@ -761,7 +762,7 @@ cards, day tabs, 「串成路线」 and pins stayed: nothing could hide them exc
    | Nothing open, cards already hidden, or no plan | Nothing changes. | `no_navigation_active` |
 
    `next` for `trip_cards_hidden`: 「只说一句：行程卡片先收起来了，行程还在，说「打开行程」就再拿出来。」
-3. **Shown again by:**
+3. **Shown again by:** *(replaced by §51 items 2–3)*
    - a tap on 「行程」 (the §13 day tap of the current day: `edit_trip_list action=read`);
    - any trip tool call: `make_trip_list`, `edit_trip_list` (read included), `route_trip`, `trip_plans open`;
    - an app restart (hidden is not saved).
@@ -1048,7 +1049,7 @@ spec and push to remote".
    (`CoordinateConverter.outOfChina`) and the destination says 附近/最近, else around the city's centre; `city`
    missing → `invalidFields`, as 2a. No 高德 request. Results go to the existing candidate list (F-16); a found
    destination opens guidance as §38 (Apple Maps when 高德 guidance fails). An `abroad` trip in progress makes
-   `abroad` default to `true` with the trip's city.
+   `abroad` default to `true` with the trip's city. *(Replaced by §51 item 1: `navigate_to` ignores the trip.)*
 3. **Wrong-country guard.** In an `abroad` trip, an Apple result whose `isoCountryCode` is CN, HK, MO or TW is
    dropped (`reason=country`). Several results for a name go to the picker as §4 item 6.
 4. **Wrong-flag backstop.** `abroad=false` and 高德 finds fewer than half of the names: those names are searched on
@@ -1585,7 +1586,7 @@ practice.
    - A result is kept only when its `countryCode` equals the trip's country and it is within 50 km of the centre (`TripTuning.areaKm`). Others are dropped (`area_dropped=<n>`).
    - Two or more kept results go to the §4 item 6 picker (Qwen), as at home. One is taken as it is. None is `not_found`.
    - The name shown is the found place's name when it differs from the asked name, with the asked name in brackets only if they share no character. A made-up description is never shown as if it were a real place.
-   - `navigate_to` abroad (§36 item 2d) uses the same box only while an abroad trip is open. Plain navigation searches are unchanged.
+   - `navigate_to` abroad (§36 item 2d) uses the same box only while an abroad trip is open. Plain navigation searches are unchanged. *(Replaced by §51 item 1: the named city's own area, never the trip's.)*
 4. **One bad place stays local.**
    - **New check `far`, after every fit (§49 item 4).** A place with no OSRM time to the day's other places, or whose time came from the straight-line estimate and is over 4 hours (`TripTuning.unreachableSeconds`), fails `far`: 「<名字>开车到不了或者太远，换一个<城市>附近的」. It is not used in that fit; the other places are fitted without it.
    - **A hotel that fails `far` or the item 2 hotel-only check** is replaced for the fit by the §37 item 4 search around that day's last place. The issue still goes to the model.
@@ -1688,3 +1689,99 @@ practice.
 | T-040v | §50 items 1–5, 7–9; rows 140–148, 151–152, 154–155, 160 | NOT_RUN |
 | T-040w | §50 item 6 (trip and search steps); rows 149–150, 153 | NOT_RUN |
 | T-040x | §50 item 10 (backup model on 429 or used-up quota, all three routes); rows 156–159 | NOT_RUN |
+
+## 51. Plain navigation is separate from the trip; trip commands only while the trip is shown (owner request 2026-11-19)
+
+**Why (owner, ipa 31be31a, 2026-11-19, phone records 20261119-135653 and 20261119-135801).** In Zhuhai, with a Tokyo
+test trip from the day before still saved:
+- 「有点困了」「我想喝点咖啡」「肚子饿了，想吃点火锅」 all became `navigate_to 附近的…` and were searched in Tokyo
+  (`nav search vendor=photon abroad=yes found=0`). 「附近的休息站」 listed rest spots in Kawaguchi and Zama, near Tokyo.
+- Each time nothing was found, she asked the driver to 「换个说法」. The wording was fine; the search was in the wrong
+  country.
+- 「把卡片先收起来吧」 hid the cards, but the trip stayed open, so the next search went to Tokyo again.
+
+**Causes, from the code at 31be31a.**
+1. §36 item 2d: 「An `abroad` trip in progress makes `abroad` default to `true` with the trip's city」
+   (`NavigationController.abroadAsked`). A saved trip is taken to mean the driver is there.
+2. §36 item 2d searches around the phone only when the phone is outside China; otherwise around the trip city's centre.
+3. §50 item 3 keeps `navigate_to` inside the open trip's box.
+4. A trip has no end: `restore()` brings it back at every launch, shown (§14 item 1), until it is cleared.
+5. `navigate_to`'s `NO_CANDIDATES` result has no `next`, so the model makes up a reply (「换个说法」).
+
+**Published practice this copies (checked 2026-11-19).**
+- **"Near me" is the device's real location.** Map search uses the user's real location for "near me"; another area is
+  searched only when the user names it or pans the map there
+  ([SerpApi Google Maps](https://serpapi.com/google-maps-api), [Mangools](https://mangools.com/blog/how-to-change-location-on-google/),
+  [AEANET](https://www.aeanet.org/how-do-you-search-nearby-on-google-maps/)). Gemini's Maps grounding is told to pass the
+  user's own coordinates when known ([Gemini API](https://ai.google.dev/gemini-api/docs/maps-grounding)).
+- **A named place wins.** 「restaurants near Grand Central」 searches there, wherever the phone is (same sources).
+- **Context shown on screen is what the search acts on.** Google Maps' "Search this area" acts on the area the user is
+  looking at; nothing hidden changes it (AEANET).
+- **No dead end on an empty result.** Plan the error path and repair the conversation instead of failing
+  ([Dialogflow voice agent design](https://docs.cloud.google.com/dialogflow/cx/docs/concept/voice-agent-design)).
+
+**Rule in plain words (owner, 2026-11-19).**
+- Plain navigation never looks at the trip. 「附近」 is where the phone is; a named place is that place.
+- Trip commands use the trip's own stops, and work only while the trip is on screen.
+- A trip saved from before comes back hidden; 「打开行程」 shows it.
+- When nothing is found, she says so plainly and offers the next step. She never asks the driver to reword it.
+
+1. **`navigate_to` ignores the trip (replaces §36 item 2d's last sentence and §50 item 3's last bullet).**
+   - `abroad` is only what the model passes. No `abroad` means the home search (高德), whatever trip is saved or shown.
+     `NavigationController` loses `abroadTripCity` and `abroadTripArea` (`setTripArea`); `TripPlanner.abroadCity` and
+     `openTripArea()` stay for the planner's own use only.
+   - `abroad=true` needs `city`, as §36 item 2a (`invalidFields` without it). The search is around that city's centre
+     (`center(_:)`), kept to its country and 50 km as §50 item 3 does for trips, using the named city's own area.
+   - **附近/最近 with `abroad=true`:** around the phone when it is outside China; when the phone is in China, the city's
+     centre (the driver named a place abroad, for example 「东京附近的便利店」).
+   - **附近/最近 without `abroad`:** always the home search around the phone, as F-16 (高德), also with a trip shown.
+   - The catalog text of §36 item 2d stays (「目的地在中国以外…时填 abroad=true…」) and gains one sentence:
+     「司机说「附近」「最近」又没有说国外的城市时，不要填 abroad。」
+2. **Trip commands only while the trip is shown (replaces §22 item 3).**
+   - **Blocked while the cards are hidden:** `trip_next`, `route_trip`, `revise_trip_list`, and `edit_trip_list` with
+     any action but `read`. Each does nothing and returns `.failure(.tripHidden)` with `next`
+     「行程收起来了。只说一句：要用行程请说「打开行程」。」 Log `trip blocked tool=<name> reason=hidden`.
+   - **Shows the cards (「打开行程」):** a tap on 「行程」 (§13), `edit_trip_list action=read`, `trip_plans open`, and
+     `make_trip_list` (a new trip). No lookups; a shown trip then works as today.
+   - **Works and leaves the cards as they are:** `trip_plans` `list`, `save`, `delete`, `rename`.
+   - Catalog text of `edit_trip_list` gains: 「司机说「打开行程」「看看行程」时用 action=read。」
+3. **A restored trip starts hidden (changes §14 item 1).** `restore()` loads the plan and sets the cards hidden
+   (`trip cards hidden=yes`, `trip load … hidden=yes`). This replaces §22 item 3's 「an app restart (hidden is not saved)」. Nothing is deleted; the plan and saved plans are as today.
+4. **Nothing found: a plain line, no 「换个说法」.** `navigate_to`'s `NO_CANDIDATES` (home and abroad) gets a `next`:
+   「附近没找到<目的地>。只说一句没找到，不要让司机换个说法；可以问要不要找远一点的，或者换成相近的地方（比如服务区、休息区）。」
+   The F-16 far-result line (「附近没找到…，最近的在…公里外」) is unchanged and comes first when 高德 has one.
+5. **Logs.** §36's `nav search` line is unchanged (`abroad=yes` now only when the model passed it). New:
+   `trip blocked tool=<name> reason=hidden`; `trip load` gains `hidden=<yes|no>`. Numbers and enums only (I-8).
+6. **Not changed.**
+   - Trip planning abroad (§36, §50 items 1–4), fitting (§48), revision rounds (§49).
+   - Guidance to a trip stop: `trip_next` uses the stop's saved coordinates; abroad it routes on OSRM (§47). The demo's
+     「开始第一天」 with simulated navigation is unchanged while the trip is shown.
+   - F-09b §12 (T-031k) still sends sleepy drivers to `navigate_to 附近的咖啡店/服务区`; with item 1 that is now near the
+     phone.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 161 | Phone fix in Zhuhai; an abroad Tokyo trip open and shown; `navigate_to 附近的咖啡店` (no `abroad`) | Home search (高德) around the phone; no Photon request; no `abroad=yes` line | unit |
+| 162 | Same, `navigate_to 浅草寺` (no `abroad`) | Home search; the trip is not consulted | unit |
+| 163 | Phone in Zhuhai; `navigate_to 便利店 abroad=true city="Tokyo, Japan"`; and with 「附近的便利店」 | Photon around Tokyo's centre, kept to JP and 50 km, with no trip open | unit |
+| 164 | Phone fix in Tokyo; `navigate_to 附近的便利店 abroad=true city="Tokyo, Japan"` | Photon around the phone | unit |
+| 165 | Cards hidden; `trip_next`, `route_trip`, `revise_trip_list`, `edit_trip_list action=move` | Each returns `tripHidden` with item 2's `next`; plan unchanged; cards still hidden; `trip blocked … reason=hidden` | unit |
+| 166 | Cards hidden; `edit_trip_list action=read`; separately `trip_plans open`; separately `make_trip_list` | Each runs and shows the cards | unit |
+| 167 | Cards hidden; `trip_plans list` | Runs; cards stay hidden | unit |
+| 168 | `restore()` with a saved current plan | Plan loaded, cards hidden, `trip load … hidden=yes` | unit |
+| 169 | `navigate_to` `NO_CANDIDATES` at home and abroad | `next` is item 4's text | unit |
+| 170 | Device, Zhuhai, the Tokyo trip saved: start the app, say 「有点困了」 then 「我想喝点咖啡」 | Places near the phone on 高德; no Tokyo places; no 「换个说法」 | D |
+| 171 | Device: 「打开行程」, then 「开始第一天」 with simulated navigation | The Tokyo trip shows; guidance to its first stop as §47 | D |
+| 172 | Device: 「把卡片收起来」, then 「下一站」 | She says once to say 「打开行程」; no guidance starts | D |
+
+**Not verified.**
+- Whether the model still passes `abroad=true` for a named foreign place without the trip default (row 163's sentence on
+  the device).
+
+**Trace gate.** Add `T-040y: F-15b` to `specs/trace-ids.txt` together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040y | §51 items 1–5; rows 161–172 | NOT_RUN |
