@@ -1542,3 +1542,107 @@ practice.
 | Task | Scope | Status |
 |---|---|---|
 | T-040u | §49, rows 127–139 | NOT_RUN |
+
+## 50. Real places from search, kept inside the trip area, and steps shown while she works (owner request 2026-11-19)
+
+**Why (owner, ipa150 d9d75fe, 2026-11-19).** The request was demo step 8: 「东京三天自驾，成田机场进出，一定要去浅草寺，酒店要靠近新宿站」.
+- **What happened.** The hotel came out as 「新宿附近車站」 at a place in India. Days 2 and 3 failed.
+- **Causes, from the code at d9d75fe.** The phone record was not pulled; the recorder was off.
+  1. **Hotel names come from Gemini's memory.** Gemini Live writes every place name itself, and `make_trip_list` has no way to say "a hotel near X" (§49 item 4's hotel choices are around each day's last place). So it wrote a description, 「新宿附近車站」.
+  2. **The search abroad only prefers Tokyo.** `PhotonPlaceSearch.around` sends Tokyo as `lat`/`lon`, which Photon uses only as a preference, and takes 1 result. `TripPlanner.lookupOnce` drops only results in CN, HK, MO and TW, so any other country is accepted. The asked name is then shown, so the India place appears as 「新宿附近車站」. On the PC, Photon with Tokyo answered 「車站」 with a place in Taiwan and 「車站 (station)」 with a road in Hong Kong.
+  3. **One bad hotel breaks the later days.** The plan keeps one hotel for every night (`oneBase`), so it is the end of day 1 and the start of days 2 and 3. OSRM has no road from India to Tokyo, so times fall back to the straight-line estimate (thousands of km). §48's day budget then fits nothing on days 2 and 3.
+- **What already exists.** The app already pairs Gemini Live (voice) with Qwen and its web search: F-18 §16 live info, §21 introductions, and §4 item 6's picker among 高德 results. None of these is used for trip places abroad.
+
+**Published practice this copies (checked 2026-11-19).**
+- **Google Research, trip planning (2025).** The LLM drafts; code grounds the draft with real data and search, and "retrieves substitutes" from a search backend; the final plan stays close to the draft ([Google Research](https://research.google/blog/optimizing-llm-based-trip-planning/)). Google's AI Mode trip plans take hotels and places from real-time Search and Maps data ([Google blog](https://blog.google/products/search/agentic-plans-booking-travel-canvas-ai-mode/)).
+- **Google Places Text Search.** `locationBias` may return places outside the area; `locationRestriction` returns none outside it ([Google Places](https://developers.google.com/maps/documentation/places/web-service/text-search)). Photon's `bbox` is the restriction here, and the country check covers places near borders.
+- **LLM-Modulo.** Code critics send their failures back to the LLM ([arxiv 2405.20625](https://arxiv.org/html/2405.20625v1)). On multi-day trips, refinement stops improving after a few rounds ([ChinaTravel, arxiv 2412.13682](https://arxiv.org/pdf/2412.13682)), so §49's limit of 2 rounds stays.
+- **Showing progress.** ChatGPT, Perplexity and Gemini Deep Research show the steps they are running. Alexa's progressive responses say one short line while the work continues. F-24 §17 already shows connection status this way.
+
+**Rule in plain words.**
+- Qwen with web search turns the driver's trip request into real places with English names.
+- A hotel wish such as 「靠近新宿站」 becomes a real hotel search around 新宿站.
+- Places abroad are accepted only in the trip's country and near its city; anything else goes back to the model.
+- One bad place never breaks the other days.
+- While she works, she says one line and the screen lists the steps.
+
+1. **Places from Qwen with search (abroad trips).**
+   - **When.** `make_trip_list` (or a §49 item 8 change that adds places) for a trip abroad (§36). The code makes one Qwen request with web search on (the F-18 §16 client and key), before any map lookup.
+   - **Input**, as values: the trip city and country, the number of days, the model's `places` (name, minutes, importance), `wishes`, the start and end (for example 成田机场), and `hotel_near` (item 2).
+   - **Output.** JSON only: `places` as `[{name, english, minutes, importance}]`, where `name` is the Chinese name and `english` the name on maps; `hotels` as `[{night, name, english}]`; `area` is the city.
+   - **The model's names are kept.** Every importance-3 name from the model (浅草寺) must appear in the output, matched by `TripList.matches` on `name` or `english`. A missing one is added back as the model wrote it.
+   - **Fallback.** A timeout (`TripTuning.groundTimeout`, 20 s), an error or invalid JSON: the model's `places` are used, as today. Log `ground=fallback`.
+   - **Prompt.** The search prompt rule (owner, 2026-11-05) applies. The system text is copied from Alibaba Model Studio's published web-search and structured-output (JSON mode) examples, and cited in a code comment and in STATUS. Only the JSON field list and the input values are ours. Nothing is invented beyond that.
+   - Trips in China are unchanged (高德 plus the §4 item 6 picker).
+2. **A hotel near a named place (new `make_trip_list` field `hotel_near`, optional).**
+   - It names one place, for example 「新宿站 (Shinjuku Station)」. Catalog text: 「司机要求酒店靠近某个地方（车站、景点）时，把那个地方写进 hotel_near，不要自己编酒店名。」
+   - The code finds that place first (item 3), then hotels within 1 km of it, else 3 km (Photon `tourism=hotel` abroad, 高德 酒店 at home), at most 5. The candidates go to §49 item 4's `hotel` check, with the distance to that place instead of to the day's last place.
+   - Item 1's `hotels` names are tried first, but only one within 1 km of that place is kept.
+   - If that place isn't found, the line is 「没找到<hotel_near>，换一个更具体的地点」 and the §37 item 4 search is used.
+   - **Hotel-only check.** A `places` item that the model marks as a hotel (`role: hotel`, or the night's last stop) but whose OpenStreetMap kind isn't lodging (`tourism=hotel|hostel|guest_house|apartment`) is not used. It becomes a `not_found` issue: 「<名字>不是酒店」.
+3. **Lookups abroad are kept inside the trip area (replaces §36 item 3's China-only check for trips).**
+   - `PhotonPlaceSearch` gains `bbox`. Trip lookups send the box of the trip city's centre ± 0.45° latitude and ± 0.55° longitude (about 50 km) and `limit=5`. `center(_:)` also returns the city's `countrycode`.
+   - A result is kept only when its `countryCode` equals the trip's country and it is within 50 km of the centre (`TripTuning.areaKm`). Others are dropped (`area_dropped=<n>`).
+   - Two or more kept results go to the §4 item 6 picker (Qwen), as at home. One is taken as it is. None is `not_found`.
+   - The name shown is the found place's name when it differs from the asked name, with the asked name in brackets only if they share no character. A made-up description is never shown as if it were a real place.
+   - `navigate_to` abroad (§36 item 2d) uses the same box only while an abroad trip is open. Plain navigation searches are unchanged.
+4. **One bad place stays local.**
+   - **New check `far`, after every fit (§49 item 4).** A place with no OSRM time to the day's other places, or whose time came from the straight-line estimate and is over 4 hours (`TripTuning.unreachableSeconds`), fails `far`: 「<名字>开车到不了或者太远，换一个<城市>附近的」. It is not used in that fit; the other places are fitted without it.
+   - **A hotel that fails `far` or the item 2 hotel-only check** is replaced for the fit by the §37 item 4 search around that day's last place. The issue still goes to the model.
+   - **After round 2, a place that still fails is dropped,** and `next` names it, as §49 item 6 does today.
+   - **Days 2 and later never start from a dropped place.**
+   - The straight-line estimate stays for times only. It never decides a place is close.
+5. **She says one line, then nothing.** `make_trip_list` and `revise_trip_list` run in the background (§4 item 9). Their immediate result's `next` becomes 「先只说一句：好，我规划一下，大概半分钟。然后不要说话，等结果。」 She says nothing between rounds (§49 item 9) and summarizes once at the end.
+6. **Steps on screen (T-040w).**
+   - A pure `WorkProgress` in NovaCore (NovaKit): an ordered list of steps (`pending`, `running`, `done`, `failed` with one short line), fed by the code doing the work.
+   - The panel appears 1 s after the first step starts (`WorkProgress.showAfter`), so quick work shows nothing. It sits where the navigation candidates show (`DriveView`, the same place as 「正在搜索地点…」).
+   - **Trip steps:**
+     - 「查找景点和酒店」 (item 1);
+     - 「检查地点位置」 (item 3, with 「N 个地方在范围外，正在换」 when area_dropped > 0);
+     - 「计算开车时间」 (OSRM or 高德);
+     - 「调整行程」 (only when a §49 round runs).
+     When the trip list arrives, the panel is replaced by the trip cards. A failure shows its line, for example 「新宿附近車站 不在东京，正在换」, and stays until the next step or 3 s after the end.
+   - **Search steps:** `query_live_info` shows 「正在搜索…」 (web search), 「正在查天气…」 (weather) or 「正在查…」 (others) while it runs, and nothing after the answer arrives.
+   - No words from the conversation appear in a step except place names already on screen in the trip cards (I-8 for logs is unchanged).
+7. **Logs.**
+   - `trip ground vendor=qwen places=<n> hotels=<n> kept3=<n> ok=<yes|no|fallback> ms=<ms>`;
+   - §36's `trip search` line gains `area_dropped=<n>` and `picker=<n>`;
+   - §49's `trip check` gains `far=<n>`;
+   - `work show=<trip|search> steps=<n> failed=<n> ms=<ms>`.
+   - Numbers and enums only (I-8).
+8. **Not changed.**
+   - Trips in China: 高德, the picker and §37 hotels.
+   - §48 fitting and §49's rounds (still at most 2).
+   - Photos (§46), guidance abroad (§47).
+   - Gemini Live stays the voice and the tool caller. Qwen never speaks.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 140 | Qwen fixture for 「东京三天…浅草寺…酒店靠近新宿站」 | Places with `english`; 浅草寺 kept at importance 3; `trip ground ok=yes` | unit |
+| 141 | Qwen fixture that leaves out 浅草寺; a Qwen timeout | 浅草寺 added back; the model's places used, `ok=fallback` | unit |
+| 142 | `hotel_near=新宿站 (Shinjuku Station)`; Photon fixture: hotels at 0.3, 0.8, 2.5 km | Candidates at 0.3 and 0.8 (within 1 km) in the `hotel` issue with distances to 新宿站 | unit |
+| 143 | A night's last stop 「新宿附近車站」 whose Photon kind is `railway:station` | Not used as the hotel; `not_found` 「新宿附近車站不是酒店」; §37 hotel used for the fit | unit |
+| 144 | Photon fixture for a Tokyo trip: results in IN, TW and JP (JP 60 km away) | All dropped; `area_dropped=3`; `not_found` | unit |
+| 145 | Photon request for a trip lookup | Has `bbox` around the centre and `limit=5`; two JP results inside → picker called | unit |
+| 146 | A found name differs from the asked made-up name | Shown name is the found place's name | unit |
+| 147 | A hotel with no OSRM route and a 60 h estimate | `far`; days 2–3 fitted from the replacement hotel and not empty; after round 2 the hotel is dropped and named in `next` | unit |
+| 148 | `make_trip_list` immediate result | `next` is item 5's text | unit |
+| 149 | `WorkProgress`: steps finishing at 0.4 s; steps running 6 s with a failed 「检查地点位置」 | Nothing shown; panel after 1 s with the failed line, cleared when the cards arrive | unit |
+| 150 | `query_live_info` weather taking 3 s | 「正在查天气…」 from 1 s to the answer | unit |
+| 151 | Device: 「东京三天自驾，成田机场进出，一定要去浅草寺，酒店要靠近新宿站」 | Within ~60 s: 3 days, 浅草寺 on one, a real hotel within 1 km of 新宿站 (real name), day 1 成田 → 租 → … → 住; no place outside Japan; she said one line first and one summary at the end; steps were on screen | D |
+| 152 | Device: then 「第二天太赶了」 | Day 2 lighter; steps shown; she says what changed | D |
+| 153 | Device: 「东京天气怎么样」 | 「正在查天气…」 while waiting, then the answer | D |
+
+**Not verified.**
+- Qwen's search time for a 3-day trip (row 151; target under 20 s).
+- Whether Qwen's hotel names match OpenStreetMap; the 1 km hotel search is the fallback.
+- The phone record of the 2026-11-19 failure; the causes above are from the code.
+
+**Trace gate.** Add `T-040v: F-15b` and `T-040w: F-15b` to `specs/trace-ids.txt` together with the first `@Test` that names each.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040v | §50 items 1–5, 7–8; rows 140–148, 151–152 | NOT_RUN |
+| T-040w | §50 item 6 (trip and search steps); rows 149–150, 153 | NOT_RUN |

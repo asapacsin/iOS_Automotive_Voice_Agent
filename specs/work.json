@@ -2983,6 +2983,30 @@
       "evidence": "Spec at the commit that adds §49."
     },
     {
+      "id": "T-040v",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "action": "F-15b §50 items 1-5, 7-8 (Qwen web-search grounding for abroad trips; hotel_near; Photon bbox + country + 50 km + picker; hotel-only check; far check and local replacement; one spoken line first; logs); rows 140-148, 151-152.",
+      "depends_on": [
+        "T-040u"
+      ],
+      "notes": "Owner 2026-11-19, ipa150 d9d75fe, demo step 8: hotel 新宿附近車站 resolved to a place in India; days 2-3 failed. Code causes: Photon lat/lon is only a bias, limit 1, only China filtered; one hotel for every night; straight-line estimate when OSRM has no route. Phone record not pulled (recorder off). Needed for the mentor demo.",
+      "evidence": []
+    },
+    {
+      "id": "T-040w",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "action": "F-15b §50 item 6 (WorkProgress in NovaKit; trip steps and query_live_info steps shown after 1 s in DriveView; failure lines; cleared by the cards or the answer); rows 149-150, 153.",
+      "depends_on": [
+        "T-040v"
+      ],
+      "notes": "Owner 2026-11-19: show that she is working (trip 30-60 s, searches 2-8 s), as ChatGPT/Perplexity steps and Alexa progressive responses.",
+      "evidence": []
+    },
+    {
       "id": "T-031j",
       "owner": "AUTONOMOUS",
       "status": "PASS",
