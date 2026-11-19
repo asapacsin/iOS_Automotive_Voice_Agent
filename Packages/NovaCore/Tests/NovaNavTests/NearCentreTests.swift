@@ -27,6 +27,26 @@ final class FakeGeocode: PlaceLookup, @unchecked Sendable {
     }
 }
 
+/// A 高德 geocode that answers only when `release()` is called (a slow geocode).
+final class SlowGeocode: PlaceLookup, @unchecked Sendable {
+    let asked = Mutex<Int>(0)
+    private let gate = Mutex<CheckedContinuation<Void, Never>?>(nil)
+    private let open = Mutex(false)
+    func lookUp(_ name: String, country: String?) async throws -> [LookedUpPlace] {
+        await withCheckedContinuation { c in
+            let now = open.withLock { $0 }
+            if now { c.resume() } else { gate.withLock { $0 = c } }
+            asked.withLock { $0 += 1 }
+        }
+        return [LookedUpPlace(name: name, coordinate: place("x", 0).coordinate)]
+    }
+    func release() {
+        open.withLock { $0 = true }
+        gate.withLock { $0?.resume(); $0 = nil }
+    }
+    func waitAsked() async { while asked.withLock({ $0 }) == 0 { await Task.yield() } }
+}
+
 /// The demo point (位置来源 off): the provider's fix is `DriveSettings.demoOrigin`, its source `.demo`.
 private struct DemoLocation: LocationProvider {
     let fix: LocationFix
@@ -44,7 +64,7 @@ private struct NearRig {
     /// `area`: what Photon's area lookup answers (default: Tokyo, or the US for Springfield); `.some(nil)` none, so
     /// `centre` (Apple's bare centre) is used.
     init(phone: GeoCoordinate, home: any PlaceSearch, photon: FakeApple, demo: Bool = false,
-         geocode: FakeGeocode? = nil, area: TripArea?? = .none, centre: GeoCoordinate = tokyoCentre) async {
+         geocode: (any PlaceLookup)? = nil, area: TripArea?? = .none, centre: GeoCoordinate = tokyoCentre) async {
         let fix = LocationFix(coordinate: phone, horizontalAccuracyMeters: 20, timestamp: .zero)
         let lines = self.lines
         let location: any LocationProvider = demo ? DemoLocation(fix: fix) : FixLocation(fix: fix)
@@ -201,7 +221,8 @@ struct NearCentreTests {
         let planner = await rig.tokyoTrip()
         #expect(await planner.hideCards())
         let r = await rig.nav.execute(nav(["destination": "餐厅", "near": "trip", "near_name": "浅草寺"]))
-        #expect(r.code == .tripHidden && r.advice == TripPlanner.tripHiddenNext)
+        #expect(r.code == .tripHidden && r.advice == nil && r.data["next"]?.stringValue == TripPlanner.tripHiddenNext
+              && r.data["facts"] == TripPlanner.tripHiddenResult.data["facts"])
         #expect(photon.asked.withLock { $0 }.isEmpty)
         #expect(rig.near() == ["nav near kind=trip vendor=none source=trip found=0 dropped=0 reason=trip_hidden"])
         #expect(await planner.cardsHidden)
@@ -234,6 +255,12 @@ struct NearCentreTests {
         #expect(route.code == .invalidFields)
         let unknown = await rig.nav.execute(nav(["destination": "加油站", "near": "there"]))
         #expect(unknown.code == .invalidFields)
+        // F-09b §13: facts and rules, no hand-written sentence.
+        #expect(route.advice == nil && route.data["facts"]?["navigating"] == false && route.data["may"] == ["offer_nearby"])
+        #expect(unknown.advice == nil && unknown.data["facts"]?["near"] == "there"
+                && unknown.data["facts"]?["near_allowed"] == ["here", "place", "trip", "route"])
+        let noCountry = await rig.nav.execute(nav(["destination": "便利店", "near": "place", "near_name": "东京"]))
+        #expect(noCountry.advice == nil && noCountry.data["facts"]?["missing"] == ["near_country"])
         #expect(amap.calls.withLock { $0 }.isEmpty && photon.asked.withLock { $0 }.isEmpty)
         #expect(await rig.nav.current.phase == .idle)
     }
@@ -273,17 +300,56 @@ struct NearCentreTests {
     @Test("F-15b §51 item 8: near=place with near_country MO or HK geocodes and searches on 高德, never Photon")
     func macauHongKong() async {
         for (name, country) in [("澳门", "MO"), ("香港", "HK"), ("台北", "TW")] {
-            let home = FakeApple(["酒店": [place("酒店1", 300), place("酒店2", 500)]])
-            let photon = FakeApple(["酒店": [jp("Hotel", lat: 35.69)]])
+            let home = FakeApple(["便利店": [place("全家", 300), place("7-11", 500)]])
+            let photon = FakeApple(["便利店": [jp("Hotel", lat: 35.69)]])
             let geocode = FakeGeocode(.success([LookedUpPlace(name: name, coordinate: place("x", 0).coordinate)]))
             let rig = await NearRig(phone: zhuhai, home: home, photon: photon, geocode: geocode)
-            let r = await rig.nav.execute(nav(["destination": "酒店", "near": "place", "near_name": .string(name),
+            let r = await rig.nav.execute(nav(["destination": "便利店", "near": "place", "near_name": .string(name),
                                                "near_country": .string(country)]))
             #expect(r.ok, "\(country)")
             #expect(geocode.asked.withLock { $0 } == [name])
             #expect(photon.asked.withLock { $0 }.isEmpty && rig.geocoded.withLock { $0 }.isEmpty, "\(country)")
             #expect(rig.near() == ["nav near kind=place vendor=amap source=geocode found=2 dropped=0 reason=ok"], "\(country)")
         }
+    }
+
+    @Test("F-15b §51 item 8: a newer navigate_to during a slow near=place geocode wins; the old one is optionsStale, no route")
+    func slowGeocodeNewerWins() async {
+        let home = FakeApple(["便利店": [place("美宜佳", 300), place("7-Eleven", 500)], "咖啡店": [place("瑞幸", 300)]])
+        let geocode = SlowGeocode()
+        let rig = await NearRig(phone: zhuhai, home: home, photon: FakeApple([:]), geocode: geocode)
+        let nav0 = rig.nav
+        let old = Task { await nav0.execute(nav(["destination": "便利店", "near": "place", "near_name": "香洲", "near_country": "CN"])) }
+        await geocode.waitAsked()
+        #expect(await rig.nav.current.phase == .resolvingDestination)
+        let newer = await rig.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
+        #expect(newer.ok)
+        let before = await rig.nav.current
+        geocode.release()
+        let r = await old.value
+        #expect(r.code == .optionsStale)
+        #expect(home.asked.withLock { $0 } == ["咖啡店"])
+        let after = await rig.nav.current
+        #expect(after.generation == before.generation)
+        #expect(after.phase == before.phase)
+        #expect(after.destination?.name == "瑞幸" && after.destination == before.destination)
+        #expect(rig.near() == ["nav near kind=here vendor=amap source=fix found=1 dropped=0 reason=ok"])
+    }
+
+    @Test("F-15b §51 item 8: exit_navigation_mode during a slow near=place geocode cancels it; nothing searched")
+    func slowGeocodeCancelled() async {
+        let home = FakeApple(["便利店": [place("美宜佳", 300)]])
+        let geocode = SlowGeocode()
+        let rig = await NearRig(phone: zhuhai, home: home, photon: FakeApple([:]), geocode: geocode)
+        let nav0 = rig.nav
+        let old = Task { await nav0.execute(nav(["destination": "便利店", "near": "place", "near_name": "香洲", "near_country": "CN"])) }
+        await geocode.waitAsked()
+        let cancel = await rig.nav.execute(ToolCall(id: CallID("x1")!, name: "exit_navigation_mode", arguments: .object([:])))
+        #expect(cancel.data["status"] == "navigation_selection_cancelled")
+        geocode.release()
+        #expect(await old.value.code == .optionsStale)
+        #expect(home.asked.withLock { $0 }.isEmpty && rig.near().isEmpty)
+        #expect(await rig.nav.current.phase == .idle)
     }
 
     @Test("F-15b §51 item 8: 高德 geocode errors give their cause (key, quota, network), not not_found")
