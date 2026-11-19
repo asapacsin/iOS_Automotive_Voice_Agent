@@ -1,0 +1,2224 @@
+{
+  "schema_version": 1,
+  "archived": [
+    {
+      "id": "H-ios-min",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "priority": 5,
+      "action": "Decide minimum iOS version (OQ-IOS-12)",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Choose a deployment target",
+      "pass_criteria": "Decision recorded in specs/open-questions.md",
+      "expected_return": "Chosen iOS version",
+      "quantified": {
+        "options": [
+          "iOS 18 (proposed: Observation + Synchronization.Mutex)",
+          "iOS 26.4 (needed only for CarPlay voice-conversational)"
+        ]
+      },
+      "evidence": [
+        "iOS 18.0 recorded in specs/open-questions.md OQ-IOS-12; iOS 26.4 option moot after owner skipped CarPlay (OQ-IOS-8, 2026-10-27)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-27, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-000c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 5,
+      "action": "specs/ci-linux.md §3 items 1-7: run_static.sh split; ci.yml static + swift (swift:6.1.2-noble, cache, timeouts) on ubuntu-24.04; push/pull_request triggers with public-only guard and concurrency; permissions contents: read, no secrets; check_runners.py extended; ai-native.yml folded into static; AGENTS.md rule text. Rows 1-7 unit/review, 8-9 owner.",
+      "depends_on": [
+        "T-000"
+      ],
+      "notes": "Owner 2026-11-11: CI was turned off because it used more than the GitHub free allowance; asked for CI that does not need an iOS build. Owner 2026-11-11 chose §4 option A (automatic Linux runs while public): \"a then\". Do not start a run while building it. | 2026-11-11: built ad8f4c9, gates PASS (NovaCore 776 with 1 known issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0); independent review in progress. | Rows 8-9 (first real run, billing after a week) owner, NOT_VERIFIED. | 2026-11-11 after the 9cea702 push: the Actions API lists no run for claude/youthful-curie-vuit5r and no run of any workflow since 2026-10-27, so GitHub Actions looks disabled in the repository settings (owner turned CI off). Row 8 needs the owner to re-enable Actions (Settings → Actions → General); no run was started from this session. | 2026-11-11: owner re-enabled Actions (\"done\"); this record push is the first push after that. | 2026-11-11 run 42983065993 on 64be28f: both jobs failed within 1-2 s with no runner assigned (runner_id 0), no steps and no log (404); the jobs never started. Row 8 not met; most likely an account-level Actions billing lock or spending limit, to be checked by the owner in Settings -> Billing. | Confirmed by the run annotations (runs 267, 268): \"The job was not started because your account is locked due to a billing issue.\" Row 8 waits for the owner to clear the account billing lock (Settings -> Billing and licensing) and re-run.",
+      "evidence": [
+        "e226c47: scripts/gates/run_all.sh PASS (gate self-tests 66 OK, runners 0, static gates PASS, NovaCore 776 with 1 known NoiseCorpus issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0); frontier check valid (160)",
+        "Independent read-only review (high effort): FAIL at ad8f4c9 (trigger-form bypasses, wrong evidence rows) fixed in 8f4ba41; FAIL at 8f4ba41 (multi-line inline on:, # inside string) fixed in e226c47; PASS at e226c47"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-11, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-010",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "NovaKit primitives",
+      "depends_on": [
+        "T-000"
+      ],
+      "evidence": [
+        "scripts/gates/run_all.sh at 1326585: exit 0 (imports 0, secrets 0, 27 tests, spec-trace 4/0)",
+        "Independent read-only review (high effort): review 1 REWORK (1 blocking) fixed in 1326585; review 2 PASS, 6 non-blocking findings moved to T-000g"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-23, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-012",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-02 listening lifecycle + local intents (pure, ManualClock)",
+      "depends_on": [
+        "T-011"
+      ],
+      "evidence": [
+        "U 18 tests (F-02 rows 1-4); independent review PASS (high effort); Android phrase table ported a1e956a"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-23, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 31,
+      "action": "F-03 mic gain + 10 ms framer, F-04 uplink gate (needs Android PCM corpus via EVIDENCE_REQUEST for full parity)",
+      "depends_on": [
+        "T-011"
+      ],
+      "evidence": [
+        "U 12 tests (F-04 rows 1-3, F-03 frame row); review REWORK (gate stuck open) fixed 1b88d86; re-check PASS"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-23, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-014",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 32,
+      "action": "F-05 VoiceSession state machine + F-24 ReconnectPolicy",
+      "depends_on": [
+        "T-011"
+      ],
+      "evidence": [
+        "U 14 tests (F-05 rows 2-3 logic, F-24 policy); independent review PASS (high effort)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-23, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-019",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 33,
+      "action": "F-06 reply pipeline: claim gate, ActionClaimGuard, correction grace, empty re-ask, phantom gate",
+      "depends_on": [
+        "T-011"
+      ],
+      "evidence": [
+        "U F-06 suites (rows 1-3 + 7 review-regression suites); gates green; 8 independent high-effort reviews, final PASS at 50ca8e8"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-25, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-017",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 34,
+      "action": "F-09 tool catalog, validation, guards, dispatcher (Android tables via EVIDENCE_REQUEST)",
+      "depends_on": [
+        "T-011"
+      ],
+      "evidence": [
+        "U 27 tests, guard tables ported from Android 9c53929; review PASS, verified byte-for-byte against Android"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-23, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-018",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 35,
+      "action": "F-11 vehicle handlers + SimulatedVehicle",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "U 19 golden tests from Android vehicle tests; gates green; independent review PASS (high effort) vs Android 9c53929"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-23, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-020",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 36,
+      "action": "F-07 clause segmenter, wait cues, revoicer queue; Azure REST client",
+      "depends_on": [
+        "T-011"
+      ],
+      "evidence": [
+        "U 11 tests (F-07 rows 2-3 logic); gates green; independent review PASS (high effort); row 1 is D (NOT_VERIFIED)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-23, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-020b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-07 §15 items 1-9 (Gemini 原声 voice source as default, clean turns streamed, a disproven claim cuts playback, one-time move from 千问, clearer missing message, voice source=gemini timing line) and F-24 §16 items 1-3 (AudioChunker 100 ms messages, close code line); F-07 §15 rows 12-16, F-24 §16 rows 1-5.",
+      "depends_on": [
+        "T-020a",
+        "T-013j"
+      ],
+      "notes": "Owner 2026-11-07 (1f05a54): Qwen voice is not the Gemini voice; owner chose the fastest option with the same voice, Gemini Live's own audio. A 5.6 s held sentence released at once queued ~590 10 ms messages past outboxLimit 512, giving WS_FAILED and a dropped sentence; 100 ms chunks copied from Google's Live API guides (live-transcribe / live-translate).",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "b82b3bc"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "device": "F-07 rows 14-16, F-24 row 5",
+          "result": "NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-07, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-020c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §27 items 1-6 (web_search and query_live_info declared NON_BLOCKING, run in background, responses scheduling WHEN_IDLE, other tools blocking, dropped on reconnect, logs) and F-07 §16 items 1-3 (保存她的原声 WAV switch, playback format line); F-18 §27 rows 1-6, F-07 §16 rows 17-18.",
+      "depends_on": [
+        "T-020b"
+      ],
+      "notes": "Owner 2026-11-07 (eef9860): Gemini is the main model, search is background work; copied from Gemini Live API asynchronous function calling (gemini-3.8-live supports sync and async). Owner hears an old-woman voice although records show voice source=gemini only; find out first, change nothing.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "e51191f"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "device": "F-18 §27 rows 5-6, F-07 §16 row 18",
+          "result": "NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-07, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-032b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-13 §14 items 1-11 (ITunesPreviewMusic as NamedMusicPort wired into MusicToolHandler: iTunes Search API song search with the country setting, pick rule, AVPlayer streamed preview on the media lane, now-playing proof, end, card with iTunes attribution and Apple Music link, failure codes, tool text, logs); F-13 §14 rows 1-11.",
+      "depends_on": [
+        "T-032",
+        "T-020c"
+      ],
+      "notes": "Owner 2026-11-09: 「梶浦那首空之境界的歌」 should play inside the app without another app opening, with no subscription or paid account. OQ-IOS-7 reopened for 30 s iTunes previews. Apple's preview terms (promotional, not for entertainment) recorded as owner risk; the build is not distributed. 2026-11-09: item 4 (echo while the preview plays) moved to T-032d (F-13 §16); the rest PASS.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "2a35f02"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS with item 4 deferred"
+        },
+        {
+          "device": "F-13 §14 rows 8-11",
+          "result": "NOT_VERIFIED"
+        },
+        {
+          "owner": "item 4 (echo reference, ducking, stop paths) moved to T-032d (F-13 §16)",
+          "result": "IN_T-032d"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-09, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-032c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-13 §15 items 1-6 (曲库地区 HK default, CN removed and moved to HK; play_music description asks for a real title in the original language; one title-only retry; MUSIC_NOT_FOUND advice; try/term log); F-13 §15 rows 1-6.",
+      "depends_on": [
+        "T-032b"
+      ],
+      "notes": "Device 2026-11-09 (2a35f02): MUSIC_NOT_FOUND twice. Live API check 2026-11-09: country=CN returns 0 for every term; HK finds oblivious, 晴天, 十年 including simplified terms. Gemini sent no title and the driver's sentence as query.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "a3ceffb"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "device": "F-13 §15 rows 5-6",
+          "result": "NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-09, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-090",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-25 §14 items 1-5 (delete MusicKitPlayer and the CarPlay scene with their project, entitlement and gate entries; tab bar 驾驶/车辆/设置 with 音频测试 and 录制 under 设置 → 开发; STATUS T-072/T-080 REMOVED); F-25 §14 rows 1-4.",
+      "depends_on": [
+        "T-032b"
+      ],
+      "notes": "Owner 2026-11-09: clear built-but-unused code. Azure express-as is wired (SpeakingStyle.saved) and ComfortEval is used by tests, so both stay.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "e7b3479"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "device": "F-25 §14 rows 2-4",
+          "result": "NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-09, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-032d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-13 §16 items 1-6: preview through LiveAudio's engine (EnginePreviewPlayer, preview node on the media lane, in-memory download and AudioFile/ExtAudioFile decode, no AVPlayer); rows 1-5.",
+      "depends_on": [
+        "T-032b"
+      ],
+      "notes": "Owner 2026-11-09: approved routing the preview through the app's audio engine after the community check (playback must share the voice-processing engine for echo cancellation).",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green (NovaCore 680, NovaRealtime 42, NovaServices 65, spec-trace 0 missing); NovaAudio/App not compiled on Linux, first compile on Codemagic",
+          "commit": "70946b7"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS after fixes (stop during scheduling, completion during engine restart, decode cap)"
+        },
+        {
+          "device": "F-13 §16 rows 2-5 NOT_VERIFIED: echo while preview plays, route change/restart, mono preview mapped to stereo, 5 s idle download timeout"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-09, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-032e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-13 §17 items 1-9: stream the iTunes preview into the preview node as it downloads (AudioFileStream parse, AVAudioConverter to 44.1 kHz stereo float, ~0.5 s pieces, start at 1.0 s scheduled or download end); moov-last fallback to the §16 decoder; PreviewFailure stage on PreviewPlayer/NamedMusicPort; music preview start/failed/cut lines to RuntimeLog and the record; NOT_PLAYING advice by stage with no 版权/会员; rows 6-14.",
+      "depends_on": [
+        "T-032d"
+      ],
+      "notes": "Owner 2026-11-09: songs played on 2a35f02 (AVPlayer streaming) but every named song gave NOT_PLAYING on 70946b7 (whole-file download then decode inside the 6 s poll), record 20261109-181309; she then claimed 版权限制 from the generic advice. PC check: 12 HK previews (Kalafina, 梶浦由記) are all ftyp-moov-free-mdat, so AudioFileStream can parse them as they arrive.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green (NovaCore 685, NovaRealtime 42, NovaServices 66, imports 0, runners 0, spec-trace 106 ids 0 missing); NovaAudio/App not compiled on Linux, first compile on Codemagic (row 11 build NOT_VERIFIED)"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS; low findings fixed: parse failure partway is a cut with stage parse, node reset at stream begin, bytes count includes the unfed chunk"
+        },
+        {
+          "device": "F-13 §17 rows 12-14 NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-09, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-032f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-13 §18 items 1-12: AVAudioSourceNode reading a pure PreviewRing (40 s, generations, drained flag; render block never blocks or allocates); serial mediaQueue for every media-lane command; stop = inactive + buffer reset, never AVAudioPlayerNode.stop/scheduleBuffer for the preview; 250 ms drained timer for the end; music lane slow line; gate against scheduleBuffer/preview stop; MediaLaneMachine; rows 15-25.",
+      "depends_on": [
+        "T-032e"
+      ],
+      "notes": "Owner 2026-11-09: she stopped responding. Build 52 records 20261109-221154 and 20261109-221421: a music command while a streamed preview played never returned, and her next reply never reported playback finished, so later utterances were never sent. Apple warns AVAudioPlayerNode.stop can deadlock with completion handlers; AudioStreaming plays from its own buffer in a render callback and stops by resetting it on one serial queue.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green on a clean clone (NovaCore 714, NovaRealtime 42, NovaServices 71, imports 0 incl. the item 10 preview-lane gate, secrets 0, spec-trace 109 ids 0 missing); NovaAudio/App not compiled on Linux, row 21 build NOT_VERIFIED (Codemagic, owner)"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS; fixed after review: restart never restarts a stopped session's engine (running check, queue flushed in stop), a silent bundled loop is played again, acquire fence before the seqlock check, bundled file read before the queue, a lane stop during download is stage stopped not engine"
+        },
+        {
+          "device": "F-13 §18 rows 22-25 NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-09, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-032h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-13a §5, §7: media ducked to mediaGain x 0.3 while her reply or guidance plays, 150 ms down / 400 ms up on mediaQueue, duck on/off lines; rows 6, 7 unit, 9 device",
+      "depends_on": [
+        "T-032g"
+      ],
+      "notes": "The code has no ducking today (only the barge-in dip of her own reply); music.md §14 item 4 corrected. | 2026-11-10: Built 54e73ff. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: duck on/off lines written on every reply even with no music. App/NovaAudio not compiled; device row 9 NOT_VERIFIED.",
+      "evidence": [
+        "54e73ff; scripts/gates/run_all.sh PASS on d4861a1 (as T-032g)",
+        "Independent read-only review (high effort) 2026-11-10: PASS"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-10, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-024",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 37,
+      "action": "F-22 stores, CredentialWipe, SettingsReadiness (logic only on Linux)",
+      "depends_on": [
+        "T-011"
+      ],
+      "evidence": [
+        "U 5 tests (F-22 rows 1-3); independent review PASS (high effort)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-23, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-015",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 38,
+      "action": "Gemini codec, turn assembler, error classifier (contract replay)",
+      "depends_on": [
+        "T-011",
+        "T-003"
+      ],
+      "evidence": [
+        "U 11 tests (fixture replay of 6 device-recorded sessions, §4 rules 1-2 synthetic, 1007/1008 classification); review REWORK fixed; re-review PASS (high effort)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-25, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 39,
+      "action": "Gemini transport + provider; fake WebSocket server",
+      "depends_on": [
+        "T-015"
+      ],
+      "evidence": [
+        "U 7 tests vs scripted fake server (W4 drop+resume, auth/credential terminal, dead ping, close during connect, writer order); 2 reworks fixed; re-review PASS (high effort)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-25, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-022",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 40,
+      "action": "F-08 minimal arbiter",
+      "depends_on": [
+        "T-019",
+        "T-020"
+      ],
+      "evidence": [
+        "U 6 tests (W2 with fakes, effect order, R1/R4/R5); review REWORK fixed ef06bd6; re-review PASS (high effort); row 1 is D"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-23, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-023",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 41,
+      "action": "AgentCore, EffectRunner, ToolRunner; W1-W3 integration with fakes",
+      "depends_on": [
+        "T-012",
+        "T-013",
+        "T-014",
+        "T-016",
+        "T-018",
+        "T-022"
+      ],
+      "evidence": [
+        "U 11 tests (W1 incl. recorded call-then-claim order, W2, W3, per-socket turns, R4 regain, stop) + actor shell; 2 reworks fixed; re-review PASS (high effort)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-25, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-071a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20a CameraQuestionHandler (pure, NovaTools/Vision): one in flight, cancel, result/codes; unit",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-071c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20a GeminiVisionClient (default, OQ-CAM-1) + Qianfan option behind VisionPort; unit, contract",
+      "depends_on": [
+        "T-071a"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-071b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20a CameraSession adapter (AVCaptureSession back camera, still capture, stop on close); build, D",
+      "depends_on": [
+        "T-071a"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-071d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20a camera icon, floating preview, 问一下, describe_camera_view wiring; question opens the window (OQ-CAM-2); S, D",
+      "depends_on": [
+        "T-071b",
+        "T-071c"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review; device check pending",
+        "Re-review at c63cccf: REWORK (early-return camera codes had no advice); fixed, re-review pending",
+        "Independent high-effort re-review PASS at 3c4c92c; CI green; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-070",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-19 place_call with confirmation (PhoneCallHandler, ContactsStore, tel:// dialer); window 30 s PROPOSED",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-045",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-17 HUD panel model (turn table PROPOSED pending Android EVIDENCE_REQUEST)",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-053a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-17 overspeed monitor logic (voice through arbiter is T-053, device)",
+      "depends_on": [
+        "T-045"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-021p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-21 set_speaking_style, persisted tone, instruction cap 4000",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "CI 90f1ed0 green (core-linux, core-macos, xcode); awaiting independent review",
+        "Independent high-effort re-review PASS at c63cccf, confirmed at 3c4c92c (claim-gate change); CI green (core-linux, core-macos, xcode); LIVE row NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-030",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-10 ambiguity: ContextResolver clarify (座椅/温度) wired in AgentState; unit",
+      "depends_on": [],
+      "evidence": [
+        "unit tests green in CI core-linux/core-macos on feat/live-agent-nav (PR #7)",
+        "Independent review pending; device row NOT_VERIFIED",
+        "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending",
+        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-040",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-15 NavigationController flow (search, pick, routes, start, exit; generation-tagged); unit",
+      "depends_on": [],
+      "evidence": [
+        "NavigationControllerTests green in CI on feat/live-agent-nav (PR #7)",
+        "Independent review pending; device row NOT_VERIFIED",
+        "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending",
+        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED",
+        "Final independent review 2026-10-27 at ea7e649: PASS; along-route pick race fixed in 0052d4c (CI green)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-043",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-15/F-18 Amap Web route engine (substitute for the Navi SDK adapter) with generation-safe fetches and labelled simulated movement; live info weather/route_traffic; unit, build",
+      "depends_on": [],
+      "evidence": [
+        "CI xcode + ipa green at a16728a; live session connects on iPhone 17 (no MALFORMED)",
+        "Independent review pending; device run of 导航去珠海站 NOT_VERIFIED",
+        "Independent review 2026-10-26: REWORK (stale-words guard; double start/START_FAILED reset; late route fetch, F-18 codes, missing tests); fixes committed, re-review pending",
+        "Independent re-review 2026-10-26: PASS at 33abee5 (cfccdb6 rework); CI green at 9eb1123; device row NOT_VERIFIED",
+        "Final independent review 2026-10-27 at ea7e649: PASS; stale stop guard fixed in 0052d4c (CI green ci 40443375548)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-051",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-14 GuidanceRelay: deadline, cooldown, fidelity, bracket, echo, reason codes; AgentState relay wiring",
+      "depends_on": [
+        "T-023"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-052",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-08 full arbiter: R6, R6a, R1 tail, uplink R0/tail/20 s cap",
+      "depends_on": [
+        "T-022",
+        "T-051"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-18 along_route and place_details",
+      "depends_on": [
+        "T-042"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-044",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-25 MapPresentation policy (MapKit stands in for AmapMapView)",
+      "depends_on": [
+        "T-040"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-047",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-25 choice-row taps as UIIntent through AgentCore (I-6)",
+      "depends_on": [
+        "T-044"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-032",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-13 control_music on the media lane with read-back; play_music honest until OQ-IOS-7",
+      "depends_on": [
+        "T-021"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-033",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-18 weather/adcode TTL caches",
+      "depends_on": [
+        "T-046"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-061",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-01 wake arming, mic router, bounded retry (logic; iFlytek adapter T-060 waits on the SDK)",
+      "depends_on": [
+        "T-012"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-072",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "priority": 40,
+      "action": "F-13 MusicKitPlayer (NamedMusicPort) built in NovaPlatform, not wired until OQ-IOS-7",
+      "depends_on": [
+        "T-032"
+      ],
+      "evidence": [
+        "Owner 2026-10-27 OQ-IOS-7: no named music. MusicToolHandler without NamedMusicPort answers MUSIC_HANDOFF_UNAVAILABLE (play/pause/next unaffected); MusicKitPlayer stays unwired"
+      ],
+      "notes": "REMOVED 2026-11-09 in e7b3479 (T-090, F-25 §14).",
+      "archived_on": "2026-11-19",
+      "archive_reason": "NOT_APPLICABLE, withdrawn; nothing open depends on it"
+    },
+    {
+      "id": "T-080",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "priority": 40,
+      "action": "CarPlay template scene (status + choice list, taps as UIIntent), inert until entitlement",
+      "depends_on": [
+        "T-047"
+      ],
+      "evidence": [
+        "Owner 2026-10-27 OQ-IOS-8: skip CarPlay (M7 optional); scene code stays inert, no entitlement requested"
+      ],
+      "notes": "REMOVED 2026-11-09 in e7b3479 (T-090, F-25 §14).",
+      "archived_on": "2026-11-19",
+      "archive_reason": "NOT_APPLICABLE, withdrawn; nothing open depends on it"
+    },
+    {
+      "id": "T-041",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-15 choice resolver, 120 s expiry, duplicate suppression (delivered with T-040)",
+      "depends_on": [
+        "T-040"
+      ],
+      "evidence": [
+        "Delivered in NavigationController with T-040 (re-review PASS 33abee5); OPTIONS_STALE tests in NavigationControllerTests green on Linux 2026-10-26"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-071",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20 vision (split into T-071a-d)",
+      "depends_on": [
+        "T-017"
+      ],
+      "evidence": [
+        "Superseded by T-071a, T-071b, T-071c, T-071d, all PASS; device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished (sub-item, no own STATUS row), nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-048",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 45,
+      "action": "Simulator drive end to end (UITests)",
+      "depends_on": [
+        "T-040",
+        "T-047"
+      ],
+      "evidence": [
+        "CI simulator job green at b6aff67 (run 40338187418): uitest-scripted-drive search -> pick -> route -> HUD on iOS Simulator; scripted search/engine, no keys"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-26, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "H-evidence",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "priority": 5,
+      "action": "Answer EVIDENCE_REQUEST batch 2 (specs/evidence-requests.md)",
+      "depends_on": [],
+      "procedure": "Paste each Android excerpt + commit, or add 'allowed Android lookup' lines to the feature files",
+      "pass_criteria": "Every request answered and appended to its feature file",
+      "expected_return": "Excerpts with Android commit",
+      "evidence": [
+        "Owner 2026-10-26: iOS only, no Android parity; PROPOSED iOS values adopted"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "NOT_APPLICABLE, withdrawn; nothing open depends on it"
+    },
+    {
+      "id": "T-071e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20b CameraLensChooser + camera argument/result in CameraQuestionHandler; catalog property; unit",
+      "depends_on": [
+        "T-071a"
+      ],
+      "evidence": [
+        "CI 935a995 green (ci 40436347754: core-linux, core-macos, xcode, simulator; ipa 40436347738); CameraLensTests rows 3/4/7 + catalog; awaiting independent review",
+        "Independent high-effort review 2026-10-27 at ea7e649: PASS (CI ea7e649 green: ci 40435697186, ipa 40435697228); low findings fixed in 0052d4c (CI green ci 40443375548)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-31, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-071f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20b CameraSession lens switch (.back <-> .front, unmirrored still, 1 s deadline); build, D",
+      "depends_on": [
+        "T-071b"
+      ],
+      "evidence": [
+        "CI 935a995 green (ci 40436347754 xcode build, ipa 40436347738); awaiting independent review; device rows 1/5/6 NOT_VERIFIED",
+        "Independent high-effort review 2026-10-27 at ea7e649: PASS (CI ea7e649 green); low findings fixed in 0052d4c (CI green)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-27, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-071g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-20b window switch button, 前方/后方 label, voice-driven switch before capture; S, D",
+      "depends_on": [
+        "T-071e",
+        "T-071f"
+      ],
+      "evidence": [
+        "CI 935a995 green (ci 40436347754 xcode + simulator, ipa 40436347738); awaiting independent review; device rows 1/2/6 NOT_VERIFIED",
+        "Independent high-effort review 2026-10-27 at ea7e649: PASS (CI ea7e649 green); device rows NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-27, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-04a SpeechClassifier port + SpeechConfirmation gate rule (confirming state, fallback, 抗噪 switch); unit",
+      "depends_on": [
+        "T-013"
+      ],
+      "evidence": [
+        "72afcc2: SpeechConfirmation in SpeechUplinkGate (confirming state, rejection label, silent-classifier fallback, 抗噪 off = F-04); SpeechConfirmationTests rows 1-3, 5-6; CI green",
+        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes 79cbfa0/1ce401f/751cbda, CI green on fix/f04a-review); N1 reset-armed fix committed, CI blocked by Actions billing",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) incl. N1 reset-armed fix; re-review PASS"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-27, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-04a NovaAudio SoundAnalysisSpeechClassifier; voice processing pinned; build, D",
+      "depends_on": [
+        "T-013a"
+      ],
+      "evidence": [
+        "72afcc2: NovaAudio SoundAnalysisSpeechClassifier, voice processing pinned; xcode/simulator/ipa green at 175f9fa; device CPU/latency NOT_VERIFIED",
+        "Re-review 2026-10-27: PASS build+unit; device CPU/latency NOT_VERIFIED",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); iOS build of NovaAudio green on fix/f04a-review (751cbda); device CPU/latency rows NOT_VERIFIED (specs/human-test-plan.md)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-27, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-04a barge-in uses speech confirmation; 音频测试 line; 设置 抗噪 switch; unit, S, D",
+      "depends_on": [
+        "T-013a"
+      ],
+      "evidence": [
+        "175f9fa: classifier wired in AgentRuntime, 设置 抗噪 switch and 音频测试 line visible on iPhone 17; barge-in uses hasRecentSpeech confirmation; device noise rows NOT_VERIFIED",
+        "Re-review 2026-10-27: PASS; device rows NOT_VERIFIED",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); App build green on fix/f04a-review (751cbda); device rows NOT_VERIFIED (specs/human-test-plan.md)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-27, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-04a noise corpus fixtures + corpus tests; unit",
+      "depends_on": [
+        "T-013a"
+      ],
+      "evidence": [
+        "10 synthetic seeded clips Fixtures/audio/noise (scripts/fixtures/gen_noise_corpus.py, --check clean); NoiseCorpusTests rows 1-3, 5-6; check_imports 0 violations; swift test not run locally (Windows) - awaiting CI core-linux/core-macos and independent review; known gap: 5 dB SNR raw PCM under the F-04 2.2x energy rule (withKnownIssue), device row decides",
+        "Re-review 2026-10-27: PASS unit rows 1,2(10 dB),3,5,6; 5 dB SNR row withKnownIssue -> device run; CI for 797d3b3 green via b7a1714 (ci 40443350576)",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); 5 dB SNR row is a known issue left to the device run"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-27, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-16a query_live_info current_location (regeo address), codes, catalog + persona; unit, contract, D",
+      "depends_on": [
+        "T-046",
+        "T-042a"
+      ],
+      "evidence": [
+        "c390f64: query_live_info current_location (regeo address, source, LOCATION_PERMISSION_DENIED/NO_LOCATION/key codes), catalog + persona; unit tests; CI green at 175f9fa; device answer NOT_VERIFIED",
+        "Re-review 2026-10-27 at 88eaf5c: PASS (fixes b7a1714, CI green ci 40443350576); stays RUNNING until merged head CI runs (Actions billing block)",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace); re-review PASS 2026-10-27"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-27, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "H-F16b",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "priority": 10,
+      "action": "Approve specs/features/map-current-location.md (F-16b); OQ-MAP-1 and OQ-MAP-3 decided 2026-10-29 (in-car conventions), OQ-MAP-2 open",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read F-16b; reply approve (defaults) or give answers to OQ-MAP-1..3",
+      "pass_criteria": "F-16b status APPROVED in the spec file",
+      "expected_return": "approve, or answers to OQ-MAP-1..3",
+      "quantified": {
+        "options": [
+          "Approve with OQ-MAP-2 default (real dot gray during simulated navigation)",
+          "Approve with a different OQ-MAP-2 answer",
+          "Rewrite"
+        ]
+      },
+      "evidence": [
+        "2026-10-29 owner: 'in car then' -> OQ-MAP-1 follow + 15 s auto-recenter, OQ-MAP-3 heading arrow >= 5 km/h",
+        "2026-10-29 owner: OQ-MAP-2 'for simulation the two should be the same' -> one marker; spec APPROVED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished (sub-item, no own STATUS row), nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "H-F05a",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "priority": 10,
+      "action": "Approve specs/features/mandarin-transcript.md (F-05a); decide OQ-STT-1..2 or take the defaults",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read mandarin-transcript.md (F-05a); reply approve (defaults) or give answers to OQ-STT-1..2",
+      "pass_criteria": "Spec status APPROVED in the spec file",
+      "expected_return": "approve, or answers to OQ-STT-1..2",
+      "quantified": {
+        "options": [
+          "Approve with defaults (OQ-STT-1 no, OQ-STT-2 Mandarin only)",
+          "Approve with different OQ-STT answers",
+          "Rewrite"
+        ]
+      },
+      "evidence": [
+        "2026-10-29 owner: 'Approve defaults' -> spec APPROVED with default answers to all open questions"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished (sub-item, no own STATUS row), nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-05a LocalTranscriber port, TranscriptSelector, TranscriptLanguage, GuardContext.wordsReliable + wordsUnclear; unit rows 1-4",
+      "depends_on": [
+        "H-F05a"
+      ],
+      "evidence": [
+        "f7c3623 + review notes: LocalTranscriber port (NovaPorts), TranscriptLanguage + TranscriptSelector S1-S5 (NovaVoice/Transcript), GuardContext.wordsReliable, ToolCallGuards.wordsUnclear (allow-type: set_speech_output), WORDS_UNCLEAR (PROPOSED) + advice, AgentEvent.driverWords; F-05a unit rows 1-4",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 388 tests + 1 known issue; spec-trace 36 ids incl. T-016a: F-05a)",
+        "Independent read-only review at high effort 2026-10-29: PASS (no blocking; applied: decomposed accents, per-character counting for non-Latin scripts, tests for failure-before-end and reliability reset)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-29, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016b",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "evidence": [
+        "Owner 2026-11-03: unneeded specs removed. T-016f replaced Apple Speech with the bundled recognizer; the T-016a review notes are in AgentState and AgentRuntime"
+      ],
+      "priority": 35,
+      "action": "F-05a AppleSpeechTranscriber (NovaAudio, Speech framework), import gate entry, NSSpeechRecognitionUsageDescription, permission with first mic use; iOS build",
+      "depends_on": [
+        "T-016a"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "NOT_APPLICABLE, withdrawn; nothing open depends on it"
+    },
+    {
+      "id": "T-016c",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "evidence": [
+        "Owner 2026-11-03: unneeded specs removed. T-016f replaced Apple Speech with the bundled recognizer; the T-016a review notes are in AgentState and AgentRuntime"
+      ],
+      "priority": 40,
+      "action": "F-05a wire transcriber + selector into AgentRuntime, audio-test diagnostics line; S, D rows 5-9",
+      "depends_on": [
+        "T-016b"
+      ],
+      "notes": "From the T-016a review: tag Gemini transcript with its utterance (a late u1 final after begin(u2) is booked to u2); show 「（没听清）」 for DriverWords.unclear (no view state yet); always route words through the selector once wired (AgentState latches selectorOwnsWords)",
+      "archived_on": "2026-11-19",
+      "archive_reason": "NOT_APPLICABLE, withdrawn; nothing open depends on it"
+    },
+    {
+      "id": "H-F15a",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "priority": 10,
+      "action": "Approve specs/features/navigation-modes.md (F-15a); decide OQ-NAVM-1..4 or take the defaults",
+      "depends_on": [],
+      "automation_blocker": "owner_decision",
+      "procedure": "Read navigation-modes.md (F-15a); reply approve (defaults) or give answers to OQ-NAVM-1..4",
+      "pass_criteria": "Spec status APPROVED in the spec file",
+      "expected_return": "approve, or answers to OQ-NAVM-1..4",
+      "quantified": {
+        "options": [
+          "Approve with defaults (OQ-NAVM-1 no voice switch, 2 refuse without fix, 3 foreground only, 4 web route + own matching)",
+          "Approve with different OQ-NAVM answers",
+          "Rewrite"
+        ]
+      },
+      "evidence": [
+        "2026-10-29 owner: 'Approve defaults' -> spec APPROVED with default answers to all open questions"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished (sub-item, no own STATUS row), nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-040b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15a guards navigationNotRequested (start / navigate_to) and wordsUnclear, advice sentences; unit row 4",
+      "depends_on": [
+        "H-F15a",
+        "T-016a"
+      ],
+      "evidence": [
+        "5dfa6d5 + review fix: navigationNotRequested (route-list pick needs pick/start/confirmation words said after the list appeared; navigate_to needs go/place/search or correction words), wordsUnclear covers both, taps exempt (I-6), NavigationFlags.routeChoiceOpen (App passes phase == awaitingRouteSelection); NAVIGATION_NOT_REQUESTED PROPOSED + advice; F-15a row 4",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 399 tests + 1 known issue)",
+        "Independent read-only review at high effort 2026-10-29: PASS (T-040a + T-040b together); applied: every intent must be newer than the route list, correction words for navigate_to"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-29, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-05a §6 revised: remove the driver transcript from every tool guard (table in §6), withdraw wordsReliable / WORDS_UNCLEAR, CONFIRM_REQUIRED for exit while guiding, along-route list instead of P61; unit row 4 (revised)",
+      "depends_on": [
+        "T-016a"
+      ],
+      "notes": "Owner rule 2026-10-29 after run 9f48c45 (最快的 refused 3x: WORDS_UNCLEAR x2, NAVIGATION_NOT_REQUESTED x1): transcript is for display only. Stop phrase and echo filter keep using the zh-CN text (not tool calling).",
+      "evidence": [
+        "1f35bac + review fix: GuardContext without transcript (turn, closedTurns, now, nav state, fromTap); word guards and WORDS_UNCLEAR removed; CONFIRM_REQUIRED for exit while guiding (later driver turn within 15 s, taps exempt, cleared when guidance ends); navigate_to while guiding lists over the route; F-05a row 4 (revised)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 381 + 1 known issue, NovaServices 35)",
+        "Independent read-only review at high effort 2026-10-29: PASS; applied: clear pending exit question when guidance ends, claim-phrase test"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-29, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-040e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-15a §2.5 revised: start guard on driver turns counted by the uplink gate (no transcript), drop the navigate_to word guard, claim guard holds a success claim after a refusal; unit row 4 (revised), D row 12",
+      "depends_on": [
+        "T-040b",
+        "T-016d"
+      ],
+      "evidence": [
+        "1f35bac + review fix: choose_navigation_option needs closedTurns > routeListTurn (uplink-gate closes), taps exempt; route-chosen claims (已选好路线, 已为您选...) are navigation claims with test; F-15a row 4 (revised). D row 12 NOT_VERIFIED (device)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 381 + 1 known issue, NovaServices 35)",
+        "Independent read-only review at high effort 2026-10-29: PASS; applied: clear pending exit question when guidance ends, claim-phrase test"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-29, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-05a §6 ending navigation: remove confirmExit / exitConfirmWindow; exit_navigation_mode ends guidance on the call, result next says 已结束导航; unit: one call ends guidance whatever the transcript, CONFIRM_REQUIRED never returned",
+      "depends_on": [
+        "T-016d"
+      ],
+      "notes": "Device run ed40023 17:30: 结束导航 refused twice (CONFIRM_REQUIRED); her question took ~17 s so the yes came 20.6 s after the first refusal, past the 15 s window. Owner 2026-10-29: \"Update spec\" — common practice ends navigation on the voice command at once.",
+      "evidence": [
+        "7ed283f: confirmExit / exitConfirmWindow / exitAsked removed; exit_navigation_mode runs on one call; stop result next 「说一句：已结束导航。」; CONFIRM_REQUIRED defined, never returned; F-05a §6 test exitAtOnce",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings",
+        "D: 结束导航 ends at once NOT_VERIFIED (device)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-29, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-040f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "(reduced by T-040h) unqualified sound during her reply never counts as the driver speaking: no answerOwed, check and stop its uplink (F-04a); rows 13-14 (revised). routeListTurn part withdrawn",
+      "depends_on": [
+        "T-040e"
+      ],
+      "notes": "Device run ed40023: guidance started unasked at 17:30:00 and 17:42:57, each ~2 s after bargeIn(qualified: false) while she read the route list; no driver speech in between.",
+      "evidence": [
+        "0beedf3: utterance counts only if it began while she was silent (reply/guidance + 500 ms echo tail) or became a qualified 别说了; else no closedTurns, no answerOwed, no driverUtterance; App mutes such an utterance to Gemini (activity marks + audio, decided once per utterance) while gate events and transcriber still get it; routeListTurn set on destination_selected with routeListPending until flags show the list; F-15a row 13 (4 tests)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings; minor: mute applied async (first ms of a reply may still go up), test for 别说了 final before speechStopped suggested",
+        "Row 14 NOT_VERIFIED (device)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-29, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-040g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-15a §9 one trip at a time: route engine + NavigationController owned by the app (built once), sessions attach; at most one drive; stale engine geometry dropped; trip continues across session end (OQ-NAVM-5 default); rows 15-16",
+      "depends_on": [
+        "T-040d"
+      ],
+      "notes": "Device run ed40023: AgentRuntime.start() builds a new engine per session and stop() never stops it; session 1's simulated drive ran on from 17:30 to ~17:42 with no session; session 3's drive at 17:42:57 ran alongside it, so the marker jumped between two cars.",
+      "evidence": [
+        "24c8cc7: AmapRouteEngine + NavigationController built once (AgentRuntime.appTrip), sessions attach via TripListeners and first see the current snapshot; screen follows the trip in order with no session; stop() keeps the trip (OQ-NAVM-5 default); simulated drive draws only while current (stale drive never reaches the map); F-15a row 15 unit (NovaServices OneDriveTests)",
+        "Gates PASS 2026-10-29 on Linux Swift 6.0.3 (NovaCore 385 + 1 known issue, NovaServices 36, spec-trace 44 ids)",
+        "Independent read-only review at high effort 2026-10-29 (7ed283f, 0beedf3, 24c8cc7): PASS, no blocking findings; minor: trip keeps the first session's SwitchableLocationProvider (reads 位置来源 per request)",
+        "iOS build green 2026-10-29: Codemagic NovaDrive iOS Build on 7565bcf (includes 24c8cc7). Rows 15 (D), 16 NOT_VERIFIED (device)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-29, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-040h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 20,
+      "action": "F-15a §2.5 route choice dropped: routes ready -> guidance starts on the recommended route; navigate_to returns navigation_started + alternatives; choose_navigation_option while navigating replaces the route (no second trip); withdraw navigationNotRequested / routeListTurn; catalog tool text; contracts/navigation.md iOS note; rows 10, 12 (revised)",
+      "depends_on": [
+        "T-040e"
+      ],
+      "notes": "Owner 2026-10-29: \"save this drop on spec\". AWAITING_ROUTE_SELECTION came from the Android port; guards around it failed on 9f48c45 (最快的 refused) and ed40023 (unasked starts). Common practice starts on the best route once the place is known.",
+      "evidence": [
+        "73954a2 + review fixes: routes ready -> guidance starts on the recommended route (navigation_started + alternatives + one offer + offer_preference); choose_navigation_option while navigating replaces the route from the same calculation (route_changed / route_unchanged), a failed change keeps the current route; navigationNotRequested / routeListTurn / routeChoiceOpen withdrawn; iOS tool text for navigate_to and choose_navigation_option; F-15a rows 10, 12 unit",
+        "Gates PASS 2026-10-30 on Linux Swift 6.0.3 (NovaCore 391 + 1 known issue, NovaServices 36, spec-trace 46 ids)",
+        "Independent read-only review at high effort 2026-10-30 (1635c14, 73954a2): PASS, no blocking findings",
+        "Not done (minor, noted): tap target for alternative routes while navigating (App UI), recalculation from the current position on change in gps mode; D rows 10, 12 NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-30, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 15,
+      "action": "F-05a §12: bundled sherpa-onnx streaming Mandarin recognizer (NovaAsrSherpa) replaces AppleSpeechTranscriber; model pick <=80 MB, pinned fetch + SHA-256 at build, not in git; gate utterances drive the stream; remove Speech permission; diagnostics + asr log lines; import gate + architecture §3.2 row; rows 1-10",
+      "depends_on": [
+        "T-016c"
+      ],
+      "notes": "Owner 2026-10-30 \"Yes, write spec\". Device 25a5cd9: phone dictation languages Cantonese/English UK/Japanese only, so SFSpeechRecognizer zh-CN unavailable; owner will not add a Pinyin/Zhuyin keyboard.",
+      "evidence": [
+        "0c2a9b9: pinned ASR model (zipformer-small-ctc-zh-int8-2025-04-01) + KWS model fetch with SHA-256, fails closed (test_checksum_failure.sh)",
+        "16a3c13: Packages/NovaAsrSherpa (sherpa-onnx 1.12.21 ios xcframeworks, pinned SHA-256), SherpaTranscriber; App uses it, Apple Speech and its permission removed",
+        "Codemagic NovaDrive iOS Build green on 16a3c13 (2026-10-30); Linux gates green",
+        "Independent read-only review at high effort 2026-10-30 (3c3789b..16a3c13): PASS. Deviation recorded: models from pinned Hugging Face revisions (github.com denied), KWS from a mirror, not checked byte-identical to the k2-fsa release",
+        "Review fix: load-failure lines carry the failure kind (no paths)",
+        "Device rows 5-10 NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-03, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-022a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 16,
+      "action": "F-08 §14: stop phrase while she talks via sherpa-onnx KeywordSpotter (NovaAsrSherpa) on a fixed 7-phrase StopPhrases set, fed only during her playback + 500 ms tail; hit -> .stopPhrase (flush, epoch), nothing to Gemini; transcript ListeningIntent check as backup; hint under 她在说话; stopPhrase/stopPhraseMiss log; rows 1-8",
+      "depends_on": [
+        "T-016f"
+      ],
+      "notes": "Owner 2026-10-30 \"Yes, spec it\" after community review (Google bare 'stop' while speaking, car command words). Device 25a5cd9: 别说了 never stopped her (bargeIn qualified false x3; unsent, no local recognizer).",
+      "evidence": [
+        "3c3789b: StopPhrases, stop-phrase window, StopPhraseFeeder, .stopPhraseSpotted, log lines, hint; rows 1-3 unit; gates green. Sherpa KeywordSpotter adapter waits on T-016f",
+        "3c3789b + 00e2522 (review D1-D4): NovaCore stop-phrase logic, rows 1-3 unit",
+        "16a3c13: SherpaStopPhraseSpotter fed during the stop-phrase window; 音频测试 line",
+        "Codemagic NovaDrive iOS Build green on 16a3c13 (2026-10-30); Linux gates green",
+        "Independent read-only review at high effort 2026-10-30: PASS. Review fix: a late transcript final of the stopped utterance is ignored after it closed (lateFinalIgnored test)",
+        "Deviation for owner sign-off: KWS model files 12 MB vs spec item 2 <= 10 MB",
+        "Device rows 4-8 NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-30, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-034a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 12,
+      "action": "F-21 §14: rewrite Persona.instruction as persona -> car scope (strict, tool results only, rules 2-7 kept) -> other scope (own knowledge, 3-5 spoken sentences, continue on request, live facts: say cannot check) -> guardrails; <=1500 chars; no F-09 change; rows 1-8",
+      "depends_on": [],
+      "notes": "Owner 2026-10-30 \"Yes, spec it\" after community review (VW IDA, Mercedes MBUX, Gemini Live / OpenAI Realtime prompt guides). Device 25a5cd9: 介绍一下珠海 got a short no-info answer; no reply longer than ~6 s.",
+      "evidence": [
+        "8cb80de: PersonaInstruction.base in NovaCore, row 1 string tests; Linux gates green (NovaCore 403)",
+        "Codemagic NovaDrive iOS Build green on 16a3c13 (2026-10-30)",
+        "Independent read-only review at high effort 2026-10-30 (8cb80de): PASS, no blocking findings",
+        "Device rows 2-8 NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-30, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 5,
+      "action": "F-05 §14: ResumeOnce one-shot helper; URLSessionWebSocketConnection.ping() resumes once and logs duplicateCallback; audit all checked continuations outside Tests, switch Apple/vendor-callback sites (CameraSession x3, SystemSpeechGuidanceVoice) to ResumeOnce; keep timeouts (no crash->hang); rows 1-8",
+      "depends_on": [],
+      "notes": "Owner 2026-10-30 \"write this is spec\". Device 16a3c13 17:37: airplane mode mid-conversation crashed the app (EXC_BREAKPOINT, CheckedContinuation resumed twice in ping() sendPing handler; NovaDrive-2026-10-30-173715.ips).",
+      "evidence": [
+        "ResumeOnce (NovaKit); ping() first answer wins, duplicateCallback site=ping once per socket; rows 1-3 unit (ResumeOnceTests, PingOnceTests); Linux gates green",
+        "Audit (item 3): (a) switched: WebSocketTransport ping, SystemSpeechGuidanceVoice.render (site=guidanceVoice), AgentRuntime SystemPhoneDialer.dial (site=phoneDial), CameraSession.captureStill (one-shot pending entry + ResumeOnce). (b) kept: CameraSession.start (own code resumes once per branch on its queue), CameraSession.select (SwitchOutcome one-shot), GeminiLiveProvider.ping (PingRace), ManualClock.sleep, CameraQuestionHandler acquire/withDeadline (FirstWins), NavigationController.wait (actor, waiting slot cleared before resume)",
+        "Waiting: Codemagic build, independent review; device rows 6-8 NOT_VERIFIED",
+        "Independent read-only review at high effort 2026-10-30 (d1e5480, db11c96): PASS, no blocking findings; review fixes: network events delivered in order through one consumer, configError cleared on reconnecting",
+        "Codemagic NovaDrive iOS Build green on ac53787 (2026-10-31)",
+        "Device rows 6-8 NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-30, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 6,
+      "action": "F-24 §14: NetworkPathWatcher (NWPathMonitor, NovaPlatform, 500 ms debounce); VoiceSession networkLost/networkRestored inputs: RECONNECTING waitingForNetwork without counting attempts, immediate attempt with handle on restore, fresh 5-attempt budget, terminal errors unchanged, start-while-offline waits, 600 s offline cap ends session; chip 等待网络… / 网络已断开，点按重新开始; logs; rows 1-10",
+      "depends_on": [
+        "T-016g"
+      ],
+      "notes": "Owner 2026-10-30 \"just write spec to use this approach\" after community comparison. Device 16a3c13 17:39: after airplane mode the app stayed on 连接失败 after the network returned (5 attempts spent offline, no path monitor).",
+      "evidence": [
+        "NetworkPathDebouncer (NovaKit, 500 ms), NetworkPathWatcher (NovaPlatform, NWPathMonitor; Network import owned by NovaPlatform); VoiceSession networkLost/networkRestored: waitingForNetwork without attempts, immediate attempt with handle on restore, fresh budget, terminal unchanged, start offline waits, offlineCap 600 s ends session (offlineEnded); chip 等待网络… / 网络已断开，点按重新开始 (tap restarts); logs networkLost, networkRestored, reconnectAttempt reason=backoff|offlineRestore, resumed handle=yes|no, offlineCapReached; rows 1-7 unit; Linux gates green",
+        "Waiting: Codemagic build, independent review; device rows 8-10 NOT_VERIFIED",
+        "Independent read-only review at high effort 2026-10-30 (d1e5480, db11c96): PASS, no blocking findings; review fixes: network events delivered in order through one consumer, configError cleared on reconnecting",
+        "Codemagic NovaDrive iOS Build green on ac53787 (2026-10-31)",
+        "Device rows 8-10 NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-30, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-034b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 4,
+      "action": "F-21 §15: add 摄像头画面 to the strict scope and rule 8 (camera questions -> describe_camera_view, question = utterance, rear lens for 后面/倒车, answer only from the result, failure -> say cannot see); other scope excludes camera questions; base <= 1500 chars; toolCall diagnostic; catalog-coverage guard test (every ToolCatalog tool mapped to a base phrase or notByVoice); rows 1-8",
+      "depends_on": [],
+      "notes": "Owner 2026-10-31 \"write this on the spec\". Device ac53787 13:36-13:40: camera questions never opened the camera (claimHeld x5, correctionSent, turnUnanswered x2); T-034a scope sent them to the no-tool scope.",
+      "evidence": [
+        "488d112: base instruction strict scope gains 摄像头画面 (and the other catalog topics: 车内场景, 打开地图或设置, 静音, 结束对话), rule 8 describe_camera_view, other scope 「不用工具（要看画面的问题除外）」; base 1093 chars; ToolPromptCoverage guard test over ToolCatalog.declarations (rows 1, 7, 8 unit); toolCall/toolResult log lines for describe_camera_view; Linux gates green",
+        "Waiting: Codemagic build, independent review; S/D rows 2-6 NOT_VERIFIED",
+        "Independent read-only review at high effort 2026-10-31 (488d112): PASS, no blocking findings",
+        "Codemagic NovaDrive iOS Build green on e00fc27 (2026-10-31)",
+        "S/D rows 2-6 NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-31, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-022b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §15: activityHandling START_OF_ACTIVITY_INTERRUPTS (manual detection kept); on a stop phrase send activityStart+activityEnd with no audio so Gemini cancels the reply; replyDrained on stop (unmute); no re-ask for the stop utterance, re-ask text names the newest transcript; abandonNextTurn cleared by a new utterance; stopSync logs; rows 1-9",
+      "depends_on": [
+        "T-022a"
+      ],
+      "notes": "Owner 2026-10-31 \"write this on spec\". Device ac53787 15:23-15:28: after 别说了 new questions got the same answer (turnUnanswered+emptyResponseReask x5, sentToModel=false muteReason=reply after stops); stop was local only and the session uses NO_INTERRUPTION.",
+      "evidence": [
+        "ActivityDetectionConfig.novaDrive (manual + START_OF_ACTIVITY_INTERRUPTS); ProviderCommand.interruptReply -> GeminiLiveProvider.sendEmptyActivity (activityStart+activityEnd under the state lock, skipped mid-utterance); stop phrase: flush, then interruptReply, arbiter.replyDrained, pipeline .stopped (re-ask/give-up/correction cancelled, reaskSuppressed), stop utterance starts no clock; re-ask text names the newest transcript; abandonNextTurn cleared by a new sent utterance (abandonCleared); stopSync sent / interrupted ms / stopSyncNoInterrupt (1 s); unit rows 1-5; Linux gates green",
+        "Re-ask vs 1 s interrupt wait: the stop cancels the pending re-ask and the next utterance's re-ask fires >= 6 s later, so no re-ask is sent inside the 1 s window by construction",
+        "Waiting: Codemagic build, independent review; recorded row 6 (GeminiRecorder) and device rows 7-9 NOT_VERIFIED",
+        "Independent read-only review at high effort 2026-10-31 (019bc83): PASS, no blocking findings; review fixes: a stop ends the echo-tail mute (SpeechUplinkGate.endEchoTail), releases a waiting fallback guidance sentence, abandons a turn Gemini opens for the empty activity when the stopped turn had already closed, only the stopped turn's interrupted closes the stop sync. Open for device row 9: a relay reading voiced by Gemini is also interrupted on Gemini by a stop (it was already flushed locally under §14)",
+        "Codemagic NovaDrive iOS Build green on e00fc27 (2026-10-31)",
+        "S row 6, D rows 7-9 NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-31, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-071h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 4,
+      "action": "F-20a §14: CredentialKey.zhipuKey + 设置 field 智谱 key（视觉，推荐） + readiness; GLMVisionClient (open.bigmodel.cn v4 chat/completions, glm-4.6v-flash, thinking disabled, base64 image, box markers stripped); VisionChain GLM -> Gemini -> Qianfan (keys present only; 4.5 s first, >= 1.5 s left for next, 8 s total); VisionAnswer.busy + VISION_BUSY and honest advice texts; Gemini pinned gemini-3.5-flash-lite; visionAttempt/visionResult logs; rows 1-15",
+      "depends_on": [
+        "T-071c"
+      ],
+      "notes": "Owner 2026-10-31 prefers GLM-4.6V-Flash (free, Zhipu) and \"just write this into spec\". Device e00fc27 17:43-17:44: describe_camera_view called but Gemini gemini-flash-latest returned 503 twice -> VISION_FAILED -> 刚才没看清楚. Owner enters the Zhipu key in 设置; never in repo or chat.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS (Linux, 2026-10-31)",
+        "independent read-only review high effort: PASS, non-blocking notes 1, 2, 6 fixed",
+        "device rows 12-15 NOT_VERIFIED; Codemagic NovaDrive iOS Build green on 67118b2 (2026-10-31)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-31, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-022c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §16: stop utterance not cut at unmute, held unsent to the closing silence (endReason=stopPhrase); utterances starting within 3 s after it are buffered and released only on a local ASR partial with words (or sent whole at close if the final has words), else dropped; stop-phrase transcript dropped; 8 s cap; no reply/re-ask without a sent utterance; postStopReleased/postStopDropped logs; rows 1-12",
+      "depends_on": [
+        "T-022b"
+      ],
+      "notes": "Owner 2026-10-31 \"write spec here\" after community review (LiveKit min_words / false interruption, Pipecat min words + STTMuteFilter). Device e00fc27 18:30: stopSync interrupted 193 ms, but the tail of 别说了 (utterance 3, cutAtUnmute split, no ASR words, peakDb 37) was sent and she resumed at 18:30:39.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS (Linux, 2026-10-31)",
+        "independent read-only review high effort: PASS, non-blocking notes 1, 2, 6 fixed",
+        "device rows 8-12 NOT_VERIFIED; Codemagic NovaDrive iOS Build green on 67118b2 (2026-10-31)"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-10-31, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §14: query_live_info kind=current_time (catalog enum + description + golden), pure result from injected clock and TimeZone.current (HH:mm 24h, period, Gregorian Chinese date, weekday, timeZone, utcOffset, next), persona rule line within 1500 chars, read-only/no wait cue, logs; rows 1-10",
+      "depends_on": [
+        "T-046a"
+      ],
+      "notes": "Owner 2026-10-31 \"Yes, spec it\". Device 67118b2 ~20:08 CST: 现在几点 answered 12:08 (UTC); no time source in the app.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS (Linux, 2026-11-01)",
+        "independent read-only review high effort: PASS; notes 1-2 fixed",
+        "period: 8 o'clock hour is 早上 per row 2 (item 2 clarified; owner to confirm)",
+        "device rows 8-10 NOT_VERIFIED; Codemagic build green on 0ed6299"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-01, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-001a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §17 items 1-2: EchoSpike matches LiveAudio (voiceChat, player attached before voice processing), volume and AGC matrix, peak in peakDb units; earlier T-001 numbers marked as not the app's setup; row 12",
+      "depends_on": [
+        "T-001"
+      ],
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. EchoSpike used .default and enabled voice processing before attaching the player.",
+      "evidence": [
+        "EchoSpike in LiveAudio's setup (voiceChat, player before voice processing, AGC/ducking/restart), volume + AGC matrix, peakDb; T-001 numbers flagged; review PASS",
+        "device row 12 NOT_VERIFIED; Codemagic build green on 0ed6299"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-02, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-022d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §17 items 3-8: pure BargeInCheck, driver level bar, recent words as pinyin, bargeInShadow and levelCheck logs with no words, echo tail 800 ms, muteEndedMidReply log; no other behaviour change; unit rows 1-6; device rows 9-11",
+      "depends_on": [
+        "T-022c"
+      ],
+      "notes": "Owner 2026-11-02 \"just write a spec and push that\" after community review. Device 0be787e 10:00:43 and 10:01:04: quiet sounds (peakDb 69, 64) with ASR partials were sent and answered.",
+      "evidence": [
+        "BargeInCheck/BargeInShadow log-only, driver bar, her words as pinyin, bargeInShadow/wouldStopAt/levelCheck numbers only, echoTail 800 ms, muteEndedMidReply per model turn; unit rows 1-6; gates green; review PASS after fixes (0ab2d7c)",
+        "row 3 嗯嗯: item 3 order gives noWords (filler) before echoWords; echo stage tested directly",
+        "device rows 9-11 NOT_VERIFIED; Codemagic build green on 0ed6299"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-02, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-022e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-08 §17 items 9-12 and 14-16: setting off by default, 10 dB dip, buffered audio, stop on confirmed new words, new echoWords rule with word order; unit rows 7-8, 18 and row 3 still passing; device rows 13-17",
+      "depends_on": [
+        "T-022d"
+      ],
+      "notes": "Owner 2026-11-02 said yes to building now behind the setting, without waiting for T-022d's device numbers. On by default still needs owner approval of rows 9-11, 14, 16, 17.",
+      "evidence": [
+        "BargeInLive behind 可以打断她（实验） (default off): 10 dB dip on early stages, kept audio released on wouldStop after core .bargeInStop flush (also between clauses), gate adopts the rest; cut at unmute held until judged (echo never sent); stop phrase / setting off / cap cancel and restore volume; word-order echoWords (runs of 3, 70%); unit rows 3, 7, 8, 18; gates green (481 tests); independent review PASS on third round (80fc1fc) + P1 fix",
+        "known, not fixed: spotter-stop vs wouldStop race (N3); guidance checked only at start (L2); core utterance counter +1 per live stop (L4); closed candidate dropped by next onset within its 2 s final wait (L5); two driverUtterance inputs on a carry release (P2); new candidate during carrying uses today's path (P3)",
+        "device rows 13-17 NOT_VERIFIED; Codemagic build pending; on by default needs owner approval of rows 9-11, 14, 16, 17"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-02, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-031a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §14 items 1-6: comfort test set of 55+ cases with held-out cases, outcome scorer, in-app runner over sendText, baseline on the fixed table; rows 1, 2, 7",
+      "depends_on": [
+        "T-031"
+      ],
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Keys stay in the app's settings; logs hold numbers and case ids only.",
+      "evidence": [
+        "gates green (run_all.sh PASS, NovaCore 494 tests, 1 known noise-corpus issue)",
+        "rows 1, 2 unit; runner unit with a scripted provider; review PASS (second round)",
+        "row 7 device NOT_VERIFIED: baseline (table) and model-mode scores pending owner run; Codemagic build pending"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-02, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-031b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §14 items 7-13: setting off by default, catalog variant without run_scenario, get_vehicle_state, goal prompt, VehicleActionPolicy on both paths, claims need an ok result of the named tool; rows 3-9",
+      "depends_on": [
+        "T-031a"
+      ],
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Off path stays byte-equal to the Android catalog. windowSpeedKmh and windowMaxAtSpeed are proposed values.",
+      "evidence": [
+        "gates green; rows 3-6 unit; review PASS after fix f3f8c09 (claim topics compound words only)",
+        "rows 7-9 device NOT_VERIFIED; Codemagic build pending; windowSpeedKmh 100 and windowMaxAtSpeed 30 stay PROPOSED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-02, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-031d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §15 items 1-11: runner separates failure causes, answer timer from sendText, stage times, blocks listed, 10 fresh held-out cases, tune model mode on tuning cases only, score table and model again; rows 1-7",
+      "depends_on": [
+        "T-031b"
+      ],
+      "notes": "Owner 2026-11-02 \"Yes, write it\" after scores on ace916f: model 27/27 no wrongful action but behind on unprompted wordings and worst time. Stop after this round; T-031c stays an owner decision.",
+      "evidence": [
+        "specs/STATUS.md:112 (2026-11-02, T-031d, result PASS): Runner: sessionFailed (any .failed/.closed, retried once, then infrastructure, not scored), noAnswer (incl. empty turn), stuckAfterTool, slowAnswer; connect limit 10 s, answer timer from sendText; new `turnEnded(TurnEndReason)` from Gemini turnCompleteReason and for a turn ending with nothing open …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-03, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-031f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §17 items 1-7: off-by-default setting saves each conversation to a local file with what she heard, said and did; no change to behaviour; rows 1-7",
+      "depends_on": [
+        "T-031e"
+      ],
+      "notes": "Owner 2026-11-03 \"you should build that for testing\" and \"you jsut wrie a spec and push to cloud\". Needed to diagnose the repeated reply reported that day.",
+      "evidence": [
+        "specs/STATUS.md:115 (2026-11-03, T-031f, result PASS): 「保存对话记录（测试用）」 default off, read at session start (off: no object, no file); Documents/conversations/<yyyyMMdd-HHmmss>.txt, newest 50 kept, 「删除全部对话记录」 with confirmation; header: app version, comfort mode, 可以打断她, style; lines heard-local/heard-gemini/utterance/reply (merged per turn)/reply-out …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-03, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-031g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §18 items 1-5: model-mode control_window and control_climate descriptions state the tool's purpose; no test case added or changed; score table and model; rows 1-3",
+      "depends_on": [
+        "T-031f"
+      ],
+      "notes": "Owner 2026-11-03 \"this make sense then write the spec\" after a community review. Keep-or-revert rule in item 5 is PROPOSED.",
+      "evidence": [
+        "specs/STATUS.md:116 (2026-11-03, T-031g, result PASS): `control_window` model-mode text = 「控制车窗（模拟）。开窗能换入车外空气、散掉车内异味；关窗能隔绝噪音和车外空气。」 + today's rest (built from the table text); `modelClimateDescription` begins 「空调主要调节温度，风量让车内空气流动。」; table mode and other tools unchanged; no test case changed. Rows 1-2 unit (ToolPurposeTests); gates PASS (515 tests, 1 …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-03, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-031h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §19 items 1-3: remove lower temperature from the model-mode sleepy rule; test cases unchanged; same build as T-031g; row 1",
+      "depends_on": [
+        "T-031g"
+      ],
+      "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\" and \"the current test case is ok don't add extra stuff\".",
+      "evidence": [
+        "specs/STATUS.md:117 (2026-11-03, T-031h, result PASS): 「（调低一度温度、开一点车窗或调大风量）」 → 「（开一点车窗或调大风量）」; advice to rest kept; table instruction unchanged; test cases unchanged. Row 1 unit; same build as T-031g; gates PASS; review PASS."
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-03, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-031i",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_APPLICABLE",
+      "priority": 3,
+      "action": "F-12 §20 items 1-4: sleepy driver gets no action and no reply (model rule 5, table base, run_scenario drowsy empty, ten eval cases silent); rows 1-3 unit, row 4 device",
+      "depends_on": [
+        "T-031h"
+      ],
+      "notes": "Owner 2026-11-10: \"why tired would open the air conditioner and wind, this is not making any sense\" and \"probably i prefer don't response at all\". Superseded 2026-11-19 by F-09b §12 (T-031k): the sleepy driver now gets a rest suggestion, not silence.",
+      "archived_on": "2026-11-19",
+      "archive_reason": "NOT_APPLICABLE, withdrawn; nothing open depends on it"
+    },
+    {
+      "id": "T-017a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-09a §2-§5: area per closed utterance from the phone recognizer's final text; control_climate/window/seat and run_scenario refused outside car with NOT_A_CAR_REQUEST; tired utterances silenced in code; record area lines; rows 1-8, 10 unit, row 9 device",
+      "depends_on": [
+        "T-031i"
+      ],
+      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\". | 2026-11-10: Fixes 0211b31 (early-turn calls held for their own utterance, re-armed area wait, per-turn held closes) and d4861a1 (cancelled held call never runs; late call of closed utterance's turn keeps its area) after review FAILs; gates PASS on d4861a1; third independent read-only high-effort review PASS (20/20 area tests + 4 probes). OPEN: S3 Gemini-text fallback as local final (needs source flag); not-sent onset edge; comfortOk timing; no tap path; row 8 router-only; row 9 device NOT_VERIFIED; App not compiled.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh on d13d900's parent: green except a spec-trace test-name miss, fixed in ad2c9a7; CarRequestAreaTests 13 pass after review fixes",
+          "commit": "3d8b1be, ad2c9a7, d13d900 + review fixes"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "FAIL: blocking, dropping a held reply at a new onset could cut her reply (fixed: kept, released whole); medium, a turn Gemini opens before the phone closes the utterance joined the previous area (fixed: attached at close); medium OPEN, the area reads DriverWords.final, which is Gemini's text when the phone has none (selector S3), needs a source flag through DriverTranscript and AgentRuntime; low OPEN: a not-sent onset before the sent utterance's final makes it unknown; no end-to-end comfort tap path exists (row 8 is the router rule only)"
+        },
+        {
+          "device": "row 9 NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-10, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-034c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 4,
+      "action": "F-21 §16: after the turn answering set_speaking_style ends, send contextUpdate{systemInstruction} (session base + new style block) on gemini-3.8-live only, when it differs from what the server holds; same path for a 设置 change; re-send after a resumed setupComplete when it differs from the chain's original; stop after a rejection within 2 s; style-update record lines; rows 1-8 unit, rows 9-11 device",
+      "depends_on": [],
+      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone. | 2026-11-10: Built 46c618b. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: goAway clears held so a change before reconnect goes via resume; skipped reason=model repeats per resumed reconnect on other models; held messages during slow resumed setup count toward pendingLimit; styleUpdatesStopped set via Task{}. 设置 tone picker added. App not compiled; device rows 9-11 NOT_VERIFIED. | 2026-11-10: WITHDRAWN by F-21 §17 (T-034d). Device records 175100 (1006 drop 4.5 s after the update) and 175232 (no reply after the update); owner: \"just write spec to remove this feature\". | 2026-11-10: removed by T-034d (aa734df) per F-21 §17.",
+      "evidence": [
+        "46c618b; scripts/gates/run_all.sh PASS on d4861a1",
+        "Independent read-only review (high effort) 2026-11-10: PASS, 4 Low open; later removed by T-034d"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-10, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-034d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 4,
+      "action": "F-21 §17: remove the §16 contextUpdate path (codec encoder, realtime port call, GeminiLiveProvider, StyleUpdates/StyleUpdateLine, AgentState wiring, AgentRuntime styleUpdatesStopped) and its tests; set_speaking_style next/instruction = 「只说这一句：<line>」 with the five next-conversation lines; 设置 note 「下次对话开始生效。」; rows 1-5 unit, row 6 device",
+      "depends_on": [
+        "T-034c"
+      ],
+      "notes": "Owner 2026-11-10: said 溫柔一點 and heard no difference; community review: no documented mid-session instruction update, affective dialog removed in 3.8, 3.8 style instructions weak with production-sized prompts (forum 184558); owner \"just write spec to remove this feature that fix this big\". | 2026-11-10: built aa734df (revert of 46c618b, new confirmation lines, 设置 picker note 下次对话开始生效). Gates PASS on 360ba48 (NovaCore 776, 1 known issue; NovaRealtime 42; NovaServices 74; spec-trace 119/0). Independent read-only high-effort review PASS: nothing from later commits lost. App not compiled; device row 6 NOT_VERIFIED.",
+      "evidence": [
+        "aa734df; scripts/gates/run_all.sh PASS on 360ba48 (NovaCore 776 with 1 known issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0)",
+        "Independent read-only review (high effort) 2026-11-10: PASS, no later work lost"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-10, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §15 items 1-12: Google Search in the live session behind 联网搜索（实验）, instruction, re-ask time, record and log lines; car tools and guards unchanged; rows 1-11",
+      "depends_on": [
+        "T-046b"
+      ],
+      "notes": "Owner 2026-11-03: the LLM should find the data itself; fixed tools are only for car functions. Mentor complaint: 后天 weather.",
+      "evidence": [
+        "specs/STATUS.md:119 (2026-11-03, T-046c, result PASS): Default off, read at session start; off: setup, instruction and timing equal today's in both comfort modes. On: `tools` = functionDeclarations + `googleSearch`; instruction drops 「天气、」 from the strict list and uses the item 3 sentence (table 1191, model 1420 chars ≤ 1500); re-ask 12 s, give-up …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-03, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §16 items 1-15: two models; web_search through gemini-2.5-flash-lite with sources required, no googleSearch in the live setup, weather and place_details leave query_live_info with the setting on, Search Suggestions shown, record and log lines; rows 1-15",
+      "depends_on": [
+        "T-046c"
+      ],
+      "notes": "Device 2026-11-03, c161c9d: googleSearch in the live setup closes UNAVAILABLE on the free key; 后天 weather hit the today/tomorrow tool. Owner chose two models with 2.5 Flash-Lite. Replaces §15 items 2, 3, 4, 6, 7, 8, 10.",
+      "evidence": [
+        "specs/STATUS.md:120 (2026-11-03, T-046d, result PASS): Live setup never sends googleSearch (§15 search reporting removed). On: `web_search` declared (live_info, repeat-sensitive, query ≤200), client POSTs generateContent with google_search, key in x-goog-api-key, phone date/weekday/zone in its instruction; ok only with text + webSearchQueries + …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-03, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §17 items 1-11: web_search through qwen3.7-flash on the Singapore multimodal API with its own key and sources required; Gemini search client and Search Suggestions removed; error codes logged; rows 1-12",
+      "depends_on": [
+        "T-046d"
+      ],
+      "notes": "Device 2026-11-03, e87affb: web_search failed with http_404, likely gemini-2.5-flash-lite closed to new users. Owner chose to test Qwen on the free quota. Wire format not yet run against the model. Replaces §16 items 4, 5, 8.",
+      "evidence": [
+        "specs/STATUS.md:121 (2026-11-03, T-046e, result PASS): `QwenWebSearchClient` replaces the Gemini client: streamed POST to the dashscope-intl multimodal endpoint, key only in `Authorization: Bearer`, X-DashScope-SSE, item 3 body and system text with phone date; parser joins string/list content, skips reasoning_content and non-JSON lines, last non-empty …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-03, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §18 items 1-9: local record shows each Qwen request body, raw reply, parser counts and outcome, plus whether a key is saved; cancelled path reported; key never recorded; search behaviour unchanged; rows 1-10",
+      "depends_on": [
+        "T-046e"
+      ],
+      "notes": "Device 2026-11-04, e01f464: PC call to qwen3.7-flash found 18 sources; on the phone one query failed no_sources after 3572 ms and 上海明天天气 failed in 2 ms with no system log. Owner asked to record Qwen input and response.",
+      "evidence": [
+        "specs/STATUS.md:122 (2026-11-04, T-046f, result PASS): `WebSearchExchange` (NovaPorts) via `onExchange` on `QwenWebSearchClient`, nil with the record off. Record: `search-request attempt body`, `search-response attempt status ms bytes chunks answerChars sources searchCount body` (over 32,000 chars: first 8,000 + … + last 24,000; counts from the whole …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-04, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §19 items 1-9: SearchDate reads relative and written dates from the query, writes the date into the query, refuses a future-day answer that names only other dates with reason=wrong_date, target_date and next ask her to say the day, record and log lines; rows 1-9",
+      "depends_on": [
+        "T-046f"
+      ],
+      "notes": "Device 2026-11-04, e01f464: 上海后天天气 answered with 11月5日, the 明天 forecast, and she dropped the date. Owner approved a code date fix.",
+      "evidence": [
+        "specs/STATUS.md:123 (2026-11-04, T-046g, result PASS): `SearchDate` (NovaTools): 今天/今日/明天/明日/后天/大后天 (longest first), `[YYYY年]M月D日/号` with year rollover; one day = target; bracket `（2026年11月6日）` after the relative word unless a written date is there; future targets only: answer dates incl. ranges → match/no_date/mismatch, mismatch retries once then …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-04, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §20 items 1-5: search_options gets forced_search true; sources still required; no silent resend without it; rows 1-5",
+      "depends_on": [
+        "T-046g"
+      ],
+      "notes": "PC test 2026-11-04: the same oil price query searched 1 time in 3 with the §17 settings. Owner: the app only calls Qwen to search, so force it. Not yet tested on qwen3.7-flash multimodal streaming.",
+      "evidence": [
+        "specs/STATUS.md:124 (2026-11-04, T-046h, result PASS): `search_options` adds `forced_search: true` (each option one constant); sources still required; a refusal is one request with its code, no resend without it. Rows 1-3 unit; gates and review as T-046f. Rows 4-5 NOT_VERIFIED (device)."
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-04, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §21 items 1-10: current destination from the snapshot, silent clientContent note with turnComplete false when idle and a constant to turn it off, 目的地 and 终点 in a query become the name, hours questions get current_destination in the result, new sentence in her instruction, record and log lines; rows 1-12",
+      "depends_on": [
+        "T-046h"
+      ],
+      "notes": "Device 2026-11-04, e01f464: while navigating to 横琴文化艺术中心 she searched ODD几点关门 and said she could not find ODD. Owner approved the two-part fix after a community review. turnComplete false has never been sent by this app, so row 8 comes first.",
+      "evidence": [
+        "specs/STATUS.md:125 (2026-11-04, T-046i, result PASS): `NavigationFlowState.currentDestination` (navigating incl. a list over guidance, arrived; cleaned, ≤60). 目的地/终点 → name in one pass before `SearchDate`; hint (destination, name absent, hours word) adds `current_destination` + next / advice texts. `AgentState(destinationNotes:)` (on with search, …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-04, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §22 items 1-6: search_options uses search_strategy turbo with enable_source and forced_search; sources still required; no silent resend with another strategy; rows 1-4",
+      "depends_on": [
+        "T-046i"
+      ],
+      "notes": "Device 2026-11-05, 21f4478: Qwen searched in 1 of 10 calls. PC test 2026-11-05, same question 5 times each: agent 0 of 10, turbo 10 of 10, max 10 of 10, no strategy 5 of 5. One question only, so row 3 tests the others.",
+      "evidence": [
+        "specs/STATUS.md:126 (2026-11-05, T-046j, result PASS): `searchStrategy` constant `agent` → `turbo`; `enable_source` and `forced_search` unchanged; system text unchanged; sources rule unchanged; a refusal is one request with its code, no resend with another strategy. Rows 1-2 unit (client: both attempts carry turbo, 400 throws with code; executor: …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-05a §13 items 1-7: pure ScreenLanguage check before driver line, reply, guidance and camera text are shown; other scripts void her reply with NOT_MANDARIN; screen-hidden record line; rows 1-10",
+      "depends_on": [
+        "T-016f"
+      ],
+      "notes": "Owner 2026-11-05: the screen sometimes shows Korean or other languages. No Korean in the 8 records read, so the case itself is not traced; the code shows four unchecked paths. Row 10 is the device check.",
+      "evidence": [
+        "specs/STATUS.md:127 (2026-11-05, T-016i, result PASS): `ScreenLanguage` (NovaVoice/Transcript) show/wait/hide on the whole text so far: other scripts hide; Han passes `isChinese`, or short uppercase/digit tokens only (deviation: row 1 lists 「4S店」 as show but `isChinese` fails it, so `shortTokensOnly` allows Han plus at most as many A-Z/0-9 runs of ≤5 …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-060a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-01 §14 items 1-14: SherpaWakeEngine on the bundled KWS model, WakePhrase with two token lines, no iFlytek keys, 唤醒词 setting, screen on while listening, sound when ready, record lines; rows 1-12",
+      "depends_on": [
+        "T-061",
+        "T-022a"
+      ],
+      "notes": "Owner 2026-11-05: the wake word is not set up. The iFlytek path needs three keys and was never verified on a phone. No public false-wake numbers for this model, so rows 9-12 decide.",
+      "evidence": [
+        "specs/STATUS.md:128 (2026-11-05, T-060a, result PASS): `SherpaWakeEngine` on the bundled KWS model with the two `WakePhrase` token lines (gate `check_kws_tokens.py` covers them); `WakeEngineKind.selected = .sherpa`, iFlytek code kept unused; 唤醒词 setting default on; screen on while listening; hint 「说“你好小诺”唤醒」; ready sound on its own node (two tones …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-24 §15 items 1-10: 60 s retry window with the network up, give-up closes the session through the offline-end path, handle kept in memory for 2 hours, wake word or tap connects again, chip text, record lines; rows 1-9",
+      "depends_on": [
+        "T-016h",
+        "T-060a"
+      ],
+      "notes": "Owner 2026-11-05: once disconnected it does not connect back; let the wake word connect again. The 3 drops in the records recovered, so the owner's failure is not captured yet.",
+      "evidence": [
+        "specs/STATUS.md:129 (2026-11-05, T-016j, result PASS): `ReconnectTuning.retryWindow` 60 s (no attempt limit, network up; a retry starts only inside the window) replaces `maxAttempts`; §14 tests rewritten; give-up closes through the offline-end path; `KeptResumption` holds the handle in memory only, 2 h from its first save (kept again by a resumed …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016o",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-24 §17 items 1-7 (ConnectionNotice in NovaKit; provider failures stop writing model.notice; 重新连接中… after 1 s, 已重新连接 3 s on setupComplete, 连接失败，点按重试 for non-retryable codes; no codes on screen; connNotice log); F-24 §17 rows 1-9.",
+      "depends_on": [
+        "T-016j"
+      ],
+      "notes": "Owner 2026-11-10 build 58 (3108ed0): 连接错误：RESUME_UNAVAILABLE stayed on screen after the 17:31:30 reconnect. model.notice is cleared only by start(by:). The 1007 after a stop phrase is not part of this task. | 2026-11-10: built bfc3e70 (ConnectionNotice in NovaKit, AgentRuntime/DriveView wiring). Gates PASS on 7c10a51: python 58 OK, runners 0, imports 300/0, NovaCore 776 passed (1 known NoiseCorpus issue), NovaRealtime 42, NovaServices 74, spec-trace 119/0. Independent read-only high-effort review PASS; Low open: a connection event landing after stop() can show 连接失败 on the idle screen until next start; waiting flag not cleared on gaveUp. App not compiled; device rows 8-9 NOT_VERIFIED.",
+      "evidence": [
+        "bfc3e70; scripts/gates/run_all.sh PASS on 360ba48 (python 58 OK, runners 0, imports 300/0, NovaCore 776 with 1 known issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0)",
+        "Independent read-only review (high effort) 2026-11-10: PASS, 2 Low open"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-10, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-05a §14 items 1-7 (SenseVoice download after install with SHA-256 check and hf-mirror fallback; SenseVoice final with lang within the 800 ms wait; ScreenLanguage allows Kana and English; ReplyLanguage isNotAllowed; no languageCode; persona answers in the driver's language; logs); F-05a §14 rows 1-11.",
+      "depends_on": [
+        "T-016i"
+      ],
+      "notes": "Owner 2026-11-09: speaks English and Japanese too; the model must be installed after the app, not in the package. Model sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17 rev 2365baea (239 MB int8); the 2025-09-09 int8 package is a Cantonese fine-tune, not used. T-016k is taken on 11-06-unbuilt-specs.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green (NovaCore 706, NovaRealtime 42, NovaServices 71, spec-trace 108 ids 0 missing); NovaAsrSherpa type-checked on Linux without its binary targets; App not compiled here (Codemagic)",
+          "commit": "e2047e1, 5b869e5, 947946b + hardening"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS after two fix rounds (Wi-Fi wait vs 用流量下载, relaunch adoption, background events, install failure, late SenseVoice finals, C string lifetime)"
+        },
+        {
+          "deviation": "maxBaseCharacters 1700 -> 1707: item 4's exact persona text adds 28 characters; smallest limit that fits"
+        },
+        {
+          "open": "FunASR licence terms for this app not reviewed (owner); utterances over 30 s: SenseVoice covers the first 30 s and replaces the streaming final, as specified"
+        },
+        {
+          "device": "rows 8-11 NOT_VERIFIED; whether gemini-3.8-live accepts a setup without languageCode is row 10"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-09, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-05a §15 items 1-9: LanguageIdentifier port + AppleLanguageIdentifier (NLLanguageRecognizer, NovaPlatform); ReplyLanguageCheck (other script blocked, Han/Kana allowed, Latin 12+ letters by detector en>=0.5, short final blocked only when non-en>=0.8); first audio held up to 800 ms for the verdict; blocked reply voided; one WRONG_LANGUAGE re-ask with SenseVoice words; app's own fallback line via SystemSpeechGuidanceVoice after a second block or 6 s; lang-check, correction and fallback-line record lines; rows 1-12.",
+      "depends_on": [
+        "T-016l"
+      ],
+      "notes": "Owner 2026-11-10: only Chinese, English and Japanese, yet she answered in Portuguese. Record 20261110-090143 (build 53): SenseVoice heard 不知道 (zh), Gemini heard tudo bem and replied in Portuguese; isNotAllowed passes every Latin letter. Community: Guardrails AI CorrectLanguage validator and reask (num_reasks=1), phantombot #580 (check in code, not more prompt), Hugging Face speech-to-speech fallback to the session language.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh PASS (NovaCore 716 tests, 1 known issue; NovaRealtime 42; NovaServices 71; imports 0 violations; spec-trace 0 missing)",
+          "commit": "3f1cf83"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS, no blocking findings; non-blocking: a pending correction plus the re-ask could send two text turns (fixed in 8bffb36), fallback render failure clears the arbiter's guidance flag (shared with F-14 fallbacks), a tool-only answer to the re-ask does not stop the 6 s fallback (literal item 5), language-hold events count toward the hold budget"
+        },
+        {
+          "interpretation": "verdict 'allowed' needs 2+ Han/Kana letters, so 「4S店」 (one Han) is allowed at the end of the reply, undecided while it comes; the 800 ms clock starts at the first audio and holds text too; one lang-check line per turn (released, or the verdict); the fallback line uses guidance ids counted down from UInt64.max"
+        },
+        {
+          "build": "row 10 NOT_VERIFIED until the owner runs Codemagic (App and NovaPlatform not compiled on Linux)"
+        },
+        {
+          "device": "rows 11-12 NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-10, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-016n",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-05a §16 items 1-8: driverLine from Gemini inputTranscription only; ScreenLanguage Latin-only final shown only when the §15 detector says en >= 0.5 or a <=5-char A-Z/0-9 token; SenseVoice, its downloader, settings rows and log lines removed, model files deleted once on launch (asr-model removed bytes=); streaming Chinese model kept for stop phrase, echo filter and driverUtterance; §15 re-ask always without heard words; rows 1-10.",
+      "depends_on": [
+        "T-016m"
+      ],
+      "notes": "Owner 2026-11-10: only Chinese, English and Japanese on screen; chose Gemini text only + filter over keeping SenseVoice, accepting a later line (1.3-3.6 s), more （没听清） and a re-ask without heard words. SenseVoice also outputs Korean and Cantonese; VRCC #57 drops out-of-set results, voicebox #16 decodes per language (too slow here: 114-292 ms per decode).",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh PASS (NovaCore 721 tests, 1 known issue; NovaRealtime 42; NovaServices 71; imports 285 files 0 violations incl. the SenseVoice-removed check; spec-trace 111 ids 0 missing)",
+          "commit": "8bffb36 + review fixes"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS, no blocking findings; fixed after: an echo final of her guidance clears a driver line its partials showed; the one-time removal is marked done only after the deletion. Kept: a fresh install writes asr-model removed bytes=0 once"
+        },
+        {
+          "interpretation": "driverLine lives in AgentViewState (the core publishes it, the app copies it); it is cleared when a new sent utterance starts; `asr-model removed bytes=` is written once to the next record even when 0 bytes were found; the old background download session is cancelled and the multilingualASR setting removed"
+        },
+        {
+          "build": "row 8 NOT_VERIFIED until the owner runs Codemagic"
+        },
+        {
+          "device": "rows 9-10 NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-10, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-04b §3-§10: Speaker Lock settings, enrollment, calibration, SpeakerHold before upload, wake and stop phrase checks, speaker_eval.py, record lines; rows 1-18",
+      "depends_on": [
+        "T-013a",
+        "T-060a"
+      ],
+      "notes": "Owner request 2026-11-05. No built-in threshold: the lock cannot turn on until calibrated on the phone. Accuracy and delay are unmeasured until rows 12-18 run. Code PASS 2026-11-05 (gates 611+35+41, review PASS after 2 FAIL rounds). Licence: primary ModelScope card Apache-2.0. Eval on AISHELL-1/HI-MIA clips (studio, not car). Rows 11-18 NOT_VERIFIED (device).",
+      "evidence": [
+        "specs/STATUS.md:130 (2026-11-05, T-013e, result PASS): Licence: primary ModelScope card `iic/speech_campplus_sv_zh_en_16k-common_advanced` says Apache-2.0; pinned `csukuangfj/speaker-embedding-models@0743f301`, sha256 `aa3cfc16…ceba2` (`fetch_sherpa_models.sh`, `speaker/`). `SpeakerVerifier` port; `SherpaSpeakerVerifier` (NovaAsrSherpa, typechecked …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-04b §12: speaker model as an Apple-hosted Background Assets pack downloaded at install; Release builds drop the bundled copy; rows 19-26",
+      "depends_on": [
+        "T-013e"
+      ],
+      "notes": "Owner request 2026-11-05. Code PASS 2026-11-05 (gates 616+35+41, py 30; review FAIL then PASS, fixes f3449a4). App and extension not built (no Xcode here). Rows 23-26 NOT_VERIFIED (device). Deferred: v2 pack folder reuse; retry after checksum mismatch.",
+      "evidence": [
+        "specs/STATUS.md:131 (2026-11-05, T-013f, result PASS): Pure `SpeakerModelAvailability` (bundle first, then pack with pinned sha256; downloading/failed/iOS<26 texts; 重试 after failure) rows 19–21; a calibrated lock stays on and fails closed while the pack is not ready, re-applied mid-session. `SpeakerModelLocator` (App, iOS 26, only with …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-04b §13: save calibration scores after every line and resume them; warn before 重新录入; rows 27-36",
+      "depends_on": [
+        "T-013f"
+      ],
+      "notes": "Owner 2026-11-05: keeps being asked to set the lock up again. Phone check: voiceprint survived the install, calibration never finished. Rows 33-36 are device rows.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 27-32: SpeakerCalibrationDraftTests (7 tests)",
+        "Independent high-effort review PASS",
+        "App/NovaDrive/SpeakerLock.swift builds on iOS CI only",
+        "Rows 33-36 device NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-04b §14 items 1-10: SpeakerVerifyClip shared by 校准 and SpeakerHold, threshold records its clip and old thresholds need recalibration, 设置 and 校准 show the saved calibration, on-screen notice for dropped sentences and rejected wake words; rows 37-46",
+      "depends_on": [
+        "T-013g"
+      ],
+      "notes": "Owner 2026-11-06 (339f513): lock on after install rejected every sentence (scores 0.03-0.44 on 1 s clips vs threshold 0.46 set on whole lines), no message shown, no calibration shown in 设置. The clip mismatch is the likely cause, not proved; row 45 checks it. The owner recalibrates once after this ships.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (T-013h and T-046o together)",
+        "Unit rows 37-42: SpeakerCalibrationLiveClipTests; SpeakerLockTests and SpeakerModelSourceTests updated for clipMs",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 43-46 device NOT_VERIFIED",
+        "App target not compiled here; needs a Codemagic build"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-06, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-013i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-04b §15 items 1-5: a profile with a threshold and no calibrationClipMs is ready and its threshold is used; recalibrate only for a recorded different clip; 设置 and 校准 show 已校准 …（整句校准）; rows 47-50",
+      "depends_on": [
+        "T-013h"
+      ],
+      "notes": "Owner 2026-11-06: does not want to record calibration again; the lock worked for them with the 09:02 threshold 0.46. Replaces §14 item 5 and row 43.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 47-48: SpeakerKeepOldCalibrationTests; row 40 test now uses a recorded clipMs 500 (§15 replaces §14 item 5)",
+        "Independent high-effort review PASS, no blocking findings",
+        "Rows 49-50 device NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-06, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-042c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-16 §14 items 1-11: near-first 高德 search, pinyin+distance score, confirm tiers, far_only, CONFIRM_FIRST by driver-turn order, next candidate then DESTINATION_REJECTED, km+hours start sentence, record/log lines; unit rows 2-7",
+      "depends_on": [
+        "T-042"
+      ],
+      "notes": "Gates PASS on stack 1ff2f9f (NovaCore 632, Realtime 36, Services 42, py 42; spec-trace 91/0). Review FAIL (navigate_to while navigating bypassed §14; turn read before search; tool name in spoken text) fixed, re-review PASS. App not built. Rows 1 (PC) and 8 (device) NOT_VERIFIED.",
+      "evidence": [
+        "specs/STATUS.md:132 (2026-11-05, T-042c, result PASS): Near-first (around 50 km → city citylimit → type word; nationwide only after them when they're empty or another province/city is named, merged ranking); pinyin port (Foundation transform, NovaServices) + toneless syllable score + distance prior; sure/ask/none tiers, far_only > 300 km; CONFIRM_FIRST …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §23 items 1-4: weather today..大后天 and place_details stay in query_live_info with search on; forecast picked by cast date; unit rows 2-4",
+      "depends_on": [
+        "T-046j"
+      ],
+      "notes": "Gates PASS (same stack). Review PASS first round. Open: §16 item 11 persona/web_search text still sends weather/hours to web_search (spec gap, owner). Row 1 (PC) NOT_VERIFIED.",
+      "evidence": [
+        "specs/STATUS.md:133 (2026-11-05, T-046k, result PASS): Weather and place_details stay in query_live_info with search on (exact tool sentence); day today..day_after_next; casts picked by date (phone zone), `date` in result, missing day → LIVE_INFO_UNAVAILABLE with search advice; place without hours → web_search advice. Gates green; review PASS. Open …"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §24 items 1-7: FreshPrompt system text on the current Qwen settings, her next and persona no longer force 只按 answer; rows 1-7",
+      "depends_on": [
+        "T-046l"
+      ],
+      "notes": "Owner 2026-11-05: apply now without the PC comparison, after 下个月澳门温度几度 returned 查不到 despite 6 sources. Whether it fixes that is unproven until rows 5-7 run. | Spec conflict resolved by raising the persona base limit to 1600. web_search tool description still says 只按返回的 answer 回答 (outside §24).",
+      "evidence": [
+        "Gates run_all.sh exit 0 (NovaRealtime 37, NovaServices 42)",
+        "Unit rows 1-4: WebSearchClientTests freshPrompt + exchanges, WebSearchTests noRefusalRules + persona, existing retry/failure tests",
+        "Independent high-effort review PASS",
+        "maxBaseCharacters 1500 -> 1600 (live-info.md row 7 updated) to fit the approved item 5 text",
+        "Rows 5-7 device NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-05, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046n",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-18 §25 items 1-8: current_time time_zone argument (copied from mcp-server-time), persona and descriptions route every time question to it, web_search refuses current-time queries; rows 1-9",
+      "depends_on": [
+        "T-046m"
+      ],
+      "notes": "Owner 2026-11-06: times for 仙台, 奥斯陆 and 澳门 all made up by Qwen after she sent them to web_search (record 20261106-091340). Item 7 code check is ours, not from a source; the owner may remove it.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Unit rows 1-7: CurrentTimeZoneTests (7 tests); older persona/web_search/catalog tests updated",
+        "Independent high-effort review: code matches items 1-8; its two doc findings (limit history wording, STATUS entry) fixed",
+        "maxBaseCharacters 1600 -> 1700 (§25 item 5)",
+        "Rows 8-9 device NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-06, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046o",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-18 §26 items 1-12: query_live_info weather takes date and country; 高德 for China today to 大后天, Open-Meteo (16 days, no key) for later days and foreign places; name check stops foreign names becoming Chinese districts; past-window answer per PR #57; web_search refuses near-term weather; Open-Meteo credit in 设置; rows 1-13",
+      "depends_on": [
+        "T-046n"
+      ],
+      "notes": "Owner 2026-11-06 chose Open-Meteo after 11/10 and 11/12 weather failed on the device and PC tests showed Qwen gives no forecast 6 days out (Oslo 11/12, 0 of 3) and enable_search_extension changed nothing. Name check (item 2) and search block (item 9) are ours, not from a source; the owner may remove them. Free API is non-commercial.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (T-013h and T-046o together)",
+        "Unit rows 1-10: ForecastWeatherTests, ForecastSearchTests, OpenMeteoClientTests; older search tests moved off weather queries",
+        "Independent high-effort review: code matches items 1-12; its one blocking finding (STATUS licence note, item 10) fixed",
+        "maxBaseCharacters unchanged at 1700",
+        "Rows 11-13 device NOT_VERIFIED",
+        "App target not compiled here; needs a Codemagic build"
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-06, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046q",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §28 items 1-8 (day=now and new part argument; now = 高德 live with reporttime plus today's cast, or Open-Meteo current plus today; today = whole-day cast; part = Open-Meteo hourly hours; one Open-Meteo request with current, hourly, daily; texts incl. T-046p items 5-6; view in RuntimeLog); F-18 §28 rows 1-14.",
+      "depends_on": [
+        "T-046o"
+      ],
+      "notes": "Owner 2026-11-09: 现在天气 answered as the whole day. Record 20261109-180202 (212f52d): 高德 live labelled today, reporttime dropped, next asks for the date. T-046p (spec 6a4e38e, code 25127f9) is on 11-06-unbuilt-specs and never merged; cherry-pick allowed.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh steps",
+          "result": "green (NovaCore 701, NovaRealtime 42, NovaServices 70, spec-trace 0 missing); secrets findings only in local untracked .claude/worktrees agent copies",
+          "commit": "036f845, f12318c"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "PASS after fix (here named from regeo district, not 'here'; concurrency test)"
+        },
+        {
+          "device": "rows 11-14 NOT_VERIFIED"
+        },
+        {
+          "open_low": "part of a day still needs 高德 key / regeo first (pre-existing §26 path); noForecastAdvice points to web_search"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-09, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-046r",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §29 items 1-5 (HK/MO adcode 81/82 or country HK/MO -> Open-Meteo for every view; WeatherNotCovered on an empty 高德 answer falls back to Open-Meteo; a name with no Han and no country -> Open-Meteo geocoding first, CN results continue on 高德 via regeo; lookup= and reason= in RuntimeLog); F-18 §29 rows 1-10.",
+      "depends_on": [
+        "T-046q"
+      ],
+      "notes": "Device 2026-11-10 a5a03f9 record 20261110-090437: 澳门 weather LIVE_INFO_UNAVAILABLE x3 (geocode passed, weather failed), Macau x1 (name check). 2026-11-09 212f52d: Shanghai name check. Recorder was off, 高德's answer for 澳门 not captured.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green (NovaCore 714, NovaRealtime 42, NovaServices 74, imports 0, runners 0, spec-trace 109 ids 0 missing); App not compiled on Linux (build NOT_VERIFIED until Codemagic)",
+          "commit": "0336ba4"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "FAIL on ac2853e (place for a no-Han name answered by 高德; WGS-84 to regeo; country=CN); PASS on 0336ba4 after fixes"
+        },
+        {
+          "device": "F-18 §29 rows 9-10 NOT_VERIFIED"
+        }
+      ],
+      "archived_on": "2026-11-19",
+      "archive_reason": "finished 2026-11-10, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    }
+  ]
+}

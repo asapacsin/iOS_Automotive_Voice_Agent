@@ -47,15 +47,20 @@ read it. `specs/work.json` (~190 KB) and `specs/STATUS.md` (~120 KB) grow with e
    puts it on PATH and runs `swift build --build-tests` for NovaCore, NovaServices, NovaRealtime, so a new
    session does not rebuild by hand. Stored on the environment, not in the repo; text in §5.
 6. **History archive with the model's judgment (T-900f).** Trigger: a `UserPromptSubmit` hook
-   (`scripts/history.py status --hook`) adds one line 「history large: STATUS.md N/60 KB, …」 to the context only
-   when a file is over its limit. Not the Stop hook: a Stop-hook message makes the model continue instead of
+   (`scripts/history.py status --hook`) adds one line 「history large: STATUS.md N/75 KB, …」 to the context only
+   when a file is over its limit (STATUS.md 75 KB, work.json 110 KB). Not the Stop hook: a Stop-hook message makes the model continue instead of
    stopping, the loop seen with `/goal`. A script prints a compact candidate
    table (id, status, date, one line, open dependents, pending NOT_VERIFIED/device rows, last mention); the model
    picks keep / archive / summarize per item with a one-line reason; the script applies only moves that pass:
    never an open item, a stub left in `work.json` for every archived id (frontier.py needs every dependency id),
    full text kept in `STATUS-archive.md` / `work-archive.json`, archives written only by the script.
    `find <id>` searches the archive. A gate fails on an id in both files or a stub without its archive entry.
-   One commit per pass with the reasons.
+   One commit per pass with the reasons. Archived stubs are one line each in `work.json`.
+   **First pass 2026-11-19:** 120 items archived (finished before the 2026-11-13 test cycle, nothing open depending
+   on them, or NOT_APPLICABLE), 60 kept (open dependents, current cycle, or open work runnable now), 101 STATUS rows
+   moved. Result STATUS.md 62 KB, work.json 91 KB: that is the current cycle itself, so the first guess of 60/80 KB
+   was below the working set; limits set to 75/110 KB so the trigger fires after ~15–20 more finished items, not on
+   every prompt.
 
 ## 4. Acceptance
 
