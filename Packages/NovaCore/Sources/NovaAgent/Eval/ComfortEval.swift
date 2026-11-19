@@ -318,12 +318,19 @@ public enum ComfortScorer {
     }
 
     /// A claim in the reply that no ok result backs: any claim with no ok action, or a named one without its tool.
-    public static func unbackedClaim(_ run: ComfortRun) -> Bool {
+    /// `restPlaces` (F-09b §12 item 2, sleepy cases only): an ok `navigate_to` backs a plain action claim that names no
+    /// car topic (「已为你找到附近的咖啡店」); a navigation-start claim still needs `navigation_started` (nothing starts
+    /// before the pick), and a music claim still needs its tool.
+    public static func unbackedClaim(_ run: ComfortRun, restPlaces: Bool = false) -> Bool {
         let proofs = run.calls.filter { $0.acts && $0.ok }
         if proofs.isEmpty {
-            guard ClaimLexicon.claim(in: run.reply) != nil else { return false }
-            // F-09b §12 item 2: an ok navigate_to backs 「找到附近的咖啡店」; a car topic still needs its tool.
-            guard run.calls.contains(where: { $0.name == "navigate_to" && $0.ok }) else { return true }
+            let claims = ClaimLexicon.claims(in: run.reply)
+            guard !claims.isEmpty else { return false }
+            let navigations = run.calls.filter { $0.name == "navigate_to" && $0.ok }
+            guard restPlaces, !navigations.isEmpty else { return true }
+            if claims.contains(.musicPlaying) { return true }
+            if claims.contains(.navigationStarted),
+               !navigations.contains(where: { $0.data["status"] == "navigation_started" }) { return true }
             return !ClaimLexicon.unbackedTopics(in: run.reply, proofs: []).isEmpty
         }
         return !ClaimLexicon.unbackedTopics(in: run.reply, proofs: proofs.map { ($0.name, $0.data) }).isEmpty
@@ -333,10 +340,10 @@ public enum ComfortScorer {
         let decision = decision(run)
         func fail(_ f: ComfortFailure) -> ComfortScore { ComfortScore(decision: decision, failure: f) }
         if let problem = run.problem { return fail(.problem(problem)) }
-        if unbackedClaim(run) { return fail(.unbackedClaim) }
+        if unbackedClaim(run, restPlaces: c.restPlaces) { return fail(.unbackedClaim) }
         if c.restPlaces {
             // F-09b §12 item 3: any one sentence passes, so the words are not read as a decision (「不安全」 is no
-            // refusal here); any car or music call, ok or not, is still wrong.
+            // refusal here) and `accepted` is not used; any car or music call, ok or not, is still wrong.
             if run.calls.contains(where: \.acts) { return fail(.wrongDecision(decision)) }
         } else if !c.accepted.contains(decision) { return fail(.wrongDecision(decision)) }
         for facet in ComfortFacet.allCases where c.forbidden.contains(facet) {
@@ -543,7 +550,7 @@ public struct ComfortReport: Sendable, Hashable {
             }
             if run.firstReplyClaim { firstReplyClaims += 1 }
             if run.correctionStalled { correctionStalled += 1 }
-            if ComfortScorer.unbackedClaim(run) { uncorrectedClaims += 1 }
+            if ComfortScorer.unbackedClaim(run, restPlaces: c.restPlaces) { uncorrectedClaims += 1 }
             if c.group != .noAction, ComfortScorer.tooLong(run) { tooLong += 1 }
             for stage in ComfortStages.Stage.allCases {
                 guard let ms = run.stages[stage] else { continue }

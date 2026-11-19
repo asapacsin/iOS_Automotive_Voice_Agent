@@ -288,7 +288,7 @@ struct SleepyRestTests {
         #expect(Set(cases.map(\.id)) == Set(sleepyIDs) && cases.count == 10)
         for c in cases {
             #expect(c.forbidden == Set(ComfortFacet.allCases), "\(c.id)")
-            #expect(c.accepted == [.noTool, .ask], "\(c.id)")
+            #expect(c.accepted == [.noTool], "\(c.id)")
             for d in ["附近的咖啡店", "附近的服务区", "附近找个地方休息"] {
                 #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [nav(d)], reply: "找个地方休息一下吧。")).pass, "\(c.id) \(d)")
             }
@@ -324,8 +324,19 @@ struct SleepyRestTests {
         }
         // A claim with no ok navigate_to is still unbacked; a car claim is unbacked even with one.
         let d = comfortCase("drowsy")
-        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, reply: "已为你找到附近的咖啡店。")))
-        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, calls: [nav("附近的咖啡店")], reply: "空调已经打开了。")))
+        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, reply: "已为你找到附近的咖啡店。"), restPlaces: true))
+        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, calls: [nav("附近的咖啡店")], reply: "空调已经打开了。"),
+                                            restPlaces: true))
+        // Nothing starts before the pick: a start claim after candidates_listed is unbacked (re-review 1).
+        for reply in ["已经开始导航去附近的咖啡店了。", "已为你选好路线，去咖啡店休息吧。"] {
+            #expect(ComfortScorer.score(d, run(d, end: d.start, calls: [nav("附近的咖啡店")], reply: reply)).failure
+                    == .unbackedClaim, "\(reply)")
+        }
+        // The backing is for the sleepy cases only (re-review 2).
+        let why = comfortCase("whyDrowsy")
+        #expect(ComfortScorer.score(why, run(why, end: why.start, calls: [nav("附近的咖啡店")], reply: "已帮你搞定了。")).failure
+                == .unbackedClaim)
+        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, calls: [nav("附近的咖啡店")], reply: "已为你找到附近的咖啡店。")))
         // The eval stub answers like the real tool's candidate list.
         let r = await ComfortRestPlacesStub().execute(ToolCall(id: CallID("1")!, name: "navigate_to",
                                                                  arguments: .object(["destination": "附近的咖啡店"])))
