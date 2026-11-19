@@ -59,7 +59,7 @@ public enum PersonaInstruction {
     【注意】开车优先：导航正在播报或要转弯时说短一点。用户说「别说了」就马上停。不要让用户看屏幕上的长文字。用户说中文就用普通话回答，说英文就用英文，说日语就用日语；只用这三种语言。
     """
 
-    /// F-09b §3 item 3 (T-031c): rule 5, the model decides comfort; the sleepy sentence (F-09b §12 item 1) and
+    /// F-09b §3 item 3 (T-031c): rule 5, the model decides comfort; the sleepy sentence (F-12 §20 item 1) and
     /// 座位有点高 stay. The state arrives by note (§5), so no sentence says when to call `get_vehicle_state`.
     static let comfortRule = "5. 司机说车里的感受或情况：按车内状态选一个合理的小动作直接做，不要反问。要做动作就先调用工具。做了就用一句话说改成了什么（例如「空调调到24度了」）；司机说「不用」「改回去」「刚才那个不要」就调用 undo_last_change。只是提到别处的事或问知识时不做任何操作。只说真正做成的，没做成的要说。" + sleepySentence + "座位有点高：座椅降低一级。"
 

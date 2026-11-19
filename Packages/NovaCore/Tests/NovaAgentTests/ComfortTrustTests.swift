@@ -107,10 +107,10 @@ func goodRun(_ c: ComfortCase) -> ComfortRun {
         reply = "抱歉，没能操作车窗。"
     }
     if !c.mention.isEmpty { reply += "找个服务区休息一下吧。" }
-    if c.restPlaces {
+    if c.restSuggestion {
         calls = [ComfortCallRecord(name: "navigate_to", ok: true, code: nil, data: ["status": "candidates_listed"],
                                    arguments: ["destination": "附近的咖啡店"])]
-        reply = "找个地方休息一下吧。"
+        reply = "找个咖啡店休息一下吧。"
     }
     return ComfortRun(caseID: c.id, attempt: 1, end: end, calls: calls, reply: reply, firstAudioMs: 900)
 }

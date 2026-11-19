@@ -470,11 +470,15 @@ struct ObservedCameraExecutor: ToolExecutor {
 /// F-18 §14 item 5: which live-info kind the model asked for and the result code; never the values (I-8).
 struct ObservedLiveInfoExecutor: ToolExecutor {
     let inner: LiveInfoExecutor
+    /// F-15b §50 item 6 (T-040w): 「正在查天气…」/「正在查…」 while it runs, nothing once the answer arrives.
+    var work: WorkProgressBoard? = nil
 
     func execute(_ call: ToolCall) async -> ToolResult {
         let kind = call.arguments["kind"]?.stringValue.flatMap { ToolCatalog.liveInfoKinds.contains($0) ? $0 : nil } ?? "other"
         RuntimeLog.agent.notice("toolCall name=query_live_info kind=\(kind, privacy: .public)")
+        work?.start(.search, step: WorkProgress.searchTitle(tool: "query_live_info", kind: kind))
         let result = await inner.execute(call)
+        work?.clear(.search)
         RuntimeLog.agent.notice("toolResult name=query_live_info ok=\(result.ok, privacy: .public) code=\(result.code?.rawValue ?? "none", privacy: .public)")
         return result
     }
@@ -484,6 +488,8 @@ struct ObservedLiveInfoExecutor: ToolExecutor {
 @MainActor
 final class AgentRuntime {
     let model = DriveModel()
+    /// F-15b §50 item 6 (T-040w): the steps shown while a trip is planned or a live-info search runs (DriveView).
+    let work = WorkProgressBoard(clock: SystemClock(), onLog: { line in RuntimeLog.agent.notice("\(line, privacy: .public)") })
 
     /// F-05a §12 item 7: the bundled speech models start loading when the app starts, off the main actor.
     init() { LocalSpeechModels.shared.load() }
@@ -983,7 +989,7 @@ final class AgentRuntime {
             vehicle: vehicle, model: model, changed: { await carState.send(.vehicleState(await snapshot())) })
         for name in NavigationController.tools { executors[name] = navigation }
         for name in TripPlanner.tools { executors[name] = trip.planner }
-        executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo)
+        executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo, work: work)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
         executors["place_call"] = PhoneCallHandler(contacts: ContactsStore(), dialer: SystemPhoneDialer(), clock: SystemClock())
@@ -1489,6 +1495,8 @@ final class AgentRuntime {
         // F-15b (T-040i): the app's one trip list, next to the navigation controller; it outlives voice sessions.
         // F-15b §14 (T-040l): the plan and the saved plans live in Application Support/trip/.
         // F-15b §4 item 6: Qwen picks among 高德's results with the search model's key; no key → 高德's first result.
+        // F-15b §50 item 10 (T-040x): the `qwen fallback` line (route, models, reason, ok, ms only; I-8) to the log.
+        QwenFallback.shared.setLog { line in RuntimeLog.agent.notice("\(line, privacy: .public)") }
         let picker = QwenPlacePicker(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) })
         let photon = PhotonPlaceSearch()
         let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock, picker: picker,
@@ -1521,13 +1529,21 @@ final class AgentRuntime {
                                   // orders on the straight-line estimate.
                                   abroadTimes: TripTimes(service: OsrmDrivingTimes(throttle: osrmThrottle), clock: navigationClock),
                                   // §46 (T-040r): photos abroad from English Wikipedia, within 2 km of the stop.
-                                  abroadPhotos: WikipediaPhotos())
+                                  abroadPhotos: WikipediaPhotos(),
+                                  // F-15b §50 items 1 and 9 (T-040v): Qwen `ground` route with web search, the F-18 key.
+                                  grounder: QwenTripGrounder(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
+                                  // §50 item 3: the city's centre and country; trip lookups stay inside its box.
+                                  abroadArea: { city in await photon.area(city) })
         await planner.restore()
+        // §50 item 6 (T-040w): trip steps on screen.
+        await planner.setWork(work)
         // §36 item 2d (T-040p): navigate_to abroad searches Photon; an abroad trip in progress gives its city.
         await navigation.setAbroad(search: photon, center: { city in
             if let c = await photon.center(city) { return c }
             return await AppleCityCenter.find(city)
         }, tripCity: { [weak planner] in await planner?.abroadCity })
+        // F-15b §50 item 3 (T-040v): while an abroad trip is open, navigate_to stays inside its area.
+        await navigation.setTripArea { [weak planner] in await planner?.openTripArea() }
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
         let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),

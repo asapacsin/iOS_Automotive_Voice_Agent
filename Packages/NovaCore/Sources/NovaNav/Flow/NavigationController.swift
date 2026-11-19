@@ -167,6 +167,9 @@ public actor NavigationController: ToolExecutor {
         abroadCenter = center
         abroadTripCity = tripCity
     }
+    /// F-15b §50 item 3 (T-040v): the area of an `abroad` trip in progress (nil when none is open).
+    private var abroadTripArea: (@Sendable () async -> TripArea?)?
+    public func setTripArea(_ area: @escaping @Sendable () async -> TripArea?) { abroadTripArea = area }
     public func setTripArrival(_ arrived: @escaping @Sendable (String) async -> Void) { tripArrived = arrived }
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
@@ -261,10 +264,25 @@ public actor NavigationController: ToolExecutor {
             center = await abroadCenter?(city)
         }
         guard current() else { return .failure(.optionsStale) }
+        // §50 item 3: only while an abroad trip is open, the search stays in its box, country and 50 km.
+        let area = await abroadTripArea?()
+        guard current() else { return .failure(.optionsStale) }
         var places: [Place] = []
+        var areaDropped = 0
         do {
             for keywords in query.attempts where places.isEmpty {
-                if let center {
+                if let area {
+                    let found: [Place]
+                    if let boxed = abroadSearch as? any AreaPlaceSearch {
+                        found = try await boxed.inArea(keywords, box: GeoBox.around(area.center), limit: tuning.maxCandidates)
+                    } else {
+                        found = try await abroadSearch.around(keywords, center: center ?? area.center,
+                                                              radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
+                    }
+                    let inside = TripGround.inArea(found, area: area, km: TripTuning().areaKm)
+                    places = inside.kept
+                    areaDropped += inside.dropped
+                } else if let center {
                     places = try await abroadSearch.around(keywords, center: center,
                                                            radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
                 } else {
@@ -279,7 +297,8 @@ public actor NavigationController: ToolExecutor {
         }
         // §36 item 3: a place in China is never a result abroad.
         let top = Array(places.filter { $0.countryCode == nil || !TripRegion.isChina($0.countryCode) }.prefix(tuning.maxCandidates))
-        onTripLine("nav search vendor=photon abroad=yes found=\(top.count) ms=\(max(0, (clock.now - started).milliseconds))")
+        let areaPart = area == nil ? "" : " area_dropped=\(areaDropped)"
+        onTripLine("nav search vendor=photon abroad=yes found=\(top.count) ms=\(max(0, (clock.now - started).milliseconds))\(areaPart)")
         guard !top.isEmpty else {
             if !guiding { reset() }
             return .failure(.noCandidates, advice: "没有找到这个地点。请如实说没找到，请用户换个说法。")

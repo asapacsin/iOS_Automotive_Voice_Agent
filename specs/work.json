@@ -2056,13 +2056,13 @@
     {
       "id": "T-031i",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "NOT_APPLICABLE",
       "priority": 3,
       "action": "F-12 §20 items 1-4: sleepy driver gets no action and no reply (model rule 5, table base, run_scenario drowsy empty, ten eval cases silent); rows 1-3 unit, row 4 device",
       "depends_on": [
         "T-031h"
       ],
-      "notes": "Owner 2026-11-10: \"why tired would open the air conditioner and wind, this is not making any sense\" and \"probably i prefer don't response at all\"."
+      "notes": "Owner 2026-11-10: \"why tired would open the air conditioner and wind, this is not making any sense\" and \"probably i prefer don't response at all\". Superseded 2026-11-19 by F-09b §12 (T-031k): the sleepy driver now gets a rest suggestion, not silence."
     },
     {
       "id": "T-017a",
@@ -2985,38 +2985,44 @@
     {
       "id": "T-040v",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "PASS",
       "priority": 1,
       "action": "F-15b §50 items 1-5, 7-8 (Qwen web-search grounding for abroad trips; hotel_near; Photon bbox + country + 50 km + picker; hotel-only check; far check and local replacement; one spoken line first; logs; item 9 QwenRoute with ground = qwen3.7-plus, agent search, forced_search, 30 s, search-ran and JSON checks; row 160 PC check first); rows 140-148, 151-152, 154-155, 160.",
       "depends_on": [
         "T-040u"
       ],
       "notes": "Owner 2026-11-19, ipa150 d9d75fe, demo step 8: hotel 新宿附近車站 resolved to a place in India; days 2-3 failed. Code causes: Photon lat/lon is only a bias, limit 1, only China filtered; one hotel for every night; straight-line estimate when OSRM has no route. Phone record not pulled (recorder off). Needed for the mentor demo.",
-      "evidence": []
+      "evidence": [
+        "STATUS.md 2026-11-19 T-040v row and commit 65b15dc (row 160 PC check): gates green (946/110/52 tests), high-effort read-only review PASS. Rows 151-152 device not run."
+      ]
     },
     {
       "id": "T-040w",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "PASS",
       "priority": 1,
       "action": "F-15b §50 item 6 (WorkProgress in NovaKit; trip steps and query_live_info steps shown after 1 s in DriveView; failure lines; cleared by the cards or the answer); rows 149-150, 153.",
       "depends_on": [
         "T-040v"
       ],
       "notes": "Owner 2026-11-19: show that she is working (trip 30-60 s, searches 2-8 s), as ChatGPT/Perplexity steps and Alexa progressive responses.",
-      "evidence": []
+      "evidence": [
+        "STATUS.md 2026-11-19 T-040w row: gates green (946/110/52 tests), high-effort read-only review PASS. Row 153 device not run."
+      ]
     },
     {
       "id": "T-040x",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "PASS",
       "priority": 2,
       "action": "F-15b §50 item 10 (backup Qwen model per route on 429 or quota 403 before any answer; one switch; remaining time only; 60 s skip after 429, skip until restart after quota; log line); rows 156-159.",
       "depends_on": [
         "T-040v"
       ],
       "notes": "Owner 2026-11-19: each Qwen model has its own free quota and rate limit on the same key; use another model as backup. No automatic router.",
-      "evidence": []
+      "evidence": [
+        "STATUS.md 2026-11-19 T-040x row: gates green (946/110/52 tests), high-effort read-only review PASS. App build not run."
+      ]
     },
     {
       "id": "T-031j",
@@ -3053,10 +3059,56 @@
       ],
       "notes": "Owner 2026-11-19, ipa150 d9d75fe: 有点困了 (demo step 1) got nothing because SpeakingStyle.swift:67 tells her to stay silent. Needed for the mentor demo.",
       "evidence": [
-        {"gate": "scripts/gates/run_all.sh", "result": "gates: PASS (NovaCore 930, 1 known issue T-013d)"},
-        {"review": "independent read-only high-effort review", "verdict": "PASS on b950808 after two FAIL rounds (scorer refusal words, eval navigate_to stub, unbackedClaim limited to plain non-car claims on the ten sleepy cases)"},
-        {"device": "row 3 model eval NOT_VERIFIED (PC + Gemini); rows 5-7 D NOT_VERIFIED"}
+        "STATUS.md 2026-11-19 T-031k row: gates green (Linux Swift 6.1.2), high-effort read-only review PASS; rows 1,2,4 unit. Row 3 live eval and rows 5-7 device not run."
       ]
+    },
+    {
+      "id": "T-031l",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "depends_on": [
+        "T-031c"
+      ],
+      "action": "F-09b §13 items 1-3, 8 (report only), 9-11: ToolReply (facts/may/must_not, next built from them), base instruction rule changes, stage 1 not-found and failed lookups incl. navigate_to NO_CANDIDATES facts (replaces F-15b §51 item 4); rows 1-4, 9 (stage 1), 10.",
+      "notes": "Owner 2026-11-19: mentor says answers sound robotic; code writes her sentence ~190 times (81 advice, 63 ToolFailureAdvice, ~48 success next, base 只说一句 / rule 3). PC A/B with Qwen stand-in: facts style gave natural, correct replies.",
+      "evidence": []
+    },
+    {
+      "id": "T-031m",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 2,
+      "depends_on": [
+        "T-031l"
+      ],
+      "action": "F-09b §13 item 4: not done / not yet results with claim_started/claim_done, choosing results with on-screen facts and ask_pick; rows 5, 9 (stage 2), 11, 13.",
+      "notes": "Owner 2026-11-19 (robotic replies), stage 2.",
+      "evidence": []
+    },
+    {
+      "id": "T-031n",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 2,
+      "depends_on": [
+        "T-031m"
+      ],
+      "action": "F-09b §13 item 5 and item 8 made failing: success confirmations as facts; check_scripts.py gate in run_static.sh; rows 6, 8, 9 (stage 3), 12.",
+      "notes": "Owner 2026-11-19 (robotic replies), stage 3.",
+      "evidence": []
+    },
+    {
+      "id": "T-031o",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 3,
+      "depends_on": [
+        "T-031n"
+      ],
+      "action": "F-09b §13 item 6: ToolFailureAdvice entries as may/must_not in the iOS override; rows 7, 9 (stage 4).",
+      "notes": "Owner 2026-11-19 (robotic replies), stage 4.",
+      "evidence": []
     },
     {
       "id": "T-016p",
@@ -3104,6 +3156,37 @@
         "unit row 7: FlexibleAssistantTests row 7; row 11 suites renamed mechanically",
         "NOT_VERIFIED: App build (Codemagic); row 11 device"
       ]
+    },
+    {
+      "id": "T-040y",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-15b §51: navigate_to ignores the trip (附近 = the phone; abroad only when the model passes it with a city); trip_next/route_trip/revise_trip_list/edit_trip_list (not read) blocked while the cards are hidden; a restored trip starts hidden; NO_CANDIDATES gets a plain next with no 换个说法; rows 161-172. Amended 2026-11-19: item 4 moved to F-09b §13 (T-031l); item 7 (leaving the trip: nothing else starts from a trip place) and rows 173-175 added; rows now 161-168, 170-175.",
+      "depends_on": [
+        "T-040x"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 161-172)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner 2026-11-19 (records 20261119-135653, -135801: 附近的咖啡店 searched in Tokyo from Zhuhai). Owner's design: plain navigation separate from the trip; trip commands only while the trip is shown. Build starts on the owner's go. Owner 2026-11-19: after 「开始第一天」, later ordinary questions and navigation kept working from the trip start.",
+      "evidence": "Spec at the commit that adds §51."
+    },
+    {
+      "id": "T-040z",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "depends_on": [
+        "T-040y",
+        "T-031l"
+      ],
+      "action": "F-15b §51 item 8: navigate_to gets near (here|place|trip|route), near_name, near_country; abroad/city removed. Code resolves the centre (fix/demo point, 高德 or Photon geocode, saved trip stop, route), picks the vendor by the centre's country, drops results outside its country/range, refuses a geocode outside near_country (countryMismatch), returns searched_around/vendor/found/trip_city facts; nav near log line; NearEval on the PC; rows 176-188.",
+      "notes": "Owner 2026-11-19: the Tokyo default of §36 item 2d / §50 item 3 (Claude's spec) was wrong for 'live in Zhuhai, plan Tokyo'; make it flexible, route ambiguous 'where' to the LLM, code keeps the coordinates and checks.",
+      "evidence": []
     }
   ]
 }

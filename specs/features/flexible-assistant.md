@@ -267,3 +267,107 @@ T-016p. Trace ids are added with the tests (`T-031c: F-12 F-09b` and so on), not
 | Task | Scope | Verify |
 |---|---|---|
 | T-031k | Items 1–6; rows 1–7 | unit, eval, build, D |
+
+## 13. She says it in her own words; code gives the facts and the rules (iOS, APPROVED 2026-11-19)
+
+**Why.**
+- **What the mentor and the owner hear.** The answers sound robotic (mentor, reported by the owner 2026-11-19). In the Zhuhai test a search that found nothing got 「换个说法」 (F-15b §51).
+- **The cause is our code, not the model.** The code writes her sentence about 190 times (count at 8a895e9):
+
+  | Where | Count | Example |
+  |---|---|---|
+  | `advice:` on a failure | 81 | 「没有找到这个地点。请如实说没找到，请用户换个说法。」 (`NavigationController.swift:304`) |
+  | `ToolFailureAdvice` default table (from Android) | 63 | 「屏幕上的候选里没有这个名字。请如实说…」 |
+  | `next: "只说一句：…"` on a success | about 48 | 「只说一句：加上了X，现在清单有N个地点。」 (`TripPlanner.swift:1157`) |
+  | Base instruction | 2 rules | car and travel section: 「只说一句」; rule 3: 「工具返回 next 或 instruction 时照着做，只说一句」 |
+
+  She does what we wrote: one fixed sentence. Each time she made something up, the fix was a script for her line.
+- **PC test, 2026-11-19 (stand-in model).** There is no Gemini key on the PC, so Qwen (`qwen3.7-plus`) was given the real base instruction, the `navigate_to` description and a `NO_CANDIDATES` result in three styles, 5 runs each, for 「我想喝点咖啡」 and 「有点困了」:
+
+  | Result style | Typical reply |
+  |---|---|
+  | Today's script | 「没找到附近的咖啡店，要不换个说法试试？」 |
+  | A fixed line (F-15b §51 item 4 as written) | 「附近没找到咖啡店，要不要找远一点的？」 (almost the same every run) |
+  | Facts (searched what, where, radius, nearest outside) | 「附近3公里内没找到咖啡店，5.2公里外有一家瑞幸咖啡（拱北口岸店），要去吗？」 |
+
+  The facts style named only places in the result and called no extra tool. Gemini Live was not tested.
+
+**Sources (checked 2026-11-19).**
+- **Rasa (CALM).** Business logic is fixed; an LLM rephraser rewrites fixed responses, and Rasa names repeated fixed responses as the case where rephrasing "sounds more natural and less robotic" ([Rasa rephraser](https://rasa.com/docs/reference/primitives/contextual-response-rephraser/), [assistant tone](https://rasa.com/docs/pro/customize/assistant-tone/)).
+- **Anthropic, writing tools for agents.** Tools return meaningful context for the model, designed for agents rather than as developer APIs ([Anthropic](https://www.anthropic.com/engineering/writing-tools-for-agents)).
+- **Home Assistant voice.** Fixed intents where a wrong target or a fake "done" matters; a generative model for the conversation around them ([guide](https://localsmarthomeguide.com/articles/echo-show-8-to-home-assistant-smart-display/)).
+- **Alexa.** Tuning for accuracy made Alexa "increasingly robotic"; the goal became a system that is both deterministic and creative ([ZenML case study](https://www.zenml.io/llmops-database/transforming-a-voice-assistant-from-scripted-commands-to-generative-ai-conversation-at-scale)).
+
+**Rule in plain words.**
+- Code decides what happens, and what is true: the action, the facts, and what she may never say.
+- She decides how to say it, in her own words, short.
+- A tool result never contains a sentence for her to read out.
+
+1. **One result shape (`ToolReply`, NovaKit).**
+   - `facts`: the data she may use, as JSON (names, counts, distances, states, what was searched and where).
+   - `may`: moves she may make on her own, as enum values with a short Chinese gloss, for example `search_wider` 「可以自己再搜远一点」, `similar_place` 「可以搜相近的地方（比如服务区、休息区）」, `offer_nearest` 「可以提议去 facts 里最近的那个」, `ask_pick` 「可以问司机选哪个」.
+   - `must_not`: hard rules, enum values with a gloss, for example `claim_started` 「不要说已经开始」, `claim_done` 「不要说已经做好」, `invent` 「不要说 facts 里没有的地点、数字或时间」, `ask_rephrase` 「不要让司机换个说法」, `read_list` 「不要念屏幕上的列表」.
+   - `next` stays as the field the model reads, built only by `ToolReply` from `may` and `must_not`: 「用自己的话简短地说。可以：…。不要：…。」 It never quotes a sentence to say.
+   - `ToolReply.success(facts:may:mustNot:)` and `ToolReply.failure(code, facts:may:mustNot:)` replace hand-written `advice:` and `next:` strings.
+2. **Base instruction (F-21 base).**
+   - The car and travel section's 「只说一句」 becomes 「用自己的话，简短自然，一般一两句」. 「只按工具返回的结果回答」 stays.
+   - Rule 3 becomes 「工具返回的 next 是规则，不是台词：照规则做，用自己的话说，不要照念。屏幕上已经显示的列表不要念出来。」
+   - The comfort rule's example 「（例如「空调调到24度了」）」 is removed, so she does not copy it.
+   - The base must stay within `maxBaseCharacters`; if it does not fit, raise the limit to the measured length and record it in STATUS.
+3. **Stage 1 (T-031l): items 1–2 and not-found or failed lookups.**
+   - Places: `NavigationController` 304, 394, 401, 404, 405, 711, 1044, 1057, 1103; `SavedPlaces` 70, 72, 74, 77, 85; `LiveInfoExecutor` 96, 116, 154, 210, 369, 372, 376, 395, 431, 433, 435; `TripPlanner` 378, 399, 499, 548, 894, 1124 (line numbers at 8a895e9).
+   - `NO_CANDIDATES` from `navigate_to` gives `facts` `{what, around (phone|demo|city), radius_km, found: 0}`, plus `nearest_outside {name, distance_km}` when 高德's far result has one (F-16), with `may` [`offer_nearest` when there is one, `search_wider`, `similar_place`] and `must_not` [`ask_rephrase`, `invent`].
+   - This replaces F-15b §51 item 4 (its fixed line). T-040y leaves item 4 to this task.
+4. **Stage 2 (T-031m): "not done / not yet" and choosing.**
+   - Not done or not yet (`must_not` `claim_started` / `claim_done` always): `NavigationController` 592, 677, 684, 688, 750, 753, 781, 786, 831, 844, 849, 888, 946; `OpenAppExecutor` 35; `MusicToolHandler` 60; `CameraQuestionHandler` 48, 69, 74, 75, 89, 91 (with `must_not` `describe_view`); `LiveInfoExecutor` 400; F-15b §51 item 2's `tripHidden` line.
+   - Choosing (`facts` = what is on screen: count, the matching names; `may` `ask_pick`): `NavigationController` 1036, 1039, 1079, 1084, 1088, 1093, 1181, 1193, 1194, 1199, 1205, 1216, 1228, 1243; `SavedPlaces` 59, 63; `MusicToolHandler` 78; `TripPlanner` 2212, 2227, 2293.
+5. **Stage 3 (T-031n): success confirmations.**
+   - Every `next: "只说一句：…"`, 「只说这一句」 and 「用一句话说…」 on a success: `NavigationController` 368, 629, 822, 1069; `SavedPlaces` 92; `TripPlanner` 412, 670, 676, 979, 1050, 1065, 1080, 1095, 1101, 1133, 1148, 1157, 1688, 1701, 1731, 1829, 2260, 2276, 2284, 2298, 2322, 2381, 2385; `OpenAppExecutor` 38; `CurrentTime` 46; `VolumeController` 111; `PhoneCallHandler` 85; `CameraQuestionHandler` 86; `LiveInfoExecutor` 385 and the `ForecastWeather` next texts.
+   - `facts` carry what changed (name, count, day, level, time). `must_not` keeps `read_list` where a list is on screen.
+   - `TripPlanner` 1061 (「按 stops 的顺序念清单」, the driver asked to hear it) keeps its order rule as `may` `read_list_in_order`.
+6. **Stage 4 (T-031o): the `ToolFailureAdvice` table.** Each of its 63 entries becomes `may`/`must_not` values with `facts` from the caller. `ToolFailureAdvice+Generated.swift` comes from the Android text: the iOS override (`iosTable`) holds the new entries and the generated file is left as it is.
+7. **Kept fixed on purpose.**
+   - Messages that correct the model's call and are never heard by the driver: `NavigationController` 241, `TripPlanner` 456, 462, `CurrentTime` 21, `CameraQuestionHandler` 150, `LiveInfoExecutor` 360 (use `web_search`).
+   - The tone confirmation (F-21 §17 item 3, T-034d): it must not promise a different voice.
+   - Code checks outside the prompt: F-06 claims and corrections, `VehicleActionPolicy`, no navigation before the driver picks, the call confirmation, I-8.
+   - Ending a trip day, spoken guidance turns and the volume level itself (guidance voice, F-08) are not replies.
+8. **A gate keeps scripts out.** `scripts/gates/check_scripts.py` fails on 「只说一句：」, 「只说这一句」, 「请如实说：」, 「请用户换个说法」 or 「换个说法」 in `Packages/*/Sources` and `App`, except the item 7 allow-list. It runs in `run_static.sh` from the end of stage 3 (until then it reports without failing).
+9. **How each stage is proven.**
+   - **Unit:** each changed result has `facts`, `may` and `must_not` as listed; `next` contains no quoted sentence and none of the item 8 phrases.
+   - **Model eval (PC):** for each stage, a fixture set of 20 results (both outcomes, all groups in the stage), 3 runs each, through the base instruction and the catalog. Gemini when a Gemini key is on the PC, otherwise Qwen as stand-in, recorded as such in STATUS. Pass: every place, number and name she says appears in `facts` (100%); no `must_not` broken (0); no item 8 phrase and no reply equal to the old script (≥ 95%); at least 2 different replies over 3 runs for ≥ 80% of fixtures.
+   - **Device (D):** the demo sentences, read from the record.
+10. **Not changed.** Which tool runs and when; F-06 claim checks; `VehicleActionPolicy`; navigation, trip and music behaviour; the voice; F-09b §12's sleepy rule.
+11. **Log.** No new lines. `toolResult` lines keep logging codes and enums only (I-8); `may` and `must_not` values are logged as their enum names.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | `ToolReply.failure(.noCandidates, facts:may:mustNot:)` | JSON has `facts`, `may`, `must_not`, and a `next` built from them with no quoted sentence | unit |
+| 2 | The base instruction | No 「只说一句」 in the car section; rule 3 as item 2; no comfort example; length ≤ `maxBaseCharacters` | unit |
+| 3 | `navigate_to 附近的咖啡店`, 高德 none within 3 km, far result 5.2 km | `facts` with what, around, radius, found 0, nearest_outside; `may` offer_nearest, search_wider, similar_place; `must_not` ask_rephrase, invent | unit |
+| 4 | Each stage 1 place (item 3) | Returns `ToolReply`; no `advice:` sentence left | unit |
+| 5 | Each stage 2 place (item 4) | Not-done results carry `claim_started` or `claim_done`; choosing results carry the on-screen facts and `ask_pick` | unit |
+| 6 | Each stage 3 place (item 5) | Success results carry what changed; `read_list` where a list is shown | unit |
+| 7 | Each stage 4 entry (item 6) | Table entries are `may`/`must_not` values | unit |
+| 8 | `check_scripts.py` on the tree after stage 3 | 0 findings outside the allow-list; a planted 「只说一句：」 fails it | unit (gate) |
+| 9 | Model eval per stage (item 9) | Facts 100%, `must_not` 0 broken, ≥ 95% no script, variety ≥ 80%; recorded in STATUS with the model used | eval (PC) |
+| 10 | Device: 「我想喝点咖啡」 where nothing is within 3 km | She names the nearest one with its distance, or offers a wider or similar search; no 「换个说法」 | D |
+| 11 | Device: 「导航去珠海站」 then 「第五个」 with 3 on screen | She says there are 3 in her own words and asks which one; nothing starts | D |
+| 12 | Device: trip cards shown, 「把第二个去掉」 three times on different trips | She confirms each change in her own words, not the same sentence each time; the list is not read | D |
+| 13 | Device: 「打开空调」 with the climate tool failing | She says it did not work; never says it is on | D |
+
+**Not verified.**
+- Gemini Live's replies with this shape; the PC test used Qwen.
+- Whether replies get longer while driving; row 9's eval and the record will show it.
+
+**Trace gate.** Add `T-031l: F-09b`, `T-031m: F-09b`, `T-031n: F-09b` and `T-031o: F-09b` to `specs/trace-ids.txt` together with the first `@Test` that names each.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031l | Items 1–3, 8 (report only), 9–11; rows 1–4, 9 (stage 1), 10 | unit, eval, build, D |
+| T-031m | Item 4; rows 5, 9 (stage 2), 11, 13 | unit, eval, build, D |
+| T-031n | Item 5, item 8 made failing; rows 6, 8, 9 (stage 3), 12 | unit, eval, build, D |
+| T-031o | Item 6; rows 7, 9 (stage 4) | unit, eval, build |

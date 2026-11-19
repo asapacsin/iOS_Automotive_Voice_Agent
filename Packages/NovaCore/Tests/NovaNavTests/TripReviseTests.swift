@@ -97,7 +97,7 @@ struct TripReviseTests {
         #expect(strings(r.data["issues"]) == ["无名没找到，换一个附近类似的或者去掉"])
         #expect(r.data["next"]?.stringValue?.contains("直接调用 revise_trip_list") == true)
         #expect(r.data["next"]?.stringValue?.contains("先不要跟司机说话") == true)
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip check round=0 not_found=1 over=0 driving=0 under=0 hotel=0 ms=") })
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip check round=0 not_found=1 over=0 driving=0 under=0 hotel=0 far=0 ms=") })
         // The plan is kept as fitted so far.
         #expect(await rig.order() == ["A"])
     }
@@ -112,7 +112,7 @@ struct TripReviseTests {
         #expect(r.data["next"]?.stringValue?.contains("无名没找到，换成了B") == true)
         #expect(strings(r.data["not_found"]).isEmpty)
         let lines = rig.lines.withLock { $0 }
-        #expect(lines.contains { $0.hasPrefix("trip check round=1 not_found=0 over=0 driving=0 under=0 hotel=0 ms=") })
+        #expect(lines.contains { $0.hasPrefix("trip check round=1 not_found=0 over=0 driving=0 under=0 hotel=0 far=0 ms=") })
         #expect(lines.contains { $0.hasPrefix("trip revise round=1 replace=1 add=0 drop=0 hotels=0 ok=yes code=none ms=") })
         #expect(lines.contains { $0.hasPrefix("trip fit ") && $0.contains(" moves=") })
     }

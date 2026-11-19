@@ -76,8 +76,6 @@ final class ComfortEvalModel: ObservableObject {
         let changeSets = ChangeSetStore(clock: SystemClock())
         tools[UndoLastChangeTool.tool] = UndoLastChangeTool(port: port, store: changeSets)
         for name in VehicleToolExecutor.tools { tools[name] = ChangeSetRecorder(inner: vehicleTools, port: port, store: changeSets) }
-        // F-09b §12 item 2 (T-031k): the sleepy cases list nearby places; the stub answers like the real tool.
-        tools[ComfortRestPlacesStub.tool] = ComfortRestPlacesStub()
         let harness = ComfortEvalHarness(
             reset: { state in
                 changeSets.clear()

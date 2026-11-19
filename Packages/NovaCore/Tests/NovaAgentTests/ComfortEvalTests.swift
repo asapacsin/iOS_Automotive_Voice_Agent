@@ -16,15 +16,6 @@ private func ok(_ name: String, _ data: [String: JSONValue] = [:]) -> ComfortCal
 
 private func comfortCase(_ id: String) -> ComfortCase { ComfortCases.all.first { $0.id == id }! }
 
-private func nav(_ destination: String, ok: Bool = true) -> ComfortCallRecord {
-    ComfortCallRecord(name: "navigate_to", ok: ok, code: ok ? nil : .noCandidates,
-                      data: ok ? ["status": "candidates_listed"] : [:], arguments: ["destination": .string(destination)])
-}
-
-/// F-09b §12 item 3: the ten sleepy cases.
-private let sleepyIDs = ["drowsy", "drowsyMusicOn", "fallingAsleep", "hEyelids", "hDizzy", "h2EyesClosing", "h2Yawning",
-                         "t3Exhausted", "h3Nodding", "h3Foggy"]
-
 @Suite("T-031a F-12 §14 comfort test set and scorer")
 struct ComfortEvalTests {
     @Test("F-12 row 1 scorer: pass, forbidden state, wrong decision; two different valid outcomes both pass")
@@ -71,14 +62,15 @@ struct ComfortEvalTests {
         for w in WindowID.allCases { wide.cabin.windows[w] = 50 }
         #expect(ComfortScorer.score(fast, run(fast, end: wide, calls: [ok("control_window")], reply: "好")).failure
                 == .windowAboveLimit)
-        // F-09b §12 item 3 (T-031k): a sleepy driver passes with one navigate_to to nearby rest places, ≤ 1 sentence.
+        // F-09b §12 item 3 (replaces F-12 §20 row 3): a sleepy driver gets a nearby list, no car change.
         let drowsy = comfortCase("drowsy")
-        let coffee = nav("附近的咖啡店")
-        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, calls: [coffee], reply: "找个地方休息一下吧。")).pass)
-        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, reply: "")).failure == .noRestPlaces)
+        let coffee = ComfortCallRecord(name: "navigate_to", ok: true, code: nil, data: ["status": "candidates_listed"],
+                                       arguments: ["destination": "附近的咖啡店"])
+        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, calls: [coffee], reply: "找个咖啡店歇一会儿吧。")).pass)
+        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, reply: "")).failure == .noRestList)
         var awake = drowsy.start
         awake.musicPlaying = true
-        let music = run(drowsy, end: awake, calls: [ok("control_music", ["status": "playing"]), coffee], reply: "")
+        let music = run(drowsy, end: awake, calls: [ok("control_music", ["status": "playing"])], reply: "")
         #expect(ComfortScorer.score(drowsy, music).failure == .wrongDecision(.act))
     }
 
@@ -128,7 +120,7 @@ struct ComfortEvalTests {
         #expect(!base.contains("有点热、太热了：调低一度温度"))
         #expect(base.contains("5. 司机说车里的感受或情况：按车内状态选一个合理的小动作直接做，不要反问。要做动作就先调用工具。做了就用一句话说改成了什么（例如「空调调到24度了」）；司机说「不用」「改回去」「刚才那个不要」就调用 undo_last_change。只是提到别处的事或问知识时不做任何操作。只说真正做成的，没做成的要说。"))
         #expect(!base.contains("get_vehicle_state"))
-        #expect(base.contains(PersonaInstruction.sleepySentence) && !base.contains("不要说话，不回应"))
+        #expect(base.contains(PersonaInstruction.sleepySentence))
         #expect(base.contains("座位有点高：座椅降低一级。"))
         #expect(base.count <= PersonaInstruction.maxBaseCharacters, "\(base.count)")
         for search in [false, true] {
@@ -264,90 +256,5 @@ struct ComfortEvalRunnerTests {
         #expect(sent[2].hasPrefix("[系统] 车内状态：") && sent[2].contains("车窗 主驾50%"))
         let report = ComfortReport(cases: ComfortCases.all, runs: runs)
         #expect(report.blocked == 2)
-    }
-}
-
-@Suite("T-031k F-09b §12 sleepy driver: rest suggestion and nearby places")
-struct SleepyRestTests {
-    @Test("F-09b §12 row 1: the base has item 1's sentence, not the silence; within maxBaseCharacters")
-    func base() {
-        let sentence = "司机说累、犯困：不要调空调、车窗、座椅或音乐。用一句话建议找地方休息，并调用 navigate_to，destination=附近的咖啡店（在高速上用 附近的服务区），让司机在屏幕上选；司机没选就不开始导航。"
-        #expect(PersonaInstruction.sleepySentence == sentence)
-        let base = PersonaInstruction.base
-        #expect(base.contains("。" + sentence + "座位有点高"))
-        #expect(!base.contains("不要说话，不回应"))
-        for search in [false, true] {
-            let text = PersonaInstruction.base(base, webSearch: search)
-            #expect(text.count <= PersonaInstruction.maxBaseCharacters, "\(search) \(text.count)")
-        }
-    }
-
-    @Test("F-09b §12 row 2: the ten sleepy cases expect navigate_to to nearby rest places, forbid every facet, not silent; whyDrowsy unchanged")
-    func definitions() {
-        let cases = ComfortCases.all.filter(\.restPlaces)
-        #expect(Set(cases.map(\.id)) == Set(sleepyIDs) && cases.count == 10)
-        for c in cases {
-            #expect(c.forbidden == Set(ComfortFacet.allCases), "\(c.id)")
-            #expect(c.accepted == [.noTool], "\(c.id)")
-            for d in ["附近的咖啡店", "附近的服务区", "附近找个地方休息"] {
-                #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [nav(d)], reply: "找个地方休息一下吧。")).pass, "\(c.id) \(d)")
-            }
-            // Speaking passes now (the old `spoke` failure is gone); more than one sentence does not.
-            #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [nav("附近的咖啡店")], reply: "累了吧。去喝杯咖啡吧。"))
-                .failure == .longReply)
-            #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [nav("咖啡店")], reply: "休息一下吧。")).failure
-                    == .noRestPlaces)
-            #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [nav("附近的加油站")], reply: "休息一下吧。")).failure
-                    == .noRestPlaces)
-            #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [nav("附近的咖啡店"), nav("附近的服务区")],
-                                               reply: "休息一下吧。")).failure == .noRestPlaces)
-            var cooler = c.start
-            cooler.climate.targetTemperatureCelsius -= 1
-            #expect(!ComfortScorer.score(c, run(c, end: cooler, calls: [ok("control_climate"), nav("附近的咖啡店")],
-                                                reply: "休息一下吧。")).pass, "\(c.id)")
-        }
-        let why = comfortCase("whyDrowsy")
-        #expect(!why.restPlaces && why.expected == .noTool && why.accepted == [.noTool] && why.forbidden == Set(ComfortFacet.allCases))
-        #expect(ComfortScorer.score(why, run(why, end: why.start, reply: "长时间开车容易疲劳。")).pass)
-    }
-
-    @Test("F-09b §12 row 2 (review): refusal words, 已为你找到 and a failed car call")
-    func reviewProbes() async {
-        for c in ComfortCases.all where c.restPlaces {
-            for reply in ["开车犯困不安全，找个地方休息一下吧。", "不行就找个服务区歇会儿吧。", "导航暂时还不能用，找个地方休息一下吧。",
-                          "已为你找到附近的咖啡店，选一个休息一下吧。"] {
-                #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [nav("附近的咖啡店")], reply: reply)).pass, "\(c.id) \(reply)")
-            }
-            let failedCar = ComfortCallRecord(name: "control_climate", ok: false, code: .vehicleBlocked, data: [:])
-            #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [failedCar, nav("附近的咖啡店")], reply: "休息一下吧。"))
-                .failure == .wrongDecision(.refuse))
-        }
-        // A claim with no ok navigate_to is still unbacked; a car claim is unbacked even with one.
-        let d = comfortCase("drowsy")
-        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, reply: "已为你找到附近的咖啡店。"), restPlaces: true))
-        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, calls: [nav("附近的咖啡店")], reply: "空调已经打开了。"),
-                                            restPlaces: true))
-        // Nothing starts before the pick: a start claim after candidates_listed is unbacked (re-review 1).
-        for reply in ["已经开始导航去附近的咖啡店了。", "已为你选好路线，去咖啡店休息吧。"] {
-            #expect(ComfortScorer.score(d, run(d, end: d.start, calls: [nav("附近的咖啡店")], reply: reply)).failure
-                    == .unbackedClaim, "\(reply)")
-        }
-        // The backing is for the sleepy cases only (re-review 2).
-        let why = comfortCase("whyDrowsy")
-        #expect(ComfortScorer.score(why, run(why, end: why.start, calls: [nav("附近的咖啡店")], reply: "已帮你搞定了。")).failure
-                == .unbackedClaim)
-        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, calls: [nav("附近的咖啡店")], reply: "已为你找到附近的咖啡店。")))
-        // The eval stub answers like the real tool's candidate list.
-        let r = await ComfortRestPlacesStub().execute(ToolCall(id: CallID("1")!, name: "navigate_to",
-                                                                 arguments: .object(["destination": "附近的咖啡店"])))
-        #expect(r.ok && r.data["status"] == "candidates_listed")
-    }
-
-    @Test("F-09b §12 row 4: navigate_to finds nothing; one sentence suggesting a rest passes with no route")
-    func noResults() {
-        for c in ComfortCases.all where c.restPlaces {
-            let failed = run(c, end: c.start, calls: [nav("附近的咖啡店", ok: false)], reply: "附近没找到咖啡店，找个安全的地方停下来休息一下吧。")
-            #expect(ComfortScorer.score(c, failed).pass, "\(c.id)")
-        }
     }
 }

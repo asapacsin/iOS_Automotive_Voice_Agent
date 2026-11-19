@@ -77,9 +77,9 @@ public struct ComfortCase: Sendable, Hashable, Identifiable {
     public let maxWindowPercent: Int?
     /// The reply must mention one of these.
     public let mention: [String]
-    /// F-09b §12 item 3 (T-031k, replaces F-12 §20 item 3's silence): one `navigate_to` to nearby rest places
-    /// (附近 + 咖啡/服务区/休息) and a reply of at most one sentence.
-    public let restPlaces: Bool
+    /// F-09b §12 item 3 (T-031k, replaces F-12 §20 item 3's silence): one `navigate_to` for nearby coffee shops,
+    /// rest areas or rest places, and a reply of at most one sentence.
+    public let restSuggestion: Bool
     /// Scored but never used to change a prompt or a description (item 1).
     public let heldOut: Bool
     /// A comfort wording that is in no prompt or description (item 2).
@@ -91,8 +91,8 @@ public struct ComfortCase: Sendable, Hashable, Identifiable {
     public init(_ id: String, _ sentence: String, group: Group, expected: ComfortDecision,
                 accepted: Set<ComfortDecision> = [], requireAny: [[ComfortChange]] = [], forbidden: Set<ComfortFacet> = [],
                 start: ComfortVehicleState = .default, history: [TextTurn] = [], maxWindowPercent: Int? = nil,
-                mention: [String] = [], restPlaces: Bool = false, heldOut: Bool = false, unprompted: Bool = false) {
-        self.restPlaces = restPlaces
+                mention: [String] = [], restSuggestion: Bool = false, heldOut: Bool = false, unprompted: Bool = false) {
+        self.restSuggestion = restSuggestion
         self.id = id
         self.sentence = sentence
         self.group = group
@@ -115,7 +115,7 @@ public struct ComfortCallRecord: Sendable, Hashable {
     public let ok: Bool
     public let code: ToolErrorCode?
     public let data: [String: JSONValue]
-    /// The call's arguments (F-09b §12 item 3: the `navigate_to` destination). Never logged (I-8).
+    /// The call's arguments (F-09b §12 item 3: the `navigate_to` destination is scored). Never logged.
     public let arguments: [String: JSONValue]
 
     public init(name: String, ok: Bool, code: ToolErrorCode?, data: [String: JSONValue],
@@ -243,10 +243,10 @@ public enum ComfortFailure: Sendable, Hashable {
     case forbiddenChange(ComfortFacet)
     case windowAboveLimit
     case noMention
-    /// F-09b §12 item 3: not exactly one `navigate_to` to nearby rest places.
-    case noRestPlaces
-    /// F-09b §12 item 3: more than one sentence.
-    case longReply
+    /// F-09b §12 item 3: a sleepy case without exactly one nearby rest-place `navigate_to`.
+    case noRestList
+    /// F-09b §12 item 3: a sleepy case's reply of more than one sentence.
+    case tooManySentences
     case unbackedClaim
 
     /// Numbers and enums only (I-8).
@@ -258,8 +258,8 @@ public enum ComfortFailure: Sendable, Hashable {
         case .forbiddenChange(let f): "forbiddenChange:\(f.rawValue)"
         case .windowAboveLimit: "windowAboveLimit"
         case .noMention: "noMention"
-        case .noRestPlaces: "noRestPlaces"
-        case .longReply: "longReply"
+        case .noRestList: "noRestList"
+        case .tooManySentences: "tooManySentences"
         case .unbackedClaim: "unbackedClaim"
         }
     }
@@ -318,21 +318,9 @@ public enum ComfortScorer {
     }
 
     /// A claim in the reply that no ok result backs: any claim with no ok action, or a named one without its tool.
-    /// `restPlaces` (F-09b §12 item 2, sleepy cases only): an ok `navigate_to` backs a plain action claim that names no
-    /// car topic (「已为你找到附近的咖啡店」); a navigation-start claim still needs `navigation_started` (nothing starts
-    /// before the pick), and a music claim still needs its tool.
-    public static func unbackedClaim(_ run: ComfortRun, restPlaces: Bool = false) -> Bool {
+    public static func unbackedClaim(_ run: ComfortRun) -> Bool {
         let proofs = run.calls.filter { $0.acts && $0.ok }
-        if proofs.isEmpty {
-            let claims = ClaimLexicon.claims(in: run.reply)
-            guard !claims.isEmpty else { return false }
-            let navigations = run.calls.filter { $0.name == "navigate_to" && $0.ok }
-            guard restPlaces, !navigations.isEmpty else { return true }
-            if claims.contains(.musicPlaying) { return true }
-            if claims.contains(.navigationStarted),
-               !navigations.contains(where: { $0.data["status"] == "navigation_started" }) { return true }
-            return !ClaimLexicon.unbackedTopics(in: run.reply, proofs: []).isEmpty
-        }
+        if proofs.isEmpty { return ClaimLexicon.claim(in: run.reply) != nil }
         return !ClaimLexicon.unbackedTopics(in: run.reply, proofs: proofs.map { ($0.name, $0.data) }).isEmpty
     }
 
@@ -340,12 +328,8 @@ public enum ComfortScorer {
         let decision = decision(run)
         func fail(_ f: ComfortFailure) -> ComfortScore { ComfortScore(decision: decision, failure: f) }
         if let problem = run.problem { return fail(.problem(problem)) }
-        if unbackedClaim(run, restPlaces: c.restPlaces) { return fail(.unbackedClaim) }
-        if c.restPlaces {
-            // F-09b §12 item 3: any one sentence passes, so the words are not read as a decision (「不安全」 is no
-            // refusal here) and `accepted` is not used; any car or music call, ok or not, is still wrong.
-            if run.calls.contains(where: \.acts) { return fail(.wrongDecision(decision)) }
-        } else if !c.accepted.contains(decision) { return fail(.wrongDecision(decision)) }
+        if unbackedClaim(run) { return fail(.unbackedClaim) }
+        if !c.accepted.contains(decision) { return fail(.wrongDecision(decision)) }
         for facet in ComfortFacet.allCases where c.forbidden.contains(facet) {
             if changed(facet, c.start, run.end) { return fail(.forbiddenChange(facet)) }
         }
@@ -359,20 +343,21 @@ public enum ComfortScorer {
             }
         }
         if !c.mention.isEmpty, !c.mention.contains(where: run.reply.contains) { return fail(.noMention) }
-        if c.restPlaces {
-            let navigations = run.calls.filter { $0.name == "navigate_to" }
-            guard navigations.count == 1, restDestination(navigations[0].arguments["destination"]?.stringValue)
-            else { return fail(.noRestPlaces) }
-            if sentences(run.reply).count > 1 { return fail(.longReply) }
+        if c.restSuggestion {
+            if !restList(run) { return fail(.noRestList) }
+            if sentences(run.reply).count > 1 { return fail(.tooManySentences) }
         }
         return ComfortScore(decision: decision, failure: nil)
     }
 
-    /// F-09b §12 item 3: 附近 and one of 咖啡, 服务区 or 休息.
-    static func restDestination(_ destination: String?) -> Bool {
-        guard let d = destination, d.contains("附近") else { return false }
-        return ["咖啡", "服务区", "休息"].contains(where: d.contains)
+    /// F-09b §12 item 3: exactly one `navigate_to` whose destination has 附近 and one of 咖啡, 服务区 or 休息.
+    public static func restList(_ run: ComfortRun) -> Bool {
+        let navs = run.calls.filter { $0.name == "navigate_to" }
+        guard navs.count == 1, let destination = navs[0].arguments["destination"]?.stringValue else { return false }
+        return destination.contains("附近") && restPlaces.contains(where: destination.contains)
     }
+
+    static let restPlaces = ["咖啡", "服务区", "休息"]
 
     static func changed(_ facet: ComfortFacet, _ a: ComfortVehicleState, _ b: ComfortVehicleState) -> Bool {
         holds(.up(facet), a, b) || holds(.down(facet), a, b)
@@ -550,7 +535,7 @@ public struct ComfortReport: Sendable, Hashable {
             }
             if run.firstReplyClaim { firstReplyClaims += 1 }
             if run.correctionStalled { correctionStalled += 1 }
-            if ComfortScorer.unbackedClaim(run, restPlaces: c.restPlaces) { uncorrectedClaims += 1 }
+            if ComfortScorer.unbackedClaim(run) { uncorrectedClaims += 1 }
             if c.group != .noAction, ComfortScorer.tooLong(run) { tooLong += 1 }
             for stage in ComfortStages.Stage.allCases {
                 guard let ms = run.stages[stage] else { continue }
