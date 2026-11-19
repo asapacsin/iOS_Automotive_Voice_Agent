@@ -18,6 +18,7 @@ sys.path.insert(0, str(GATES))
 import check_imports  # noqa: E402
 import check_kws_tokens  # noqa: E402
 import check_runners  # noqa: E402
+import check_scripts  # noqa: E402
 import check_secrets  # noqa: E402
 import spec_trace  # noqa: E402
 
@@ -46,6 +47,26 @@ class Tree:
 def run(main, *argv) -> int:
     with contextlib.redirect_stdout(io.StringIO()):
         return main(list(argv))
+
+
+class ScriptsGateTests(unittest.TestCase):
+    """F-09b §13 item 8 (T-031l: report only until T-031n): a planted script phrase is found; strict fails it."""
+
+    def setUp(self) -> None:
+        self.tree = Tree()
+
+    def tearDown(self) -> None:
+        self.tree.close()
+
+    def test_planted_phrase_is_reported_and_fails_strict(self) -> None:
+        self.tree.write("Packages/NovaCore/Sources/NovaNav/X.swift", 'let next = "只说一句：好了"\n')
+        self.assertEqual(len(check_scripts.findings(self.tree.root)), 1)
+        self.assertEqual(run(check_scripts.main, "--root", str(self.tree.root)), 0)
+        self.assertEqual(run(check_scripts.main, "--root", str(self.tree.root), "--strict"), 1)
+
+    def test_clean_tree_passes_strict(self) -> None:
+        self.tree.write("App/NovaDrive/Y.swift", 'let next = "用自己的话简短地说。"\n')
+        self.assertEqual(run(check_scripts.main, "--root", str(self.tree.root), "--strict"), 0)
 
 
 class SecretsGateTests(unittest.TestCase):
