@@ -1120,7 +1120,7 @@ public actor TripPlanner: ToolExecutor {
                 target = index
             } else {
                 let found = list.matches(name ?? "")
-                guard found.count <= 1 else { return failure(.ambiguous) }
+                guard found.count <= 1 else { return ambiguous(found.map { list.stops[$0 - 1].place.name }) }
                 guard let only = found.first else { return failure(.notFound) }
                 target = only
             }
@@ -1154,7 +1154,7 @@ public actor TripPlanner: ToolExecutor {
             if action == "add" {
                 if let index, !(1...(n + 1)).contains(index) { return outOfRange() }
                 // §37 item 1: the frame (start, hotels, end) is not counted in the 16.
-                guard list.stops.filter({ $0.role == .sight }).count < TripList.maxStops else { return failure(.tripTooLong) }
+                guard list.stops.filter({ $0.role == .sight }).count < TripList.maxStops else { return tripTooLong() }
             } else {
                 guard let index, (1...n).contains(index) else { return outOfRange() }
             }
@@ -1691,7 +1691,7 @@ public actor TripPlanner: ToolExecutor {
         if let start {
             // Matched as `remove` by name, over the whole plan.
             let found = plan.allStops.filter { TripList.matches($0.stop, start) }
-            guard found.count <= 1 else { return failure(.ambiguous) }
+            guard found.count <= 1 else { return ambiguous(found.map(\.stop.place.name)) }
             if let only = found.first {
                 named = only.stop.place.id
             } else {
@@ -1808,7 +1808,7 @@ public actor TripPlanner: ToolExecutor {
                 target = list.stops[n - 1]
             } else {
                 let found = list.matches(asked)
-                guard found.count <= 1 else { return failure(.ambiguous) }
+                guard found.count <= 1 else { return ambiguous(found.map { list.stops[$0 - 1].place.name }) }
                 guard let only = found.first else { return failure(.notFound) }
                 target = list.stops[only - 1]
             }
@@ -1817,8 +1817,9 @@ public actor TripPlanner: ToolExecutor {
         } else {
             onLine("trip next index=0 day=\(plan.currentDay) ok=no code=DAY_DONE")
             let more = plan.currentDay < plan.dayCount
-            return .failure(.dayDone, advice: more ? "第\(plan.currentDay)天的地点都去过或跳过了。请问司机要不要开始第\(plan.currentDay + 1)天。"
-                            : "行程里的地点都去过或跳过了。请用一句话说今天的行程走完了。")
+            // F-09b §13 item 6 (T-031o): the day and the day count are the facts; the next day is offered only if any.
+            return ToolReply.failure(.dayDone, facts: ["day": .int(Int64(plan.currentDay)), "day_count": .int(Int64(plan.dayCount))],
+                                     may: more ? [.askNextDay] : [], mustNot: [.claimStarted, .invent]).result
         }
         // §47 item 1 (T-040s): an `abroad` trip's stop is routed by OSRM inside the app.
         let result = await navigation.tripNext(target.place, abroad: plan.abroad)
@@ -2278,7 +2279,16 @@ public actor TripPlanner: ToolExecutor {
         return (kmText, time)
     }
 
-    private func failure(_ code: ToolErrorCode) -> ToolResult { ToolFailureAdvice.reply(code) }
+    private func failure(_ code: ToolErrorCode, facts: [String: JSONValue] = [:]) -> ToolResult {
+        ToolFailureAdvice.reply(code, facts: facts)
+    }
+
+    /// F-09b §13 item 6 (T-031o): AMBIGUOUS with the matching names as facts.
+    private func ambiguous(_ names: [String]) -> ToolResult {
+        failure(.ambiguous, facts: ["names": .array(names.map(JSONValue.string))])
+    }
+
+    private func tripTooLong() -> ToolResult { failure(.tripTooLong, facts: ["max_stops": .int(Int64(TripList.maxStops))]) }
 
     private func outOfRange() -> ToolResult {
         // F-09b §13 item 4 (T-031m): choosing; what is on the list, and she may ask which.
@@ -2324,7 +2334,9 @@ public actor TripPlanner: ToolExecutor {
         case "save":
             guard !plan.isEmpty else { return failure(.noTripList) }
             let exists = { if case .found(let i) = self.saved.match(name), TranscriptText.normalize(self.saved.entries[i].name) == name { true } else { false } }()
-            guard exists || saved.entries.count < SavedTripPlans.maxPlans else { return failure(.plansFull) }
+            guard exists || saved.entries.count < SavedTripPlans.maxPlans else {
+                return failure(.plansFull, facts: ["max_plans": .int(Int64(SavedTripPlans.maxPlans))])
+            }
             let replaced = saved.save(plan, as: name, at: now())
             plan.name = name
             persist()
@@ -2460,7 +2472,7 @@ public actor TripPlanner: ToolExecutor {
 
     /// §13 item 3: an already-found place added at the end, with no new lookup.
     private func add(_ place: Place) -> ToolResult {
-        guard list.count < TripList.maxStops else { return failure(.tripTooLong) }
+        guard list.count < TripList.maxStops else { return tripTooLong() }
         if list.contains(placeID: place.id) {
             return listResult(changed: "none", duplicates: [place.name], facts: ["already_in_list": .string(place.name)])
         }

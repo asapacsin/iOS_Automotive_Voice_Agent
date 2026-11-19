@@ -45,7 +45,7 @@ struct ToolReplyStage1Tests {
         #expect(replyValues(result.data["may"]) == ["search_wider", "similar_place"])
         #expect(replyValues(result.data["must_not"]) == ["ask_rephrase", "invent"])
         #expect(reply.next == "用自己的话简短地说。可以：可以自己再搜远一点；可以搜相近的地方（比如服务区、休息区）。"
-            + "不要：不要让司机重新措辞再说；不要说 facts 里没有的地点、数字或时间。")
+            + "不要：不要让司机重新措辞再说；不要说 facts 里没有的人、地点、数字或时间。")
         // The JSON the model reads carries the four keys and no advice.
         let json = try JSONValue.canonicalEncoder().encode(JSONValue.object(result.data))
         let text = String(decoding: json, as: UTF8.self)

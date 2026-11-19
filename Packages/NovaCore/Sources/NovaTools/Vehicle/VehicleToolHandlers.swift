@@ -54,9 +54,7 @@ enum VehicleArgs {
         // F-09b §13 item 6 (T-031o): the rule and its detail are the facts.
         let facts: [String: JSONValue] = ["action": .string(action), "blocked": .string(rule),
                                           "detail": .string(VehicleActionPolicy.Rule(rawValue: rule)?.detail ?? rule)]
-        return VehicleToolOutcome(result: ToolFailureAdvice.reply(
-            .vehicleBlocked, facts: facts, extra: facts.merging(["instruction": .string(failureInstruction)]) { $1 }),
-                                  chip: nil)
+        return VehicleToolOutcome(result: ToolFailureAdvice.reply(.vehicleBlocked, facts: facts, extra: facts), chip: nil)
     }
 }
 

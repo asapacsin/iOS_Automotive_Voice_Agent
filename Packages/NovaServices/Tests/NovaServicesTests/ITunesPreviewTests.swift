@@ -139,10 +139,12 @@ struct ITunesPreviewTests {
         let args: JSONValue = ["title": "oblivious"]
         for http in [ScriptedHTTP(status: 500), ScriptedHTTP(fails: true), ScriptedHTTP(body: "not json")] {
             let r = await Self.handler(Self.port(http, FakePreviewPlayer(after: .zero))).execute(Self.call(args))
-            #expect(!r.ok && r.code == ToolErrorCode.musicSearchFailed && r.advice != nil)
+            #expect(!r.ok && r.code == ToolErrorCode.musicSearchFailed && r.advice == nil
+                    && r.data["must_not"] == .array(["claim_started", "claim_done", "claim_playing"].map(JSONValue.string)) && r.data["next"] != nil)
         }
         let empty = await Self.handler(Self.port(ScriptedHTTP(), FakePreviewPlayer(after: .zero))).execute(Self.call(args))
-        #expect(!empty.ok && empty.code == ToolErrorCode.musicNotFound && empty.advice != nil)
+        #expect(!empty.ok && empty.code == ToolErrorCode.musicNotFound && empty.advice == nil
+                && empty.data["may"] == .array([.string("retry_with_title")]) && empty.data["next"] != nil)
         let never = FakePreviewPlayer(after: nil)
         let silent = await Self.handler(Self.port(ScriptedHTTP(body: Self.fixture), never)).execute(Self.call(args))
         #expect(!silent.ok && silent.code == ToolErrorCode.notPlaying)
