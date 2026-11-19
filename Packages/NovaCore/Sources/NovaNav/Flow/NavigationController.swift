@@ -154,7 +154,8 @@ public actor NavigationController: ToolExecutor {
     public func setTripCards(hide: @escaping @Sendable () async -> Bool) { hideTripCards = hide }
 
     /// F-15b §36 item 2d (T-040p): plain searches abroad. `search` is Photon, `center` a city's centre outside China.
-    /// §51 item 1 (T-040y): `area` is the named city's centre and country (nil when unknown); the trip is never consulted.
+    /// §51 item 8 (T-040z): used for `near=place` geocodes abroad (`area`, then `center`) and Photon searches; the trip is
+    /// consulted only for `near=trip` (and the `trip_city` fact).
     private var abroadSearch: (any PlaceSearch)?
     private var abroadCenter: (@Sendable (String) async -> GeoCoordinate?)?
     private var abroadArea: (@Sendable (String) async -> TripArea?)?
@@ -168,6 +169,9 @@ public actor NavigationController: ToolExecutor {
         abroadArea = area
     }
     public func setTripArrival(_ arrived: @escaping @Sendable (String) async -> Void) { tripArrived = arrived }
+    /// F-15b §51 item 8 (T-040z): the plan as `near=trip` and the `trip_city` fact see it; nil when there is none.
+    private var nearTrip: (@Sendable () async -> NearTrip?)?
+    public func setNearTrip(_ trip: @escaping @Sendable () async -> NearTrip?) { nearTrip = trip }
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
                 clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(), saved: SavedPlaces? = nil,
@@ -202,8 +206,10 @@ public actor NavigationController: ToolExecutor {
         switch call.name {
         case "navigate_to":
             let destination = call.arguments["destination"]?.stringValue ?? ""
-            if let abroad = abroadAsked(call.arguments) { return await navigateAbroad(destination, city: abroad.city) }
-            return await navigate(destination)
+            // §51 item 8: the model's calls carry `near` (the validator requires it); an in-app call (a tap) has none
+            // and is the home search.
+            guard let near = call.arguments["near"] else { return await navigate(destination) }
+            return await navigateNear(destination, near: near, call.arguments)
         case "choose_navigation_option": return await choose(call.arguments, fromTap: call.id.rawValue.hasPrefix("ui"))
         case "exit_navigation_mode": return await exit()
         default: return .failure(.unknownTool)
@@ -212,25 +218,220 @@ public actor NavigationController: ToolExecutor {
 
     // MARK: navigate_to
 
-    /// §51 item 1 (T-040y, replaces §36 item 2d's trip default): `abroad` is only what the model passes. nil: the
-    /// home search. `city` nil means none was given (→ `invalidFields`).
-    private func abroadAsked(_ args: JSONValue) -> (abroad: Bool, city: String?)? {
-        guard abroadSearch != nil, args["abroad"]?.boolValue == true else { return nil }
-        var city = args["city"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        if city?.isEmpty == true { city = nil }
-        return (true, city)
+    /// F-15b §51 item 8 (T-040z, replaces §36 item 2d's `abroad`/`city`): the model names the centre; code resolves it
+    /// (the fix or the demo point, a geocode, a shown trip stop, the route), picks the vendor by the centre's country,
+    /// keeps the results to that country and range, and says what it did (`searched_around`, `vendor`, `found`).
+    /// `nav near kind= vendor= source= found= dropped= reason=`.
+    private func navigateNear(_ destination: String, near raw: JSONValue, _ args: JSONValue) async -> ToolResult {
+        guard let kind = raw.stringValue.flatMap(NearKind.init(rawValue:)) else {
+            return .failure(.invalidFields, advice: Self.nearInvalidAdvice)
+        }
+        let name = args["near_name"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
+        let country = args["near_country"]?.stringValue?.trimmingCharacters(in: .whitespaces).uppercased().nonEmpty
+        switch kind {
+        case .here: return await nearHere(destination)
+        case .route:
+            guard snapshot.navigating else {
+                return .failure(.invalidFields, advice: "near=route 只在导航中可用；现在没有在导航，请马上用 near=here 或 place 重新调用，不要告诉司机。")
+            }
+            let r = await listOverGuidance(destination)
+            let found = Self.found(r)
+            nearLine(.route, vendor: "amap", source: "route", found: found, dropped: 0, reason: "ok")
+            return Self.withFacts(r, ["searched_around": "路线沿途", "vendor": "amap", "found": .int(Int64(found))])
+        case .place:
+            guard let name else {
+                return .failure(.invalidFields, advice: "near=place 时必须填 near_name（地点，知道城市时加城市）和 near_country（ISO 国家代码，比如 JP、CN）。请马上重新调用，不要告诉司机。")
+            }
+            return await nearPlace(destination, name: name, country: country)
+        case .trip:
+            return await nearTripStop(destination, name: name ?? "")
+        }
     }
 
-    /// §36 item 2d (T-040p): the destination searched on Photon (category words by tag), around the phone when it is
-    /// outside China and the destination says 附近/最近, else around the city's centre. No 高德 request. The places go
-    /// to the candidate list as `navigate_to`'s do. `nav search vendor=photon abroad=yes found= ms=`.
-    private func navigateAbroad(_ destination: String, city: String?) async -> ToolResult {
+    static let nearInvalidAdvice = "near 必须填 here、place、trip 或 route。请马上重新调用，不要告诉司机。"
+
+    /// `here`: the phone's fix (or the demo point); 高德 in China (the F-16 search), Photon abroad. When the shown trip
+    /// is on the other side of the border, `trip_city` lets her say which side was searched.
+    private func nearHere(_ destination: String) async -> ToolResult {
+        let fix = await usableFix()
+        let demo = location.source == .demo
+        let source = demo ? "demo" : "fix"
+        let label = demo ? "演示位置" : "手机位置"
+        let phoneAbroad = fix.map { CoordinateConverter.outOfChina($0.latitude, $0.longitude) } ?? false
+        var facts: [String: JSONValue] = ["searched_around": .string(label)]
+        if let trip = await nearTrip?(), !trip.hidden, !trip.stops.isEmpty {
+            let tripAbroad = trip.abroad || trip.stops.contains { $0.countryCode != nil && !TripRegion.isChina($0.countryCode) }
+            if tripAbroad != phoneAbroad, let city = trip.city ?? trip.stops.first?.name { facts["trip_city"] = .string(city) }
+        }
+        if phoneAbroad, let fix, abroadSearch != nil {
+            let (r, found, dropped) = await searchAbroad(destination, center: fix, area: nil, aroundFix: true, label: label)
+            nearLine(.here, vendor: "photon", source: source, found: found, dropped: dropped, reason: "ok")
+            facts["vendor"] = "photon"
+            facts["found"] = .int(Int64(found))
+            return Self.withFacts(r, facts)
+        }
+        let r = await navigate(destination)
+        let found = Self.found(r)
+        nearLine(.here, vendor: "amap", source: source, found: found, dropped: 0, reason: "ok")
+        facts["vendor"] = "amap"
+        facts["found"] = .int(Int64(found))
+        return Self.withFacts(r, facts)
+    }
+
+    /// `place`: `near_name` geocoded on 高德 when `near_country` is CN, else on Photon (its area, then its centre).
+    /// A point outside `near_country` is refused (`countryMismatch`), nothing searched.
+    private func nearPlace(_ destination: String, name: String, country: String?) async -> ToolResult {
+        var center: GeoCoordinate?
+        var found: String?
+        if country == "CN" {
+            let first = try? await search.text(name, city: nil).first
+            center = first?.coordinate
+            found = first.map { $0.countryCode?.uppercased() ?? "CN" }
+        } else if let area = await abroadArea?(name) {
+            center = area.center
+            found = area.countryCode
+        } else if let c = await abroadCenter?(name) {
+            center = c
+            found = CoordinateConverter.outOfChina(c.latitude, c.longitude) ? nil : "CN"
+        }
+        guard let center else {
+            nearLine(.place, vendor: country == "CN" ? "amap" : "photon", source: "geocode", found: 0, dropped: 0, reason: "not_found")
+            return LookupReply.notFound(.notFound, what: name, facts: ["near_name": .string(name)], may: [.askPlace])
+        }
+        if let country, let found, found != country {
+            nearLine(.place, vendor: country == "CN" ? "amap" : "photon", source: "geocode", found: 0, dropped: 0,
+                     reason: "country_mismatch")
+            return ToolReply.failure(.countryMismatch,
+                                     facts: ["near_name": .string(name), "near_country": .string(country),
+                                             "found_country": .string(found)],
+                                     may: [.askPlace], mustNot: [.invent]).result
+        }
+        let abroad = CoordinateConverter.outOfChina(center.latitude, center.longitude)
+        let result = abroad && abroadSearch != nil
+            ? await searchAbroad(destination, center: center, area: TripArea(center: center, countryCode: found ?? country),
+                                 aroundFix: false, label: name)
+            : await searchHome(destination, center: center, label: name)
+        let vendor = abroad && abroadSearch != nil ? "photon" : "amap"
+        nearLine(.place, vendor: vendor, source: "geocode", found: result.found, dropped: result.dropped, reason: "ok")
+        return Self.withFacts(result.result, ["searched_around": .string(name), "vendor": .string(vendor),
+                                              "found": .int(Int64(result.found))])
+    }
+
+    /// `trip`: only while the cards are shown; the matched stop's saved coordinates are the centre.
+    private func nearTripStop(_ destination: String, name: String) async -> ToolResult {
+        guard let trip = await nearTrip?(), !trip.stops.isEmpty else {
+            nearLine(.trip, vendor: "amap", source: "trip", found: 0, dropped: 0, reason: "not_found")
+            return LookupReply.notFound(.notFound, what: name, facts: ["stops": []], may: [.askPlace])
+        }
+        if trip.hidden {
+            nearLine(.trip, vendor: "amap", source: "trip", found: 0, dropped: 0, reason: "trip_hidden")
+            return .failure(.tripHidden, advice: ToolFailureAdvice.forCode(.tripHidden))
+        }
+        let matches = trip.match(name)
+        guard matches.count == 1, let stop = matches.first else {
+            let ambiguous = matches.count > 1
+            nearLine(.trip, vendor: "amap", source: "trip", found: 0, dropped: 0, reason: ambiguous ? "ambiguous" : "not_found")
+            if ambiguous {
+                return ToolReply.failure(.ambiguous, facts: ["near_name": .string(name),
+                                                             "matches": .array(matches.map { .string($0.name) })],
+                                         may: [.askPick], mustNot: [.invent]).result
+            }
+            return LookupReply.notFound(.notFound, what: name,
+                                        facts: ["stops": .array(Self.uniqueNames(trip.stops).map(JSONValue.string))],
+                                        may: [.askPlace])
+        }
+        let label = "行程第\(stop.day)天\(stop.name)"
+        let abroad = CoordinateConverter.outOfChina(stop.coordinate.latitude, stop.coordinate.longitude)
+        let country = stop.countryCode ?? (abroad ? nil : "CN")
+        let result = abroad && abroadSearch != nil
+            ? await searchAbroad(destination, center: stop.coordinate,
+                                 area: TripArea(center: stop.coordinate, countryCode: country), aroundFix: false, label: label)
+            : await searchHome(destination, center: stop.coordinate, label: label)
+        let vendor = abroad && abroadSearch != nil ? "photon" : "amap"
+        nearLine(.trip, vendor: vendor, source: "trip", found: result.found, dropped: result.dropped, reason: "ok")
+        return Self.withFacts(result.result, ["searched_around": .string(label), "vendor": .string(vendor),
+                                              "found": .int(Int64(result.found))])
+    }
+
+    private static func uniqueNames(_ stops: [NearTripStop]) -> [String] {
+        var out: [String] = []
+        for s in stops where !out.contains(s.name) { out.append(s.name) }
+        return out
+    }
+
+    private func nearLine(_ kind: NearKind, vendor: String, source: String, found: Int, dropped: Int, reason: String) {
+        onTripLine("nav near kind=\(kind.rawValue) vendor=\(vendor) source=\(source) found=\(found) dropped=\(dropped) reason=\(reason)")
+    }
+
+    /// Places offered by a result: the listed count, 1 for a started route, else 0.
+    static func found(_ r: ToolResult) -> Int {
+        guard r.ok else { return 0 }
+        return r.data["count"]?.intValue.map(Int.init) ?? 1
+    }
+
+    /// `facts` added to a result's `facts` (F-09b §13 `ToolReply`); the result's own facts win.
+    static func withFacts(_ r: ToolResult, _ extra: [String: JSONValue]) -> ToolResult {
+        var data = r.data
+        var facts: [String: JSONValue] = if case .object(let o)? = data["facts"] { o } else { [:] }
+        for (k, v) in extra where facts[k] == nil { facts[k] = v }
+        data["facts"] = .object(facts)
+        return ToolResult(ok: r.ok, code: r.code, data: data, advice: r.advice)
+    }
+
+    /// 高德 around a named point or a trip stop in China, kept to 50 km (`reason=far`).
+    private func searchHome(_ destination: String, center: GeoCoordinate, label: String) async
+        -> (result: ToolResult, found: Int, dropped: Int) {
+        confirm = nil
+        routeAbroad = false
+        endTripStop()
+        let guiding = snapshot.navigating
+        let generation: Generation
+        if guiding {
+            generation = snapshot.generation
+        } else {
+            generation = advance(to: .resolvingDestination)
+            snapshot.places = []
+            snapshot.routes = []
+            snapshot.destination = nil
+            snapshot.info = nil
+            publish()
+        }
+        func current() -> Bool { generation == snapshot.generation && snapshot.navigating == guiding }
+        let query = DestinationQuery(destination)
+        var places: [Place] = []
+        var dropped = 0
+        do {
+            for keywords in query.attempts where places.isEmpty {
+                let found = try await search.around(keywords, center: center, radiusMeters: tuning.searchRadiusMeters,
+                                                    sort: query.sort)
+                guard current() else { return (.failure(.optionsStale), 0, 0) }
+                let kept = found.filter { SelfPosition.distanceMeters(center, $0.coordinate) <= Double(tuning.searchRadiusMeters) }
+                dropped += found.count - kept.count
+                places = kept
+            }
+        } catch {
+            if !guiding { reset() }
+            return (Self.searchFailure(error).result, 0, dropped)
+        }
+        let top = Array(places.prefix(tuning.maxCandidates))
+        guard !top.isEmpty else {
+            if !guiding { reset() }
+            return (LookupReply.noCandidates(what: query.stripped, around: .city,
+                                             radiusKm: Double(tuning.searchRadiusMeters) / 1000, city: label), 0, dropped)
+        }
+        let r = guiding ? listedOverGuidance(top) : await listOrRoute(top)
+        return (r, top.count, dropped)
+    }
+
+    /// Photon around `center`: the phone abroad (`aroundFix`), or a named place or trip stop kept to `area`'s country
+    /// and 50 km (§50 item 3). No 高德 request. The places go to the candidate list as `navigate_to`'s do.
+    /// `nav search vendor=photon found= ms=`.
+    private func searchAbroad(_ destination: String, center: GeoCoordinate, area: TripArea?, aroundFix: Bool,
+                              label: String) async -> (result: ToolResult, found: Int, dropped: Int) {
         confirm = nil
         routeAbroad = true
         endTripStop()
-        guard let city, let abroadSearch else {
-            return .failure(.invalidFields, advice: "abroad=true 时必须填 city：英文城市名加国家，比如 \"Tokyo, Japan\"。请马上重新调用，不要告诉司机。")
-        }
+        guard let abroadSearch else { return (.failure(.invalidFields, advice: Self.nearInvalidAdvice), 0, 0) }
         let started = clock.now
         // F-05a §6: while guiding, the places are listed over the running route (as `listOverGuidance`).
         let guiding = snapshot.navigating
@@ -247,21 +448,6 @@ public actor NavigationController: ToolExecutor {
         }
         func current() -> Bool { generation == snapshot.generation && snapshot.navigating == guiding }
         let query = DestinationQuery(destination)
-        let nearby = DestinationQuery.nearby.contains { destination.contains($0) }
-        var center: GeoCoordinate?
-        // §51 item 1: around the city's centre, kept to its country and 50 km (the named city's own area); 附近/最近
-        // with the phone outside China: around the phone.
-        var area: TripArea?
-        var aroundFix = false
-        if nearby, let fix = await usableFix(), CoordinateConverter.outOfChina(fix.latitude, fix.longitude) {
-            center = fix
-            aroundFix = true
-        } else {
-            area = await abroadArea?(city)
-            center = area?.center
-            if center == nil { center = await abroadCenter?(city) }
-        }
-        guard current() else { return .failure(.optionsStale) }
         var places: [Place] = []
         var areaDropped = 0
         do {
@@ -271,40 +457,39 @@ public actor NavigationController: ToolExecutor {
                     if let boxed = abroadSearch as? any AreaPlaceSearch {
                         found = try await boxed.inArea(keywords, box: GeoBox.around(area.center), limit: tuning.maxCandidates)
                     } else {
-                        found = try await abroadSearch.around(keywords, center: center ?? area.center,
+                        found = try await abroadSearch.around(keywords, center: center,
                                                               radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
                     }
                     let inside = TripGround.inArea(found, area: area, km: TripTuning().areaKm)
                     places = inside.kept
                     areaDropped += inside.dropped
-                } else if let center {
+                } else {
                     places = try await abroadSearch.around(keywords, center: center,
                                                            radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
-                } else {
-                    places = try await abroadSearch.text(keywords, city: nil)
                 }
-                guard current() else { return .failure(.optionsStale) }
+                guard current() else { return (.failure(.optionsStale), 0, 0) }
             }
         } catch {
-            onTripLine("nav search vendor=photon abroad=yes found=0 ms=\(max(0, (clock.now - started).milliseconds))")
+            onTripLine("nav search vendor=photon found=0 ms=\(max(0, (clock.now - started).milliseconds))")
             if !guiding { reset() }
-            return Self.searchFailure(error).result
+            return (Self.searchFailure(error).result, 0, areaDropped)
         }
         // §36 item 3: a place in China is never a result abroad.
-        let top = Array(places.filter { $0.countryCode == nil || !TripRegion.isChina($0.countryCode) }.prefix(tuning.maxCandidates))
+        let abroadOnly = places.filter { $0.countryCode == nil || !TripRegion.isChina($0.countryCode) }
+        let dropped = areaDropped + places.count - abroadOnly.count
+        let top = Array(abroadOnly.prefix(tuning.maxCandidates))
         let areaPart = area == nil ? "" : " area_dropped=\(areaDropped)"
-        onTripLine("nav search vendor=photon abroad=yes found=\(top.count) ms=\(max(0, (clock.now - started).milliseconds))\(areaPart)")
+        onTripLine("nav search vendor=photon found=\(top.count) ms=\(max(0, (clock.now - started).milliseconds))\(areaPart)")
         guard !top.isEmpty else {
             if !guiding { reset() }
             // F-09b §13 item 3: facts and rules, no sentence.
-            let around: LookupReply.Around = !aroundFix || area != nil ? .city
-                : location.source == .demo ? .demo : .phone
-            let radiusKm: Double? = area != nil ? TripTuning().areaKm
-                : center == nil ? nil : Double(tuning.searchRadiusMeters) / 1000
-            return LookupReply.noCandidates(what: query.stripped, around: around, radiusKm: radiusKm, city: city)
+            let around: LookupReply.Around = !aroundFix ? .city : location.source == .demo ? .demo : .phone
+            let radiusKm: Double = area != nil ? TripTuning().areaKm : Double(tuning.searchRadiusMeters) / 1000
+            return (LookupReply.noCandidates(what: query.stripped, around: around, radiusKm: radiusKm,
+                                             city: aroundFix ? nil : label), 0, dropped)
         }
-        guard guiding else { return await listOrRoute(top) }
-        return listedOverGuidance(top)
+        let r = guiding ? listedOverGuidance(top) : await listOrRoute(top)
+        return (r, top.count, dropped)
     }
 
     /// F-15b §51 item 7 (T-040y): a plain navigate_to (home or abroad) ends the trip stop guidance (§29); nothing

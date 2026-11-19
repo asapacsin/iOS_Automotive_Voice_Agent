@@ -41,6 +41,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case noRevision = "NO_REVISION"
     /// F-15b §51 item 2 (T-040y): a trip command while the trip cards are hidden.
     case tripHidden = "TRIP_HIDDEN"
+    /// F-15b §51 item 8 (T-040z): `navigate_to near=place` geocoded outside the model's `near_country`; no search.
+    case countryMismatch = "COUNTRY_MISMATCH"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

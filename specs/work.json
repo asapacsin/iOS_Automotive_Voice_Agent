@@ -3182,7 +3182,7 @@
     {
       "id": "T-040z",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "RUNNING",
       "priority": 1,
       "depends_on": [
         "T-040y",

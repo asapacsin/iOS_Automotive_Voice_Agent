@@ -35,7 +35,7 @@ public enum ToolCatalog {
         if spec.name == "run_scenario" { return nil }
         let live = spec.name == "query_live_info"
         let schema = live ? forecastArguments(longerDays(spec.declaration.parametersJSONSchema))
-            : spec.name == "navigate_to" ? navigateAbroadArguments(spec.declaration.parametersJSONSchema)
+            : spec.name == "navigate_to" ? navigateNearArguments(spec.declaration.parametersJSONSchema)
             : spec.declaration.parametersJSONSchema
         let description: String
         switch spec.name {
@@ -50,17 +50,21 @@ public enum ToolCatalog {
                                                      parametersJSONSchema: schema))
     } + [volumeSpec, vehicleStateSpec, undoSpec] + tripSpecs
 
-    // MARK: navigate_to abroad (F-15b §36 item 2d, §39, T-040p)
+    // MARK: navigate_to near (F-15b §51 item 8, T-040z; replaces §36 item 2d's abroad/city)
 
-    public static let navigateAbroadDescription = "目的地在中国以外（不含港澳台）时填 abroad=true，city 填英文城市名加国家，比如 \"Tokyo, Japan\"；目的地写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」。司机说「附近」「最近」又没有说国外的城市时，不要填 abroad。"
-    public static let maxNavigateCity = 40
-    /// The Android schema plus the optional `abroad` and `city`.
-    static func navigateAbroadArguments(_ schema: JSONValue) -> JSONValue {
+    /// §51 item 8: the catalog text as the spec gives it (replaces §36 item 2d's sentence and §51 item 1's).
+    public static let navigateNearDescription = "near：司机说「附近」「这儿」或没说地点时填 here；说了某个地方（城市、景点、地址）填 place，并填 near_name 和 near_country；说的是行程里的地方（「酒店附近」「第一天那个景点」）填 trip，只在行程打开时可用；导航中问「路上」填 route。拿不准司机指的是哪里时，先问司机一句，不要猜。"
+    public static let nearValues = ["here", "place", "trip", "route"]
+    public static let maxNearName = 40
+    /// The Android schema plus the required `near` and the optional `near_name` and `near_country` (ISO 3166 alpha-2).
+    static func navigateNearArguments(_ schema: JSONValue) -> JSONValue {
         guard case .object(var root) = schema, case .object(var props)? = root["properties"],
               props["destination"] != nil else { preconditionFailure("navigate_to schema changed") }
-        props["abroad"] = ["type": "boolean"]
-        props["city"] = ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxNavigateCity))]
+        props["near"] = ["type": "string", "enum": .array(nearValues.map { .string($0) })]
+        props["near_name"] = ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxNearName))]
+        props["near_country"] = ["type": "string", "minLength": 2, "maxLength": 2]
         root["properties"] = .object(props)
+        root["required"] = ["destination", "near"]
         return .object(root)
     }
 
@@ -131,7 +135,7 @@ public enum ToolCatalog {
     public static let playMusicDescription = "按歌名、歌手、作品或模糊描述放歌（播放 iTunes 30 秒试听），如「梶浦由记的、空之境界里很燃的那首片头曲」「来点开车提神的」。先用你的知识确定是哪首，填 title/artist/album_or_work；先用你的知识确定一首具体的歌：title 填发行时的歌名原文（如 oblivious），artist 填演唱者（如 Kalafina）；不要把用户的原话填进 query。实在确定不了才只填 query 或 mood。只按返回的 now_playing 说在放什么；ok=false 如实说没放成。「不是这首」时再调用并填 exclude_title。无描述的「放首歌」用 control_music。"
     static let iosDescriptions: [String: String] = [
         "play_music": playMusicDescription,
-        "navigate_to": "导航到地点：「导航去X」「带我去X」。只有一个地点时直接开始导航（推荐路线）；有多个时屏幕会列出候选，不要念列表，按返回的 next 只说一句，选择用 choose_navigation_option。按结果答：navigation_started 按 next 说已开始导航和大约几分钟，alternatives 只按 next 提一句，不要念所有路线；ok=false 按 next 说原因，不要说已开始。换目的地（「不是这个」「换成X」）时用新目的地再调用。没有路线时找附近的地点（「附近有加油站吗」「最近的充电站」）也用它：destination=附近的加油站。" + navigateAbroadDescription,
+        "navigate_to": "导航到地点：「导航去X」「带我去X」。只有一个地点时直接开始导航（推荐路线）；有多个时屏幕会列出候选，不要念列表，按返回的 next 只说一句，选择用 choose_navigation_option。按结果答：navigation_started 按 next 说已开始导航和大约几分钟，alternatives 只按 next 提一句，不要念所有路线；ok=false 按 next 说原因，不要说已开始。换目的地（「不是这个」「换成X」）时用新目的地再调用。没有路线时找附近的地点（「附近有加油站吗」「最近的充电站」）也用它：destination=附近的加油站。" + navigateNearDescription,
         "choose_navigation_option": "选屏幕上的候选地点（等同点选），或导航中换路线，三个参数只填一个。地点列表时：「第一个」「第二个」→index；「最近的那个」→nearest；「选万达广场那个」→name；选好地点后直接开始导航。导航中：「换最快的」→preference=fastest；「最短的」→shortest；「不走高速」「不要收费」→no_toll；「红绿灯少的」→fewest_lights；「推荐的」→recommended；「换第二条」→index；她问「要换吗？」后司机说「好」「换」→preference=上次结果的 offer_preference。按结果答：navigation_started 说已开始导航；route_changed 按 next 说已换成哪条路线和大约几分钟；route_unchanged 说现在走的就是这条；ok=false 按 error：OUT_OF_RANGE=没有这一项，NO_OPTIONS_ON_SCREEN=没有可选列表或没有别的路线，OPTIONS_NOT_READY=还在计算，AMBIGUOUS=多个匹配请说第几个，OPTIONS_STALE=列表过期请重新说，CONFIRM_CANDIDATE=问是不是 candidate_position 那项。",
     ]
     public static let declarations: [ToolDeclaration] = specs.map(\.declaration)
@@ -390,15 +394,21 @@ public enum ToolCatalog {
 
         switch name {
         case "navigate_to":
-            // F-15b §36 item 2d (T-040p): optional abroad (bool) and city (1–40); a missing city is the planner's check.
-            if !keys.contains("destination") || !keys.isSubset(of: ["destination", "abroad", "city"]) { return .invalidFields }
-            if keys.contains("abroad"), a["abroad"]?.boolValue == nil { return .invalidFields }
-            if keys.contains("city") {
-                guard let c = str("city"), !trimmed(c).isEmpty, c.utf16.count <= maxNavigateCity else { return .invalidFields }
-            }
+            // F-15b §51 item 8 (T-040z): `near` required (here|place|trip|route); near_name 1–40; near_country two
+            // letters. Whether `place` has its name, and `trip`/`route` their state, is the controller's check.
+            if !keys.contains("destination")
+                || !keys.isSubset(of: ["destination", "near", "near_name", "near_country"]) { return .invalidFields }
             guard let d = str("destination") else { return .invalidFieldType }
             if trimmed(d).isEmpty { return .blankDestination }
             if trimmed(d).utf16.count > 120 { return .destinationTooLong }
+            guard let near = str("near"), nearValues.contains(near) else { return .invalidFields }
+            if keys.contains("near_name") {
+                guard let n = str("near_name"), !trimmed(n).isEmpty, n.utf16.count <= maxNearName else { return .invalidFields }
+            }
+            if keys.contains("near_country") {
+                guard let c = str("near_country").map(trimmed), c.count == 2,
+                      c.allSatisfy({ $0.isASCII && $0.isLetter }) else { return .invalidFields }
+            }
         case "choose_navigation_option":
             if keys.count != 1 || !keys.isSubset(of: ["index", "preference", "name"]) { return .invalidFields }
             if keys.contains("index") {

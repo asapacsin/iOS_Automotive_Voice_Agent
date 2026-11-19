@@ -56,7 +56,7 @@ struct TripNavSeparateTests {
         let photon = FakeApple(["咖啡店": [jp("Doutor", lat: 35.69)]])
         let rig = await SeparateRig(phone: zhuhai, home: amap, photon: photon)
         _ = await rig.tokyoTrip()
-        _ = await rig.nav.execute(navCall(["destination": "附近的咖啡店"]))
+        _ = await rig.nav.execute(navCall(["destination": "附近的咖啡店", "near": "here"]))
         #expect(amap.calls.withLock { $0 }.contains("咖啡店"))
         #expect(photon.asked.withLock { $0 }.isEmpty && rig.areas.withLock { $0 }.isEmpty)
         #expect(rig.lines.withLock { $0 }.allSatisfy { !$0.contains("abroad=yes") })
@@ -68,13 +68,13 @@ struct TripNavSeparateTests {
         let photon = FakeApple(tokyo)
         let rig = await SeparateRig(phone: zhuhai, home: amap, photon: photon)
         _ = await rig.tokyoTrip()
-        _ = await rig.nav.execute(navCall(["destination": "浅草寺"]))
+        _ = await rig.nav.execute(navCall(["destination": "浅草寺", "near": "here"]))
         #expect(!amap.calls.withLock { $0 }.isEmpty)
         #expect(photon.asked.withLock { $0 }.isEmpty && rig.areas.withLock { $0 }.isEmpty)
         #expect(rig.lines.withLock { $0 }.allSatisfy { !$0.hasPrefix("nav search vendor=photon") })
     }
 
-    @Test("F-15b §51 row 163: phone in Zhuhai, 便利店 abroad=true city Tokyo (and 附近的便利店): Photon around Tokyo's centre, JP and 50 km only, no trip")
+    @Test("F-15b §51 row 163: phone in Zhuhai, 便利店 near=place 东京 JP (was abroad=true city Tokyo) (and 附近的便利店): Photon around Tokyo's centre, JP and 50 km only, no trip")
     func row163() async {
         let stores = [jp("Lawson", lat: 35.69, lng: 139.77), jp("Lawson Osaka", lat: 34.7, lng: 135.5),
                       jp("GS25", lat: 35.69, lng: 139.77, country: "KR")]
@@ -82,21 +82,21 @@ struct TripNavSeparateTests {
             let amap = AmapSpy()
             let photon = FakeApple(["便利店": stores])
             let rig = await SeparateRig(phone: zhuhai, home: amap, photon: photon)
-            let r = await rig.nav.execute(navCall(["destination": .string(destination), "abroad": true, "city": "Tokyo, Japan"]))
+            let r = await rig.nav.execute(navCall(["destination": .string(destination), "near": "place", "near_name": "Tokyo, Japan", "near_country": "JP"]))
             #expect(r.ok, "\(destination)")
             #expect(photon.centers.withLock { $0 } == [tokyoCentre])
             #expect(rig.areas.withLock { $0 } == ["Tokyo, Japan"])
             #expect(amap.calls.withLock { $0 }.isEmpty)
-            #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=1 ") && $0.hasSuffix(" area_dropped=2") })
+            #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon found=1 ") && $0.hasSuffix(" area_dropped=2") })
             #expect(await rig.nav.current.destination?.name == "Lawson")
         }
     }
 
-    @Test("F-15b §51 row 164: phone in Tokyo, 附近的便利店 abroad=true city Tokyo: Photon around the phone")
+    @Test("F-15b §51 row 164: phone in Tokyo, 附近的便利店 near=here (was abroad=true city Tokyo): Photon around the phone")
     func row164() async {
         let photon = FakeApple(["便利店": [jp("Lawson", lat: 35.681), jp("FamilyMart", lat: 35.679)]])
         let rig = await SeparateRig(phone: tokyoPhone, home: AmapSpy(), photon: photon)
-        let r = await rig.nav.execute(navCall(["destination": "附近的便利店", "abroad": true, "city": "Tokyo, Japan"]))
+        let r = await rig.nav.execute(navCall(["destination": "附近的便利店", "near": "here"]))
         #expect(r.ok && r.data["count"] == .int(2))
         #expect(photon.centers.withLock { $0 }.map { [$0.latitude, $0.longitude] } == [[35.68, 139.76]])
         #expect(rig.areas.withLock { $0 }.isEmpty)
@@ -170,7 +170,7 @@ struct TripNavSeparateTests {
         let rig = await SeparateRig(phone: zhuhai, home: home, photon: photon)
         #expect(await rig.nav.tripNext(jp("浅草寺", lat: 35.71), abroad: true).ok)
         #expect(await rig.nav.current.tripStopID != nil)
-        _ = await rig.nav.execute(navCall(["destination": "附近的咖啡店"]))
+        _ = await rig.nav.execute(navCall(["destination": "附近的咖啡店", "near": "here"]))
         #expect(await rig.nav.current.tripStopID == nil)
         #expect(photon.asked.withLock { $0 }.isEmpty && rig.areas.withLock { $0 }.isEmpty)
         #expect(home.asked.withLock { $0 }.contains("咖啡店"))
@@ -187,7 +187,7 @@ struct TripNavSeparateTests {
         let rig = await SeparateRig(phone: zhuhai, home: AmapSpy(), photon: photon)
         #expect(await rig.nav.tripNext(jp("浅草寺", lat: 35.71), abroad: true).ok)
         #expect(await rig.nav.current.tripStopID != nil)
-        _ = await rig.nav.execute(navCall(["destination": "附近的咖啡店", "abroad": true, "city": "Tokyo, Japan"]))
+        _ = await rig.nav.execute(navCall(["destination": "附近的咖啡店", "near": "place", "near_name": "Tokyo, Japan", "near_country": "JP"]))
         #expect(await rig.nav.current.tripStopID == nil)
         #expect(photon.asked.withLock { $0 } == ["咖啡店"])
     }
@@ -213,8 +213,9 @@ struct TripNavSeparateTests {
         #expect(await rig.nav.currentFix()?.coordinate == CoordinateConverter.gcj02(zhuhai))
     }
 
-    @Test("F-15b §51 item 1: the navigate_to catalog text says no abroad for 附近/最近")
-    func catalogText() {
-        #expect(ToolCatalog.navigateAbroadDescription.hasSuffix("司机说「附近」「最近」又没有说国外的城市时，不要填 abroad。"))
+    @Test("F-15b §51 item 1 (replaced by item 8): the navigate_to catalog text no longer mentions abroad")
+    func catalogText() throws {
+        let spec = try #require(ToolCatalog.spec("navigate_to"))
+        #expect(spec.declaration.description.contains("abroad") == false)
     }
 }

@@ -1537,8 +1537,8 @@ final class AgentRuntime {
         await planner.restore()
         // §50 item 6 (T-040w): trip steps on screen.
         await planner.setWork(work)
-        // §36 item 2d (T-040p): navigate_to abroad searches Photon. §51 item 1 (T-040y): only when the model passes
-        // abroad=true with a city; the search keeps to that city's own area (country, 50 km); the trip is never consulted.
+        // §51 item 8 (T-040z): navigate_to searches Photon when the centre the model names (near=here|place|trip) is
+        // outside China; `near=place` geocodes abroad here (area, then centre) and keeps to its country and 50 km.
         await navigation.setAbroad(search: photon, center: { city in
             if let c = await photon.center(city) { return c }
             return await AppleCityCenter.find(city)
