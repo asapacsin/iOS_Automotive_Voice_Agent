@@ -33,4 +33,5 @@
 - Owner rule (2026-11-13): preparing a phone test is Claude's job end to end: trigger the Codemagic build of the
   branch under test, get the IPA, and install it on the owner's iPhone as an **update** of the installed NovaDrive
   (same bundle id, keep its data and keys), never a delete-and-reinstall. Then hand over the checklist. Only ask the
-  owner for what Claude cannot reach (a credential, or a computer connected to the phone).
+  owner for what Claude cannot reach (a credential, or a computer connected to the phone). The steps are the
+  `phone-test` skill (.claude/skills/phone-test/SKILL.md); fix it when a step is wrong so the next session knows.
