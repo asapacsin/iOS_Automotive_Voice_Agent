@@ -28,11 +28,11 @@ struct ToolPurposeTests {
         #expect(!window.contains("闷") && !climate.contains("闷") && !window.contains("虫") && !climate.contains("虫"))
     }
 
-    @Test("F-12 §20 row 1, F-09b §3 item 3: sleepy driver gets no action and no reply; rule 5 rewritten")
+    @Test("F-09b §3 item 3, §12 item 4: rule 5 rewritten; the sleepy sentence is §12's, not F-12 §20's silence")
     func sleepyRule() {
         let rule = PersonaInstruction.comfortRule
-        #expect(rule.contains("司机只是说累、犯困：不要调用任何工具，不要操作车辆，也不要说话，不回应。"))
-        #expect(!rule.contains("提神") && !rule.contains("服务区") && !rule.contains("有异味、困"))
+        #expect(!rule.contains("不要说话，不回应"))
+        #expect(!rule.contains("提神") && !rule.contains("有异味、困"))
         #expect(!PersonaInstruction.base.contains("车内场景（有蚊子、闷）"))
         #expect(!PersonaInstruction.base.contains("闷、困"))
         #expect(!PersonaInstruction.base.contains("有点热、太热了：调低一度温度"))

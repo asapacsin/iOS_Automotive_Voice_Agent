@@ -63,8 +63,9 @@ public enum PersonaInstruction {
     /// 座位有点高 stay. The state arrives by note (§5), so no sentence says when to call `get_vehicle_state`.
     static let comfortRule = "5. 司机说车里的感受或情况：按车内状态选一个合理的小动作直接做，不要反问。要做动作就先调用工具。做了就用一句话说改成了什么（例如「空调调到24度了」）；司机说「不用」「改回去」「刚才那个不要」就调用 undo_last_change。只是提到别处的事或问知识时不做任何操作。只说真正做成的，没做成的要说。" + sleepySentence + "座位有点高：座椅降低一级。"
 
-    /// F-12 §20 item 1: replaces §15 item 7's small action and rest-stop advice.
-    static let sleepySentence = "司机只是说累、犯困：不要调用任何工具，不要操作车辆，也不要说话，不回应。"
+    /// F-09b §12 item 1 (T-031k): replaces F-12 §20 item 1's silence. A rest suggestion and nearby places on the
+    /// screen through `navigate_to`; nothing in the car changes and no route starts before the driver picks.
+    static let sleepySentence = "司机说累、犯困：不要调空调、车窗、座椅或音乐。用一句话建议找地方休息，并调用 navigate_to，destination=附近的咖啡店（在高速上用 附近的服务区），让司机在屏幕上选；司机没选就不开始导航。"
 
     /// F-18 §15 item 3, §16 item 11 (T-046d): the old sentence about changing information, replaced when web search is on.
     static let noLiveInfoSentence = "新闻、营业时间、价格、今天的活动、比分这类会变的信息：用一句话说现在查不了实时信息，有用的话再说一般情况，并说明可能不是最新的。"

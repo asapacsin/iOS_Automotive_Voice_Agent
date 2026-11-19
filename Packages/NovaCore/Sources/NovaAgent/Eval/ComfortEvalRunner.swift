@@ -290,7 +290,8 @@ public actor ComfortEvalRunner {
                 let result = await execute(call)
                 // The actor may have moved on to the next run during the await.
                 guard current(p.connection) else { return }
-                pending?.calls.append(ComfortCallRecord(name: call.name, ok: result.ok, code: result.code, data: result.data))
+                pending?.calls.append(ComfortCallRecord(name: call.name, ok: result.ok, code: result.code, data: result.data,
+                                                                    arguments: Self.fields(call.arguments)))
                 responses.append(ToolResponse(id: call.id, name: call.name, result: result))
             }
             pending?.answered = false
@@ -330,6 +331,12 @@ public actor ComfortEvalRunner {
         default:
             break
         }
+    }
+
+    /// A call's arguments as fields (F-09b §12 item 3); anything but an object is none.
+    static func fields(_ arguments: JSONValue) -> [String: JSONValue] {
+        if case .object(let fields) = arguments { return fields }
+        return [:]
     }
 
     /// The session's own rules: a tool it did not declare is unknown; arguments are validated as in a drive.

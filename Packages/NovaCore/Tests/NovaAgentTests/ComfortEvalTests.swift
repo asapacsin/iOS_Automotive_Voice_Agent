@@ -62,13 +62,12 @@ struct ComfortEvalTests {
         for w in WindowID.allCases { wide.cabin.windows[w] = 50 }
         #expect(ComfortScorer.score(fast, run(fast, end: wide, calls: [ok("control_window")], reply: "好")).failure
                 == .windowAboveLimit)
-        // F-12 §20 row 3: a sleepy driver passes only with no action and no words.
+        // F-09b §12 item 3 (replaces F-12 §20 row 3): a sleepy driver gets a nearby list, no car change.
         let drowsy = comfortCase("drowsy")
-        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, reply: "")).pass)
-        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, reply: "累了的话找个服务区休息一下吧")).failure
-                == .spoke)
-        let scenario = ComfortCallRecord(name: "run_scenario", ok: true, code: nil, data: ["scenario": "drowsy"])
-        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, calls: [scenario], reply: "")).pass)
+        let coffee = ComfortCallRecord(name: "navigate_to", ok: true, code: nil, data: ["status": "candidates_listed"],
+                                       arguments: ["destination": "附近的咖啡店"])
+        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, calls: [coffee], reply: "找个咖啡店歇一会儿吧。")).pass)
+        #expect(ComfortScorer.score(drowsy, run(drowsy, end: drowsy.start, reply: "")).failure == .noRestList)
         var awake = drowsy.start
         awake.musicPlaying = true
         let music = run(drowsy, end: awake, calls: [ok("control_music", ["status": "playing"])], reply: "")
