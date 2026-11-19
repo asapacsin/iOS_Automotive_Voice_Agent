@@ -3174,6 +3174,19 @@
       },
       "notes": "Owner 2026-11-19 (records 20261119-135653, -135801: 附近的咖啡店 searched in Tokyo from Zhuhai). Owner's design: plain navigation separate from the trip; trip commands only while the trip is shown. Build starts on the owner's go. Owner 2026-11-19: after 「开始第一天」, later ordinary questions and navigation kept working from the trip start.",
       "evidence": "Spec at the commit that adds §51."
+    },
+    {
+      "id": "T-040z",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "depends_on": [
+        "T-040y",
+        "T-031l"
+      ],
+      "action": "F-15b §51 item 8: navigate_to gets near (here|place|trip|route), near_name, near_country; abroad/city removed. Code resolves the centre (fix/demo point, 高德 or Photon geocode, saved trip stop, route), picks the vendor by the centre's country, drops results outside its country/range, refuses a geocode outside near_country (countryMismatch), returns searched_around/vendor/found/trip_city facts; nav near log line; NearEval on the PC; rows 176-188.",
+      "notes": "Owner 2026-11-19: the Tokyo default of §36 item 2d / §50 item 3 (Claude's spec) was wrong for 'live in Zhuhai, plan Tokyo'; make it flexible, route ambiguous 'where' to the LLM, code keeps the coordinates and checks.",
+      "evidence": []
     }
   ]
 }

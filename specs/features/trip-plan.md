@@ -1726,7 +1726,7 @@ test trip from the day before still saved:
 - A trip saved from before comes back hidden; 「打开行程」 shows it.
 - When nothing is found, she says so plainly and offers the next step. She never asks the driver to reword it.
 
-1. **`navigate_to` ignores the trip (replaces §36 item 2d's last sentence and §50 item 3's last bullet).**
+1. **`navigate_to` ignores the trip (replaces §36 item 2d's last sentence and §50 item 3's last bullet).** *Its `abroad`/`city` bullets are replaced by item 8 (T-040z); the rule "the trip is never consulted" stays.*
    - `abroad` is only what the model passes. No `abroad` means the home search (高德), whatever trip is saved or shown.
      `NavigationController` loses `abroadTripCity` and `abroadTripArea` (`setTripArea`); `TripPlanner.abroadCity` and
      `openTripArea()` stay for the planner's own use only.
@@ -1765,6 +1765,70 @@ test trip from the day before still saved:
    - **Questions that are not trip commands** (`query_live_info` weather `here`, `current_location`, `current_time`, `navigate_to 附近…`) use the phone's fix or the demo point, also while a trip stop guidance runs. Only `along_route` uses the route, as today.
    - **Ending the trip drive** (结束导航, a plain `navigate_to`, 「把卡片收起来」) leaves no trip place behind as a start or a search centre.
 
+8. **Where a search is centred: the model says, code resolves and checks (owner 2026-11-19, T-040z).**
+   - **What the owner asked.** 「people might live in zhuhai and plan for a trip in tokyo… make this flexible rather than
+     a fixed rule」; 「route those ambiguous things to llm」. §36 item 2d and §50 item 3 guessed the driver's country from
+     a saved plan. Item 1 removes that guess; this item replaces the `abroad`/`city` switch with the model naming the
+     centre, and code doing everything that needs data.
+   - **Published practice.** "Near me" is the device's location and a named place wins (the sources above). Gemini's
+     Maps grounding is given the user's coordinates by the app, never by the model
+     ([Gemini API](https://ai.google.dev/gemini-api/docs/maps-grounding)). Tools take the plain meaning the model
+     understood and return what they did, so the model can explain and correct
+     ([Anthropic, writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents)). Ask once
+     when the request is unclear instead of guessing (Dialogflow voice agent design, above; F-09b rule 4 here already
+     asks 「是座椅还是温度？」).
+   - **Who does what.**
+
+     | Step | Who |
+     |---|---|
+     | The phone's position | Code: the fix, or `DriveSettings.demoOrigin` when 位置来源 is off (演示位置) |
+     | What 「附近」「那里」「酒店附近」 points to | **Model**: `near` below |
+     | Turning that into coordinates | Code: the fix, a geocode, or the saved trip stop |
+     | 高德 or Photon | Code: from the centre's country (`CoordinateConverter.outOfChina`) |
+     | Checking the answer | Code: the centre exists, results are in its country and range |
+
+   - **`navigate_to` arguments.** `abroad` and `city` are removed from the schema. New:
+     - `near` (required): `here` | `place` | `trip` | `route`.
+     - `near_name`: for `place`, the place as the driver said it plus the city when the model knows it
+       (「浅草寺, 东京」, 「东京」); for `trip`, a stop name or day as said (「第一天的酒店」「浅草寺」).
+     - `near_country`: for `place`, the ISO 3166 code the model believes (`JP`, `CN`).
+     - Catalog text (replaces §36 item 2d's sentence and item 1's added sentence):
+       「near：司机说「附近」「这儿」或没说地点时填 here；说了某个地方（城市、景点、地址）填 place，并填 near_name 和
+       near_country；说的是行程里的地方（「酒店附近」「第一天那个景点」）填 trip，只在行程打开时可用；导航中问「路上」填
+       route。拿不准司机指的是哪里时，先问司机一句，不要猜。」
+     - A missing or unknown `near` → `invalidFields`, no search; the model re-calls (as §36 item 2a's missing `city`).
+   - **How code resolves each value.**
+     - `here`: the phone's fix (or the demo point). The vendor is picked by the fix: 高德 in China, Photon abroad. This
+       closes the gap where 「附近」 with the phone abroad and no `abroad` went to 高德.
+     - `place`: `near_name` geocoded on 高德 when `near_country` is CN, else on Photon (`center(_:)`, then
+       `AppleCityCenter.find`). The vendor for the search is picked by the geocoded point. The destination is searched
+       around it, kept to its country and 50 km (as §50 item 3 did for trips).
+     - `trip`: only while the cards are shown (item 2); hidden → `tripHidden` as item 2. `near_name` matched against the
+       shown plan's stops (name contains, or day plus role, e.g. day 1 `role=hotel`); the stop's saved coordinates are the
+       centre. More than one match → `ambiguous` with the matches as facts; none → `notFound` with the plan's stop names
+       as facts.
+     - `route`: only while guiding; the along-route list as today (`listOverGuidance`). Not guiding → `invalidFields`.
+   - **Checks (code never decides the centre; it only refuses a wrong one).**
+     - `place` geocoded outside `near_country` → no search; `.failure(.countryMismatch)` with facts (where the name was
+       found). The model asks or re-calls; nothing is searched in another country silently.
+     - Results outside the centre's country, or beyond the range, are dropped (`reason=country` / `reason=far` as §36
+       item 3).
+     - Every result carries facts the model can say: `searched_around` (「手机位置（珠海香洲）」, 「演示位置」, 「东京·浅草寺」,
+       「行程第一天酒店」), `vendor`, `found`. When `near=here` and the shown trip's city is in another country, the
+       result adds `trip_city` so she can say 「这是珠海附近的；要找东京那边说一声」. Facts follow F-09b §13 (`ToolReply`)
+       once T-031l is in; before that, as plain fact lines in `next`.
+   - **When to ask.** The model judges what is unclear; code does not force a question. The eval below is the guard.
+   - **Logs (I-8, enums and numbers only).** `nav near kind=<here|place|trip|route> vendor=<amap|photon>
+     source=<fix|demo|geocode|trip|route> found=<n> dropped=<n> reason=<ok|country_mismatch|trip_hidden|ambiguous|not_found>`.
+   - **Eval (`NearEval` in `Packages/NovaCore/Sources/NovaAgent/Eval/`, like `ComfortEval`).** About 25 sentences, each
+     run in four set-ups: phone in Zhuhai or in Tokyo, × a Tokyo trip shown or none. Sentences include 「附近的咖啡店」
+     「东京的便利店」「浅草寺附近吃的」「酒店附近有什么」「那边天气」「路上有加油站吗」「珠海站」「附近有什么酒店」. Each case
+     lists the accepted `near` values or "asks". Run on the PC against the live route (`QwenRoute` live, qwen3.7-flash),
+     3 runs each. **Pass:** right centre or a question in ≥ 95%; a search in the wrong country without saying so: 0;
+     `near=trip` while the trip is hidden: 0.
+   - **Not changed.** `trip_next`, `route_trip` and trip planning (they use the plan's own places); item 7; F-16's
+     candidate list and far-result line.
+
 **Acceptance (iOS).**
 
 | # | Given / when | Then | Test |
@@ -1784,13 +1848,27 @@ test trip from the day before still saved:
 | 173 | 模拟导航, an abroad trip stop guidance running (simulated car in Tokyo), phone fix in Zhuhai; `navigate_to 附近的咖啡店` | Trip stop guidance ended; home search around the phone; the new route's start is `routeOrigin`, not a trip place or the simulated car | unit |
 | 174 | Same guidance running; `query_live_info` weather `here`, `current_location` | Both use the phone's fix (or the demo point), not Tokyo | unit |
 | 175 | Device, Zhuhai: 「开始第一天」 on the Tokyo trip, then 「附近有什么好吃的」, 「今天天气怎么样」, 「导航去珠海站」 | Zhuhai places and weather; the route to 珠海站 starts in Zhuhai; the trip drive has ended | D |
+| 176 | Phone in Zhuhai, Tokyo trip shown; `navigate_to 咖啡店 near=here` | 高德 around the phone; result facts `searched_around` the phone and `trip_city` Tokyo; `nav near kind=here vendor=amap source=fix` | unit |
+| 177 | Phone fix in Tokyo, no trip; `navigate_to 便利店 near=here` | Photon around the phone; no 高德 request | unit |
+| 178 | 位置来源 off; `navigate_to 咖啡店 near=here` | Around `demoOrigin`; facts say 演示位置; `source=demo` | unit |
+| 179 | Phone in Zhuhai; `navigate_to 便利店 near=place near_name="东京" near_country=JP` | Photon around Tokyo's centre, JP and 50 km only; `source=geocode vendor=photon` | unit |
+| 180 | `near=place near_name="香洲" near_country=CN` | 高德 geocode and 高德 search | unit |
+| 181 | `near=place near_name="Springfield" near_country=JP`, geocoded outside JP | No search; `countryMismatch` with the found country as a fact; `reason=country_mismatch` | unit |
+| 182 | Tokyo trip shown, day 1 hotel saved; `navigate_to 餐厅 near=trip near_name="第一天的酒店"` | Around the hotel's saved coordinates; Photon; `source=trip` | unit |
+| 183 | Same with the cards hidden | `tripHidden` as item 2; no search | unit |
+| 184 | `near=trip` matching two stops; and matching none | `ambiguous` with both names; `notFound` with the plan's stop names | unit |
+| 185 | `near` missing; `near=route` while not guiding | `invalidFields`, no search | unit |
+| 186 | Schema | `navigate_to` has `near`, `near_name`, `near_country`; no `abroad`, no `city`; catalog text as item 8 | unit |
+| 187 | `NearEval` on the PC (live route, 3 runs × 4 set-ups) | Right centre or a question ≥ 95%; wrong country without saying so 0; `near=trip` while hidden 0 | eval |
+| 188 | Device, Zhuhai, Tokyo trip shown: 「附近有什么好吃的」, 「东京的便利店」, 「酒店附近吃的」; then hide the cards and 「附近有什么酒店」 | Zhuhai places; Tokyo places; places by the trip hotel; Zhuhai hotels, or one question which side | D |
 
 **Not verified.**
 - Whether the model still passes `abroad=true` for a named foreign place without the trip default (row 163's sentence on
-  the device).
+  the device). Superseded by item 8's `near=place` once T-040z is in (row 187 measures it).
 
-**Trace gate.** Add `T-040y: F-15b` to `specs/trace-ids.txt` together with the first `@Test` that names it.
+**Trace gate.** Add `T-040y: F-15b` and `T-040z: F-15b` to `specs/trace-ids.txt`, each together with the first `@Test` that names it.
 
 | Task | Scope | Status |
 |---|---|---|
 | T-040y | §51 items 1–3, 5, 7 (item 4 moved to T-031l); rows 161–168, 170–175 | NOT_RUN |
+| T-040z | §51 item 8 (model names the centre; code resolves and checks); rows 176–188 | NOT_RUN |
