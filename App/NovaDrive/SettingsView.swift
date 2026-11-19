@@ -3,8 +3,23 @@ import NovaNav
 import NovaPlatform
 import NovaPorts
 import NovaServices
+import NovaTools
 import NovaVoice
 import SwiftUI
+
+/// F-21 §17 item 4 (T-034d): the 设置 tone picker only saves; the tone starts with the next conversation.
+enum TonePicker {
+    /// The names of F-21 §2.
+    static func label(_ style: SpeakingStyle) -> String {
+        switch style {
+        case .default: "正常"
+        case .sweet: "嗲"
+        case .tsundere: "傲娇"
+        case .gentle: "温柔"
+        case .lively: "元气"
+        }
+    }
+}
 
 /// Keys are write-only: entered here, kept in the Keychain, never shown again (H-keys).
 struct SettingsView: View {
@@ -13,6 +28,9 @@ struct SettingsView: View {
         (.geminiAPIKey, "Gemini API key"),
         (.amapSDKKey, "高德 iOS SDK key"),
         (.amapWebKey, "高德 Web 服务 key"),
+        // F-18 §31 item 1 (T-046t).
+        (.qweatherHost, "和风天气 API Host"),
+        (.qweatherKey, "和风天气 API KEY"),
         (.zhipuKey, "智谱 key（视觉，推荐）"),
         (.qwenAPIKey, "阿里云百炼 key（她的声音、联网搜索）"),
         (.qianfanKey, "千帆 key（可选，视觉备用）"),
@@ -32,12 +50,12 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.useDeviceLocation) private var useDeviceLocation = true
     @AppStorage(DriveSettings.noiseSuppression) private var noiseSuppression = true
     @AppStorage(DriveSettings.interruptible) private var interruptible = false
-    @AppStorage(DriveSettings.modelComfort) private var modelComfort = false
     @AppStorage(DriveSettings.webSearch) private var webSearch = false
     @AppStorage(MusicCountry.settingKey) private var musicCountry = MusicCountry.default.rawValue
     @AppStorage(DriveSettings.conversationRecord) private var conversationRecord = false
     @AppStorage(ReplyAudioKeeper.settingKey) private var keepReplyAudio = false
     @AppStorage(DriveSettings.wakeWord) private var wakeWord = true
+    @AppStorage(SettingsKey.personaStyle) private var personaStyle = SpeakingStyle.default.rawValue
     @State private var confirmDeleteRecords = false
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
     @StateObject private var locationPermission = LocationPermission()
@@ -70,7 +88,20 @@ struct SettingsView: View {
                     Text("开：应用在前台时用手机麦克风等「你好小诺」，声音只在手机上处理。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                // F-21 §4, §17 item 4 (T-034d): a pick only saves; a running session is sent nothing.
+                Section("说话语气") {
+                    Picker("语气", selection: $personaStyle) {
+                        ForEach(SpeakingStyle.allCases, id: \.rawValue) { Text(TonePicker.label($0)).tag($0.rawValue) }
+                    }
+                    Text("下次对话开始生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("声音") {
+                    // F-13a §6 (T-032g).
+                    VolumeSlider("音乐音量", target: .media)
+                    VolumeSlider("小诺说话音量", target: .voice)
+                    Text("只调这个 app 自己的声音，马上生效；手机侧面的音量键决定最大能有多响。")
+                        .font(.footnote).foregroundStyle(.secondary)
                     Toggle("抗噪", isOn: $noiseSuppression)
                     Text("开：只有人声才会打开麦克风或打断小诺，喇叭、音乐、路噪不会。切换后立即生效。")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -80,11 +111,8 @@ struct SettingsView: View {
                     // F-04b §3 (T-013e).
                     SpeakerLockSection()
                 }
-                // F-12 §14 items 4 and 7 (T-031a, T-031b).
+                // F-12 §14 item 4 (T-031a); F-09b §3 item 1 (T-031c): the model decides, no setting.
                 Section("舒适场景") {
-                    Toggle("由模型决定舒适动作（实验）", isOn: $modelComfort)
-                    Text("开：说「有蚊子」「有点闷」这类感受时，由模型看车内状态自己决定开窗、空调或音乐，并用自己的话说做了什么。关：按固定的场景表做。下次开始对话时生效。")
-                        .font(.footnote).foregroundStyle(.secondary)
                     NavigationLink("舒适场景测试") { ComfortEvalView() }
                 }
                 // F-18 §15 item 1, §17 item 2 (T-046e).
@@ -159,7 +187,7 @@ struct SettingsView: View {
                     Button("清除所有密钥", role: .destructive) { confirmWipe = true }
                 }
                 if let message { Section { Text(message) } }
-                // F-18 §26 item 10: no about or data-source area, so the Open-Meteo credit is at the bottom.
+                // F-18 §26 item 10, §31 item 8: no about or data-source area, so the weather credit is at the bottom.
                 Section {
                     Text(ForecastWeather.credit).font(.footnote).foregroundStyle(.secondary)
                         .accessibilityIdentifier("weather-credit")
@@ -183,7 +211,13 @@ struct SettingsView: View {
             statusRow("Gemini 同意", ready.geminiConsent)
             statusRow("她的声音", ready.voice)
             statusRow("高德 Web key", ready.amapWebKey)
+            statusRow("和风天气", ready.qweather)
             statusRow("视觉 key", ready.vision)
+            // F-13a §10 item 1 (T-032i): which build is installed.
+            let info = Bundle.main.infoDictionary
+            Text(BuildStamp.settingsLabel(short: info?["CFBundleShortVersionString"] as? String,
+                                          commit: info?[BuildStamp.infoKey] as? String))
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -221,5 +255,34 @@ struct SettingsView: View {
         drafts = [:]
         message = failed.isEmpty ? "已清除所有密钥" : "以下 key 清除失败：\(failed.map(\.rawValue).joined(separator: ", "))"
         refresh()
+    }
+}
+
+/// F-13a §6 (T-032g): one app volume. A change runs the same executor as `set_volume` (I-6) and applies at once,
+/// with or without a session; the `volume set … by=settings` line comes from the executor.
+private struct VolumeSlider: View {
+    let title: String
+    let target: VolumeTarget
+    @State private var level: Double
+
+    init(_ title: String, target: VolumeTarget) {
+        self.title = title
+        self.target = target
+        _level = State(initialValue: Double(AppVolume.shared.controller.levels[target]))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            LabeledContent(title, value: "\(Int(level))")
+            Slider(value: $level, in: Double(target.minimum)...Double(VolumeLevels.maximum), step: 1)
+                .accessibilityLabel(title)
+        }
+        // A voice change made while 设置 was not shown is read back here.
+        .onAppear { level = Double(AppVolume.shared.controller.levels[target]) }
+        .onChange(of: level) {
+            let asked = Int(level.rounded())
+            guard asked != AppVolume.shared.controller.levels[target] else { return }
+            AppVolume.shared.controller.slider(target, to: asked)
+        }
     }
 }

@@ -88,7 +88,11 @@ public struct ReconnectTuning: Sendable, Hashable {
 public struct RealtimeTuning: Sendable, Hashable {
     public var connectTimeout = NovaDuration.seconds(10)
     public var setupCompleteTimeout = NovaDuration.seconds(10)
-    public var pingInterval = NovaDuration.seconds(20)
+    /// F-24 §15 item 9 (device 2026-11-16): a stalled socket left her silent for 30–40 s before the ping noticed;
+    /// now a ping every 10 s and 5 s for the pong, so a dead socket is found within about 15 s. A frame
+    /// received during the pong wait counts as alive (a pong behind a long reply on a slow link).
+    public var pingInterval = NovaDuration.seconds(10)
+    public var pongTimeout = NovaDuration.seconds(5)
     public var eventBufferLimit = 1024
     /// Client messages queued on a socket before it counts as stalled (~5 s of 10 ms audio frames).
     public var outboxLimit = 512
@@ -137,7 +141,7 @@ public struct PlaybackBufferTuning: Sendable, Hashable {
     public init() {}
 }
 
-/// The revoicing TTS (千问, F-07 §14): connect, clause deadline, warm-up, requests in flight (F-07 §17 item 4).
+/// F-07 §17 item 4: her TTS voice (千问, 试听): connect, per-clause deadline, warm-up, requests in flight.
 public struct SpeechTuning: Sendable, Hashable {
     public var connectTimeout = NovaDuration.seconds(5)
     public var clauseDeadlineBase = NovaDuration.milliseconds(4000)

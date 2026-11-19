@@ -8,7 +8,7 @@ public enum SettingsKey {
     public static let geminiConsentAccepted = "gemini_consent_accepted"
     public static let geminiModel = "gemini_model"
     public static let personaStyle = "persona_style"
-    /// F-07 §14 item 2 (T-020a): `gemini` or `qwen`; unset reads as `gemini` (F-07 §15).
+    /// F-07 §14 item 2 (T-020a): `gemini` or `qwen`; unset reads as Gemini 原声.
     public static let voiceSource = "voice_source"
     /// F-07 §14 item 2: the 百炼 workspace API Host (not a secret).
     public static let qwenTTSHost = "qwen_tts_host"
@@ -31,7 +31,9 @@ public enum SecretField {
     /// Applies the field's content on save. Returns true when the store changed.
     @discardableResult
     public static func save(_ input: String, for key: CredentialKey, in store: any CredentialStore) throws -> Bool {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        // F-18 §31 item 1: the 和风 host is saved without `https://` and without a trailing `/`.
+        if key == .qweatherHost { trimmed = QWeatherHost.normalized(trimmed) }
         guard !trimmed.isEmpty else { return false }
         try store.set(trimmed, for: key)
         return true
@@ -47,6 +49,8 @@ public enum CredentialWipe {
         for key in CredentialKey.allCases {
             do { try credentials.remove(key) } catch { failed.append(key) }
         }
+        // F-07 §17 item 3: the removed TTS key too, in case the launch cleanup has not deleted it yet.
+        try? credentials.removeRetired(account: RetiredVoiceSettings.keychainAccount)
         settings.set(false, for: SettingsKey.geminiConsentAccepted)
         return failed
     }
@@ -62,6 +66,8 @@ public struct SettingsReadiness: Sendable, Hashable {
     public var source: VoiceSourceKind
     public var amapSDKKey: Bool
     public var amapWebKey: Bool
+    /// F-18 §31 item 1: 和风天气 host and key both saved.
+    public var qweather: Bool
     public var wakeAppID: Bool
     public var vision: Bool
 
@@ -77,6 +83,7 @@ public struct SettingsReadiness: Sendable, Hashable {
         }
         amapSDKKey = has(.amapSDKKey)
         amapWebKey = has(.amapWebKey)
+        qweather = has(.qweatherHost) && has(.qweatherKey)
         wakeAppID = has(.iflytekAppID) && has(.iflytekAPIKey) && has(.iflytekAPISecret)
         vision = has(.zhipuKey) || has(.geminiAPIKey) || has(.qianfanKey)
     }
@@ -93,7 +100,7 @@ public struct SettingsReadiness: Sendable, Hashable {
     public var revoicing: Bool { source != .gemini && voice }
 }
 
-/// F-07 §15 item 2 (T-020b): on the first launch of this build, an install with any saved choice (none, 千问, or a removed source, F-07 §17)
+/// F-07 §15 item 2 (T-020b): on the first launch of this build, an install with no saved choice or with 千问 saved
 /// moves to Gemini 原声, once; the move is remembered, so any choice saved after it is kept.
 public enum VoiceSourceMigration {
     public static func run(_ settings: any SettingsStore) {
@@ -104,29 +111,12 @@ public enum VoiceSourceMigration {
     }
 }
 
-/// F-07 §17 item 3 (T-020d): on the first launch of a build without the removed TTS vendor, once: a saved source of
-/// that vendor becomes Gemini 原声, its Keychain item is deleted and its two settings are removed. The flag is set
-/// only after the Keychain delete succeeds or finds no item, so a failed delete is tried again on the next launch.
-/// Nothing is logged about the key (I-8).
-///
-/// The retired names are spelled with `\u{61}` (the letter a) so the §17 item 6 gate, which keeps the vendor's name out
-/// of `App/` and `Packages/`, stays green while the cleanup still finds the items an older build saved.
-public enum RetiredVoiceCleanup {
-    static let vendor = "\u{61}zure"
-    public static let doneKey = vendor + "_removed_done"
-    static let secretAccount = vendor + "_speech_key"
-    static let settingKeys = [vendor + "_region", vendor + "_voice"]
-
-    /// Returns true when the cleanup is done (now or on an earlier launch).
-    @discardableResult
-    public static func run(credentials: any RetiredSecretRemover, settings: any SettingsStore) -> Bool {
-        guard settings.bool(doneKey) != true else { return true }
-        if settings.string(SettingsKey.voiceSource) == vendor {
-            settings.set(VoiceSourceKind.gemini.rawValue, for: SettingsKey.voiceSource)
-        }
-        for key in settingKeys { settings.set(nil as String?, for: key) }
-        do { try credentials.removeRetired(account: secretAccount) } catch { return false }
-        settings.set(true, for: doneKey)
-        return true
+/// F-18 §31 item 1 (T-046t): `https://abc.qweatherapi.com/` → `abc.qweatherapi.com`.
+public enum QWeatherHost {
+    public static func normalized(_ input: String) -> String {
+        var h = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        for scheme in ["https://", "http://"] where h.lowercased().hasPrefix(scheme) { h = String(h.dropFirst(scheme.count)) }
+        while h.hasSuffix("/") { h.removeLast() }
+        return h
     }
 }

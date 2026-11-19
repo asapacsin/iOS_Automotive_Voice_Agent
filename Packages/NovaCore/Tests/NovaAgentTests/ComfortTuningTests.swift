@@ -47,7 +47,6 @@ final class QueuedProvider: RealtimeProvider, @unchecked Sendable {
     }
     func sendAudio(_ frame: PCMFrame16k) {}
     func sendAudioStreamEnd() async {}
-    func sendContextUpdate(systemInstruction: String) async {}
     func sendText(_ turns: [TextTurn], turnComplete: Bool) async {
         let (c, script) = current
         switch script {
@@ -94,7 +93,7 @@ private func runner(_ provider: QueuedProvider, timeout: Int64 = 300, connect: I
     let harness = ComfortEvalHarness(reset: { s in vehicle.state.withLock { $0 = s } },
                                      snapshot: { vehicle.state.withLock { $0 } },
                                      tools: ["control_window": VehicleToolExecutor(port: port)])
-    let config = SessionConfig(systemInstruction: PersonaInstruction.modelComfortBase, tools: ToolCatalog.declarations(for: .model))
+    let config = SessionConfig(systemInstruction: PersonaInstruction.base, tools: ToolCatalog.declarations)
     return ComfortEvalRunner(provider: provider, config: config, harness: harness, clock: SystemClock(),
                              timeout: .milliseconds(timeout), connectTimeout: .milliseconds(connect))
 }
@@ -156,9 +155,9 @@ struct ComfortTuningTests {
         #expect(r.infrastructure == ["joke#1"])
         #expect(!r.valid)
         #expect(r.blocks == [ComfortReport.Block(caseID: "openAllFast", attempt: 1, tool: "control_window", rule: "window_at_speed")])
-        let line = r.logLines(mode: .model).joined(separator: "\n")
+        let line = r.logLines().joined(separator: "\n")
         #expect(line.contains("valid=false"))
-        #expect(line.contains("comfortEvalBlock mode=model openAllFast#1 control_window window_at_speed"))
+        #expect(line.contains("comfortEvalBlock openAllFast#1 control_window window_at_speed"))
         #expect(line.contains("firstAudioMs=all:"))
         #expect(!line.contains("好"))
         // 1 of 21 infrastructure (under 5%) is valid.
@@ -179,19 +178,18 @@ struct ComfortTuningTests {
                             "hTemp20=温度调到20度", "hWarmerAtMax=再热一点", "hOpenWhat=帮我开一下",
                             "hColleagueSmoke=我同事说他车里全是烟味", "hMosquitoSeason=蚊子一般几月份最多", "hStuffyFast=有点闷",
                             "hCloseBroken=关窗"])
-        let prompts = ([PersonaInstruction.modelComfortBase]
-                       + ToolCatalog.modelComfortSpecs.map(\.declaration.description)).joined()
+        let prompts = ([PersonaInstruction.base]
+                       + ToolCatalog.specs.map(\.declaration.description)).joined()
         // 有点闷 and 关窗 are shared with tuning cases (scenario and direct wordings) and were held out for state, not words.
         for c in all where c.heldOut && !["hStuffyFast", "hCloseBroken"].contains(c.id) {
             #expect(!prompts.contains(c.sentence), "\(c.id) is in a prompt")
         }
     }
 
-    @Test("Row 5: setting off keeps today's catalog and prompt")
+    @Test("Row 5 (F-09b): one catalog without run_scenario; the base fits; rule 5 keeps the sleepy sentence")
     func settingOff() {
-        #expect(ToolCatalog.declarations(for: .table) == ToolCatalog.declarations)
-        #expect(PersonaInstruction.base(for: .table) == PersonaInstruction.base)
-        #expect(PersonaInstruction.modelComfortBase.count <= PersonaInstruction.maxBaseCharacters)
-        #expect(PersonaInstruction.modelComfortRule.contains(PersonaInstruction.sleepySentence))
+        #expect(!ToolCatalog.declarations.map(\.name).contains("run_scenario"))
+        #expect(PersonaInstruction.base.count <= PersonaInstruction.maxBaseCharacters)
+        #expect(PersonaInstruction.comfortRule.contains(PersonaInstruction.sleepySentence))
     }
 }

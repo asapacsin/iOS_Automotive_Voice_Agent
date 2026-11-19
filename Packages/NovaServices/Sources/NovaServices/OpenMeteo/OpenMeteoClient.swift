@@ -27,7 +27,7 @@ public struct OpenMeteoClient: DailyForecastService, PlaceLookup {
     /// §27 item 1, §28 item 5: `current=`, then `hourly=`, then `daily=`, in one call.
     public func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast {
         let url = Self.forecastHost + "/v1/forecast?latitude=\(String(format: "%.2f", latitude))&longitude=\(String(format: "%.2f", longitude))"
-            + "&current=\(Self.currentVariables)&hourly=\(Self.hourly)&daily=\(Self.daily)&timezone=auto&forecast_days=16"
+            + "&current=\(Self.currentVariables)&hourly=\(Self.hourly)&daily=\(Self.daily)&timezone=auto&forecast_days=10"
         let body = try await get(url)
         return DailyForecast(days: Self.days(body), current: Self.current(body), hours: Self.hours(body),
                              utcOffsetSeconds: (body["utc_offset_seconds"] as? NSNumber)?.intValue)
@@ -87,22 +87,31 @@ public struct OpenMeteoClient: DailyForecastService, PlaceLookup {
         }
     }
 
+    /// §30 item 4: a timeout or connection failure is tried once more on a new connection (same limit each), so
+    /// at most 2 attempts. A status other than 200 or an unreadable body is not retried.
     private func get(_ url: String) async throws -> [String: Any] {
         guard let url = URL(string: url) else { throw ForecastError.failed }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
-        let response: (status: Int, body: Data)
-        do {
-            response = try await transport.send(request)
-        } catch let error as URLError where error.code == .timedOut {
-            throw ForecastError.timeout
-        } catch {
-            throw ForecastError.failed
+        var response: (status: Int, body: Data)?
+        var attempt = 0
+        while response == nil {
+            attempt += 1
+            ForecastAttempts.current?.set(attempt)
+            do {
+                response = try await transport.send(request)
+            } catch let error as URLError where Self.retried.contains(error.code) {
+                if attempt >= 2 { throw error.code == .timedOut ? ForecastError.timeout : ForecastError.failed }
+            } catch {
+                throw ForecastError.failed
+            }
         }
-        guard response.status == 200,
+        guard let response, response.status == 200,
               let body = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
             throw ForecastError.failed
         }
         return body
     }
+
+    static let retried: Set<URLError.Code> = [.timedOut, .cannotConnectToHost, .networkConnectionLost, .cannotFindHost]
 }

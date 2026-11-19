@@ -30,6 +30,8 @@ workflows:
       - name: Build unsigned iPhone app
         script: |
           set -o pipefail
+          # F-13a §10 item 1 (T-032i): the build stamp shown in 设置 and the record header.
+          NOVA_GIT_COMMIT="${CM_COMMIT:-$(git rev-parse HEAD)}"
           xcodebuild \
             -project App/NovaDrive.xcodeproj \
             -scheme NovaDrive \
@@ -41,6 +43,7 @@ workflows:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             COMPILER_INDEX_STORE_ENABLE=NO \
+            NOVA_GIT_COMMIT="${NOVA_GIT_COMMIT:0:7}" \
             build 2>&1 | tee xcodebuild.log
 
       - name: Package unsigned IPA

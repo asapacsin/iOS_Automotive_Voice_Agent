@@ -181,6 +181,8 @@ private struct DriveContent: View {
                 if model.nav.listOpen || model.nav.phase == .calculatingRoute || model.nav.phase == .resolvingDestination {
                     choices
                 }
+                // F-15b §11 (T-040j): the trip list's cards, or the strip while moving.
+                TripCardsView(model: model, runtime: runtime)
                 if let card = model.previewCard { PreviewCardView(card: card) }
                 conversation
                 locateRow
@@ -191,6 +193,8 @@ private struct DriveContent: View {
             .padding(.bottom, 8)
             if model.cameraOpen { CameraWindow(model: model, runtime: runtime) }
         }
+        // F-15b §11 item 6: a card's details, not moving only.
+        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading, intro: model.tripIntro) }
         // T-044c: 我的位置 and the camera follow the policy (F-16b); the view only applies its commands.
         .onChange(of: model.geometry) { _, geometry in position.navigation(model.nav, geometry: geometry) }
         .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }
@@ -207,7 +211,16 @@ private struct DriveContent: View {
             position.disappear()
         }
         // F-20a §5: the camera never runs in the background.
-        .task { if UITestDrive.enabled { await runtime.startUITestDrive() } else { await runtime.refreshWake() } }
+        .task {
+            if UITestDrive.enabled {
+                await runtime.startUITestDrive()
+            } else {
+                await runtime.prepareTrip()
+                await runtime.refreshWake()
+            }
+        }
+        // F-15b §16 item 6: 「我的行程」.
+        .sheet(isPresented: $model.tripPlansOpen) { TripPlansSheet(model: model, runtime: runtime) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && model.cameraOpen { runtime.closeCamera() }
             // F-16b §9: 我的位置 streams only while the drive screen is visible, not in the background.
@@ -253,6 +266,19 @@ private struct DriveContent: View {
             ForEach(Array(presentation.markers.enumerated()), id: \.offset) { index, place in
                 Marker("\(index + 1) \(place.name)", coordinate: CLLocationCoordinate2D(place.coordinate)).tint(.orange)
             }
+            // F-15b §13 item 5: numbered pins at the stops; 途经k and 终点 on a trip route; passed stops greyed.
+            // Labels and grey only when the list's stops are the trip route's (an opened plan or another day is not).
+            // F-15b §22 item 1: no trip pins while the cards are put away.
+            // F-15b §29 item 4: numbered pins, no 途经 labels; visited and skipped stops greyed.
+            ForEach(model.tripCardsHidden ? [] : TripPin.pins(model.tripList)) { pin in
+                Annotation(pin.label, coordinate: CLLocationCoordinate2D(pin.coordinate)) {
+                    Text("\(pin.index)")
+                        .font(.caption.weight(.heavy)).foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(pin.passed ? Color.gray : Color.purple, in: Circle())
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
+                }
+            }
         }
         // A pan or zoom by the driver's finger stops following (C7). Touches are watched directly, so the
         // map's own load, layout and commanded moves never count as a gesture. Rotation is off (the arrow
@@ -263,6 +289,17 @@ private struct DriveContent: View {
         // resets itself when a touch is cancelled, so the next touch always counts.
         .onChange(of: dragging) { position.userGesture() }
         .onChange(of: magnifying) { position.userGesture() }
+        // F-15b §47 item 8: OSRM / OpenStreetMap attribution in small text while an OSRM route is used.
+        .overlay(alignment: .bottomLeading) {
+            if let attribution = model.geometry.attribution, !model.geometry.routes.isEmpty {
+                Text(attribution)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(6)
+                    .accessibilityIdentifier("route-attribution")
+            }
+        }
     }
 
     /// Applies a `MapCameraPolicy` command; the resulting camera change is not a driver gesture.
@@ -351,6 +388,12 @@ private struct DriveContent: View {
             (SessionEndedChip.text(wakeArmed: model.wakeArmed), .red)
         } else if model.view.waitingForNetwork && model.running {
             ("等待网络…", .orange)
+        } else if model.running, model.connectionShow == .reconnecting {
+            // F-24 §17 item 2 (T-016o): a retryable drop, after 1 s.
+            (ConnectionNotice.reconnectingText, .orange)
+        } else if model.running, model.connectionShow == .back {
+            // F-24 §17 item 3: for 3 s after the next setupComplete.
+            (ConnectionNotice.backText, .green)
         } else { nil }
         // F-04b §6 item 11 (T-013e): 声纹锁定 failed closed.
         let speaker: (String, Color)? = model.speakerUnavailable && model.running
@@ -456,6 +499,12 @@ private struct DriveContent: View {
                         }
                         Spacer()
                         if let meters = place.distanceMeters { Text(Self.distance(meters)).font(.caption) }
+                        // F-15b §13 item 3: the already-found place joins the trip list, no new lookup.
+                        if !model.tripList.isEmpty && !model.tripMoving {
+                            Button("加入清单") { Task { await runtime.tripTap(.add(place)) } }
+                                .font(.caption).buttonStyle(.bordered)
+                                .accessibilityIdentifier("trip-add-\(index)")
+                        }
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { Task { await runtime.tapChoice(row: index) } }
@@ -520,7 +569,8 @@ private struct DriveContent: View {
                     }
                 }
                 .opacity(phase == .fading ? 0.4 : 1)
-                if let notice = model.notice {
+                // F-24 §17 items 1, 4: the other notice is unchanged; a non-retryable failure adds 连接失败，点按重试.
+                if let notice = model.notice ?? (model.connectionShow == .failed ? ConnectionNotice.failedText : nil) {
                     Text(notice).font(.footnote).foregroundStyle(.red)
                 }
             }

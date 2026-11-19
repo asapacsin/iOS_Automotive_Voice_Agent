@@ -81,6 +81,9 @@ final class FakeSocket: WebSocketConnection, @unchecked Sendable {
         if let closeAfter = script.closeAfter { await inbox.push(.failure(closeAfter)) }
     }
 
+    /// A server frame pushed after setup (a reply still arriving).
+    func serve(_ frame: Data) async { await inbox.push(.success(frame)) }
+
     func receive() async throws -> Data {
         switch await inbox.next() {
         case .success(let data): return data
@@ -321,12 +324,41 @@ struct GeminiLiveProviderTests {
     func deadPing() async throws {
         var tuning = RealtimeTuning()
         tuning.pingInterval = .milliseconds(20)
+        tuning.pongTimeout = .milliseconds(20)
         let server = FakeGeminiServer([.init(frames: [Data(#"{"setupComplete":{}}"#.utf8)], closeAfter: nil, pingHangs: true)])
         let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server, tuning: tuning)
         await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
         var it = provider.events.makeAsyncIterator()
         #expect(await it.next()?.event == .setupComplete)
         #expect(await it.next()?.event == .failed(RealtimeError(.disconnect)))
+    }
+
+    @Test("F-24: a ping without a pong while frames keep arriving does not end the socket (slow link, long reply)")
+    func busyPing() async throws {
+        var tuning = RealtimeTuning()
+        tuning.pingInterval = .milliseconds(20)
+        tuning.pongTimeout = .milliseconds(100)
+        let server = FakeGeminiServer([.init(frames: [Data(#"{"setupComplete":{}}"#.utf8)], closeAfter: nil, pingHangs: true)])
+        let provider = GeminiLiveProvider(credentials: KeyCredentials(), connector: server, tuning: tuning)
+        await provider.connect(SessionConfig(systemInstruction: "p", tools: []), resume: nil, connection: Generation(1))
+        var it = provider.events.makeAsyncIterator()
+        #expect(await it.next()?.event == .setupComplete)
+        let socket = try #require(server.opened.withLock { $0.first })
+        let feeding = Task {
+            for _ in 0..<80 {
+                await socket.serve(Data(#"{"serverContent":{"outputTranscription":{"text":"好"}}}"#.utf8))
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+        await feeding.value
+        // Frames came in all through 400 ms of hung pings: nothing failed, the socket is still open.
+        #expect(!socket.closed.withLock { $0 })
+        // Once the frames stop, the next hung ping ends it.
+        var failed = false
+        for _ in 0..<500 {
+            if case .failed(let error)? = await it.next()?.event, error == RealtimeError(.disconnect) { failed = true; break }
+        }
+        #expect(failed)
     }
 
     @Test("F-05: a close() while connect waits for the socket leaves nothing open and emits nothing")

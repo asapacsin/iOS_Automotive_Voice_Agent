@@ -14,9 +14,18 @@ public struct SpeakerCohortMeta: Codable, Sendable, Hashable {
     public var threshold: Double
     public var eer: Double
     public var trials: Int
+    /// F-04b §17 item 6 (T-013k): the EER threshold on test clips cut to their first 1 s (`--test-seconds 1.0`).
+    /// Absent in a cohort made before §17: the early check is then unknown (no early stop).
+    public var threshold1s: Double?
+    public var eer1s: Double?
+    public var trials1s: Int?
 
     public init(source: String, license: String, model: String, modelSha256: String, speakers: Int, dimension: Int,
-                topN: Int, threshold: Double, eer: Double, trials: Int) {
+                topN: Int, threshold: Double, eer: Double, trials: Int, threshold1s: Double? = nil,
+                eer1s: Double? = nil, trials1s: Int? = nil) {
+        self.threshold1s = threshold1s
+        self.eer1s = eer1s
+        self.trials1s = trials1s
         self.source = source
         self.license = license
         self.model = model
@@ -27,6 +36,13 @@ public struct SpeakerCohortMeta: Codable, Sendable, Hashable {
         self.threshold = threshold
         self.eer = eer
         self.trials = trials
+    }
+
+    /// §17 item 6: the 1 s threshold, only when it is a finite number the script wrote; never made up.
+    /// T-013l (owner 2026-11-16): until `threshold1s` is measured, the measured whole-sentence `threshold` is used.
+    public var earlyThreshold: Double? {
+        if let t = threshold1s, t.isFinite { return t }
+        return threshold.isFinite ? threshold : nil
     }
 
     /// §16 item 6: the cohort was made with the loaded model.

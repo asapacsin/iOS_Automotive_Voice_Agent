@@ -78,7 +78,7 @@ struct ReplyLanguageCheckTests {
         return d
     }
 
-    @Test("T-016m F-05a §15 row 4: Portuguese after 200 ms of audio: nothing released, voided, one re-ask without heard words")
+    @Test("T-016m F-05a §15 row 4: Portuguese after 200 ms of audio: nothing released, voided, one re-ask with the heard words (F-15b §40)")
     func portugueseVoided() {
         var d = Self.asked()
         let t = TurnID(1)
@@ -88,9 +88,9 @@ struct ReplyLanguageCheckTests {
         let out = d.realtime(.replyText(t, Self.portuguese))
         #expect(played(out) == 0 && d.state.view.subtitle.isEmpty)
         #expect(out.contains { if case .flushPlayback = $0 { true } else { false } })  // the void
-        // F-05a §16 item 5 (T-016n): the re-ask never carries the heard words.
-        #expect(texts(out) == ["[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"])
-        #expect(lines(out).contains(.correction))
+        // F-15b §40 (T-040o, replaces F-05a §16 item 5): the local final is carried; no 「再说一遍」.
+        #expect(texts(out) == [CorrectionReason.wrongLanguage(heard: "不知道。")])
+        #expect(lines(out).contains(.correctionHeard(.local)))
         #expect(lines(out).contains(.check(turn: 1, verdict: .blocked, language: "pt", probability: 0.9, heldMs: 200)))
         // Nothing of the voided turn plays later.
         #expect(played(d.realtime(.replyAudio(t, Self.pcm)) + d.realtime(.audioDone(t))) == 0)
@@ -154,15 +154,16 @@ struct ReplyLanguageCheckTests {
         #expect(fallbacks(f.fire(.fallback)).isEmpty)
     }
 
-    @Test("T-016n F-05a §16 row 6 (§15 row 7): any utterance gets the second re-ask text exactly, heard=none")
+    @Test("T-016n F-05a §16 row 6 (§15 row 7): the bare re-ask text only without words; with words heard=local (F-15b §40)")
     func reaskTexts() {
         let none = "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
         #expect(CorrectionReason.wrongLanguage.instruction == none)
         var d = Self.asked()
         d.realtime(.responseStarted(TurnID(1)))
         let out = d.realtime(.replyText(TurnID(1), Self.portuguese))
-        #expect(texts(out) == [none] && lines(out).contains(.correction))
-        #expect(!texts(out)[0].contains("不知道"))
+        #expect(texts(out) == ["[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。司机刚才说的是「不知道。」。请用中文回答这句话。"])
+        #expect(lines(out).contains(.correctionHeard(.local)))
+        #expect(ReplyLanguageLine.correctionHeard(.gemini).logLine == "correction WRONG_LANGUAGE heard=gemini")
     }
 
     @Test("T-016m F-05a §15 row 8: record lines exactly as item 7, with no reply or driver words")

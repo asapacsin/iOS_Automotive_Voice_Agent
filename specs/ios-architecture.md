@@ -137,6 +137,7 @@ NovaDriveIOS/
 | `AVFAudio` (engine, session, player nodes, `AVSpeechSynthesizer`) | NovaAudio |
 | `AVFoundation` capture (`AVCaptureSession`), `CoreLocation`, `Contacts`, `MusicKit` | NovaPlatform |
 | `Security` (Keychain) | NovaServices |
+| `MapKit` (`MKLocalSearch`, `MKMapItem.openMaps`; F-15b §41, T-040o) | NovaPlatform, App |
 | `UIKit`, `SwiftUI` | App, and NovaNavAmap (it wraps the UIKit map view) |
 | `URLSessionWebSocketTask` | NovaRealtime (plain HTTP `URLSession` is allowed in NovaServices) |
 
@@ -162,7 +163,7 @@ usually one target plus its tests.
 | `CaptureSource` | 10 ms 16 kHz PCM16 frames, already echo-cancelled | `EngineCapture` (NovaAudio) | `PCMCorpusSource` |
 | `PlaybackPort` | Reply lane, guidance lane, media lane, epochs, playback events | `EnginePlayback` (NovaAudio) | `RecordingPlayback` |
 | `AudioSessionEvents` | Interruptions, route changes, media-services reset | `AudioSessionMonitor` (NovaAudio) | scripted |
-| `SpeechSynthesizer` | Clause → 24 kHz PCM when 她的声音 is 千问 (F-07 §14, §17); unused for the default Gemini 原声, which plays Gemini's judged audio (F-07 §15) | `QwenSpeechClient` (NovaServices), wrapped by `RetryingSpeechSynthesizer` (NovaVoice, one retry) | `FakeSynthesizer` (fixed latency) |
+| `SpeechSynthesizer` | Clause → 24 kHz PCM when 她的声音 is 千问 (F-07 §14; Azure removed, §17); unused for the default Gemini 原声, which plays Gemini's judged audio (F-07 §15) | `QwenSpeechClient` (NovaServices), wrapped by `RetryingSpeechSynthesizer` (NovaVoice, one retry) | `FakeSynthesizer` (fixed latency) |
 | `FallbackGuidanceVoice` | Speak a guidance sentence when the relay falls back | `SystemSpeechGuidanceVoice` (NovaAudio, §9.5) | recording |
 | `WakeWordDetector` | Arm/disarm, take frames, emit wake | `IflytekWakeDetector` (NovaWakeIflytek) | scripted |
 | `SpeakerVerifier` | F-04b (T-013e): frames → speaker embedding, scored by cosine against the enrolled profile; used only with 声纹锁定 on | `SherpaSpeakerVerifier` (NovaAsrSherpa) | fixed embeddings |
@@ -251,7 +252,7 @@ type is a `Sendable` value. Minimum iOS version: iOS 18 is proposed for `Observa
 ### 5.2 Control plane and data plane
 
 - **Data plane** (about 100 messages/s): uplink audio goes capture queue → `RealtimeProvider.sendAudio`.
-  Revoiced reply audio goes 千问 TTS → Revoicer → `PlaybackPort`. Neither passes through `AgentCore`.
+  Revoiced reply audio goes 千问 → Revoicer → `PlaybackPort`. Neither passes through `AgentCore`.
 - **Control plane**: gate events, realtime events, tool results, playback and audio-session events,
   timers, UI intents and navigation snapshots all enter `AgentCore.send(_:)`, its only entry point.
 - One exception, required by I-5: **without** revoicing, Gemini's own reply audio crosses the
@@ -355,7 +356,7 @@ Exactly 10 ms, 16 kHz frames are unit-tested on the resampler and framer (F-03 �
 
 ### 6.4 Playback lanes and epochs
 
-- **Reply lane**: 24 kHz PCM from Gemini (Gemini 原声) or from 千问 TTS when revoicing. Clauses are scheduled
+- **Reply lane**: 24 kHz PCM from 千问 (or from Gemini when not revoicing). Clauses are scheduled
   in sequence order. `flush(to:)` calls `stop()` on the reply node, which drops the scheduled buffers,
   then `play()` again and raises the epoch. Late TTS results for the old epoch are discarded before
   they are scheduled (W2, F-07 §10).
@@ -426,7 +427,7 @@ settings) is assembled provider-neutrally in `NovaTools`. `NovaRealtime` encodes
 | `GeminiCodec` | yes | Encode `setup`, `realtimeInput.audio` (base64 16 kHz), `audioStreamEnd`, `clientContent`, `toolResponse`; decode server messages |
 | `GeminiTurnAssembler` | yes | The six ordering rules of contracts/voice-agent.md §4; duplicate-call marking; reject calls during a guidance turn |
 | `GeminiErrorClassifier` | yes | Close codes 1007 (clear handle, `RESUME_UNAVAILABLE`) and 1008; retryable vs terminal |
-| `GeminiTransport` | no | `URLSessionWebSocketTask`, connect timeout 10 s, ping every 20 s |
+| `GeminiTransport` | no | `URLSessionWebSocketTask`, connect timeout 10 s, ping every 10 s, 5 s pong wait (a received frame counts as alive) |
 | `GeminiLiveProvider` | no | Implements `RealtimeProvider`; drops Gemini audio while revoicing |
 
 The pure parts are tested on macOS by replaying `fixtures/gemini/*.jsonl` (the contract gate). The
@@ -644,7 +645,7 @@ AgentCore as an ordinary event and never bypasses the dispatcher.
 |---|---|
 | Provider | `RealtimeError` is classified in the adapter. Retryable → `ReconnectPolicy` with the handle, UI shows PROCESSING. Terminal (auth, credential, quota, malformed model) → ERROR plus a config banner, no retry |
 | Tool | Every failure is a `ToolResult(ok: false, code:)` with `ToolFailureAdvice`. Nothing is thrown past `ToolRunner` |
-| TTS | 千问 TTS failure: the subtitle still shows and Gemini audio is never substituted (F-07) |
+| TTS | 千问 failure: the subtitle still shows and Gemini audio is never substituted (F-07) |
 | Navigation SDK | Calculation failure → ERROR phase with a code; late callbacks are dropped by generation |
 | Capture | Engine start or read failure → `AUDIO_CAPTURE_FAILED`, capture stopped; on media-services reset, rebuild once and then report |
 | Wake engine | Bounded retry (1.5 s base, 30 s max, 6 attempts) → wake unavailable; the talk button still works |
@@ -701,7 +702,7 @@ Gates, added to those in ai-agent-workflow.md:
 | M | Modules that come alive |
 |---|---|
 | M0 | Spike app: NovaAudio (VP AEC, AGC choice, sink-node latency), NovaNavAmap hello-route (route select call, privacy API, key at runtime) |
-| M1 | NovaKit, NovaPorts, NovaVoice (F-02, F-04, F-05, F-06, F-07, minimal F-08, F-24), NovaTools (F-09, F-11), NovaAgent, NovaRealtime, NovaAudio reply lane, NovaServices (Qwen TTS, Keychain, Defaults, SimulatedVehicle; Azure removed, F-07 §17), App: tap-to-talk, chip, bubble, settings subset |
+| M1 | NovaKit, NovaPorts, NovaVoice (F-02, F-04, F-05, F-06, F-07, minimal F-08, F-24), NovaTools (F-09, F-11), NovaAgent, NovaRealtime, NovaAudio reply lane, NovaServices (Qwen TTS, Keychain, Defaults, SimulatedVehicle), App: tap-to-talk, chip, bubble, settings subset |
 | M2 | NovaTools F-10, F-12, F-13 (bundled, media lane), F-18 weather, F-21 |
 | M3 | NovaNav, NovaNavAmap, NovaPlatform location; F-15, F-16, F-17, choice overlay |
 | M4 | Guidance lane, relay, fallback voice, arbiter R1/R6/R6a, overspeed voice |

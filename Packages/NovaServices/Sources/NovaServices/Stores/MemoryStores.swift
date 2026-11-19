@@ -7,10 +7,26 @@ import Synchronization
 public final class InMemoryCredentialStore: CredentialStore {
     public struct Failure: Error, Sendable {}
     private let state = Mutex<(values: [CredentialKey: String], failing: Set<CredentialKey>)>(([:], []))
+    /// F-07 §17 item 3: items under retired account names, and accounts whose removal fails.
+    private let retired = Mutex<(accounts: Set<String>, failing: Set<String>)>(([], []))
 
-    public init(_ values: [CredentialKey: String] = [:]) {
+    public init(_ values: [CredentialKey: String] = [:], retiredAccounts: Set<String> = []) {
         state.withLock { $0.values = values }
+        retired.withLock { $0.accounts = retiredAccounts }
     }
+
+    public func failRetiredRemoval(of account: String, _ failing: Bool = true) {
+        retired.withLock { if failing { $0.failing.insert(account) } else { $0.failing.remove(account) } }
+    }
+
+    public func removeRetired(account: String) throws {
+        try retired.withLock { r in
+            if r.failing.contains(account) { throw Failure() }
+            r.accounts.remove(account)
+        }
+    }
+
+    public var retiredAccounts: Set<String> { retired.withLock { $0.accounts } }
 
     public func failRemoval(of key: CredentialKey) { state.withLock { _ = $0.failing.insert(key) } }
 
@@ -26,27 +42,6 @@ public final class InMemoryCredentialStore: CredentialStore {
     }
 
     public var storedKeys: Set<CredentialKey> { state.withLock { Set($0.values.keys) } }
-}
-
-/// In-memory items of removed features (F-07 §17 item 3), for tests. Optional failure injection.
-public final class InMemoryRetiredSecrets: RetiredSecretRemover {
-    public struct Failure: Error, Sendable {}
-    private let state = Mutex<(accounts: Set<String>, failing: Bool, attempts: Int)>(([], false, 0))
-
-    public init(_ accounts: Set<String> = []) { state.withLock { $0.accounts = accounts } }
-
-    public func failRemoval(_ failing: Bool = true) { state.withLock { $0.failing = failing } }
-
-    public func removeRetired(account: String) throws {
-        try state.withLock { s in
-            s.attempts += 1
-            if s.failing { throw Failure() }
-            s.accounts.remove(account)
-        }
-    }
-
-    public var accounts: Set<String> { state.withLock { $0.accounts } }
-    public var attempts: Int { state.withLock { $0.attempts } }
 }
 
 /// `UserDefaults`-backed settings (non-secret only).

@@ -98,6 +98,14 @@ final class SpeakerLockService: @unchecked Sendable {
                                            model: modelInfo(profile: profile), cohort: cohort?.meta)
     }
 
+    /// F-04b §17 items 3, 6: the cohort's 1 s threshold for the early check (T-013l: its whole-sentence threshold
+    /// until `threshold1s` is measured), only with a ready lock on the cohort's own threshold (a fail-closed lock has
+    /// none); nil makes every early check unknown.
+    func liveEarlyThreshold() -> Double? {
+        guard let live = liveThreshold(), let meta = cohort?.meta, live == meta.threshold else { return nil }
+        return meta.earlyThreshold
+    }
+
     /// Embeds on the background queue; the time it took for `scoreMs`.
     func embed(_ frames: [PCMFrame16k], done: @escaping @Sendable (Result<[Float], any Error>, Int) -> Void) {
         let model = model()

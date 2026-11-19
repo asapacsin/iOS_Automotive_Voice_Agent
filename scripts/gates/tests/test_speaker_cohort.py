@@ -40,7 +40,11 @@ def _vec(name):
 
 
 def fake_make_embedder(model, threads):
-    return (lambda p: _vec(pathlib.Path(p).stem)), DIM
+    def embed(p, seconds=None):
+        v = _vec(pathlib.Path(p).stem)
+        # A cut clip is a noisier embedding of the same speaker (T-013k row 61).
+        return v if seconds is None else v + _vec(f"{pathlib.Path(p).stem}-cut{seconds}") * 0.3
+    return embed, DIM
 
 
 @unittest.skipIf(SKIP, SKIP or "")
@@ -98,6 +102,42 @@ class SpeakerCohortMainTests(unittest.TestCase):
             self.assertIsInstance(meta[k], float, k)
         self.assertTrue(0.0 <= meta["eer"] <= 1.0)
         self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["speaker_cohort.f32", "speaker_cohort.json"])
+
+    def test_t013k_row61_test_seconds_adds_1s_fields_only(self):
+        """T-013k F-04b §17 row 61: --test-seconds 1.0 adds threshold1s, eer1s, trials1s; the rest is byte-identical."""
+        seen = []
+        base = sc.make_embedder
+
+        def recording(model, threads):
+            embed, dim = base(model, threads)
+
+            def wrapped(p, seconds=None):
+                seen.append((pathlib.Path(p).parent.name, seconds))
+                return embed(p, seconds)
+            return wrapped, dim
+        sc.make_embedder = recording
+        self.assertEqual(self.run_main("--min-speakers", "3"), 0)
+        plain = (self.out / "speaker_cohort.json").read_text()
+        plain_f32 = (self.out / "speaker_cohort.f32").read_bytes()
+        shutil.rmtree(self.out)
+        seen.clear()
+        self.assertEqual(self.run_main("--min-speakers", "3", "--test-seconds", "1.0"), 0)
+        meta = json.loads((self.out / "speaker_cohort.json").read_text())
+        before = json.loads(plain)
+        self.assertEqual(set(meta) - set(before), {"threshold1s", "eer1s", "trials1s"})
+        self.assertEqual({k: meta[k] for k in before}, before)
+        self.assertEqual(json.dumps({k: meta[k] for k in before}, indent=2) + "\n", plain)
+        self.assertEqual((self.out / "speaker_cohort.f32").read_bytes(), plain_f32)
+        self.assertIsInstance(meta["threshold1s"], float)
+        self.assertTrue(0.0 <= meta["eer1s"] <= 1.0)
+        self.assertEqual(meta["trials1s"], 4)
+        # Only test audio is cut; dev and enrollment are not.
+        self.assertEqual({d for d, s in seen if s is not None}, {"test"})
+        self.assertEqual(sum(1 for _, s in seen if s == 1.0), len(TEST))
+
+    def test_t013k_test_seconds_must_be_positive(self):
+        self.assertEqual(self.run_main("--min-speakers", "3", "--test-seconds", "0"), 1)
+        self.assertFalse(self.out.exists())
 
     def test_top_n_as_given(self):
         self.assertEqual(self.run_main("--min-speakers", "3", "--top-n", "2"), 0)

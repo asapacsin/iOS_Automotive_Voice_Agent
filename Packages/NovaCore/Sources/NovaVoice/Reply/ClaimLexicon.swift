@@ -37,7 +37,9 @@ public enum ClaimLexicon {
                           "降低", "放首", "放一首", "播放", "放歌", "导航", "打电话", "打给", "拨打", "开窗", "关窗", "凉一点",
                           "暖一点", "热一点", "冷一点", "高一点", "低一点", "大一点", "小一点",
                           // Feelings are requests (SPEC-006 C2, Android `DriverTurn.kt:930`): 「我有点热」.
-                          "热", "冷", "闷", "困", "晒", "蚊子", "关一下", "开一下", "调一下", "放一下"]
+                          "热", "冷", "闷", "困", "晒", "蚊子", "关一下", "开一下", "调一下", "放一下",
+                          // F-13a §10 item 5 (T-032i): volume requests.
+                          "音量", "大声", "小声", "调大", "调小"]
     /// Negations that turn a phrase into the opposite (「没能打开」, 「无法播放」).
     static let negations = ["没有", "没能", "未能", "无法", "不能", "失败", "没法", "暂时不", "还没"]
 
@@ -101,10 +103,16 @@ public enum ClaimLexicon {
         case "control_window": return topic == .windows
         case "control_climate": return topic == .climate || topic == .fan
         case "control_music", "play_music": return topic == .music
-        case "run_scenario":
-            // The table proves what its finished steps name (`done` labels: 打开空调, 车窗开到50%, …).
-            guard case .array(let done)? = data["done"] else { return false }
-            return done.contains { $0.stringValue.map { topics(of: $0).contains(topic) } ?? false }
+        // F-13a §4 item 5 (T-032g): 「音乐音量已调到 6」 is proven by the media level read back from `set_volume`.
+        case "set_volume": return topic == .music && data["target"] == .string("media")
+        case "undo_last_change":
+            // F-09b §4 item 3 (T-031j): an undo's ok backs the claims for the functions it restored.
+            guard case .object(let restored)? = data["restored"] else { return false }
+            switch topic {
+            case .windows: return restored["windows"] != nil
+            case .climate, .fan: return restored["climate"] != nil
+            case .music: return false
+            }
         default: return false
         }
     }

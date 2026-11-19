@@ -74,7 +74,7 @@ struct RevoicerQueueTests {
         #expect(q.pendingClauses == 0 && q.epoch == e.next())
     }
 
-    @Test("F-07 千问 401: the reply goes quiet once, nothing else plays, no fallback audio")
+    @Test("F-07 TTS 401: the reply goes quiet once, nothing else plays, no fallback audio")
     func authFailure() {
         var q = RevoicerQueue()
         let e = q.epoch

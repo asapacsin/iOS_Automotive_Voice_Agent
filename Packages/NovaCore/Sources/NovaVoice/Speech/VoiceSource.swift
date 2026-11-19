@@ -40,16 +40,14 @@ public enum VoiceSource {
     /// F-07 §15 item 2: remembered once this build has moved the saved choice.
     public static let migrationKey = "voice_source_gemini_default_done"
 
-    /// The source the picker shows and the session uses: a saved choice is kept; no saved choice, or one that no
-    /// longer parses (a removed source, F-07 §17 item 2), is Gemini 原声.
+    /// The source the picker shows and the session uses: a saved choice is kept; no saved choice is Gemini 原声.
     public static func effectiveChoice(_ choice: VoiceSourceKind?) -> VoiceSourceKind { choice ?? .gemini }
 
     /// F-07 §15 item 2, run once on the first launch of this build: no saved choice, or 千问 saved by 1f05a54,
-    /// becomes Gemini 原声 (F-07 §17 item 2: so does any other saved value). Returns the choice to save, or nil when the migration already ran
-    /// (anything saved after that launch is kept).
+    /// becomes Gemini 原声; since F-07 §17 every saved value does. Returns the choice to save, or nil when the
+    /// migration already ran (anything saved after that launch is kept).
     public static func migrated(saved: String?, done: Bool) -> VoiceSourceKind? {
-        guard !done else { return nil }
-        return .gemini
+        done ? nil : .gemini
     }
 
     /// The Qwen message for what is missing, or nil when both are there.

@@ -18,6 +18,20 @@ final class DriveModel: ObservableObject {
     @Published var view = AgentViewState()
     @Published var nav = NavigationFlowState()
     @Published var geometry = RouteGeometry()
+    /// F-15b §11 (T-040j): the app's trip list, and whether the phone is moving (cards or the strip).
+    @Published var tripList = TripList()
+    @Published var tripMoving = false
+    /// F-15b §11 item 6: the card whose details sheet is open, with the place detail once it arrived.
+    @Published var tripDetail: TripCard?
+    @Published var tripDetailPlace: Place?
+    @Published var tripDetailLoading = false
+    /// F-15b §21 (T-040m): the introduction of the open card; nil while it is being looked up.
+    @Published var tripIntro: TripIntro.Answer?
+    /// F-15b §22: the trip cards are put away (「行程」 brings them back).
+    @Published var tripCardsHidden = false
+    /// F-15b §11 item 5, §16 item 6 (T-040l): the plan's days and the saved plans; the 「我的行程」 sheet.
+    @Published var tripPlans: TripPlansSummary?
+    @Published var tripPlansOpen = false
     @Published var climate = ClimateState.default
     @Published var cabin = CabinState.default
     @Published var driverLine = ""
@@ -50,6 +64,35 @@ final class DriveModel: ObservableObject {
     /// appears (that chip wins). Text only.
     @Published var speakerNotice: String?
     private var speakerNoticeID = 0
+
+    /// F-24 §17 (T-016o): the connection message, apart from `notice`. `connectionShow` is what the screen shows now.
+    @Published var connectionShow = ConnectionNotice.Show.none
+    private var connection = ConnectionNotice()
+    private var connectionTick: Task<Void, Never>?
+    private let connectionClock = SystemClock()
+
+    /// F-24 §17 items 1–4: a session event for the connection message; item 6 logs each change.
+    func connectionEvent(_ event: ConnectionNotice.Event) {
+        let now = connectionClock.now
+        if let line = connection.handle(event, at: now) { RuntimeLog.agent.notice("\(line, privacy: .public)") }
+        refreshConnection(at: now)
+    }
+
+    /// Publishes the show and wakes at its next change (after 1 s: 重新连接中…; after 3 s: nothing).
+    private func refreshConnection(at now: NovaInstant) {
+        connectionShow = connection.show(at: now)
+        connectionTick?.cancel()
+        connectionTick = nil
+        guard let next = connection.nextChange(at: now) else { return }
+        let clock = connectionClock
+        connectionTick = Task { @MainActor [weak self] in
+            do { try await clock.sleep(until: next) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            let now = clock.now
+            if let line = self.connection.tick(at: now) { RuntimeLog.agent.notice("\(line, privacy: .public)") }
+            self.refreshConnection(at: now)
+        }
+    }
 
     /// A new notice restarts the 3 s and replaces the old one; it never stacks.
     func showSpeakerNotice(_ text: String) {
@@ -94,13 +137,6 @@ enum DriveSettings {
 
     /// F-08 §17 item 10 (T-022e) 「可以打断她（实验）」: talking over her can stop her (default off).
     static let interruptible = "interruptible_experimental"
-
-    /// F-12 §14 item 7 (T-031b) 「由模型决定舒适动作（实验）」: default off; read at session start.
-    static let modelComfort = "model_comfort_experimental"
-
-    static func comfortMode(_ defaults: UserDefaults = .standard) -> ToolCatalog.ComfortMode {
-        defaults.object(forKey: modelComfort) as? Bool ?? false ? .model : .table
-    }
 
     /// F-12 §17 item 1 (T-031f) 「保存对话记录（测试用）」: default off; read at session start.
     static let conversationRecord = "conversation_record_test"
@@ -217,30 +253,16 @@ struct RuntimeSink: AgentEffectSink {
     let wakeWatch: WakeSessionWatch
     /// F-24 §15 item 4 (T-016j): the runtime keeps the handle in memory; never logged or written (I-7).
     let keepHandle: @Sendable (String?) async -> Void
-    /// F-21 §16 items 5, 7 (T-034c): the chain's original tone kept with the handle; an update was rejected.
-    let keepTone: @Sendable (SpeakingStyle) async -> Void
-    let toneRejected: @Sendable () async -> Void
+    /// F-09b §6 item 1 (T-016p): one completed exchange for the runtime's in-memory summary (I-7).
+    let onExchange: @Sendable (ConversationExchange) -> Void
 
     func keepResumption(_ handle: String?) async { await keepHandle(handle) }
-    func keepToneChain(_ style: SpeakingStyle) async { await keepTone(style) }
 
-    /// F-21 §16 item 8 (T-034c): codes and numbers only, so the same line goes to the log and the record (I-8).
-    func styleLine(_ line: StyleUpdateLine) {
-        RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
-        record?.submit(.styleUpdate(line))
-        if case .rejected = line { Task { await toneRejected() } }
-    }
+    func exchange(_ exchange: ConversationExchange) { onExchange(exchange) }
 
     func provider(_ command: ProviderCommand) async {
         switch command {
-        case .connect(let connection, let resume, let instruction, let update):
-            // F-21 §16 items 1, 5 (T-034c): a setup without a handle carries the current tone; a resumed one is followed
-            // by the update when the tone changed since the chain began.
-            var setup = config
-            if let instruction { setup.systemInstruction = instruction }
-            setup.resumeInstructionUpdate = update
-            await realtime.connect(setup, resume: resume, connection: connection)
-        case .contextUpdate(let instruction): await realtime.sendContextUpdate(systemInstruction: instruction)
+        case .connect(let connection, let resume): await realtime.connect(config, resume: resume, connection: connection)
         case .close: await realtime.close()
         case .toolResponses(let responses):
             for r in responses {
@@ -282,7 +304,10 @@ struct RuntimeSink: AgentEffectSink {
         direct?.flushed(to: epoch)
         await revoicer?.cancel(newEpoch: epoch)
     }
-    func newReply() async { await revoicer?.newReply() }
+    func newReply() async {
+        audio.replyBegan()  // F-13a §7 (T-032h): the duck lines' ms count from here
+        await revoicer?.newReply()
+    }
     /// F-07 §15 items 3, 5: Gemini's judged audio to the reply lane, and the turn's timing line once.
     func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async {
         guard let direct, speechOutput.mode == .spoken else { return }
@@ -300,6 +325,10 @@ struct RuntimeSink: AgentEffectSink {
 
     func publish(_ view: AgentViewState) async {
         await MainActor.run {
+            // F-24 §17 item 2: §14's 等待网络… wins while waiting.
+            if model.view.waitingForNetwork != view.waitingForNetwork {
+                model.connectionEvent(.network(waiting: view.waitingForNetwork))
+            }
             model.view = view
             // F-05a §16 item 1: the driver's line comes from the core (Gemini's text, checked), never the local text.
             if model.driverLine != view.driverLine { model.driverLine = view.driverLine }
@@ -313,8 +342,8 @@ struct RuntimeSink: AgentEffectSink {
         case .claimHeld: record?.submit(.held)
         case .claimCut(let turn, let ms): record?.submit(.claimCut(turn: turn, playedMs: ms))  // F-07 §15 item 8
         case .asyncToolDropped(let tool): record?.submit(.toolDropped(tool))  // F-18 §27 item 4
-        case .carArea(let utterance, let area): record?.submit(.area(utterance: utterance, area: area))  // F-09a §5
-        case .tiredSilenced(let turn): record?.submit(.tiredSilenced(turn: turn))  // F-09a §5
+        case .stateNote(let reason): record?.submit(.stateNote(reason))  // F-09b §8
+        case .summaryNote(let n, let age): record?.submit(.summaryNote(exchanges: n, ageS: age))  // F-09b §8
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
@@ -368,6 +397,8 @@ struct ObservedVehicleExecutor: ToolExecutor {
     let inner: any ToolExecutor
     let vehicle: SimulatedVehicle
     let model: DriveModel
+    /// F-09b §5 (T-031j): the core hears the new state.
+    var changed: @Sendable () async -> Void = {}
 
     func execute(_ call: ToolCall) async -> ToolResult {
         let result = await inner.execute(call)
@@ -383,6 +414,7 @@ struct ObservedVehicleExecutor: ToolExecutor {
             model.cabin = cabin
             model.toolLine = "\(call.name) → \(result.ok ? "ok" : (result.code?.rawValue ?? "failed"))"
         }
+        await changed()
         return result
     }
 }
@@ -581,6 +613,45 @@ final class AgentRuntime {
     private var navigation: NavigationController?
     /// The app-owned trip: its engine, location source, saved places and the session currently listening.
     private var trip: AppTrip?
+    /// F-15b §11 item 4: the moving rule, sampled once a second for the app's lifetime (not a session's).
+    private var tripMonitor: Task<Void, Never>?
+
+    /// F-15b §13 item 1 (I-6): a card tap becomes the voice path's tool call; refused while moving. With a session
+    /// connected, she gets the §13 item 4 silent note and says nothing.
+    func tripTap(_ tap: TripTap) async {
+        guard let planner = trip?.planner else { return }
+        let (_, note) = await planner.tap(tap, moving: model.tripMoving)
+        if let note, let core { await core.send(.screenNote(note)) }
+    }
+
+    /// F-15b §14 item 1: the trip (and the plan saved on the phone) is ready when the drive screen appears, so the
+    /// cards are there after a restart before any voice session.
+    func prepareTrip() async {
+        guard !UITestDrive.enabled else { return }
+        let location = SwitchableLocationProvider(device: deviceLocation, demo: DemoLocation(clock: navigationClock),
+                                                  useDevice: { DriveSettings.usesDeviceLocation() })
+        _ = await appTrip(location: location)
+    }
+
+    /// F-15b §11 item 6: the details sheet of a card (photo, address, opening hours, phone); nothing is spoken.
+    func openTripDetail(_ card: TripCard) async {
+        guard !model.tripMoving else { return }
+        model.tripDetail = card
+        model.tripDetailPlace = nil
+        model.tripDetailLoading = true
+        model.tripIntro = nil
+        // §21 item 8: the 高德 detail and the introduction start at once; each shows when it arrives.
+        let intro = trip?.intro
+        let introTask = Task { await intro?.answer(for: card) ?? .failed }
+        let place = card.placeID.hasPrefix("saved_") ? nil : try? await trip?.web.detail(id: card.placeID)
+        if model.tripDetail?.placeID == card.placeID {
+            model.tripDetailPlace = place ?? nil
+            model.tripDetailLoading = false
+        }
+        let answer = await introTask.value
+        guard model.tripDetail?.placeID == card.placeID else { return }
+        model.tripIntro = answer
+    }
 
     /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the
     /// dispatcher and executor of the voice choice and she announces its read-back.
@@ -717,6 +788,7 @@ final class AgentRuntime {
         guard !model.running, !exclusiveCapture else { return }
         model.notice = nil
         model.networkEnded = false
+        model.connectionEvent(.stopped)  // F-24 §17 item 4: a start clears everything
         // F-23 (T-063): the microphone is asked at the first talk; a denial is explained.
         let mic: PermissionStatus = switch MicrophonePermission.current {
         case true?: .granted
@@ -767,7 +839,7 @@ final class AgentRuntime {
             baseSynthesizer = QwenSpeechClient(config: QwenSpeechConfig(key: key, host: host, voice: voice))
         }
         model.notice = nil
-        // F-07 §14 items 6-8: one retry for the 千问 source; timing and failure lines (numbers and codes only, I-8).
+        // F-07 §14 items 6-8: one retry for the TTS source; timing and failure lines (numbers and codes only, I-8).
         let voiceLines = VoiceLineSink()
         let synthesizer = baseSynthesizer.map { base in
             RetryingSpeechSynthesizer(base, source: voiceSource, onClause: { line in
@@ -778,6 +850,8 @@ final class AgentRuntime {
 
         let model = model
         let audio = LiveAudio()
+        // F-13a §3 item 3 (T-032g): the saved media and voice levels are the engine's lane gains from the start.
+        AppVolume.shared.output.attach(audio)
         // F-24 §16 item 3 (T-020b): why each socket closed; the code and 80 characters of the reason only.
         let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
                                           connector: URLSessionWebSocketConnector(onDuplicate: { site in
@@ -827,21 +901,43 @@ final class AgentRuntime {
             return mps * 3.6
         }
         let port = PolicedVehiclePort(vehicle, speedKmh: speedKmh)
-        // F-12 §14 item 7: the comfort path is fixed for the whole session (the catalog goes in `setup`).
-        let comfortMode = DriveSettings.comfortMode()
-        RuntimeLog.agent.notice("comfortMode \(comfortMode.rawValue, privacy: .public)")
-        let vehicleTools = ObservedVehicleExecutor(inner: VehicleToolExecutor(port: port), vehicle: vehicle, model: model)
-        // F-18: weather cached 10 min, adcodes 30 min (T-033).
-        let cache = LiveInfoCache(weather: web, geocoder: web, clock: SystemClock())
+        // F-09b §3 item 1 (T-031c): one comfort path, the model decides. F-09b §4 (T-031j): every ok change of one
+        // model turn is kept for the undo; F-09b §5: the core hears the car's state after each change.
+        let carState = CoreRelay()
+        let musicRef = MusicRef()
+        let snapshot: @Sendable () async -> CarStateSnapshot = { [vehicle] in
+            let climate = await vehicle.climateState()
+            let cabin = await vehicle.cabinState()
+            return CarStateSnapshot(acOn: climate.powerOn, temperatureC: climate.targetTemperatureCelsius,
+                                    fanLevel: climate.fanLevel, windows: cabin.windows,
+                                    driverSeat: cabin.seatHeights[.driver] ?? CabinLimits.seatDefault,
+                                    musicPlaying: await musicRef.port?.isPlaying ?? false, speedKmh: await speedKmh())
+        }
+        let changeSets = self.changeSets
+        let vehicleTools = ObservedVehicleExecutor(
+            inner: ChangeSetRecorder(inner: VehicleToolExecutor(port: port), port: port, store: changeSets),
+            vehicle: vehicle, model: model, changed: { await carState.send(.vehicleState(await snapshot())) })
+        // F-18: adcodes cached 30 min (T-033); 和风 weather answers 10 min inside QWeatherClient (§31).
+        let cache = LiveInfoCache(geocoder: web, clock: SystemClock())
         // F-18 §15 item 1, §16: 「联网搜索（实验）」 is read once here, at session start.
         let webSearch = DriveSettings.searchesWeb()
         RuntimeLog.agent.notice("webSearch \(webSearch ? "on" : "off", privacy: .public)")
         // F-18 §26 (T-046o): 高德 geocoding with the name check, Open-Meteo for foreign places and later days. The log
         // gets the source, ok and reason only (I-8).
-        let openMeteo = OpenMeteoClient()
-        let liveInfo = LiveInfoExecutor(webSearch: webSearch, navigation: navigation, weather: cache, geocoder: cache, location: location,
-                                        amapLookup: web, forecastLookup: openMeteo, forecast: openMeteo, onWeather: { log in
+        // F-18 §30 (T-046s): both Open-Meteo hosts go over the app's own TCP+TLS connection, never URLSession, so
+        // QUIC cannot be chosen. The weather line also goes to the record.
+        let openMeteo = OpenMeteoClient(transport: RawHTTPTransport { host, port, request, timeout in
+            try await TCPHTTPFetcher.fetch(host: host, port: port, request: request, timeout: timeout)
+        })
+        // F-18 §31 (T-046t): 和风天气 first for every weather answer, over URLSession with 高德's time limit; the
+        // keys are read at each request, so a key saved in 设置 counts at once.
+        let qweather = QWeatherClient(host: { try? KeychainCredentialStore().value(for: .qweatherHost) },
+                                      key: { try? KeychainCredentialStore().value(for: .qweatherKey) })
+        let liveInfo = LiveInfoExecutor(webSearch: webSearch, navigation: navigation, geocoder: cache, location: location,
+                                        amapLookup: web, forecastLookup: openMeteo, forecast: openMeteo, qweather: qweather,
+                                        onWeather: { log in
             RuntimeLog.agent.notice("\(log.line, privacy: .public)")
+            voiceLines.record?.submit(.weather(log.line))
         })
         var executors: [String: any ToolExecutor] = [:]
         for name in VehicleToolExecutor.tools { executors[name] = vehicleTools }
@@ -855,6 +951,13 @@ final class AgentRuntime {
             RuntimeLog.agent.notice("\(line, privacy: .public)")
             voiceLines.record?.submit(.music(line))
         }
+        // F-03 §14 (T-021q): another app took the microphone; codes only.
+        audio.onAudioLine { line in voiceLines.record?.submit(.audio(line)) }
+        // F-13a §7 (T-032h): `duck on` / `duck off`; numbers only (I-8).
+        audio.onDuckLine { line in
+            RuntimeLog.agent.notice("\(line, privacy: .public)")
+            voiceLines.record?.submit(.volume(line))
+        }
         let previewPlayer = EnginePreviewPlayer(audio: audio) { Task { await previewBox.music?.ended() } }
         let preview = ITunesPreviewMusic(player: previewPlayer, clock: SystemClock(),
                                          country: { DriveSettings.musicCountry() },
@@ -865,18 +968,21 @@ final class AgentRuntime {
                                          onCard: { [model] card in Task { @MainActor in model.previewCard = card } })
         previewBox.music = preview
         let music = PreviewAwareMusic(base: lane, preview: preview)
+        musicRef.port = music
         let musicTools = MusicToolHandler(music: music, named: preview, clock: SystemClock())
         for name in MusicToolHandler.tools { executors[name] = musicTools }
-        switch comfortMode {
-        case .table:
-            executors[ScenarioToolHandler.tool] = ObservedVehicleExecutor(inner: ScenarioToolHandler(port: port, music: music),
-                                                                          vehicle: vehicle, model: model)
-        case .model:
-            executors[VehicleStateTool.tool] = VehicleStateTool(port: port, music: music,
-                                                                navigating: { await navigation.current.navigating },
-                                                                speedKmh: speedKmh)
-        }
+        executors[VehicleStateTool.tool] = VehicleStateTool(port: port, music: music,
+                                                            navigating: { await navigation.current.navigating },
+                                                            speedKmh: speedKmh)
+        // F-09b §4, §8: `undo ok=<yes|no> restored=<n>` to the log and the record (numbers only, I-8).
+        executors[UndoLastChangeTool.tool] = ObservedVehicleExecutor(
+            inner: UndoLastChangeTool(port: port, store: changeSets, onLine: { line in
+                RuntimeLog.agent.notice("\(line, privacy: .public)")
+                voiceLines.record?.submit(.undo(line))
+            }),
+            vehicle: vehicle, model: model, changed: { await carState.send(.vehicleState(await snapshot())) })
         for name in NavigationController.tools { executors[name] = navigation }
+        for name in TripPlanner.tools { executors[name] = trip.planner }
         executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
@@ -884,6 +990,8 @@ final class AgentRuntime {
         executors[OpenAppExecutor.tool] = OpenAppExecutor(surfaces: TabSurfaces())
         let settings = DefaultsSettingsStore()
         executors[SpeakingStyleHandler.tool] = SpeakingStyleHandler(settings: settings)
+        // F-13a §4 (T-032g): the same executor as the 设置 sliders (I-6); not a comfort tool (F-09a §3 item 2).
+        executors[VolumeController.tool] = AppVolume.shared.controller
         // F-02: end_conversation sleeps the lifecycle; iOS has no wake word yet, so SLEEP ends the
         // session once the short goodbye has had time to play (PROPOSED 3 s).
         session += 1
@@ -914,9 +1022,9 @@ final class AgentRuntime {
         executors[EndConversationHandler.tool] = EndConversationHandler(lifecycle: lifecycle)
         let speechOutput = SpeechOutputSwitch()
         executors[SpeechOutputHandler.tool] = SpeechOutputHandler(output: speechOutput)
-        // F-21: the saved tone at session start; F-21 §16 (T-034c) sends a later change on the same connection.
-        let personaBase = PersonaInstruction.base(PersonaInstruction.base(for: comfortMode), webSearch: webSearch)
-        let instruction = PersonaInstruction.build(base: personaBase, style: SpeakingStyle.saved(in: settings))
+        // F-21: the saved tone is read once here, at session start.
+        let instruction = PersonaInstruction.build(base: PersonaInstruction.base(PersonaInstruction.base, webSearch: webSearch),
+                                                   style: SpeakingStyle.saved(in: settings))
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
         let sessionStart = Date()
@@ -928,13 +1036,18 @@ final class AgentRuntime {
         let searchKeySaved = ((try? KeychainCredentialStore().value(for: .qwenAPIKey)) ?? nil)?.isEmpty == false
         if webSearch { RuntimeLog.agent.notice("webSearch on key=\(searchKeySaved ? "saved" : "missing", privacy: .public)") }
         let record = recordFile == nil ? nil : ConversationRecord.make(enabled: true, header: RecordHeader(
-            appVersion: "\(info?["CFBundleShortVersionString"] as? String ?? "?")(\(info?["CFBundleVersion"] as? String ?? "?"))",
-            comfortMode: comfortMode.rawValue, interruptible: DriveSettings.isInterruptible(),
+            // F-13a §10 items 1-2 (T-032i): the build's commit, and the tools this session declares to Gemini.
+            appVersion: BuildStamp.appVersion(short: info?["CFBundleShortVersionString"] as? String,
+                                              build: info?["CFBundleVersion"] as? String,
+                                              commit: info?[BuildStamp.infoKey] as? String),
+            comfortMode: "model", interruptible: DriveSettings.isInterruptible(),
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
-            searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy))
+            searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy,
+            declaredTools: ToolCatalog.declarations(webSearch: webSearch).map(\.name)))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         voiceLines.record = record
         sessionRecord = record
+        AppVolume.shared.records.record = record  // F-13a §7
         // F-01 §14 items 9-12 (T-060a): one watch per session; the line is written before the record closes.
         let wakeWatch = WakeSessionWatch(origin: origin, clock: navigationClock)
         wakeEnd = { if wakeWatch.end() { record?.submit(.wakeUnused) } }
@@ -971,7 +1084,7 @@ final class AgentRuntime {
             executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
         }
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
-        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(for: comfortMode, webSearch: webSearch),
+        var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(webSearch: webSearch),
                                    thinkingLevel: nil)
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
         // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
@@ -983,22 +1096,28 @@ final class AgentRuntime {
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch,
                                keepHandle: { [weak self, session] handle in await self?.keepResumption(handle, session: session) },
-                               keepTone: { [weak self, session] style in await self?.keepToneChain(style, session: session) },
-                               toneRejected: { [weak self] in await self?.rejectToneUpdates() })
+                               onExchange: { [weak self] exchange in Task { @MainActor in self?.keepExchange(exchange) } })
         // F-24 §15 item 5 (T-016j): a handle kept by the last give-up is sent once, then forgotten.
-        let toneChain = keptToneChain
-        keptToneChain = nil
         let resume = keptResumption.take(at: navigationClock.now)
-        let tone = ToneUpdateSetup(base: personaBase, model: config.model, style: SpeakingStyle.saved(in: settings),
-                                   resumeStyle: resume?.handle == nil ? nil : toneChain, disabled: toneUpdatesRejected)
+        // F-09b §6 item 2 (T-016p): a session without a handle gets the last exchanges, within 30 minutes.
+        let summary = resume == nil ? exchanges.summary(at: navigationClock.now) : nil
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
                                                resume: resume, revoicing: decision.revoicing,
                                                languageIdentifier: AppleLanguageIdentifier(),
-                                               carRequestAreas: true,  // F-09a (T-017a)
-                                               tone: tone))  // F-21 §16 (T-034c)
+                                               summary: summary))
         ended.core = core
+        carState.core = core
+        // F-09b §5 item 2: the state at start (the connect note), then every 5 s for the speed and the music;
+        // the core sends a note only on a change, a speed crossing or a (re)connect.
+        await core.send(.vehicleState(await snapshot()))
+        tasks.append(Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                await core.send(.vehicleState(await snapshot()))
+            }
+        })
         self.core = core
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.
         trip.session.attach(core: core, record: record)
@@ -1083,8 +1202,12 @@ final class AgentRuntime {
                     direct?.received(turn)  // F-07 §15 item 5: first audio received, before the claim gate
                 case .failed(let error):
                     RuntimeLog.agent.error("provider failed \(error.code.rawValue, privacy: .public)")
-                    await MainActor.run { model.notice = "连接错误：\(error.code.rawValue)" }
-                case .closed, .setupComplete, .goAway, .turnEnded:
+                    // F-24 §17 items 1, 5: the code stays in the log; the screen gets no code and no `notice`.
+                    await MainActor.run { model.connectionEvent(.failed(retryable: error.isRetryable)) }
+                case .setupComplete:
+                    RuntimeLog.agent.notice("provider \(String(describing: event.event), privacy: .public)")
+                    await MainActor.run { model.connectionEvent(.setupComplete) }  // F-24 §17 item 3
+                case .closed, .goAway, .turnEnded:
                     RuntimeLog.agent.notice("provider \(String(describing: event.event), privacy: .public)")
                 default:
                     break
@@ -1125,6 +1248,7 @@ final class AgentRuntime {
                         model.stopHint = hint
                     }
                     record?.submit(.playbackFinished)
+                    audio.replyIdle(epoch)  // F-13a §5 item 1 (T-032h): the song comes back up
                     await core.send(.playback(.replyIdle(epoch)))
                 }
             }
@@ -1236,7 +1360,7 @@ final class AgentRuntime {
         gate.setSuppression(DriveSettings.usesNoiseSuppression())
         gate.setInterruptible(DriveSettings.isInterruptible())
         SpeakerLockService.shared.dropInvalidLock()
-        gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
+        gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold(), early: SpeakerLockService.shared.liveEarlyThreshold())
         // §6: the 抗噪 switch also applies when changed mid-session.
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
@@ -1244,13 +1368,13 @@ final class AgentRuntime {
             gate.setSuppression(DriveSettings.usesNoiseSuppression())
             gate.setInterruptible(DriveSettings.isInterruptible())
             // F-04b §6 item 10: 声纹锁定 applies mid-session with no restart. Only reads defaults (see setInterruptible).
-            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
+            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold(), early: SpeakerLockService.shared.liveEarlyThreshold())
         }
         // F-04b §12 item 5: a speaker model pack that finishes (or fails) mid-session applies with no restart.
         if let speakerModelObserver { NotificationCenter.default.removeObserver(speakerModelObserver) }
         speakerModelObserver = NotificationCenter.default.addObserver(forName: SpeakerModelLocator.changed,
                                                                       object: nil, queue: nil) { _ in
-            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold())
+            gate.setSpeakerLock(SpeakerLockService.shared.liveThreshold(), early: SpeakerLockService.shared.liveEarlyThreshold())
         }
         let classifier = SoundAnalysisSpeechClassifier()
         do {
@@ -1309,18 +1433,27 @@ final class AgentRuntime {
         let navigationClock = self.navigationClock
         let amapKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .amapWebKey) }
         let web = AmapWebClient(key: amapKey)
-        let engine = AmapRouteEngine(key: amapKey, origin: {
-            // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise, but never in 真实导航
-            // (F-15a OQ-NAVM-2: no route rather than a fake start).
+        // Only a usable fix (F-16 §3) starts a route; the demo origin otherwise, but never in 真实导航
+        // (F-15a OQ-NAVM-2: no route rather than a fake start). F-15b §5.3: the trip list orders from the same origin.
+        let routeOrigin: @Sendable () async -> GeoCoordinate? = {
             guard let fix = await location.latestFix(), LocationQuality.of(fix, at: navigationClock.now) != nil else {
                 return DriveSettings.naviMode() == .gps ? nil : DriveSettings.demoOrigin
             }
             return CoordinateConverter.gcj02(fix.coordinate)
-        },
-                                     location: location, clock: navigationClock,
-                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
+        }
         let listeners = TripListeners()
         let tripSession = TripSession()
+        // F-15b §47 (T-040s): abroad, routes and recalculations from OSRM inside the app; one OSRM request per second
+        // shared with the §36 item 2c table. `route plan` / `route recalc` lines, numbers and enums only (I-8).
+        let osrmThrottle = OsrmThrottle()
+        let engine = AmapRouteEngine(key: amapKey, origin: routeOrigin,
+                                     location: location, clock: navigationClock,
+                                     abroadSource: OsrmRouteSource(throttle: osrmThrottle),
+                                     onLine: { line in
+                                         RuntimeLog.agent.notice("\(line, privacy: .public)")
+                                         tripSession.record()?.submit(.trip(line))
+                                     },
+                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
         // F-16 §14 (T-042c): near-first search; the turn count is the uplink gate's (F-04a), never a transcript.
         let nearFirst = NearFirstSearch(
             match: DestinationMatch(pinyin: FoundationPinyinConverter()), geocoder: web,
@@ -1330,6 +1463,11 @@ final class AgentRuntime {
                 RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
             })
         let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
+        // F-15b §7 (T-040i): the trip lines, codes and numbers only (I-8), to the log and the running record.
+        let tripLine: @Sendable (String) -> Void = { line in
+            RuntimeLog.agent.notice("\(line, privacy: .public)")
+            tripSession.record()?.submit(.trip(line))
+        }
         // The screen follows the trip with or without a session, in snapshot order.
         let screen = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         Task { @MainActor [weak self] in
@@ -1342,14 +1480,78 @@ final class AgentRuntime {
         }
         let navigation = NavigationController(search: web, engine: engine, location: location, clock: navigationClock,
                                               saved: savedPlaces, mode: { DriveSettings.naviMode() },
-                                              nearFirst: nearFirst) { snapshot in
+                                              nearFirst: nearFirst, onTripLine: tripLine) { snapshot in
             screen.continuation.yield(snapshot)
             // The running session, if any, gets the flags.
             listeners.yield(snapshot)
         }
         await navigation.start()
+        // F-15b (T-040i): the app's one trip list, next to the navigation controller; it outlives voice sessions.
+        // F-15b §14 (T-040l): the plan and the saved plans live in Application Support/trip/.
+        // F-15b §4 item 6: Qwen picks among 高德's results with the search model's key; no key → 高德's first result.
+        let picker = QwenPlacePicker(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) })
+        let photon = PhotonPlaceSearch()
+        let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock, picker: picker,
+                                  files: AppTripFiles(), onLine: tripLine,
+                                  onChange: { list in Task { @MainActor in model.tripList = list } },
+                                  onPlans: { plans in Task { @MainActor in model.tripPlans = plans } },
+                                  onHidden: { hidden in Task { @MainActor in model.tripCardsHidden = hidden } },
+                                  // F-15b §26 (T-040n): driving times from 高德 /v3/distance, kept 30 minutes.
+                                  times: TripTimes(service: web, clock: navigationClock),
+                                  // §32: the start is the demo point when there is no usable fix.
+                                  startLabel: {
+                                      guard let fix = await location.latestFix(),
+                                            LocationQuality.of(fix, at: navigationClock.now) != nil else { return "demo" }
+                                      return "here"
+                                  },
+                                  // §29 item 3: the arrival note goes to a connected session, as a screen note.
+                                  onNote: { [weak self] note in
+                                      Task { @MainActor in if let core = self?.core { await core.send(.screenNote(note)) } }
+                                  },
+                                  // F-15b §36 item 2b: trips abroad search OpenStreetMap (Photon); Apple's search on a
+                                  // China-region phone returns only places in China. §38 item 2: Apple Maps when 高德 fails there.
+                                  abroadSearch: photon,
+                                  onHandoff: { place in await AppleMapsHandoff.open(place) },
+                                  // §36 item 2a: abroad lookups search around the trip city's centre.
+                                  abroadCenter: { city in
+                                      if let c = await photon.center(city) { return c }
+                                      return await AppleCityCenter.find(city)
+                                  },
+                                  // §36 item 2c (T-040p): abroad driving times from OSRM (高德 refuses them); a failure
+                                  // orders on the straight-line estimate.
+                                  abroadTimes: TripTimes(service: OsrmDrivingTimes(throttle: osrmThrottle), clock: navigationClock),
+                                  // §46 (T-040r): photos abroad from English Wikipedia, within 2 km of the stop.
+                                  abroadPhotos: WikipediaPhotos())
+        await planner.restore()
+        // §36 item 2d (T-040p): navigate_to abroad searches Photon; an abroad trip in progress gives its city.
+        await navigation.setAbroad(search: photon, center: { city in
+            if let c = await photon.center(city) { return c }
+            return await AppleCityCenter.find(city)
+        }, tripCity: { [weak planner] in await planner?.abroadCity })
+        await planner.connectCards()
+        // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
+        let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
+                              clock: navigationClock, onLine: tripLine)
+        // F-15b §11 item 4: moving at ≥ 8 km/h or while 真实导航 runs; still after 3 s below 3 km/h; a stale fix's
+        // speed is unknown. `trip strip moving=<yes|no>` on each change.
+        tripMonitor?.cancel()
+        tripMonitor = Task { [model] in
+            var moving = TripMoving()
+            while !Task.isCancelled {
+                let fix = await location.latestFix()
+                let fresh = fix.flatMap { LocationQuality.of($0, at: navigationClock.now) == nil ? nil : $0 }
+                let kmh = fresh?.speedMetersPerSecond.map { $0 * 3.6 }
+                let gps = model.nav.navigating && model.nav.mode == .gps
+                if let changed = moving.update(speedKmh: kmh, gpsNavigating: gps, at: navigationClock.now) {
+                    tripLine(TripMoving.line(changed))
+                    model.tripMoving = changed
+                    if changed { model.tripDetail = nil }
+                }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
         let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners,
-                           session: tripSession)
+                           session: tripSession, planner: planner, intro: intro)
         self.trip = trip
         return trip
     }
@@ -1397,28 +1599,28 @@ final class AgentRuntime {
         stop()
         keptResumption = kept
         model.networkEnded = true
+        model.connectionEvent(.gaveUp)  // F-24 §17 item 4: `SessionEndedChip` owns the text
     }
 
     /// F-24 §15 item 4 (T-016j): the handle the last give-up or offline cap kept. Memory only (I-7).
     private var keptResumption = KeptResumption()
+
+    /// F-09b §4 item 2 (T-031j): the last comfort change set, across sessions, 5 minutes. Memory only.
+    private let changeSets = ChangeSetStore(clock: SystemClock())
+
+    /// F-09b §6 (T-016p): the last 6 exchanges, memory only (I-7); gone on app restart.
+    private var exchanges = ExchangeMemory()
+
+    /// §6 item 3: 结束对话 drops what is kept; any other completed exchange is kept.
+    private func keepExchange(_ exchange: ConversationExchange) {
+        if exchange.tools.contains("end_conversation ok") { exchanges.clear() } else { exchanges.add(exchange, at: navigationClock.now) }
+    }
 
     /// Only for the session still running: a driver stop in between means nothing is kept (item 4).
     private func keepResumption(_ handle: String?, session: Int) {
         guard session == self.session, model.running else { return }
         keptResumption.keep(handle, at: navigationClock.now)
     }
-
-    /// F-21 §16 item 5 (T-034c): the tone of the setup that began the kept handle's chain; memory only, like the handle.
-    private var keptToneChain: SpeakingStyle?
-    /// F-21 §16 item 7: an update was rejected; no more updates for the rest of the app run.
-    private var toneUpdatesRejected = false
-
-    private func keepToneChain(_ style: SpeakingStyle, session: Int) {
-        guard session == self.session, model.running else { return }
-        keptToneChain = style
-    }
-
-    private func rejectToneUpdates() { toneUpdatesRejected = true }
 
     func stop() {
         // F-24 §15 item 4: the driver stopped a running session: a kept handle is not sent next time.
@@ -1438,6 +1640,8 @@ final class AgentRuntime {
         model.previewCard = nil
         speakLine = nil
         sessionRecord = nil
+        AppVolume.shared.records.record = nil
+        AppVolume.shared.output.attach(nil)
         lifecycle = nil
         guard let core else { return }
         let audio = audio
@@ -1523,6 +1727,9 @@ final class GateBox: @unchecked Sendable {
     /// §6 item 4: the words of a held utterance wait for its verdict.
     private var speakerWordsHold = SpeakerWordsHold()
     private var speakerScore: (@Sendable (SpeakerScoreRequest) -> Void)?
+    /// §17 item 4: requests leave in order (the scorer's own queue is serial too), so an older kept utterance is
+    /// always answered before a newer one.
+    private let scoreDispatch = DispatchQueue(label: "com.asapacsin.novadrive.speaker-requests")
     /// §6 item 8: the last 2 s of capture, for a spotted stop phrase.
     private var recentFrames = RecentFrames()
     private var stopCheck = SpeakerPhraseCheck(kind: .stop)
@@ -1542,13 +1749,14 @@ final class GateBox: @unchecked Sendable {
     }
 
     /// §6 item 10: read on every settings change; off releases what is held, on applies from the next utterance.
-    func setSpeakerLock(_ threshold: Double?) {
+    /// F-04b §17 item 6: `early` is the cohort's 1 s threshold (nil: every early check is unknown).
+    func setSpeakerLock(_ threshold: Double?, early: Double? = nil) {
         order.lock()
         defer { order.unlock() }
         // §6 item 12: no change (every UserDefaults change calls this) does nothing.
-        guard lock.withLock({ speaker.threshold != threshold }) else { return }
+        guard lock.withLock({ speaker.threshold != threshold || speaker.earlyThreshold != early }) else { return }
         let (step, act, forward, released, words) = lock.withLock {
-            let sp = speaker.setLock(threshold: threshold)
+            let sp = speaker.setLock(threshold: threshold, early: early)
             stopCheck.setLock(threshold: threshold)
             let (out, released) = speakerAfter(sp)
             var fed = hold.pass(out)
@@ -1566,12 +1774,13 @@ final class GateBox: @unchecked Sendable {
         order.lock()
         defer { order.unlock() }
         let (step, act, forward, released, words, logs) = lock.withLock {
-            let sp = speaker.result(outcome, utterance: request.utterance, generation: request.generation)
+            let sp = speaker.result(outcome, utterance: request.utterance, generation: request.generation,
+                                    kind: request.kind)
             let (out, released) = speakerAfter(sp)
             var fed = hold.pass(out)
             fed += replay(released)
             return (liveStep(raw: [], fed, frame: false, speaker: sp), onBargeIn, self.forward, released, speakerWords,
-                    hold.takeLogs() + live.takeLogs())
+                    hold.takeLogs() + liveLogs())
         }
         step.actions.forEach { act?($0) }
         step.outputs.forEach { forward?($0) }
@@ -1597,7 +1806,10 @@ final class GateBox: @unchecked Sendable {
     func deliverIfAllowed(_ words: DriverWords, utterance id: Int, _ deliver: (DriverWords) -> Void) {
         order.lock()
         defer { order.unlock() }
-        let now = lock.withLock { speakerWordsHold.words(words, utterance: id, heldUtterance: speaker.heldUtterance) }
+        // §17 item 4: an utterance still waiting for its score (cut at unmute) holds its words too.
+        let now = lock.withLock {
+            speakerWordsHold.words(words, utterance: id, heldUtterance: speaker.isHeld(id) ? id : speaker.heldUtterance)
+        }
         if now { deliver(words) }
     }
 
@@ -1628,7 +1840,10 @@ final class GateBox: @unchecked Sendable {
     /// Under `lock`: dispatches the request and check lines, resolves held words. Returns the outputs for the
     /// post-stop hold and the words to deliver.
     private func speakerAfter(_ sp: SpeakerHold.Step) -> ([UplinkGateOutput], [SpeakerWordsHold.Released]) {
-        if let request = sp.request, let score = speakerScore { DispatchQueue.global().async { score(request) } }
+        // §17 item 2: the early request goes first.
+        let requests = [sp.earlyRequest, sp.request].compactMap { $0 } + sp.rescore
+        // One serial queue: requests reach the scorer in the order they were made, across frames too.
+        if !requests.isEmpty, let score = speakerScore { scoreDispatch.async { requests.forEach(score) } }
         let checks = speaker.takeChecks()
         if !checks.isEmpty, let check = speakerCheck { DispatchQueue.global().async { checks.forEach(check) } }
         let released = speakerWordsHold.decided(sp.decided, utterances: sp.decidedUtterances)
@@ -1646,6 +1861,15 @@ final class GateBox: @unchecked Sendable {
     }
     func onBargeInAction(_ handler: @escaping @Sendable (BargeInAction) -> Void) { lock.withLock { onBargeIn = handler } }
 
+    /// Under `lock`: BargeInLive's lines, the stop line with the open utterance's early check (§17 item 7:
+    /// `early=<accepted|rejected|unknown|none>`, none while it is not known), then the early verdict lines.
+    private func liveLogs() -> [String] {
+        let early = speaker.early
+        let label = [SpeakerHold.Early.accepted, .rejected, .unknown].contains(early) ? early.rawValue : "none"
+        return live.takeLogs().map { $0.hasPrefix("bargeInStop ") ? $0 + " early=\(label)" : $0 }
+            + speakerActions.takeLogs()
+    }
+
     /// One live step, under the lock: the gate sends the rest of an adopted utterance. Its outputs replace
     /// `outputs` (the hold's), with any release after them.
     private func liveStep(raw: [UplinkGateOutput], _ outputs: [UplinkGateOutput], frame: Bool,
@@ -1654,8 +1878,12 @@ final class GateBox: @unchecked Sendable {
         let g = gate.guidancePlaying
         let live = frame ? self.live.frame(raw: raw, held: outputs, events: events, guidancePlaying: g)
             : self.live.pass(raw: raw, held: outputs, events: events, guidancePlaying: g)
-        // F-04b §6 item 9: with the lock on, no dip or stop before the utterance is accepted.
-        let step = speakerActions.decided(sp.decided) + speakerActions.step(live, verdict: speaker.verdict)
+        // F-04b §6 item 9, §17 items 1, 3: with the lock on, no stop before the utterance is accepted, or before its
+        // first second is (the early check); a dip acts at once.
+        let open = speaker.heldUtterance
+        let step = speakerActions.early(sp.early, utterance: sp.early == nil ? nil : (sp.earlyUtterance ?? open))
+            + speakerActions.decided(sp.decided, utterances: sp.decidedUtterances)
+            + speakerActions.step(live, verdict: speaker.verdict, utterance: open)
         if step.adopt { gate.adoptOpenUtterance() }
         return step
     }
@@ -1677,11 +1905,15 @@ final class GateBox: @unchecked Sendable {
             // §6 items 8–9: when locked every utterance is scored, so neither an interruption nor a transcript stop
             // phrase of a not-sent one acts before its voice is accepted.
             speaker.scoreUnsent = true
+            // §17 item 2: the open not-sent utterance is a live candidate while BargeInLive keeps it.
+            speaker.earlyCandidate = live.enabled && live.keeping
+            // F-04b §18 items 1, 7: her reply playing or its echo tail: the playback bar applies to what starts now.
+            speaker.playback = gate.muteReason == .reply || gate.muteReason == .echoTail
             let sp = speaker.frame(r)
             let (fed, released) = speakerAfter(sp)
             let step = liveStep(raw: r, hold.frame(fed), frame: true, speaker: sp)
             return (r, released, self.raw, self.forward,
-                    hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step, self.onBargeIn)
+                    hold.takeLogs() + shadow.takeLogs() + liveLogs(), step, self.onBargeIn)
         }
         gated.forEach { rawFeed?($0) }
         step.actions.forEach { act?($0) }
@@ -1719,7 +1951,7 @@ final class GateBox: @unchecked Sendable {
             case .unclear: hold.final("", utterance: id)
             }
             let step = liveStep(raw: [], o, frame: false)
-            return ([UplinkGateOutput](), self.forward, hold.takeLogs() + shadow.takeLogs() + live.takeLogs(), step,
+            return ([UplinkGateOutput](), self.forward, hold.takeLogs() + shadow.takeLogs() + liveLogs(), step,
                     self.onBargeIn)
         }
         outputs.forEach { forward?($0) }
@@ -1847,6 +2079,16 @@ final class OnceFlag: @unchecked Sendable {
 }
 
 /// Lets the sink report back to the core it belongs to (set once the core exists).
+/// F-09b §5: the session's music, set once it exists, for the car-state note.
+final class MusicRef: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _port: (any MusicPort)?
+    var port: (any MusicPort)? {
+        get { lock.withLock { _port } }
+        set { lock.withLock { _port = newValue } }
+    }
+}
+
 final class CoreRelay: @unchecked Sendable {
     private let lock = NSLock()
     private weak var _core: AgentCore?
@@ -1880,6 +2122,8 @@ struct AppTrip {
     let savedPlaces: SavedPlaces
     let listeners: TripListeners
     let session: TripSession
+    let planner: TripPlanner
+    let intro: TripIntro
 }
 
 /// F-16 §14 (T-042c): the running session's core (its driver-turn count) and record, for the trip's search.

@@ -1,3 +1,4 @@
+import Foundation
 import NovaKit
 
 public enum CoordinateDatum: String, Sendable, Hashable {
@@ -27,11 +28,41 @@ public struct RouteID: Sendable, Hashable {
 public struct RouteRequest: Sendable, Hashable {
     public let destination: GeoCoordinate
     public let destinationName: String
+    /// F-15b §47 item 1 (T-040s): from an `abroad` trip or `navigate_to abroad=true`; the route then comes from
+    /// OSRM instead of 高德.
+    public let abroad: Bool
 
-    public init(destination: GeoCoordinate, destinationName: String) {
+    public init(destination: GeoCoordinate, destinationName: String, abroad: Bool = false) {
         self.destination = destination
         self.destinationName = destinationName
+        self.abroad = abroad
     }
+}
+
+/// F-15b §26 (T-040n): one driving time from an origin to a destination (高德 `/v3/distance type=1`).
+public struct DrivingTime: Sendable, Hashable {
+    public let meters: Int
+    public let seconds: Int
+    public init(meters: Int, seconds: Int) {
+        self.meters = meters
+        self.seconds = seconds
+    }
+}
+
+/// F-15b §26 item 5: driving times from many origins to one destination, in `origins` order; nil where 高德 gave
+/// none. Throws `AmapWebError` (`.quota` is retried by the caller).
+public protocol DrivingTimes: Sendable {
+    func drivingTimes(origins: [GeoCoordinate], destination: GeoCoordinate) async throws -> [DrivingTime?]
+    /// §36 item 2c (T-040p): true when one `table(_:)` request gives every pair (OSRM); then `TripTimes` makes that
+    /// one request instead of one per destination.
+    var answersWholeTable: Bool { get }
+    /// Every pair of `points` in one request: `[from][to]`, nil where the vendor gave none. Throws `AmapWebError`.
+    func table(_ points: [GeoCoordinate]) async throws -> [[DrivingTime?]]
+}
+
+public extension DrivingTimes {
+    var answersWholeTable: Bool { false }
+    func table(_ points: [GeoCoordinate]) async throws -> [[DrivingTime?]] { throw AmapWebError.failed }
 }
 
 public struct RouteSummary: Sendable, Hashable {
@@ -208,9 +239,19 @@ public struct Place: Sendable, Hashable {
     /// F-16 §14 item 7: Amap's `cityname` and `adname`; nil when Amap gives none.
     public let city: String?
     public let district: String?
+    /// F-15b §12 item 1 (T-040j): the first `photos[].url` of the place detail; nil when there is none.
+    public let photoURL: URL?
+    /// F-15b §41 (T-040o): ISO 3166 code from Apple's search (`placemark.isoCountryCode`); nil from 高德.
+    public let countryCode: String?
+    /// F-15b §46 item 6 (T-040r): the kind of place, from Photon's `osm_key`/`osm_value` or 高德's `type`; nil when unknown.
+    public let kind: PlaceKind?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
-                openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil) {
+                openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil,
+                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil) {
+        self.kind = kind
+        self.photoURL = photoURL
+        self.countryCode = countryCode
         self.city = city
         self.district = district
         self.openingHours = openingHours
@@ -223,11 +264,86 @@ public struct Place: Sendable, Hashable {
     }
 }
 
+extension Place {
+    /// The same place with `photoURL` (F-15b §12).
+    public func with(photoURL: URL?) -> Place {
+        Place(id: id, name: name, address: address, coordinate: coordinate, distanceMeters: distanceMeters,
+              openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL, countryCode: countryCode,
+              kind: kind)
+    }
+}
+
+/// F-15b §46 item 6 (T-040r): the kind of a place, for the card placeholder's icon and colours.
+public enum PlaceKind: String, Sendable, Hashable, Codable, CaseIterable {
+    case temple, tower, park, museum, hotel, airport, rental, shop, food, other
+
+    /// The SF Symbol of the placeholder (§46 item 6).
+    public var symbol: String {
+        switch self {
+        case .temple: return "building.columns"
+        case .tower: return "binoculars"
+        case .park: return "leaf"
+        case .museum: return "building.2"
+        case .hotel: return "bed.double"
+        case .airport: return "airplane"
+        case .rental: return "car"
+        case .shop: return "bag"
+        case .food: return "fork.knife"
+        case .other: return "mappin.and.ellipse"
+        }
+    }
+}
+
+/// F-15b §46 items 1–3 (T-040r): a photo link for a stop abroad. nil when no page fits; throws when unreachable.
+public protocol PlacePhotoSource: Sendable {
+    /// `asked` is the name as written (「中文名 (English name)」); `near` is the stop.
+    func photo(asked: String, near: GeoCoordinate) async throws -> URL?
+}
+
 public enum PlaceSort: String, Sendable {
     case distance, weight
 }
 
 /// Amap Web REST place endpoints (`/v3/place/text`, `/around`, `/polygon`, detail).
+/// F-15b §4 item 6: one name the model asked for, and 高德's results for it (at most 5).
+public struct PlaceChoice: Sendable, Hashable {
+    public let asked: String
+    public let city: String?
+    public let candidates: [Place]
+    public init(asked: String, city: String?, candidates: [Place]) {
+        self.asked = asked
+        self.city = city
+        self.candidates = candidates
+    }
+}
+
+/// Thrown by a `PlacePicker` with no key: recorded as `reason=nokey`.
+public struct PlacePickerNotConfigured: Error, Equatable {
+    public init() {}
+}
+
+/// F-15b §4 item 6 (owner 2026-11-17): a text model picks which result each asked name means.
+public protocol PlacePicker: Sendable {
+    /// One answer per choice, in order: the 0-based candidate index, or nil for none of them. Throws when there is
+    /// no usable answer.
+    func pick(_ choices: [PlaceChoice]) async throws -> [Int?]
+}
+
+/// F-15b §36 (T-040o): which place search a trip uses. China here is the mainland, Hong Kong, Macau and Taiwan
+/// (高德's coverage); everything else is `abroad` (Apple's search).
+public enum TripRegion: String, Sendable, Hashable, Codable {
+    case china, abroad
+
+    /// §36 item 3: country codes that count as China.
+    public static let chinaCodes: Set<String> = ["CN", "HK", "MO", "TW"]
+
+    /// nil (高德 gives no code) counts as China.
+    public static func isChina(_ countryCode: String?) -> Bool {
+        guard let code = countryCode?.uppercased(), !code.isEmpty else { return true }
+        return chinaCodes.contains(code)
+    }
+}
+
 public protocol PlaceSearch: Sendable {
     func text(_ keywords: String, city: String?) async throws -> [Place]
     func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place]
@@ -245,16 +361,6 @@ public extension PlaceSearch {
     }
     func aroundOnly(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {
         try await around(keywords, center: center, radiusMeters: radiusMeters, sort: sort)
-    }
-}
-
-public struct WeatherReport: Sendable, Hashable {
-    public let adcode: String
-    public let summary: JSONValue
-
-    public init(adcode: String, summary: JSONValue) {
-        self.adcode = adcode
-        self.summary = summary
     }
 }
 
@@ -277,21 +383,6 @@ public struct WeatherDay: Sendable, Hashable {
     public var name: String { Self.names[min(max(offset, 0), Self.names.count - 1)] }
 }
 
-/// F-18 §23 item 2: Amap's forecast has no entry with the asked date.
-public struct WeatherForecastMissing: Error, Sendable, Hashable {
-    public let date: String
-    public init(date: String) { self.date = date }
-}
-
-/// F-18 §29 item 2 (T-046r): 高德 answered (`status` 1) with no live report or no forecast for the place.
-public struct WeatherNotCovered: Error, Sendable, Hashable {
-    public let adcode: String
-    public init(adcode: String) { self.adcode = adcode }
-}
-
-public protocol WeatherService: Sendable {
-    func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport
-}
 
 /// F-18 §26 item 11: one day of a provider-neutral daily forecast. `time` is `yyyy-MM-dd` in the place's own zone.
 public struct DailyForecastDay: Sendable, Hashable {
@@ -302,9 +393,14 @@ public struct DailyForecastDay: Sendable, Hashable {
     public let rainChance: Double?
     public let rainMm: Double?
     public let windMaxKmh: Double?
+    /// F-18 §31 item 3: 和风's own words (`daytime`/`nighttime.condition.text`); nil for Open-Meteo (WMO code).
+    public let dayText: String?
+    public let nightText: String?
 
     public init(time: String, weatherCode: Int?, tempMax: Double?, tempMin: Double?, rainChance: Double?,
-                rainMm: Double?, windMaxKmh: Double?) {
+                rainMm: Double?, windMaxKmh: Double?, dayText: String? = nil, nightText: String? = nil) {
+        self.dayText = dayText
+        self.nightText = nightText
         self.time = time
         self.weatherCode = weatherCode
         self.tempMax = tempMax
@@ -323,9 +419,12 @@ public struct CurrentWeather: Sendable, Hashable {
     public let humidity: Double?
     public let weatherCode: Int?
     public let windKmh: Double?
+    /// F-18 §31 item 3: 和风's `condition.text`. `time` may be "" (和风's current has no update time).
+    public let text: String?
 
     public init(time: String, temperature: Double, feelsLike: Double?, humidity: Double?, weatherCode: Int?,
-                windKmh: Double?) {
+                windKmh: Double?, text: String? = nil) {
+        self.text = text
         self.time = time
         self.temperature = temperature
         self.feelsLike = feelsLike
@@ -341,8 +440,11 @@ public struct HourlyForecast: Sendable, Hashable {
     public let weatherCode: Int?
     public let temperature: Double?
     public let rainChance: Double?
+    /// F-18 §31 item 3: 和风's `condition.text`.
+    public let text: String?
 
-    public init(time: String, weatherCode: Int?, temperature: Double?, rainChance: Double?) {
+    public init(time: String, weatherCode: Int?, temperature: Double?, rainChance: Double?, text: String? = nil) {
+        self.text = text
         self.time = time
         self.weatherCode = weatherCode
         self.temperature = temperature
@@ -373,10 +475,47 @@ public protocol DailyForecastService: Sendable {
     func dailyForecast(latitude: Double, longitude: Double) async throws -> DailyForecast
 }
 
+/// F-18 §31 item 3 (T-046t): what one view asks of 和风: `now` (current + daily?days=1), `day` (daily?days=10),
+/// `hours` (hourly?hours=240).
+public enum ForecastRequest: String, Sendable, Hashable { case now, day, hours }
+
+/// F-18 §31 (T-046t): 和风天气, the first weather source. Lookup failures are `QWeatherError`.
+public protocol ViewForecastService: PlaceLookup {
+    func forecast(latitude: Double, longitude: Double, request: ForecastRequest) async throws -> DailyForecast
+}
+
+/// F-18 §31 items 5, 7: why 和风 did not answer. `notFound` (no `location`, or 400) never falls back.
+public enum QWeatherError: Error, Sendable, Hashable {
+    case noKey, timeout, failed, notFound, parse
+    case http(Int)
+
+    public var reason: String {
+        switch self {
+        case .noKey: "nokey"
+        case .timeout: "timeout"
+        case .failed: "failed"
+        case .notFound: "not_found"
+        case .parse: "parse"
+        case .http(let s): "http\(s)"
+        }
+    }
+}
+
 /// F-18 §26 item 4: a forecast call that timed out or failed. No response text (I-8).
 public enum ForecastError: Error, Sendable, Hashable {
     case timeout
     case failed
+}
+
+/// F-18 §30 item 4 (T-046s): how many attempts the last Open-Meteo request of a weather call took (1 or 2). The
+/// weather call sets one with `$current.withValue`; the client writes it. Numbers only (I-8).
+public final class ForecastAttempts: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    public init() {}
+    public var last: Int { lock.withLock { value } }
+    public func set(_ n: Int) { lock.withLock { value = n } }
+    @TaskLocal public static var current: ForecastAttempts?
 }
 
 /// F-18 §26 item 2: one place a name lookup found.

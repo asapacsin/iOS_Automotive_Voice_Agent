@@ -50,6 +50,19 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private var configObserver: NSObjectProtocol?
     private var running = false
     private var restarted: (@Sendable () -> Void)?
+    /// F-03 §14 (T-021q): another app has the microphone (`lock`).
+    private var mic = MicInterruption()
+    private var interruptionObservers: [NSObjectProtocol] = []
+    private var audioLineHandler: (@Sendable (String) -> Void)?
+    /// F-13a §3 items 1, 3 (T-032g): the lane gains of the two app volumes, and the F-08 dip now on the reply (`lock`).
+    private var voiceGain = 1.0
+    private var mediaGain = 1.0
+    private var replyDipDb: Double?
+    /// F-13a §5 (T-032h): the song ducked under her voice and guidance. `duckMachine`, `ramp`, `rampTimer`: mediaQueue only.
+    private var duckMachine = DuckMachine()
+    private var ramp = DuckRamp()
+    private var rampTimer: DispatchSourceTimer?
+    private var duckLine: (@Sendable (String) -> Void)?
 
     /// F-08 §17 item 3: told each time the engine is restarted after a configuration change.
     public func onEngineRestart(_ handler: @escaping @Sendable () -> Void) { lock.withLock { restarted = handler } }
@@ -118,18 +131,96 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             guard let self else { return }
             // §18 item 6: on mediaQueue, never waited for here; the preview keeps its buffer and generation.
             self.laneAsync(.restart) {
-                // A change that came while the session stopped never starts the engine again.
-                guard self.lock.withLock({ self.running }) else { return }
-                try? self.engine.start()
-                self.reply.play()
-                self.guidance.play()
-                self.cue.play()
-                self.apply(self.machine.restart())
-                self.lock.withLock { self.restarted }?()
+                // A change that came while the session stopped never starts the engine again; nor while another
+                // app has the microphone (F-03 §14 item 2).
+                guard self.lock.withLock({ self.running && self.mic.allowsRestart }) else { return }
+                self.startEngine()
             }
         }
+        // F-03 §14 (T-021q): another app took the microphone: stop and wait; resume as iOS says, or on return.
+        let center = NotificationCenter.default
+        interruptionObservers = [
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: session,
+                               queue: nil) { [weak self] note in
+                self?.interruption(note)
+            },
+            // UIApplication.didBecomeActiveNotification by name: NovaAudio does not import UIKit.
+            center.addObserver(forName: Notification.Name("UIApplicationDidBecomeActiveNotification"), object: nil,
+                               queue: nil) { [weak self] _ in
+                guard let self, self.lock.withLock({ self.running && self.mic.becameActive() }) else { return }
+                self.audioLine("audio resumed on-return")
+                self.laneAsync(.restart) { self.resumeAfterInterruption() }
+            },
+        ]
         lock.withLock { running = true }
     }
+
+    /// The engine and the player nodes running again after a configuration change or an interruption.
+    /// False: the engine did not start; nothing is played on it (AVFAudio raises on a stopped engine).
+    @discardableResult
+    private func startEngine() -> Bool {
+        do { try engine.start() } catch {
+            audioLine("audio engine-start-failed")
+            return false
+        }
+        reply.play()
+        guidance.play()
+        cue.play()
+        apply(machine.restart())
+        lock.withLock { restarted }?()
+        return true
+    }
+
+    private func interruption(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        switch type {
+        case .began:
+            let reason = (note.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt)
+                .flatMap(AVAudioSession.InterruptionReason.init(rawValue:))
+            let suspended = reason == .appWasSuspended
+            guard let line = lock.withLock({ running ? mic.began(appWasSuspended: suspended) : nil }) else { return }
+            audioLine(line)
+        case .ended:
+            let opts = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt).map {
+                AVAudioSession.InterruptionOptions(rawValue: $0)
+            } ?? []
+            guard let e = lock.withLock({ running ? mic.ended(shouldResume: opts.contains(.shouldResume)) : nil }) else {
+                return
+            }
+            audioLine(e.line)
+            if e.resume { laneAsync(.restart) { self.resumeAfterInterruption() } }
+        @unknown default:
+            break
+        }
+    }
+
+    private func resumeAfterInterruption() {
+        // A new interruption that began after this resume was asked for cancels it.
+        guard lock.withLock({ running && mic.resuming }) else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            // Still in use by the other app: wait for the next return to the app.
+            lock.withLock { mic.resumeFailed() }
+            audioLine("audio resume-failed")
+            return
+        }
+        // Only a started engine ends the interruption; a failed start waits for the next return (§14 item 3).
+        guard lock.withLock({ mic.resuming }), startEngine() else {
+            lock.withLock { mic.resumeFailed() }
+            return
+        }
+        lock.withLock { mic.resumed() }
+    }
+
+    private func audioLine(_ line: String) {
+        Logger(subsystem: "com.asapacsin.novadrive", category: "audio").notice("\(line, privacy: .public)")
+        lock.withLock { audioLineHandler }?(line)
+    }
+
+    /// F-03 §14 item 4: `audio interrupted`, `audio interruption-ended resume=<now|on-return>`, `audio resumed …`.
+    public func onAudioLine(_ handler: @escaping @Sendable (String) -> Void) { lock.withLock { audioLineHandler = handler } }
 
     /// F-07 §16 item 2 (T-020c): the reply's output format and session settings, read after `start`.
     public var playbackFormat: PlaybackFormat {
@@ -145,12 +236,18 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         guard lock.withLock({ running }) else { return }
         stopMedia()
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        interruptionObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        interruptionObservers = []
         lock.withLock {
             running = false
             onFrame = nil
+            mic.reset()
         }
         // A restart queued before the observer went away runs (and sees `running` false) before the engine stops.
-        mediaQueue.sync {}
+        mediaQueue.sync {
+            rampTimer?.cancel()
+            rampTimer = nil
+        }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -181,13 +278,94 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
 
     // MARK: PlaybackPort
 
+    /// F-13a §3 item 3 (T-032g): `media` on the bundled loop node and the preview source node; `voice` on the reply,
+    /// guidance and cue nodes. Gains of the app's own nodes only; the phone's volume is never touched.
+    public func setLaneGains(media: Double, voice: Double) {
+        let replyGain = lock.withLock { () -> Double in
+            mediaGain = media
+            voiceGain = voice
+            return ReplyGain.value(voiceGain: voice, dipDb: replyDipDb)
+        }
+        reply.volume = Float(replyGain)
+        guidance.volume = Float(voice)
+        cue.volume = Float(voice)
+        // §5 item 4: the media gain carries the duck factor now on the nodes (mediaQueue), applied before returning.
+        syncOnMediaQueue { applyMediaGain() }
+    }
+
+    /// Runs `body` on `mediaQueue` and waits; inline when already on it. Never waits for the render block.
+    private func syncOnMediaQueue(_ body: () -> Void) {
+        if DispatchQueue.getSpecific(key: onMediaQueue) == true { body() } else { mediaQueue.sync(execute: body) }
+    }
+
+    /// On mediaQueue: `mediaGain × factor` on the bundled loop node and the preview source node (F-13a §5 item 4).
+    private func applyMediaGain() {
+        let gain = Float(DuckRamp.gain(media: lock.withLock { mediaGain }, factor: ramp.current))
+        media.volume = gain
+        preview.volume = gain
+    }
+
+    // MARK: Ducking (F-13a §5, T-032h)
+
+    /// §7: told each `duck on` / `duck off` line (RuntimeLog and the record).
+    public func onDuckLine(_ handler: @escaping @Sendable (String) -> Void) { lock.withLock { duckLine = handler } }
+
+    /// Her reply turn opened (the core's `newReply`): the duck's `ms` is measured from here.
+    public func replyBegan() { duck(.replyBegan) }
+
+    /// The shell's `replyIdle`: nothing of the reply of `epoch` is left to sound, so the song comes back.
+    public func replyIdle(_ epoch: Epoch) { duck(.replyIdle(epoch)) }
+
+    /// Stamps the event now and hands it to mediaQueue, in call order; a change plans the ramp.
+    private func duck(_ event: DuckMachine.Event) {
+        let now = NovaInstant(milliseconds: Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000))
+        mediaQueue.async { [self] in
+            guard let change = duckMachine.handle(event, at: now) else { return }
+            lock.withLock { duckLine }?(change.line)
+            ramp.target(ducked: change.ducked)
+            startRamp()
+        }
+    }
+
+    /// §5 item 3: one step every 25 ms on mediaQueue (150 ms down, 400 ms up); never from the render thread.
+    private func startRamp() {
+        rampTimer?.cancel()
+        rampTimer = nil
+        guard ramp.running else { return }
+        let timer = DispatchSource.makeTimerSource(queue: mediaQueue)
+        let step = DispatchTimeInterval.milliseconds(DuckRamp.stepMs)
+        timer.schedule(deadline: .now() + step, repeating: step)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.ramp.tick() != nil else {
+                self.rampTimer?.cancel()
+                self.rampTimer = nil
+                return
+            }
+            self.applyMediaGain()
+        }
+        rampTimer = timer
+        timer.resume()
+    }
+
     /// F-08 §17 item 11 (T-022e): her reply lowered by `db` while a possible interruption is checked; it keeps playing.
+    /// F-13a §3 item 3: the dip multiplies the voice gain; restored, the reply is at the voice gain.
     public func setReplyDipped(_ dipped: Bool, byDb db: Double) {
-        reply.volume = dipped ? Float(pow(10, -db / 20)) : 1
+        let gain = lock.withLock { () -> Double in
+            replyDipDb = dipped ? db : nil
+            return ReplyGain.value(voiceGain: voiceGain, dipDb: replyDipDb)
+        }
+        reply.volume = Float(gain)
     }
 
     public func flush(to newEpoch: Epoch) {
-        reply.volume = 1  // F-08 §17 item 11: a dip never outlives the reply it lowered
+        // F-08 §17 item 11: a dip never outlives the reply it lowered; F-13a §3 item 3: back to the voice gain, not 1.
+        let restored = lock.withLock { () -> Double in
+            replyDipDb = nil
+            return voiceGain
+        }
+        reply.volume = Float(restored)
+        duck(.flushed)  // F-13a §5 item 1: a flushed reply no longer holds the song down
         let finished: Epoch? = lock.withLock {
             let had = outstanding > 0 ? epoch : nil
             epoch = max(newEpoch, epoch)
@@ -195,7 +373,8 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             return had
         }
         reply.stop()
-        reply.play()
+        // An interruption stops the engine; play() on a stopped engine raises (F-03 §14).
+        if engine.isRunning { reply.play() }
         if let finished { continuation.yield(.replyFinished(finished)) }
     }
 
@@ -207,7 +386,10 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             return outstanding == 1
         }
         guard let first else { return }
-        if first { continuation.yield(.replyStarted(replyEpoch)) }
+        if first {
+            continuation.yield(.replyStarted(replyEpoch))
+            duck(.replyAudio(replyEpoch))  // F-13a §5 item 1: from the first buffer of her reply
+        }
         reply.scheduleBuffer(buffer) { [weak self] in self?.replyBufferDone(replyEpoch) }
     }
 
@@ -230,10 +412,12 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         }
         lock.withLock { guidanceOutstanding += 1 }
         continuation.yield(.guidanceStarted(id))
+        duck(.guidanceStarted(id))  // F-13a §5 item 1: guidance ducks the song the same way
         guidance.scheduleBuffer(buffer) { [weak self] in
             guard let self else { return }
             self.lock.withLock { self.guidanceOutstanding -= 1 }
             self.continuation.yield(.guidanceEnded(id))
+            self.duck(.guidanceEnded(id))
         }
     }
 

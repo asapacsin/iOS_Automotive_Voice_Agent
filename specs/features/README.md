@@ -13,17 +13,20 @@ One file per feature. Load one file plus the contracts it lists under "Depends o
 | F-05 | [Realtime session (Gemini Live)](realtime-session.md) | ACTIVE provider |
 | F-05a | [Mandarin input transcript on the phone (普通话识别，不再被当成葡萄牙语)](mandarin-transcript.md) | iOS only, APPROVED (2026-10-29); tasks T-016a–c |
 | F-06 | [Reply pipeline and truthfulness gates](reply-truthfulness.md) | ACTIVE (JVM + LIVE suites) |
-| F-07 | [Assistant voice and playback](tts-playback.md) | iOS: Gemini 原声 by default, 千问 as an option; Azure removed from iOS (§17). Android: ACTIVE when an Azure voice is configured (ADR-016) |
+| F-07 | [Assistant voice (TTS) and playback](tts-playback.md) | iOS: Gemini 原声 by default, 千问 optional; Azure removed (F-07 §17). Android: ACTIVE when an Azure voice is configured (ADR-016) |
 | F-08 | [Barge-in and speech arbitration](barge-in-arbitration.md) | ACTIVE (JVM; EMU; device latency HUMAN) |
 | F-09 | [Tool catalog, dispatch and guards](tool-dispatch-guards.md) | ACTIVE (JVM + LIVE) |
 | F-09a | [Car tools only for car requests (落域)](car-request-areas.md) | iOS only, APPROVED (2026-11-10); task T-017a |
+| F-09b | [Flexible assistant: the model understands, code checks the action (随机应变)](flexible-assistant.md) | iOS only, APPROVED (2026-11-16, spec only); tasks T-031c, T-031j, T-016p, T-017c |
 | F-10 | [Driver context and ambiguity resolution](ambiguity-context.md) | IMPLEMENTED (JVM); FZ-14 clarification not yet proven in a recording (runs 298, 317, 319) |
 | F-11 | [Vehicle controls (simulated)](vehicle-controls.md) | IMPLEMENTED, SIMULATED ONLY (no VHAL/CarPropertyManager) |
 | F-12 | [Comfort scenarios](comfort-scenarios.md) | IMPLEMENTED (JVM + LIVE text) |
 | F-13 | [Music](music.md) | IMPLEMENTED: bundled track play/stop; media-session search + read-back (SPEC-017, play_music path not exercised in demo run 315) |
+| F-13a | [Volume: the music and her voice (音量)](volume.md) | iOS only, APPROVED (2026-11-10); tasks T-032g–h |
 | F-14 | [Navigation guidance voice (relay)](guidance-voice.md) | IMPLEMENTED (JVM; EMU with real Gemini) |
 | F-15 | [Navigation flow (search → pick → route → navigate → cancel)](navigation-flow.md) | IMPLEMENTED (JVM + EMU, Amap Navi SDK 11 |
 | F-15a | [Real navigation by default, simulation as a separate mode (真实导航 / 模拟导航)](navigation-modes.md) | iOS only, APPROVED (2026-10-29); tasks T-040a–d |
+| F-15b | [Trip list and multi-stop route (打卡清单 → 串成路线 → 途经点导航)](trip-plan.md) | iOS only, APPROVED phases 1–2 (2026-11-16, spec only); tasks T-040i (voice), T-040j (poster cards, screen editing, map pins), T-040l (saved plans, days); phase 3 T-040k not started |
 | F-16 | [Destination search and saved places](destination-search.md) | IMPLEMENTED (JVM + LIVE Amap Web) |
 | F-16a | [Use the phone's real location (位置来源, 「我现在在哪？」)](current-location.md) | iOS only, APPROVED (2026-10-27); tasks T-042a–b, T-046a |
 | F-16b | [Show the driver's current position on the map (我的位置)](map-current-location.md) | iOS only, APPROVED (2026-10-29); tasks T-044a–c |
@@ -34,7 +37,7 @@ One file per feature. Load one file plus the contracts it lists under "Depends o
 | F-20 | [Camera vision questions](vision.md) | IMPLEMENTED (JVM) |
 | F-20a | [Camera button, live preview window and “what is there?” questions](camera-view.md) | iOS only, APPROVED (2026-10-26); tasks T-071a–d |
 | F-20b | [Rear view in the camera window (前方 / 后方 switch)](camera-rear.md) | iOS only, APPROVED (2026-10-27); tasks T-071e–g |
-| F-21 | [Persona and speaking style](persona-style.md) | IMPLEMENTED (JVM + LIVE 5/5); §16 tone applies at once, APPROVED (2026-11-10), task T-034c |
+| F-21 | [Persona and speaking style](persona-style.md) | IMPLEMENTED (JVM + LIVE 5/5); §16 withdrawn; §17 tone starts with the next conversation, APPROVED (2026-11-10), task T-034d |
 | F-22 | [Settings, credentials and consent](settings-credentials.md) | IMPLEMENTED |
 | F-23 | [App lifecycle, background and permissions](app-lifecycle-permissions.md) | IMPLEMENTED: foreground service type microphone, START_NOT_STICKY; no boot start; no accessibility service |
 | F-24 | [Network recovery](network-recovery.md) | IMPLEMENTED (JVM; fault injection `NetworkFaults |

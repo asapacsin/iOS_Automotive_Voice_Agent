@@ -3,11 +3,12 @@ import Foundation
 import FoundationNetworking
 #endif
 import NovaKit
+import NovaNav
 import NovaPorts
 
 /// Amap Web service REST (`restapi.amap.com`, contracts/api-contracts.md): place search, reverse
 /// geocoding and weather. All coordinates are GCJ-02. Status codes only reach diagnostics (I-8).
-public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, PlaceLookup {
+public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup, DrivingTimes {
     public static let host = "https://restapi.amap.com"
 
     private let key: @Sendable () -> String?
@@ -68,6 +69,31 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, Place
         Self.places(try await get("/v3/place/detail", ["id": id, "extensions": "all"])).first
     }
 
+    // MARK: DrivingTimes (F-15b §26)
+
+    /// `/v3/distance type=1` (driving): many origins (`|`) to one destination; `distance` (m) and `duration` (s) per
+    /// origin, matched by `origin_id` (1-based).
+    public func drivingTimes(origins: [GeoCoordinate], destination: GeoCoordinate) async throws -> [DrivingTime?] {
+        guard !origins.isEmpty else { return [] }
+        let body = try await get("/v3/distance", [
+            "origins": origins.map(Self.lngLat).joined(separator: "|"),
+            "destination": Self.lngLat(destination), "type": "1",
+        ])
+        return Self.drivingTimes(body, count: origins.count)
+    }
+
+    static func drivingTimes(_ body: [String: Any], count: Int) -> [DrivingTime?] {
+        var out = [DrivingTime?](repeating: nil, count: count)
+        for (offset, raw) in ((body["results"] as? [[String: Any]]) ?? []).enumerated() {
+            let id = (raw["origin_id"] as? String).flatMap(Int.init) ?? (offset + 1)
+            guard (1...count).contains(id),
+                  let meters = (raw["distance"] as? String).flatMap(Int.init),
+                  let seconds = (raw["duration"] as? String).flatMap(Int.init) else { continue }
+            out[id - 1] = DrivingTime(meters: meters, seconds: seconds)
+        }
+        return out
+    }
+
     // MARK: ReverseGeocoder
 
     public func adcode(at coordinate: GeoCoordinate) async throws -> String? {
@@ -118,60 +144,6 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, Place
             return LookedUpPlace(name: text(g["city"]) ?? text(g["province"]) ?? formatted ?? "", coordinate: coordinate,
                                  formatted: formatted, adcode: adcode)
         }
-    }
-
-    // MARK: WeatherService
-
-    /// `adcode` may also be a city name; it is geocoded first.
-    /// F-18 §28 items 2-3: `day.live` is the live report (with `time` from `reporttime`); otherwise the `casts` entry
-    /// whose `date` equals `day.date` (today included), never picked by position. No such entry: `WeatherForecastMissing`.
-    public func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
-        var code = adcode
-        if !adcode.allSatisfy(\.isNumber) {
-            let body = try await get("/v3/geocode/geo", ["address": adcode])
-            guard let first = (body["geocodes"] as? [[String: Any]])?.first, let found = first["adcode"] as? String else {
-                throw AmapWebError.failed
-            }
-            code = found
-        }
-        let forecast = !day.live
-        let body = try await get("/v3/weather/weatherInfo", ["city": code, "extensions": forecast ? "all" : "base"])
-        if forecast {
-            // F-18 §29 item 2: an answer with no forecast (or no casts) is not covered, not a failure.
-            guard let entry = (body["forecasts"] as? [[String: Any]])?.first,
-                  let casts = entry["casts"] as? [[String: Any]], !casts.isEmpty else {
-                throw WeatherNotCovered(adcode: code)
-            }
-            guard let city = entry["city"] as? String else { throw AmapWebError.failed }
-            guard let cast = Self.cast(casts, date: day.date) else { throw WeatherForecastMissing(date: day.date) }
-            return WeatherReport(adcode: code, summary: .object([
-                "city": .string(city), "day": .string(day.name), "date": .string(day.date),
-                "weather_day": .string(cast["dayweather"] as? String ?? ""),
-                "weather_night": .string(cast["nightweather"] as? String ?? ""),
-                "temp_high": .string(cast["daytemp"] as? String ?? ""),
-                "temp_low": .string(cast["nighttemp"] as? String ?? ""),
-            ]))
-        }
-        guard let live = (body["lives"] as? [[String: Any]])?.first else { throw WeatherNotCovered(adcode: code) }
-        return WeatherReport(adcode: code, summary: .object([
-            "city": .string(live["city"] as? String ?? ""), "day": "now", "date": .string(day.date),
-            "time": .string(Self.clock(live["reporttime"] as? String)),
-            "weather": .string(live["weather"] as? String ?? ""),
-            "temperature_c": .string(live["temperature"] as? String ?? ""),
-            "wind": .string("\(live["winddirection"] as? String ?? "")风\(live["windpower"] as? String ?? "")级"),
-            "humidity": .string(live["humidity"] as? String ?? ""),
-        ]))
-    }
-
-    /// F-18 §28 item 2: `HH:mm` of 高德's `reporttime` (`yyyy-MM-dd HH:mm:ss`); empty when missing.
-    static func clock(_ reporttime: String?) -> String {
-        guard let t = reporttime?.split(separator: " ").last, t.count >= 5 else { return "" }
-        return String(t.prefix(5))
-    }
-
-    /// The cast for `date` (`yyyy-MM-dd`), wherever it sits in the list.
-    static func cast(_ casts: [[String: Any]], date: String) -> [String: Any]? {
-        casts.first { ($0["date"] as? String) == date }
     }
 
     // MARK: Transport
@@ -227,7 +199,12 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, WeatherService, Place
                          coordinate: GeoCoordinate(latitude: parts[1], longitude: parts[0], datum: .gcj02),
                          distanceMeters: (poi["distance"] as? String).flatMap { Int($0) },
                          openingHours: text(business?["open_time"]) ?? text(business?["opentime2"]),
-                         phone: text(poi["tel"]), city: text(poi["cityname"]), district: text(poi["adname"]))
+                         phone: text(poi["tel"]), city: text(poi["cityname"]), district: text(poi["adname"]),
+                         // F-15b §12 items 1 and 3 (T-040j): the first `photos[].url` (older docs spell the title
+                         // `titile`; only `url` is read), secure links only.
+                         photoURL: TripPhotoLink.secure(((poi["photos"] as? [[String: Any]])?.first)?["url"] as? String),
+                         // F-15b §46 item 6 (T-040r): the kind from 高德's `type`.
+                         kind: PlaceKindMap.amap(type: text(poi["type"])))
         }
     }
 }

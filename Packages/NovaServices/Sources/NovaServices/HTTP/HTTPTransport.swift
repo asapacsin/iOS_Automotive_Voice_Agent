@@ -4,7 +4,8 @@ import FoundationNetworking
 #endif
 import NovaKit
 
-/// One HTTP exchange. Production: `URLSessionTransport`; tests: a recording stub.
+/// One HTTP exchange. Production: `URLSessionTransport`; tests: a recording stub. Moved out of the removed TTS
+/// client unchanged (F-07 §17 item 1); the vision and weather clients use it.
 public protocol HTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (status: Int, body: Data)
 }

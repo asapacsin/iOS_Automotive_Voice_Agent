@@ -14,9 +14,9 @@ struct MultilingualPersonaTests {
         let base = PersonaInstruction.base
         #expect(base.contains("用自然的口语，句子短") && !base.contains("用自然的普通话口语"))
         #expect(base.contains("用户说中文就用普通话回答，说英文就用英文，说日语就用日语；只用这三种语言。") && !base.contains("只说普通话。"))
-        for mode in [ToolCatalog.ComfortMode.table, .model] {
+        for mode in ["model"] {
             for search in [false, true] {
-                #expect(PersonaInstruction.base(PersonaInstruction.base(for: mode), webSearch: search).count <= PersonaInstruction.maxBaseCharacters)
+                #expect(PersonaInstruction.base(PersonaInstruction.base, webSearch: search).count <= PersonaInstruction.maxBaseCharacters)
             }
         }
     }

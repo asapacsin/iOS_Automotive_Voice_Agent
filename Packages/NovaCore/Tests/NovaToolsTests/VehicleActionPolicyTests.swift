@@ -30,7 +30,7 @@ struct VehicleActionPolicyTests {
         #expect(VehicleActionPolicy.check(.setWindows(all, percent: 0), cabin: open, speedKmh: 120) == nil)
     }
 
-    @Test("F-12 row 5 both paths: a direct window call and the scenario table are blocked by the same port")
+    @Test("F-12 row 5, F-09b row 2: a direct window call and a climate call are blocked by the policed port")
     func bothPaths() async {
         let fake = FakeVehicle()
         let port = Self.policed(fake, speed: 120)
@@ -41,11 +41,7 @@ struct VehicleActionPolicyTests {
         #expect(direct.result.advice != nil)
         let allowed = await WindowToolHandler(port: port).handle(["action": "set", "value": .int(20)])
         #expect(allowed.result.ok)
-        // The table opens all windows 50% for 有蚊子: blocked, the windows stay at 20%, and the result says so.
-        let table = await ScenarioToolHandler(port: port).outcome(scenario("mosquito"))
-        #expect(table.result.ok == false)
-        #expect(table.result.code == .vehicleBlocked)
-        #expect(windows(await fake.cabinState()) == [20, 20, 20, 20])
+        #expect(await fake.cabinState().windows.values.allSatisfy { $0 == 20 })
         // Unknown speed: allowed.
         let unknown = await WindowToolHandler(port: Self.policed(fake, speed: nil)).handle(["action": "set", "value": .int(50)])
         #expect(unknown.result.ok)
@@ -53,31 +49,29 @@ struct VehicleActionPolicyTests {
         #expect(climate.result.code == .vehicleBlocked)
     }
 
-    @Test("F-12 row 3 setting off: catalog equals today's")
-    func offUnchanged() {
-        #expect(ToolCatalog.declarations(for: .table) == ToolCatalog.declarations)
-        #expect(ToolCatalog.declarations.contains { $0.name == "run_scenario" })
-        #expect(!ToolCatalog.declarations.contains { $0.name == "get_vehicle_state" })
-    }
-
-    @Test("F-12 row 4 setting on: no run_scenario, get_vehicle_state present, no feeling rules in control_climate")
-    func onCatalog() {
-        let on = ToolCatalog.declarations(for: .model)
-        let names = on.map(\.name)
+    @Test("T-031c F-09b row 1: one catalog: no run_scenario, get_vehicle_state and undo_last_change declared, no feeling rules in control_climate")
+    func oneCatalog() {
+        let names = ToolCatalog.declarations.map(\.name)
         #expect(!names.contains("run_scenario"))
-        #expect(names.contains("get_vehicle_state"))
-        #expect(Set(names) == Set(ToolCatalog.declarations.map(\.name)).subtracting(["run_scenario"]).union(["get_vehicle_state"]))
-        let climate = on.first { $0.name == "control_climate" }!
+        #expect(ToolCatalog.spec("run_scenario") == nil)
+        #expect(ToolCatalog.validate(call("run_scenario", ["name": "mosquito"])) == .unknownTool)
+        #expect(names.contains("get_vehicle_state") && names.contains("undo_last_change"))
+        let generated = Set(ToolCatalog.generatedSpecs.map(\.name)).subtracting(["run_scenario"])
+        #expect(Set(names) == generated.union(["set_volume", "get_vehicle_state", "undo_last_change",
+                                                        "make_trip_list", "edit_trip_list", "revise_trip_list", "trip_next", "trip_plans"]))
+        let climate = ToolCatalog.declarations.first { $0.name == "control_climate" }!
         #expect(!climate.description.contains("run_scenario"))
         #expect(!climate.description.contains("有点热"))
         #expect(climate.description.contains("打开/关闭空调"))
-        #expect(climate.parametersJSONSchema == ToolCatalog.spec("control_climate")!.declaration.parametersJSONSchema)
-        // Every other tool is unchanged (control_window gains its purpose, F-12 §18).
-        for d in on where !["control_climate", "control_window", "get_vehicle_state"].contains(d.name) {
-            #expect(ToolCatalog.declarations.contains(d))
-        }
+        let window = ToolCatalog.declarations.first { $0.name == "control_window" }!
+        #expect(window.description.contains(ToolCatalog.windowPurpose))
+        for d in ToolCatalog.declarations { #expect(!d.description.contains("run_scenario")) }
+        // F-09b §5 item 3: no rule says when to call get_vehicle_state.
+        #expect(!ToolCatalog.vehicleStateSpec.declaration.description.contains("只在"))
         #expect(ToolCatalog.validate(call("get_vehicle_state")) == nil)
         #expect(ToolCatalog.validate(call("get_vehicle_state", ["x": .int(1)])) == .invalidFields)
+        #expect(ToolCatalog.validate(call("undo_last_change")) == nil)
+        #expect(ToolCatalog.validate(call("undo_last_change", ["x": .int(1)])) == .invalidFields)
     }
 
     @Test("F-12 row 4 get_vehicle_state: state, speed or null, no location fields")

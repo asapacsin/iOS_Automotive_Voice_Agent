@@ -19,7 +19,7 @@ public actor Revoicer {
     }
 
     public var epoch: Epoch { queue.epoch }
-    /// Clauses not yet played (waiting, at TTS, or ready out of order).
+    /// Clauses not yet played (waiting, at the TTS service, or ready out of order).
     public var pendingClauses: Int { queue.pendingClauses }
 
     public func newReply() { apply(queue.handle(.newReply)) }

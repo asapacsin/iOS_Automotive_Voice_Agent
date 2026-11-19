@@ -37,6 +37,8 @@ public struct NavigationFlowState: Sendable, Hashable {
     /// F-15a §2.5 (T-040h): the other routes of the trip's calculation while navigating, for a tap that changes the
     /// route (I-6: the same `choose_navigation_option` index as 「换第N条」).
     public var alternatives: [AlternativeRoute] = []
+    /// F-15b §29 (T-040n): the plan stop the running guidance drives to (`trip_next`), else nil.
+    public var tripStopID: String?
     /// The route buttons on screen: none while a list is open (a tap there picks a list row), and in 真实导航 only
     /// 「第N条」, since a change recalculates from here and the earlier minutes no longer hold.
     public var routeTapTargets: [AlternativeRoute] {
@@ -142,11 +144,37 @@ public actor NavigationController: ToolExecutor {
     private var rejectedName: String?
     /// F-16 §14 item 5: listed place ids that need a yes on a later driver turn, and the turn count when listed.
     private var confirm: (ids: Set<String>, turn: Int)?
+    /// F-15b §29 item 2: called with the stop's place id when guidance to it ends `arrived`.
+    private var tripArrived: (@Sendable (String) async -> Void)?
+    /// F-15b §7: `trip stop-passed index=<k> of=<n>`.
+    private let onTripLine: @Sendable (String) -> Void
+    /// F-15b §22 (T-040m): hides the trip cards; true when they were shown over a plan with stops and are now hidden.
+    private var hideTripCards: (@Sendable () async -> Bool)?
+
+    public func setTripCards(hide: @escaping @Sendable () async -> Bool) { hideTripCards = hide }
+
+    /// F-15b §36 item 2d (T-040p): plain searches abroad. `search` is Photon, `center` a city's centre outside China,
+    /// `tripCity` the city of an `abroad` trip in progress (nil when there is none).
+    private var abroadSearch: (any PlaceSearch)?
+    private var abroadCenter: (@Sendable (String) async -> GeoCoordinate?)?
+    private var abroadTripCity: (@Sendable () async -> String?)?
+    /// F-15b §47 item 1 (T-040s): the places on offer came from `navigate_to abroad` (or an `abroad` trip's
+    /// `trip_next`), so their route request is marked `abroad` (OSRM). A home search clears it.
+    private var routeAbroad = false
+    public func setAbroad(search: any PlaceSearch, center: @escaping @Sendable (String) async -> GeoCoordinate?,
+                          tripCity: @escaping @Sendable () async -> String?) {
+        abroadSearch = search
+        abroadCenter = center
+        abroadTripCity = tripCity
+    }
+    public func setTripArrival(_ arrived: @escaping @Sendable (String) async -> Void) { tripArrived = arrived }
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
                 clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(), saved: SavedPlaces? = nil,
                 mode: (@Sendable () -> NaviMode)? = nil, nearFirst: NearFirstSearch? = nil,
+                onTripLine: @escaping @Sendable (String) -> Void = { _ in },
                 onChange: @escaping @Sendable (NavigationFlowState) -> Void = { _ in }) {
+        self.onTripLine = onTripLine
         self.nearFirst = nearFirst
         self.saved = saved
         self.search = search
@@ -172,7 +200,10 @@ public actor NavigationController: ToolExecutor {
 
     public func execute(_ call: ToolCall) async -> ToolResult {
         switch call.name {
-        case "navigate_to": return await navigate(call.arguments["destination"]?.stringValue ?? "")
+        case "navigate_to":
+            let destination = call.arguments["destination"]?.stringValue ?? ""
+            if let abroad = await abroadAsked(call.arguments) { return await navigateAbroad(destination, city: abroad.city) }
+            return await navigate(destination)
         case "choose_navigation_option": return await choose(call.arguments, fromTap: call.id.rawValue.hasPrefix("ui"))
         case "exit_navigation_mode": return await exit()
         default: return .failure(.unknownTool)
@@ -181,8 +212,85 @@ public actor NavigationController: ToolExecutor {
 
     // MARK: navigate_to
 
+    /// §36 item 2d: `abroad=true`, or no `abroad` while an `abroad` trip is in progress (its city by default). nil:
+    /// the home search. `city` nil means none was given (→ `invalidFields`).
+    private func abroadAsked(_ args: JSONValue) async -> (abroad: Bool, city: String?)? {
+        guard abroadSearch != nil else { return nil }
+        let asked = args["abroad"]?.boolValue
+        guard asked != false else { return nil }
+        var city = args["city"]?.stringValue?.trimmingCharacters(in: .whitespaces)
+        if city?.isEmpty == true { city = nil }
+        let tripCity = await abroadTripCity?()
+        if asked == nil {
+            guard let tripCity else { return nil }
+            return (true, city ?? tripCity)
+        }
+        return (true, city ?? tripCity)
+    }
+
+    /// §36 item 2d (T-040p): the destination searched on Photon (category words by tag), around the phone when it is
+    /// outside China and the destination says 附近/最近, else around the city's centre. No 高德 request. The places go
+    /// to the candidate list as `navigate_to`'s do. `nav search vendor=photon abroad=yes found= ms=`.
+    private func navigateAbroad(_ destination: String, city: String?) async -> ToolResult {
+        confirm = nil
+        routeAbroad = true
+        guard let city, let abroadSearch else {
+            return .failure(.invalidFields, advice: "abroad=true 时必须填 city：英文城市名加国家，比如 \"Tokyo, Japan\"。请马上重新调用，不要告诉司机。")
+        }
+        let started = clock.now
+        // F-05a §6: while guiding, the places are listed over the running route (as `listOverGuidance`).
+        let guiding = snapshot.navigating
+        let generation: Generation
+        if guiding {
+            generation = snapshot.generation
+        } else {
+            generation = advance(to: .resolvingDestination)
+            snapshot.places = []
+            snapshot.routes = []
+            snapshot.destination = nil
+            snapshot.info = nil
+            publish()
+        }
+        func current() -> Bool { generation == snapshot.generation && snapshot.navigating == guiding }
+        let query = DestinationQuery(destination)
+        let nearby = DestinationQuery.nearby.contains { destination.contains($0) }
+        var center: GeoCoordinate?
+        if nearby, let fix = await usableFix(), CoordinateConverter.outOfChina(fix.latitude, fix.longitude) {
+            center = fix
+        } else {
+            center = await abroadCenter?(city)
+        }
+        guard current() else { return .failure(.optionsStale) }
+        var places: [Place] = []
+        do {
+            for keywords in query.attempts where places.isEmpty {
+                if let center {
+                    places = try await abroadSearch.around(keywords, center: center,
+                                                           radiusMeters: tuning.searchRadiusMeters, sort: query.sort)
+                } else {
+                    places = try await abroadSearch.text(keywords, city: nil)
+                }
+                guard current() else { return .failure(.optionsStale) }
+            }
+        } catch {
+            onTripLine("nav search vendor=photon abroad=yes found=0 ms=\(max(0, (clock.now - started).milliseconds))")
+            if !guiding { reset() }
+            return Self.searchFailure(error).result
+        }
+        // §36 item 3: a place in China is never a result abroad.
+        let top = Array(places.filter { $0.countryCode == nil || !TripRegion.isChina($0.countryCode) }.prefix(tuning.maxCandidates))
+        onTripLine("nav search vendor=photon abroad=yes found=\(top.count) ms=\(max(0, (clock.now - started).milliseconds))")
+        guard !top.isEmpty else {
+            if !guiding { reset() }
+            return .failure(.noCandidates, advice: "没有找到这个地点。请如实说没找到，请用户换个说法。")
+        }
+        guard guiding else { return await listOrRoute(top) }
+        return listedOverGuidance(top)
+    }
+
     private func navigate(_ destination: String) async -> ToolResult {
         confirm = nil
+        routeAbroad = false
         // F-05a §6 (replaces the P61 word guard): while guiding, a new place is listed over the running route;
         // the route changes only when the driver picks one.
         if snapshot.navigating {
@@ -224,6 +332,11 @@ public actor NavigationController: ToolExecutor {
             reset()
             return box.result
         }
+        return await listOrRoute(top)
+    }
+
+    /// One place is routed at once; several go to the candidate list (F-16).
+    private func listOrRoute(_ top: [Place]) async -> ToolResult {
         if top.count == 1 { return await route(to: top[0]) }
         snapshot.phase = .awaitingDestinationSelection
         snapshot.places = top
@@ -481,6 +594,10 @@ public actor NavigationController: ToolExecutor {
             }
         }
         guard generation == snapshot.generation, snapshot.navigating else { return .failure(.optionsStale) }
+        return listedOverGuidance(top)
+    }
+
+    private func listedOverGuidance(_ top: [Place]) -> ToolResult {
         snapshot.places = top
         snapshot.alongRouteList = true
         listedAt = clock.now
@@ -563,7 +680,8 @@ public actor NavigationController: ToolExecutor {
         snapshot.destination = place
         snapshot.places = []
         publish()
-        await engine.calculateRoutes(RouteRequest(destination: place.coordinate, destinationName: place.name),
+        await engine.calculateRoutes(RouteRequest(destination: place.coordinate, destinationName: place.name,
+                                                  abroad: routeAbroad),
                                      generation: generation)
         // A newer request took over while the engine was busy: its event is not ours to wait for.
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
@@ -741,7 +859,38 @@ public actor NavigationController: ToolExecutor {
         }
     }
 
+    // MARK: trip_next (F-15b §29, T-040n)
+
+    /// One plan stop as a normal single-destination route from here, started as a chosen `navigate_to` place
+    /// (F-15a), with no place search. A running guidance is replaced. On `arrived` the arrival hook gets its id.
+    /// `abroad`: the stop belongs to an `abroad` trip; its route then comes from OSRM (F-15b §47 item 1).
+    public func tripNext(_ place: Place, abroad: Bool = false) async -> ToolResult {
+        if startInFlight {
+            return .failure(.optionsNotReady, advice: "导航正在启动。请如实说正在启动，稍等一下。")
+        }
+        routeAbroad = abroad
+        forgetConfirmations()
+        asked = nil
+        // §29 item 1: replaces running guidance as 「换成X」 does: stop the old route first.
+        if snapshot.navigating || snapshot.phase == .arrived || snapshot.alongRouteList {
+            let generation = snapshot.generation
+            snapshot.alongRouteList = false
+            await engine.stop(generation: generation)
+            guard generation == snapshot.generation else { return .failure(.optionsStale) }
+            snapshot.routes = []
+            snapshot.info = nil
+        }
+        let result = await route(to: place)
+        if result.ok, snapshot.navigating, snapshot.destination?.id == place.id {
+            snapshot.tripStopID = place.id
+            publish()
+        }
+        return result
+    }
+
     // MARK: exit_navigation_mode
+
+    public static let cardsHiddenNext = "只说一句：行程卡片先收起来了，行程还在，说「打开行程」就再拿出来。"
 
     private func exit() async -> ToolResult {
         if snapshot.alongRouteList {
@@ -759,8 +908,13 @@ public actor NavigationController: ToolExecutor {
             let generation = snapshot.generation
             reset()
             await engine.stop(generation: generation)
+            _ = await hideTripCards?()
             return .success(["status": "navigation_selection_cancelled", "next": "说一句：好的，已取消。"])
         case .idle, .error:
+            // F-15b §22 item 2: nothing open, the cards shown: they are put away; the plan stays.
+            if await hideTripCards?() == true {
+                return .success(["status": "trip_cards_hidden", "next": .string(Self.cardsHiddenNext)])
+            }
             return .success(["status": "no_navigation_active", "next": "如实说当前没有在导航。"])
         }
     }
@@ -802,7 +956,11 @@ public actor NavigationController: ToolExecutor {
             publish()
         case .arrived:
             snapshot.phase = .arrived
+            let stop = snapshot.tripStopID
+            snapshot.tripStopID = nil
             publish()
+            // §29 item 2: guidance that ends arrived at the stop marks it visited.
+            if let stop, let tripArrived { Task { await tripArrived(stop) } }
         case .naviStopped:
             if snapshot.phase == .navigating { reset() }
         case .rerouting:
@@ -970,6 +1128,8 @@ public actor NavigationController: ToolExecutor {
     private func advance(to phase: NavigationPhase) -> Generation {
         snapshot.generation = snapshot.generation.next()
         snapshot.phase = phase
+        // F-15b §29: any new request (a navigate_to, a cancel, the next stop) ends the trip stop.
+        snapshot.tripStopID = nil
         early = [:]
         waiting?.continuation.resume(returning: nil)
         waiting = nil

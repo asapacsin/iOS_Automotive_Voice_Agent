@@ -29,7 +29,7 @@ with a small assistant overlay.
 | J2 | "导航去珠海站" → pick a place → pick a route → guidance runs | navigation-flow, destination-search |
 | J3 | While navigating, ask "还要多久", "附近有加油站吗" without losing the route | live-info, navigation-guards |
 | J4 | "有点热" → cooler; "再凉一点" → cooler again; "再低一点" after seat and temperature both changed → one question | vehicle-controls, ambiguity-context |
-| J5 | "有蚊子" → windows half open; "蚊子出去了" → closed | comfort-scenarios |
+| J5 | "有蚊子" → a sensible action and an honest reply (iOS: the model decides, F-09b §3); "不用" undoes it (F-09b §4) | comfort-scenarios, flexible-assistant |
 | J6 | Say 「别说了」 while she speaks; she stops at once. Other sound never stops her (owner rule 2026-10-28) | barge-in-arbitration |
 | J7 | Guidance prompt and assistant reply never talk over each other | guidance-voice, barge-in-arbitration |
 | J8 | "放首歌" / "放周杰伦的歌" → music plays, and she only says so if it really plays | music |

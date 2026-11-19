@@ -6,8 +6,9 @@
 - Pure logic goes in Packages/NovaCore (no UIKit/AVFoundation). Vendor SDKs only in their adapter
   package (specs/ios-architecture.md §3.2); `scripts/gates/check_imports.py` enforces it.
 - Product invariants I-1..I-14 (specs/product-spec.md) are code-enforced, never prompt-only.
-- Owner rule (2026-10-27): no macOS GitHub Actions runners and no automatic CI triggers; workflows are
-  `workflow_dispatch` only and are started only when the owner asks. `scripts/gates/check_runners.py` enforces it.
+- Owner rule (2026-11-11, replaces 2026-10-27; specs/ci-linux.md): no macOS GitHub Actions runners; automatic triggers
+  only for Linux jobs that pass `scripts/gates/check_runners.py` (public repository, time limit); everything else is
+  `workflow_dispatch` only. No app build, simulator or secrets in CI.
 - Owner rule (2026-11-05), search prompt only (`QwenWebSearchClient` system text or its replacement): never
   invent wording or rules; copy a published vendor/community practice and cite it in the spec.
 - Gates: `scripts/gates/run_all.sh`. Done = gates green + reviewer PASS. Device-only acceptance rows
@@ -23,3 +24,7 @@
   reviewer CLI is configured.
 - A task moves to PASS in specs/work.json only with gate evidence plus an independent read-only review
   at high effort; the reviewer's verdict never overrides a failed gate.
+- Owner rule (2026-11-13): preparing a phone test is Claude's job end to end: trigger the Codemagic build of the
+  branch under test, get the IPA, and install it on the owner's iPhone as an **update** of the installed NovaDrive
+  (same bundle id, keep its data and keys), never a delete-and-reinstall. Then hand over the checklist. Only ask the
+  owner for what Claude cannot reach (a credential, or a computer connected to the phone).

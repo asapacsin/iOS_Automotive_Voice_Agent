@@ -18,8 +18,27 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case missingAction = "MISSING_ACTION"
     /// F-12 §14 item 11 (T-031b): `VehicleActionPolicy` refused the action before the port.
     case vehicleBlocked = "VEHICLE_BLOCKED"
-    /// F-09a §3 item 1 (T-017a): a comfort tool called for an utterance outside the car area.
-    case notACarRequest = "NOT_A_CAR_REQUEST"
+    /// F-09b §4 item 2 (T-031j): no kept change set, or it is older than 5 minutes.
+    case nothingToUndo = "NOTHING_TO_UNDO"
+    /// F-15b §5 (T-040i): the trip list tools.
+    case noTripList = "NO_TRIP_LIST"
+    case tripTooLong = "TRIP_TOO_LONG"
+    case tripTooShort = "TRIP_TOO_SHORT"
+    case notFound = "NOT_FOUND"
+    /// F-15b §13 item 1 (T-040j): a screen edit while the phone is moving.
+    case notWhileMoving = "NOT_WHILE_MOVING"
+    /// F-15b §16 (T-040l): the saved plans.
+    case planNotFound = "PLAN_NOT_FOUND"
+    /// F-15b §5.3 (owner 2026-11-16): no trip route while guidance runs; the running guidance goes on.
+    case tripWhileNavigating = "TRIP_WHILE_NAVIGATING"
+    case plansFull = "PLANS_FULL"
+    /// F-15b §26–§29 (T-040n): ordering by driving time and one stop at a time.
+    case routeTimesUnavailable = "ROUTE_TIMES_UNAVAILABLE"
+    case noStart = "NO_START"
+    case planChanged = "PLAN_CHANGED"
+    case dayDone = "DAY_DONE"
+    /// F-15b §49 item 7 (T-040u): `revise_trip_list` with no plan to revise.
+    case noRevision = "NO_REVISION"
 
     // F-15 / F-16 navigation
     case noCandidates = "NO_CANDIDATES"

@@ -17,7 +17,7 @@ sys.path.insert(0, str(GATES))
 
 import check_imports  # noqa: E402
 import check_kws_tokens  # noqa: E402
-import check_no_azure  # noqa: E402
+import check_runners  # noqa: E402
 import check_secrets  # noqa: E402
 import spec_trace  # noqa: E402
 
@@ -74,7 +74,7 @@ class SecretsGateTests(unittest.TestCase):
         "App/L.xcodeproj/xcshareddata/xcschemes/L.xcscheme":
             f'<EnvironmentVariable key = "AZURE_SPEECH_KEY" value = "{FAKE}">',
         "fixtures/long.har": '{"name": "azure_speech_key", "value": "' + FAKE + '"}',
-        "App/Info.plist": f"<key>AzureSpeechKey</key>\n<string>{FAKE}</string>",
+        "App/Info.plist": f"<key>ZhipuKey</key>\n<string>{FAKE}</string>",
     }
     CLEAN = {
         "App/Keys.swift": 'enum K: String { case amapWebKey = "amap_web_key"; case gemini = "GEMINI_API_KEY_MISSING" }',
@@ -105,7 +105,6 @@ class SecretsGateTests(unittest.TestCase):
     def test_credential_key_names_are_scanned(self) -> None:
         self.assertIn("qianfan_key", check_secrets.NAME)
         self.assertIn("iflytek_app_id", check_secrets.NAME)
-        self.assertIn("azure_speech_key", check_secrets.NAME)  # retired (F-07 §17), still scanned for
 
     def test_repository_is_clean(self) -> None:
         self.assertEqual(check_secrets.scan(REPO), [])
@@ -171,6 +170,44 @@ class SenseVoiceRemovedGateTests(unittest.TestCase):
 
     def test_removal_code_passes(self) -> None:
         self.assertEqual(self.check('enum SenseVoiceRemoval { static let folder = "sensevoice-2024-07-17" }'), 0)
+
+
+class AzureRemovedGateTests(unittest.TestCase):
+    """F-07 §17 row 19 (T-020d): no `azure` in any case under App/ or Packages/, except the cleanup file and its test."""
+    def check(self, path: str, text: str) -> int:
+        tree = Tree()
+        try:
+            tree.write(path, text)
+            return run(check_imports.main, str(tree.root))
+        finally:
+            tree.close()
+
+    def test_each_planted_fails(self) -> None:
+        for path, text in (("App/NovaDrive/X.swift", "let c = AzureSpeechClient()"),
+                           ("Packages/NovaCore/Sources/NovaKit/X.swift", 'let k = "AZURE_TTS_AUTH"'),
+                           ("App/NovaDrive/X.swift", "// in a comment: azure"),
+                           ("App/project.yml", "AZURE_REGION: japaneast"),
+                           ("Packages/NovaServices/Sources/NovaServices/Azure/Client.swift", "struct Client {}")):
+            with self.subTest(path=path, text=text):
+                self.assertEqual(self.check(path, text), 1)
+
+    def test_cleanup_and_clean_files_pass(self) -> None:
+        self.assertEqual(self.check("Packages/NovaCore/Sources/NovaAgent/Settings/RetiredVoiceSettings.swift",
+                                    'enum RetiredVoiceSettings { static let doneKey = "azure_removed_done" }'), 0)
+        self.assertEqual(self.check("Packages/NovaServices/Tests/NovaServicesTests/RetiredVoiceSettingsTests.swift",
+                                    'let a = "azure_speech_key"'), 0)
+        self.assertEqual(self.check("App/NovaDrive/X.swift", 'let q = QwenSpeechClient()'), 0)
+
+    def test_build_output_is_skipped(self) -> None:
+        self.assertEqual(self.check("Packages/NovaCore/.build/debug/x.swiftdeps", "AzureSpeechTuning"), 0)
+        self.assertEqual(self.check("App/NovaDrive/SherpaModels/tokens.txt", "azure"), 0)
+
+    def test_allowed_name_elsewhere_fails(self) -> None:
+        for path in ("App/NovaDrive/RetiredVoiceSettings.swift",
+                     "Packages/NovaServices/Sources/NovaServices/X/RetiredVoiceSettings.swift",
+                     "Packages/NovaCore/Tests/NovaAgentTests/RetiredVoiceSettingsTests.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.check(path, "let c = AzureSpeechClient()"), 1)
 
 
 class PreviewLaneGateTests(unittest.TestCase):
@@ -275,36 +312,86 @@ class KwsTokensGateTests(unittest.TestCase):
         self.assertEqual(self.check("public enum WakePhrase {}\n"), 1)
 
 
-class NoAzureGateTests(unittest.TestCase):
-    """F-07 §17 row 19: no "azure" (any case) in a file under App/ or Packages/."""
-
-    def check(self, rel: str | None = None, text: str = "") -> int:
-        tree = Tree()
-        try:
-            if rel is not None:
-                tree.write(rel, text)
-            return run(check_no_azure.main, "--root", str(tree.root))
-        finally:
-            tree.close()
-
-    def test_repository_is_clean(self) -> None:
-        self.assertEqual(run(check_no_azure.main, "--root", str(REPO)), 0)
-
-    def test_clean_tree_passes(self) -> None:
-        self.assertEqual(self.check("App/NovaDrive/A.swift", "let source = \"qwen\"\n"), 0)
-
-    def test_any_case_in_app_or_packages_fails(self) -> None:
-        for rel, text in (("App/NovaDrive/A.swift", "// AZURE speech\n"),
-                          ("Packages/NovaCore/Sources/X.swift", "case azureSpeechKey\n"),
-                          ("App/NovaDrive/Info.plist", "<string>Azure</string>\n")):
-            self.assertEqual(self.check(rel, text), 1, rel)
-
-    def test_file_name_fails(self) -> None:
-        self.assertEqual(self.check("Packages/NovaServices/Sources/Azure/Client.swift", "x\n"), 1)
-
-    def test_outside_the_trees_passes(self) -> None:
-        self.assertEqual(self.check("scripts/gates/tests/fixture.txt", "AZURE_SPEECH_KEY\n"), 0)
-
-
 if __name__ == "__main__":
     unittest.main()
+
+
+GOOD_CI = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+DISPATCH_LINUX = """name: x
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: true
+"""
+
+
+class RunnersGateTests(unittest.TestCase):
+    """specs/ci-linux.md §6 rows 2-5."""
+
+    def fails(self, text: str) -> bool:
+        return bool(check_runners.check_text("w.yml", text))
+
+    def test_macos_fails_dispatch_and_push(self) -> None:
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("ubuntu-24.04", "macos-15")))
+        self.assertTrue(self.fails(GOOD_CI.replace("runs-on: ubuntu-24.04", "runs-on: macos-15", 1)))
+
+    def test_push_job_rules(self) -> None:
+        cases = {
+            "no timeout": GOOD_CI.replace("    timeout-minutes: 5\n", "", 1),
+            "timeout 45": GOOD_CI.replace("timeout-minutes: 25", "timeout-minutes: 45"),
+            "larger runner": GOOD_CI.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest-4-cores", 1),
+            "no guard": GOOD_CI.replace("    if: github.event_name == 'workflow_dispatch' || github.event.repository.private == false\n", "", 1),
+            "matrix": GOOD_CI.replace("    timeout-minutes: 5\n", "    timeout-minutes: 5\n    strategy:\n      matrix:\n        os: [a]\n", 1),
+        }
+        for name, text in cases.items():
+            self.assertNotEqual(text, GOOD_CI, name)
+            self.assertTrue(self.fails(text), name)
+
+    def test_forbidden_everywhere(self) -> None:
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("  workflow_dispatch:", "  schedule:\n    - cron: '0 0 * * *'")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("  workflow_dispatch:", "  pull_request_target:")))
+        self.assertTrue(self.fails(GOOD_CI.replace("permissions:\n  contents: read\n", "")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", "run: echo ${{ secrets.X }}")))
+
+    def test_trigger_forms_cannot_hide_a_push(self) -> None:
+        windows = DISPATCH_LINUX.replace("ubuntu-24.04", "windows-latest")
+        for on in ("on: push", "on: [push]", "on:\n  - pull_request", "'on':\n  'push':", "on: workflow_run",
+                   "on:\n  issues:"):
+            text = DISPATCH_LINUX.replace("on:\n  workflow_dispatch:", on)
+            self.assertTrue(self.fails(text), on)
+            self.assertTrue(self.fails(windows.replace("on:\n  workflow_dispatch:", on)), on)
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("on:\n  workflow_dispatch:\n", "")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("on:\n  workflow_dispatch:", "on: [workflow_dispatch,\n  push]")))
+        self.assertTrue(self.fails(DISPATCH_LINUX + "on: push\n"))
+        self.assertTrue(self.fails(DISPATCH_LINUX + "---\non: push\n"))
+
+    def test_runner_must_be_plain_ubuntu_everywhere(self) -> None:
+        for runner in ("${{ vars.R }}", "[self-hosted]", "windows-latest"):
+            self.assertTrue(self.fails(DISPATCH_LINUX.replace("ubuntu-24.04", runner)), runner)
+
+    def test_any_secrets_reference_fails(self) -> None:
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", "run: echo ${{ secrets['T'] }}")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", "run: echo ${{ toJSON(secrets) }}")))
+        self.assertTrue(self.fails(DISPATCH_LINUX.replace("run: true", 'run: echo "#${{ secrets.T }}"')))
+
+    def test_ci_and_dispatch_linux_pass(self) -> None:
+        self.assertEqual(check_runners.check_text("ci.yml", GOOD_CI), [])
+        self.assertEqual(check_runners.check_text("w.yml", DISPATCH_LINUX), [])
+        self.assertEqual(check_runners.check(REPO), [])
+
+
+class RunStaticTests(unittest.TestCase):
+    """specs/ci-linux.md §6 row 1: run_static.sh holds the Python gates and run_all.sh calls it first."""
+
+    def test_split(self) -> None:
+        static = (GATES / "run_static.sh").read_text(encoding="utf-8")
+        for gate in ("unittest discover", "check_runners.py", "check_imports.py", "check_secrets.py",
+                     "check_kws_tokens.py", "ios_spec_check.py", "spec_trace.py"):
+            self.assertIn(gate, static)
+        self.assertNotIn("swift ", static)
+        run_all = (GATES / "run_all.sh").read_text(encoding="utf-8")
+        self.assertIn("run_static.sh", run_all)
+        self.assertTrue(run_all.rstrip().endswith('echo "gates: PASS"'))

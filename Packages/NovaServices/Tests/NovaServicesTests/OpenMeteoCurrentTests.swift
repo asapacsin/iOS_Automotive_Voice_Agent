@@ -20,7 +20,7 @@ struct OpenMeteoCurrentTests {
     func row1() async throws {
         let t = WeatherBodyTransport("{\(Self.daily)}")
         _ = try await OpenMeteoClient(transport: t).dailyForecast(latitude: 59.91, longitude: 10.75)
-        #expect(t.urls.withLock { $0 } == ["https://api.open-meteo.com/v1/forecast?latitude=59.91&longitude=10.75&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=auto&forecast_days=16"])
+        #expect(t.urls.withLock { $0 } == ["https://api.open-meteo.com/v1/forecast?latitude=59.91&longitude=10.75&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=auto&forecast_days=10"])
     }
 
     @Test("F-18 §27 row 2: the current block is read beside the days")

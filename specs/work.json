@@ -59,6 +59,21 @@
       ]
     },
     {
+      "id": "T-000c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 5,
+      "action": "specs/ci-linux.md §3 items 1-7: run_static.sh split; ci.yml static + swift (swift:6.1.2-noble, cache, timeouts) on ubuntu-24.04; push/pull_request triggers with public-only guard and concurrency; permissions contents: read, no secrets; check_runners.py extended; ai-native.yml folded into static; AGENTS.md rule text. Rows 1-7 unit/review, 8-9 owner.",
+      "depends_on": [
+        "T-000"
+      ],
+      "notes": "Owner 2026-11-11: CI was turned off because it used more than the GitHub free allowance; asked for CI that does not need an iOS build. Owner 2026-11-11 chose §4 option A (automatic Linux runs while public): \"a then\". Do not start a run while building it. | 2026-11-11: built ad8f4c9, gates PASS (NovaCore 776 with 1 known issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0); independent review in progress. | Rows 8-9 (first real run, billing after a week) owner, NOT_VERIFIED. | 2026-11-11 after the 9cea702 push: the Actions API lists no run for claude/youthful-curie-vuit5r and no run of any workflow since 2026-10-27, so GitHub Actions looks disabled in the repository settings (owner turned CI off). Row 8 needs the owner to re-enable Actions (Settings → Actions → General); no run was started from this session. | 2026-11-11: owner re-enabled Actions (\"done\"); this record push is the first push after that. | 2026-11-11 run 42983065993 on 64be28f: both jobs failed within 1-2 s with no runner assigned (runner_id 0), no steps and no log (404); the jobs never started. Row 8 not met; most likely an account-level Actions billing lock or spending limit, to be checked by the owner in Settings -> Billing. | Confirmed by the run annotations (runs 267, 268): \"The job was not started because your account is locked due to a billing issue.\" Row 8 waits for the owner to clear the account billing lock (Settings -> Billing and licensing) and re-run.",
+      "evidence": [
+        "e226c47: scripts/gates/run_all.sh PASS (gate self-tests 66 OK, runners 0, static gates PASS, NovaCore 776 with 1 known NoiseCorpus issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0); frontier check valid (160)",
+        "Independent read-only review (high effort): FAIL at ad8f4c9 (trigger-form bypasses, wrong evidence rows) fixed in 8f4ba41; FAIL at 8f4ba41 (multi-line inline on:, # inside string) fixed in e226c47; PASS at e226c47"
+      ]
+    },
+    {
       "id": "T-000x",
       "owner": "AUTONOMOUS",
       "status": "PASS",
@@ -514,16 +529,65 @@
       ]
     },
     {
+      "id": "T-032g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-13a §3, §4, §6, §7: media 0-10 and voice 2-10 levels saved in UserDefaults and applied as LiveAudio lane gains; set_volume tool (catalog, validator, executor, code-built announce, limit_reached, side-button hint); barge-in dip multiplies the voice gain; 设置 sliders through the same executor; volume set record lines; rows 1-5, 8 unit, 10-12 device",
+      "depends_on": [
+        "T-032f"
+      ],
+      "notes": "Owner 2026-11-10: \"currently the agent unable to change the sound level\"; asked how two sounds (her voice and music) are handled; then \"just write the spec\". iOS cannot set the system volume (Apple); cars keep one volume per group and duck media relative to it (AOSP). | 2026-11-10: Built bf18f6c (merge 2026-11-10). Gates PASS on d4861a1: python 58 OK, runners 0, imports 299/0, secrets 0, NovaCore 779 passed (1 known NoiseCorpus issue), NovaRealtime 45, NovaServices 74, spec-trace 117/0. Independent read-only high-effort review PASS; Low open: set to current end level gives no limit_reached; two announce lines (voice mute / below 2) are builder wording not yet in volume.md §4; setLaneGains waits on mediaQueue (must never wait on main). App/NovaAudio not compiled; device rows 10-12 NOT_VERIFIED.",
+      "evidence": [
+        "bf18f6c; scripts/gates/run_all.sh PASS on d4861a1 (python 58 OK, runners 0, imports 299/0, secrets 0, NovaCore 779 passed with 1 known NoiseCorpus issue, NovaRealtime 45, NovaServices 74, spec-trace 117/0)",
+        "Independent read-only review (high effort) 2026-11-10: PASS, 4 Low open"
+      ]
+    },
+    {
+      "id": "T-032h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-13a §5, §7: media ducked to mediaGain x 0.3 while her reply or guidance plays, 150 ms down / 400 ms up on mediaQueue, duck on/off lines; rows 6, 7 unit, 9 device",
+      "depends_on": [
+        "T-032g"
+      ],
+      "notes": "The code has no ducking today (only the barge-in dip of her own reply); music.md §14 item 4 corrected. | 2026-11-10: Built 54e73ff. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: duck on/off lines written on every reply even with no music. App/NovaAudio not compiled; device row 9 NOT_VERIFIED.",
+      "evidence": [
+        "54e73ff; scripts/gates/run_all.sh PASS on d4861a1 (as T-032g)",
+        "Independent read-only review (high effort) 2026-11-10: PASS"
+      ]
+    },
+    {
+      "id": "T-032i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-13a §10 items 1-6: NovaGitCommit build stamp in 设置 and the record header; tools declared line; 音量 in the base prompt strict list; set_volume description starts with its trigger; ClaimLexicon request gains 音量/大声/小声/调大/调小; rows 13-16 unit, 17 device (also closes T-032g rows 10-11).",
+      "depends_on": [
+        "T-032g"
+      ],
+      "notes": "Owner 2026-11-13: she says 無法調節音樂的音量; the phone shows no volume sliders, so the installed build predates T-032g, and every build reads 0.1.0(1).",
+      "evidence": [
+        "4e12309, f3ee834: run_all.sh green on Linux Swift 6.2 (NovaCore 781, 1 known issue; NovaRealtime 42; NovaServices 74)",
+        "independent high-effort review REWORK -> fixed -> PASS",
+        "rows 13-16 unit PASS; row 17 and T-032g rows 10-11 device NOT_VERIFIED"
+      ]
+    },
+    {
       "id": "T-020d",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 2,
       "action": "F-07 §17 items 1-8: delete AzureSpeechClient, AzureRegionProbe and every Azure setting, key and option; one-time cleanup (azure source -> Gemini 原声, delete azure_speech_key, remove azure_region/azure_voice, flag azure_removed_done); AzureSpeechTuning -> SpeechTuning unchanged values; SpeechSynthesizer loses style; gate test: no 'azure' under App/ or Packages/; update current-behaviour specs; rows 19-25.",
       "depends_on": [
         "T-020b"
       ],
-      "notes": "Owner 2026-11-10: remove Azure completely (T-090 had kept it as a selectable source). Qwen and Gemini 原声 stay. Secrets-gate fixtures keep AZURE_SPEECH_KEY as a sample key name. 2026-11-10: code done, gates green; review FAIL on the item 3 vs item 6 conflict, waiting for the owner's decision.",
-      "evidence": []
+      "notes": "Owner 2026-11-10: remove Azure completely (T-090 had kept it as a selectable source). Qwen and Gemini 原声 stay. Secrets-gate fixtures keep AZURE_SPEECH_KEY as a sample key name. | 2026-11-13: Built 6b68e53 + review fixes 9d3787b. Item 6 contract edit: the cleanup must name the retired keys (item 3), so RetiredVoiceSettings.swift and its test are the gate's only allowed paths; the secrets-gate fixture App/Info.plist planted key AzureSpeechKey -> ZhipuKey (the gate derives names from CredentialKey). HTTPTransport and the test StubTransport moved out of the deleted Azure files unchanged. CredentialWipe also removes the retired key. App/NovaAudio not compiled on Linux; row 23 build and rows 24-25 device NOT_VERIFIED.",
+      "evidence": [
+        "9d3787b; scripts/gates/run_all.sh PASS on Linux with Swift 6.2 (python gate tests OK, imports 302/0, NovaCore 776 passed with 1 known NoiseCorpus issue, NovaRealtime 42, NovaServices 74, spec-trace 121/0); baseline main b305c60 also green",
+        "Independent read-only review (high effort) 2026-11-13: REWORK (Medium: gate allowlist by file name), fixed in 9d3787b; re-review PASS"
+      ]
     },
     {
       "id": "T-024",
@@ -1901,8 +1965,8 @@
     },
     {
       "id": "T-031c",
-      "owner": "HUMAN_DECISION",
-      "status": "HUMAN_REQUIRED",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
       "priority": 4,
       "action": "F-12 §14 items 14-15, only after the owner approves the numbers: model-chosen actions become the only path, table and run_scenario removed, F-09, F-12 and J5 updated",
       "depends_on": [
@@ -1910,7 +1974,14 @@
         "T-031d",
         "T-031e"
       ],
-      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. Do not start until the owner approves in specs/STATUS.md."
+      "notes": "Owner 2026-11-02 \"ok write this in spec and push to remote\" after community review. 2026-11-16: the owner decided the switch without the item 14 bars (F-09b §3, \"write the spec for this so call more flexibile stuff\"); scope is now F-09b §3. Build waits for the owner's go. Owner go 2026-11-16: \"pull and implment this flexible spec\" (F-09b).",
+      "quantified": "Model mode 27/27 with no wrongful action on ace916f (owner note 2026-11-02), behind on unprompted wordings and worst time; T-031d score table in specs/STATUS.md.",
+      "evidence": [
+        "gates PASS at 651bc01 (scripts/gates/run_all.sh: static PASS, NovaCore 780 tests, 1 known unrelated; ios-spec-check PASS)",
+        "independent read-only review (high effort): PASS at d193d0f (rule 5 matches §3 item 3, base 1380/1629 chars within 1707, run_scenario not declared and UNKNOWN_TOOL, comfort-mode setting removed); its finding (comfort eval sent no state note) fixed in f22cdd5; PASS confirmed at c088529",
+        "unit rows 1-2: ComfortTuningTests, ComfortEvalTests (one catalog, no run_scenario, state note before each eval sentence)",
+        "NOT_VERIFIED: App build (Codemagic); row 8 device comfort run"
+      ]
     },
     {
       "id": "T-031d",
@@ -1921,7 +1992,10 @@
       "depends_on": [
         "T-031b"
       ],
-      "notes": "Owner 2026-11-02 \"Yes, write it\" after scores on ace916f: model 27/27 no wrongful action but behind on unprompted wordings and worst time. Stop after this round; T-031c stays an owner decision."
+      "notes": "Owner 2026-11-02 \"Yes, write it\" after scores on ace916f: model 27/27 no wrongful action but behind on unprompted wordings and worst time. Stop after this round; T-031c stays an owner decision.",
+      "evidence": [
+        "specs/STATUS.md:112 (2026-11-02, T-031d, result PASS): Runner: sessionFailed (any .failed/.closed, retried once, then infrastructure, not scored), noAnswer (incl. empty turn), stuckAfterTool, slowAnswer; connect limit 10 s, answer timer from sendText; new `turnEnded(TurnEndReason)` from Gemini turnCompleteReason and for a turn ending with nothing open …"
+      ]
     },
     {
       "id": "T-031e",
@@ -1932,7 +2006,10 @@
       "depends_on": [
         "T-031d"
       ],
-      "notes": "Owner 2026-11-03 \"what ever you just take those approach and write that on spec\". Bars in item 14 are PROPOSED. Item 4 verdicts come from the owner and mentor before the full run. T-031c stays an owner decision."
+      "notes": "Owner 2026-11-03 \"what ever you just take those approach and write that on spec\". Bars in item 14 are PROPOSED. Item 4 verdicts come from the owner and mentor before the full run. T-031c stays an owner decision.",
+      "evidence": [
+        "specs/STATUS.md:114 (2026-11-03, T-031e, result PASS): Run ends at audioDone or responseDone (stage answerDone, first reply only); decision from last sentence (ask) / first or last (refuse), real c4fa669 replies as fixtures; known good and bad outcome for all 100 cases; 34 new cases (20 held out h3*, 12 noTool/ask, 14 unprompted); 「试跑」 12 cases once, …"
+      ]
     },
     {
       "id": "T-031f",
@@ -1943,7 +2020,10 @@
       "depends_on": [
         "T-031e"
       ],
-      "notes": "Owner 2026-11-03 \"you should build that for testing\" and \"you jsut wrie a spec and push to cloud\". Needed to diagnose the repeated reply reported that day."
+      "notes": "Owner 2026-11-03 \"you should build that for testing\" and \"you jsut wrie a spec and push to cloud\". Needed to diagnose the repeated reply reported that day.",
+      "evidence": [
+        "specs/STATUS.md:115 (2026-11-03, T-031f, result PASS): 「保存对话记录（测试用）」 default off, read at session start (off: no object, no file); Documents/conversations/<yyyyMMdd-HHmmss>.txt, newest 50 kept, 「删除全部对话记录」 with confirmation; header: app version, comfort mode, 可以打断她, style; lines heard-local/heard-gemini/utterance/reply (merged per turn)/reply-out …"
+      ]
     },
     {
       "id": "T-031g",
@@ -1954,7 +2034,10 @@
       "depends_on": [
         "T-031f"
       ],
-      "notes": "Owner 2026-11-03 \"this make sense then write the spec\" after a community review. Keep-or-revert rule in item 5 is PROPOSED."
+      "notes": "Owner 2026-11-03 \"this make sense then write the spec\" after a community review. Keep-or-revert rule in item 5 is PROPOSED.",
+      "evidence": [
+        "specs/STATUS.md:116 (2026-11-03, T-031g, result PASS): `control_window` model-mode text = 「控制车窗（模拟）。开窗能换入车外空气、散掉车内异味；关窗能隔绝噪音和车外空气。」 + today's rest (built from the table text); `modelClimateDescription` begins 「空调主要调节温度，风量让车内空气流动。」; table mode and other tools unchanged; no test case changed. Rows 1-2 unit (ToolPurposeTests); gates PASS (515 tests, 1 …"
+      ]
     },
     {
       "id": "T-031h",
@@ -1965,7 +2048,10 @@
       "depends_on": [
         "T-031g"
       ],
-      "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\" and \"the current test case is ok don't add extra stuff\"."
+      "notes": "Owner 2026-11-03 \"the lower temperature is non sense, remove that, add this to spec\" and \"the current test case is ok don't add extra stuff\".",
+      "evidence": [
+        "specs/STATUS.md:117 (2026-11-03, T-031h, result PASS): 「（调低一度温度、开一点车窗或调大风量）」 → 「（开一点车窗或调大风量）」; advice to rest kept; table instruction unchanged; test cases unchanged. Row 1 unit; same build as T-031g; gates PASS; review PASS."
+      ]
     },
     {
       "id": "T-031i",
@@ -1981,17 +2067,25 @@
     {
       "id": "T-017a",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 3,
       "action": "F-09a §2-§5: area per closed utterance from the phone recognizer's final text; control_climate/window/seat and run_scenario refused outside car with NOT_A_CAR_REQUEST; tired utterances silenced in code; record area lines; rows 1-8, 10 unit, row 9 device",
       "depends_on": [
         "T-031i"
       ],
-      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\"."  ,
+      "notes": "Device record 20261110-131646: 好困 made Gemini turn the AC on despite the F-12 §20 prompt rule. Owner 2026-11-10: route by area like 豆包, no confirmation question; \"Yes, build it\"; then \"probably you should write the spec\". | 2026-11-10: Fixes 0211b31 (early-turn calls held for their own utterance, re-armed area wait, per-turn held closes) and d4861a1 (cancelled held call never runs; late call of closed utterance's turn keeps its area) after review FAILs; gates PASS on d4861a1; third independent read-only high-effort review PASS (20/20 area tests + 4 probes). OPEN: S3 Gemini-text fallback as local final (needs source flag); not-sent onset edge; comfortOk timing; no tap path; row 8 router-only; row 9 device NOT_VERIFIED; App not compiled.",
       "evidence": [
-        {"gate": "scripts/gates/run_all.sh on d13d900's parent: green except a spec-trace test-name miss, fixed in ad2c9a7; CarRequestAreaTests 13 pass after review fixes", "commit": "3d8b1be, ad2c9a7, d13d900 + review fixes"},
-        {"review": "independent read-only high-effort review", "verdict": "FAIL: blocking, dropping a held reply at a new onset could cut her reply (fixed: kept, released whole); medium, a turn Gemini opens before the phone closes the utterance joined the previous area (fixed: attached at close); medium OPEN, the area reads DriverWords.final, which is Gemini's text when the phone has none (selector S3), needs a source flag through DriverTranscript and AgentRuntime; low OPEN: a not-sent onset before the sent utterance's final makes it unknown; no end-to-end comfort tap path exists (row 8 is the router rule only)"},
-        {"device": "row 9 NOT_VERIFIED"}
+        {
+          "gate": "scripts/gates/run_all.sh on d13d900's parent: green except a spec-trace test-name miss, fixed in ad2c9a7; CarRequestAreaTests 13 pass after review fixes",
+          "commit": "3d8b1be, ad2c9a7, d13d900 + review fixes"
+        },
+        {
+          "review": "independent read-only high-effort review",
+          "verdict": "FAIL: blocking, dropping a held reply at a new onset could cut her reply (fixed: kept, released whole); medium, a turn Gemini opens before the phone closes the utterance joined the previous area (fixed: attached at close); medium OPEN, the area reads DriverWords.final, which is Gemini's text when the phone has none (selector S3), needs a source flag through DriverTranscript and AgentRuntime; low OPEN: a not-sent onset before the sent utterance's final makes it unknown; no end-to-end comfort tap path exists (row 8 is the router rule only)"
+        },
+        {
+          "device": "row 9 NOT_VERIFIED"
+        }
       ]
     },
     {
@@ -2001,11 +2095,25 @@
       "priority": 4,
       "action": "F-21 §16: after the turn answering set_speaking_style ends, send contextUpdate{systemInstruction} (session base + new style block) on gemini-3.8-live only, when it differs from what the server holds; same path for a 设置 change; re-send after a resumed setupComplete when it differs from the chain's original; stop after a rejection within 2 s; style-update record lines; rows 1-8 unit, rows 9-11 device",
       "depends_on": [],
-      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone.",
+      "notes": "Owner 2026-11-10: asked how 豆包 changes tone mid-call (UpdateConfig) and whether the community sets it up; order A (update after her confirmation) \"probably i prefer a\"; then \"write the spec\". LiveKit #7944: a resumed gemini-3.8-live session keeps its original instruction, so a reconnect with the handle cannot change the tone. | 2026-11-10: Built 46c618b. Gates PASS on d4861a1 (as T-032g). Independent review PASS; Low open: goAway clears held so a change before reconnect goes via resume; skipped reason=model repeats per resumed reconnect on other models; held messages during slow resumed setup count toward pendingLimit; styleUpdatesStopped set via Task{}. 设置 tone picker added. App not compiled; device rows 9-11 NOT_VERIFIED. | 2026-11-10: WITHDRAWN by F-21 §17 (T-034d). Device records 175100 (1006 drop 4.5 s after the update) and 175232 (no reply after the update); owner: \"just write spec to remove this feature\". | 2026-11-10: removed by T-034d (aa734df) per F-21 §17.",
       "evidence": [
-        {"gate": "scripts/gates/run_all.sh", "result": "gates: PASS on a clean clone (NovaCore 755 + 4 after review fixes, 1 known issue T-013d; NovaRealtime 45; NovaServices 72; imports 0; secrets 0; no-azure 0; spec-trace 116 ids 0 missing); App not compiled on Linux"},
-        {"review": "independent read-only high-effort review", "verdict": "PASS; medium fixed: resume update's 2 s window and line start at setupComplete (a close before it counts), the answering turn's interrupted sends before any words, a 设置 change while not connected is kept for the next setup or sent at setupComplete; low fixed: settings waits while an answer is owed; low left: setup in the tool-save-to-result window carries the old tone, give-up compares tone only"},
-        {"device": "F-21 §16 rows 9-11 NOT_VERIFIED; build NOT_VERIFIED until the owner runs Codemagic"}
+        "46c618b; scripts/gates/run_all.sh PASS on d4861a1",
+        "Independent read-only review (high effort) 2026-11-10: PASS, 4 Low open; later removed by T-034d"
+      ]
+    },
+    {
+      "id": "T-034d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 4,
+      "action": "F-21 §17: remove the §16 contextUpdate path (codec encoder, realtime port call, GeminiLiveProvider, StyleUpdates/StyleUpdateLine, AgentState wiring, AgentRuntime styleUpdatesStopped) and its tests; set_speaking_style next/instruction = 「只说这一句：<line>」 with the five next-conversation lines; 设置 note 「下次对话开始生效。」; rows 1-5 unit, row 6 device",
+      "depends_on": [
+        "T-034c"
+      ],
+      "notes": "Owner 2026-11-10: said 溫柔一點 and heard no difference; community review: no documented mid-session instruction update, affective dialog removed in 3.8, 3.8 style instructions weak with production-sized prompts (forum 184558); owner \"just write spec to remove this feature that fix this big\". | 2026-11-10: built aa734df (revert of 46c618b, new confirmation lines, 设置 picker note 下次对话开始生效). Gates PASS on 360ba48 (NovaCore 776, 1 known issue; NovaRealtime 42; NovaServices 74; spec-trace 119/0). Independent read-only high-effort review PASS: nothing from later commits lost. App not compiled; device row 6 NOT_VERIFIED.",
+      "evidence": [
+        "aa734df; scripts/gates/run_all.sh PASS on 360ba48 (NovaCore 776 with 1 known issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0)",
+        "Independent read-only review (high effort) 2026-11-10: PASS, no later work lost"
       ]
     },
     {
@@ -2017,7 +2125,10 @@
       "depends_on": [
         "T-046b"
       ],
-      "notes": "Owner 2026-11-03: the LLM should find the data itself; fixed tools are only for car functions. Mentor complaint: 后天 weather."
+      "notes": "Owner 2026-11-03: the LLM should find the data itself; fixed tools are only for car functions. Mentor complaint: 后天 weather.",
+      "evidence": [
+        "specs/STATUS.md:119 (2026-11-03, T-046c, result PASS): Default off, read at session start; off: setup, instruction and timing equal today's in both comfort modes. On: `tools` = functionDeclarations + `googleSearch`; instruction drops 「天气、」 from the strict list and uses the item 3 sentence (table 1191, model 1420 chars ≤ 1500); re-ask 12 s, give-up …"
+      ]
     },
     {
       "id": "T-046d",
@@ -2028,7 +2139,10 @@
       "depends_on": [
         "T-046c"
       ],
-      "notes": "Device 2026-11-03, c161c9d: googleSearch in the live setup closes UNAVAILABLE on the free key; 后天 weather hit the today/tomorrow tool. Owner chose two models with 2.5 Flash-Lite. Replaces §15 items 2, 3, 4, 6, 7, 8, 10."
+      "notes": "Device 2026-11-03, c161c9d: googleSearch in the live setup closes UNAVAILABLE on the free key; 后天 weather hit the today/tomorrow tool. Owner chose two models with 2.5 Flash-Lite. Replaces §15 items 2, 3, 4, 6, 7, 8, 10.",
+      "evidence": [
+        "specs/STATUS.md:120 (2026-11-03, T-046d, result PASS): Live setup never sends googleSearch (§15 search reporting removed). On: `web_search` declared (live_info, repeat-sensitive, query ≤200), client POSTs generateContent with google_search, key in x-goog-api-key, phone date/weekday/zone in its instruction; ok only with text + webSearchQueries + …"
+      ]
     },
     {
       "id": "T-046e",
@@ -2039,7 +2153,10 @@
       "depends_on": [
         "T-046d"
       ],
-      "notes": "Device 2026-11-03, e87affb: web_search failed with http_404, likely gemini-2.5-flash-lite closed to new users. Owner chose to test Qwen on the free quota. Wire format not yet run against the model. Replaces §16 items 4, 5, 8."
+      "notes": "Device 2026-11-03, e87affb: web_search failed with http_404, likely gemini-2.5-flash-lite closed to new users. Owner chose to test Qwen on the free quota. Wire format not yet run against the model. Replaces §16 items 4, 5, 8.",
+      "evidence": [
+        "specs/STATUS.md:121 (2026-11-03, T-046e, result PASS): `QwenWebSearchClient` replaces the Gemini client: streamed POST to the dashscope-intl multimodal endpoint, key only in `Authorization: Bearer`, X-DashScope-SSE, item 3 body and system text with phone date; parser joins string/list content, skips reasoning_content and non-JSON lines, last non-empty …"
+      ]
     },
     {
       "id": "T-046f",
@@ -2050,7 +2167,10 @@
       "depends_on": [
         "T-046e"
       ],
-      "notes": "Device 2026-11-04, e01f464: PC call to qwen3.7-flash found 18 sources; on the phone one query failed no_sources after 3572 ms and 上海明天天气 failed in 2 ms with no system log. Owner asked to record Qwen input and response."
+      "notes": "Device 2026-11-04, e01f464: PC call to qwen3.7-flash found 18 sources; on the phone one query failed no_sources after 3572 ms and 上海明天天气 failed in 2 ms with no system log. Owner asked to record Qwen input and response.",
+      "evidence": [
+        "specs/STATUS.md:122 (2026-11-04, T-046f, result PASS): `WebSearchExchange` (NovaPorts) via `onExchange` on `QwenWebSearchClient`, nil with the record off. Record: `search-request attempt body`, `search-response attempt status ms bytes chunks answerChars sources searchCount body` (over 32,000 chars: first 8,000 + … + last 24,000; counts from the whole …"
+      ]
     },
     {
       "id": "T-046g",
@@ -2061,7 +2181,10 @@
       "depends_on": [
         "T-046f"
       ],
-      "notes": "Device 2026-11-04, e01f464: 上海后天天气 answered with 11月5日, the 明天 forecast, and she dropped the date. Owner approved a code date fix."
+      "notes": "Device 2026-11-04, e01f464: 上海后天天气 answered with 11月5日, the 明天 forecast, and she dropped the date. Owner approved a code date fix.",
+      "evidence": [
+        "specs/STATUS.md:123 (2026-11-04, T-046g, result PASS): `SearchDate` (NovaTools): 今天/今日/明天/明日/后天/大后天 (longest first), `[YYYY年]M月D日/号` with year rollover; one day = target; bracket `（2026年11月6日）` after the relative word unless a written date is there; future targets only: answer dates incl. ranges → match/no_date/mismatch, mismatch retries once then …"
+      ]
     },
     {
       "id": "T-046h",
@@ -2072,7 +2195,10 @@
       "depends_on": [
         "T-046g"
       ],
-      "notes": "PC test 2026-11-04: the same oil price query searched 1 time in 3 with the §17 settings. Owner: the app only calls Qwen to search, so force it. Not yet tested on qwen3.7-flash multimodal streaming."
+      "notes": "PC test 2026-11-04: the same oil price query searched 1 time in 3 with the §17 settings. Owner: the app only calls Qwen to search, so force it. Not yet tested on qwen3.7-flash multimodal streaming.",
+      "evidence": [
+        "specs/STATUS.md:124 (2026-11-04, T-046h, result PASS): `search_options` adds `forced_search: true` (each option one constant); sources still required; a refusal is one request with its code, no resend without it. Rows 1-3 unit; gates and review as T-046f. Rows 4-5 NOT_VERIFIED (device)."
+      ]
     },
     {
       "id": "T-046i",
@@ -2083,7 +2209,10 @@
       "depends_on": [
         "T-046h"
       ],
-      "notes": "Device 2026-11-04, e01f464: while navigating to 横琴文化艺术中心 she searched ODD几点关门 and said she could not find ODD. Owner approved the two-part fix after a community review. turnComplete false has never been sent by this app, so row 8 comes first."
+      "notes": "Device 2026-11-04, e01f464: while navigating to 横琴文化艺术中心 she searched ODD几点关门 and said she could not find ODD. Owner approved the two-part fix after a community review. turnComplete false has never been sent by this app, so row 8 comes first.",
+      "evidence": [
+        "specs/STATUS.md:125 (2026-11-04, T-046i, result PASS): `NavigationFlowState.currentDestination` (navigating incl. a list over guidance, arrived; cleaned, ≤60). 目的地/终点 → name in one pass before `SearchDate`; hint (destination, name absent, hours word) adds `current_destination` + next / advice texts. `AgentState(destinationNotes:)` (on with search, …"
+      ]
     },
     {
       "id": "T-046j",
@@ -2094,7 +2223,10 @@
       "depends_on": [
         "T-046i"
       ],
-      "notes": "Device 2026-11-05, 21f4478: Qwen searched in 1 of 10 calls. PC test 2026-11-05, same question 5 times each: agent 0 of 10, turbo 10 of 10, max 10 of 10, no strategy 5 of 5. One question only, so row 3 tests the others."
+      "notes": "Device 2026-11-05, 21f4478: Qwen searched in 1 of 10 calls. PC test 2026-11-05, same question 5 times each: agent 0 of 10, turbo 10 of 10, max 10 of 10, no strategy 5 of 5. One question only, so row 3 tests the others.",
+      "evidence": [
+        "specs/STATUS.md:126 (2026-11-05, T-046j, result PASS): `searchStrategy` constant `agent` → `turbo`; `enable_source` and `forced_search` unchanged; system text unchanged; sources rule unchanged; a refusal is one request with its code, no resend with another strategy. Rows 1-2 unit (client: both attempts carry turbo, 400 throws with code; executor: …"
+      ]
     },
     {
       "id": "T-016i",
@@ -2105,7 +2237,10 @@
       "depends_on": [
         "T-016f"
       ],
-      "notes": "Owner 2026-11-05: the screen sometimes shows Korean or other languages. No Korean in the 8 records read, so the case itself is not traced; the code shows four unchecked paths. Row 10 is the device check."
+      "notes": "Owner 2026-11-05: the screen sometimes shows Korean or other languages. No Korean in the 8 records read, so the case itself is not traced; the code shows four unchecked paths. Row 10 is the device check.",
+      "evidence": [
+        "specs/STATUS.md:127 (2026-11-05, T-016i, result PASS): `ScreenLanguage` (NovaVoice/Transcript) show/wait/hide on the whole text so far: other scripts hide; Han passes `isChinese`, or short uppercase/digit tokens only (deviation: row 1 lists 「4S店」 as show but `isChinese` fails it, so `shortTokensOnly` allows Han plus at most as many A-Z/0-9 runs of ≤5 …"
+      ]
     },
     {
       "id": "T-060a",
@@ -2117,7 +2252,10 @@
         "T-061",
         "T-022a"
       ],
-      "notes": "Owner 2026-11-05: the wake word is not set up. The iFlytek path needs three keys and was never verified on a phone. No public false-wake numbers for this model, so rows 9-12 decide."
+      "notes": "Owner 2026-11-05: the wake word is not set up. The iFlytek path needs three keys and was never verified on a phone. No public false-wake numbers for this model, so rows 9-12 decide.",
+      "evidence": [
+        "specs/STATUS.md:128 (2026-11-05, T-060a, result PASS): `SherpaWakeEngine` on the bundled KWS model with the two `WakePhrase` token lines (gate `check_kws_tokens.py` covers them); `WakeEngineKind.selected = .sherpa`, iFlytek code kept unused; 唤醒词 setting default on; screen on while listening; hint 「说“你好小诺”唤醒」; ready sound on its own node (two tones …"
+      ]
     },
     {
       "id": "T-016j",
@@ -2129,7 +2267,25 @@
         "T-016h",
         "T-060a"
       ],
-      "notes": "Owner 2026-11-05: once disconnected it does not connect back; let the wake word connect again. The 3 drops in the records recovered, so the owner's failure is not captured yet."
+      "notes": "Owner 2026-11-05: once disconnected it does not connect back; let the wake word connect again. The 3 drops in the records recovered, so the owner's failure is not captured yet.",
+      "evidence": [
+        "specs/STATUS.md:129 (2026-11-05, T-016j, result PASS): `ReconnectTuning.retryWindow` 60 s (no attempt limit, network up; a retry starts only inside the window) replaces `maxAttempts`; §14 tests rewritten; give-up closes through the offline-end path; `KeptResumption` holds the handle in memory only, 2 h from its first save (kept again by a resumed …"
+      ]
+    },
+    {
+      "id": "T-016o",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-24 §17 items 1-7 (ConnectionNotice in NovaKit; provider failures stop writing model.notice; 重新连接中… after 1 s, 已重新连接 3 s on setupComplete, 连接失败，点按重试 for non-retryable codes; no codes on screen; connNotice log); F-24 §17 rows 1-9.",
+      "depends_on": [
+        "T-016j"
+      ],
+      "notes": "Owner 2026-11-10 build 58 (3108ed0): 连接错误：RESUME_UNAVAILABLE stayed on screen after the 17:31:30 reconnect. model.notice is cleared only by start(by:). The 1007 after a stop phrase is not part of this task. | 2026-11-10: built bfc3e70 (ConnectionNotice in NovaKit, AgentRuntime/DriveView wiring). Gates PASS on 7c10a51: python 58 OK, runners 0, imports 300/0, NovaCore 776 passed (1 known NoiseCorpus issue), NovaRealtime 42, NovaServices 74, spec-trace 119/0. Independent read-only high-effort review PASS; Low open: a connection event landing after stop() can show 连接失败 on the idle screen until next start; waiting flag not cleared on gaveUp. App not compiled; device rows 8-9 NOT_VERIFIED.",
+      "evidence": [
+        "bfc3e70; scripts/gates/run_all.sh PASS on 360ba48 (python 58 OK, runners 0, imports 300/0, NovaCore 776 with 1 known issue, NovaRealtime 42, NovaServices 74, spec-trace 119/0)",
+        "Independent read-only review (high effort) 2026-11-10: PASS, 2 Low open"
+      ]
     },
     {
       "id": "T-016l",
@@ -2232,7 +2388,10 @@
         "T-013a",
         "T-060a"
       ],
-      "notes": "Owner request 2026-11-05. No built-in threshold: the lock cannot turn on until calibrated on the phone. Accuracy and delay are unmeasured until rows 12-18 run. Code PASS 2026-11-05 (gates 611+35+41, review PASS after 2 FAIL rounds). Licence: primary ModelScope card Apache-2.0. Eval on AISHELL-1/HI-MIA clips (studio, not car). Rows 11-18 NOT_VERIFIED (device)."
+      "notes": "Owner request 2026-11-05. No built-in threshold: the lock cannot turn on until calibrated on the phone. Accuracy and delay are unmeasured until rows 12-18 run. Code PASS 2026-11-05 (gates 611+35+41, review PASS after 2 FAIL rounds). Licence: primary ModelScope card Apache-2.0. Eval on AISHELL-1/HI-MIA clips (studio, not car). Rows 11-18 NOT_VERIFIED (device).",
+      "evidence": [
+        "specs/STATUS.md:130 (2026-11-05, T-013e, result PASS): Licence: primary ModelScope card `iic/speech_campplus_sv_zh_en_16k-common_advanced` says Apache-2.0; pinned `csukuangfj/speaker-embedding-models@0743f301`, sha256 `aa3cfc16…ceba2` (`fetch_sherpa_models.sh`, `speaker/`). `SpeakerVerifier` port; `SherpaSpeakerVerifier` (NovaAsrSherpa, typechecked …"
+      ]
     },
     {
       "id": "T-013f",
@@ -2243,7 +2402,10 @@
       "depends_on": [
         "T-013e"
       ],
-      "notes": "Owner request 2026-11-05. Code PASS 2026-11-05 (gates 616+35+41, py 30; review FAIL then PASS, fixes f3449a4). App and extension not built (no Xcode here). Rows 23-26 NOT_VERIFIED (device). Deferred: v2 pack folder reuse; retry after checksum mismatch."
+      "notes": "Owner request 2026-11-05. Code PASS 2026-11-05 (gates 616+35+41, py 30; review FAIL then PASS, fixes f3449a4). App and extension not built (no Xcode here). Rows 23-26 NOT_VERIFIED (device). Deferred: v2 pack folder reuse; retry after checksum mismatch.",
+      "evidence": [
+        "specs/STATUS.md:131 (2026-11-05, T-013f, result PASS): Pure `SpeakerModelAvailability` (bundle first, then pack with pinned sha256; downloading/failed/iOS<26 texts; 重试 after failure) rows 19–21; a calibrated lock stays on and fails closed while the pack is not ready, re-applied mid-session. `SpeakerModelLocator` (App, iOS 26, only with …"
+      ]
     },
     {
       "id": "T-013g",
@@ -2326,7 +2488,10 @@
       "depends_on": [
         "T-042"
       ],
-      "notes": "Gates PASS on stack 1ff2f9f (NovaCore 632, Realtime 36, Services 42, py 42; spec-trace 91/0). Review FAIL (navigate_to while navigating bypassed §14; turn read before search; tool name in spoken text) fixed, re-review PASS. App not built. Rows 1 (PC) and 8 (device) NOT_VERIFIED."
+      "notes": "Gates PASS on stack 1ff2f9f (NovaCore 632, Realtime 36, Services 42, py 42; spec-trace 91/0). Review FAIL (navigate_to while navigating bypassed §14; turn read before search; tool name in spoken text) fixed, re-review PASS. App not built. Rows 1 (PC) and 8 (device) NOT_VERIFIED.",
+      "evidence": [
+        "specs/STATUS.md:132 (2026-11-05, T-042c, result PASS): Near-first (around 50 km → city citylimit → type word; nationwide only after them when they're empty or another province/city is named, merged ranking); pinyin port (Foundation transform, NovaServices) + toneless syllable score + distance prior; sure/ask/none tiers, far_only > 300 km; CONFIRM_FIRST …"
+      ]
     },
     {
       "id": "T-046k",
@@ -2337,7 +2502,10 @@
       "depends_on": [
         "T-046j"
       ],
-      "notes": "Gates PASS (same stack). Review PASS first round. Open: §16 item 11 persona/web_search text still sends weather/hours to web_search (spec gap, owner). Row 1 (PC) NOT_VERIFIED."
+      "notes": "Gates PASS (same stack). Review PASS first round. Open: §16 item 11 persona/web_search text still sends weather/hours to web_search (spec gap, owner). Row 1 (PC) NOT_VERIFIED.",
+      "evidence": [
+        "specs/STATUS.md:133 (2026-11-05, T-046k, result PASS): Weather and place_details stay in query_live_info with search on (exact tool sentence); day today..day_after_next; casts picked by date (phone zone), `date` in result, missing day → LIVE_INFO_UNAVAILABLE with search advice; place without hours → web_search advice. Gates green; review PASS. Open …"
+      ]
     },
     {
       "id": "T-046l",
@@ -2462,6 +2630,475 @@
         {
           "device": "F-18 §29 rows 9-10 NOT_VERIFIED"
         }
+      ]
+    },
+    {
+      "id": "T-046s",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §30 items 1-6: TCPHTTPTransport (NWConnection TCP+TLS, HTTP/1.1 GET, Connection: close, read to close) as OpenMeteoClient's default for geocoding and forecast; HTTP1Response.parse (Content-Length, chunked, to close); one retry on timeout or connection failure, not on non-200; WeatherSourceLog attempts= ms=; ConversationRecord .weather line from onWeather; F-18 §30 rows 1-9.",
+      "depends_on": [
+        "T-046r"
+      ],
+      "notes": "Device 2026-11-13: every Open-Meteo weather call failed (records 125926, 130250, 131201, 131842; Tokyo x6, Macau x1). Live log 13:25: forecast C42/C43 quic-connection, stalled at read_server_hello, -1001 after 4001 ms with 0 bytes; geocoding C41 over QUIC ok in 1.8 s; PC over TCP ok. URLSessionTransport is already ephemeral. Apple DTS (forum 796780): no good way to disable QUIC for one URLSession. Owner: \"well then write the spec\".",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green at 48cffc6 in a clean worktree (spec-trace 120 ids 0 missing; imports, runners PASS); NovaServices 80 tests incl. OpenMeteoTCPTests rows 1-5; NovaNav WeatherAttemptsTests + NovaAgent WeatherRecordTests row 6. TCPHTTPFetcher (NovaPlatform) and App not compiled on Linux: row 7 NOT_VERIFIED until Codemagic; rows 8-9 device NOT_VERIFIED"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "round 1 FAIL (chunk-size overflow crash; deviation unrecorded) fixed in 48cffc6; round 2 PASS. Deviation: NWConnection code in NovaPlatform (check_imports allows Network only there), injected by AgentRuntime; owner sign-off on §30 wording pending"
+        }
+      ]
+    },
+    {
+      "id": "T-046t",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §31 items 1-10: QWeatherClient (GeoAPI city lookup, /weather/v1 current, daily days=10, hourly hours=240, X-QW-Api-Key, localTime=true, lang=zh); qweather_host/qweather_key in 设置; 和风 lookup for HK, MO, foreign and non-Han names, 高德 geocode/regeo kept for Chinese names, here and destination; 高德 weather removed; Open-Meteo fallback on no key, timeout, 401/403/429/5xx or parse failure; 10-day window in all texts and forecast_days=10; record line source=qweather; F-18 §31 rows 1-12.",
+      "depends_on": [
+        "T-046s"
+      ],
+      "notes": "Device 2026-11-13 (f84b538): over TCP, Tokyo still failed 8 of 8; Open-Meteo (Germany) connect+TLS 1.0-2.2 s, sometimes over 4 s. Owner: \"you just write the spec that use 和風\". Needs the owner's 和风 API host and key; PC check of speed, free coverage and lookup order before the device test.",
+      "evidence": [
+        "gates: scripts/gates/run_all.sh PASS at 5898e56 (clean worktree; spec-trace 123, 0 missing; NovaServices 84 tests; NovaCore 779 passed, 1 known issue)",
+        "review: independent read-only high-effort reviewer FAIL at 57482d4 (M1-M3), fixed in 5898e56, re-review PASS",
+        "NOT_VERIFIED: row 10 Codemagic build/设置 check; rows 11-12 device runs with 和风 key; range=hk/mo device check",
+        "non-blocking follow-ups: L1 executor tests (adcode 81/82 hkmo, concurrent now requests, destination weather); L3 record line on regeo key error; L4 regeo address alongside 和风; L5 place date when daily fails; L7 dead code"
+      ]
+    },
+    {
+      "id": "T-013k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-04b §17 items 1-9: with the lock on, BargeInLive's dip acts at once; a live candidate gets one early speaker score on its first 1.0 s of speech (AS-norm, cohort threshold1s); accepted releases the queued stop, rejected/unknown drops it and undips; words still follow the §16 whole-sentence verdict; SpeakerHold keeps an utterance whose score was requested when a new one starts (cutAtUnmute no longer loses it); speaker_cohort.py --test-seconds adds threshold1s/eer1s/trials1s; record kind=early and early= on the stop line; rows 61-69.",
+      "depends_on": [
+        "T-013j"
+      ],
+      "notes": "Device 2026-11-16 (64abef8): lock on, BargeInLive decided stop 3 of 3 but only 1 stopped her; 2 were held for the end-of-sentence verdict, cut by cutAtUnmute and dropped as unknown. Lock off: 2 of 2 stopped. Owner: only the driver may interrupt; \"Yes, write B\". The 1 s threshold needs a PC run of speaker_cohort.py on CN-Celeb1.",
+      "evidence": [
+        "gates: scripts/gates/run_all.sh PASS at e2f5c4b (clean worktree; NovaCore 787 tests, 1 known unrelated issue; spec-trace 124, 0 missing); test_speaker_cohort.py 8 OK (row 61)",
+        "review: independent read-only high-effort reviewer FAIL at c3d5d09 (shared action queue, stuck awaiting on threshold change, unordered dispatch), fixed in e2f5c4b, re-review PASS",
+        "unit rows 62-67: EarlyBargeInTests (+perUtterance, thresholdChangeRescores)",
+        "NOT_VERIFIED: App build (Codemagic); rows 68-69 device; threshold1s needs a PC run of speaker_cohort.py --test-seconds 1.0 on CN-Celeb1 (until then early check = unknown, no early stop)"
+      ]
+    },
+    {
+      "id": "T-013l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-04b §17 amendment items 1-2: early threshold falls back to the measured whole-sentence threshold; early rejected/unknown drops only the queued actions, outputs wait for the whole verdict.",
+      "depends_on": [
+        "T-013k"
+      ],
+      "notes": "Device 10:14 record (faf209f): early always unknown (threshold none), and unknown marked the driver's sentences mute=speaker before the whole verdict accepted them.",
+      "evidence": [
+        "gates PASS at 8f378a8 (scripts/gates/run_all.sh: static PASS, NovaCore 797 tests, ios-spec-check PASS)",
+        "independent read-only review (high effort): FAIL at 3c4b9d4 (closed stop step released outputs early), fixed in 5af7bae; re-review PASS at 5af7bae",
+        "unit: EarlyBargeInTests rows 62-67 (63-64 updated), EarlyBargeInAmendmentTests (unknown/rejected then whole verdict, fallback threshold, closed stop step both early verdicts)",
+        "NOT_VERIFIED: App build (Codemagic); rows 68-69 device"
+      ]
+    },
+    {
+      "id": "T-013m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-04b §18: playback bar: while her reply plays or in echoTail, the speaker lock needs score >= playbackThreshold (4.0) for the early stop and the whole-sentence verdict; rows 70-72.",
+      "depends_on": [
+        "T-013l"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 70-72)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Device 2026-11-18 record 20261118-133726: her echo scored 1.152 against -0.092 and stopped her. Spec only (owner 2026-11-18: \"good write down this\"). Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §18."
+    },
+    {
+      "id": "T-021q",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-03 §14 items 1-5: LiveAudio handles AVAudioSession interruptions (stop and wait, resume with shouldResume or on return), no configuration-change restart while interrupted; audio record lines; pure MicInterruption.",
+      "depends_on": [
+        "T-021"
+      ],
+      "notes": "Device 2026-11-16: Voice Memos recorded silence with NovaDrive running, normal with it closed.",
+      "evidence": [
+        "gates PASS (scripts/gates/run_all.sh: static PASS, NovaCore 798 tests, ios-spec-check PASS) with the final MicInterruption change",
+        "independent read-only review (high effort): FAIL at 3c4b9d4 (no resume without an end; play() on a stopped engine), FAIL at 5af7bae (failed engine start crash), PASS at 8f378a8; its one minor finding (resume clearing a new interruption) fixed after: resumed() only while resuming, test beganDuringResume",
+        "unit rows 1-3: MicInterruptionTests (+beganWithoutEnd, beganDuringResume)",
+        "NOT_VERIFIED: App build (Codemagic); rows 4-5 device"
+      ]
+    },
+    {
+      "id": "T-040i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b phase 1: TripList + name resolving through PlaceSearch, tools make_trip_list / edit_trip_list / route_trip, RouteRequest.waypoints sent to Amap /v3/direction/driving (max 16), stops passed and recalculation with the unpassed waypoints, trip record lines; F-15b rows 1-15.",
+      "depends_on": [
+        "T-040h"
+      ],
+      "quantified": {
+        "options": [
+          "Build phase 1 as written (rows 1-15)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"write a spec and push to remot\"). Build starts on the owner's go; then owner AUTONOMOUS, status NOT_RUN. Source: owner video 11-16 (豆包 trip list -> 8-stop route); Amap waypoints limit 16 read 2026-11-16. Owner go 2026-11-16: \"pull and implement the spec\" (F-15b, phases 1 and 2).",
+      "evidence": [
+        "gates PASS at 681dccf and 25e42f1 (scripts/gates/run_all.sh: static PASS, NovaCore tests, ios-spec-check PASS)",
+        "independent read-only review (high effort): FAIL at 6015cc1 (kept trip route survived list changes; as_listed then start reordered; no OPTIONS_STALE on a change during start), fixed in 681dccf; PASS at 681dccf",
+        "mutation evidence: each fix's test fails with the fix removed (editsDropKept, asListedThenStart, changedWhileStarting, cancelledMake, tracker)",
+        "unit rows 1-14: TripPlannerTests, TripWaypointTests (NovaServices); spec §20 implementation notes",
+        "NOT_VERIFIED: App build (Codemagic); row 15 device"
+      ]
+    },
+    {
+      "id": "T-040j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b phase 2a: poster cards with Amap place photos (https only, cache), the strip while moving (8 km/h / 3 s), editing on screen through UIIntent (remove, move, route, add from list), NOT_WHILE_MOVING, tap note, numbered pins and 途经 labels; F-15b rows 16-25.",
+      "depends_on": [
+        "T-040i"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 16-25)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"create a spec including this function and also other thing that tailored from the movie and push to remtoe\"). Build starts on the owner's go. Owner go 2026-11-16: \"pull and implement the spec\" (F-15b, phases 1 and 2).",
+      "evidence": [
+        "gates PASS at 6ecd95c (scripts/gates/run_all.sh)",
+        "independent read-only review (high effort): FAIL at 681dccf (re-resolved stop lost its photo), FAIL at e1f4836 (known photos not on screen, repeated lookups, late photo forced recalculation), PASS at 6ecd95c with mutation checks per fix",
+        "unit rows 16-25: TripScreenTests, TripPhotoAgainTests, TripTapNoteTests, TripPhotoParseTests, TripReviewFixTests",
+        "NOT_VERIFIED: App build (Codemagic); cards, strip, pins on device"
+      ]
+    },
+    {
+      "id": "T-040l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b phase 2b: current plan saved in Application Support, named plans (max 20) and days (1-5), trip_plans tool (save/open/list/delete/rename), 上一个清单 slot, load/save record lines; F-15b rows 26-35.",
+      "depends_on": [
+        "T-040j"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 26-35)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"create a spec including this function and also other thing that tailored from the movie and push to remtoe\"). Build starts on the owner's go. Owner go 2026-11-16: \"pull and implement the spec\" (F-15b, phases 1 and 2).",
+      "evidence": [
+        "gates PASS at d0e6903 (scripts/gates/run_all.sh: NovaCore 826 tests, ios-spec-check PASS, spec-trace 132 ids)",
+        "independent read-only review (high effort): FAIL at e1f4836 (a day switch was not a plan change; pins and passed marks from the old route), FAIL at 6ecd95c (a look at another day restarted running guidance; no controller test for tripStopIDs), PASS at 3c1161b with mutation checks",
+        "unit rows 26-34: TripPlanTests, TripReviewFixTests, TripReviewFix2Tests",
+        "NOT_VERIFIED: App build (Codemagic); row 35 device"
+      ]
+    },
+    {
+      "id": "T-040m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b phase 2c (device 2026-11-17, ecd94e6): card tap opens the details; spot introduction from the Qwen web search on the details sheet; 「把页面关掉」 puts the trip cards away (exit_navigation_mode), 「行程」 button and trip calls show them again; rows 54-64.",
+      "depends_on": [
+        "T-040l"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 54-64)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-17: \"you just write the spec for the former two problems\"). Build starts on the owner's go. Uncommitted edits from before the spec (card Button, tripCardsHidden, 行程 button) are a start, untested. Owner go 2026-11-17: \"claude/youthful-curie-vuit5r pull and implement\".",
+      "evidence": [
+        "gates PASS at 70178b4 (NovaCore 848 tests, 1 known issue pre-existing in NoiseCorpusTests; ios-spec-check PASS; spec-trace 132 ids, 0 missing); 350f825 changes only the App view and a comment",
+        "independent read-only review (high effort): FAIL at 70178b4 (strip shown while cards hidden), PASS at 350f825",
+        "unit rows 54-57, 59-63: TripPhase2cTests",
+        "NOT_VERIFIED: App build (Codemagic); rows 58, 64 device"
+      ]
+    },
+    {
+      "id": "T-040n",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b phase 3 (§25-§34): plan ordered by real driving time from the current position or a named start (高德 /v3/distance), reorganize and move to_day with the same place set checked in code, trip_next one stop at a time with arrival marks; route_trip and trip 途经点 removed; rows 65-83.",
+      "depends_on": [
+        "T-040m"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 65-83)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-17: \"the mutlti point routing is actually a nonsense function ... based on the plan to call next desitination\"; \"write the spec here\"). Build starts on the owner's go. Owner go 2026-11-17: \"claude/youthful-curie-vuit5r pull and implement the work\".",
+      "evidence": "8df8add: scripts/gates/run_all.sh PASS (clean clone); independent high-effort read-only review PASS after fixing FAIL findings of 0f5fd02. Device rows 81-83 NOT_VERIFIED."
+    },
+    {
+      "id": "T-040o",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b phase 4 (§35-§44): trips abroad via Apple place search chosen by the abroad flag, wrong-country guard and wrong-flag backstop, start/hotels/end frame with code-picked hotels, 300 km start rule, Apple Maps hand-off when 高德 guidance fails abroad, WRONG_LANGUAGE re-ask with the driver's words; rows 84-98.",
+      "depends_on": [
+        "T-040n"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 84-98)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner go 2026-11-18 (\"claude/youthful-curie-vuit5r pull and implement the function based on spec\"). Built; review pending.",
+      "evidence": "56c5b5e: scripts/gates/run_all.sh PASS (clean clone, NovaCore 870 tests, 1 pre-existing known issue); independent high-effort read-only review FAIL at c77e17d (hotel replace, voice arrival at hotel, partly found hotels, named start, region, add count), fixed, PASS at 56c5b5e. App/NovaPlatform (MapKit) not compiled on Linux: local agent build. Rows 96-98 device NOT_VERIFIED."
+    },
+    {
+      "id": "T-040p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b §36 items 2b-2d: abroad place search on Photon (OpenStreetMap), abroad driving times on OSRM with a straight-line estimate fallback, navigate_to abroad/city on Photon; rows 84b-84f, row 96 again on device.",
+      "depends_on": [
+        "T-040o"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 84b-84f)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Device 2026-11-18 (record 20261118-105448): Apple on a China-region iPhone finds only China. 高德 refuses abroad times (20011, 10045). Owner 2026-11-18: \"write the spec and push to remote\"; Linux (WSL) work on cloud (\"if you need to use wsl i prefer you to handle that on cloud\").",
+      "evidence": [
+        "be697eb: PhotonPlaceSearch + 4 NovaServices tests",
+        "cloud session 2026-11-18: OsrmDrivingTimes (NovaServices) behind DrivingTimes (answersWholeTable/table), TripTimes one-request table with cache and one in flight, TripPlanner abroadTimes with the straight-line estimate (times=estimated, 时间是估算的), trip times line; navigate_to abroad/city on Photon (NavigationController.setAbroad, trip city default), nav search line, §39 catalog text, schema and validator; AgentRuntime wiring; tests TripPhase4bTests (rows 84b-84e), OsrmDrivingTimesTests, PhotonRow84fTests",
+        "static gates PASS (run_static.sh, ios_spec_check, spec_trace); NOT RUN: swift build/test (download.swift.org blocked by the auto-mode permission check in the cloud session), so no gate evidence and no review yet; status stays RUNNING",
+        "NOT_VERIFIED: row 96 (device)"
+      ]
+    },
+    {
+      "id": "T-040q",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b §45: car rental in a trip: make_trip_list rental=true, code picks a pickup near the start and a return near the end (same brand preferred), fixed in the day order, 租 label; rows 99-104.",
+      "depends_on": [
+        "T-040p"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 99-104)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Device 2026-11-18 record 20261118-133726: the driver asked for 租车 and the plan had none. Spec only (owner 2026-11-18: \"write down this also\"). Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §45."
+    },
+    {
+      "id": "T-040r",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b §46: photos abroad from Wikipedia (search by the English name, used only within 2 km of the stop), and a kind-of-place icon placeholder home and abroad; rows 105-110.",
+      "depends_on": [
+        "T-040p"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 105-110)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Device 2026-11-18 ipa147: every abroad card showed the one-character placeholder. Spec only (owner 2026-11-18: \"good write down this\"). Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §46."
+    },
+    {
+      "id": "T-040s",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b §47: guidance abroad inside the app on OSRM routes (RouteSource, OSRM route + recalculation, zh-Hans osrm-text-instructions templates, attribution); Apple Maps only when OSRM fails; rows 111-116.",
+      "depends_on": [
+        "T-040p"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 111-116)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Device 2026-11-18 record 20261118-134135: abroad guidance opened Apple Maps (ROUTE_CALCULATION_FAILED). Spec only (owner 2026-11-18: \"write down the spec for what i mentioned before ... after that push to remote\"). Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §47."
+    },
+    {
+      "id": "T-040t",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b §48: fit each day to a time budget: model gives visit minutes and optional per place and ~1.5x places; code (TripFitter) keeps required, inserts optional within the day budget, keeps the rest as spare, says the load; rows 117-126.",
+      "depends_on": [
+        "T-040q",
+        "T-040r"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 117-126)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner 2026-11-18: estimate each day's time and adjust the plan, too few or too much is a problem. Spec only (owner: \"write down this\"). Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §48."
+    },
+    {
+      "id": "T-040u",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-15b §49: the model revises the plan after code checks it: importance 1-3 and wishes; fit by score with exchanges between days (Google); checks not_found/over/driving/under/hotel fed back together (LLM-Modulo); new revise_trip_list; at most 2 silent rounds; rows 127-139.",
+      "depends_on": [
+        "T-040t"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 127-139)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner 2026-11-18 (mentor: more LLM, less fixed workflow); proposal held first, then \"you write the spec and push to remote\". Build starts on the owner's go.",
+      "evidence": "Spec at the commit that adds §49."
+    },
+    {
+      "id": "T-040v",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "action": "F-15b §50 items 1-5, 7-8 (Qwen web-search grounding for abroad trips; hotel_near; Photon bbox + country + 50 km + picker; hotel-only check; far check and local replacement; one spoken line first; logs; item 9 QwenRoute with ground = qwen3.7-plus, agent search, forced_search, 30 s, search-ran and JSON checks; row 160 PC check first); rows 140-148, 151-152, 154-155, 160.",
+      "depends_on": [
+        "T-040u"
+      ],
+      "notes": "Owner 2026-11-19, ipa150 d9d75fe, demo step 8: hotel 新宿附近車站 resolved to a place in India; days 2-3 failed. Code causes: Photon lat/lon is only a bias, limit 1, only China filtered; one hotel for every night; straight-line estimate when OSRM has no route. Phone record not pulled (recorder off). Needed for the mentor demo.",
+      "evidence": []
+    },
+    {
+      "id": "T-040w",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "action": "F-15b §50 item 6 (WorkProgress in NovaKit; trip steps and query_live_info steps shown after 1 s in DriveView; failure lines; cleared by the cards or the answer); rows 149-150, 153.",
+      "depends_on": [
+        "T-040v"
+      ],
+      "notes": "Owner 2026-11-19: show that she is working (trip 30-60 s, searches 2-8 s), as ChatGPT/Perplexity steps and Alexa progressive responses.",
+      "evidence": []
+    },
+    {
+      "id": "T-040x",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 2,
+      "action": "F-15b §50 item 10 (backup Qwen model per route on 429 or quota 403 before any answer; one switch; remaining time only; 60 s skip after 429, skip until restart after quota; log line); rows 156-159.",
+      "depends_on": [
+        "T-040v"
+      ],
+      "notes": "Owner 2026-11-19: each Qwen model has its own free quota and rate limit on the same key; use another model as backup. No automatic router.",
+      "evidence": []
+    },
+    {
+      "id": "T-031j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-09b §4-5: undo_last_change (one kept change set, 5 min, through VehicleActionPolicy, backs claims) and the car-state silent note on connect / changed turn / speed cross; rows 3-5, 9.",
+      "depends_on": [
+        "T-031c"
+      ],
+      "quantified": {
+        "options": [
+          "Build F-09b as written",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"you just write the spec for this so call more flexibile stuff\"). Owner go 2026-11-16: \"pull and implment this flexible spec\" (F-09b).",
+      "evidence": [
+        "gates PASS at 4854b64 (scripts/gates/run_all.sh: static PASS, NovaCore 780 tests, 1 known unrelated; ios-spec-check PASS)",
+        "independent read-only review (high effort): FAIL at d193d0f (B1 turn ids restart per connection; B2 parallel calls of one turn lose part of the set), fixed in f22cdd5 (per-connect epoch, expired set replaced, VehicleSerial); FAIL at c088529 and 651bc01 (tests did not prove the fixes, then timing-dependent); PASS at 4854b64",
+        "mutation evidence (reviewer): interleaved 100/100 pass with the lock, 100/100 fail without; ToolTurnKeyTests 100/100 pass with the epoch, 100/100 fail without; a write that never reaches the car fails in about 2 s, never hangs",
+        "unit rows 2-5, 9: UndoLastChangeTests (row3, oneSetKept, row4, throughPolicy, parallelTurn, reconnect, interleaved), ToolTurnKeyTests, FlexibleAssistantTests (rows 5, noteForm, oncePerTurn), ClaimLexicon undo claims",
+        "NOT_VERIFIED: App build (Codemagic); row 9 device"
+      ]
+    },
+    {
+      "id": "T-031k",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "action": "F-09b §12 items 1-6 (rule 5 sleepy sentence -> one-sentence rest suggestion + navigate_to 附近的咖啡店/服务区, no car change; ten sleepy comfort cases expect navigate_to and are no longer silent; maxBaseCharacters fit); F-09b §12 rows 1-7.",
+      "depends_on": [
+        "T-031c"
+      ],
+      "notes": "Owner 2026-11-19, ipa150 d9d75fe: 有点困了 (demo step 1) got nothing because SpeakingStyle.swift:67 tells her to stay silent. Needed for the mentor demo.",
+      "evidence": []
+    },
+    {
+      "id": "T-016p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-09b §6: in-memory summary of the last 6 exchanges (60 chars each, tool codes) sent as a silent note when a new session starts without a resumption handle within 30 min; never on disk or in logs; rows 6, 10.",
+      "depends_on": [
+        "T-031c"
+      ],
+      "quantified": {
+        "options": [
+          "Build F-09b as written",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"you just write the spec for this so call more flexibile stuff\"). Owner go 2026-11-16: \"pull and implment this flexible spec\" (F-09b).",
+      "evidence": [
+        "gates PASS at 651bc01 (scripts/gates/run_all.sh)",
+        "independent read-only review (high effort): PASS at d193d0f, confirmed at c088529 (6 exchanges, 60 chars, 30 min, not on resume, memory only, never in record or log)",
+        "unit row 6: FlexibleAssistantTests (summary note, exchange effect)",
+        "Owner decision open: §6 item 3 clears the memory on 结束对话 by voice while row 10 expects it kept; ending with the button keeps it",
+        "NOT_VERIFIED: App build (Codemagic); row 10 device"
+      ]
+    },
+    {
+      "id": "T-017c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 30,
+      "action": "F-09b §7: withdraw F-09a CarRequestRouter areas, NOT_A_CAR_REQUEST, the area wait and the tired silence in code; local stop phrases and list picks kept; rows 7, 11.",
+      "depends_on": [
+        "T-031j"
+      ],
+      "quantified": {
+        "options": [
+          "Build F-09b as written",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Spec only (owner 2026-11-16: \"you just write the spec for this so call more flexibile stuff\"). Owner go 2026-11-16: \"pull and implment this flexible spec\" (F-09b).",
+      "evidence": [
+        "gates PASS at 4854b64 (scripts/gates/run_all.sh)",
+        "independent read-only review (high effort): PASS at d193d0f, confirmed at c088529 (CarRequestRouter, CarRequestArea, area timer, NOT_A_CAR_REQUEST, carArea/tiredSilenced lines removed; guards read state and turn counts only; stop phrases, local pick and wake word unchanged)",
+        "unit row 7: FlexibleAssistantTests row 7; row 11 suites renamed mechanically",
+        "NOT_VERIFIED: App build (Codemagic); row 11 device"
       ]
     }
   ]

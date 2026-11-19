@@ -7,8 +7,7 @@ import NovaServices
 import NovaVoice
 import SwiftUI
 
-/// F-07 §14 item 2 (T-020a): 「她的声音」 — source, 千问 API Host and voice with 试听.
-/// F-07 §17 item 2 (T-020d): two sources only, Gemini 原声 and 千问.
+/// F-07 §14 item 2 (T-020a): 「她的声音」 — source, 千问 API Host and voice with 试听. F-07 §17: two sources only.
 /// F-07 §15 item 1 (T-020b): 「Gemini 原声（最快）」 first and the default; no fields and no 试听 (her voice only
 /// exists inside a session). A change applies from the next session start.
 struct VoiceSettingsSection: View {

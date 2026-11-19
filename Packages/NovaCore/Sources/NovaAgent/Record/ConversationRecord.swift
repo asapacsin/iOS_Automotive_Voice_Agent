@@ -70,14 +70,22 @@ public enum RecordEvent: Sendable, Hashable {
     case claimCut(turn: Int, playedMs: Int)
     /// F-13 §17 item 6 (T-032e): a `music …` line (search, preview start/playing/failed/cut/ended); numbers and codes.
     case music(String)
+    /// F-13a §7 (T-032g, T-032h): a `volume set …` or `duck on|off …` line, written as it is; numbers and codes only.
+    case volume(String)
     /// F-05a §15 item 7 (T-016m): `lang-check …`, `correction WRONG_LANGUAGE heard=…`, `fallback-line …`.
     case languageLine(ReplyLanguageLine)
-    /// F-09a §5 (T-017a): `area utterance=<n> area=<area>`; codes and numbers only.
-    case area(utterance: Int, area: CarRequestArea)
-    /// F-09a §5: `tired-silenced turn=<n>`.
-    case tiredSilenced(turn: Int)
-    /// F-21 §16 item 8 (T-034c): `style-update sent|skipped|rejected …`; codes and numbers only.
-    case styleUpdate(StyleUpdateLine)
+    /// F-09b §8 (T-031j): `state-note reason=<connect|changed|speed>`.
+    case stateNote(StateNoteReason)
+    /// F-09b §8 (T-016p): `summary-note exchanges=<n> age_s=<s>`.
+    case summaryNote(exchanges: Int, ageS: Int)
+    /// F-09b §8 (T-031j): `undo ok=<yes|no> restored=<n>`.
+    case undo(String)
+    /// F-15b §7 (T-040i): `trip list …`, `trip lookup …`, `trip route …`, `trip stop-passed …`; codes and numbers only.
+    case trip(String)
+    /// F-18 §30 item 5 (T-046s): `weather source= ok= reason= view= lookup= attempts= ms=`; codes and numbers only.
+    case weather(String)
+    /// F-03 §14 item 4 (T-021q): `audio interrupted`, `audio interruption-ended resume=…`, `audio resumed …`.
+    case audio(String)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -92,10 +100,13 @@ public struct RecordHeader: Sendable, Hashable {
     public let searchKey: Bool?
     /// F-01 §14 item 12 (T-060a): `wake` or `tap`; nil writes no line.
     public let startedBy: String?
+    /// F-13a §10 item 2 (T-032i): the tool names declared to Gemini; nil writes no line. Names and counts only (I-8).
+    public let declaredTools: [String]?
 
     public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false,
-                searchKey: Bool? = nil, startedBy: String? = nil) {
+                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil) {
         self.startedBy = startedBy
+        self.declaredTools = declaredTools
         self.webSearch = webSearch
         self.searchKey = searchKey
         self.appVersion = appVersion
@@ -109,6 +120,30 @@ public struct RecordHeader: Sendable, Hashable {
          "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
             + (searchKey.map { ["searchKey \($0 ? "saved" : "missing")"] } ?? [])
             + (startedBy.map { ["startedBy \($0)"] } ?? [])
+            + (declaredTools.map { ["tools declared=\($0.count) set_volume=\($0.contains("set_volume") ? "yes" : "no")"] } ?? [])
+    }
+}
+
+/// F-13a §10 item 1 (T-032i): which build is installed. Every build reads `0.1.0(1)`, so the commit tells them apart.
+public enum BuildStamp {
+    /// The Info.plist key the build writes the short commit into.
+    public static let infoKey = "NovaGitCommit"
+
+    /// The first 7 characters of the commit; `unknown` when missing, empty or an unexpanded build setting.
+    public static func commit(_ raw: String?) -> String {
+        let value = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.allSatisfy({ $0.isHexDigit }) else { return "unknown" }
+        return String(value.prefix(7)).lowercased()
+    }
+
+    /// The record header's `app` value: `0.1.0(1) b305c60`.
+    public static func appVersion(short: String?, build: String?, commit raw: String?) -> String {
+        "\(short ?? "?")(\(build ?? "?")) \(commit(raw))"
+    }
+
+    /// 设置's last 状态 row: 「版本 0.1.0 · b305c60」.
+    public static func settingsLabel(short: String?, commit raw: String?) -> String {
+        "版本 \(short ?? "?") · \(commit(raw))"
     }
 }
 
@@ -194,9 +229,12 @@ public struct ConversationRecorder: Sendable {
         case .voiceFailed(let v): return [line("voice-failed", v.fields)]
         case .voiceGemini(let v): return [line("voice", v.fields)]
         case .claimCut(let turn, let played): return [line("claim-cut", "turn=\(turn) played_ms=\(played)")]
-        case .area(let utterance, let area): return [line("area", "utterance=\(utterance) area=\(area.rawValue)")]
-        case .tiredSilenced(let turn): return [line("tired-silenced", "turn=\(turn)")]
-        case .styleUpdate(let l): return [line("style-update", l.fields)]
+        case .stateNote(let reason): return [line("state-note", "reason=\(reason.rawValue)")]
+        case .summaryNote(let n, let age): return [line("summary-note", "exchanges=\(n) age_s=\(age)")]
+        case .undo(let text): return ["\(ms) \(text)"]
+        case .trip(let text): return ["\(ms) \(text)"]
+        case .volume(let text), .audio(let text): return ["\(ms) \(text)"]
+        case .weather(let text): return ["\(ms) \(text)"]
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]

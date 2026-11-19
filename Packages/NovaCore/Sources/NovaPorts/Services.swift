@@ -297,6 +297,9 @@ public enum CredentialKey: String, Sendable, Hashable, CaseIterable {
     case zhipuKey = "zhipu_key"
     /// F-18 §17 item 1: Alibaba Cloud Model Studio key for `web_search`. Never blocks a session.
     case qwenAPIKey = "qwen_api_key"
+    /// F-18 §31 item 1 (T-046t): the account's 和风天气 API Host (no `https://`, no trailing `/`) and API KEY.
+    case qweatherHost = "qweather_host"
+    case qweatherKey = "qweather_key"
 }
 
 /// Keychain (`kSecAttrAccessibleAfterFirstUnlock`). Values are write-only from the UI.
@@ -304,11 +307,7 @@ public protocol CredentialStore: Sendable {
     func value(for key: CredentialKey) throws -> String?
     func set(_ value: String, for key: CredentialKey) throws
     func remove(_ key: CredentialKey) throws
-}
-
-/// F-07 §17 item 3: deletes a Keychain item of a removed feature, named by its account, which no
-/// `CredentialKey` names any more. Succeeds when there is no such item.
-public protocol RetiredSecretRemover: Sendable {
+    /// F-07 §17 item 3: deletes an item under an account no `CredentialKey` names any more; no item is success.
     func removeRetired(account: String) throws
 }
 

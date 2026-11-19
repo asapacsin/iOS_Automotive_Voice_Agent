@@ -96,8 +96,7 @@ public struct SpeechSynthesisError: Error, Sendable, Hashable {
     public init(_ code: String) { self.code = code }
 }
 
-/// Her voice (千问 Qwen-Audio TTS, F-07 §14): one clause to 24 kHz PCM. No speaking style reaches synthesis
-/// (F-07 §17 item 5: the style changes her wording through the system instruction only). Throws `SpeechSynthesisError` or `CancellationError`.
+/// Her voice (Qwen-Audio TTS, F-07 §14): one clause to 24 kHz PCM. Throws `SpeechSynthesisError` or `CancellationError`.
 public protocol SpeechSynthesizer: Sendable {
     func synthesize(_ text: String, deadline: NovaDuration) async throws -> PCMBuffer
     /// One minimal request so the synthesis path is warm; at most once per 15 s. Never played.
@@ -105,7 +104,7 @@ public protocol SpeechSynthesizer: Sendable {
 }
 
 /// F-07 §14 item 8 (T-020a): a synthesizer that also says when its first audio arrived, for the
-/// `voice … first_ms=` line. One that cannot tell (it answers in one piece) is timed as a whole.
+/// `voice … first_ms=` line. One that cannot tell is timed as a whole.
 public protocol FirstAudioTimedSynthesizer: SpeechSynthesizer {
     /// The clause's audio and the milliseconds from the request to its first audio bytes.
     func synthesizeTimed(_ text: String, deadline: NovaDuration) async throws

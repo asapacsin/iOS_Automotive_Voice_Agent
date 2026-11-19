@@ -3,12 +3,17 @@ import Testing
 @testable import NovaNav
 @testable import NovaPorts
 
-struct FakeWeather: WeatherService {
-    var error: AmapWebError?
+/// F-18 §31: a 和风 fake with one day and a reading, both 晴.
+struct FakeWeather: ViewForecastService {
+    var error: QWeatherError?
 
-    func weather(adcode: String, day: WeatherDay) async throws -> WeatherReport {
+    func lookUp(_ name: String, country: String?) async throws -> [LookedUpPlace] { [] }
+    func forecast(latitude: Double, longitude: Double, request: ForecastRequest) async throws -> DailyForecast {
         if let error { throw error }
-        return WeatherReport(adcode: adcode, summary: .object(["text": "晴", "temperature": "26"]))
+        return DailyForecast(days: [DailyForecastDay(time: "2026-11-13", weatherCode: nil, tempMax: 26, tempMin: 19, rainChance: 10,
+                                                     rainMm: 0, windMaxKmh: 9, dayText: "晴", nightText: "多云")],
+                             current: CurrentWeather(time: "", temperature: 24, feelsLike: 25, humidity: 60, weatherCode: nil,
+                                                     windKmh: 9, text: "晴"))
     }
 }
 
@@ -60,7 +65,7 @@ struct LiveInfoExecutorTests {
         -> LiveInfoExecutor {
         let nav = NavigationController(search: FixedSearch(places: []), engine: ScriptedNaviEngine(routes: []),
                                        location: location, clock: clock)
-        return LiveInfoExecutor(navigation: nav, weather: weather, geocoder: geocoder, location: location)
+        return LiveInfoExecutor(navigation: nav, geocoder: geocoder, location: location, qweather: weather)
     }
 
     let here: [String: JSONValue] = ["kind": "current_location"]
@@ -157,15 +162,14 @@ struct LiveInfoExecutorTests {
     @Test("weather here answers only from the returned data")
     func weatherHere() async {
         let r = await ask(await executor(FakeWeather()), ["kind": "weather", "day": "today"])
-        #expect(r.ok && r.data["weather"]?["text"] == "晴")
+        #expect(r.ok && r.data["weather"]?["weather"] == "晴" && r.data["weather"]?["source"] == "qweather")
     }
 
     @Test("F-18 §8: each failure names its real cause")
     func codes() async {
-        #expect(await ask(await executor(nil)).code == .amapWebKeyMissing)
-        #expect(await ask(await executor(FakeWeather(error: .keyMissing))).code == .amapWebKeyMissing)
-        #expect(await ask(await executor(FakeWeather(error: .keyRejected))).code == .amapWebKeyMissing)
-        #expect(await ask(await executor(FakeWeather(error: .quota))).code == .liveInfoQuota)
+        // §31 item 5: no 和风 and no Open-Meteo is an honest LIVE_INFO_UNAVAILABLE.
+        #expect(await ask(await executor(nil)).code == .liveInfoUnavailable)
+        #expect(await ask(await executor(FakeWeather(error: .http(401)))).code == .liveInfoUnavailable)
         #expect(await ask(await executor(FakeWeather(), location: NoLocation())).code == .noLocation)
         #expect(await ask(await executor(FakeWeather()), ["kind": "weather", "where": "destination"]).code == .noDestination)
     }

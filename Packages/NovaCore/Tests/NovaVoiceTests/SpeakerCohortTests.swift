@@ -121,7 +121,7 @@ struct SpeakerCohortTests {
         let line = try #require(ok.checks.first)
         #expect(line.result == .accepted && line.speechMs == 4000)
         // §16 item 8: raw=, norm= and cohort= on the record line, numbers only.
-        #expect(line.logLine.contains("raw=0.8 norm=1.127 cohort=5 threshold=0.5 result=accepted speechMs=4000"))
+        #expect(line.logLine.contains("raw=0.8 norm=1.127 cohort=5 bar=cohort threshold=0.5 result=accepted speechMs=4000"))
         // Rejected: dropped.
         let no = run(frames: 400, outcome: scorer.outcome([0, 0, 1, 0], scoreMs: 12))
         #expect(audioNumbers(no.out).isEmpty)
@@ -211,7 +211,7 @@ struct SpeakerCohortTests {
             #expect(abs((yes.line.score ?? 0) - pythonASNorm) < 1e-5)
             #expect(yes.line.raw.map { abs($0 - 0.8) < 1e-6 } == true)
             #expect(yes.line.cohort == 5 && yes.line.threshold == 1.0 && yes.line.kind == kind)
-            #expect(yes.line.logLine.contains("raw=0.8 norm=1.127 cohort=5 threshold=1.0 result=accepted"))
+            #expect(yes.line.logLine.contains("raw=0.8 norm=1.127 cohort=5 bar=cohort threshold=1.0 result=accepted"))
             // A test vector closer to the crowd than to the driver is rejected.
             guard case .verify(let r2) = check.hit(recent: recent) else { Issue.record("no verify"); return }
             let crowd: [Float] = [0.6, 0.5, 0.5, 0.5]

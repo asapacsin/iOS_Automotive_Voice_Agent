@@ -400,8 +400,8 @@ struct DestinationNoteTests {
 
     @Test("Row 7: the new sentence is in both comfort modes, within maxBaseCharacters")
     func instruction() {
-        for mode in [ToolCatalog.ComfortMode.table, .model] {
-            let base = PersonaInstruction.base(for: mode)
+        for mode in ["model"] {
+            let base = PersonaInstruction.base
             let text = PersonaInstruction.base(base, webSearch: true)
             #expect(text.contains("问目的地或屏幕上某地的营业时间：用它的名字查。地名听不清或不像真实地点：不要查，问一句「是问X吗？」（X 是目的地）；没导航就问是哪里。"))
             #expect(!text.contains("问目的地或屏幕上某个地点的营业时间"))

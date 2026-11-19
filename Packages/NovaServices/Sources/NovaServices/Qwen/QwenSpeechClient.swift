@@ -73,7 +73,7 @@ public final class URLSessionStreamingTransport: StreamingHTTPTransport {
 }
 
 /// F-07 §14 item 3: one clause in the chosen 龙安 voice from `qwen-audio-3.1-tts-flash`, as 24 kHz mono PCM16LE.
-/// No `instruction` is sent for any style (item 4). Codes only, never text (I-8). No fallback voice.
+/// No `instruction` is sent (item 4; F-07 §17 item 5: no style reaches synthesis). Codes only, never text (I-8). No fallback voice.
 public final class QwenSpeechClient: FirstAudioTimedSynthesizer {
     static let warmText = "嗯"
     static let warmUpInterval = NovaDuration.seconds(15)

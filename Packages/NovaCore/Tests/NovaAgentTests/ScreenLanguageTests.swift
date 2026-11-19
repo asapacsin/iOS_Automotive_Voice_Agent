@@ -65,7 +65,7 @@ struct ScreenLanguageTests {
         let out = d.realtime(.replyText(t, "안녕"))
         #expect(spoken(out).isEmpty && subtitles(out).allSatisfy { $0.isEmpty })
         // F-05a §15 item 4: the WRONG_LANGUAGE re-ask goes at once with the void, not after the grace.
-        #expect(out.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.wrongLanguage.instruction)],
+        #expect(out.contains(.provider(.text([TextTurn(role: .user, text: CorrectionReason.wrongLanguage(heard: "你好"))],
                                              turnComplete: true))))
     }
 

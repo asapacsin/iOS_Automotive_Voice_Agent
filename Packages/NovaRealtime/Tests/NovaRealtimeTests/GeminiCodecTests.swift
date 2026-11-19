@@ -190,6 +190,10 @@ struct GeminiCloseTests {
         #expect(close.code == 1008)
         #expect(GeminiCloseClassifier.classify(code: close.code, reason: close.reason, resumedSetup: true) == .resumeUnavailable)
         #expect(GeminiCloseClassifier.classify(code: 1008, reason: "Policy violation", resumedSetup: false) == .connectionClosed)
+        // Device 2026-11-16: a resumed setup refused because the old socket still holds the session.
+        let held = "BidiGenerateContent session is already connected to an existing client"
+        #expect(GeminiCloseClassifier.classify(code: 1008, reason: held, resumedSetup: true) == .resumeUnavailable)
+        #expect(GeminiCloseClassifier.classify(code: 1008, reason: held, resumedSetup: false) == .connectionClosed)
         #expect(GeminiCloseClassifier.classify(code: 1008, reason: "API key not valid", resumedSetup: false) == .auth)
         #expect(GeminiCloseClassifier.classify(code: 1008, reason: "Quota exceeded", resumedSetup: false) == .quota)
         #expect(GeminiCloseClassifier.classify(code: 1000, reason: "", resumedSetup: false) == nil)
@@ -291,5 +295,24 @@ struct AsyncToolCodecTests {
         #expect(rs[1]["response"]?["scheduling"] == "WHEN_IDLE")
         #expect(rs[2]["response"]?["scheduling"] == nil)
         #expect(rs[2]["response"] == ["ok": true])
+    }
+}
+
+/// F-15b §4 item 9 row 48: trip lists are made and changed in the background.
+@Suite("F-15b row 48 trip tools NON_BLOCKING and WHEN_IDLE")
+struct TripAsyncCodecTests {
+    @Test("make_trip_list and edit_trip_list carry NON_BLOCKING and WHEN_IDLE; trip_next neither")
+    func trip() {
+        let config = SessionConfig(systemInstruction: "p", tools: ["make_trip_list", "edit_trip_list", "trip_next"].map {
+            ToolDeclaration(name: $0, description: "d", parametersJSONSchema: ["type": "object"])
+        })
+        guard case .array(let tools)? = GeminiCodec.setup(config, resume: nil)["setup"]?["tools"],
+              case .array(let decls)? = tools.first?["functionDeclarations"] else { Issue.record("no tools"); return }
+        #expect(decls.map { $0["behavior"] } == ["NON_BLOCKING", "NON_BLOCKING", nil])
+        guard case .array(let rs)? = GeminiCodec.toolResponses([
+            ToolResponse(id: CallID("a")!, name: "make_trip_list", result: .success([:])),
+            ToolResponse(id: CallID("b")!, name: "trip_next", result: .success([:])),
+        ])["toolResponse"]?["functionResponses"], rs.count == 2 else { Issue.record("no responses"); return }
+        #expect(rs[0]["response"]?["scheduling"] == "WHEN_IDLE" && rs[1]["response"]?["scheduling"] == nil)
     }
 }

@@ -15,7 +15,7 @@ None; the 设置 tab is always reachable.
 ## 4. Inputs and outputs
 - Secrets (Keychain, `KeychainCredentialStore`): Gemini API key, Amap SDK key, Amap Web key,
   iFlytek app id, iFlytek APIKey and APISecret (AIKit wake word, T-060), Qianfan key, Zhipu key, 阿里云百炼 (Qwen) key.
-  No Azure Speech key on iOS (F-07 §17: a stored one is deleted once on the first launch of that build).
+  The Azure Speech key was removed (F-07 §17); the first launch of that build deletes it from the Keychain.
 - Non-secrets (UserDefaults): `gemini_consent_accepted`, `gemini_model`, `persona_style`, `voice_source`, `qwen_tts_host`, `qwen_voice`.
 - Out: `SettingsReadiness` (status card: which items are set) and `sessionBlocker`.
 

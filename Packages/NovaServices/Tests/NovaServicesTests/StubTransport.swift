@@ -2,9 +2,11 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import NovaKit
+import NovaPorts
 @testable import NovaServices
 
-/// A recording `HTTPTransport` for client tests.
+/// One recorded HTTP exchange per call (moved from the removed TTS client's tests, F-07 §17 item 1).
 final class StubTransport: HTTPTransport, @unchecked Sendable {
     var status = 200
     var body = Data([1, 0, 2, 0, 9])

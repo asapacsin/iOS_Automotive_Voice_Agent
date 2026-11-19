@@ -3,6 +3,8 @@
 **Android status:** IMPLEMENTED (JVM + LIVE text).
 **Depends on:** F-11
 
+**iOS (2026-11-16, F-09b §3, T-031c):** the model-chosen path (§14) is the only comfort path. `run_scenario`, `ScenarioToolHandler`, the step table (§2, §4, §10) and the setting are removed on iOS; the sections below that describe them are Android history. Undo, car-state notes and the session summary are F-09b §4–6.
+
 ## 1. Purpose
 Multi-step responses to situations: mosquito, mosquito done, mosquito still there, stuffy, drowsy.
 
@@ -88,6 +90,7 @@ Nobody publishes results for vague comfort requests such as 有蚊子, so this i
 13. **Removed when on.** The `mosquitoWindowsOpen` flag and `noRecentMosquito`. 蚊子出去了 is judged from the conversation and state.
 
 ### Part C: decide and clean up (T-031c, owner decision)
+**Decided 2026-11-16 (owner, F-09b §3):** the model path becomes the only path without the item 14 bars; the scope is F-09b §3.
 14. **Pass bars for switching the default**, on the held-out cases, typed, 3 runs each:
     - overall score at least as high as the table's baseline, and clearly better on unprompted wordings;
     - `noTool` and `refuse` cases: no wrongful action in at least 95%;
@@ -366,6 +369,8 @@ Community review 2026-11-03:
 | T-031h | Items 1–3; row 1 | unit, build |
 
 ## 20. Sleepy driver: she does nothing and says nothing (iOS, APPROVED 2026-11-10)
+
+**Superseded 2026-11-19 by F-09b §12 (T-031k):** a sleepy driver gets a one-sentence rest suggestion and nearby places on screen; still no car change.
 
 **Why.** On 25c4a77's parent (build 54), model mode, 11:30 record: after a barge-in Gemini heard only "Ah", took it as tiredness, called `control_climate` power_on and adjust_fan, and said 「我已经把空调打开并稍稍调大了风量，建议您找个服务区休息一下。」 Owner 2026-11-10: "why tired would open the air conditioner and wind, this is not making any sense", "probably i prefer to just abandom this approach", and, on the proposal to keep only 「累了的话找个服务区休息一下吧」: "probably i prefer don't response at all". This section replaces §15 item 7 and §19 item 1 for the sleepy driver; §2's `drowsy` row is changed for iOS by item 2.
 

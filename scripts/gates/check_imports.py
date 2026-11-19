@@ -23,6 +23,7 @@ OWNERS = {
     "AVFAudio": {"NovaAudio"}, "SoundAnalysis": {"NovaAudio"}, "AudioToolbox": {"NovaAudio"},
     "AVFoundation": {"NovaPlatform"},
     "NaturalLanguage": {"NovaPlatform"},  # F-05a §15 item 1 (T-016m)
+    "MapKit": {"NovaPlatform", "App"},  # F-15b §41 (T-040o): MKLocalSearch, MKMapItem.openMaps
     "CoreLocation": {"NovaPlatform"}, "Network": {"NovaPlatform"}, "Contacts": {"NovaPlatform"},
     "Security": {"NovaServices"},
     "UIKit": {"App", "NovaNavAmap"}, "SwiftUI": {"App", "NovaNavAmap"},
@@ -35,6 +36,14 @@ SYMBOL_OWNERS = {r"\bURLSessionWebSocketTask\b": {"NovaRealtime"}, r"\.\s*`?webS
 # F-05a §16 row 7 (T-016n): SenseVoice and its download are removed; none of them may come back in the Swift sources.
 # Matched on the raw text, so the 设置 label in a string counts too.
 REMOVED = ("OfflineSenseVoice", "MultilingualModelStore", "多语言识别")
+# F-07 §17 item 6 (T-020d): Azure is removed. No file under App/ or Packages/ may name it (any case), except the
+# one-time cleanup that must name the retired keys (item 3) and its test.
+RETIRED_NAME = "azure"
+RETIRED_ALLOWED = {"Packages/NovaCore/Sources/NovaAgent/Settings/RetiredVoiceSettings.swift",
+                   "Packages/NovaServices/Tests/NovaServicesTests/RetiredVoiceSettingsTests.swift"}
+# Build output, generated projects and fetched model packs are not source; files over 2 MB are model data.
+RETIRED_SKIP_DIRS = {".build", ".swiftpm", "DerivedData", "xcuserdata", "SherpaModels"}
+RETIRED_MAX_BYTES = 2_000_000
 CORE_ALLOWED = {"Foundation", "Synchronization", "NovaKit", "NovaPorts", "NovaVoice", "NovaTools",
                 "NovaNav", "NovaAgent", "Testing", "XCTest"}
 
@@ -114,6 +123,30 @@ def imports_in(code: str) -> list[str]:
     return [m.group(1) for m in map(IMPORT.match, statements) if m]
 
 
+def retired_name_failures(root: pathlib.Path) -> list[str]:
+    """Every file under App/ and Packages/ (not only Swift), build output and models skipped; paths count too.
+    The two allowed files are matched by their full path, so a file of the same name elsewhere still fails."""
+    failures = []
+    for d in ("App", "Packages"):
+        for path in sorted((root / d).rglob("*")):
+            rel = path.relative_to(root)
+            if (RETIRED_SKIP_DIRS & set(rel.parts) or any(p.endswith(".xcodeproj") for p in rel.parts)
+                    or not path.is_file() or rel.as_posix() in RETIRED_ALLOWED):
+                continue
+            if RETIRED_NAME in str(rel).lower():
+                failures.append(f"{rel}: names Azure, which was removed (F-07 §17)")
+                continue
+            if path.stat().st_size > RETIRED_MAX_BYTES:
+                continue
+            try:
+                text = path.read_bytes().decode("utf-8")
+            except UnicodeDecodeError:
+                continue  # binary resources
+            if RETIRED_NAME in text.lower():
+                failures.append(f"{rel}: names Azure, which was removed (F-07 §17)")
+    return failures
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(argv[0]).resolve() if argv else ROOT
     failures = []
@@ -135,6 +168,7 @@ def main(argv: list[str]) -> int:
                 failures.append(f"{rel}: NovaCore may not import {module}")
             elif module in OWNERS and owner not in OWNERS[module]:
                 failures.append(f"{rel}: {module} is owned by {sorted(OWNERS[module])}, not {owner}")
+    failures += retired_name_failures(root)
     for failure in failures:
         print(f"IMPORTS FAIL {failure}")
     print(f"imports: {len(files)} files, {len(failures)} violations")

@@ -6,7 +6,7 @@ import Security
 
 /// Keychain generic passwords, `kSecAttrAccessibleAfterFirstUnlock` (F-22, `AndroidKeystoreCredentialStore`).
 /// Values are never logged; errors carry the OSStatus only.
-public struct KeychainCredentialStore: CredentialStore, RetiredSecretRemover {
+public struct KeychainCredentialStore: CredentialStore {
     public struct KeychainError: Error, Sendable, Hashable { public let status: Int32 }
 
     private let service: String
@@ -47,7 +47,6 @@ public struct KeychainCredentialStore: CredentialStore, RetiredSecretRemover {
 
     public func remove(_ key: CredentialKey) throws { try removeRetired(account: key.rawValue) }
 
-    /// F-07 §17 item 3: an item no `CredentialKey` names any more; no item counts as success.
     public func removeRetired(account: String) throws {
         let status = SecItemDelete(query(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }

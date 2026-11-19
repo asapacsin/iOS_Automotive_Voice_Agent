@@ -6,7 +6,7 @@ Google's docs on 2026-10-23 and is current (OQ-IOS-5); production should use eph
 ## Gemini Live (ACTIVE) — `A/voice/GeminiLiveProtocol.kt`, `GeminiLiveClient.kt`
 
 - Transport: WebSocket `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`
-  (`GeminiAppSettings.DEFAULT_ENDPOINT`), header `x-goog-api-key`. Connect timeout 10 s, ping 20 s,
+  (`GeminiAppSettings.DEFAULT_ENDPOINT`), header `x-goog-api-key`. Connect timeout 10 s, ping every 10 s (pong within 5 s unless a frame arrives meanwhile),
   `setupComplete` within 10 s.
 - Setup: `responseModalities=[AUDIO]`, speech `languageCode=zh-CN`, prebuilt voice (default "Aoede"; owner 2026-11-10, Leda sounded awkward in Mandarin),
   optional `thinkingLevel` (LOW default; MINIMAL rejected), `systemInstruction` (persona + call-first
@@ -24,9 +24,9 @@ Google's docs on 2026-10-23 and is current (OQ-IOS-5); production should use eph
 - Close codes: 1007 on a resumed setup → clear handle, `RESUME_UNAVAILABLE` (retryable); 1008 not about
   auth/quota → `CONNECTION_CLOSED` (retryable).
 
-## Azure Speech TTS (Android: ACTIVE when configured) — `A/voice/AzureSpeechVoice.kt`
+## Azure Speech TTS (ACTIVE when configured) — `A/voice/AzureSpeechVoice.kt`
 
-**Android only; removed from iOS, F-07 §17.** The iOS 千问 path keeps the same timing numbers as `SpeechTuning`.
+**Android only; removed from iOS, F-07 §17.**
 
 REST SSML, output `raw-24khz-16bit-mono-pcm`; connect timeout 5 s; clause deadline 4 000 + 400 ms ×
 chars; warm-up request ("嗯") every 15 s; at most 2 clause requests in flight, played in order.
