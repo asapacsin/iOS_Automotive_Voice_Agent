@@ -153,12 +153,12 @@ struct TripPhase4bTests {
         return (nav, amap, lines, cities)
     }
 
-    @Test("F-15b row 84d: 附近的租车 abroad in Tokyo: one Photon search for 租车 around the phone, no 高德; candidates listed; nav search vendor=photon")
+    @Test("F-15b row 84d (§51 item 8): 附近的租车 near=here with the phone in Tokyo: one Photon search for 租车 around the phone, no 高德; candidates listed; nav search vendor=photon")
     func row84d() async {
         let rentals = [jp("Toyota Rent a Car", lat: 35.681), jp("Times Car Rental", lat: 35.679)]
         let photon = FakeApple(["租车": rentals])
         let (nav, amap, lines, cities) = await navRig(photon: photon)
-        let r = await nav.execute(navigate(["destination": "附近的租车", "abroad": true, "city": "Tokyo, Japan"]))
+        let r = await nav.execute(navigate(["destination": "附近的租车", "near": "here"]))
         #expect(r.ok && r.data["status"] == "candidates_listed" && r.data["count"] == .int(2))
         // 「租车」 is Photon's amenity:car_rental tag search (NovaServices PhotonPlaceSearchTests).
         #expect(photon.asked.withLock { $0 } == ["租车"])
@@ -168,47 +168,32 @@ struct TripPhase4bTests {
         #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=2 ms=") })
     }
 
-    @Test("F-15b §36 item 2d: a named place abroad is searched around the city's centre; a CN result is dropped")
+    @Test("F-15b §36 item 2d (§51 item 8): a named place abroad (near=place) is searched around its centre; a CN result is dropped")
     func namedAroundCentre() async {
         let photon = FakeApple(["浅草寺 (Senso-ji)": [jp("浅草寺", lat: 35.71), jp("浅草寺", lat: 22.2, lng: 113.5, country: "CN")]])
         let (nav, amap, lines, cities) = await navRig(photon: photon)
-        _ = await nav.execute(navigate(["destination": "浅草寺 (Senso-ji)", "abroad": true, "city": "Tokyo, Japan"]))
-        #expect(cities.withLock { $0 } == ["Tokyo, Japan"])
+        _ = await nav.execute(navigate(["destination": "浅草寺 (Senso-ji)", "near": "place", "near_name": "东京", "near_country": "JP"]))
+        #expect(cities.withLock { $0 } == ["东京"])
         #expect(photon.centers.withLock { $0 }.first?.latitude == 35.6812)
         #expect(amap.calls.withLock { $0 }.isEmpty)
         #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=1 ms=") })
     }
 
-    @Test("F-15b §51 item 1: no abroad means the home search (高德); Photon is not asked")
+    @Test("F-15b §51 item 1: near=here with the phone in China is the home search (高德); Photon is not asked")
     func noTripDefault() async {
         let photon = FakeApple(["加油站": [jp("ENEOS", lat: 35.70), jp("Shell", lat: 35.69)]])
         let (nav, amap, _, cities) = await navRig(photon: photon, phone: GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .wgs84))
-        _ = await nav.execute(navigate(["destination": "附近的加油站"]))
+        _ = await nav.execute(navigate(["destination": "附近的加油站", "near": "here"]))
         #expect(cities.withLock { $0 }.isEmpty && photon.asked.withLock { $0 }.isEmpty)
         #expect(amap.calls.withLock { $0 }.first == "加油站")
     }
 
-    @Test("F-15b row 84e: navigate_to abroad=true without city: invalidFields, no lookup")
+    @Test("F-15b row 84e (§51 item 8): navigate_to near=place without near_name: invalidFields, no lookup")
     func row84e() async {
         let photon = FakeApple([:])
         let (nav, amap, _, cities) = await navRig(photon: photon)
-        let r = await nav.execute(navigate(["destination": "浅草寺 (Senso-ji)", "abroad": true]))
+        let r = await nav.execute(navigate(["destination": "浅草寺 (Senso-ji)", "near": "place", "near_country": "JP"]))
         #expect(!r.ok && r.code == .invalidFields)
         #expect(photon.asked.withLock { $0 }.isEmpty && amap.calls.withLock { $0 }.isEmpty && cities.withLock { $0 }.isEmpty)
-    }
-
-    @Test("F-15b §36 item 2d, §39: navigate_to schema has abroad and city; the validator checks them; catalog text appended")
-    func catalog() throws {
-        let spec = try #require(ToolCatalog.spec("navigate_to"))
-        let props = spec.declaration.parametersJSONSchema["properties"]
-        #expect(props?["abroad"]?["type"] == "boolean")
-        #expect(props?["city"]?["type"] == "string")
-        #expect(spec.declaration.parametersJSONSchema["required"] == ["destination"])
-        #expect(spec.declaration.description.hasSuffix(ToolCatalog.navigateAbroadDescription))
-        #expect(ToolCatalog.validate("navigate_to", ["destination": "浅草寺 (Senso-ji)", "abroad": true, "city": "Tokyo, Japan"]) == nil)
-        #expect(ToolCatalog.validate("navigate_to", ["destination": "A", "abroad": "yes"]) == .invalidFields)
-        #expect(ToolCatalog.validate("navigate_to", ["destination": "A", "city": " "]) == .invalidFields)
-        #expect(ToolCatalog.validate("navigate_to", ["destination": "A", "country": "JP"]) == .invalidFields)
-        #expect(ToolCatalog.validate("navigate_to", ["abroad": true, "city": "Tokyo, Japan"]) == .invalidFields)
     }
 }

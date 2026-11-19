@@ -62,7 +62,7 @@ struct TripPhase4cTests {
             GeoCoordinate(latitude: 35.6812, longitude: 139.7671, datum: .gcj02)
         })
         let call = { (args: [String: JSONValue]) in ToolCall(id: CallID("n1")!, name: "navigate_to", arguments: .object(args)) }
-        let r = await nav.execute(call(["destination": "浅草寺 (Senso-ji)", "abroad": true, "city": "Tokyo, Japan"]))
+        let r = await nav.execute(call(["destination": "浅草寺 (Senso-ji)", "near": "place", "near_name": "东京", "near_country": "JP"]))
         #expect(r.ok)
         #expect(engine.requests.withLock { $0 }.map(\.abroad) == [true])
         _ = await nav.execute(trip("exit_navigation_mode"))

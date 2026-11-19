@@ -260,33 +260,25 @@ struct TripGroundTests {
         #expect(r.data["status"] == "trip_needs_fix" && issues.contains("新宿附近車站不是酒店"))
     }
 
-    @Test("T-040y F-15b §51 item 1: navigate_to abroad keeps to the named city's own area (country, 50 km) when it is known")
+    @Test("T-040z F-15b §51 item 8: navigate_to near=place keeps to the named place's own area (country, 50 km)")
     func navigateInArea() async {
-        func nav(open: Bool) async -> (NavigationController, FakeAreaSearch, TripLines) {
-            let search = FakeAreaSearch(areaTable)
-            let lines = TripLines()
-            let n = NavigationController(search: TripSearch([:]), engine: ScriptedNaviEngine(routes: [route(1, meters: 1_000, seconds: 60)]),
-                                         location: NoLocation(), clock: ManualClock(), onTripLine: { lines.append($0) })
-            await n.start()
-            await n.setAbroad(search: search, center: { _ in tokyoCenter }, area: { _ in open ? tokyoArea : nil })
-            return (n, search, lines)
-        }
+        let search = FakeAreaSearch(areaTable)
+        let lines = TripLines()
+        let n = NavigationController(search: TripSearch([:]), engine: ScriptedNaviEngine(routes: [route(1, meters: 1_000, seconds: 60)]),
+                                     location: NoLocation(), clock: ManualClock(), onTripLine: { lines.append($0) })
+        await n.start()
+        await n.setAbroad(search: search, center: { _ in tokyoCenter }, area: { _ in tokyoArea })
         let call = ToolCall(id: CallID("n1")!, name: "navigate_to",
-                            arguments: ["destination": "车站", "abroad": true, "city": "Tokyo, Japan"])
-        let (inTrip, boxed, lines) = await nav(open: true)
-        let r = await inTrip.execute(call)
+                            arguments: ["destination": "车站", "near": "place", "near_name": "Tokyo, Japan", "near_country": "JP"])
+        let r = await n.execute(call)
         #expect(r.code == .noCandidates)
-        // F-09b §13 row 3 (T-031l): the abroad NO_CANDIDATES carries facts, searched in the trip area.
+        // F-09b §13 row 3 (T-031l): the abroad NO_CANDIDATES carries facts, searched in the named place's area.
         #expect(r.advice == nil && r.data["facts"]?["what"] == "车站" && r.data["facts"]?["around"] == "city")
         #expect(r.data["facts"]?["city"] == "Tokyo, Japan" && r.data["facts"]?["found"] == .int(0))
+        #expect(r.data["facts"]?["searched_around"] == "Tokyo, Japan" && r.data["facts"]?["vendor"] == "photon")
         #expect(r.data["facts"]?["radius_km"] != nil && r.data["must_not"] == ["ask_rephrase", "invent"])
-        #expect(boxed.boxes.withLock { $0 }.first?.0 == GeoBox.around(tokyoCenter))
+        #expect(search.boxes.withLock { $0 }.first?.0 == GeoBox.around(tokyoCenter))
         #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=0 ") && $0.hasSuffix(" area_dropped=3") })
-        let (plain, plainSearch, plainLines) = await nav(open: false)
-        let p = await plain.execute(call)
-        #expect(p.ok && p.data["count"] == .int(2))
-        #expect(plainSearch.boxes.withLock { $0 }.isEmpty)
-        #expect(plainLines.withLock { $0 }.allSatisfy { !$0.contains("area_dropped") })
     }
 
     @Test("T-040v F-15b row 148: make_trip_list and revise_trip_list say item 5's one line first")

@@ -22,7 +22,7 @@ func ctx(turn: Int = 1, closed: Int = 1, seconds: Int64 = 0, navigating: Bool = 
 struct RepeatAndMediaGuardTests {
     @Test("F-09 an identical repeat-sensitive call twice in one turn is dropped")
     func repeats() {
-        let firsts = [call("place_call", ["contact": "张三"]), call("navigate_to", ["destination": "中交汇通"]),
+        let firsts = [call("place_call", ["contact": "张三"]), call("navigate_to", ["destination": "中交汇通", "near": "here"]),
                       call("open_app", ["app": "maps"]), call("save_place", ["slot": "home", "address": "中交汇通"]),
                       call("exit_navigation_mode"),
                       call("control_climate", ["action": "adjust_temperature", "value": -2]),
@@ -41,9 +41,9 @@ struct RepeatAndMediaGuardTests {
     func notRepeats() {
         var d = ToolDispatcher()
         let c = ctx()
-        #expect(d.decide(call("navigate_to", ["destination": "A"]), context: c) != .refuse(ToolDispatcher.failure(.duplicateInTurn)))
-        guard case .execute = d.decide(call("navigate_to", ["destination": "B"]), context: c) else { Issue.record("B"); return }
-        guard case .execute = d.decide(call("navigate_to", ["destination": "A"]), context: ctx(turn: 2, closed: 2)) else {
+        #expect(d.decide(call("navigate_to", ["destination": "A", "near": "here"]), context: c) != .refuse(ToolDispatcher.failure(.duplicateInTurn)))
+        guard case .execute = d.decide(call("navigate_to", ["destination": "B", "near": "here"]), context: c) else { Issue.record("B"); return }
+        guard case .execute = d.decide(call("navigate_to", ["destination": "A", "near": "here"]), context: ctx(turn: 2, closed: 2)) else {
             Issue.record("new turn"); return
         }
         let look = call("describe_camera_view", ["question": "前面是什么"])
@@ -147,7 +147,7 @@ struct NoTranscriptGuardTests {
         // P56, P57, P61, P66, ambiguous referent, named media: the call runs as the model made it.
         let calls = [call("control_window", ["action": "open", "window": "all"]),
                      call("set_speech_output", ["mode": "silent"]),
-                     call("navigate_to", ["destination": "附近的加油站"]),
+                     call("navigate_to", ["destination": "附近的加油站", "near": "here"]),
                      call("control_seat", ["action": "adjust_height", "value": -1]),
                      call("control_music", ["action": "play"])]
         for c in calls {
