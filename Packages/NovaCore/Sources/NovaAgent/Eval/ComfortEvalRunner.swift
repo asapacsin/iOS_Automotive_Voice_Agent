@@ -290,7 +290,10 @@ public actor ComfortEvalRunner {
                 let result = await execute(call)
                 // The actor may have moved on to the next run during the await.
                 guard current(p.connection) else { return }
-                pending?.calls.append(ComfortCallRecord(name: call.name, ok: result.ok, code: result.code, data: result.data))
+                var arguments: [String: JSONValue] = [:]
+                if case .object(let object) = call.arguments { arguments = object }
+                pending?.calls.append(ComfortCallRecord(name: call.name, ok: result.ok, code: result.code, data: result.data,
+                                                        arguments: arguments))
                 responses.append(ToolResponse(id: call.id, name: call.name, result: result))
             }
             pending?.answered = false
