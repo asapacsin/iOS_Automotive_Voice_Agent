@@ -96,8 +96,7 @@ def cmd_status(hook):
 def cmd_candidates():
     work = load_json(WORK, {"work": []})["work"]
     known = known_ids(work)
-    rows = [task_ids(l, known) and (l, task_ids(l, known)) for _, l in status_rows(STATUS.read_text(encoding="utf-8"))]
-    rows = [r for r in rows if r]
+    rows = [(l, task_ids(l, known)) for _, l in status_rows(STATUS.read_text(encoding="utf-8"))]
     open_ids = {x["id"] for x in work if x["status"] not in FINISHED}
     dependents = {}
     for x in work:
@@ -172,7 +171,7 @@ def cmd_apply(path):
         keep = [l for i, l in enumerate(lines) if i not in move_idx]
         note = "Older rows: specs/STATUS-archive.md (`scripts/history.py find <id>`)."
         if note not in keep:
-            keep[3:3] = [note, ""]
+            keep[4:4] = [note, ""]
         STATUS.write_text("\n".join(keep) + "\n", encoding="utf-8")
     print(f"archived {len(archived_now)}, summarized {summarized}, kept {kept}; STATUS rows moved {len(moved)}")
     return 0

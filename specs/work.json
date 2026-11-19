@@ -1408,14 +1408,16 @@
     {
       "id": "T-900f",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 40,
       "action": "specs/token-budget.md item 6: history archive with the model's judgment (size trigger in the Stop hook, candidate table, keep/archive/summarize, stubs, archive gate, find); row 7.",
       "depends_on": [
         "T-900b"
       ],
       "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
-      "evidence": []
+      "evidence": [
+        "Gates: run_static.sh green at c3bc173 (90 tests, history check PASS); frontier.py check valid (199). High-effort review of 1f34763 FAIL (range ids) fixed; medium re-check of c3bc173 PASS. First pass: 120 archived, 60 kept, 101 STATUS rows moved; STATUS.md 62/75 KB, work.json 91/110 KB."
+      ]
     }
   ]
 }

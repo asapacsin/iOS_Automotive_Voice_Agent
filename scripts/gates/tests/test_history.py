@@ -143,6 +143,10 @@ class HistoryTests(unittest.TestCase):
         (self.specs / "work-archive.json").write_text(json.dumps({"archived": [WORK["work"][0]]}))
         self.assertIn("without a stub", self.run_history("check").stderr)
 
+    def test_check_fails_on_archived_row_naming_a_live_id(self):
+        (self.specs / "STATUS-archive.md").write_text("| 2026-10-01 | T-003 open thing | x | x | x |\n")
+        self.assertIn("names a live id", self.run_history("check").stderr)
+
     def test_hook_never_errors(self):
         (self.specs / "STATUS.md").unlink()
         r = self.run_history("status", "--hook")
