@@ -41,6 +41,8 @@ public actor ComfortEvalRunner {
         let sentence: String
         /// F-09b §5: the case's start state as the app's state note.
         let note: String
+        /// F-09b §12 item 2: the case's claim rule, the same as the scorer's.
+        let restPlaces: Bool
         var sentAt: NovaInstant?
         var calls: [ComfortCallRecord] = []
         var reply = ""
@@ -157,7 +159,8 @@ public actor ComfortEvalRunner {
         await harness.reset(c.start)
         connection = connection.next()
         let mine = connection
-        pending = Pending(connection: mine, history: c.history, sentence: c.sentence, note: c.start.stateNote)
+        pending = Pending(connection: mine, history: c.history, sentence: c.sentence, note: c.start.stateNote,
+                          restPlaces: c.restPlaces)
         let connectTimer = timer(after: connectTimeout, mine, sent: false)
         await provider.connect(config, resume: nil, connection: mine)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -227,7 +230,7 @@ public actor ComfortEvalRunner {
         // §16 item 1: the stage ends with the first reply; a correction turn is not counted in it.
         if p.stages.answerDoneMs == nil { pending?.stages.answerDoneMs = ms(since: p.sentAt) }
         let run = ComfortRun(caseID: "", attempt: 0, end: .default, calls: p.calls, reply: p.reply, firstAudioMs: nil)
-        if !p.correctionSent, ComfortScorer.unbackedClaim(run) {
+        if !p.correctionSent, ComfortScorer.unbackedClaim(run, restPlaces: p.restPlaces) {
             let failed = p.calls.contains { $0.acts && !$0.ok }
             let reason: CorrectionReason = failed ? .claimAfterFailure : .unverifiedClaim
             pending?.correctionSent = true
@@ -290,7 +293,10 @@ public actor ComfortEvalRunner {
                 let result = await execute(call)
                 // The actor may have moved on to the next run during the await.
                 guard current(p.connection) else { return }
-                pending?.calls.append(ComfortCallRecord(name: call.name, ok: result.ok, code: result.code, data: result.data))
+                var arguments: [String: JSONValue] = [:]
+                if case .object(let object) = call.arguments { arguments = object }
+                pending?.calls.append(ComfortCallRecord(name: call.name, ok: result.ok, code: result.code, data: result.data,
+                                                        arguments: arguments))
                 responses.append(ToolResponse(id: call.id, name: call.name, result: result))
             }
             pending?.answered = false

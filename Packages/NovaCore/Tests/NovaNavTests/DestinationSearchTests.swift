@@ -294,3 +294,19 @@ struct NavigateWhileGuidingTests {
         #expect(snapshot.destination?.name == "中石化B")
     }
 }
+
+@Suite("T-031k F-09b §12 row 4: 附近的咖啡店 with no results")
+struct SleepyNoResultsTests {
+    @Test("F-09b §12 row 4: navigate_to 附近的咖啡店 finds nothing; no route, no list")
+    func noCoffee() async {
+        let engine = ScriptedNaviEngine(routes: [route(1, meters: 1, seconds: 60)])
+        let nav = NavigationController(search: RecordingSearch(), engine: engine, location: NoLocation(), clock: ManualClock())
+        await nav.start()
+        let before = engine.calls.withLock { $0 }
+        let result = await nav.execute(tool("navigate_to", ["destination": "附近的咖啡店"]))
+        #expect(!result.ok && result.code == .noCandidates)
+        let snapshot = await nav.current
+        #expect(!snapshot.navigating && snapshot.places.isEmpty && snapshot.destination == nil)
+        #expect(engine.calls.withLock { $0 } == before)
+    }
+}
