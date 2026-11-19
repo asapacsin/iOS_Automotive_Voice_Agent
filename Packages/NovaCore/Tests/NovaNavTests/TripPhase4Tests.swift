@@ -217,7 +217,7 @@ struct TripPhase4Tests {
     func row91NoHotel() async {
         let (rig, _) = await timesRig()
         let r = await settle(rig, await rig.run(trip("make_trip_list", ["days": days([["古文化街"], ["五大道"]])])))
-        #expect(r.ok && (r.data["next"]?.stringValue ?? "").contains("第1晚附近没找到酒店"))
+        #expect(r.ok && factsText(r).contains("第1晚附近没找到酒店"))
         #expect(rig.lines.withLock { $0 }.contains("trip frame start=here end=none hotels=none nights=1 picked=0"))
     }
 

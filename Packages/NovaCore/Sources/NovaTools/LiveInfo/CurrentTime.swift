@@ -9,7 +9,8 @@ public enum CurrentTime {
     /// F-18 §25 item 2.
     public static let zoneAdvice = "time_zone 要用 IANA 时区名，比如 Asia/Tokyo。"
     /// §25 item 3: with `time_zone`.
-    public static let zoneNext = "只按 time 和 date 回答，一句话，说出是哪里的时间。"
+    /// F-09b §13 item 5 (T-031n): the `next` of a time result, built by `ToolReply` (no sentence).
+    public static let zoneNext = ToolReply.success(facts: [:], mustNot: [.invent]).next
 
     /// §25 items 1-3 (T-046n): optional `time_zone`, an exact `TimeZone.knownTimeZoneIdentifiers` entry (copied from
     /// `mcp-server-time`'s `timezone`); without it, the phone's zone.
@@ -43,8 +44,11 @@ public enum CurrentTime {
             "weekday": .string(weekdays[((c.weekday ?? 1) - 1) % 7]),
             "timeZone": .string(zone.identifier),
             "utcOffset": .string(utcOffset),
-            "next": .string(named ? zoneNext : "只按 time 和 date 回答，一句话，比如「现在是晚上八点零八分」。"),
-        ])
+        ].merging(ToolReply.success(
+            facts: ["time": .string(String(format: "%02d:%02d", hour, minute)), "period": .string(period(hour)),
+                    "date": .string("\(c.year ?? 0)年\(c.month ?? 0)月\(c.day ?? 0)日"),
+                    "time_zone": .string(zone.identifier), "named_place": .bool(named)],
+            mustNot: [.invent]).result.data) { $1 })
     }
 
     /// 凌晨 0–5, 早上 5–9, 上午 9–11, 中午 11–13, 下午 13–18, 晚上 18–24 (end hour excluded). The 8 o'clock hour is 早上,

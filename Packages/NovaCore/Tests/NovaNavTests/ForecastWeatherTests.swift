@@ -94,7 +94,7 @@ struct ForecastWeatherTests {
         #expect(w?["place"] == "奥斯陆" && w?["country"] == "挪威")
         #expect(w?["rain_chance"] == .int(60) && w?["rain_mm"] == .double(0.5) && w?["wind_max_kmh"] == .double(12.3))
         #expect(r.data["next"] == .string(ForecastWeather.next))
-        #expect(r.data["next"] == "只按 weather 里的数据用一两句话回答，说出地点和几月几号星期几，不要编造。")
+        #expect(r.data["next"] == .string(ForecastWeather.next) && r.data["facts"]?["place"] == r.data["weather"]?["place"])
         let t = await ex.execute(weatherCall(["where": "Oslo", "country": "NO", "day": "tomorrow"]))
         #expect(t.ok && t.data["weather"]?["date"] == "2026-11-07" && t.data["weather"]?["weekday"] == "星期六")
         #expect(amap.asked.withLock { $0.isEmpty })

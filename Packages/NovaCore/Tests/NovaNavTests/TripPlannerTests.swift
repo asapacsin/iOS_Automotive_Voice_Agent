@@ -304,7 +304,7 @@ struct TripLookupTests {
         let r = await rig.run(trip("make_trip_list", ["places": names(["北京故宫", "陈家祠", "路环那家葡挞", "天坛"])]))
         #expect(r.ok && r.data["count"] == .int(3) && r.data["not_found"] == names(["路环那家葡挞"]))
         #expect(await rig.order() == ["故宫博物院", "陈家祠堂", "天坛公园"])
-        #expect(r.data["check"] == nil && r.data["next"]?.stringValue?.hasPrefix("只说一句") == true)
+        #expect(r.data["check"] == nil && r.data["next"]?.stringValue?.hasPrefix("用自己的话简短地说。") == true)
         #expect(picker.calls.withLock { $0 } == [["北京故宫", "陈家祠", "路环那家葡挞"]])
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=3 none=1 ok=yes") })
         let added = await rig.run(trip("edit_trip_list", ["action": "add", "name": "陈家祠"]))

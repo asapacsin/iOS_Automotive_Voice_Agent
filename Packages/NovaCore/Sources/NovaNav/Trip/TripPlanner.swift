@@ -443,9 +443,9 @@ public actor TripPlanner: ToolExecutor {
         if let day { _ = plan.replaceDay(day, with: made) } else { plan.replaceAll(with: made) }
         changed()
         line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
-        let missed = notFound.isEmpty ? "" : "；没找到：\(notFound.joined(separator: "、"))"
-        return listResult(changed: nil, notFound: notFound, duplicates: duplicates,
-                          next: "只说一句：清单有\(list.count)个地点\(missed)\(Self.unordered(arranged))\(ignored ? "（只改一天时不改出发、酒店和结束）" : "")。不要念整张清单，司机问时再念。")
+        var facts = Self.orderFacts(arranged)
+        if ignored { facts["frame_kept"] = true }
+        return listResult(changed: nil, notFound: notFound, duplicates: duplicates, facts: facts)
     }
 
     /// §15 item 6 and §37 (T-040o): a whole plan of one or several days in one call (parallel per-day calls would race
@@ -698,21 +698,20 @@ public actor TripPlanner: ToolExecutor {
             hotelChoices = Dictionary(uniqueKeysWithValues: (1..<max(dayCount, 2)).map { ($0, nearChoices) })
         }
         hotelsChosen = []
-        let ask = extra["order"] != nil ? "。NO_START：然后只问一句：「从哪里出发？机场还是酒店？」" : ""
-        let unordered = extra["order"] != nil ? "" : Self.unordered(arranged)
+        // F-09b §13 item 5 (T-031n): NO_START asks where the trip starts (a `may`), no quoted question.
+        let askStart: [ReplyMay] = extra["order"] != nil ? [.askStart] : []
+        let orderFacts = extra["order"] != nil ? [:] : Self.orderFacts(arranged)
         let answer: ([String], [String]) -> ToolResult = { [self] missing, more0 in
-            let missed = missing.isEmpty ? "" : "；没找到：\(missing.joined(separator: "、"))"
+            var facts = orderFacts
             let all = more0 + notes
-            let more = all.isEmpty ? "" : "；" + all.joined(separator: "；")
+            if !all.isEmpty { facts["notes"] = .array(all.map(JSONValue.string)) }
             if single, plan.dayCount == 1 {
-                return listResult(changed: nil, notFound: missing, duplicates: duplicates,
-                                  next: "只说一句：清单有\(list.count)个地点\(missed)\(unordered)\(more)\(ask)。不要念整张清单，司机问时再念。",
+                return listResult(changed: nil, notFound: missing, duplicates: duplicates, facts: facts, may: askStart,
                                   extra: extra)
             }
-            let perDay = plan.days.enumerated().map { "第\($0.offset + 1)天\($0.element.stops.filter { $0.role == .sight }.count)个" }
-                .joined(separator: "，")
-            return listResult(changed: nil, notFound: missing, duplicates: duplicates,
-                              next: "用一两句话说：\(plan.dayCount)天的行程做好了（\(perDay)），每天只说一两个主要地方\(missed)\(unordered)\(more)\(ask)。不要念整张清单，司机问时再念。",
+            facts["sights_per_day"] = .array(plan.days.map { .int(Int64($0.stops.filter { $0.role == .sight }.count)) })
+            facts["main_places_per_day"] = 2
+            return listResult(changed: nil, notFound: missing, duplicates: duplicates, facts: facts, may: askStart,
                               extra: extra)
         }
         // §49 items 4–6: a fitted plan is checked; a failure goes back to the model before anything is said.
@@ -1012,10 +1011,9 @@ public actor TripPlanner: ToolExecutor {
             let round = request.round
             let makeNotes = request.notes
             let answer: ([String], [String]) -> ToolResult = { [self] missing, more in
-                let missed = missing.isEmpty ? "" : "没找到：\(missing.joined(separator: "、"))；"
-                let notes = (more + fitNote + makeNotes).joined(separator: "；")
-                return listResult(changed: "revised", notFound: missing,
-                                  next: "只说一次，用一两句话：\(missed)\(notes)\(estimated ? "；时间是估算的" : "")。不要念整张清单，司机问时再念。",
+                var facts: [String: JSONValue] = ["notes": .array((more + fitNote + makeNotes).map(JSONValue.string))]
+                if estimated { facts["times"] = "estimated" }
+                return listResult(changed: "revised", notFound: missing, facts: facts,
                                   extra: estimated ? ["times": "estimated"] : [:])
             }
             return log(checked(request, answer: answer), round: round)
@@ -1086,7 +1084,7 @@ public actor TripPlanner: ToolExecutor {
             if action == "clear" {
                 guard plan.removeDay(day) else { return dayOutOfRange() }
                 changed()
-                return listResult(changed: "cleared", next: "只说一句：第\(day)天已删掉，现在行程有\(plan.dayCount)天。")
+                return listResult(changed: "cleared", facts: ["removed_day": .int(Int64(day))])
             }
             guard plan.select(day) else { return dayOutOfRange() }
             // The current day is the last one made, edited, read or routed (§15 item 1).
@@ -1097,11 +1095,12 @@ public actor TripPlanner: ToolExecutor {
         if list.isEmpty, action != "add", action != "clear" { return failure(.noTripList) }
         switch action {
         case "read":
-            return listResult(changed: "none", next: "按 stops 的顺序念清单，每个只念序号和名字。")
+            // §13 item 5: the driver asked to hear it; the order rule is a `may`, not a line.
+            return listResult(changed: "none", may: [.readListInOrder], mustNot: [])
         case "clear":
             plan.clearAll()
             changed()
-            return listResult(changed: "cleared", next: "只说一句：清单已清空。")
+            return listResult(changed: "cleared")
         case "remove":
             let target: Int
             if let index {
@@ -1116,7 +1115,7 @@ public actor TripPlanner: ToolExecutor {
             let removed = list.stops[target - 1].place.name
             list.remove(at: target)
             changed()
-            return listResult(changed: "removed", next: "只说一句：去掉了\(removed)，现在清单有\(list.count)个地点。\(overNote())",
+            return listResult(changed: "removed", facts: overFacts().merging(["removed": .string(removed)]) { $1 },
                               extra: ["removed": .string(removed)])
         case "move" where args["to_day"] != nil:
             return await moveToDay(index: index, toDay: Self.int(args["to_day"]) ?? 0)
@@ -1131,13 +1130,13 @@ public actor TripPlanner: ToolExecutor {
             if action == "visited" { markOtherCopy(day: plan.currentDay, index: index, mark) }
             changed()
             onLine("trip visit index=\(index) day=\(plan.currentDay) by=\(action == "visited" ? "voice" : "skip")")
-            return listResult(changed: action, next: "只说一句：\(name)\(action == "visited" ? "记为去过了" : "跳过了")。")
+            return listResult(changed: action, facts: ["name": .string(name), "index": .int(Int64(index))])
         case "move":
             guard let index, let toIndex, (1...n).contains(index), (1...n).contains(toIndex) else { return outOfRange() }
             let moved = list.stops[index - 1].place.name
             list.move(from: index, to: toIndex)
             changed()
-            return listResult(changed: "moved", next: "只说一句：\(moved)放到了第\(toIndex)个，现在清单有\(list.count)个地点。")
+            return listResult(changed: "moved", facts: ["name": .string(moved), "to_index": .int(Int64(toIndex))])
         case "add", "replace":
             guard let name else { return .failure(.invalidFields) }
             if action == "add" {
@@ -1168,8 +1167,7 @@ public actor TripPlanner: ToolExecutor {
             }
             let replacing = action == "replace" ? index : nil
             if list.stops.contains(where: { $0.place.id == place.id && $0.index != replacing }) {
-                return listResult(changed: "none", duplicates: [name],
-                                  next: "只说一句：\(place.name)已经在清单里了，现在清单有\(list.count)个地点。")
+                return listResult(changed: "none", duplicates: [name], facts: ["already_in_list": .string(place.name)])
             }
             var stop = TripStop(index: 0, asked: name, place: place, distanceMeters: distance(here, place))
             if let spareIndex {
@@ -1184,7 +1182,8 @@ public actor TripPlanner: ToolExecutor {
                 list.set(stop, at: replacing)
                 if old.role == .hotel { replaceOtherCopy(day: plan.currentDay, index: replacing, of: old, with: stop) }
                 changed()
-                return listResult(changed: "replaced", next: "只说一句：第\(replacing)个换成了\(place.name)，现在清单有\(list.count)个地点。\(overNote())")
+                return listResult(changed: "replaced", facts: overFacts().merging(
+                    ["index": .int(Int64(replacing)), "name": .string(place.name)]) { $1 })
             }
             // Without an index a sight goes before the day's closing hotel or end (and a rental return before it, §45).
             let closingRoles: Set<TripRole> = [.hotel, .end, .rentalReturn]
@@ -1193,7 +1192,7 @@ public actor TripPlanner: ToolExecutor {
             let closing = min(list.stops.reversed().prefix { closingRoles.contains($0.role) }.count, max(n - head, 0))
             list.insert(stop, at: index ?? (closing > 0 ? n - closing + 1 : nil))
             changed()
-            return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。\(overNote())")
+            return listResult(changed: "added", facts: overFacts().merging(["name": .string(place.name)]) { $1 })
         default:
             return .failure(.invalidFields)
         }
@@ -1581,10 +1580,11 @@ public actor TripPlanner: ToolExecutor {
     }
 
     /// §48 item 9: after an edit, the current day over its budget is said; nothing is dropped.
-    private func overNote() -> String {
-        guard let budget = plan.budgetMinutes else { return "" }
+    /// §48: the current day over its budget, as facts (F-09b §13 item 5).
+    private func overFacts() -> [String: JSONValue] {
+        guard let budget = plan.budgetMinutes else { return [:] }
         let m = Self.dayMinutes(list)
-        return m > budget ? "第\(plan.currentDay)天大约\(Self.hours(m))小时，比较紧。" : ""
+        return m > budget ? ["day_hours": .int(Int64(Self.hours(m))), "day_tight": true] : [:]
     }
 
     /// §42: `trip frame start= end= hotels= nights= picked=`, and §45 item 11's `rental=` when the plan has or asked
@@ -1712,19 +1712,26 @@ public actor TripPlanner: ToolExecutor {
         case .failed(let code): return failure(code)
         case .success(let o):
             plan.arrange(days: o.days)
-            var fitNote = ""
+            var fitNote: [String] = []
             if let m = o.dayMinutes {
                 plan.spare = o.spare
                 plan.budgetMinutes = pace.budgetMinutes
-                fitNote = Self.fitNotes(m, budget: pace.budgetMinutes, spare: o.spare.map(\.place.name)).joined(separator: "；") + "。"
+                fitNote = Self.fitNotes(m, budget: pace.budgetMinutes, spare: o.spare.map(\.place.name))
             }
             changed()
             // A visited or skipped stop keeps its day, so fewer days than that can't be kept: say so.
-            let kept = days.map { $0 < plan.dayCount ? "已去过或跳过的站留在原来那天，所以还是\(plan.dayCount)天。" : "" } ?? ""
-            let hotels = o.nightsWithoutHotel.isEmpty ? "" : "第\(o.nightsWithoutHotel.map(String.init).joined(separator: "、"))晚附近没找到酒店。"
-            let estimated = o.estimated ? "时间是估算的。" : ""
-            return listResult(changed: "reorganized",
-                              next: "\(kept)\(hotels)\(estimated)\(fitNote)用一两句话按 plan 说每天去哪（\(plan.dayCount)天），不要念距离。",
+            var facts: [String: JSONValue] = [:]
+            if let days, days < plan.dayCount {
+                facts["asked_days"] = .int(Int64(days))
+                facts["marked_stops_keep_day"] = true
+            }
+            if !o.nightsWithoutHotel.isEmpty {
+                facts["nights_without_hotel"] = .array(o.nightsWithoutHotel.map { .int(Int64($0)) })
+            }
+            if o.estimated { facts["times"] = "estimated" }
+            if !fitNote.isEmpty { facts["notes"] = .array(fitNote.map(JSONValue.string)) }
+            // F-09b §13 item 5 (T-031n): she says where each day goes from `plan`, in her words; no distances read.
+            return listResult(changed: "reorganized", facts: facts, mustNot: [.readList, .readDistances],
                               extra: o.estimated ? ["times": "estimated"] : [:])
         }
     }
@@ -1737,7 +1744,7 @@ public actor TripPlanner: ToolExecutor {
         var days = plan.days
         let moved = days[from - 1].stops[index - 1]
         guard toDay != from else {
-            return listResult(changed: "none", next: "只说一句：\(moved.place.name)已经在第\(toDay)天了。")
+            return listResult(changed: "none", facts: ["name": .string(moved.place.name), "day": .int(Int64(toDay))])
         }
         days[from - 1].remove(at: index)
         days[toDay - 1].insert(moved)
@@ -1767,7 +1774,8 @@ public actor TripPlanner: ToolExecutor {
             plan.arrange(days: days)
             changed()
             return listResult(changed: "moved",
-                              next: "只说一句：\(moved.place.name)放到了第\(toDay)天，第\(toDay)天按车程排好了\(Self.estimateNote(result))。",
+                              facts: ["name": .string(moved.place.name), "to_day": .int(Int64(toDay)), "ordered": true,
+                                      "times": o.estimated ? "estimated" : "driving"],
                               extra: o.estimated ? ["times": "estimated"] : [:])
         }
     }
@@ -1812,8 +1820,11 @@ public actor TripPlanner: ToolExecutor {
         data["name"] = .string(target.place.name)
         data["day"] = .int(Int64(plan.currentDay))
         data["after"] = after.map { .string($0.place.name) } ?? .null
-        let minutes = data["duration_min"]?.intValue.map { "，大约\($0)分钟" } ?? ""
-        data["next"] = .string("只说一句：去第\(target.index)站\(target.place.name)\(minutes)。不要念其他路线。")
+        // F-09b §13 item 5 (T-031n): the stop as facts; the route list stays on screen.
+        var facts: [String: JSONValue] = ["started": true, "stop_index": .int(Int64(target.index)),
+                                          "name": .string(target.place.name)]
+        if let minutes = data["duration_min"] { facts["duration_min"] = minutes }
+        data.merge(ToolReply.success(facts: facts, mustNot: [.readRoutes]).result.data) { $1 }
         return .success(data)
     }
 
@@ -1864,8 +1875,9 @@ public actor TripPlanner: ToolExecutor {
         guard await onHandoff(target.place) else { return nil }
         onLine("trip handoff vendor=apple_maps reason=route_failed")
         return .success(["status": "apple_maps", "index": .int(Int64(target.index)), "name": .string(target.place.name),
-                         "day": .int(Int64(plan.currentDay)),
-                         "next": .string("只说一句：已在苹果地图打开导航，去第\(target.index)站\(target.place.name)。到了请说「已经到了」。")])
+                         "day": .int(Int64(plan.currentDay))].merging(ToolReply.success(
+            facts: ["opened_in": "apple_maps", "index": .int(Int64(target.index)), "name": .string(target.place.name),
+                    "arrived_command": "已经到了"], may: [.nameCommand]).result.data) { $1 })
     }
 
     /// §29 items 2–3: guidance arrived at a plan stop: it is visited, and a connected session gets the note.
@@ -2182,9 +2194,18 @@ public actor TripPlanner: ToolExecutor {
 
     // MARK: Results
 
+    /// F-09b §13 item 5 (T-031n): `facts` say what changed (plus `count`, `day`, `days`); the cards show the list,
+    /// so `must_not` keeps `read_list` unless the driver asked to hear it.
     private func listResult(changed: String?, notFound: [String] = [], duplicates: [String] = [],
-                            next: String,
+                            facts: [String: JSONValue] = [:], may: [ReplyMay] = [],
+                            mustNot: [ReplyMustNot] = [.readList],
                             extra: [String: JSONValue] = [:]) -> ToolResult {
+        var known = facts
+        known["count"] = .int(Int64(list.count))
+        if let changed { known["changed"] = .string(changed) }
+        if !notFound.isEmpty { known["not_found"] = .array(notFound.map(JSONValue.string)) }
+        if !duplicates.isEmpty { known["duplicates"] = .array(duplicates.map(JSONValue.string)) }
+        let reply = ToolReply.success(facts: known, may: may, mustNot: mustNot).result.data
         var data: [String: JSONValue] = [
             "status": "trip_list",
             "count": .int(Int64(list.count)),
@@ -2201,8 +2222,8 @@ public actor TripPlanner: ToolExecutor {
             }),
             "not_found": .array(notFound.map { .string($0) }),
             "duplicates": .array(duplicates.map { .string($0) }),
-            "next": .string(next),
         ]
+        data.merge(reply) { _, new in new }
         if let changed { data["changed"] = .string(changed) }
         data["day"] = .int(Int64(plan.currentDay))
         data["days"] = .int(Int64(plan.dayCount))
@@ -2298,7 +2319,7 @@ public actor TripPlanner: ToolExecutor {
             persistSaved()
             return .success(["status": "plan_saved", "name": .string(name), "replaced": .bool(replaced),
                              "days": .int(Int64(plan.dayCount)), "stops": .int(Int64(plan.stopCount)),
-                             "next": .string("只说一句：已存成「\(name)」\(replaced ? "（替换了同名的）" : "")。")])
+                             ].merging(Self.said(["saved_as": .string(name), "replaced": .bool(replaced)])) { $1 })
         case "open":
             let index: Int
             if TranscriptText.normalize(name) == SavedTripPlans.previousName, let previous = saved.previous {
@@ -2314,15 +2335,16 @@ public actor TripPlanner: ToolExecutor {
                              "plans": .array(saved.entries.map { .object(["name": .string($0.name),
                                                                          "days": .int(Int64($0.plan.dayCount)),
                                                                          "stops": .int(Int64($0.plan.stopCount))]) }),
-                             "next": .string(saved.entries.isEmpty ? "只说一句：还没有存过行程。"
-                                             : "只说一句：存了\(saved.entries.count)个行程，按顺序说名字。")])
+                             ].merging(Self.said(["count": .int(Int64(saved.entries.count))],
+                                                 may: saved.entries.isEmpty ? [] : [.readListInOrder], mustNot: [])) { $1 })
         case "delete":
             switch find(name) {
             case .success(let i):
                 let gone = saved.entries[i].name
                 saved.delete(at: i)
                 persistSaved()
-                return .success(["status": "plan_deleted", "name": .string(gone), "next": .string("只说一句：删掉了「\(gone)」。")])
+                return .success(["status": "plan_deleted", "name": .string(gone)]
+                    .merging(Self.said(["deleted": .string(gone)])) { $1 })
             case .failure(let box): return box.result
             }
         case "rename":
@@ -2337,7 +2359,8 @@ public actor TripPlanner: ToolExecutor {
                 saved.rename(at: i, to: newName)
                 if plan.name == old { plan.name = newName; persist() }
                 persistSaved()
-                return .success(["status": "plan_renamed", "name": .string(newName), "next": .string("只说一句：改名叫「\(newName)」了。")])
+                return .success(["status": "plan_renamed", "name": .string(newName)]
+                    .merging(Self.said(["renamed_to": .string(newName)])) { $1 })
             case .failure(let box): return box.result
             }
         default:
@@ -2358,10 +2381,12 @@ public actor TripPlanner: ToolExecutor {
         opened.name = name == SavedTripPlans.previousName ? nil : name
         plan.load(opened)
         changed()
-        let note = kept ? "原来的清单已经存为「上一个清单」，" : ""
+        var facts: [String: JSONValue] = ["opened": .string(name), "days": .int(Int64(plan.dayCount)),
+                                          "stops": .int(Int64(plan.stopCount)), "next_stop_command": "去下一站"]
+        if kept { facts["previous_kept_as"] = .string(SavedTripPlans.previousName) }
         return .success(["status": "plan_opened", "name": .string(name), "kept_previous": .bool(kept),
                          "days": .int(Int64(plan.dayCount)), "stops": .int(Int64(plan.stopCount)), "plan": planValue(),
-                         "next": .string("只说一句：打开了「\(name)」，\(note)有\(plan.dayCount)天\(plan.stopCount)个地点。要导航就说去下一站。")])
+                         ].merging(Self.said(facts, may: [.nameCommand])) { $1 })
     }
 
     // MARK: Screen taps (§13)
@@ -2425,12 +2450,24 @@ public actor TripPlanner: ToolExecutor {
     private func add(_ place: Place) -> ToolResult {
         guard list.count < TripList.maxStops else { return failure(.tripTooLong) }
         if list.contains(placeID: place.id) {
-            return listResult(changed: "none", duplicates: [place.name],
-                              next: "只说一句：\(place.name)已经在清单里了，现在清单有\(list.count)个地点。")
+            return listResult(changed: "none", duplicates: [place.name], facts: ["already_in_list": .string(place.name)])
         }
         list.insert(TripStop(index: 0, asked: place.name, place: place, distanceMeters: place.distanceMeters))
         changed()
-        return listResult(changed: "added", next: "只说一句：加上了\(place.name)，现在清单有\(list.count)个地点。")
+        return listResult(changed: "added", facts: ["name": .string(place.name)])
+    }
+
+    /// F-09b §13 item 5 (T-031n): a saved-plan success as facts and rules (`facts`, `may`, `must_not`, `next`).
+    private static func said(_ facts: [String: JSONValue], may: [ReplyMay] = [],
+                             mustNot: [ReplyMustNot] = [.readList]) -> [String: JSONValue] {
+        ToolReply.success(facts: facts, may: may, mustNot: mustNot).result.data
+    }
+
+    /// The order of a new list as facts: not ordered by driving time, or ordered with estimated times.
+    private static func orderFacts(_ result: OrderResult) -> [String: JSONValue] {
+        if case .failed = result { return ["ordered": false] }
+        if case .success(let o) = result, o.estimated { return ["ordered": true, "times": "estimated"] }
+        return ["ordered": true]
     }
 
     private static func removedName(_ result: ToolResult) -> String? { result.data["removed"]?.stringValue }

@@ -219,12 +219,11 @@ struct NearFirstSearchTests {
         turns.next()
         let started = await nav.execute(tool("choose_navigation_option", ["index": 1]))
         #expect(started.data["long_trip"] == true)
-        #expect(started.data["next"]?.stringValue?.contains("约2935公里，29小时10分钟。这是长途，确定吗？") == true)
-        // What she says is exactly item 8's sentence; the cancel rule is a separate field.
+        // F-09b §13 item 5 (T-031n): name, km and minutes are facts; a long trip may ask once more.
+        #expect(started.data["facts"]?["long_trip"] == true && started.data["facts"]?["destination"] == "天安门")
+        #expect(started.data["facts"]?["distance_km"] == .double(2935) && started.data["facts"]?["duration_min"] == .int(1750))
         let next = started.data["next"]?.stringValue ?? ""
-        let spoken = next.split(separator: "「").last?.split(separator: "」").first.map(String.init) ?? ""
-        #expect(spoken == "已开始模拟导航，去天安门，约2935公里，29小时10分钟。这是长途，确定吗？")
-        #expect(!spoken.contains("exit_navigation_mode"))
+        #expect(next.contains("可以问司机是不是 facts 里的那个") && next.contains("exit_navigation_mode") == false)
         #expect(started.data["if_driver_says_no"]?.stringValue?.contains("exit_navigation_mode") == true)
         // The driver's no: Gemini's exit cancels the route.
         #expect(await nav.execute(tool("exit_navigation_mode")).ok)
@@ -234,7 +233,7 @@ struct NearFirstSearchTests {
         let (short, _) = await controller(near)
         let shortStart = await short.execute(tool("navigate_to", ["destination": "横琴口岸"]))
         #expect(shortStart.data["long_trip"] == false)
-        #expect(shortStart.data["next"]?.stringValue?.contains("去横琴口岸，约3.0公里，约6分钟。") == true)
+        #expect(shortStart.data["facts"]?["destination"] == "横琴口岸" && shortStart.data["facts"]?["long_trip"] == nil)
     }
 
     @Test("F-16 §14 row 7: one record line per call as item 9; RuntimeLog gets step and check only, no names")

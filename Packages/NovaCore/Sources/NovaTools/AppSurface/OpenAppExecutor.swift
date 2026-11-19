@@ -36,7 +36,8 @@ public struct OpenAppExecutor: ToolExecutor {
             return ToolReply.notDone(.appNotOpened, facts: ["page": .string(surface.label), "opened": false],
                                      may: [.tryLater]).result
         }
-        return .success(["app": .string(surface.rawValue),
-                         "next": .string("已经打开\(surface.label)页面，用一句话告诉用户。")])
+        // F-09b §13 item 5 (T-031n): what changed as facts.
+        return .success(["app": .string(surface.rawValue)].merging(
+            ToolReply.success(facts: ["opened": .string(surface.label)]).result.data) { $1 })
     }
 }

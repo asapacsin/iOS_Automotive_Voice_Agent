@@ -125,7 +125,9 @@ struct VolumeTests {
             #expect(r.data["level"] == .int(Int64(c.level)) && r.data["previous"] == .int(Int64(c.from)), "\(c)")
             #expect(r.data["limit_reached"] == .bool(c.limit), "\(c)")
             #expect(r.data["announce"] == .string("音乐音量调到 \(c.level) 了"), "\(c)")
-            #expect(r.data["next"] == .string("只说这一句：音乐音量调到 \(c.level) 了"), "\(c)")
+            // F-09b §13 item 5 (T-031n): the level is a fact; `next` quotes no sentence.
+            #expect(r.data["facts"]?["level"] == .int(Int64(c.level)), "\(c)")
+            #expect(r.data["next"]?.stringValue?.contains("只说这一句") == false, "\(c)")
             // §4 item 5: applied before the result is returned, and saved.
             #expect(output.last?.media == c.level && output.last?.mediaGain == Double(c.level) / 10)
             #expect(store.string("volumeMedia") == String(c.level))

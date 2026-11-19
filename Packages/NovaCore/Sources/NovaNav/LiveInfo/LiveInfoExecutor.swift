@@ -264,13 +264,13 @@ public struct LiveInfoExecutor: ToolExecutor {
             ]
             if let entry { w["today"] = ForecastWeather.today(entry) }
             if let country { w["country"] = .string(country) }
-            return .success(["weather": .object(w), "date": .string(date), "next": .string(ForecastWeather.nowNext)])
+            return .success(["weather": .object(w), "date": .string(date)].merging(ForecastWeather.reply(.object(w))) { $1 })
         }
         switch ForecastWeather.pick(days, day: nowView ? nil : parsed.day, date: parsed.date) {
         case .day(let entry):
             report(source, ok: true, reason: okReason, view: view)
-            return .success(["weather": ForecastWeather.summary(entry, place: place, country: country, source: source),
-                             "date": .string(entry.time), "next": .string(ForecastWeather.next)])
+            let summary = ForecastWeather.summary(entry, place: place, country: country, source: source)
+            return .success(["weather": summary, "date": .string(entry.time)].merging(ForecastWeather.reply(summary)) { $1 })
         case .past:
             report(source, ok: false, reason: "past", view: view)
             return .failure(.liveInfoUnavailable, advice: ForecastWeather.pastAdvice)
@@ -302,7 +302,8 @@ public struct LiveInfoExecutor: ToolExecutor {
                 "part": .string(part), "source": .string(source), "hours": ForecastWeather.hoursJSON(hours),
             ]
             if let country { w["country"] = .string(country) }
-            return .success(["weather": .object(w), "date": .string(date.iso), "next": .string(ForecastWeather.hoursNext)])
+            return .success(["weather": .object(w), "date": .string(date.iso)]
+                .merging(ForecastWeather.reply(.object(w))) { $1 })
         case .passed:
             report(source, ok: false, reason: "passed", view: "hours")
             return .failure(.liveInfoUnavailable, advice: ForecastWeather.partPassedAdvice)
@@ -382,10 +383,11 @@ public struct LiveInfoExecutor: ToolExecutor {
                 "accuracy_m": .int(Int64(fix.accuracyMeters.rounded())),
                 "fix_age_s": .int(Int64(fix.ageSeconds)),
                 "source": .string(location.source.rawValue),
-                "next": .string(demo
-                    ? "只按 address 用一句话回答，并说明这是演示起点，不是真实位置。不要编造。"
-                    : "只按 address 用一句话回答（例如：你现在在……附近）。不要编造。"),
             ]
+            // F-09b §13 item 5 (T-031n): the address as a fact; a demo start point says so.
+            var facts: [String: JSONValue] = ["address": data["address"] ?? .null, "demo_start": .bool(demo)]
+            if demo { facts["real_location"] = false }
+            data.merge(ToolReply.success(facts: facts, mustNot: [.invent, .guessLocation]).result.data) { $1 }
             if let road = address.road, !road.isEmpty { data["road"] = .string(road) }
             return .success(data)
         } catch let error as AmapWebError where error != .timeout && error != .failed {

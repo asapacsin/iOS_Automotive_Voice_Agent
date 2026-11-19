@@ -24,6 +24,10 @@ public enum ReplyMay: String, Sendable, Hashable, CaseIterable {
     case askWhat = "ask_what"
     /// She may say how the driver turns it back on (the command in `facts`).
     case nameCommand = "name_command"
+    /// F-09b §13 item 5 (T-031n): the driver asked to hear the list; she reads it in the `stops` order.
+    case readListInOrder = "read_list_in_order"
+    /// She may ask where the trip starts.
+    case askStart = "ask_start"
 
     public var gloss: String {
         switch self {
@@ -40,6 +44,8 @@ public enum ReplyMay: String, Sendable, Hashable, CaseIterable {
         case .offerNearby: "可以提议查附近的"
         case .askWhat: "可以问司机想要什么"
         case .nameCommand: "可以说 facts 里的说法怎么打开"
+        case .readListInOrder: "按 stops 的顺序念清单，每个只念序号和名字"
+        case .askStart: "可以问司机从哪里出发"
         }
     }
 }
@@ -56,6 +62,12 @@ public enum ReplyMustNot: String, Sendable, Hashable, CaseIterable {
     case guessLocation = "guess_location"
     /// F-09b §13 item 4 (T-031m): a camera answer that has no picture.
     case describeView = "describe_view"
+    /// F-09b §13 item 5 (T-031n): distances stay on the cards.
+    case readDistances = "read_distances"
+    /// The other routes stay on the screen; she names at most the one offer in `facts`.
+    case readRoutes = "read_routes"
+    /// A request was sent and not yet seen to work (music handed to the app).
+    case claimPlaying = "claim_playing"
 
     public var gloss: String {
         switch self {
@@ -67,6 +79,9 @@ public enum ReplyMustNot: String, Sendable, Hashable, CaseIterable {
         case .readList: "不要念屏幕上的列表"
         case .guessLocation: "不要猜位置"
         case .describeView: "不要描述画面"
+        case .readDistances: "不要念距离"
+        case .readRoutes: "不要念其他路线"
+        case .claimPlaying: "不要说正在播放"
         }
     }
 }

@@ -112,7 +112,7 @@ struct LiveInfoExecutorTests {
     func currentLocationDemo() async {
         let demo = SwitchableLocationProvider(device: NoLocation(), demo: FixedLocation(), useDevice: { false })
         let r = await ask(await executor(FakeWeather(), location: demo), here)
-        #expect(r.ok && r.data["source"] == "demo" && r.data["next"]?.stringValue?.contains("演示起点") == true)
+        #expect(r.ok && r.data["source"] == "demo" && r.data["facts"]?["demo_start"] == .bool(true))
     }
 
     @Test("F-16a §8: denied, no fix, regeo failure and key problems each name their cause")

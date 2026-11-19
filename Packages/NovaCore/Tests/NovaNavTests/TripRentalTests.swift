@@ -67,7 +67,7 @@ struct TripRentalTests {
         let sights = d.flatMap { $0 }.filter { $0.role == .sight }.map(\.place.name)
         #expect(sights.sorted() == ["浅草寺", "上野公园", "东京塔", "皇居", "银座"].sorted())
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip frame ") && $0.hasSuffix(" rental=both") })
-        #expect(r.data["next"]?.stringValue?.contains("租车需要提前在网上预订") == true)
+        #expect(factsText(r).contains("租车需要提前在网上预订"))
         // The plan the model reads says which stop is the pickup.
         #expect(r.data["plan"] == .array(d.map { .array($0.map { .string($0.place.name + TripPlanner.roleNote($0.role)) }) }))
         #expect(TripPlanner.roleNote(.rentalPickup) == "（取车）" && TripPlanner.roleNote(.rentalReturn) == "（还车）")
@@ -115,7 +115,7 @@ struct TripRentalTests {
         let r = await settle(rig, await rig.run(trip("make_trip_list", ["days": threeDays, "abroad": true, "start": "成田机场",
                                                       "end": "成田机场", "rental": true])))
         #expect(r.ok)
-        let next = r.data["next"]?.stringValue ?? ""
+        let next = factsText(r)
         #expect(next.contains("成田机场附近没找到租车点"))
         // Said once although start = end.
         #expect(next.components(separatedBy: "附近没找到租车点").count == 2)

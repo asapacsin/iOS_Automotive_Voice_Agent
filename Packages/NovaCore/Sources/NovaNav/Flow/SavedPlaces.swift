@@ -93,10 +93,11 @@ public struct SavePlaceExecutor: ToolExecutor {
         }
         let label = slot == .home ? "家" : "公司"
         let ask = slot == .home ? "回家" : "去公司"
+        // F-09b §13 item 5 (T-031n): what changed as facts.
         return .success([
             "slot": .string(slot.rawValue),
             "name": .string(saved.name),
-            "next": .string("只说一句：已把\(saved.name)记为\(label)，以后说「\(ask)」就能直接导航。"),
-        ])
+        ].merging(ToolReply.success(facts: ["saved": .string(saved.name), "as": .string(label), "command": .string(ask)],
+                                    may: [.nameCommand]).result.data) { $1 })
     }
 }

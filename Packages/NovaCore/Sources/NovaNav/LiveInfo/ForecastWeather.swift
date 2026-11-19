@@ -179,12 +179,16 @@ public enum ForecastWeather {
 
     // MARK: Item 6: the result
 
-    /// §26 item 6 (a whole day, §28 item 3).
-    public static let next = "只按 weather 里的数据用一两句话回答，说出地点和几月几号星期几，不要编造。"
-    /// §28 item 2 (ours).
-    public static let nowNext = "先说现在：地点、现在的天气和气温（now）；再用半句说今天的最高和最低气温（today）。一两句话，不说日期，不要编造。"
-    /// §28 item 4 (ours).
-    public static let hoursNext = "只按 hours 用一两句话回答这段时间：会不会下雨（rain_chance）和气温范围，说出地点和是哪天的上午、下午或晚上，不要编造。"
+    /// §26 item 6, §28 items 2–4, F-09b §13 item 5 (T-031n): the weather is the facts; `next` is built by
+    /// `ToolReply` (no sentence). The three views share the rule.
+    public static func reply(_ weather: JSONValue) -> [String: JSONValue] {
+        var facts: [String: JSONValue] = [:]
+        if case .object(let fields) = weather { facts = fields }
+        return ToolReply.success(facts: facts, mustNot: [.invent]).result.data
+    }
+    public static let next = ToolReply.success(facts: [:], mustNot: [.invent]).next
+    public static let nowNext = next
+    public static let hoursNext = next
     public static let partPassedAdvice = "这段时间已经过去了。请如实说明，可以说现在的天气。"
 
     /// §28 item 2: Open-Meteo's current block as `weather.now`.

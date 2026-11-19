@@ -29,9 +29,10 @@ let placeNov9 = Date(timeIntervalSince1970: 1_794_234_000)
 struct WeatherViewsTests {
     static let osloNow = CurrentWeather(time: "2026-11-06T06:00", temperature: 0.9, feelsLike: -2.2, humidity: 81, weatherCode: 1,
                                         windKmh: 4.3)
-    static let nowNext = "先说现在：地点、现在的天气和气温（now）；再用半句说今天的最高和最低气温（today）。一两句话，不说日期，不要编造。"
-    static let dayNext = "只按 weather 里的数据用一两句话回答，说出地点和几月几号星期几，不要编造。"
-    static let hoursNext = "只按 hours 用一两句话回答这段时间：会不会下雨（rain_chance）和气温范围，说出地点和是哪天的上午、下午或晚上，不要编造。"
+    // F-09b §13 item 5 (T-031n): the weather is the facts; `next` is built by ToolReply.
+    static let nowNext = ForecastWeather.nowNext
+    static let dayNext = ForecastWeather.next
+    static let hoursNext = ForecastWeather.hoursNext
 
     @Test("T-046q F-18 §28 row 4: Open-Meteo Oslo: now and today; today only; tomorrow only; no current block")
     func row4() async {

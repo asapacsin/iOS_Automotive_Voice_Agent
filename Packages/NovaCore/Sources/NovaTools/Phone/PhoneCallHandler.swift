@@ -82,8 +82,8 @@ public actor PhoneCallHandler: ToolExecutor {
         return .success([
             "status": "dialing",
             "contact": .string(asked.contact.displayName),
-            "next": .string("已经打开拨号界面，用一句话说正在给\(asked.contact.displayName)打电话。"),
-        ])
+        ].merging(ToolReply.success(facts: ["dialing": .string(asked.contact.displayName), "connected": false],
+                                    mustNot: [.claimDone]).result.data) { $1 })
     }
 
     /// The model may repeat the full name or the spoken one (妈妈 → 妈妈（手机）).

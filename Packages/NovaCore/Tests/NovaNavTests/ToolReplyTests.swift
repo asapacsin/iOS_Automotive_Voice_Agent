@@ -24,6 +24,12 @@ func replyValues(_ value: JSONValue?) -> [String] {
     if case .array(let items)? = value { return items.compactMap(\.stringValue) }
     return []
 }
+/// F-09b §13 item 5 (T-031n): the facts of a result as text, for checks on what changed.
+func factsText(_ result: ToolResult) -> String {
+    guard let facts = result.data["facts"], let data = try? JSONValue.canonicalEncoder().encode(facts) else { return "" }
+    return String(decoding: data, as: UTF8.self)
+}
+
 func isObject(_ value: JSONValue?) -> Bool { if case .object? = value { true } else { false } }
 func isArray(_ value: JSONValue?) -> Bool { if case .array? = value { true } else { false } }
 

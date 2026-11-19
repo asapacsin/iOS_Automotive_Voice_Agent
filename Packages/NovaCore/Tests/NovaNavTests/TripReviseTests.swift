@@ -109,7 +109,7 @@ struct TripReviseTests {
         let r = await rig.run(trip("revise_trip_list", ["replace": [["name": "无名", "with": item("B", 30)]]]))
         #expect(r.ok && r.data["status"] == "trip_list")
         #expect(await rig.order().sorted() == ["A", "B"])
-        #expect(r.data["next"]?.stringValue?.contains("无名没找到，换成了B") == true)
+        #expect(factsText(r).contains("无名没找到，换成了B"))
         #expect(strings(r.data["not_found"]).isEmpty)
         let lines = rig.lines.withLock { $0 }
         #expect(lines.contains { $0.hasPrefix("trip check round=1 not_found=0 over=0 driving=0 under=0 hotel=0 far=0 ms=") })
@@ -127,7 +127,7 @@ struct TripReviseTests {
         #expect(strings(b.data["issues"]) == ["无名二没找到，换一个附近类似的或者去掉"])
         let c = await rig.run(trip("revise_trip_list", ["replace": [["name": "无名二", "with": item("无名三", 60)]]]))
         #expect(c.ok && c.data["status"] == "trip_list" && c.data["round"] == nil)
-        #expect(c.data["next"]?.stringValue?.contains("没找到：无名三") == true)
+        #expect(strings(c.data["not_found"]).contains("无名三"))
         // The request is closed: the next revision opens a new one (round 1 again).
         // The request is closed: its not-found names are gone with it.
         #expect(await rig.run(trip("revise_trip_list", ["drop": ["无名三"]])).code == .invalidFields)
@@ -169,7 +169,7 @@ struct TripReviseTests {
         let days = await rig.planner.currentPlan.days
         #expect(days[0].stops.last?.place.name == second1 && days[1].stops.first?.place.name == second1)
         #expect(days[1].stops.last?.place.name == night2 && days[2].stops.first?.place.name == night2)
-        #expect(picked.data["next"]?.stringValue?.contains("第1晚住\(second1)") == true)
+        #expect(factsText(picked).contains("第1晚住\(second1)"))
     }
 
     @Test("F-15b row 135: no wishes: the first hotel is taken as §37 item 4; no hotel issue, no round for it")

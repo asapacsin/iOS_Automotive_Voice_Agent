@@ -83,8 +83,7 @@ public actor CameraQuestionHandler: ToolExecutor {
                 "answer": .string(text),
                 "seen_at_ms": .int(seenAt.milliseconds),
                 "camera": .string(target.rawValue),
-                "next": .string("只按 answer 回答，用一两句话，不要补充画面里没有的东西。"),
-            ])
+            ].merging(ToolReply.success(facts: ["answer": .string(text)], mustNot: [.invent]).result.data) { $1 })
         case .notConfigured:
             return Self.notDone(.notConfigured, cause: "not_configured")
         case .authFailed:

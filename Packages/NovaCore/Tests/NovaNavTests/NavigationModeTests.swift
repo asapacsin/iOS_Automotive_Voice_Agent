@@ -171,7 +171,7 @@ struct NavigationModePerTripTests {
         // One station: navigate_to starts guidance at once on the recommended route (T-040h).
         let started = await nav.execute(tool("navigate_to", ["destination": "珠海站"]))
         #expect(started.ok && started.data["simulated_movement"] == .bool(true))
-        #expect(started.data["next"]?.stringValue?.contains("已开始模拟导航") == true)
+        #expect(started.data["facts"]?["simulated"] == .bool(true) && started.data["facts"]?["started"] == .bool(true))
         #expect(engine.calls.withLock { $0 }.contains("start emulator"))
         #expect(await nav.current.mode == .emulator)
     }

@@ -20,7 +20,8 @@ struct CurrentTimeTests {
         #expect(field(r, "weekday") == "星期六")
         #expect(field(r, "timeZone") == "Asia/Shanghai")
         #expect(field(r, "utcOffset") == "+08:00")
-        #expect(field(r, "next")?.hasPrefix("只按 time 和 date 回答") == true)
+        // F-09b §13 item 5 (T-031n): the time is a fact; `next` quotes no sentence.
+        #expect(field(r, "next")?.hasPrefix("用自己的话简短地说。") == true && r.data["facts"]?["time"] == r.data["time"])
     }
 
     @Test("Row 2: London 12:08 中午 +00:00; New York 08:08 早上 -04:00; the date follows the zone")

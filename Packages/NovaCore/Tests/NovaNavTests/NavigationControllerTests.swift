@@ -114,14 +114,14 @@ struct NavigationControllerTests {
         guard case .array(let others)? = started.data["alternatives"] else { Issue.record("no alternatives"); return }
         #expect(others.count == 2)
         // Route 3 is faster: one short offer, never all routes read.
-        #expect(started.data["next"]?.stringValue?.contains("还有一条更快的，要换吗？") == true)
+        #expect(started.data["facts"]?["offer_other_route"] == "fastest")
 
         // F-15a row 12: 换最快的 replaces the route of the same trip.
         let again = await nav.execute(tool("choose_navigation_option", ["preference": "recommended"]))
         #expect(again.ok && again.data["status"] == "route_unchanged")
         let faster = await nav.execute(tool("choose_navigation_option", ["preference": "fastest"]))
         #expect(faster.ok && faster.data["status"] == "route_changed")
-        #expect(faster.data["next"]?.stringValue?.contains("已换成最快的路线") == true)
+        #expect(faster.data["facts"]?["route_changed_to"] == "最快的")
         let changed = await nav.current
         #expect(changed.phase == .navigating && changed.selectedRoute == RouteID(3))
         #expect(engine.calls.withLock { $0.filter { $0.hasPrefix("calculate") }.count } == 1)

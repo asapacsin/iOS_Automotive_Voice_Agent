@@ -168,7 +168,7 @@ struct TripPlanTests {
         _ = await rig.run("trip_plans", ["action": "save", "name": "天津一日游"])
         _ = await rig.run("make_trip_list", ["places": names(["天津之眼", "瓷房子"])])
         let opened = await rig.run("trip_plans", ["action": "open", "name": "天津一日游"])
-        #expect(opened.data["kept_previous"] == true && opened.data["next"]?.stringValue?.contains("上一个清单") == true)
+        #expect(opened.data["kept_previous"] == true && opened.data["facts"]?["previous_kept_as"] == "上一个清单")
         #expect(await rig.run("trip_plans", ["action": "open", "name": "上一个清单"]).ok)
         #expect(await rig.planner.current.stops.map(\.place.name) == ["天津之眼", "瓷房子"])
     }
@@ -293,7 +293,7 @@ struct TripReviewFix2Tests {
         let plan = await rig.planner.currentPlan
         #expect(plan.days.map { $0.stops.map(\.place.name) } == [["古文化街", "五大道"], ["天津之眼"], ["瓷房子"]])
         #expect(plan.name == nil)
-        #expect(r.data["next"]?.stringValue?.contains("3天的行程做好了（第1天2个，第2天1个，第3天1个）") == true)
+        #expect(r.data["facts"]?["sights_per_day"] == .array([2, 1, 1]))
     }
 
     @Test("F-15b row 36b: day 1 found nothing: it stays as an empty day and day 2 is current; nothing found anywhere is NO_CANDIDATES")

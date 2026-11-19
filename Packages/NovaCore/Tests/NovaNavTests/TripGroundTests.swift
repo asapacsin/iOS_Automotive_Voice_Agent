@@ -239,7 +239,7 @@ struct TripGroundTests {
             n += 1
         }
         #expect(r.data["status"] == "trip_list")
-        #expect(r.data["next"]?.stringValue?.contains("去掉了远方酒店") == true)
+        #expect(factsText(r).contains("去掉了远方酒店"))
     }
 
     @Test("T-040v F-15b row 143: a places item role=hotel, the night's last stop 「新宿附近車站」 (railway:station): not used; §37 hotel")

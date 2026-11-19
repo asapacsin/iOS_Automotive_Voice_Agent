@@ -68,6 +68,17 @@ class ScriptsGateTests(unittest.TestCase):
         self.tree.write("App/NovaDrive/Y.swift", 'let next = "用自己的话简短地说。"\n')
         self.assertEqual(run(check_scripts.main, "--root", str(self.tree.root), "--strict"), 0)
 
+    def test_repository_tree_has_no_findings_after_stage_3(self) -> None:
+        # F-09b §13 row 8 (T-031n): the real tree is clean outside the item 7 allow-list.
+        self.assertEqual(check_scripts.findings(REPO), [])
+
+    def test_allow_list_is_per_line_not_per_file(self) -> None:
+        # Row 8: an allowed file still fails on a planted 「只说一句：」 elsewhere in it.
+        rel, allowed = check_scripts.ALLOW[0]
+        self.tree.write(rel, f'{allowed}\nlet next = "只说一句：好的。"\n')
+        self.assertEqual(len(check_scripts.findings(self.tree.root)), 1)
+        self.assertEqual(run(check_scripts.main, "--root", str(self.tree.root), "--strict"), 1)
+
 
 class SecretsGateTests(unittest.TestCase):
     PLANTED = {

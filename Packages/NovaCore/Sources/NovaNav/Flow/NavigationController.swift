@@ -379,8 +379,7 @@ public actor NavigationController: ToolExecutor {
             "status": "candidates_listed",
             "count": .int(Int64(top.count)),
             "candidates": .array(top.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
-            "next": .string("屏幕上列出了\(top.count)个地点。只说一句：找到\(top.count)个地点，请说第几个。不要念列表。"),
-        ])
+        ].merging(Self.said(["listed": .int(Int64(top.count))], may: [.askPick], mustNot: [.readList])) { $1 })
     }
 
     /// Up to `maxCandidates` places for `destination`, or the failure to return. F-16: stripped query first,
@@ -644,8 +643,8 @@ public actor NavigationController: ToolExecutor {
             "count": .int(Int64(top.count)),
             "candidates": .array(top.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
             "guidance_kept": true,
-            "next": .string("屏幕上列出了\(top.count)个地点，导航仍按原路线继续。只说一句：找到\(top.count)个，说第几个可以改去那里。不要说已经改了路线。"),
-        ])
+        ].merging(Self.said(["listed": .int(Int64(top.count)), "guidance_kept": true, "route_changed": false],
+                            may: [.askPick], mustNot: [.readList, .claimDone])) { $1 })
     }
 
     // MARK: choose_navigation_option
@@ -816,16 +815,22 @@ public actor NavigationController: ToolExecutor {
         publish()
         let minutes = max(1, route.durationSeconds / 60)
         let (others, offer) = alternatives(besides: route)
-        let started = mode == .emulator ? "已开始模拟导航" : "已开始导航"
-        var sentence = replacing ? "已换成\(label ?? "")路线，大约\(minutes)分钟。" : "\(started)，大约\(minutes)分钟。" + (offer ?? "")
         // F-16 §14 item 8: name, km and hours+minutes; a long trip asks once more and a no cancels.
         var longTrip = false
         if let nearFirst, !replacing {
-            let start = nearFirst.match.startSentence(name: snapshot.destination?.name ?? "", meters: route.lengthMeters,
-                                                      seconds: route.durationSeconds)
-            longTrip = start.longTrip
-            sentence = "\(started)，" + start.text + (longTrip ? "" : (offer ?? ""))
+            longTrip = nearFirst.match.startSentence(name: snapshot.destination?.name ?? "", meters: route.lengthMeters,
+                                                     seconds: route.durationSeconds).longTrip
         }
+        let offerPreference = offer.map { $0.contains("更快") ? "fastest" : $0.contains("更短") ? "shortest" : "no_toll" }
+        // F-09b §13 item 5 (T-031n): what changed as facts; she says it in her own words.
+        var facts: [String: JSONValue] = [
+            replacing ? "route_changed_to" : "started": replacing ? .string(label ?? "") : .bool(true),
+            "destination": .string(snapshot.destination?.name ?? ""),
+            "distance_km": .double(Self.km(route.lengthMeters)), "duration_min": .int(Int64(minutes)),
+            "simulated": .bool(mode == .emulator),
+        ]
+        if longTrip { facts["long_trip"] = true }
+        if let offerPreference, !longTrip, !replacing { facts["offer_other_route"] = .string(offerPreference) }
         // Item 8: the cancel rule stays outside what she says.
         let ifNo: JSONValue = longTrip ? "如果司机说不去，调用 exit_navigation_mode 取消导航。" : .null
         return .success([
@@ -838,11 +843,8 @@ public actor NavigationController: ToolExecutor {
             "if_driver_says_no": ifNo,
             "alternatives": .array(others),
             // F-15a §2.5: what a plain 好 / 换 after her offer means.
-            "offer_preference": offer.map { $0.contains("更快") ? "fastest" : $0.contains("更短") ? "shortest" : "no_toll" }
-                .map(JSONValue.string) ?? .null,
-            "next": .string(longTrip ? "只说一句「\(sentence)」，不要念其他路线，也不要念工具名。"
-                            : "只说一句：\(sentence)不要念其他路线。"),
-        ])
+            "offer_preference": offerPreference.map(JSONValue.string) ?? .null,
+        ].merging(Self.said(facts, may: longTrip ? [.askConfirm] : [], mustNot: [.readRoutes])) { $1 })
     }
 
     /// F-15a §2.5 (T-040h): while navigating, 「换最快的」「不走高速」「换第二条」 replace the route with one of the
@@ -880,7 +882,8 @@ public actor NavigationController: ToolExecutor {
         case .success(let index):
             let route = options[index]
             if !fresh, route.id == current.first?.id {
-                return .success(["status": "route_unchanged", "next": "只说一句：现在走的就是这条路线。"])
+                return .success(["status": "route_unchanged"].merging(Self.said(["route_changed": false,
+                                                                                  "already_on_it": true])) { $1 })
             }
             let label = switch args["preference"]?.stringValue {
             case "fastest": "最快的"
@@ -932,7 +935,12 @@ public actor NavigationController: ToolExecutor {
 
     // MARK: exit_navigation_mode
 
-    public static let cardsHiddenNext = "只说一句：行程卡片先收起来了，行程还在，说「打开行程」就再拿出来。"
+    /// F-09b §13 item 5 (T-031n): the cards were put away; the plan stays.
+    public static let cardsHiddenNext = ToolReply.success(
+        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开行程"], may: [.nameCommand])
+        .result.data["next"]?.stringValue ?? ""
+    static let cardsHidden = ToolReply.success(
+        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开行程"], may: [.nameCommand]).result.data
 
     private func exit() async -> ToolResult {
         if snapshot.alongRouteList {
@@ -955,7 +963,7 @@ public actor NavigationController: ToolExecutor {
         case .idle, .error:
             // F-15b §22 item 2: nothing open, the cards shown: they are put away; the plan stays.
             if await hideTripCards?() == true {
-                return .success(["status": "trip_cards_hidden", "next": .string(Self.cardsHiddenNext)])
+                return .success(["status": "trip_cards_hidden"].merging(Self.cardsHidden) { $1 })
             }
             return .success(["status": "no_navigation_active", "next": "如实说当前没有在导航。"])
         }
@@ -1095,8 +1103,8 @@ public actor NavigationController: ToolExecutor {
             "count": .int(Int64(top.count)),
             "candidates": .array(top.enumerated().map { Self.describe($0.element, index: $0.offset + 1) }),
             "guidance_kept": true,
-            "next": .string("只说一句：沿途找到\(top.count)个\(keywords)，说第几个可以改去那里，导航仍按原路线继续。"),
-        ])
+        ].merging(Self.said(["listed": .int(Int64(top.count)), "what": .string(keywords), "guidance_kept": true],
+                            may: [.askPick], mustNot: [.readList])) { $1 })
     }
 
     /// Details of the destination or of the n-th place on screen, from Amap's place detail only.
@@ -1293,6 +1301,11 @@ public actor NavigationController: ToolExecutor {
     private static func whichPlace(_ snapshot: NavigationFlowState) -> ToolResult {
         ToolReply.choosing(.invalidArgument, onScreen: snapshot.places.count, names: snapshot.places.map(\.name),
                            facts: ["destination": snapshot.destination.map { .string($0.name) } ?? .null]).result
+    }
+
+    /// F-09b §13 item 5 (T-031n): a success as `facts`, `may`, `must_not` and the built `next`.
+    static func said(_ facts: [String: JSONValue], may: [ReplyMay] = [], mustNot: [ReplyMustNot] = []) -> [String: JSONValue] {
+        ToolReply.success(facts: facts, may: may, mustNot: mustNot).result.data
     }
 
     static func km(_ meters: Int) -> Double { (Double(meters) / 100).rounded() / 10 }

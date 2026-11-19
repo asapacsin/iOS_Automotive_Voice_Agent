@@ -126,7 +126,8 @@ public struct MusicToolHandler: ToolExecutor {
             await named.stop()
             return .failure(.notPlaying, advice: PreviewAdvice.text(for: failure))
         }
-        return .success(["status": "requested_unverified",
-                         "next": "只说一句：已经让音乐 app 去找了。不要说正在播放。"])
+        // F-09b §13 item 5 (T-031n): asked, not yet seen playing.
+        return .success(["status": "requested_unverified"].merging(ToolReply.success(
+            facts: ["requested": true, "playing": "unverified"], mustNot: [.claimPlaying]).result.data) { $1 })
     }
 }

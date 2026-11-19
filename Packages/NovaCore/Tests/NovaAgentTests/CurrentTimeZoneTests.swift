@@ -22,7 +22,7 @@ struct CurrentTimeZoneTests {
         let r = run("Asia/Tokyo")
         #expect(r.ok && f(r, "time") == "10:15" && f(r, "period") == "上午" && f(r, "date") == "2026年11月6日")
         #expect(f(r, "weekday") == "星期五" && f(r, "timeZone") == "Asia/Tokyo" && f(r, "utcOffset") == "+09:00")
-        #expect(f(r, "next") == "只按 time 和 date 回答，一句话，说出是哪里的时间。")
+        #expect(f(r, "next") == CurrentTime.zoneNext && r.data["facts"]?["named_place"] == .bool(true))
     }
 
     @Test("F-18 §25 row 2: Europe/Oslo 02:15 凌晨 +01:00; America/New_York 20:15 晚上 -05:00 2026年11月5日 星期四")
@@ -39,7 +39,7 @@ struct CurrentTimeZoneTests {
     func phoneZone() {
         let r = run(nil)
         #expect(f(r, "time") == "09:15" && f(r, "timeZone") == "Asia/Macau" && f(r, "utcOffset") == "+08:00")
-        #expect(f(r, "next") == "只按 time 和 date 回答，一句话，比如「现在是晚上八点零八分」。")
+        #expect(f(r, "next") == CurrentTime.zoneNext && r.data["facts"]?["named_place"] == .bool(false))
     }
 
     @Test("F-18 §25 row 4: bad zones are INVALID_ARGUMENT with the item 2 advice; where/day still INVALID_ARGUMENT")

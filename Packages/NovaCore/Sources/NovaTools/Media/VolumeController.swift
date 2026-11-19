@@ -108,8 +108,10 @@ public struct VolumeChange: Sendable, Hashable {
             "previous": .int(Int64(previous)),
             "limit_reached": .bool(limitReached),
             "announce": .string(announce),
-            "next": .string("只说这一句：" + announce),
-        ])
+        ].merging(ToolReply.success(
+            facts: ["target": .string(target.rawValue), "level": .int(Int64(level)), "previous": .int(Int64(previous)),
+                    "limit_reached": .bool(limitReached)],
+            mustNot: [.invent]).result.data) { $1 })
     }
 }
 

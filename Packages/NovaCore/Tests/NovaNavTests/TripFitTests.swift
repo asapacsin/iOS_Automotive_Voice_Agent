@@ -53,7 +53,7 @@ struct TripFitTests {
         #expect(minutes.count == 2 && minutes.allSatisfy { $0 <= 480 })
         let line = rig.lines.withLock { $0 }.first { $0.hasPrefix("trip fit ") } ?? ""
         #expect(line.contains("days=2 pace=normal budget=480 required=3 optional=7 kept=6 dropped=1"))
-        let next = r.data["next"]?.stringValue ?? ""
+        let next = factsText(r)
         #expect(next.contains("时间不够，没排进：O7"))
         #expect(next.contains("每天大约"))
         // Stops say their minutes.
@@ -70,7 +70,7 @@ struct TripFitTests {
         #expect(await planNames(rig).sorted() == ["R1", "R480"])
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip fit ") && $0.contains(" over=1 ") })
         // 20 + 480 + 20 + 60 = 580 minutes.
-        #expect(r.data["next"]?.stringValue?.contains("第1天大约10小时，比较紧") == true)
+        #expect(factsText(r).contains("第1天大约10小时，比较紧"))
     }
 
     @Test("F-15b row 119: the same places with pace=relaxed keep fewer optional places than with packed")
@@ -95,7 +95,7 @@ struct TripFitTests {
         #expect(await planNames(rig).sorted() == ["O1", "O2"])
         #expect(strings(r.data["spare"]).isEmpty)
         // 20 + 60 + 20 + 60 = 160 of 480: about 5 hours free.
-        #expect(r.data["next"]?.stringValue?.contains("第1天还空大约5小时，可以再加几个地方") == true)
+        #expect(factsText(r).contains("第1天还空大约5小时，可以再加几个地方"))
     }
 
     @Test("F-15b row 121: days groups with 2 places each: each place stays on its group's day")
@@ -176,7 +176,7 @@ struct TripFitTests {
         #expect(await rig.order() == ["R1", "R2", "O1"])
         #expect(r.data["spare"] == nil)
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip fit ") } == false)
-        #expect(r.data["next"]?.stringValue?.contains("还没按车程排好顺序") == true)
+        #expect(r.data["facts"]?["ordered"] == .bool(false))
         #expect(await rig.run(trip("edit_trip_list", ["action": "reorganize"])).code == .routeTimesUnavailable)
         #expect(await rig.order() == ["R1", "R2", "O1"])
     }
