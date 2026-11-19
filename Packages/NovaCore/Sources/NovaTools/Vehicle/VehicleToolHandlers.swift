@@ -51,10 +51,12 @@ enum VehicleArgs {
 
     /// F-12 §14 item 11: a policy refusal, with the rule and the advice the driver hears.
     static func blocked(_ action: String, _ rule: String) -> VehicleToolOutcome {
-        VehicleToolOutcome(result: .failure(.vehicleBlocked, advice: ToolFailureAdvice.forCode(.vehicleBlocked),
-                                            data: ["action": .string(action), "blocked": .string(rule),
-                                                   "detail": .string(VehicleActionPolicy.Rule(rawValue: rule)?.detail ?? rule),
-                                                   "instruction": .string(failureInstruction)]), chip: nil)
+        // F-09b §13 item 6 (T-031o): the rule and its detail are the facts.
+        let facts: [String: JSONValue] = ["action": .string(action), "blocked": .string(rule),
+                                          "detail": .string(VehicleActionPolicy.Rule(rawValue: rule)?.detail ?? rule)]
+        return VehicleToolOutcome(result: ToolFailureAdvice.reply(
+            .vehicleBlocked, facts: facts, extra: facts.merging(["instruction": .string(failureInstruction)]) { $1 }),
+                                  chip: nil)
     }
 }
 

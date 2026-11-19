@@ -110,7 +110,7 @@ public enum ToolCallGuards {
     public static func withPowerAdvice(_ call: ToolCall, _ result: ToolResult) -> ToolResult {
         guard result.ok, result.data["power_on"] == .bool(false),
               let action = call.arguments["action"]?.stringValue, temperatureOrFan.contains(action) else { return result }
-        return ToolResult(ok: true, code: nil, data: result.data, advice: ToolFailureAdvice.climateOff)
+        return ToolResult(ok: true, code: nil, data: result.data, advice: ToolFailureAdvice.climateOffNext)
     }
 }
 

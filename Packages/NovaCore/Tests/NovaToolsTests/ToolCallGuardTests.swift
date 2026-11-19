@@ -72,7 +72,7 @@ struct DispatchTests {
     func powerAdvice() {
         let adjust = call("control_climate", ["action": "adjust_temperature", "value": -1])
         let off = ToolResult.success(["power_on": false, "temperature_c": 22])
-        #expect(ToolDispatcher().finish(adjust, off).advice == ToolFailureAdvice.climateOff)
+        #expect(ToolDispatcher().finish(adjust, off).advice == ToolFailureAdvice.climateOffNext)
         #expect(ToolDispatcher().finish(adjust, .success(["power_on": true])).advice == nil)
         #expect(ToolDispatcher().finish(call("control_climate", ["action": "get_state"]), off).advice == nil)
     }
@@ -134,7 +134,7 @@ struct DispatchTests {
             #expect(ToolFailureAdvice.forCode(code)?.isEmpty == false, "\(code)")
         }
         let r = await NotYetExecutor().execute(call("describe_camera_view", ["question": "x"]))
-        #expect(!r.ok && r.code == .notAvailableOnIOSYet && r.advice != nil)
+        #expect(!r.ok && r.code == .notAvailableOnIOSYet && r.data["next"] != nil)
         let wire = ToolDispatcher.failure(.duplicateInTurn).wireObject(tool: "navigate_to")
         #expect(wire["ok"] == false && wire["error"] == "DUPLICATE_IN_TURN" && wire["tool"] == "navigate_to")
     }

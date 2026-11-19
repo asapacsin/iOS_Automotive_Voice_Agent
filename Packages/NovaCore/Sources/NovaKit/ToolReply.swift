@@ -28,6 +28,31 @@ public enum ReplyMay: String, Sendable, Hashable, CaseIterable {
     case readListInOrder = "read_list_in_order"
     /// She may ask where the trip starts.
     case askStart = "ask_start"
+    // F-09b §13 item 6 (T-031o): the moves of the ToolFailureAdvice entries (wording from the Android table).
+    case restateOptions = "restate_options"
+    case askCandidate = "ask_candidate"
+    case askWhichOption = "ask_which_option"
+    case useCloseWindow = "use_close_window"
+    case answerFromLast = "answer_from_last"
+    case askCall = "ask_call"
+    case askFullName = "ask_full_name"
+    case useAlongRoute = "use_along_route"
+    case sayGuidanceContinues = "say_guidance_continues"
+    case answerTurn = "answer_turn"
+    case usePlayMusic = "use_play_music"
+    case useNavigateNearby = "use_navigate_nearby"
+    case askAddress = "ask_address"
+    case retryWithTitle = "retry_with_title"
+    case askRoute = "ask_route"
+    case sayDetail = "say_detail"
+    case offerDirect = "offer_direct"
+    case useVoice = "use_voice"
+    case sayEndFirst = "say_end_first"
+    case offerDelete = "offer_delete"
+    case askNextDay = "ask_next_day"
+    case offerMake = "offer_make"
+    case nameStyles = "name_styles"
+    case powerOnClimate = "power_on_climate"
 
     public var gloss: String {
         switch self {
@@ -46,6 +71,30 @@ public enum ReplyMay: String, Sendable, Hashable, CaseIterable {
         case .nameCommand: "可以说 facts 里的说法怎么打开"
         case .readListInOrder: "按 stops 的顺序念清单，每个只念序号和名字"
         case .askStart: "可以问司机从哪里出发"
+        case .restateOptions: "可以按 options_on_screen 简要重新说有哪几项，再问司机要第几个"
+        case .askCandidate: "可以问司机是不是 candidate_position 那一项（说出序号和名称）"
+        case .askWhichOption: "可以反问司机是 options 里的哪一项"
+        case .useCloseWindow: "司机是想关窗就用 control_window action=close 正常关窗"
+        case .answerFromLast: "按上一次的结果回答"
+        case .askCall: "可以问司机是否要给这个人打电话；确认后用 confirmed=true 再调用一次 place_call"
+        case .askFullName: "可以请司机说完整的名字"
+        case .useAlongRoute: "调用 query_live_info（kind=along_route）查沿途的，再按结果回答；司机明确说要去那里时再调用 navigate_to"
+        case .sayGuidanceContinues: "可以说导航还在继续，要结束请说结束导航"
+        case .answerTurn: "简短回应这句话本身，没听清就请司机再说一遍"
+        case .usePlayMusic: "司机说了歌名、歌手、作品或描述时改用 play_music 按描述去放"
+        case .useNavigateNearby: "司机在找附近的地点（例如加油站、充电站）时改用 navigate_to 搜索"
+        case .askAddress: "可以请司机直接说出地址"
+        case .retryWithTitle: "还没填 title 就先确定一首具体的歌，用歌名原文和演唱者再调用一次 play_music"
+        case .askRoute: "可以问司机要走哪一条（按屏幕上的条数）"
+        case .sayDetail: "可以说没有做和原因（看 detail）"
+        case .offerDirect: "只有一个地方时可以直接导航过去"
+        case .useVoice: "可以说开车时请用语音改清单"
+        case .sayEndFirst: "可以说要先结束导航"
+        case .offerDelete: "可以说先删掉一个"
+        case .askNextDay: "可以问司机要不要开始下一天"
+        case .offerMake: "可以说先做一个行程"
+        case .nameStyles: "可以说有哪几种语气：甜、傲娇、温柔、元气和正常"
+        case .powerOnClimate: "先调用 control_climate{action=power_on} 把空调打开，成功后再告诉司机"
         }
     }
 }
@@ -68,6 +117,14 @@ public enum ReplyMustNot: String, Sendable, Hashable, CaseIterable {
     case readRoutes = "read_routes"
     /// A request was sent and not yet seen to work (music handed to the app).
     case claimPlaying = "claim_playing"
+    // F-09b §13 item 6 (T-031o): the rules of the ToolFailureAdvice entries.
+    case callTools = "call_tools"
+    case claimRepeated = "claim_repeated"
+    case sayContactMissing = "say_contact_missing"
+    case claimEnded = "claim_ended"
+    case askEnd = "ask_end"
+    case mentionQuiet = "mention_quiet"
+    case speak = "speak"
 
     public var gloss: String {
         switch self {
@@ -82,6 +139,13 @@ public enum ReplyMustNot: String, Sendable, Hashable, CaseIterable {
         case .readDistances: "不要念距离"
         case .readRoutes: "不要念其他路线"
         case .claimPlaying: "不要说正在播放"
+        case .callTools: "不要再调用任何工具"
+        case .claimRepeated: "不要说又做了一次"
+        case .sayContactMissing: "不要说没找到这个人"
+        case .claimEnded: "不要说导航已经结束"
+        case .askEnd: "不要问要不要结束导航"
+        case .mentionQuiet: "不要提安静或不说话的事"
+        case .speak: "不要说任何话"
         }
     }
 }

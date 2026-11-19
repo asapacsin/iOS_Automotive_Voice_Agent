@@ -53,7 +53,8 @@ public struct ToolDispatcher: Sendable {
     }
 
     public static func failure(_ code: ToolErrorCode, data: [String: JSONValue] = [:]) -> ToolResult {
-        .failure(code, advice: ToolFailureAdvice.forCode(code), data: data)
+        // F-09b §13 item 6 (T-031o): the caller's data are the facts (and stay where readers expect them).
+        ToolFailureAdvice.reply(code, facts: data, extra: data)
     }
 
     private static func canonical(_ value: JSONValue) -> String {

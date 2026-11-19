@@ -2266,7 +2266,7 @@ public actor TripPlanner: ToolExecutor {
         return (kmText, time)
     }
 
-    private func failure(_ code: ToolErrorCode) -> ToolResult { .failure(code, advice: ToolFailureAdvice.forCode(code)) }
+    private func failure(_ code: ToolErrorCode) -> ToolResult { ToolFailureAdvice.reply(code) }
 
     private func outOfRange() -> ToolResult {
         // F-09b §13 item 4 (T-031m): choosing; what is on the list, and she may ask which.

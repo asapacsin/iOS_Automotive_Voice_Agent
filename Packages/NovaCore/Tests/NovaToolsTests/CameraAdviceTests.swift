@@ -8,7 +8,9 @@ struct CameraAdviceTests {
     func earlyReturnAdvice() {
         let denied = ToolDispatcher.failure(.cameraPermissionDenied)
         let busy = ToolDispatcher.failure(.cameraUnavailable)
-        #expect(denied.advice?.hasPrefix("摄像头没有权限") == true)
-        #expect(busy.advice?.hasPrefix("摄像头现在用不了") == true)
+        // F-09b §13 item 6 (T-031o): rules, not a sentence; the app's screen line comes from the code.
+        #expect(denied.data["next"]?.stringValue?.contains("不要描述画面") == true)
+        #expect(CameraQuestionHandler.screenLine(denied)?.hasPrefix("摄像头没有权限") == true)
+        #expect(CameraQuestionHandler.screenLine(busy)?.hasPrefix("摄像头现在用不了") == true)
     }
 }

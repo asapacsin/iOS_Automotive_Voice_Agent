@@ -237,14 +237,17 @@ struct ITunesRetryTests {
         let r = await ITunesPreviewTests.handler(port).execute(ITunesPreviewTests.call(
             ["album_or_work": "空之境界", "query": "帮我播那个什么歌"]))
         #expect(http.terms.count == 1)
-        #expect(!r.ok && r.code == ToolErrorCode.musicNotFound && r.advice == ToolFailureAdvice.forCode(.musicNotFound))
+        #expect(!r.ok && r.code == ToolErrorCode.musicNotFound
+            && r.data["next"]?.stringValue == ToolFailureAdvice.forCode(.musicNotFound))
     }
 
     @Test("Row 4: play_music description and MUSIC_NOT_FOUND advice exactly as items 2 and 4")
     func texts() {
         let d = ToolCatalog.specs.first { $0.name == "play_music" }!.declaration.description
         #expect(d == "按歌名、歌手、作品或模糊描述放歌（播放 iTunes 30 秒试听），如「梶浦由记的、空之境界里很燃的那首片头曲」「来点开车提神的」。先用你的知识确定是哪首，填 title/artist/album_or_work；先用你的知识确定一首具体的歌：title 填发行时的歌名原文（如 oblivious），artist 填演唱者（如 Kalafina）；不要把用户的原话填进 query。实在确定不了才只填 query 或 mood。只按返回的 now_playing 说在放什么；ok=false 如实说没放成。「不是这首」时再调用并填 exclude_title。无描述的「放首歌」用 control_music。")
-        #expect(ToolFailureAdvice.forCode(.musicNotFound) == "曲库里没找到。如果还没填 title，请先确定一首具体的歌，用歌名原文和演唱者再调用一次 play_music；已经填了 title 还是没有，就如实说没找到，不要说在放。")
+        // F-09b §13 item 6 (T-031o): the entry is may/must_not values; the retry rule is kept as `retry_with_title`.
+        #expect(ToolFailureAdvice.forCode(.musicNotFound)?.contains("还没填 title 就先确定一首具体的歌，用歌名原文和演唱者再调用一次 play_music") == true)
+        #expect(ToolFailureAdvice.forCode(.musicNotFound)?.contains("不要说正在播放") == true)
     }
 }
 

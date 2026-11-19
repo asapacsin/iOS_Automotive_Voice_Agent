@@ -663,42 +663,123 @@ public enum ToolCatalog {
     }
 }
 
-/// `A/ToolFailureAdvice.kt`: the one place that says what the driver hears after a refusal.
+/// `A/ToolFailureAdvice.kt`: the one place that says what she may and must not do after a refusal.
+/// F-09b §13 item 6 (T-031o): each entry is `may`/`must_not` values, `facts` come from the caller and `next` is built
+/// by `ToolReply`; no entry is a sentence for her. The Android text (`generatedTable`) is left as it is and is
+/// overridden here entry by entry (`iosTable` holds every one of its codes).
 public enum ToolFailureAdvice {
-    public static func forCode(_ code: ToolErrorCode) -> String? { generatedTable[code] ?? iosTable[code] }
+    /// The `next` of a refusal with `code` (the rules only), or nil for a code with no entry.
+    public static func forCode(_ code: ToolErrorCode) -> String? {
+        if let rules = iosTable[code] { return rules.reply(code, facts: [:]).next }
+        return generatedTable[code]
+    }
 
-    /// iOS-only codes (I-2): one honest sentence for a tool with no iOS executor yet.
-    static let iosTable: [ToolErrorCode: String] = [
+    /// F-09b §13 item 6: the refusal as `facts` (from the caller), `may`, `must_not` and the built `next`.
+    public static func reply(_ code: ToolErrorCode, facts: [String: JSONValue] = [:],
+                             extra: [String: JSONValue] = [:]) -> ToolResult {
+        guard let rules = iosTable[code] else { return .failure(code, advice: generatedTable[code], data: facts) }
+        return rules.reply(code, facts: facts, extra: extra).result
+    }
+
+    /// What she may and must not do (F-09b §13 item 1). `ok` is false for a refusal.
+    public struct Rules: Sendable, Hashable {
+        public let may: [ReplyMay]
+        public let mustNot: [ReplyMustNot]
+        public init(_ may: [ReplyMay] = [], _ mustNot: [ReplyMustNot]) {
+            self.may = may
+            self.mustNot = mustNot
+        }
+
+        public func reply(_ code: ToolErrorCode, facts: [String: JSONValue], extra: [String: JSONValue] = [:]) -> ToolReply {
+            ToolReply.failure(code, facts: facts, may: may, mustNot: mustNot, extra: extra)
+        }
+    }
+
+    private static let notDone: [ReplyMustNot] = [.claimStarted, .claimDone]
+
+    /// Every code of the Android table and the iOS-only codes (I-2), as rules.
+    static let iosTable: [ToolErrorCode: Rules] = [
+        // Android table (`ToolFailureAdvice+Generated.swift`), overridden.
+        .noMatch: Rules([.askPick], [.claimStarted, .invent]),
+        .ambiguous: Rules([.askPick], [.claimStarted, .invent]),
+        .outOfRange: Rules([.askPick], [.claimStarted, .invent]),
+        .noOptionsOnScreen: Rules([.askDestination], notDone),
+        .optionsNotReady: Rules([.waitBriefly], notDone),
+        .optionsStale: Rules([.restateOptions, .askPick], notDone),
+        .confirmCandidate: Rules([.askCandidate], notDone),
+        .distanceUnknown: Rules([.askPick], [.claimStarted, .invent]),
+        .preferenceNotForDestinations: Rules([.askPick], [.claimStarted, .invent]),
+        .preferenceNotForRoutes: Rules([.askPick], [.claimStarted, .invent]),
+        .noOptions: Rules([], notDone + [.invent]),
+        .ambiguousReferent: Rules([.askWhichOption], notDone + [.callTools]),
+        .noRecentMosquito: Rules([.useCloseWindow], notDone),
+        .duplicateInTurn: Rules([.answerFromLast], [.claimRepeated]),
+        .noTelephony: Rules([], notDone),
+        .callNotConfirmed: Rules([.askCall], notDone),
+        .confirmationStale: Rules([.askCall], notDone),
+        .contactNotFound: Rules([.askFullName], notDone + [.invent]),
+        .contactsPermissionDenied: Rules([.nameSetting], notDone + [.sayContactMissing]),
+        .callFailed: Rules([.tryLater], notDone),
+        .nearbyQuestionWhileNavigating: Rules([.useAlongRoute], notDone),
+        .vagueExitWhileNavigating: Rules([.sayGuidanceContinues], [.claimEnded, .askEnd]),
+        .speechOutputNotRequested: Rules([.answerTurn], [.mentionQuiet]),
+        .unsupportedBodyPart: Rules([], notDone),
+        .mediaLibraryUnsupported: Rules([.usePlayMusic], notDone + [.claimPlaying]),
+        .notPlaying: Rules([.tryLater], notDone + [.claimPlaying]),
+        .noMusicApp: Rules([], notDone + [.claimPlaying]),
+        .handoffRejected: Rules([.tryLater], notDone + [.claimPlaying]),
+        .musicStillPlaying: Rules([], [.claimDone]),
+        .musicHandoffUnavailable: Rules([], notDone + [.claimPlaying]),
+        .amapWebKeyMissing: Rules([.nameSetting], [.invent]),
+        .noLocation: Rules([.askPlace], [.guessLocation, .invent]),
+        .locationPermissionDenied: Rules([.nameSetting], [.guessLocation, .invent]),
+        .noDestination: Rules([.askDestination], [.invent]),
+        .notNavigating: Rules([.useNavigateNearby], [.invent]),
+        .liveInfoUnavailable: Rules([.tryLater], [.invent]),
+        .liveInfoQuota: Rules([], [.invent]),
+        .noResults: Rules([.similarPlace], [.invent]),
+        .invalidKind: Rules([], [.invent]),
+        .invalidArgument: Rules([.askWhat], [.invent]),
+        .notADriverTurn: Rules([], [.speak]),
+        .homeNotSet: Rules([.askAddress], notDone + [.invent]),
+        .workNotSet: Rules([.askAddress], notDone + [.invent]),
+        // iOS-only codes.
         // F-13 §14 item 8 (T-032b).
-        .musicSearchFailed: "没有连上曲库，这首没有放。请用一句话如实说没放成，不要说正在放。",
-        .musicNotFound: "曲库里没找到。如果还没填 title，请先确定一首具体的歌，用歌名原文和演唱者再调用一次 play_music；已经填了 title 还是没有，就如实说没找到，不要说在放。",
-        .notAvailableOnIOSYet: "这个功能在这台 iPhone 上还没有做好，所以没有执行。请用一句话如实告诉用户暂时还不能用，不要说已经做了。",
-        .cameraPermissionDenied: "摄像头没有权限，请在设置里允许。请如实说明，不要描述画面。",
-        .cameraUnavailable: "摄像头现在用不了。请如实说明，不要描述画面。",
-        .navigationNotRequested: "司机还没有选路线，所以没有开始导航。不要说已经开始或已经选好；请只问一句：有几条路线（按屏幕上的条数说），要走哪一条？",
-        .confirmRequired: "导航还在继续，没有结束。不要说已经结束。",
-        .vehicleBlocked: "这个操作被安全规则拦下了，没有执行。请用一句话如实告诉用户没有做和原因（看 detail），不要说已经做了。",
+        .musicSearchFailed: Rules([.tryLater], notDone + [.claimPlaying]),
+        .musicNotFound: Rules([.retryWithTitle], notDone + [.claimPlaying]),
+        .notAvailableOnIOSYet: Rules([], notDone),
+        .cameraPermissionDenied: Rules([.nameSetting], notDone + [.describeView]),
+        .cameraUnavailable: Rules([.tryLater], notDone + [.describeView]),
+        .navigationNotRequested: Rules([.askRoute], notDone),
+        .confirmRequired: Rules([], [.claimEnded]),
+        .vehicleBlocked: Rules([.sayDetail], notDone),
         // F-09b §4 item 1 (T-031j).
-        .nothingToUndo: "没有可以撤销的调整，什么都没有改。请用一句话说没有可以撤销的。",
+        .nothingToUndo: Rules([], [.claimDone]),
         // F-15b §5 (T-040i).
-        .noTripList: "还没有打卡清单，什么都没有改。请用一句话如实说还没有清单。",
-        .tripTooLong: "清单最多16个地点，这次没有加。请用一句话如实说明。",
-        .tripTooShort: "清单里不到两个地点，串不成路线。请如实说至少要两个地点；只有一个地方就直接导航过去。",
-        .notFound: "没找到这个地方，清单没有改。请用一句话如实说没找到，不要猜一个地方。",
+        .noTripList: Rules([], [.claimDone]),
+        .tripTooLong: Rules([], [.claimDone]),
+        .tripTooShort: Rules([.offerDirect], notDone),
+        .notFound: Rules([], [.claimDone, .invent]),
         // F-15b §13 item 1 (T-040j).
-        .notWhileMoving: "车在行驶，屏幕上的编辑没有执行。请用一句话说开车时请用语音改清单。",
+        .notWhileMoving: Rules([.useVoice], [.claimDone]),
         // F-15b §16 (T-040l).
-        .planNotFound: "没有这个行程，什么都没有改。请用一句话如实说没有这个行程。",
-        .tripWhileNavigating: "正在导航，清单没有串成路线，导航还在继续。请用一句话说导航中不能串路线，要先结束导航。",
-        .plansFull: "最多存20个行程，这次没有存。请用一句话如实说明，可以先删掉一个。",
+        .planNotFound: Rules([], [.claimDone, .invent]),
+        .tripWhileNavigating: Rules([.sayEndFirst], notDone),
+        .plansFull: Rules([.offerDelete], [.claimDone]),
         // F-15b §26–§29 (T-040n).
-        .routeTimesUnavailable: "没有查到地点之间的车程，行程没有重新排。请用一句话如实说明，可以稍后再试。",
-        .noStart: "不知道从哪里出发，行程没有重新排。请只问一句：从哪里出发？",
-        .planChanged: "重新排的结果和原来的地点对不上，行程没有改。请用一句话如实说没排成功。",
-        .dayDone: "这一天的地点都去过或跳过了。请问司机要不要开始下一天。",
+        .routeTimesUnavailable: Rules([.tryLater], [.claimDone]),
+        .noStart: Rules([.askStart], [.claimDone]),
+        .planChanged: Rules([], [.claimDone]),
+        .dayDone: Rules([.askNextDay], [.claimStarted]),
         // F-15b §49 item 7 (T-040u).
-        .noRevision: "还没有排好的行程可以改，什么都没有改。请用一句话如实说还没有行程，可以先做一个。",
-        // F-15b §51 item 2 (T-040y): moved to `TripPlanner.tripHiddenResult` (F-09b §13 item 4, T-031m).
-        .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
+        .noRevision: Rules([.offerMake], [.claimDone]),
+        .styleNotAllowed: Rules([.nameStyles], [.claimDone]),
     ]
+
+    /// `place_call` found one contact: she asks first; nothing is dialled.
+    public static let confirmCallNext = Rules([.askCall], notDone).reply(.callNotConfirmed, facts: [:]).next
+    /// More than one contact matches: she asks which; nothing is dialled.
+    public static let chooseContactNext = Rules([.askPick], notDone + [.invent]).reply(.ambiguous, facts: [:]).next
+    /// A temperature or fan change with the climate off: switch it on first, then say it.
+    public static let climateOffNext = Rules([.powerOnClimate], [.claimDone]).reply(.vehicleUnavailable, facts: [:]).next
 }

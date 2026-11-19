@@ -69,7 +69,7 @@ struct SpeakingStyleTests {
         let result = await SpeakingStyleHandler(settings: settings).execute(styleCall("bossy"))
         #expect(!result.ok)
         #expect(result.code == .styleNotAllowed)
-        #expect(result.advice?.contains("傲娇") == true)
+        #expect(result.data["may"] == .array(["name_styles"]) && result.data["next"]?.stringValue?.contains("傲娇") == true)
         #expect(settings.string(SettingsKey.personaStyle) == "gentle")
         #expect(ToolCatalog.validate(styleCall("bossy")) == .styleNotAllowed)
     }

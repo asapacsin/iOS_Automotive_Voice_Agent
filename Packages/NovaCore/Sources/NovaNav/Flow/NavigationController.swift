@@ -321,7 +321,7 @@ public actor NavigationController: ToolExecutor {
         // F-16: an unset 家/公司 is refused before anything changes (the trip stop guidance keeps going, I-14).
         if let saved, let slot = PlaceSlot.slot(for: destination), saved.place(slot) == nil {
             let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
-            return .failure(code, advice: ToolFailureAdvice.forCode(code))
+            return ToolFailureAdvice.reply(code)
         }
         endTripStop()
         // F-05a §6 (replaces the P61 word guard): while guiding, a new place is listed over the running route;
@@ -340,7 +340,7 @@ public actor NavigationController: ToolExecutor {
         if let saved, let slot = PlaceSlot.slot(for: destination) {
             guard let place = saved.place(slot) else {
                 let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
-                return .failure(code, advice: ToolFailureAdvice.forCode(code))
+                return ToolFailureAdvice.reply(code)
             }
             snapshot.routes = []
             snapshot.info = nil
@@ -617,7 +617,7 @@ public actor NavigationController: ToolExecutor {
         if let saved, let slot = PlaceSlot.slot(for: destination) {
             guard let place = saved.place(slot) else {
                 let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
-                return .failure(code, advice: ToolFailureAdvice.forCode(code))
+                return ToolFailureAdvice.reply(code)
             }
             top = [place]
         } else {

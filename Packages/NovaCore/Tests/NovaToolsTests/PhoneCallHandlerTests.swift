@@ -89,6 +89,6 @@ struct PhoneCallHandlerTests {
     @Test("Every failure carries its honest advice sentence")
     func advice() async {
         let r = await handler().execute(call("place_call", ["contact": "李四"]))
-        #expect(r.advice == ToolFailureAdvice.forCode(.contactNotFound))
+        #expect(r.data["next"]?.stringValue == ToolFailureAdvice.forCode(.contactNotFound))
     }
 }

@@ -79,7 +79,7 @@ struct SavedPlacesTests {
         let search = CountingSearch(places: [place("家", 1)])
         let nav = await navigation(engine, search: search, saved: SavedPlaces(settings: MemorySettingsStore()))
         let home = await nav.execute(tool("navigate_to", ["destination": "家"]))
-        #expect(!home.ok && home.code == .homeNotSet && home.advice != nil)
+        #expect(!home.ok && home.code == .homeNotSet && home.data["may"] == .array(["ask_address"]))
         let work = await nav.execute(tool("navigate_to", ["destination": "去公司"]))
         #expect(!work.ok && work.code == .workNotSet)
         #expect(search.queries.withLock { $0 }.isEmpty)

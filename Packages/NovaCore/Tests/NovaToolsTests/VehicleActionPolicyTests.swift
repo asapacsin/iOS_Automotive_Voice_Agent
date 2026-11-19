@@ -38,7 +38,7 @@ struct VehicleActionPolicyTests {
         #expect(direct.result.ok == false)
         #expect(direct.result.code == .vehicleBlocked)
         #expect(direct.result.data["blocked"] == .string("window_at_speed"))
-        #expect(direct.result.advice != nil)
+        #expect(direct.result.data["facts"]?["blocked"] == .string("window_at_speed"))
         let allowed = await WindowToolHandler(port: port).handle(["action": "set", "value": .int(20)])
         #expect(allowed.result.ok)
         #expect(await fake.cabinState().windows.values.allSatisfy { $0 == 20 })
