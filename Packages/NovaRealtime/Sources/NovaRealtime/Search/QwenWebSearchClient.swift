@@ -2,6 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import Synchronization
 import NovaKit
 import NovaPorts
 
@@ -27,11 +28,13 @@ public struct QwenWebSearchClient: WebSearchService {
     private let onExchange: (@Sendable (WebSearchExchange) -> Void)?
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
+    private let fallback: QwenFallback
 
     public init(key: @escaping @Sendable () -> String?, send: @escaping Send = QwenWebSearchClient.urlSession,
                 now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current },
-                onExchange: (@Sendable (WebSearchExchange) -> Void)? = nil) {
+                onExchange: (@Sendable (WebSearchExchange) -> Void)? = nil, fallback: QwenFallback = .shared) {
         self.key = key
+        self.fallback = fallback
         self.onExchange = onExchange
         self.send = send
         self.now = now
@@ -67,7 +70,7 @@ public struct QwenWebSearchClient: WebSearchService {
         "Today is \(englishDate(now: now, zone: zone)) in \(zone.identifier)."
     }
 
-    public func request(_ query: String, key: String) -> URLRequest {
+    public func request(_ query: String, key: String, route: QwenRoute = Self.route) -> URLRequest {
         var request = URLRequest(url: URL(string: Self.endpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -76,14 +79,14 @@ public struct QwenWebSearchClient: WebSearchService {
         let date = now()
         let zone = zone()
         let body: JSONValue = [
-            "model": .string(Self.model),
+            "model": .string(route.model),
             "input": ["messages": [
                 ["role": "system", "content": [["text": .string(Self.instruction(now: date, zone: zone))]]],
                 ["role": "user", "content": [["text": .string(Self.dateQuestion)]]],
                 ["role": "assistant", "content": [["text": .string(Self.dateAnswer(now: date, zone: zone))]]],
                 ["role": "user", "content": [["text": .string(query)]]],
             ]],
-            "parameters": Self.route.parameters(),
+            "parameters": route.parameters(),
         ]
         request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
         return request
@@ -91,7 +94,8 @@ public struct QwenWebSearchClient: WebSearchService {
 
     public func search(_ query: String, attempt: Int) async throws -> WebSearchReply {
         guard let key = key(), !key.isEmpty else { throw WebSearchError.notConfigured }
-        let request = request(query, key: key)
+        // The body of the last request sent (the backup's after a §50 item 10 switch).
+        let sentBody = Mutex(request(query, key: key).httpBody)
         let started = ContinuousClock.now
         func ms() -> Int {
             let d = ContinuousClock.now - started
@@ -100,7 +104,7 @@ public struct QwenWebSearchClient: WebSearchService {
         // §18 items 1-2: the exact body sent, never the headers (the key is only there).
         func exchange(status: Int?, body: Data?, error: String?, urlError: Int?) {
             guard let onExchange else { return }
-            let sent = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
+            let sent = String(decoding: sentBody.withLock { $0 } ?? Data(), as: UTF8.self)
             let counts = body.map(Self.counts) ?? Counts()
             onExchange(WebSearchExchange(attempt: attempt, requestBody: sent, status: status, ms: ms(),
                                          bytes: body?.count ?? 0, responseBody: body.map { String(decoding: $0, as: UTF8.self) },
@@ -111,7 +115,17 @@ public struct QwenWebSearchClient: WebSearchService {
         let status: Int
         let body: Data
         do {
-            (status, body) = try await send(request)
+            // §50 item 10 (T-040x): a 429 or a quota 403 switches once to the route's backup model, same body except `model`.
+            (status, body) = try await fallback.run(Self.route) { route, timeout in
+                var req = request(query, key: key, route: route)
+                req.limit(timeout)
+                let body = req.httpBody
+                sentBody.withLock { $0 = body }
+                let r = try await send(req)
+                // §18 item 1: one exchange per request (two after a switch).
+                exchange(status: r.status, body: r.body, error: nil, urlError: nil)
+                return r
+            }
         } catch {
             let urlError = (error as? URLError)?.code.rawValue
             if Task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError {
@@ -125,7 +139,6 @@ public struct QwenWebSearchClient: WebSearchService {
             exchange(status: nil, body: nil, error: "network", urlError: urlError)
             throw WebSearchError.network
         }
-        exchange(status: status, body: body, error: nil, urlError: nil)
         guard status == 200 else { throw WebSearchError.http(status, code: Self.errorCode(body)) }
         let parsed = Self.parse(body)
         if let code = parsed.code { throw WebSearchError.api(code) }

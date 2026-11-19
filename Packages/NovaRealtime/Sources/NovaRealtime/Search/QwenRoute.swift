@@ -27,10 +27,34 @@ public struct QwenRoute: Sendable, Hashable {
     public let thinking: Bool
     /// Streamed (`X-DashScope-SSE: enable`, `incremental_output`), read to the end before parsing.
     public let stream: Bool
-    /// §50 item 10 hook (T-040x, not implemented here): the model and search options of the backup route used only
-    /// on an HTTP 429 or a quota 403 before any answer arrives. Nothing reads it yet.
+    /// §50 item 10 (T-040x, `QwenFallback`): the model and search options of the backup route, used only on an HTTP
+    /// 429 or a quota 403 before any answer arrives.
     public let backupModel: String
     public let backupSearch: Search?
+    /// The route's time budget as the caller enforces it (picker `TripTuning.pickLimit`, ground
+    /// `TripTuning.groundTimeout`; live: the executor's own, nil here). A backup call gets only what is left of it.
+    public let budget: NovaDuration?
+
+    /// §50 item 10: after a 429 the primary is skipped this long (Alibaba: limits usually recover within a minute).
+    public static let cooldown = NovaDuration.seconds(60)
+
+    public init(job: Job, model: String, search: Search?, thinking: Bool, stream: Bool, backupModel: String,
+                backupSearch: Search?, budget: NovaDuration? = nil) {
+        self.job = job
+        self.model = model
+        self.search = search
+        self.thinking = thinking
+        self.stream = stream
+        self.backupModel = backupModel
+        self.backupSearch = backupSearch
+        self.budget = budget
+    }
+
+    /// The same route on its backup model and search options.
+    public var backup: QwenRoute {
+        QwenRoute(job: job, model: backupModel, search: backupSearch, thinking: thinking, stream: stream,
+                  backupModel: backupModel, backupSearch: backupSearch, budget: budget)
+    }
 
     /// Model Studio, Singapore, multimodal API (the key's endpoint).
     public static let endpoint = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
@@ -43,14 +67,16 @@ public struct QwenRoute: Sendable, Hashable {
                                        backupSearch: Search(strategy: "turbo", forced: true, enableSource: true))
     /// F-15b §4 item 6 picker (unchanged): search off, not streamed.
     public static let picker = QwenRoute(job: .picker, model: "qwen3.7-flash", search: nil, thinking: false, stream: false,
-                                         backupModel: "qwen3.8-flash", backupSearch: nil)
+                                         backupModel: "qwen3.8-flash", backupSearch: nil,
+                                         budget: .milliseconds(2500))
     /// F-15b §50 item 1: `agent` is Model Studio's multi-round search; `forced_search` so the search must run (the
     /// answer's `search_info` is checked); plus is the "balanced" model.
     public static let ground = QwenRoute(job: .ground, model: "qwen3.7-plus",
                                          search: Search(strategy: "agent", forced: true, enableSource: true),
                                          thinking: false, stream: true,
                                          backupModel: "qwen3.7-flash",
-                                         backupSearch: Search(strategy: "turbo", forced: true, enableSource: true))
+                                         backupSearch: Search(strategy: "turbo", forced: true, enableSource: true),
+                                         budget: .seconds(30))
 
     public static let all: [QwenRoute] = [live, picker, ground]
 

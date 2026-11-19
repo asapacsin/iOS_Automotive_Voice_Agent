@@ -86,7 +86,8 @@ struct WebSearchClientTests {
     @Test("Row 5: HTTP status with its code, an error code in a 200 stream, network, timeout, no key")
     func errors() async {
         let errorBody = Data(#"{"code":"AllocationQuota.FreeTierOnly","message":"secret words","request_id":"r"}"#.utf8)
-        let http = QwenWebSearchClient(key: { TestKey.value }, send: { _ in (403, errorBody) })
+        let http = QwenWebSearchClient(key: { TestKey.value }, send: { _ in (403, errorBody) },
+                                       fallback: QwenFallback())
         await #expect(throws: WebSearchError.http(403, code: "AllocationQuota.FreeTierOnly")) { try await http.search("q", attempt: 1) }
         let bare = QwenWebSearchClient(key: { TestKey.value }, send: { _ in (503, Data()) })
         await #expect(throws: WebSearchError.http(503, code: nil)) { try await bare.search("q", attempt: 1) }
@@ -130,7 +131,8 @@ struct WebSearchClientTests {
             #expect(e.error == error && e.urlError == url && e.status == nil && e.responseBody == nil)
         }
         let got = Mutex<[WebSearchExchange]>([])
-        let c = QwenWebSearchClient(key: { TestKey.value }, send: { _ in (403, forbidden) }, onExchange: { x in got.withLock { $0.append(x) } })
+        let c = QwenWebSearchClient(key: { TestKey.value }, send: { _ in (403, forbidden) }, onExchange: { x in got.withLock { $0.append(x) } },
+                                    fallback: QwenFallback())
         _ = try? await c.search("q", attempt: 1)
         #expect(got.withLock { $0 }.first?.status == 403 && got.withLock { $0 }.first?.responseBody?.contains("FreeTierOnly") == true)
         // No key: no request, so no exchange.

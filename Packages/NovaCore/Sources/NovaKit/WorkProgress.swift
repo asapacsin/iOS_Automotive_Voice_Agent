@@ -57,6 +57,12 @@ public struct WorkProgress: Sendable, Equatable {
         started = now
     }
 
+    /// An open work older than `maxOpen`.
+    public func stale(at now: NovaInstant) -> Bool {
+        guard let started else { return false }
+        return now - started >= Self.maxOpen
+    }
+
     /// True while a work is open (started, not ended or cleared).
     public var open: Bool { kind != nil && ended == nil }
 
@@ -135,7 +141,10 @@ public final class WorkProgressBoard: Sendable {
     /// Starts a trip work only when none is open (a `revise_trip_list` round continues the make's panel).
     public func continueTrip() {
         let now = clock.now
-        state.withLock { if !($0.open && $0.kind == .trip) { $0.start(.trip, at: now) } }
+        // An open trip work older than `maxOpen` (a round never revised) is stale: start a fresh one.
+        state.withLock {
+            if !($0.open && $0.kind == .trip && !$0.stale(at: now)) { $0.start(.trip, at: now) }
+        }
     }
 
     public func step(_ title: String) {
