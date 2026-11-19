@@ -207,7 +207,7 @@ public struct LiveInfoExecutor: ToolExecutor {
 
     /// §26 item 2, §31 item 5: Open-Meteo geocoding (largest population), then its forecast.
     private func foreignWeather(_ parsed: ForecastWeather.Arguments) async -> ToolResult {
-        guard let forecastLookup else { return LookupReply.failed(.liveInfoUnavailable, what: "weather", cause: .keyMissing) }
+        guard let forecastLookup else { return LookupReply.failed(.liveInfoUnavailable, what: "weather", cause: .notConfigured) }
         do {
             let places = try await forecastLookup.lookUp(parsed.where, country: parsed.country)
             guard let found = ForecastWeather.pick(places), let coordinate = found.coordinate else {

@@ -94,7 +94,7 @@ struct ToolReplyStage1Tests {
     }
 
     @Test("F-09b §13 row 4: stage 1 failures return ToolReply: key, network, quota, no location, save_place, details")
-    func stage1Results() async {
+    func stage1Results_keyNetworkQuotaLocationSaveDetails() async {
         let noKey = NavigationController(search: FixedSearch(places: [], error: .keyMissing),
                                          engine: ScriptedNaviEngine(routes: []), location: NoLocation(), clock: ManualClock())
         await noKey.start()
@@ -118,6 +118,21 @@ struct ToolReplyStage1Tests {
         expectReplyShape(notFound, "save_place")
         #expect(replyValues(notFound.data["must_not"]).contains("claim_done")
             && replyValues(notFound.data["must_not"]).contains("ask_rephrase"))
+
+        // Quota, no location and details: the builders the LiveInfo and details places use.
+        let quota = LookupReply.failed(LookupReply.code(for: LookupReply.cause(of: AmapWebError.quota)), what: "天气",
+                                       cause: LookupReply.cause(of: AmapWebError.quota))
+        #expect(quota.code == .liveInfoQuota && quota.data["facts"]?["cause"] == "quota")
+        expectReplyShape(quota, "quota")
+        let noFix = await LiveInfoExecutor(navigation: noKey, geocoder: FakeGeocoder(), location: NoLocation())
+            .execute(tool("query_live_info", ["kind": "current_location"]))
+        #expect(!noFix.ok && noFix.data["facts"] != nil)
+        expectReplyShape(noFix, "no location")
+        #expect(replyValues(noFix.data["must_not"]).contains("guess_location"))
+        let details = LookupReply.notFound(.noResults, what: "details", facts: ["place": "珠海站"])
+        #expect(details.data["facts"]?["place"] == "珠海站" && details.data["facts"]?["found"] == .int(0))
+        expectReplyShape(details, "details")
+        #expect(LookupReply.Cause.notConfigured.rawValue == "not_configured")
     }
 
     @Test("F-09b §13 row 4: no stage 1 place keeps its advice sentence (item 3 places at 8a895e9)")
@@ -134,7 +149,7 @@ struct ToolReplyStage1Tests {
             "目的地的位置没有查到。请如实说明。", "天气查询还没有配置。", "所以查不到地址",
             "现在还没定位到。请如实说还没定位到", "地址没有查到。请如实说明，不要猜位置。", "密钥无效，所以没有查到",
             "今天的查询次数用完了", "请如实说明没有做成清单。", "清单里的地点都没有找到",
-            "请如实说明没有改行程。", "请如实说明没有改清单。",
+            "请如实说明没有改行程。", "请如实说明没有改清单。", "地址没有保存成功。请如实说没有保存",
         ]
         for sentence in old { #expect(!source.contains(sentence), "\(sentence)") }
     }

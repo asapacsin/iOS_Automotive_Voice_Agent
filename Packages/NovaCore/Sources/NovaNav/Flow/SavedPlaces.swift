@@ -84,7 +84,9 @@ public struct SavePlaceExecutor: ToolExecutor {
         // Claim only what the store holds now (I-1): read the slot back.
         guard let stored = places.place(slot), stored.name == saved.name,
               stored.coordinate == saved.coordinate else {
-            return .failure(.placeNotSaved, advice: "地址没有保存成功。请如实说没有保存，可以请用户稍后再试。")
+            // F-09b §13 item 3 (T-031l): facts and rules, no sentence.
+            return ToolReply.failure(.placeNotSaved, facts: ["what": "address", "saved": false], may: [.tryLater],
+                                     mustNot: [.claimDone, .invent]).result
         }
         let label = slot == .home ? "家" : "公司"
         let ask = slot == .home ? "回家" : "去公司"

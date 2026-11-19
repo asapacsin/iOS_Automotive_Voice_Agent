@@ -45,6 +45,8 @@ public enum LookupReply {
     /// Why a lookup failed: the real cause she may name (F-18 §8).
     public enum Cause: String, Sendable, Hashable {
         case keyMissing = "key_missing"
+        /// A lookup service that is not set up in this build (no client), as opposed to a rejected key.
+        case notConfigured = "not_configured"
         case quota
         case network
         case noLocation = "no_location"
@@ -60,7 +62,7 @@ public enum LookupReply {
         facts["what"] = .string(what)
         facts["cause"] = .string(cause.rawValue)
         let defaultMoves: [ReplyMay] = switch cause {
-        case .keyMissing, .permissionDenied: [.nameSetting]
+        case .keyMissing, .notConfigured, .permissionDenied: [.nameSetting]
         case .quota, .network, .noRouteShape, .routeFailed: [.tryLater]
         case .noLocation: [.askPlace, .tryLater]
         }

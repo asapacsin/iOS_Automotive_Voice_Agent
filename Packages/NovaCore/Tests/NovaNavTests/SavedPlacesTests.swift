@@ -144,7 +144,7 @@ struct SavedPlacesTests {
         let result = await SavePlaceExecutor(places: SavedPlaces(settings: DroppingSettingsStore()),
                                              search: CountingSearch(places: [home]))
             .execute(tool("save_place", ["slot": "home", "address": "华发新城"]))
-        #expect(!result.ok && result.code == .placeNotSaved && result.advice != nil)
+        #expect(!result.ok && result.code == .placeNotSaved && result.advice == nil && result.data["facts"]?["saved"] == .bool(false))
     }
 }
 
