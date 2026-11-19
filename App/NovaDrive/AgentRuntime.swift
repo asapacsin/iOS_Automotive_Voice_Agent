@@ -1543,6 +1543,8 @@ final class AgentRuntime {
             if let c = await photon.center(city) { return c }
             return await AppleCityCenter.find(city)
         }, area: { city in await photon.area(city) })
+        // §51 item 8: near=place in China, 香港, 澳门 and 台湾 geocodes on 高德 /v3/geocode/geo.
+        await navigation.setHomeGeocode(web)
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
         let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),

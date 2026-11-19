@@ -165,7 +165,7 @@ struct TripPhase4bTests {
         #expect(photon.centers.withLock { $0 }.map { [$0.latitude, $0.longitude] } == [[35.68, 139.76]])
         #expect(cities.withLock { $0 }.isEmpty)
         #expect(amap.calls.withLock { $0 }.isEmpty)
-        #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon found=2 ms=") })
+        #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=2 ms=") })
     }
 
     @Test("F-15b §36 item 2d (§51 item 8): a named place abroad (near=place) is searched around its centre; a CN result is dropped")
@@ -176,7 +176,7 @@ struct TripPhase4bTests {
         #expect(cities.withLock { $0 } == ["东京"])
         #expect(photon.centers.withLock { $0 }.first?.latitude == 35.6812)
         #expect(amap.calls.withLock { $0 }.isEmpty)
-        #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon found=1 ms=") })
+        #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=1 ms=") })
     }
 
     @Test("F-15b §51 item 1: near=here with the phone in China is the home search (高德); Photon is not asked")

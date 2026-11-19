@@ -87,7 +87,7 @@ struct TripNavSeparateTests {
             #expect(photon.centers.withLock { $0 } == [tokyoCentre])
             #expect(rig.areas.withLock { $0 } == ["Tokyo, Japan"])
             #expect(amap.calls.withLock { $0 }.isEmpty)
-            #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon found=1 ") && $0.hasSuffix(" area_dropped=2") })
+            #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=1 ") && $0.hasSuffix(" area_dropped=2") })
             #expect(await rig.nav.current.destination?.name == "Lawson")
         }
     }

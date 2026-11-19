@@ -278,7 +278,7 @@ struct TripGroundTests {
         #expect(r.data["facts"]?["searched_around"] == "Tokyo, Japan" && r.data["facts"]?["vendor"] == "photon")
         #expect(r.data["facts"]?["radius_km"] != nil && r.data["must_not"] == ["ask_rephrase", "invent"])
         #expect(search.boxes.withLock { $0 }.first?.0 == GeoBox.around(tokyoCenter))
-        #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon found=0 ") && $0.hasSuffix(" area_dropped=3") })
+        #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=0 ") && $0.hasSuffix(" area_dropped=3") })
     }
 
     @Test("T-040v F-15b row 148: make_trip_list and revise_trip_list say item 5's one line first")

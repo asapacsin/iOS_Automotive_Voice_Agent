@@ -16,6 +16,17 @@ private func nav(_ args: [String: JSONValue]) -> ToolCall {
     ToolCall(id: CallID("n1")!, name: "navigate_to", arguments: .object(args))
 }
 
+/// 高德 `/v3/geocode/geo` stand-in: every name asked, one fixed answer or error.
+final class FakeGeocode: PlaceLookup, @unchecked Sendable {
+    let answer: Result<[LookedUpPlace], AmapWebError>
+    let asked = Mutex<[String]>([])
+    init(_ answer: Result<[LookedUpPlace], AmapWebError>) { self.answer = answer }
+    func lookUp(_ name: String, country: String?) async throws -> [LookedUpPlace] {
+        asked.withLock { $0.append(name) }
+        return try answer.get()
+    }
+}
+
 /// The demo point (位置来源 off): the provider's fix is `DriveSettings.demoOrigin`, its source `.demo`.
 private struct DemoLocation: LocationProvider {
     let fix: LocationFix
@@ -30,7 +41,10 @@ private struct NearRig {
     let lines = TripLines()
     let geocoded = TripLines()
 
-    init(phone: GeoCoordinate, home: any PlaceSearch, photon: FakeApple, demo: Bool = false) async {
+    /// `area`: what Photon's area lookup answers (default: Tokyo, or the US for Springfield); `.some(nil)` none, so
+    /// `centre` (Apple's bare centre) is used.
+    init(phone: GeoCoordinate, home: any PlaceSearch, photon: FakeApple, demo: Bool = false,
+         geocode: FakeGeocode? = nil, area: TripArea?? = .none, centre: GeoCoordinate = tokyoCentre) async {
         let fix = LocationFix(coordinate: phone, horizontalAccuracyMeters: 20, timestamp: .zero)
         let lines = self.lines
         let location: any LocationProvider = demo ? DemoLocation(fix: fix) : FixLocation(fix: fix)
@@ -38,11 +52,13 @@ private struct NearRig {
                                    location: location, clock: ManualClock(), onTripLine: { lines.append($0) })
         await nav.start()
         let geocoded = self.geocoded
-        await nav.setAbroad(search: photon, center: { _ in tokyoCentre }, area: { name in
+        await nav.setAbroad(search: photon, center: { _ in centre }, area: { name in
             geocoded.append(name)
+            if let area { return area }
             return name.contains("Springfield") ? TripArea(center: springfield, countryCode: "US")
                 : TripArea(center: tokyoCentre, countryCode: "JP")
         })
+        if let geocode { await nav.setHomeGeocode(geocode) }
     }
 
     func near() -> [String] { lines.withLock { $0 }.filter { $0.hasPrefix("nav near ") } }
@@ -151,7 +167,7 @@ struct NearCentreTests {
         #expect(r.ok == false && r.code == .countryMismatch)
         #expect(r.data["facts"]?["found_country"] == "US" && r.data["facts"]?["near_country"] == "JP")
         #expect(photon.asked.withLock { $0 }.isEmpty && amap.calls.withLock { $0 }.isEmpty)
-        #expect(rig.near() == ["nav near kind=place vendor=photon source=geocode found=0 dropped=0 reason=country_mismatch"])
+        #expect(rig.near() == ["nav near kind=place vendor=none source=geocode found=0 dropped=0 reason=country_mismatch"])
         #expect(await rig.nav.current.phase == .idle)
     }
 
@@ -187,7 +203,7 @@ struct NearCentreTests {
         let r = await rig.nav.execute(nav(["destination": "餐厅", "near": "trip", "near_name": "浅草寺"]))
         #expect(r.code == .tripHidden && r.advice == TripPlanner.tripHiddenNext)
         #expect(photon.asked.withLock { $0 }.isEmpty)
-        #expect(rig.near() == ["nav near kind=trip vendor=amap source=trip found=0 dropped=0 reason=trip_hidden"])
+        #expect(rig.near() == ["nav near kind=trip vendor=none source=trip found=0 dropped=0 reason=trip_hidden"])
         #expect(await planner.cardsHidden)
     }
 
@@ -250,6 +266,128 @@ struct NearCentreTests {
         let r = await rig.nav.execute(nav(["destination": "加油站", "near": "route"]))
         #expect(r.ok && r.data["status"] == "candidates_listed_over_guidance")
         #expect(rig.near() == ["nav near kind=route vendor=amap source=route found=2 dropped=0 reason=ok"])
+    }
+
+    // MARK: Review fixes (2e425fa)
+
+    @Test("F-15b §51 item 8: near=place with near_country MO or HK geocodes and searches on 高德, never Photon")
+    func macauHongKong() async {
+        for (name, country) in [("澳门", "MO"), ("香港", "HK"), ("台北", "TW")] {
+            let home = FakeApple(["酒店": [place("酒店1", 300), place("酒店2", 500)]])
+            let photon = FakeApple(["酒店": [jp("Hotel", lat: 35.69)]])
+            let geocode = FakeGeocode(.success([LookedUpPlace(name: name, coordinate: place("x", 0).coordinate)]))
+            let rig = await NearRig(phone: zhuhai, home: home, photon: photon, geocode: geocode)
+            let r = await rig.nav.execute(nav(["destination": "酒店", "near": "place", "near_name": .string(name),
+                                               "near_country": .string(country)]))
+            #expect(r.ok, "\(country)")
+            #expect(geocode.asked.withLock { $0 } == [name])
+            #expect(photon.asked.withLock { $0 }.isEmpty && rig.geocoded.withLock { $0 }.isEmpty, "\(country)")
+            #expect(rig.near() == ["nav near kind=place vendor=amap source=geocode found=2 dropped=0 reason=ok"], "\(country)")
+        }
+    }
+
+    @Test("F-15b §51 item 8: 高德 geocode errors give their cause (key, quota, network), not not_found")
+    func geocodeFailure() async {
+        for (error, code) in [(AmapWebError.keyMissing, ToolErrorCode.amapWebKeyMissing), (.quota, .liveInfoQuota),
+                              (.timeout, .liveInfoUnavailable)] {
+            let rig = await NearRig(phone: zhuhai, home: AmapSpy(), photon: FakeApple([:]), geocode: FakeGeocode(.failure(error)))
+            let r = await rig.nav.execute(nav(["destination": "便利店", "near": "place", "near_name": "香洲", "near_country": "CN"]))
+            #expect(r.code == code, "\(error)")
+            #expect(rig.near() == ["nav near kind=place vendor=none source=geocode found=0 dropped=0 reason=failed"])
+        }
+    }
+
+    @Test("F-15b §51 item 8: a trip stop in Osaka with countryCode JP (inside China's box) is searched on Photon")
+    func osakaStop() async {
+        let osaka = GeoCoordinate(latitude: 34.69, longitude: 135.50, datum: .gcj02)
+        #expect(CoordinateConverter.outOfChina(osaka.latitude, osaka.longitude) == false)
+        let amap = AmapSpy()
+        let photon = FakeApple(["餐厅": [jp("Kani Doraku", lat: 34.69, lng: 135.50), jp("Ichiran", lat: 34.70, lng: 135.50)]])
+        let rig = await NearRig(phone: zhuhai, home: amap, photon: photon)
+        await rig.nav.setNearTrip { NearTrip(hidden: false, abroad: true, city: "Osaka, Japan",
+                                             stops: [stop(1, "大阪城", .sight, osaka)]) }
+        let r = await rig.nav.execute(nav(["destination": "餐厅", "near": "trip", "near_name": "大阪城"]))
+        #expect(r.ok && photon.centers.withLock { $0 } == [osaka] && amap.calls.withLock { $0 }.isEmpty)
+        #expect(rig.near().first?.hasPrefix("nav near kind=trip vendor=photon") == true)
+    }
+
+    @Test("F-15b §51 item 8: near=place 大阪 JP (inside China's box) is searched on Photon by its country")
+    func osakaPlace() async {
+        let osaka = GeoCoordinate(latitude: 34.69, longitude: 135.50, datum: .gcj02)
+        let amap = AmapSpy()
+        let photon = FakeApple(["餐厅": [jp("Kani Doraku", lat: 34.69, lng: 135.50)]])
+        let rig = await NearRig(phone: zhuhai, home: amap, photon: photon, area: TripArea(center: osaka, countryCode: "JP"))
+        let r = await rig.nav.execute(nav(["destination": "餐厅", "near": "place", "near_name": "大阪", "near_country": "JP"]))
+        #expect(r.ok && photon.centers.withLock { $0 } == [osaka] && amap.calls.withLock { $0 }.isEmpty)
+        #expect(rig.near() == ["nav near kind=place vendor=photon source=geocode found=1 dropped=0 reason=ok"])
+    }
+
+    @Test("F-15b §51 item 8: Apple's bare centre fallback gives no country; the box is not taken as China (Seoul, KR)")
+    func appleFallback() async {
+        let seoul = GeoCoordinate(latitude: 37.57, longitude: 126.98, datum: .gcj02)
+        let photon = FakeApple(["咖啡店": [jp("Starbucks", lat: 37.57, lng: 126.98, country: "KR")]])
+        let rig = await NearRig(phone: zhuhai, home: AmapSpy(), photon: photon, area: .some(nil), centre: seoul)
+        let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "place", "near_name": "首尔", "near_country": "KR"]))
+        #expect(r.ok && r.code == nil)
+        #expect(photon.centers.withLock { $0 } == [seoul])
+    }
+
+    @Test("F-15b §51 item 8: near=place without near_country: invalidFields, nothing searched")
+    func placeWithoutCountry() async {
+        let amap = AmapSpy()
+        let photon = FakeApple([:])
+        let rig = await NearRig(phone: zhuhai, home: amap, photon: photon)
+        let r = await rig.nav.execute(nav(["destination": "便利店", "near": "place", "near_name": "东京"]))
+        #expect(r.code == .invalidFields)
+        #expect(amap.calls.withLock { $0 }.isEmpty && photon.asked.withLock { $0 }.isEmpty && rig.geocoded.withLock { $0 }.isEmpty)
+    }
+
+    @Test("F-15b §51 item 8: no usable fix: the facts do not say 手机位置")
+    func noFix() async {
+        let home = FakeApple(["咖啡店": [place("瑞幸", 300), place("星巴克", 600)]])
+        let nav0 = NavigationController(search: home, engine: ScriptedNaviEngine(routes: [route(1, meters: 5_000, seconds: 600)]),
+                                        location: NoLocation(), clock: ManualClock())
+        await nav0.start()
+        let r = await nav0.execute(nav(["destination": "咖啡店", "near": "here"]))
+        #expect(r.data["facts"]?["searched_around"] == "没有定位" && r.data["facts"]?["located"] == false)
+    }
+
+    @Test("F-15b §51 item 8: trip_city compares countries: a shown trip in China (Zhuhai phone) adds none; one in Seoul (inside the box) adds it")
+    func tripCityByCountry() async {
+        let tianjin = GeoCoordinate(latitude: 39.13, longitude: 117.2, datum: .gcj02)
+        let seoul = GeoCoordinate(latitude: 37.57, longitude: 126.98, datum: .gcj02)
+        for (trip, expected) in [
+            (NearTrip(hidden: false, abroad: false, city: nil,
+                      stops: [NearTripStop(day: 1, name: "古文化街", asked: "古文化街", role: .sight, coordinate: tianjin, countryCode: nil)]),
+             JSONValue?.none),
+            (NearTrip(hidden: false, abroad: true, city: "Seoul, Korea",
+                      stops: [NearTripStop(day: 1, name: "景福宫", asked: "景福宫", role: .sight, coordinate: seoul, countryCode: "KR")]),
+             .string("Seoul, Korea")),
+        ] {
+            let home = FakeApple(["咖啡店": [place("瑞幸", 300), place("星巴克", 600)]])
+            let rig = await NearRig(phone: zhuhai, home: home, photon: FakeApple([:]))
+            await rig.nav.setNearTrip { trip }
+            let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
+            #expect(r.data["facts"]?["trip_city"] == expected)
+        }
+    }
+
+    @Test("F-15b §51 item 8: near=here abroad keeps to 50 km (an Osaka result for a Tokyo phone is dropped)")
+    func hereAbroadRange() async {
+        let photon = FakeApple(["便利店": [jp("Lawson", lat: 35.681), jp("Lawson Osaka", lat: 34.7, lng: 135.5)]])
+        let rig = await NearRig(phone: tokyoPhone, home: AmapSpy(), photon: photon)
+        let r = await rig.nav.execute(nav(["destination": "便利店", "near": "here"]))
+        #expect(r.ok && r.data["count"] == nil && r.data["status"] != "candidates_listed")
+        #expect(rig.near() == ["nav near kind=here vendor=photon source=fix found=1 dropped=1 reason=ok"])
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=1 ") })
+    }
+
+    @Test("F-15b §51 item 8: near=trip with the cards hidden also logs trip blocked tool=navigate_to reason=hidden")
+    func hiddenLogsBlocked() async {
+        let rig = await NearRig(phone: zhuhai, home: AmapSpy(), photon: FakeApple([:]))
+        await rig.nav.setNearTrip { NearTrip(hidden: true, abroad: true, city: "Tokyo, Japan", stops: tokyoStops) }
+        _ = await rig.nav.execute(nav(["destination": "餐厅", "near": "trip", "near_name": "浅草寺"]))
+        #expect(rig.lines.withLock { $0 }.contains("trip blocked tool=navigate_to reason=hidden"))
     }
 
     @Test("F-15b §51 item 8: trip stop matching by name, day and role")
