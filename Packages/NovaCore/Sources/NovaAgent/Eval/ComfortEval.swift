@@ -320,7 +320,12 @@ public enum ComfortScorer {
     /// A claim in the reply that no ok result backs: any claim with no ok action, or a named one without its tool.
     public static func unbackedClaim(_ run: ComfortRun) -> Bool {
         let proofs = run.calls.filter { $0.acts && $0.ok }
-        if proofs.isEmpty { return ClaimLexicon.claim(in: run.reply) != nil }
+        if proofs.isEmpty {
+            guard ClaimLexicon.claim(in: run.reply) != nil else { return false }
+            // F-09b §12 item 2: an ok navigate_to backs 「找到附近的咖啡店」; a car topic still needs its tool.
+            guard run.calls.contains(where: { $0.name == "navigate_to" && $0.ok }) else { return true }
+            return !ClaimLexicon.unbackedTopics(in: run.reply, proofs: []).isEmpty
+        }
         return !ClaimLexicon.unbackedTopics(in: run.reply, proofs: proofs.map { ($0.name, $0.data) }).isEmpty
     }
 
@@ -329,7 +334,11 @@ public enum ComfortScorer {
         func fail(_ f: ComfortFailure) -> ComfortScore { ComfortScore(decision: decision, failure: f) }
         if let problem = run.problem { return fail(.problem(problem)) }
         if unbackedClaim(run) { return fail(.unbackedClaim) }
-        if !c.accepted.contains(decision) { return fail(.wrongDecision(decision)) }
+        if c.restPlaces {
+            // F-09b §12 item 3: any one sentence passes, so the words are not read as a decision (「不安全」 is no
+            // refusal here); any car or music call, ok or not, is still wrong.
+            if run.calls.contains(where: \.acts) { return fail(.wrongDecision(decision)) }
+        } else if !c.accepted.contains(decision) { return fail(.wrongDecision(decision)) }
         for facet in ComfortFacet.allCases where c.forbidden.contains(facet) {
             if changed(facet, c.start, run.end) { return fail(.forbiddenChange(facet)) }
         }

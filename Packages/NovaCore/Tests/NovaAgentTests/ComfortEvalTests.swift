@@ -311,6 +311,27 @@ struct SleepyRestTests {
         #expect(ComfortScorer.score(why, run(why, end: why.start, reply: "长时间开车容易疲劳。")).pass)
     }
 
+    @Test("F-09b §12 row 2 (review): refusal words, 已为你找到 and a failed car call")
+    func reviewProbes() async {
+        for c in ComfortCases.all where c.restPlaces {
+            for reply in ["开车犯困不安全，找个地方休息一下吧。", "不行就找个服务区歇会儿吧。", "导航暂时还不能用，找个地方休息一下吧。",
+                          "已为你找到附近的咖啡店，选一个休息一下吧。"] {
+                #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [nav("附近的咖啡店")], reply: reply)).pass, "\(c.id) \(reply)")
+            }
+            let failedCar = ComfortCallRecord(name: "control_climate", ok: false, code: .vehicleBlocked, data: [:])
+            #expect(ComfortScorer.score(c, run(c, end: c.start, calls: [failedCar, nav("附近的咖啡店")], reply: "休息一下吧。"))
+                .failure == .wrongDecision(.refuse))
+        }
+        // A claim with no ok navigate_to is still unbacked; a car claim is unbacked even with one.
+        let d = comfortCase("drowsy")
+        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, reply: "已为你找到附近的咖啡店。")))
+        #expect(ComfortScorer.unbackedClaim(run(d, end: d.start, calls: [nav("附近的咖啡店")], reply: "空调已经打开了。")))
+        // The eval stub answers like the real tool's candidate list.
+        let r = await ComfortRestPlacesStub().execute(ToolCall(id: CallID("1")!, name: "navigate_to",
+                                                                 arguments: .object(["destination": "附近的咖啡店"])))
+        #expect(r.ok && r.data["status"] == "candidates_listed")
+    }
+
     @Test("F-09b §12 row 4: navigate_to finds nothing; one sentence suggesting a rest passes with no route")
     func noResults() {
         for c in ComfortCases.all where c.restPlaces {
