@@ -153,23 +153,20 @@ public actor NavigationController: ToolExecutor {
 
     public func setTripCards(hide: @escaping @Sendable () async -> Bool) { hideTripCards = hide }
 
-    /// F-15b §36 item 2d (T-040p): plain searches abroad. `search` is Photon, `center` a city's centre outside China,
-    /// `tripCity` the city of an `abroad` trip in progress (nil when there is none).
+    /// F-15b §36 item 2d (T-040p): plain searches abroad. `search` is Photon, `center` a city's centre outside China.
+    /// §51 item 1 (T-040y): `area` is the named city's centre and country (nil when unknown); the trip is never consulted.
     private var abroadSearch: (any PlaceSearch)?
     private var abroadCenter: (@Sendable (String) async -> GeoCoordinate?)?
-    private var abroadTripCity: (@Sendable () async -> String?)?
+    private var abroadArea: (@Sendable (String) async -> TripArea?)?
     /// F-15b §47 item 1 (T-040s): the places on offer came from `navigate_to abroad` (or an `abroad` trip's
     /// `trip_next`), so their route request is marked `abroad` (OSRM). A home search clears it.
     private var routeAbroad = false
     public func setAbroad(search: any PlaceSearch, center: @escaping @Sendable (String) async -> GeoCoordinate?,
-                          tripCity: @escaping @Sendable () async -> String?) {
+                          area: @escaping @Sendable (String) async -> TripArea? = { _ in nil }) {
         abroadSearch = search
         abroadCenter = center
-        abroadTripCity = tripCity
+        abroadArea = area
     }
-    /// F-15b §50 item 3 (T-040v): the area of an `abroad` trip in progress (nil when none is open).
-    private var abroadTripArea: (@Sendable () async -> TripArea?)?
-    public func setTripArea(_ area: @escaping @Sendable () async -> TripArea?) { abroadTripArea = area }
     public func setTripArrival(_ arrived: @escaping @Sendable (String) async -> Void) { tripArrived = arrived }
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
@@ -205,7 +202,7 @@ public actor NavigationController: ToolExecutor {
         switch call.name {
         case "navigate_to":
             let destination = call.arguments["destination"]?.stringValue ?? ""
-            if let abroad = await abroadAsked(call.arguments) { return await navigateAbroad(destination, city: abroad.city) }
+            if let abroad = abroadAsked(call.arguments) { return await navigateAbroad(destination, city: abroad.city) }
             return await navigate(destination)
         case "choose_navigation_option": return await choose(call.arguments, fromTap: call.id.rawValue.hasPrefix("ui"))
         case "exit_navigation_mode": return await exit()
@@ -215,20 +212,13 @@ public actor NavigationController: ToolExecutor {
 
     // MARK: navigate_to
 
-    /// §36 item 2d: `abroad=true`, or no `abroad` while an `abroad` trip is in progress (its city by default). nil:
-    /// the home search. `city` nil means none was given (→ `invalidFields`).
-    private func abroadAsked(_ args: JSONValue) async -> (abroad: Bool, city: String?)? {
-        guard abroadSearch != nil else { return nil }
-        let asked = args["abroad"]?.boolValue
-        guard asked != false else { return nil }
+    /// §51 item 1 (T-040y, replaces §36 item 2d's trip default): `abroad` is only what the model passes. nil: the
+    /// home search. `city` nil means none was given (→ `invalidFields`).
+    private func abroadAsked(_ args: JSONValue) -> (abroad: Bool, city: String?)? {
+        guard abroadSearch != nil, args["abroad"]?.boolValue == true else { return nil }
         var city = args["city"]?.stringValue?.trimmingCharacters(in: .whitespaces)
         if city?.isEmpty == true { city = nil }
-        let tripCity = await abroadTripCity?()
-        if asked == nil {
-            guard let tripCity else { return nil }
-            return (true, city ?? tripCity)
-        }
-        return (true, city ?? tripCity)
+        return (true, city)
     }
 
     /// §36 item 2d (T-040p): the destination searched on Photon (category words by tag), around the phone when it is
@@ -258,14 +248,16 @@ public actor NavigationController: ToolExecutor {
         let query = DestinationQuery(destination)
         let nearby = DestinationQuery.nearby.contains { destination.contains($0) }
         var center: GeoCoordinate?
+        // §51 item 1: around the city's centre, kept to its country and 50 km (the named city's own area); 附近/最近
+        // with the phone outside China: around the phone.
+        var area: TripArea?
         if nearby, let fix = await usableFix(), CoordinateConverter.outOfChina(fix.latitude, fix.longitude) {
             center = fix
         } else {
-            center = await abroadCenter?(city)
+            area = await abroadArea?(city)
+            center = area?.center
+            if center == nil { center = await abroadCenter?(city) }
         }
-        guard current() else { return .failure(.optionsStale) }
-        // §50 item 3: only while an abroad trip is open, the search stays in its box, country and 50 km.
-        let area = await abroadTripArea?()
         guard current() else { return .failure(.optionsStale) }
         var places: [Place] = []
         var areaDropped = 0

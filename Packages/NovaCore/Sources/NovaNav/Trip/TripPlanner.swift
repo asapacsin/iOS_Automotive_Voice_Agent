@@ -254,7 +254,9 @@ public actor TripPlanner: ToolExecutor {
                 files.moveAside(Self.plansFile)
             }
         }
-        onLine("trip load ok=\(ok ? "yes" : "no") days=\(plan.dayCount) stops=\(plan.stopCount)")
+        // §51 item 3 (T-040y): a restored trip starts hidden; 「打开行程」 shows it. Nothing is deleted.
+        if plan.stopCount > 0 { setHidden(true) }
+        onLine("trip load ok=\(ok ? "yes" : "no") days=\(plan.dayCount) stops=\(plan.stopCount) hidden=\(cardsHidden ? "yes" : "no")")
         onChange(list)
         onPlans(TripPlansSummary(plan, saved))
         photos()
@@ -291,9 +293,14 @@ public actor TripPlanner: ToolExecutor {
     }
 
     public func execute(_ call: ToolCall) async -> ToolResult {
-        // §22 item 3: any trip tool call shows the cards again.
-        if Self.tools.contains(call.name),
-           call.name != "trip_plans" || call.arguments["action"]?.stringValue == "open" { setHidden(false) }
+        // §51 item 2 (T-040y, replaces §22 item 3): trip commands only while the cards are shown. Blocked while hidden:
+        // nothing runs, the plan and the hidden cards stay as they are.
+        if cardsHidden, Self.blockedWhileHidden(call) {
+            onLine("trip blocked tool=\(call.name) reason=hidden")
+            return .failure(.tripHidden, advice: Self.tripHiddenNext)
+        }
+        // Shows the cards (「打开行程」): make_trip_list, edit_trip_list action=read, trip_plans open.
+        if Self.showsCards(call) { setHidden(false) }
         switch call.name {
         case "make_trip_list":
             // §3 item 4: a new list replaces any change still running, so it waits for none.
@@ -306,6 +313,28 @@ public actor TripPlanner: ToolExecutor {
             // §4 item 9: trip_next and trip_plans use the finished list: they wait until no change is running.
             await waitFor { _ in true }
             return await run(call)
+        }
+    }
+
+    /// §51 item 2: the `next` of a trip command refused while the cards are hidden.
+    public static let tripHiddenNext = "行程收起来了。只说一句：要用行程请说「打开行程」。"
+
+    /// §51 item 2: `trip_next`, `revise_trip_list`, and `edit_trip_list` with any action but `read`.
+    static func blockedWhileHidden(_ call: ToolCall) -> Bool {
+        switch call.name {
+        case "trip_next", "revise_trip_list": true
+        case "edit_trip_list": call.arguments["action"]?.stringValue != "read"
+        default: false
+        }
+    }
+
+    /// §51 item 2: the calls that show the cards; `trip_plans` list/save/delete/rename leave them as they are.
+    static func showsCards(_ call: ToolCall) -> Bool {
+        switch call.name {
+        case "make_trip_list": true
+        case "edit_trip_list": call.arguments["action"]?.stringValue == "read"
+        case "trip_plans": call.arguments["action"]?.stringValue == "open"
+        default: false
         }
     }
 

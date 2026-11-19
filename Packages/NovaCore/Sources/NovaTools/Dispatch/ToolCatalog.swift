@@ -52,7 +52,7 @@ public enum ToolCatalog {
 
     // MARK: navigate_to abroad (F-15b §36 item 2d, §39, T-040p)
 
-    public static let navigateAbroadDescription = "目的地在中国以外（不含港澳台）时填 abroad=true，city 填英文城市名加国家，比如 \"Tokyo, Japan\"；目的地写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」。"
+    public static let navigateAbroadDescription = "目的地在中国以外（不含港澳台）时填 abroad=true，city 填英文城市名加国家，比如 \"Tokyo, Japan\"；目的地写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」。司机说「附近」「最近」又没有说国外的城市时，不要填 abroad。"
     public static let maxNavigateCity = 40
     /// The Android schema plus the optional `abroad` and `city`.
     static func navigateAbroadArguments(_ schema: JSONValue) -> JSONValue {
@@ -203,7 +203,7 @@ public enum ToolCatalog {
         "required": ["name"],
         "additionalProperties": false,
     ]
-    public static let editTripListDescription = "修改打卡清单（结果稍后回来：先只说一句在改，结果回来前不要说清单里有什么）：「去掉第二个」→remove index=2；「不去古文化街了」→remove name；「加上天津之眼」→add（name 写高德上的正式名称：景点的正式名或店名，比如「路环那家葡挞」→安德鲁饼店）；「第三个换成五大道」→replace；「把瓷房子放到第一个」→move；「清单里有什么」「打开行程」「看看行程」→read；「清空清单」→clear。第几个按她最后说的清单顺序。按结果答：一句话说改了什么和现在几个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，TRIP_TOO_LONG=最多16个地点，AMBIGUOUS=有多个匹配请说第几个。说到第几天时填 day，不说就是刚才那一天。「重新排一下」「从横琴开始重新排」→reorganize（start 填清单里的地点名，days 填天数）；「把X放到第二天」→move 加 to_day；「已经去过了」→visited；「跳过这个」→skip。按结果的 plan 说每天去哪。NO_START=问司机从哪里出发。司机回答从哪里出发→reorganize 填 start。"
+    public static let editTripListDescription = "修改打卡清单（结果稍后回来：先只说一句在改，结果回来前不要说清单里有什么）：「去掉第二个」→remove index=2；「不去古文化街了」→remove name；「加上天津之眼」→add（name 写高德上的正式名称：景点的正式名或店名，比如「路环那家葡挞」→安德鲁饼店）；「第三个换成五大道」→replace；「把瓷房子放到第一个」→move；「清单里有什么」「打开行程」「看看行程」→read；「清空清单」→clear。第几个按她最后说的清单顺序。按结果答：一句话说改了什么和现在几个地点；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，TRIP_TOO_LONG=最多16个地点，AMBIGUOUS=有多个匹配请说第几个。说到第几天时填 day，不说就是刚才那一天。「重新排一下」「从横琴开始重新排」→reorganize（start 填清单里的地点名，days 填天数）；「把X放到第二天」→move 加 to_day；「已经去过了」→visited；「跳过这个」→skip。按结果的 plan 说每天去哪。NO_START=问司机从哪里出发。司机回答从哪里出发→reorganize 填 start。司机说「打开行程」「看看行程」时用 action=read。"
     /// F-15b §29 item 1, §31 (T-040n): one stop at a time.
     public static let tripNextDescription = "行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。已在苹果地图打开=告诉司机，到了说「已经到了」。"
     public static let tripPlansDescription = "保存、打开、列出、删除、改名行程：「把这个行程存成天津一日游」→save name=天津一日游；「打开天津一日游」→open；「我存了哪些行程」→list；「删掉天津那个行程」→delete；「改名叫周末出游」→rename。打开后要导航就调用 trip_next。按结果答：一句话说做了什么；list 只说有几个和名字；ok=false 按 error：NO_TRIP_LIST=还没有清单，PLAN_NOT_FOUND=没有这个行程，PLANS_FULL=最多存20个，AMBIGUOUS=有多个请说全名。"
@@ -698,6 +698,8 @@ public enum ToolFailureAdvice {
         .dayDone: "这一天的地点都去过或跳过了。请问司机要不要开始下一天。",
         // F-15b §49 item 7 (T-040u).
         .noRevision: "还没有排好的行程可以改，什么都没有改。请用一句话如实说还没有行程，可以先做一个。",
+        // F-15b §51 item 2 (T-040y).
+        .tripHidden: "行程收起来了。只说一句：要用行程请说「打开行程」。",
         .styleNotAllowed: "没有这种语气，语气没有改。请用一句话告诉用户只有甜、傲娇、温柔、元气和正常这几种。",
     ]
 }

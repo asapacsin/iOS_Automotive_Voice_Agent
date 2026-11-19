@@ -1537,13 +1537,12 @@ final class AgentRuntime {
         await planner.restore()
         // §50 item 6 (T-040w): trip steps on screen.
         await planner.setWork(work)
-        // §36 item 2d (T-040p): navigate_to abroad searches Photon; an abroad trip in progress gives its city.
+        // §36 item 2d (T-040p): navigate_to abroad searches Photon. §51 item 1 (T-040y): only when the model passes
+        // abroad=true with a city; the search keeps to that city's own area (country, 50 km); the trip is never consulted.
         await navigation.setAbroad(search: photon, center: { city in
             if let c = await photon.center(city) { return c }
             return await AppleCityCenter.find(city)
-        }, tripCity: { [weak planner] in await planner?.abroadCity })
-        // F-15b §50 item 3 (T-040v): while an abroad trip is open, navigate_to stays inside its area.
-        await navigation.setTripArea { [weak planner] in await planner?.openTripArea() }
+        }, area: { city in await photon.area(city) })
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
         let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
