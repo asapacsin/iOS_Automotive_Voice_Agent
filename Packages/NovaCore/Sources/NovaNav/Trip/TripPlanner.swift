@@ -466,7 +466,9 @@ public actor TripPlanner: ToolExecutor {
         let generation = plan.revision
         // §50 item 1 (T-040v): abroad, the model's places become real places from Qwen with web search, before any lookup.
         var groundHotels: [TripGroundHotel] = []
-        if abroadAsked, abroadSearch != nil, let grounder, let city, !city.trimmingCharacters(in: .whitespaces).isEmpty {
+        // Day groups keep their places, so a request is only worth it for one list or for hotel_near's hotels.
+        if abroadAsked, single || hotelNear != nil, abroadSearch != nil, let grounder, let city,
+           !city.trimmingCharacters(in: .whitespaces).isEmpty {
             let request = TripGroundRequest(city: city, days: dayCount,
                                             places: modelItems.flatMap { $0 }.map {
                                                 TripGroundPlace(name: $0.name, minutes: $0.minutes, importance: $0.importance)
