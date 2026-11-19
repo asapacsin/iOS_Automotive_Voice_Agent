@@ -45,21 +45,17 @@ public struct QwenPlacePicker: PlacePicker {
     }
 
     public func request(_ choices: [PlaceChoice], key: String) -> URLRequest {
-        var request = URLRequest(url: URL(string: QwenWebSearchClient.endpoint)!)
+        var request = URLRequest(url: URL(string: QwenRoute.endpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: JSONValue = [
-            "model": .string(QwenWebSearchClient.model),
+            "model": .string(QwenRoute.picker.model),
             "input": ["messages": [
                 ["role": "system", "content": [["text": .string(Self.instruction)]]],
                 ["role": "user", "content": [["text": .string(Self.question(choices))]]],
             ]],
-            "parameters": [
-                "result_format": "message",
-                "enable_thinking": false,
-                "enable_search": false,
-            ],
+            "parameters": QwenRoute.picker.parameters(),
         ]
         request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
         return request

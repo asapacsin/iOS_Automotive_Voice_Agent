@@ -13,7 +13,7 @@ import NovaPorts
 /// Chinese part is the name shown. A few Chinese category words (「酒店」, 「租车」…) become OpenStreetMap tags.
 /// Errors come back as `AmapWebError` so the trip planner treats every vendor alike. OpenStreetMap coordinates are
 /// WGS-84, equal to GCJ-02 outside China.
-public final class PhotonPlaceSearch: PlaceSearch, @unchecked Sendable {
+public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
     public static let host = "https://photon.komoot.io/api/"
     public static let timeoutSeconds: Double = 8
     /// Categories searched by tag (OpenStreetMap keys), so 「酒店」 finds hotels in any language.
@@ -67,7 +67,34 @@ public final class PhotonPlaceSearch: PlaceSearch, @unchecked Sendable {
         return found.first { !TripRegion.isChina($0.countryCode) }?.coordinate
     }
 
-    func search(_ keywords: String, near: GeoCoordinate?, limit: Int) async throws -> [Place] {
+    /// F-15b §50 item 3 (T-040v): the centre of a city abroad with its `countrycode`; nil when not found or in China.
+    public func area(_ city: String) async -> TripArea? {
+        guard let found = try? await search(city, near: nil, limit: 3),
+              let place = found.first(where: { !TripRegion.isChina($0.countryCode) }) else { return nil }
+        return TripArea(center: place.coordinate, countryCode: place.countryCode)
+    }
+
+    /// §50 item 3: a trip lookup restricted to `box` (Photon's `bbox`), `limit` results. The name shown is the found
+    /// place's (`TripGround.shownName` rule: the asked Chinese name in brackets only when they share no character).
+    public func inArea(_ keywords: String, box: GeoBox, limit: Int) async throws -> [Place] {
+        let (shown, query) = Self.split(keywords)
+        let found = try await search(keywords, near: nil, limit: limit, box: box, keepFoundName: true)
+        guard Self.tags[query] == nil else { return found }
+        return found.map { p in
+            Place(id: p.id, name: Self.shownName(asked: shown, found: p.name), address: p.address ?? p.name,
+                  coordinate: p.coordinate, distanceMeters: nil, city: p.city, district: p.district,
+                  countryCode: p.countryCode, kind: p.kind)
+        }
+    }
+
+    /// §50 item 3: the found name, with the asked one in brackets only when the two share no character.
+    static func shownName(asked: String?, found: String) -> String {
+        guard let asked = asked?.trimmingCharacters(in: .whitespaces), !asked.isEmpty, asked != found else { return found }
+        return Set(asked).isDisjoint(with: Set(found)) ? "\(found) (\(asked))" : found
+    }
+
+    func search(_ keywords: String, near: GeoCoordinate?, limit: Int, box: GeoBox? = nil,
+                keepFoundName: Bool = false) async throws -> [Place] {
         let (shown, query) = Self.split(keywords)
         var items = [URLQueryItem(name: "limit", value: String(limit))]
         if let tag = Self.tags[query] {
@@ -79,6 +106,11 @@ public final class PhotonPlaceSearch: PlaceSearch, @unchecked Sendable {
         if let near {
             items.append(URLQueryItem(name: "lat", value: String(format: "%.5f", near.latitude)))
             items.append(URLQueryItem(name: "lon", value: String(format: "%.5f", near.longitude)))
+        }
+        if let box {
+            // Photon: `bbox=minLon,minLat,maxLon,maxLat`.
+            let v = [box.minLongitude, box.minLatitude, box.maxLongitude, box.maxLatitude].map { String(format: "%.5f", $0) }
+            items.append(URLQueryItem(name: "bbox", value: v.joined(separator: ",")))
         }
         var components = URLComponents(string: Self.host)!
         components.queryItems = items
@@ -97,7 +129,7 @@ public final class PhotonPlaceSearch: PlaceSearch, @unchecked Sendable {
         guard response.status == 200 else { throw AmapWebError.failed }
         let places = try Self.parse(response.body)
         // The Chinese name asked is the name shown, for one named place (not for a category search).
-        guard let shown, Self.tags[query] == nil else { return places }
+        guard !keepFoundName, let shown, Self.tags[query] == nil else { return places }
         return places.map { p in
             Place(id: p.id, name: shown, address: p.address ?? p.name, coordinate: p.coordinate, distanceMeters: nil,
                   city: p.city, district: p.district, countryCode: p.countryCode, kind: p.kind)

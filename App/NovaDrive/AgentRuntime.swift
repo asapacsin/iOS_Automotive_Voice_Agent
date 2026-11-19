@@ -1521,7 +1521,11 @@ final class AgentRuntime {
                                   // orders on the straight-line estimate.
                                   abroadTimes: TripTimes(service: OsrmDrivingTimes(throttle: osrmThrottle), clock: navigationClock),
                                   // §46 (T-040r): photos abroad from English Wikipedia, within 2 km of the stop.
-                                  abroadPhotos: WikipediaPhotos())
+                                  abroadPhotos: WikipediaPhotos(),
+                                  // F-15b §50 items 1 and 9 (T-040v): Qwen `ground` route with web search, the F-18 key.
+                                  grounder: QwenTripGrounder(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
+                                  // §50 item 3: the city's centre and country; trip lookups stay inside its box.
+                                  abroadArea: { city in await photon.area(city) })
         await planner.restore()
         // §36 item 2d (T-040p): navigate_to abroad searches Photon; an abroad trip in progress gives its city.
         await navigation.setAbroad(search: photon, center: { city in
