@@ -2992,7 +2992,9 @@
         "T-040u"
       ],
       "notes": "Owner 2026-11-19, ipa150 d9d75fe, demo step 8: hotel 新宿附近車站 resolved to a place in India; days 2-3 failed. Code causes: Photon lat/lon is only a bias, limit 1, only China filtered; one hotel for every night; straight-line estimate when OSRM has no route. Phone record not pulled (recorder off). Needed for the mentor demo.",
-      "evidence": []
+      "evidence": [
+        "STATUS.md 2026-11-19 T-040v row and commit 65b15dc (row 160 PC check): gates green (946/110/52 tests), high-effort read-only review PASS. Rows 151-152 device not run."
+      ]
     },
     {
       "id": "T-040w",
@@ -3004,7 +3006,9 @@
         "T-040v"
       ],
       "notes": "Owner 2026-11-19: show that she is working (trip 30-60 s, searches 2-8 s), as ChatGPT/Perplexity steps and Alexa progressive responses.",
-      "evidence": []
+      "evidence": [
+        "STATUS.md 2026-11-19 T-040w row: gates green (946/110/52 tests), high-effort read-only review PASS. Row 153 device not run."
+      ]
     },
     {
       "id": "T-040x",
@@ -3016,7 +3020,9 @@
         "T-040v"
       ],
       "notes": "Owner 2026-11-19: each Qwen model has its own free quota and rate limit on the same key; use another model as backup. No automatic router.",
-      "evidence": []
+      "evidence": [
+        "STATUS.md 2026-11-19 T-040x row: gates green (946/110/52 tests), high-effort read-only review PASS. App build not run."
+      ]
     },
     {
       "id": "T-031j",
@@ -3052,7 +3058,9 @@
         "T-031c"
       ],
       "notes": "Owner 2026-11-19, ipa150 d9d75fe: 有点困了 (demo step 1) got nothing because SpeakingStyle.swift:67 tells her to stay silent. Needed for the mentor demo.",
-      "evidence": []
+      "evidence": [
+        "STATUS.md 2026-11-19 T-031k row: gates green (Linux Swift 6.1.2), high-effort read-only review PASS; rows 1,2,4 unit. Row 3 live eval and rows 5-7 device not run."
+      ]
     },
     {
       "id": "T-016p",
