@@ -108,7 +108,7 @@ struct BaseInstructionScopeTests {
         let guardrails = try #require(base.range(of: "【注意】"))
         #expect(car.lowerBound < other.lowerBound && other.lowerBound < guardrails.lowerBound)
         for rule in ["2. 车辆控制是模拟车辆，结果以工具返回为准。",
-                     "3. 工具返回 next 或 instruction 时照着做，只说一句。屏幕上已经显示的列表不要念出来。",
+                     "3. 工具返回的 next 是规则，不是台词：照规则做，用自己的话说，不要照念。屏幕上已经显示的列表不要念出来。",
                      "4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具",
                      "5. 司机说车里的感受或情况：按车内状态选一个合理的小动作直接做，不要反问。",
                      "6. 导航：「导航去X」用 navigate_to；",
