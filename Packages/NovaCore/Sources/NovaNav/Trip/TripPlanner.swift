@@ -2359,7 +2359,8 @@ public actor TripPlanner: ToolExecutor {
                              "plans": .array(saved.entries.map { .object(["name": .string($0.name),
                                                                          "days": .int(Int64($0.plan.dayCount)),
                                                                          "stops": .int(Int64($0.plan.stopCount))]) }),
-                             ].merging(Self.said(["count": .int(Int64(saved.entries.count))],
+                             ].merging(Self.said(["count": .int(Int64(saved.entries.count)),
+                                                  "names": .array(saved.entries.map { .string($0.name) })],
                                                  may: saved.entries.isEmpty ? [] : [.readListInOrder], mustNot: [])) { $1 })
         case "delete":
             switch find(name) {
