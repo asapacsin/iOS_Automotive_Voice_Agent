@@ -258,8 +258,10 @@ public actor NavigationController: ToolExecutor {
         let query = DestinationQuery(destination)
         let nearby = DestinationQuery.nearby.contains { destination.contains($0) }
         var center: GeoCoordinate?
+        var aroundFix = false
         if nearby, let fix = await usableFix(), CoordinateConverter.outOfChina(fix.latitude, fix.longitude) {
             center = fix
+            aroundFix = true
         } else {
             center = await abroadCenter?(city)
         }
@@ -301,7 +303,12 @@ public actor NavigationController: ToolExecutor {
         onTripLine("nav search vendor=photon abroad=yes found=\(top.count) ms=\(max(0, (clock.now - started).milliseconds))\(areaPart)")
         guard !top.isEmpty else {
             if !guiding { reset() }
-            return .failure(.noCandidates, advice: "没有找到这个地点。请如实说没找到，请用户换个说法。")
+            // F-09b §13 item 3: facts and rules, no sentence.
+            let around: LookupReply.Around = !aroundFix || area != nil ? .city
+                : location.source == .demo ? .demo : .phone
+            let radiusKm: Double? = area != nil ? TripTuning().areaKm
+                : center == nil ? nil : Double(tuning.searchRadiusMeters) / 1000
+            return LookupReply.noCandidates(what: query.stripped, around: around, radiusKm: radiusKm, city: city)
         }
         guard guiding else { return await listOrRoute(top) }
         return listedOverGuidance(top)
@@ -374,9 +381,9 @@ public actor NavigationController: ToolExecutor {
     /// (text search, no city); Amap wants GCJ-02. `current` is false once a newer request owns the flow.
     private func findPlaces(_ destination: String, current: () -> Bool) async -> Result<[Place], ToolResultBox> {
         var places: [Place] = []
+        let query = DestinationQuery(destination)
+        let center = await usableFix()
         do {
-            let query = DestinationQuery(destination)
-            let center = await usableFix()
             for keywords in query.attempts where places.isEmpty {
                 if let center {
                     places = try await search.around(keywords, center: center,
@@ -391,18 +398,21 @@ public actor NavigationController: ToolExecutor {
         }
         let top = Array(places.prefix(tuning.maxCandidates))
         guard !top.isEmpty else {
-            return .failure(ToolResultBox(.failure(.noCandidates, advice: "没有找到这个地点。请如实说没找到，请用户换个说法。")))
+            // F-09b §13 item 3: facts and rules, no sentence.
+            let around: LookupReply.Around = center == nil ? .city : location.source == .demo ? .demo : .phone
+            return .failure(ToolResultBox(LookupReply.noCandidates(
+                what: query.stripped, around: around,
+                radiusKm: center == nil ? nil : Double(tuning.searchRadiusMeters) / 1000)))
         }
         return .success(top)
     }
 
     private static func searchFailure(_ error: any Error) -> ToolResultBox {
-        guard let error = error as? AmapWebError else {
-            return ToolResultBox(.failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到。"))
-        }
-        return ToolResultBox(error == .keyMissing || error == .keyRejected
-            ? .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有查到。")
-            : .failure(.liveInfoUnavailable, advice: "地点查询失败了，请如实说没查到，可以请用户再说一遍。"))
+        // F-09b §13 item 3: the cause as a fact; a quota error stays LIVE_INFO_UNAVAILABLE here as before.
+        let cause = LookupReply.cause(of: error)
+        return ToolResultBox(cause == .keyMissing
+            ? LookupReply.failed(.amapWebKeyMissing, what: "place", cause: .keyMissing)
+            : LookupReply.failed(.liveInfoUnavailable, what: "place", cause: cause))
     }
 
     // MARK: F-16 §14 near-first search
@@ -708,7 +718,7 @@ public actor NavigationController: ToolExecutor {
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
         guard case .routesReady(let routes) = event, !routes.isEmpty else {
             reset()
-            return .failure(.routeCalculationFailed, advice: "路线规划失败了。请如实说没有算出路线。")
+            return LookupReply.failed(.routeCalculationFailed, what: "route", cause: .routeFailed, mustNot: [.claimStarted])
         }
         // F-15a §2.5 (T-040h): no route list to wait on; guidance starts on the recommended route at once.
         calculated = Array(routes.prefix(3))
@@ -1041,7 +1051,8 @@ public actor NavigationController: ToolExecutor {
         let line = snapshot.routes.first?.polyline ?? []
         let polygon = AlongRouteCorridor.polygon(line)
         guard !polygon.isEmpty else {
-            return .failure(.liveInfoUnavailable, advice: "拿不到当前路线的形状，没法查沿途。请如实说明，不要编造。")
+            return LookupReply.failed(.liveInfoUnavailable, what: "along_route", cause: .noRouteShape,
+                                      facts: ["guidance_kept": true])
         }
         let generation = snapshot.generation
         let places: [Place]
@@ -1054,7 +1065,8 @@ public actor NavigationController: ToolExecutor {
         let top = Array(places.prefix(tuning.maxCandidates))
         guard !top.isEmpty else {
             // 0 results: the guidance was never touched (keepGuidance).
-            return .failure(.noResults, advice: "沿途没有找到\(keywords)。请如实说明，导航继续。")
+            return LookupReply.notFound(.noResults, what: keywords, facts: ["along_route": true, "guidance_kept": true],
+                                        may: [.similarPlace])
         }
         snapshot.places = top
         snapshot.alongRouteList = true
@@ -1100,7 +1112,7 @@ public actor NavigationController: ToolExecutor {
             return LiveInfoFailure.result(error, what: "\(place.name)的详情")
         }
         guard let detail else {
-            return .failure(.noResults, advice: "没有查到\(place.name)的详情。请如实说明，不要编造营业时间。")
+            return LookupReply.notFound(.noResults, what: "details", facts: ["place": .string(place.name)])
         }
         var object: [String: JSONValue] = ["name": .string(detail.name)]
         if let address = detail.address { object["address"] = .string(address) }

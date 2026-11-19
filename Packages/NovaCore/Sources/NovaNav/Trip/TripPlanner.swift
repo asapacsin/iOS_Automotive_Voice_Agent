@@ -375,7 +375,7 @@ public actor TripPlanner: ToolExecutor {
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
             line(stops: list.count, notFound: names.count, duplicates: 0, since: started)
-            return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有做成清单。")
+            return LookupReply.failed(.amapWebKeyMissing, what: "trip_list", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
         }
         var entries: [(asked: String, place: Place, distanceMeters: Int?)] = []
         var notFound: [String] = []
@@ -396,7 +396,10 @@ public actor TripPlanner: ToolExecutor {
         }
         guard !entries.isEmpty else {
             line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
-            return .failure(.noCandidates, advice: "清单里的地点都没有找到，清单没有改。请如实说没找到这些地方。")
+            // F-09b §13 item 3 (T-031l): the names not found as facts; the list is unchanged.
+            return LookupReply.notFound(.noCandidates, what: "trip_places",
+                                        facts: ["not_found": .array(notFound.map { .string($0) }), "changed": false],
+                                        mustNot: [.claimDone])
         }
         var made = TripList()
         made.replace(entries)
@@ -496,7 +499,7 @@ public actor TripPlanner: ToolExecutor {
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
             line(stops: plan.stopCount, notFound: flat.count, duplicates: 0, since: started)
-            return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有做成清单。")
+            return LookupReply.failed(.amapWebKeyMissing, what: "trip_list", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
         }
         var seen = Set<String>()
         var notFound: [String] = []
@@ -545,7 +548,10 @@ public actor TripPlanner: ToolExecutor {
         if single { while lists.count < dayCount { lists.append(TripList()) } }
         guard lists.contains(where: { $0.count > 0 }) || !optionalStops.isEmpty else {
             line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
-            return .failure(.noCandidates, advice: "清单里的地点都没有找到，清单没有改。请如实说没找到这些地方。")
+            // F-09b §13 item 3 (T-031l): the names not found as facts; the list is unchanged.
+            return LookupReply.notFound(.noCandidates, what: "trip_places",
+                                        facts: ["not_found": .array(notFound.map { .string($0) }), "changed": false],
+                                        mustNot: [.claimDone])
         }
         // §37 item 1: a frame name not found is left out and named in not_found.
         func frameStop(_ name: String?, _ role: TripRole) -> TripStop? {
@@ -891,7 +897,7 @@ public actor TripPlanner: ToolExecutor {
         let lookups = newItems.isEmpty ? [] : await resolve(newItems.map(\.name), city: plan.city, abroad: plan.abroad, near: regionHint())
         guard !Task.isCancelled, plan.revision == generation else { return log(.failure(.optionsStale), round: request.round) }
         if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
-            return log(.failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有改行程。"), round: request.round)
+            return log(LookupReply.failed(.amapWebKeyMissing, what: "trip", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone]), round: request.round)
         }
         func found(_ i: Int, _ item: PlaceItem) -> TripStop? {
             guard case .found(let place) = lookups[i] else {
@@ -1121,7 +1127,7 @@ public actor TripPlanner: ToolExecutor {
             switch lookup {
             case .found(let found): place = found
             case .candidates: return failure(.notFound)
-            case .keyMissing: return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置好，请如实说明没有改清单。")
+            case .keyMissing: return LookupReply.failed(.amapWebKeyMissing, what: "trip_list", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
             case .missing(let reason):
                 // The stop's place in the list: the add position (the end when none) or the replaced index.
                 onLine("trip lookup index=\(index ?? (n + 1)) ok=no reason=\(reason)")

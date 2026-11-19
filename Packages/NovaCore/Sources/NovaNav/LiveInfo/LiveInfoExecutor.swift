@@ -93,7 +93,7 @@ public struct LiveInfoExecutor: ToolExecutor {
         case "here", "":
             Self.trace?.lookup = "here"
             if await location.authorization() == .denied { return Self.permissionDenied }
-            let noLocation = ToolResult.failure(.noLocation, advice: "现在拿不到位置。请如实说明，可以请用户说城市名。")
+            let noLocation = LookupReply.failed(.noLocation, what: "weather", cause: .noLocation)
             guard let here = await navigation.currentPosition(), let geocoder else { return noLocation }
             // F-16a §8 / F-18 §8: a regeo network failure or timeout is "no location".
             let adcode: String?
@@ -113,7 +113,7 @@ public struct LiveInfoExecutor: ToolExecutor {
                 return .failure(.noDestination, advice: "现在没有导航目的地。请如实说明。")
             }
             // As before §31: a regeo key error is a key failure; no adcode is "the destination was not found".
-            let noDestination = ToolResult.failure(.noLocation, advice: "目的地的位置没有查到。请如实说明。")
+            let noDestination = LookupReply.notFound(.noLocation, what: "destination_location")
             guard let geocoder else { return noDestination }
             let adcode: String?
             do { adcode = try await geocoder.adcode(at: destination.coordinate) } catch { return Self.failure(error) }
@@ -151,7 +151,7 @@ public struct LiveInfoExecutor: ToolExecutor {
             } else {
                 // §26 item 2: 高德 geocoding, then the name check; a mismatch calls nothing else.
                 Self.trace?.lookup = "amap"
-                guard let amapLookup else { return .failure(.amapWebKeyMissing, advice: "天气查询还没有配置。请如实说明，不要编造。") }
+                guard let amapLookup else { return LookupReply.failed(.amapWebKeyMissing, what: "weather", cause: .keyMissing) }
                 let found: LookedUpPlace?
                 do {
                     found = try await amapLookup.lookUp(parsed.where, country: nil).first
@@ -207,7 +207,7 @@ public struct LiveInfoExecutor: ToolExecutor {
 
     /// §26 item 2, §31 item 5: Open-Meteo geocoding (largest population), then its forecast.
     private func foreignWeather(_ parsed: ForecastWeather.Arguments) async -> ToolResult {
-        guard let forecastLookup else { return .failure(.liveInfoUnavailable, advice: "天气没有查到。请如实说明，不要编造。") }
+        guard let forecastLookup else { return LookupReply.failed(.liveInfoUnavailable, what: "weather", cause: .keyMissing) }
         do {
             let places = try await forecastLookup.lookUp(parsed.where, country: parsed.country)
             guard let found = ForecastWeather.pick(places), let coordinate = found.coordinate else {
@@ -366,14 +366,14 @@ public struct LiveInfoExecutor: ToolExecutor {
     private func currentLocation() async -> ToolResult {
         if await location.authorization() == .denied { return Self.permissionDenied }
         guard let geocoder else {
-            return .failure(.amapWebKeyMissing, advice: "高德的查询服务还没有配置，所以查不到地址。请如实说明，不要猜位置。")
+            return LookupReply.failed(.amapWebKeyMissing, what: "address", cause: .keyMissing, mustNot: [.guessLocation])
         }
         guard let fix = await navigation.currentFix() else {
-            return .failure(.noLocation, advice: "现在还没定位到。请如实说还没定位到，稍后再问；不要猜位置。")
+            return LookupReply.failed(.noLocation, what: "address", cause: .noLocation, may: [.tryLater])
         }
         do {
             guard let address = try await geocoder.address(at: fix.coordinate), !address.formatted.isEmpty else {
-                return .failure(.noLocation, advice: "地址没有查到。请如实说明，不要猜位置。")
+                return LookupReply.notFound(.noLocation, what: "address", mustNot: [.guessLocation])
             }
             let demo = location.source == .demo
             var data: [String: JSONValue] = [
@@ -392,7 +392,7 @@ public struct LiveInfoExecutor: ToolExecutor {
             return LiveInfoFailure.result(error, what: "地址")
         } catch {
             // F-18 §8: a failed regeo is "no location", not a generic outage.
-            return .failure(.noLocation, advice: "地址没有查到。请如实说明，不要猜位置。")
+            return LookupReply.failed(.noLocation, what: "address", cause: .network, mustNot: [.guessLocation])
         }
     }
 
@@ -426,13 +426,8 @@ public struct LiveInfoExecutor: ToolExecutor {
 /// F-18 §8: the cause she names must be the real one (key, quota, or network/timeout).
 enum LiveInfoFailure {
     static func result(_ error: any Error, what: String) -> ToolResult {
-        switch error as? AmapWebError {
-        case .keyMissing, .keyRejected:
-            .failure(.amapWebKeyMissing, advice: "高德的查询服务没有配置好或密钥无效，所以没有查到。请如实说明，不要编造。")
-        case .quota:
-            .failure(.liveInfoQuota, advice: "今天的查询次数用完了，没有查到。请如实说明，不要编造。")
-        default:
-            .failure(.liveInfoUnavailable, advice: "\(what)没有查到。请如实说明，不要编造。")
-        }
+        // F-09b §13 item 3 (T-031l): the cause as a fact, no sentence.
+        let cause = LookupReply.cause(of: error)
+        return LookupReply.failed(LookupReply.code(for: cause), what: what, cause: cause)
     }
 }
