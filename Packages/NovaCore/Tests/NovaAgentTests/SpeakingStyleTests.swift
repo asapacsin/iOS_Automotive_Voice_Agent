@@ -140,7 +140,7 @@ enum ToolPromptCoverage: Sendable {
         "play_music": .phrase("音乐"),
         "control_music": .phrase("音乐"),
         "place_call": .phrase("电话"),
-        "open_app": .phrase("打开地图或设置"),
+        "open_app": .phrase("打开地图、设置"),
         "save_place": .phrase("常用地点"),
         "set_speaking_style": .phrase("说话方式"),
         "set_speech_output": .phrase("静音"),
@@ -155,6 +155,8 @@ enum ToolPromptCoverage: Sendable {
         "trip_next": .phrase("导航"),
         // F-15b §16 (T-040l): saved trips are 要去的地方 too.
         "trip_plans": .phrase("要去的地方"),
+        // F-09b §16 item 8 (T-031za).
+        "show_place": .phrase("地方卡片"),
     ]
 
     /// Failure messages for `tools` against `base`; empty when every tool is covered.

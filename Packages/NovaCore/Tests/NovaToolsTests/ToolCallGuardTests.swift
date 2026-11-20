@@ -118,7 +118,9 @@ struct DispatchTests {
             "describe_camera_view", "place_call", "query_live_info", "end_conversation", "set_speech_output",
             "set_speaking_style", "set_volume", "get_vehicle_state", "undo_last_change",
             // F-15b §5 (T-040i).
-            "make_trip_list", "edit_trip_list", "revise_trip_list", "trip_next", "trip_plans"])
+            "make_trip_list", "edit_trip_list", "revise_trip_list", "trip_next", "trip_plans",
+            // F-09b §16 item 8 (T-031za).
+            "show_place"])
         #expect(ToolCatalog.spec("edit_trip_list")?.repeatSensitive == false)
         #expect(ToolCatalog.spec("describe_camera_view")?.repeatSensitive == false)
         #expect(ToolCatalog.spec("set_speaking_style")?.repeatSensitive == true)

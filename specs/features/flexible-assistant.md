@@ -662,6 +662,9 @@ tool results).
      null when none was found). Not shown: `PLACE_NOT_SHOWN`, not done, facts `shown=false` (I-1: never claim a
      picture that is not on screen).
    - **Log / record:** `show place ok=<yes|no> via=<screen|city|country> intro=<yes|no> ms=` (no names, I-8).
+   - **Base instruction (agent 2.0.0).** 【你有什么】 「打开地图或设置」 → 「打开地图、设置或地方卡片」; 【怎么决定】 「常识、原理、
+     地方介绍和闲聊不用工具」 → 「常识、原理和闲聊不用工具」 (the old rule told her never to use a tool for a place
+     introduction). Same length (`maxBaseCharacters`).
 9. **Record.** On every sent line: `screen <key>=<on|off> … musicVolume=<n>` (I-8: no names).
 10. **One navigation phase enum.** `NovaKit/States.swift` and `NovaNav` both define `NavigationPhase`; merge into one.
 
