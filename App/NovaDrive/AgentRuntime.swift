@@ -1671,6 +1671,12 @@ final class AgentRuntime {
         }, area: { city in await photon.area(city) })
         // §51 item 8: near=place in China, 香港, 澳门 and 台湾 geocodes on 高德 /v3/geocode/geo.
         await navigation.setHomeGeocode(web)
+        // F-16 §15 item 2 (T-042d): show_places looks names up in the car's city; `show places` line (counts only, I-8) to the log and record.
+        await navigation.setCityCode { [location, web] in
+            guard let fix = await location.latestFix() else { return nil }
+            return try? await web.adcode(at: fix.coordinate)
+        }
+        await navigation.setExploreLine(tripLine)
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
         let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),

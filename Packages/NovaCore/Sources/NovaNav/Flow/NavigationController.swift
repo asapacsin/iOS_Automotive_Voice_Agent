@@ -44,11 +44,41 @@ public struct NavigationFlowState: Sendable, Hashable {
         return alternatives.map { AlternativeRoute(row: $0.row, route: $0.route, text: "第\($0.row + 1)条") }
     }
 
+    /// F-16 §15 item 2 (T-042d): the list `show_places` opened, with an about line per place and the names 高德 could
+    /// not find (no coordinate, no distance). Valid only while `places` is still that list.
+    public var explored: ExploredList?
+
     public init() {}
+
+    /// F-16 §15 item 2: the about line under a listed place, when the list on screen is the `show_places` one.
+    public func about(_ place: Place) -> String? {
+        guard let explored, explored.places == places else { return nil }
+        return explored.abouts[place.id]
+    }
+
+    /// F-16 §15 item 2: a listed name 高德 could not find; it has no map marker and no distance.
+    public func unlocated(_ place: Place) -> Bool {
+        guard let explored, explored.places == places else { return false }
+        return explored.unlocated.contains(place.id)
+    }
 
     public var navigating: Bool { phase == .navigating }
     public var listOpen: Bool {
         phase == .awaitingDestinationSelection || phase == .awaitingRouteSelection || alongRouteList
+    }
+}
+
+/// F-16 §15 item 2 (T-042d): what `show_places` listed.
+public struct ExploredList: Sendable, Hashable {
+    public let places: [Place]
+    /// Place id → the about line from the search answer.
+    public let abouts: [String: String]
+    /// Ids of names 高德 could not find.
+    public let unlocated: Set<String>
+    public init(places: [Place], abouts: [String: String], unlocated: Set<String>) {
+        self.places = places
+        self.abouts = abouts
+        self.unlocated = unlocated
     }
 }
 
@@ -102,7 +132,7 @@ public struct NearFirstSearch: Sendable {
 /// and `exit_navigation_mode`. Every request raises the generation; engine events of an older one
 /// are dropped. Never claims a step the engine did not confirm (I-1).
 public actor NavigationController: ToolExecutor {
-    public static let tools: Set<String> = ["navigate_to", "choose_navigation_option", "exit_navigation_mode"]
+    public static let tools: Set<String> = ["navigate_to", "choose_navigation_option", "exit_navigation_mode", "show_places"]
 
     private let search: any PlaceSearch
     /// F-16 home/work; nil leaves 家/公司 to the dispatcher guard.
@@ -175,6 +205,12 @@ public actor NavigationController: ToolExecutor {
     /// §51 item 8: 高德 `/v3/geocode/geo` for `near=place` in China, 香港, 澳门 and 台湾; nil: the 高德 text search.
     private var homeGeocode: (any PlaceLookup)?
     public func setHomeGeocode(_ lookup: any PlaceLookup) { homeGeocode = lookup }
+    /// F-16 §15 item 2 (T-042d): the car's city adcode for the `show_places` lookups; nil searches nationwide.
+    private var cityCode: (@Sendable () async -> String?)?
+    public func setCityCode(_ code: @escaping @Sendable () async -> String?) { cityCode = code }
+    /// F-16 §15: `show places n= located= ms=` (codes and counts only, I-8).
+    private var onExploreLine: @Sendable (String) -> Void = { _ in }
+    public func setExploreLine(_ line: @escaping @Sendable (String) -> Void) { onExploreLine = line }
 
     public init(search: any PlaceSearch, engine: any NaviEngine, location: any LocationProvider,
                 clock: any NovaClock, tuning: NavigationTuning = NavigationTuning(), saved: SavedPlaces? = nil,
@@ -215,8 +251,107 @@ public actor NavigationController: ToolExecutor {
             return await navigateNear(destination, near: near, call.arguments)
         case "choose_navigation_option": return await choose(call.arguments, fromTap: call.id.rawValue.hasPrefix("ui"))
         case "exit_navigation_mode": return await exit()
+        case "show_places": return await showPlaces(call.arguments)
         default: return .failure(.unknownTool)
         }
+    }
+
+    // MARK: show_places
+
+    /// F-16 §15 items 2–4 (T-042d): the places from a `web_search` answer, each `{name, about}`, looked up one by one
+    /// with 高德 text search in the car's city (nationwide when the city is unknown) and listed with the about line.
+    /// No §14 name check, nothing routed; a name 高德 cannot find is listed without distance. While guiding the list
+    /// goes over the running route (as `navigate_to`). `show places n= located= ms=`.
+    private func showPlaces(_ args: JSONValue) async -> ToolResult {
+        let started = clock.now
+        let items: [(name: String, about: String)] = (Self.array(args["places"])).compactMap { item in
+            guard let name = item["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty else { return nil }
+            let about = item["about"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return (name, about)
+        }
+        var seen = Set<String>()
+        let wanted = Array(items.filter { seen.insert($0.name).inserted }.prefix(tuning.maxCandidates))
+        guard !wanted.isEmpty else {
+            return ToolReply.failure(.invalidFieldValue, facts: ["shown": false], mustNot: [.claimDone, .invent]).result
+        }
+        let fix = await usableFix()
+        let city = await cityCode?()
+        var places: [Place] = []
+        var abouts: [String: String] = [:]
+        var unlocated: Set<String> = []
+        var failed = 0
+        for (offset, item) in wanted.enumerated() {
+            var hit: Place?
+            do {
+                hit = if let city, !city.isEmpty {
+                    try await search.text(item.name, city: city, cityLimit: true).first
+                } else {
+                    try await search.text(item.name, city: nil).first
+                }
+            } catch is CancellationError {
+                return .failure(.optionsStale)
+            } catch {
+                failed += 1
+                hit = nil
+            }
+            let place: Place
+            if let hit {
+                // The listed name stays the one she gave when 高德's is only longer (雪自由 → 雪自由(珠海环宇城)).
+                let meters = hit.distanceMeters ?? fix.map { Int(SelfPosition.distanceMeters($0, hit.coordinate).rounded()) }
+                place = Place(id: hit.id, name: hit.name, address: hit.address, coordinate: hit.coordinate,
+                              distanceMeters: meters, openingHours: hit.openingHours, phone: hit.phone, city: hit.city,
+                              district: hit.district, photoURL: hit.photoURL, countryCode: hit.countryCode, kind: hit.kind)
+            } else {
+                place = Place(id: "explore:\(offset):\(item.name)", name: item.name, address: nil,
+                              coordinate: fix ?? GeoCoordinate(latitude: 0, longitude: 0, datum: .gcj02), distanceMeters: nil)
+                unlocated.insert(place.id)
+            }
+            guard !places.contains(where: { $0.id == place.id }) else { continue }
+            places.append(place)
+            if !item.about.isEmpty { abouts[place.id] = item.about }
+        }
+        // Unlocated names go last, so the map's numbered markers match the list rows above them.
+        places = places.filter { !unlocated.contains($0.id) } + places.filter { unlocated.contains($0.id) }
+        let ms = max(0, Int((clock.now - started).milliseconds))
+        onExploreLine("show places n=\(places.count) located=\(places.count - unlocated.count) ms=\(ms)")
+        // Every lookup failed (key, quota, network): nothing useful to show.
+        if failed == wanted.count {
+            return LookupReply.failed(.liveInfoUnavailable, what: "places", cause: .network,
+                                      facts: ["shown": false], mustNot: [.claimDone])
+        }
+        asked = nil
+        rejectedName = nil
+        confirm = nil
+        if snapshot.navigating {
+            snapshot.alongRouteList = true
+        } else {
+            _ = advance(to: .awaitingDestinationSelection)
+            snapshot.routes = []
+            snapshot.destination = nil
+            snapshot.info = nil
+            routeAbroad = false
+        }
+        snapshot.places = places
+        snapshot.explored = ExploredList(places: places, abouts: abouts, unlocated: unlocated)
+        listedAt = clock.now
+        publish()
+        let listed: [JSONValue] = places.map { place in
+            var o: [String: JSONValue] = ["name": .string(place.name)]
+            if let m = place.distanceMeters, !unlocated.contains(place.id) {
+                o["distance_km"] = .double((Double(m) / 100).rounded() / 10)
+            } else {
+                o["located"] = false
+            }
+            return .object(o)
+        }
+        return ToolReply.success(facts: ["shown": true, "listed": .array(listed), "routed": false],
+                                 mustNot: [.readList, .claimStarted, .invent]).result
+    }
+
+    private static func array(_ value: JSONValue?) -> [JSONValue] {
+        if case .array(let items)? = value { return items }
+        return []
     }
 
     // MARK: navigate_to
@@ -772,7 +907,10 @@ public actor NavigationController: ToolExecutor {
         near.onLine(Self.line(key, found.step, top, check))
         if check == .none {
             if !guiding { reset() }
-            return .failure(.noCandidates, advice: NearFirstSearch.noFitText)
+            // F-16 §15 item 4 (T-042d): 高德 may have returned places none of which fit the name; the facts say how
+            // many were found and that none matched, never `found=0` (the caller's `found` does not override these).
+            let facts: [String: JSONValue] = ["found": .int(Int64(found.places.count)), "name_matched": 0]
+            return .failure(.noCandidates, advice: NearFirstSearch.noFitText, data: ["facts": .object(facts)])
         }
         if check == .sure, top.count == 1, !guiding { return await route(to: top[0].place) }
         // Item 5: the turn is read after the search, so an utterance during the search is not the later turn.
@@ -982,6 +1120,12 @@ public actor NavigationController: ToolExecutor {
     }
 
     private func route(to place: Place) async -> ToolResult {
+        // F-16 §15 item 3 (T-042d): a `show_places` name 高德 could not find has no coordinate; picking it searches it
+        // by name as a `navigate_to` would.
+        if snapshot.unlocated(place) {
+            snapshot.explored = nil
+            return await navigate(place.name)
+        }
         // F-15a §2.2 (OQ-NAVM-2): 真实导航 starts only from a usable fix; never the demo origin.
         if mode() == .gps, let refusal = await noUsableFix() {
             reset()
@@ -1498,6 +1642,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.alternatives = []
         snapshot.lastGuidance = nil
         snapshot.lastGuidanceID = nil
+        snapshot.explored = nil
         listedAt = nil
         calculated = []
         forgetConfirmations()

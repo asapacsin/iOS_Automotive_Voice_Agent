@@ -502,10 +502,14 @@ private struct DriveContent: View {
                         Text("\(index + 1)").font(.headline).frame(width: 22)
                         VStack(alignment: .leading) {
                             Text(place.name).font(.subheadline.weight(.semibold))
+                            // F-16 §15 item 2 (T-042d): what the place is, from the search answer.
+                            if let about = model.nav.about(place) { Text(about).font(.caption) }
                             if let address = place.address { Text(address).font(.caption2).foregroundStyle(.secondary) }
                         }
                         Spacer()
-                        if let meters = place.distanceMeters { Text(Self.distance(meters)).font(.caption) }
+                        if let meters = place.distanceMeters, !model.nav.unlocated(place) {
+                            Text(Self.distance(meters)).font(.caption)
+                        }
                         // F-15b §13 item 3: the already-found place joins the trip list, no new lookup.
                         // F-15b §51 item 2: not offered while the trip cards are hidden.
                         if !model.tripList.isEmpty && !model.tripMoving && !model.tripCardsHidden {

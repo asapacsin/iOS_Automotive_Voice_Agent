@@ -31,7 +31,8 @@ public struct MapPresentation: Sendable, Hashable {
             highlighted = nil
         }
         let listing = flow.phase == .awaitingDestinationSelection || flow.alongRouteList
-        markers = listing ? flow.places : []
+        // F-16 §15 item 2: a `show_places` name 高德 could not find has no marker.
+        markers = listing ? flow.places.filter { !flow.unlocated($0) } : []
         destination = flow.phase == .idle || flow.phase == .error ? nil : flow.destination
         list = listing ? .places : flow.phase == .awaitingRouteSelection ? .routes : nil
         followCar = flow.phase == .navigating

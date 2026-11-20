@@ -15,6 +15,7 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
+| 3.0.0 | 9e127cecdf02 | 2026-11-20 | (this commit) | major: tool added (`show_places`, with search on); base web_search sentence adds 司机想找能做什么、去哪玩的地方：先 web_search 找，再 show_places 给他看，他说要去才导航。 (maxBaseCharacters 1022 → 1079) | F-16 §15 items 2, 5 |
 | 2.2.0 | 35529b4982fe | 2026-11-20 | c0957a1 | minor: base 【你有什么】 adds 屏幕状态就是司机眼前看到的；"这个"指屏幕上开着的东西。 (maxBaseCharacters 994 → 1022) | F-09b §16 item 5 |
 | 2.1.0 | 634b5f633ac5 | 2026-11-20 | bff0cfb | minor: note templates: the `屏幕` line added; 现在 drops 正在导航/屏幕上显示着行程, the car note drops 音乐 (now screen keys) | F-09b §16 item 4 |
 | 2.0.0 | dae929dc9ff0 | 2026-11-20 | bf39cfb | major: tool added (`show_place`); base 【你有什么】 打开地图或设置 → 打开地图、设置或地方卡片, 【怎么决定】 drops 地方介绍 from the no-tool rule | F-09b §16 item 8 |

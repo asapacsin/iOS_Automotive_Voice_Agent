@@ -139,9 +139,9 @@ public enum ToolCatalog {
         "choose_navigation_option": "选屏幕上的候选地点（等同点选），或导航中换路线，三个参数只填一个。地点列表时：「第一个」「第二个」→index；「最近的那个」→nearest；「选万达广场那个」→name；选好地点后直接开始导航。导航中：「换最快的」→preference=fastest；「最短的」→shortest；「不走高速」「不要收费」→no_toll；「红绿灯少的」→fewest_lights；「推荐的」→recommended；「换第二条」→index；她问「要换吗？」后司机说「好」「换」→preference=上次结果的 offer_preference。按结果答：navigation_started 说已开始导航；route_changed 按 next 说已换成哪条路线和大约几分钟；route_unchanged 说现在走的就是这条；ok=false 按 error：OUT_OF_RANGE=没有这一项，NO_OPTIONS_ON_SCREEN=没有可选列表或没有别的路线，OPTIONS_NOT_READY=还在计算，AMBIGUOUS=多个匹配请说第几个，OPTIONS_STALE=列表过期请重新说，CONFIRM_CANDIDATE=问是不是 candidate_position 那项。",
     ]
     public static let declarations: [ToolDeclaration] = specs.map(\.declaration)
-    private static let byName: [String: ToolSpec] = Dictionary(uniqueKeysWithValues: (specs + [webSearchSpec]).map { ($0.name, $0) })
+    private static let byName: [String: ToolSpec] = Dictionary(uniqueKeysWithValues: (specs + [webSearchSpec, showPlacesSpec]).map { ($0.name, $0) })
 
-    /// A declared tool, or `web_search` (declared only with search on).
+    /// A declared tool, or `web_search` / `show_places` (declared only with search on; F-16 §15 item 2).
     public static func spec(_ name: String) -> ToolSpec? { byName[name] }
 
     // MARK: Model-chosen comfort (F-12 §14 items 7-9, F-09b §3)
@@ -323,6 +323,32 @@ public enum ToolCatalog {
             "additionalProperties": false,
         ]))
 
+    /// F-16 §15 item 2 (T-042d): the places a `web_search` answer named, listed on screen with what each is; no route.
+    public static let maxExplorePlaces = 5
+    public static let maxExploreAbout = 40
+    public static let showPlacesDescription = "把 web_search 找到的地方列在屏幕上给司机看，不导航。司机想找能做什么、去哪玩的地方时，先 web_search，再用它：places 每项 name 填 answer 里的地名，about 填一句它是什么。列表已经在屏幕上，简短说找到了哪些，不要念列表；司机说要去哪个，再 navigate_to 或选第几个。located=false 的地方没查到位置。"
+    public static let showPlacesSpec = ToolSpec(domain: "navigation", repeatSensitive: false, declaration: ToolDeclaration(
+        name: "show_places", description: showPlacesDescription,
+        parametersJSONSchema: [
+            "type": "object",
+            "properties": [
+                "places": [
+                    "type": "array", "minItems": 1, "maxItems": .int(Int64(maxExplorePlaces)),
+                    "items": [
+                        "type": "object",
+                        "properties": [
+                            "name": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
+                            "about": ["type": "string", "maxLength": .int(Int64(maxExploreAbout))],
+                        ],
+                        "required": ["name"],
+                        "additionalProperties": false,
+                    ],
+                ],
+            ],
+            "required": ["places"],
+            "additionalProperties": false,
+        ]))
+
     /// F-09b §4 item 1 (T-031j): undo the last comfort change set.
     public static let undoSpec = ToolSpec(domain: "comfort", repeatSensitive: false, declaration: ToolDeclaration(
         name: "undo_last_change",
@@ -370,7 +396,7 @@ public enum ToolCatalog {
         let base = declarations
         guard webSearch else { return base }
         let liveInfo = searchOnLiveInfo(spec("query_live_info")!).declaration
-        return base.map { $0.name == "query_live_info" ? liveInfo : $0 } + [webSearchSpec.declaration]
+        return base.map { $0.name == "query_live_info" ? liveInfo : $0 } + [webSearchSpec.declaration, showPlacesSpec.declaration]
     }
 
     /// Rule-violation code, `UNKNOWN_TOOL`, `ARGUMENTS_TOO_LARGE`, or nil when the call may proceed.
@@ -680,6 +706,21 @@ public enum ToolCatalog {
             guard keys == ["name"] else { return .invalidFields }
             guard let n = str("name") else { return .invalidFieldType }
             if trimmed(n).isEmpty || n.utf16.count > maxTripName { return .invalidFieldValue }
+        case "show_places":
+            // F-16 §15 item 2: 1–5 places, each a name 1–40 characters and an optional about up to 40.
+            guard keys == ["places"] else { return .invalidFields }
+            guard case .array(let items)? = a["places"] else { return .invalidFieldType }
+            if items.isEmpty || items.count > maxExplorePlaces { return .invalidFieldValue }
+            for item in items {
+                guard case .object(let o) = item else { return .invalidFieldType }
+                if !Set(o.keys).isSubset(of: ["name", "about"]) { return .invalidFields }
+                guard let n = o["name"]?.stringValue else { return .invalidFieldType }
+                if trimmed(n).isEmpty || n.utf16.count > maxTripName { return .invalidFieldValue }
+                if let about = o["about"] {
+                    guard let t = about.stringValue else { return .invalidFieldType }
+                    if t.utf16.count > maxExploreAbout { return .invalidFieldValue }
+                }
+            }
         case "set_speaking_style":
             if keys != ["style"] { return .invalidFields }
             guard let style = str("style") else { return .invalidFieldType }
