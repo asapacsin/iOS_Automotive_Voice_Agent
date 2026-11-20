@@ -2,15 +2,18 @@
 """F-12 §21 item 6 (T-031u): one reader per record format; every reader gives the same rows.
 
 Row: session (file name without .txt), turn (the `turn=<n>` on the line, or ""), ms, kind, fields,
-legacy ("true" for format 0). Usage: read.py <record.txt> [...] prints CSV rows. A format with no reader raises
+legacy ("true" for format 0), agentVersion, agentHash, model (F-09b §15 item 7; "" before format 2), setup
+("unregistered" when the agentHash is not a session hash of its agentVersion in specs/contracts/agent-setup-parts/). Usage: read.py <record.txt> [...] prints CSV rows. A format with no reader raises
 UnknownFormat; it is never parsed by guessing.
 """
 import csv
+import json
 import pathlib
 import re
 import sys
 
-FIELDS = ["session", "turn", "ms", "kind", "fields", "legacy"]
+FIELDS = ["session", "turn", "ms", "kind", "fields", "legacy", "agentVersion", "agentHash", "model", "setup"]
+PARTS_DIR = pathlib.Path(__file__).resolve().parents[2] / "specs" / "contracts" / "agent-setup-parts"
 EVENT = re.compile(r"^(\d+) (\S+) ?(.*)$")
 TURN = re.compile(r"\bturn=(\d+)\b")
 
@@ -31,7 +34,24 @@ def record_format(lines: list[str]) -> int:
     return 0
 
 
-def _events(session: str, lines: list[str], legacy: bool) -> list[dict]:
+def agent_fields(lines: list[str], parts_dir: pathlib.Path = PARTS_DIR) -> dict:
+    """The format-2 header's agent lines and whether the hash is a registered session hash of that version."""
+    head = {}
+    for line in lines[:12]:
+        key, _, value = line.partition(" ")
+        if key in ("agentVersion", "agentHash", "model"):
+            head[key] = value
+    out = {"agentVersion": head.get("agentVersion", ""), "agentHash": head.get("agentHash", ""),
+           "model": head.get("model", ""), "setup": ""}
+    if out["agentVersion"]:
+        path = parts_dir / f"{out['agentVersion']}.json"
+        sessions = json.loads(path.read_text(encoding="utf-8")).get("sessions", {}) if path.exists() else {}
+        out["setup"] = "registered" if out["agentHash"] in sessions.values() else "unregistered"
+    return out
+
+
+def _events(session: str, lines: list[str], legacy: bool, agent: dict | None = None) -> list[dict]:
+    agent = agent or {"agentVersion": "", "agentHash": "", "model": "", "setup": ""}
     rows = []
     for line in lines:
         m = EVENT.match(line)
@@ -39,7 +59,7 @@ def _events(session: str, lines: list[str], legacy: bool) -> list[dict]:
             continue  # header lines and `dropped=<n>`
         t = TURN.search(m.group(3))
         rows.append({"session": session, "turn": t.group(1) if t else "", "ms": int(m.group(1)), "kind": m.group(2),
-                     "fields": m.group(3), "legacy": "true" if legacy else "false"})
+                     "fields": m.group(3), "legacy": "true" if legacy else "false", **agent})
     return rows
 
 
@@ -52,7 +72,11 @@ def read_format_1(session: str, lines: list[str]) -> list[dict]:
     return _events(session, lines[1:], legacy=False)
 
 
-READERS = {0: read_format_0, 1: read_format_1}
+def read_format_2(session: str, lines: list[str]) -> list[dict]:
+    return _events(session, lines[1:], legacy=False, agent=agent_fields(lines))
+
+
+READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2}
 
 
 def read(path: pathlib.Path) -> list[dict]:

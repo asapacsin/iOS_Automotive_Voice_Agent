@@ -4,6 +4,11 @@ import NovaKit
 /// never logged). A new session started without a resumption handle within 30 minutes gets them as one silent note.
 /// Pure.
 public struct ExchangeMemory: Sendable {
+    /// F-09b §15 item 1 (T-031y): the summary note template.
+    public static func summaryText(_ lines: String) -> String {
+        "[系统] 接着之前的对话。最近几句：" + lines + "。这句不用回答。"
+    }
+
     public static let capacity = 6
     public static let maxCharacters = 60
     public static let window = NovaDuration.seconds(30 * 60)
@@ -44,7 +49,7 @@ public struct ExchangeMemory: Sendable {
             let tools = e.tools.isEmpty ? "" : "（" + e.tools.joined(separator: "，") + "）"
             return "司机「\(e.driver)」→ 你「\(e.reply)」" + tools
         }
-        let text = "[系统] 接着之前的对话。最近几句：" + lines.joined(separator: "；") + "。这句不用回答。"
+        let text = Self.summaryText(lines.joined(separator: "；"))
         return SessionSummary(text: text, exchanges: kept.count, ageS: Int(age.milliseconds / 1000))
     }
 }

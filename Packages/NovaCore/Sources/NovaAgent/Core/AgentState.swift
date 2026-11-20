@@ -371,6 +371,11 @@ public struct AgentState: Sendable {
         self.destinationNotes = destinationNotes
     }
 
+    /// F-09b §15 item 1 (T-031y): the screen-pick note template.
+    public static func screenPickNote(tool: String, index: String, result: String) -> String {
+        "[系统] 用户在屏幕上点选了 \(tool)\(index)，" + "结果：\(result)。只按这个结果用一句话告诉用户，不要再调用工具。"
+    }
+
     /// F-18 §21 item 2: the note texts.
     public static func destinationNote(_ name: String?) -> String {
         guard let name else { return "[系统] 导航已结束，现在没有目的地。这句不用回答。" }
@@ -757,8 +762,7 @@ public struct AgentState: Sendable {
         answerOwed = true
         // The tap is the driver's own request: she may answer it while navigating (R6).
         arbiter.driverSpoke(at: now)
-        let note = "[系统] 用户在屏幕上点选了 \(call.name)\(call.arguments["index"].map { " index=\($0)" } ?? "")，"
-            + "结果：\(json)。只按这个结果用一句话告诉用户，不要再调用工具。"
+        let note = Self.screenPickNote(tool: call.name, index: call.arguments["index"].map { " index=\($0)" } ?? "", result: json)
         return [.provider(.text([TextTurn(role: .user, text: note)], turnComplete: true))]
     }
 

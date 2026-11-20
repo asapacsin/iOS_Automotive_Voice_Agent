@@ -10,6 +10,7 @@ python3 "$root/scripts/gates/check_secrets.py"
 python3 "$root/scripts/gates/check_kws_tokens.py"
 python3 "$root/scripts/gates/check_paid_scripts.py"  # F-18 §32 item 6 (T-046u)
 python3 "$root/scripts/gates/check_record_format.py"  # F-12 §21 item 4 (T-031u)
+python3 "$root/scripts/gates/check_agent_version.py"  # F-09b §15 item 5 (T-031y)
 # F-09b §13 item 8: strict from the end of stage 3 (T-031n).
 python3 "$root/scripts/gates/check_scripts.py" --strict
 python3 "$root/scripts/history.py" check

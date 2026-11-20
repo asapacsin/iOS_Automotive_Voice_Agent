@@ -59,25 +59,55 @@ class RecordScriptsTests(unittest.TestCase):
             with self.assertRaises(read.UnknownFormat):
                 read.read(bad)
 
-    def test_fixtures_match_the_swift_fixture(self):
-        swift = ROOT / "Packages/NovaCore/Tests/NovaAgentTests/Fixtures/record-format-1.txt"
-        self.assertEqual((FIX / "record-format-1.txt").read_bytes(), swift.read_bytes())
+    def test_fixtures_match_the_swift_fixtures(self):
+        swift = sorted((ROOT / "Packages/NovaCore/Tests/NovaAgentTests/Fixtures").glob("record-format-*.txt"))
+        self.assertGreaterEqual(len(swift), 2)
+        for f in swift:
+            self.assertEqual((FIX / f.name).read_bytes(), f.read_bytes(), f.name)
+            n = int(f.stem.rsplit("-", 1)[1])
+            self.assertIn(n, read.READERS, f"read.py has no reader for format {n}")
+
+    def test_t031y_row7_agent_fields_index_and_unregistered(self):
+        """T-031y F-09b §15 row 7: rows carry agentVersion/agentHash/model; index has the columns; unknown hash flagged."""
+        import json
+        rows = read.read(FIX / "record-format-2.txt")
+        self.assertEqual({(r["agentVersion"], r["agentHash"], r["model"]) for r in rows},
+                         {("1.0.0", "0123456789ab", "gemini-3.8-live")})
+        self.assertEqual({r["setup"] for r in rows}, {"unregistered"})
+        real = json.loads((ROOT / "specs/contracts/agent-setup-parts/1.0.0.json").read_text(encoding="utf-8"))["sessions"]
+        text = (FIX / "record-format-2.txt").read_text(encoding="utf-8").replace("0123456789ab", next(iter(real.values())))
+        with tempfile.TemporaryDirectory() as tmp:
+            src, arc = pathlib.Path(tmp) / "src", pathlib.Path(tmp) / "arc"
+            src.mkdir()
+            (src / "20261120-110000.txt").write_text(text, encoding="utf-8")
+            self.assertEqual({r["setup"] for r in read.read(src / "20261120-110000.txt")}, {"registered"})
+            with contextlib.redirect_stdout(io.StringIO()):
+                collect.main(["--from", str(src), "--archive", str(arc)])
+            with (arc / "index.csv").open(encoding="utf-8", newline="") as f:
+                row = next(csv.DictReader(f))
+            self.assertEqual((row["agentVersion"], row["model"], row["recordFormat"]), ("1.0.0", "gemini-3.8-live", "2"))
+        # Older formats carry empty agent fields.
+        self.assertEqual({r["agentVersion"] for r in read.read(FIX / "record-format-1.txt")}, {""})
 
 
     def test_t031u_row5_format_without_notes_row_fails(self):
-        """T-031u F-12 §21 row 5: formatVersion 2 with no row in record-format.md fails check_record_format."""
+        """T-031u F-12 §21 row 5: formatVersion n+1 with no row in record-format.md fails check_record_format."""
+        import re
         sys.path.insert(0, str(ROOT / "scripts" / "gates"))
         import check_record_format as gate
+        n = int(re.search(r"static let formatVersion = (\d+)", (ROOT / gate.SOURCE).read_text(encoding="utf-8"))[1])
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            for rel in (gate.SOURCE, gate.NOTES, gate.FIXTURES + "/record-format-1.txt", gate.FIXTURES + "/record-format-2.txt"):
+            files = [gate.SOURCE, gate.NOTES] + [f"{gate.FIXTURES}/record-format-{k}.txt" for k in range(1, n + 2)]
+            for rel in files:
                 (root / rel).parent.mkdir(parents=True, exist_ok=True)
                 (root / rel).write_text((ROOT / rel).read_text(encoding="utf-8") if (ROOT / rel).exists() else "x",
                                         encoding="utf-8")
             self.assertEqual(gate.problems(root), [])
             src = root / gate.SOURCE
-            src.write_text(src.read_text(encoding="utf-8").replace("formatVersion = 1", "formatVersion = 2"), encoding="utf-8")
-            self.assertEqual(gate.problems(root), [f"{gate.NOTES}: format 2 has no row"])
+            src.write_text(src.read_text(encoding="utf-8").replace(f"formatVersion = {n}", f"formatVersion = {n + 1}"),
+                           encoding="utf-8")
+            self.assertEqual(gate.problems(root), [f"{gate.NOTES}: format {n + 1} has no row"])
         self.assertEqual(gate.problems(), [])
 
 

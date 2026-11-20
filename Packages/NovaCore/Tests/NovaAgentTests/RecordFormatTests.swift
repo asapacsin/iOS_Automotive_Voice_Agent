@@ -71,7 +71,8 @@ enum RecordFormatSession {
     static func encoded() -> String {
         let header = RecordHeader(appVersion: "0.1.0(1) abcdef0", comfortMode: "model", interruptible: false,
                                   speakingStyle: "default", webSearch: true, searchKey: true, startedBy: "tap",
-                                  declaredTools: ["web_search", "set_volume"])
+                                  declaredTools: ["web_search", "set_volume"],
+                                  agentLines: ["agentVersion 1.0.0", "agentHash 0123456789ab", "model gemini-3.8-live"])
         var recorder = ConversationRecorder()
         var lines = [ConversationRecord.formatLine] + header.lines
         for (n, e) in events.enumerated() { lines += recorder.add(e, atMs: Int64(n) * 100) }
@@ -107,15 +108,15 @@ enum RecordFormatSession {
 
 @Suite("T-031u F-12 §21 record format")
 struct RecordFormatTests {
-    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat 1, then the app line with the commit")
+    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat <n> (2 since T-031y), then the app line with the commit")
     func row1() {
         let record = ConversationRecord.make(enabled: true, header: RecordHeader(
             appVersion: "0.1.0(1) abcdef0", comfortMode: "model", interruptible: false, speakingStyle: "default"))!
         let w = MemoryWriter()
         record.drain(to: w)
         let lines = w.lines.withLock { $0 }
-        #expect(ConversationRecord.formatVersion == 1)
-        #expect(Array(lines.prefix(2)) == ["recordFormat 1", "app 0.1.0(1) abcdef0"])
+        #expect(ConversationRecord.formatVersion == 2)
+        #expect(Array(lines.prefix(2)) == ["recordFormat 2", "app 0.1.0(1) abcdef0"])
     }
 
     @Test("T-031u F-12 §21 rows 2-3: the fixed session encodes exactly to record-format-<formatVersion>.txt")

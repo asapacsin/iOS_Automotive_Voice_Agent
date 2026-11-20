@@ -95,7 +95,9 @@ public struct SessionConfig: Sendable, Hashable {
     public var inputTranscription: Bool
     public var outputTranscription: Bool
 
-    public init(model: String = "gemini-3.8-live", systemInstruction: String, tools: [ToolDeclaration],
+    public static let defaultModel = "gemini-3.8-live"
+
+    public init(model: String = SessionConfig.defaultModel, systemInstruction: String, tools: [ToolDeclaration],
                 voiceName: String = "Aoede", languageCode: String? = nil, thinkingLevel: String? = "LOW",
                 activityDetection: ActivityDetectionConfig = ActivityDetectionConfig(),
                 inputTranscription: Bool = true, outputTranscription: Bool = true) {

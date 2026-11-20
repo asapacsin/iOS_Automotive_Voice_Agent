@@ -104,9 +104,12 @@ public struct RecordHeader: Sendable, Hashable {
     public let startedBy: String?
     /// F-13a §10 item 2 (T-032i): the tool names declared to Gemini; nil writes no line. Names and counts only (I-8).
     public let declaredTools: [String]?
+    /// F-09b §15 item 6 (T-031y): `agentVersion`, `agentHash`, `model` right after the `app` line; empty writes none.
+    public let agentLines: [String]
 
     public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false,
-                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil) {
+                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil, agentLines: [String] = []) {
+        self.agentLines = agentLines
         self.startedBy = startedBy
         self.declaredTools = declaredTools
         self.webSearch = webSearch
@@ -118,11 +121,16 @@ public struct RecordHeader: Sendable, Hashable {
     }
 
     public var lines: [String] {
-        ["app \(appVersion)", "comfortMode \(comfortMode)", "可以打断她 \(interruptible ? "on" : "off")",
-         "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
-            + (searchKey.map { ["searchKey \($0 ? "saved" : "missing")"] } ?? [])
-            + (startedBy.map { ["startedBy \($0)"] } ?? [])
-            + (declaredTools.map { ["tools declared=\($0.count) set_volume=\($0.contains("set_volume") ? "yes" : "no")"] } ?? [])
+        var out = ["app \(appVersion)"]
+        out += agentLines
+        out += ["comfortMode \(comfortMode)", "可以打断她 \(interruptible ? "on" : "off")",
+                "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
+        if let searchKey { out.append("searchKey \(searchKey ? "saved" : "missing")") }
+        if let startedBy { out.append("startedBy \(startedBy)") }
+        if let declaredTools {
+            out.append("tools declared=\(declaredTools.count) set_volume=\(declaredTools.contains("set_volume") ? "yes" : "no")")
+        }
+        return out
     }
 }
 
@@ -382,7 +390,7 @@ public final class ConversationRecord: Sendable {
     public static let capacity = 2000
     /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
     /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
-    public static let formatVersion = 1
+    public static let formatVersion = 2
     /// §21 item 1: the first line of every new file. A file without it is format 0.
     public static var formatLine: String { "recordFormat \(formatVersion)" }
 

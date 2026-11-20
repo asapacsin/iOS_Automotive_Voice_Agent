@@ -1910,11 +1910,11 @@ public actor TripPlanner: ToolExecutor {
         let note: String
         if let rest {
             let minutes = rest.legSeconds.map { "，约\(max(1, ($0 + 59) / 60))分钟" } ?? ""
-            note = "[系统] 已到达第\(stop.index)站\(stop.place.name)。下一站是\(rest.place.name)\(minutes)。问司机要不要现在去下一站。"
+            note = Self.arrivedNextNote(index: "\(stop.index)", name: stop.place.name, next: rest.place.name, minutes: minutes)
         } else {
             note = stop.role == .hotel
-                ? "[系统] 已到达酒店\(stop.place.name)，今天的行程结束了。用一句话告诉司机，明天说「开始第\(min(day + 1, plan.dayCount))天」。"
-                : "[系统] 已到达第\(stop.index)站\(stop.place.name)。这一天的地点都去完了。问司机要不要开始下一天。"
+                ? Self.arrivedHotelNote(name: stop.place.name, nextDay: "\(min(day + 1, plan.dayCount))")
+                : Self.arrivedDayDoneNote(index: "\(stop.index)", name: stop.place.name)
         }
         onNote(note)
     }
@@ -2471,7 +2471,21 @@ public actor TripPlanner: ToolExecutor {
             if result.data["changed"] == "none" { return (result, nil) }
             what = "加入了\(place.name)"
         }
-        return (result, "[系统] 司机在屏幕上\(what)，现在清单有\(list.count)个地点。这句不用回答。")
+        return (result, Self.screenEditNote(what: what, count: "\(list.count)"))
+    }
+
+    // F-09b §15 item 1 (T-031y): the note templates, so `AgentSetup` can list them with placeholders.
+    public static func arrivedNextNote(index: String, name: String, next: String, minutes: String) -> String {
+        "[系统] 已到达第\(index)站\(name)。下一站是\(next)\(minutes)。问司机要不要现在去下一站。"
+    }
+    public static func arrivedHotelNote(name: String, nextDay: String) -> String {
+        "[系统] 已到达酒店\(name)，今天的行程结束了。用一句话告诉司机，明天说「开始第\(nextDay)天」。"
+    }
+    public static func arrivedDayDoneNote(index: String, name: String) -> String {
+        "[系统] 已到达第\(index)站\(name)。这一天的地点都去完了。问司机要不要开始下一天。"
+    }
+    public static func screenEditNote(what: String, count: String) -> String {
+        "[系统] 司机在屏幕上\(what)，现在清单有\(count)个地点。这句不用回答。"
     }
 
     /// §13 item 3: an already-found place added at the end, with no new lookup.

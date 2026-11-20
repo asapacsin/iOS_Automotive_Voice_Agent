@@ -25,7 +25,8 @@ import read as reader  # noqa: E402
 BUNDLE = "XTL-Y6YT9YM42U.com.asapacsin.novadrive"
 DEFAULT_ARCHIVE = r"D:\ndrecords"
 DEFAULT_PMD3 = r"C:\Users\Administrator\AppData\Local\novadrive-tools\venv312\Scripts\pymobiledevice3.exe"
-INDEX_FIELDS = ["file", "sha256", "commit", "app_version", "recordFormat", "start", "lines", "dropped", "reader"]
+INDEX_FIELDS = ["file", "sha256", "commit", "app_version", "recordFormat", "start", "lines", "dropped", "reader",
+                "agentVersion", "agentHash", "model"]
 NAME = re.compile(r"^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.txt$")
 
 
@@ -45,7 +46,8 @@ def facts(path: pathlib.Path) -> dict:
     dropped = sum(int(line.split("=", 1)[1]) for line in lines if re.fullmatch(r"dropped=\d+", line))
     return {"file": path.name, "sha256": hashlib.sha256(data).hexdigest(), "commit": commit, "app_version": version,
             "recordFormat": fmt, "start": start, "lines": len(lines), "dropped": dropped,
-            "reader": f"format{fmt}" if fmt in reader.READERS else "none"}
+            "reader": f"format{fmt}" if fmt in reader.READERS else "none",
+            **{k: v for k, v in reader.agent_fields(lines).items() if k != "setup"}}
 
 
 def collect(source: pathlib.Path, archive: pathlib.Path) -> tuple[list[dict], list[str]]:

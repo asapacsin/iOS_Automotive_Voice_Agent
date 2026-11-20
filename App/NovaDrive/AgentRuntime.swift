@@ -1035,6 +1035,9 @@ final class AgentRuntime {
         // F-21: the saved tone is read once here, at session start.
         let instruction = PersonaInstruction.build(base: PersonaInstruction.base(PersonaInstruction.base, webSearch: webSearch),
                                                    style: SpeakingStyle.saved(in: settings))
+        // F-09b §15 item 6 (T-031y): the setup's version and this session's fingerprint, from the same texts sent below.
+        let agentSetup = AgentSetup(.init(style: SpeakingStyle.saved(in: settings), webSearch: webSearch))
+        RuntimeLog.agent.notice("\(agentSetup.logLine(), privacy: .public)")
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
         let sessionStart = Date()
@@ -1053,7 +1056,8 @@ final class AgentRuntime {
             comfortMode: "model", interruptible: DriveSettings.isInterruptible(),
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
             searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy,
-            declaredTools: ToolCatalog.declarations(webSearch: webSearch).map(\.name)))
+            declaredTools: ToolCatalog.declarations(webSearch: webSearch).map(\.name),
+            agentLines: agentSetup.headerLines()))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         voiceLines.record = record
         sessionRecord = record
