@@ -120,6 +120,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case noDestination = "NO_DESTINATION"
     /// PROPOSED: `save_place` read the slot back and it does not hold the found place.
     case placeNotSaved = "PLACE_NOT_SAVED"
+    /// F-09b §16 item 8 (T-031za): `show_place` did not get the place card on screen.
+    case placeNotShown = "PLACE_NOT_SHOWN"
     /// PROPOSED: `open_app` read the screen back and it is not the asked one.
     case appNotOpened = "APP_NOT_OPENED"
     case liveInfoUnavailable = "LIVE_INFO_UNAVAILABLE"

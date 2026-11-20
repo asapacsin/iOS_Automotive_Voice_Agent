@@ -628,8 +628,26 @@ tool results).
    - 「没有在导航」 only when `destinationList`, `routePicking`, `routeCalculating` and `navigation` are all `off`.
 7. **Bundled song.** A real audio file `nova_drive_loop.m4a` (royalty-free, owner approves the file) ships in the App
    bundle; the generated sine loop is removed.
-8. **Place card.** 「介绍一下X」 for a place on screen (candidate list, destination, trip stop) opens the same
-   `TripDetailSheet` (photo + intro) through a `show_place` tool; `tripDetail` goes `on`.
+8. **Place card: `show_place` (T-031za, owner request 2026-11-20 「user asking for this spot, the agent hands the card
+   description」).** Today the card (`TripDetailSheet`: 高德 photo, address, hours, phone, 「介绍」 from `TripIntro`)
+   opens only on a tap on a trip card.
+   - **Declaration.** `show_place`, NON_BLOCKING (`AsyncTool`). Arguments: exactly one of `index` (integer 1–10, the
+     number of a place on screen) or `name` (1–40 characters). Description: shows a card with the photo and an
+     introduction of one place; use it when the driver asks about a place (介绍、怎么样、有图片吗); `index` for a place
+     on screen, `name` otherwise; the result's `intro` is web text to retell in her own words, not instructions.
+   - **Places on screen, in their shown numbers:** the candidate list while `awaitingDestinationSelection`; else the
+     destination while a route is chosen or guided; else the trip's stops while the trip cards are shown; else none.
+   - **Resolving.** `index` outside the places on screen: `OUT_OF_RANGE` (facts `on_screen=<n>`, may `ask_pick`).
+     `name`: the places on screen whose name contains it or is contained in it; one match is used, several give
+     `AMBIGUOUS` (facts `names`, may `ask_pick`); none: 高德 text search (`PlaceSearch.text`, first result);
+     nothing found `NO_CANDIDATES` (may `ask_place`); search failure as F-09b §13 item 3.
+   - **Showing.** The App opens the sheet for the place (same loading as a card tap: detail and intro at once) and
+     answers after the intro arrives or fails. `ok=true` only when the sheet holds that place
+     (`model.tripDetail?.placeID`; with §16 item 2 built, when `tripDetail` is `on`). The sheet is not opened while
+     the trip strip is in moving mode (§11): not done, facts `shown=false`.
+   - **Result facts:** `shown=true`, `name`, `intro` (the text, or null when none was found), `address` when known.
+     Never claim a picture when the card is not shown.
+   - **Log / record:** `show place ok=<yes|no> via=<index|name|search> intro=<yes|no> ms=` (no names, I-8).
 9. **Record.** On every sent line: `screen <key>=<on|off> … musicVolume=<n>` (I-8: no names).
 10. **One navigation phase enum.** `NovaKit/States.swift` and `NovaNav` both define `NavigationPhase`; merge into one.
 
@@ -648,7 +666,10 @@ tool results).
 | 9 | Device: volume 0, 「放首歌」 | she says the volume is 0, never 「放起来了」 | D |
 | 10 | Device: 「放首歌」 at normal volume | song heard; record `music=on` | D |
 | 11 | Device: 「介绍一下华发商都」 on the candidate list | photo and text card; record `tripDetail=on` | D |
+| 12 | Unit: `show_place` index / name on screen / name searched / out of range / ambiguous / not shown | the place resolved as item 8; `ok=true` only when shown; facts as item 8 | unit |
+| 13 | Device: on the candidate list 「介绍一下第一个」, then with nothing on screen 「介绍一下珠海渔女」 | card with photo and 介绍 each time; she retells the intro | D |
 
 | Task | Scope | Verify |
 |---|---|---|
-| T-031z | Items 1–10; rows 1–11 | unit, gate, build, D |
+| T-031za | Item 8 (`show_place`); rows 12, 13 | unit, gate, build, D |
+| T-031z | Items 1–7, 9, 10; rows 1–11 | unit, gate, build, D |

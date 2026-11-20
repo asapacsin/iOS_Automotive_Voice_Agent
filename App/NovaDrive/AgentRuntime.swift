@@ -660,6 +660,15 @@ final class AgentRuntime {
         model.tripIntro = answer
     }
 
+    /// F-09b §16 item 8 (T-031za): opens the details sheet for any place (same loading as a card tap) and reports
+    /// whether the sheet holds it, with the introduction when one was found.
+    func showPlaceCard(_ card: TripCard) async -> ShowPlaceTool.Shown {
+        await openTripDetail(card)
+        guard model.tripDetail?.placeID == card.placeID else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
+        let intro: String? = if case .text(let text)? = model.tripIntro { text } else { nil }
+        return ShowPlaceTool.Shown(shown: true, intro: intro, address: model.tripDetailPlace?.address)
+    }
+
     /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the
     /// dispatcher and executor of the voice choice and she announces its read-back.
     func tapChoice(row: Int) async {
@@ -995,6 +1004,30 @@ final class AgentRuntime {
         for name in TripPlanner.tools { executors[name] = trip.planner }
         executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo, work: work)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
+        // F-09b §16 item 8 (T-031za): the place card for a place on screen or a named one; done only when the sheet
+        // holds that place. `show place` line: codes only (I-8).
+        executors[ShowPlaceTool.tool] = ShowPlaceTool(
+            onScreen: { [model] in
+                let nav = await navigation.current
+                if nav.phase == .awaitingDestinationSelection { return nav.places }
+                if let destination = nav.destination,
+                   nav.phase == .awaitingRouteSelection || nav.phase == .calculatingRoute || nav.phase == .navigating {
+                    return [destination]
+                }
+                return await MainActor.run {
+                    model.tripCardsHidden || model.tripList.isEmpty ? [] : model.tripList.stops.map(\.place)
+                }
+            },
+            search: web,
+            present: { [weak self] card in
+                guard let self else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
+                return await self.showPlaceCard(card)
+            },
+            clock: SystemClock(),
+            onLine: { line in
+                RuntimeLog.agent.notice("\(line, privacy: .public)")
+                voiceLines.record?.submit(.trip(line))
+            })
         executors["describe_camera_view"] = ObservedCameraExecutor(runtime: self)
         executors["place_call"] = PhoneCallHandler(contacts: ContactsStore(), dialer: SystemPhoneDialer(), clock: SystemClock())
         executors[OpenAppExecutor.tool] = OpenAppExecutor(surfaces: TabSurfaces())

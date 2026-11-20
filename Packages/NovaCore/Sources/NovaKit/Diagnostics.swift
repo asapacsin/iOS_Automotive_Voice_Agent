@@ -92,6 +92,8 @@ public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     case editTripList = "edit_trip_list"
     /// F-15b §49 item 7 (T-040u): a revision fits and checks again in the background.
     case reviseTripList = "revise_trip_list"
+    /// F-09b §16 item 8 (T-031za): the card answers after the introduction arrives.
+    case showPlace = "show_place"
 
     public init?(name: String) { self.init(rawValue: name) }
     /// The `scheduling` their response carries (F-18 §27 item 3).
