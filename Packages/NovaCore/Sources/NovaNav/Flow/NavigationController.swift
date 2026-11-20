@@ -3,10 +3,7 @@ import NovaPorts
 import NovaTools
 
 /// contracts/navigation.md phases. Cancel resets to idle; there is no cancelled phase.
-public enum NavigationPhase: String, Sendable, Hashable {
-    case idle, resolvingDestination, awaitingDestinationSelection, calculatingRoute, awaitingRouteSelection
-    case navigating, arrived, error
-}
+// F-09b §16 item 10 (T-031z): the phase is NovaKit's `NavigationPhase` (one definition).
 
 /// One tap target on the trip's screen: `row` is the route's 0-based place in the calculation (`UIIntent.choose`).
 public struct AlternativeRoute: Sendable, Hashable {
@@ -975,11 +972,11 @@ public actor NavigationController: ToolExecutor {
             case .success(let index): return await startGuidance(snapshot.routes[index])
             case .failure(let box): return box.result
             }
-        case .resolvingDestination, .calculatingRoute:
+        case .resolvingDestination, .planningRoute, .calculatingRoute, .routeReady:
             return Self.notYet("calculating_route")
         case .navigating:
             return await changeRoute(args)
-        case .idle, .arrived, .error:
+        case .idle, .arrived, .stopped, .error:
             return ToolReply.notDone(.noOptionsOnScreen, facts: ["on_screen": 0], may: [.askDestination]).result
         }
     }
@@ -1232,13 +1229,14 @@ public actor NavigationController: ToolExecutor {
             reset()
             await engine.stop(generation: generation)
             return .success(["status": "navigation_stopped", "next": "说一句：已结束导航。"])
-        case .awaitingDestinationSelection, .awaitingRouteSelection, .resolvingDestination, .calculatingRoute:
+        case .awaitingDestinationSelection, .awaitingRouteSelection, .resolvingDestination, .planningRoute,
+             .calculatingRoute, .routeReady:
             let generation = snapshot.generation
             reset()
             await engine.stop(generation: generation)
             _ = await hideTripCards?()
             return .success(["status": "navigation_selection_cancelled", "next": "说一句：好的，已取消。"])
-        case .idle, .error:
+        case .idle, .stopped, .error:
             // F-15b §22 item 2: nothing open, the cards shown: they are put away; the plan stays.
             if await hideTripCards?() == true {
                 return .success(["status": "trip_cards_hidden"].merging(Self.cardsHidden) { $1 })

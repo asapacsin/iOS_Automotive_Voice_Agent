@@ -9,7 +9,7 @@ struct CurrentDestinationTests {
     func phases() {
         var s = NavigationFlowState()
         s.destination = place("横琴文化艺术中心", 100)
-        for phase: NovaNav.NavigationPhase in [.idle, .resolvingDestination, .awaitingDestinationSelection, .calculatingRoute,
+        for phase: NavigationPhase in [.idle, .resolvingDestination, .awaitingDestinationSelection, .calculatingRoute,
                       .awaitingRouteSelection, .error] {
             s.phase = phase
             #expect(s.currentDestination == nil, "\(phase)")

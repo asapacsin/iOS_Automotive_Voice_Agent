@@ -109,14 +109,14 @@ struct SelfPositionModeTests {
     let real = fix(p(0), at: 0)
     let car = GeoCoordinate(latitude: 22.3, longitude: 113.6, datum: .wgs84)
 
-    func make(_ phase: NovaNav.NavigationPhase, car: GeoCoordinate?, mode: NaviMode) -> SelfPosition {
+    func make(_ phase: NavigationPhase, car: GeoCoordinate?, mode: NaviMode) -> SelfPosition {
         SelfPosition.make(.init(fix: real, source: .device, permission: .authorized, now: .zero, phase: phase,
                                 simulatedCar: car, mode: mode))
     }
 
     @Test("F-15a row 3: .gps never draws the simulated car; .emulator draws it for the whole trip; one marker")
     func oneMarker() {
-        for phase in [NovaNav.NavigationPhase.idle, .awaitingRouteSelection, .navigating, .arrived] {
+        for phase in [NavigationPhase.idle, .awaitingRouteSelection, .navigating, .arrived] {
             let gps = make(phase, car: car, mode: .gps)
             #expect(gps.marker?.style == .fresh, "\(phase)")
         }

@@ -15,7 +15,7 @@ private func fix(_ c: GeoCoordinate = zhuhai, accuracy: Double = 10, ageSeconds:
 
 private func position(_ f: LocationFix?, source: LocationSource = .device,
                       permission: LocationAuthorization = .authorized, now: NovaInstant = t0,
-                      phase: NovaNav.NavigationPhase = .idle, car: GeoCoordinate? = nil, carHeading: Double? = nil) -> SelfPosition {
+                      phase: NavigationPhase = .idle, car: GeoCoordinate? = nil, carHeading: Double? = nil) -> SelfPosition {
     SelfPosition.make(.init(fix: f, source: source, permission: permission, now: now, phase: phase,
                             simulatedCar: car, simulatedHeadingDegrees: carHeading))
 }
