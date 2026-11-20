@@ -1531,6 +1531,20 @@
       "evidence": ["scripts/gates/run_all.sh T-046u green on a clean clone of b7f92dc (Linux Swift 6.1.2; NovaCore, NovaRealtime 55, NovaServices 110 tests; static gates incl. check_paid_scripts); spec-reviewer high effort FAIL (qwen.tts used the shared counters) then fixed in b7f92dc, re-check PASS; rows 1-10 unit/gate; row 11 Codemagic build and row 12 device NOT_VERIFIED"]
     },
     {
+      "id": "T-031za",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031y"
+      ],
+      "action": "F-09b \u00a716 item 8: show_place(name) place card (find on screen / car's city / nationwide, fill TripDetailSheet, ok only when shown); rows 12, 13.",
+      "notes": "Owner 2026-11-20: a tool with well defined content filled by a well defined process; the LLM fills the tool call. Base instruction no longer forbids a tool for place introductions (agent 2.0.0).",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 9aca0b0 (Linux Swift 6.1.2; NovaCore 1050 tests, 1 known NoiseCorpus issue; spec-trace 157 ids, 0 missing; check_agent_version OK, 2.0.0 = dae929dc9ff0); spec-reviewer high effort FAIL (list over guidance missed) -> fixed in 9aca0b0 -> medium re-check PASS; row 12 unit; row 13 device NOT_VERIFIED; App files read, not compiled"
+      ]
+    },
+    {
       "id": "T-031z",
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
