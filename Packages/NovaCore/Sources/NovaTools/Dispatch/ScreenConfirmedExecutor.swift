@@ -60,6 +60,12 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
         // §17 item 4: a named panel closes that panel; 「收起来」 (no panel) closes the top one only.
         let named = call.arguments["panel"]?.stringValue.flatMap(ScreenPanel.init(rawValue:))
         let target = named ?? before.top
+        // A named panel that is not on screen: nothing is closed, and the flow is never asked (it would stop guidance
+        // or cancel a list the driver did not name). `navigation` stays with the flow (it also ends a route being made).
+        if let named, named != .navigation, !before.isOn(named) {
+            return ToolReply.notDone(.noOptionsOnScreen, facts: ["on_screen": 0, "panel": .string(named.rawValue)],
+                                     mustNot: [.invent]).result
+        }
         if let top = target, let name = Self.ownClose[top], before.isOn(top) {
             await close(top)
             let off = await screen.wait(until: { !$0.isOn(top) }, timeout: tuning.screenConfirm, clock: clock)

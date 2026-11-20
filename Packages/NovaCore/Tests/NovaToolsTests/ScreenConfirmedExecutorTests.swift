@@ -188,6 +188,20 @@ struct ScreenConfirmedExecutorTests {
         #expect(ToolCatalog.validate("exit_navigation_mode", [:]) == nil)
     }
 
+    @Test("T-031zb item 4: a named panel that is not on screen closes nothing and never stops guidance")
+    func namedPanelOff() async {
+        let screen = ScreenStateStore(ScreenState(on: [.navigation]))
+        let closed = ClosedPanels()
+        let nav = ActingTool(result: .success(["status": "navigation_stopped"]))
+        let tool = ScreenConfirmedExecutor(nav, screen: screen, clock: ManualClock(),
+                                           close: Self.closer(screen, closed: closed))
+        for panel in ["musicCard", "tripDetail", "destinationList"] {
+            let r = await tool.execute(Self.call("exit_navigation_mode", ["panel": .string(panel)]))
+            #expect(!r.ok && r.code == .noOptionsOnScreen && r.data["facts"]?["panel"] == .string(panel))
+        }
+        #expect(nav.calls.withLock { $0 } == 0 && closed.all.withLock { $0 }.isEmpty)
+    }
+
     @Test("T-031zb item 4: closed is what really went off: guidance stopped under the trip cards says navigation")
     func closedIsWhatWentOff() async {
         let screen = ScreenStateStore()
