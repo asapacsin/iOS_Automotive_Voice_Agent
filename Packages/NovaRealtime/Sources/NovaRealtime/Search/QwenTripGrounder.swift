@@ -97,7 +97,7 @@ public struct QwenTripGrounder: TripGrounder {
         let status: Int, body: Data
         do {
             // §50 item 10 (T-040x): a 429 or a quota 403 switches once to `route.backupModel` with `turbo`.
-            (status, body) = try await fallback.run(Self.route) { route, timeout in
+            (status, body) = try await fallback.run(Self.route, request: Self.input(r)) { route, timeout in
                 var req = request(r, key: key, route: route)
                 req.limit(timeout)
                 return try await send(req)

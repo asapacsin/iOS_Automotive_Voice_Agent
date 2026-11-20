@@ -4,6 +4,7 @@ import FoundationNetworking
 #endif
 import Synchronization
 import NovaKit
+import NovaPorts
 
 /// F-15b §50 item 10 (T-040x, owner 2026-11-19): the backup model of a `QwenRoute` when the primary's budget is used up.
 /// Model Studio counts free quota and rate limits per model for the whole account, so another model (not another key)
@@ -23,7 +24,8 @@ public final class QwenFallback: Sendable {
     }
 
     /// One process-wide state, so every client of a route sees the same skip (all keys share the model's limits).
-    public static let shared = QwenFallback()
+    /// F-18 §32: the app's instance asks `CallBudget.shared` before every attempt.
+    public static let shared = QwenFallback(budget: .shared)
 
     private struct State {
         var skippedUntil: [QwenRoute.Job: NovaInstant] = [:]
@@ -33,9 +35,12 @@ public final class QwenFallback: Sendable {
 
     private let clock: any NovaClock
     private let state: Mutex<State>
+    /// F-18 §32 (T-046u): nil only in tests that do not test the budget.
+    private let budget: CallBudget?
 
-    public init(clock: any NovaClock = SystemClock(), log: (@Sendable (String) -> Void)? = nil) {
+    public init(clock: any NovaClock = SystemClock(), budget: CallBudget? = nil, log: (@Sendable (String) -> Void)? = nil) {
         self.clock = clock
+        self.budget = budget
         state = Mutex(State(log: log))
     }
 
@@ -46,6 +51,8 @@ public final class QwenFallback: Sendable {
 
     /// Only a 429, or a 403 whose error code contains `Quota`. Anything else (401, `InvalidApiKey`, 5xx): nil.
     public static func reason(status: Int, body: Data) -> Reason? {
+        // F-18 §32 item 3: the published quota codes (a 429 among them) are quota, not a rate limit.
+        if quotaError(status: status, body: body) { return .quota }
         if status == 429 { return .rateLimit }
         if status == 403, let code = QwenWebSearchClient.errorCode(body), code.contains("Quota") { return .quota }
         return nil
@@ -61,16 +68,32 @@ public final class QwenFallback: Sendable {
         }
     }
 
+    /// F-18 §32 item 3: a DashScope reply that says the quota is used up (`QuotaError.dashScope`).
+    public static func quotaError(status: Int, body: Data) -> Bool {
+        let objects = QwenWebSearchClient.objects(body)
+        let code = objects.lazy.compactMap { $0["code"]?.stringValue }.first { !$0.isEmpty }
+        let message = objects.lazy.compactMap { $0["message"]?.stringValue }.first
+        return QuotaError.dashScope(status: status, code: code, message: message)
+    }
+
     public typealias Attempt = (_ route: QwenRoute, _ timeout: NovaDuration?) async throws -> (status: Int, body: Data)
 
     /// Runs one request on `route`, switching once to its backup per the rules above. `attempt` builds and sends the
     /// body for the route it is given; `timeout` is the remaining budget for a backup call (nil: the caller's own).
-    public func run(_ route: QwenRoute, _ attempt: Attempt) async throws -> (status: Int, body: Data) {
+    /// `request` is the request's content for the §32 repeat key (query, choices, trip input); never logged.
+    public func run(_ route: QwenRoute, request: String = "", _ attempt: Attempt) async throws -> (status: Int, body: Data) {
         let started = clock.now
         if let why = skipped(route.job) {
-            return try await backup(route, reason: why, started: started, primary: nil, attempt)
+            return try await backup(route, reason: why, started: started, primary: nil, request: request, attempt)
         }
-        let first = try await attempt(route, nil)
+        switch ask(route, request) {
+        case .allow: break
+        case .refuse(.quota):
+            // §32 item 3: the model is used up today; its backup is tried once (its own breaker decides).
+            return try await backup(route, reason: .quota, started: started, primary: nil, request: request, attempt)
+        case .refuse(let r): throw BudgetRefused(r)
+        }
+        let first = try await counted(route, nil, attempt)
         guard let why = Self.reason(status: first.status, body: first.body) else { return first }
         let now = clock.now
         state.withLock { s in
@@ -79,21 +102,46 @@ public final class QwenFallback: Sendable {
             case .quota: s.quotaSkipped.insert(route.job)
             }
         }
-        return try await backup(route, reason: why, started: started, primary: first, attempt)
+        return try await backup(route, reason: why, started: started, primary: first, request: request, attempt)
+    }
+
+    private func ask(_ route: QwenRoute, _ request: String) -> BudgetDecision {
+        guard let budget else { return .allow }
+        let paid = route.job.paid
+        return budget.ask(paid, model: route.model, key: CallBudget.key(paid, model: route.model, text: request))
+    }
+
+    /// One attempt, reported to the budget (tokens from the reply's `usage`, the quota breaker).
+    private func counted(_ route: QwenRoute, _ timeout: NovaDuration?, _ attempt: Attempt) async throws -> (status: Int, body: Data) {
+        do {
+            let r = try await attempt(route, timeout)
+            budget?.done(route.job.paid, model: route.model,
+                         ok: r.status == 200 && QwenWebSearchClient.errorCode(r.body) == nil,
+                         tokens: CallBudget.reportedTokens(r.body), quotaError: Self.quotaError(status: r.status, body: r.body))
+            return r
+        } catch {
+            budget?.done(route.job.paid, model: route.model, ok: false, tokens: nil)
+            throw error
+        }
     }
 
     /// The backup call with what is left of the budget. No time left: the primary's reply (or a timeout when the
     /// primary was skipped), so the route's existing failure path runs.
     private func backup(_ route: QwenRoute, reason: Reason, started: NovaInstant, primary: (status: Int, body: Data)?,
-                        _ attempt: Attempt) async throws -> (status: Int, body: Data) {
+                        request: String, _ attempt: Attempt) async throws -> (status: Int, body: Data) {
         let remaining = route.budget.map { $0 - (clock.now - started) }
         if let remaining, remaining <= .zero {
             line(route, reason, ok: false, started: started)
             if let primary { return primary }
             throw URLError(.timedOut)
         }
+        if case .refuse(let r) = ask(route.backup, request) {
+            line(route, reason, ok: false, started: started)
+            if let primary { return primary }
+            throw BudgetRefused(r)
+        }
         do {
-            let r = try await attempt(route.backup, remaining)
+            let r = try await counted(route.backup, remaining, attempt)
             line(route, reason, ok: r.status == 200 && QwenWebSearchClient.errorCode(r.body) == nil, started: started)
             return r
         } catch {
@@ -107,6 +155,17 @@ public final class QwenFallback: Sendable {
         let text = "qwen fallback route=\(route.job.rawValue) from=\(route.model) to=\(route.backupModel) "
             + "reason=\(reason.rawValue) ok=\(ok ? "yes" : "no") ms=\(ms)"
         state.withLock { $0.log }?(text)
+    }
+}
+
+extension QwenRoute.Job {
+    /// F-18 §32 item 1: the budget's name for the route.
+    public var paid: PaidRoute {
+        switch self {
+        case .live: .qwenLive
+        case .picker: .qwenPicker
+        case .ground: .qwenGround
+        }
     }
 }
 

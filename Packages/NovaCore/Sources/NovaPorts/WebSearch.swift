@@ -36,6 +36,8 @@ public enum WebSearchError: Error, Sendable, Hashable {
     /// An error `code` inside a 200 stream.
     case api(String)
     case notConfigured
+    /// F-18 §32: the call budget refused it; nothing was sent.
+    case budget(BudgetReason)
 }
 
 /// F-18 §18 item 7 (T-046f): one request to the search provider and what came back, for the local record only

@@ -23,6 +23,28 @@ enum VisionHTTP {
         }
     }
 
+    /// F-18 §32 (T-046u): `send` behind the call budget. A refusal sends nothing and answers busy with
+    /// `status=budget_<reason>` (codes only, I-8).
+    static func send(_ request: URLRequest, via transport: any HTTPTransport, budget: CallBudget?, route: PaidRoute,
+                     model: String, question: String, image: JPEGImage) async -> Outcome {
+        guard let budget else { return await send(request, via: transport) }
+        var h = Hasher()
+        h.combine(image.data)
+        let key = CallBudget.key(route, model: model, text: question + "|\(h.finalize())")
+        if case .refuse(let r) = budget.ask(route, model: model, key: key) {
+            return .failure(VisionReply(.busy, status: "budget_\(r.rawValue)"))
+        }
+        let outcome = await send(request, via: transport)
+        switch outcome {
+        case .success((let status, let data)):
+            budget.done(route, model: model, ok: status == 200, tokens: CallBudget.reportedTokens(data),
+                        quotaError: route == .geminiVision && QuotaError.gemini(status: status, body: data))
+        case .failure:
+            budget.done(route, model: model, ok: false, tokens: nil)
+        }
+        return outcome
+    }
+
     /// The answer for a non-200 status, or nil for 200.
     static func failure(_ status: Int) -> VisionAnswer? {
         switch status {
@@ -44,10 +66,14 @@ public struct GLMVisionClient: VisionPort {
     private let model: String
     private let transport: any HTTPTransport
     private let timeout: TimeInterval
+    /// F-18 §32: the app passes `CallBudget.shared`.
+    private let budget: CallBudget?
 
     /// `key` is read per request, so a key saved in 设置 works without a restart.
     public init(key: @escaping @Sendable () -> String?, model: String = defaultModel,
-                transport: any HTTPTransport = URLSessionTransport(), timeout: NovaDuration = .seconds(8)) {
+                transport: any HTTPTransport = URLSessionTransport(), timeout: NovaDuration = .seconds(8),
+                budget: CallBudget? = nil) {
+        self.budget = budget
         self.key = key
         self.model = model
         self.transport = transport
@@ -80,7 +106,8 @@ public struct GLMVisionClient: VisionPort {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let status: Int
         let data: Data
-        switch await VisionHTTP.send(request, via: transport) {
+        switch await VisionHTTP.send(request, via: transport, budget: budget, route: .glmVision, model: model,
+                                     question: question, image: image) {
         case .failure(let reply): return reply
         case .success(let ok): (status, data) = ok
         }
@@ -111,10 +138,14 @@ public struct GeminiVisionClient: VisionPort {
     private let model: String
     private let transport: any HTTPTransport
     private let timeout: TimeInterval
+    /// F-18 §32: the app passes `CallBudget.shared`.
+    private let budget: CallBudget?
 
     /// `key` is read per request, so a key saved in 设置 works without a restart.
     public init(key: @escaping @Sendable () -> String?, model: String = defaultModel,
-                transport: any HTTPTransport = URLSessionTransport(), timeout: NovaDuration = .seconds(8)) {
+                transport: any HTTPTransport = URLSessionTransport(), timeout: NovaDuration = .seconds(8),
+                budget: CallBudget? = nil) {
+        self.budget = budget
         self.key = key
         self.model = model
         self.transport = transport
@@ -144,7 +175,8 @@ public struct GeminiVisionClient: VisionPort {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let status: Int
         let data: Data
-        switch await VisionHTTP.send(request, via: transport) {
+        switch await VisionHTTP.send(request, via: transport, budget: budget, route: .geminiVision, model: model,
+                                     question: question, image: image) {
         case .failure(let reply): return reply
         case .success(let ok): (status, data) = ok
         }

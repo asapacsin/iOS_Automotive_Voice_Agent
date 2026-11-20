@@ -528,8 +528,8 @@ final class AgentRuntime {
         }
         // F-20a §14 item 3: the one place the backend order is set (GLM → Gemini → Qianfan).
         let vision = VisionChain([
-            VisionBackend(.glm, hasKey: has(.zhipuKey), port: GLMVisionClient(key: key(.zhipuKey))),
-            VisionBackend(.gemini, hasKey: has(.geminiAPIKey), port: GeminiVisionClient(key: key(.geminiAPIKey))),
+            VisionBackend(.glm, hasKey: has(.zhipuKey), port: GLMVisionClient(key: key(.zhipuKey), budget: .shared)),
+            VisionBackend(.gemini, hasKey: has(.geminiAPIKey), port: GeminiVisionClient(key: key(.geminiAPIKey), budget: .shared)),
             VisionBackend(.qianfan, hasKey: has(.qianfanKey),
                           port: QianfanVisionClient(key: key(.qianfanKey), model: DriveSettings.qianfanVisionModel)),
         ], clock: SystemClock(), log: { line in RuntimeLog.agent.notice("\(line, privacy: .public)") })
@@ -793,6 +793,7 @@ final class AgentRuntime {
     func start(by origin: SessionOrigin = .tap) async {
         // F-04b §4 item 1: never while enrollment or 校准 holds the microphone (one capture only, ADR-006).
         guard !model.running, !exclusiveCapture else { return }
+        CallBudget.shared.newSession()  // F-18 §32 item 1: session counter and repeat history start over
         model.notice = nil
         model.networkEnded = false
         model.connectionEvent(.stopped)  // F-24 §17 item 4: a start clears everything
@@ -843,7 +844,7 @@ final class AgentRuntime {
             let voice = defaults.string(forKey: SettingsKey.qwenVoice) ?? QwenVoiceOption.defaultID
             voiceSource = .qwen
             // Item 3 "One connection": this client and its URLSession live for this session.
-            baseSynthesizer = QwenSpeechClient(config: QwenSpeechConfig(key: key, host: host, voice: voice))
+            baseSynthesizer = QwenSpeechClient(config: QwenSpeechConfig(key: key, host: host, voice: voice), budget: .shared)
         }
         model.notice = nil
         // F-07 §14 items 6-8: one retry for the TTS source; timing and failure lines (numbers and codes only, I-8).
@@ -1232,6 +1233,7 @@ final class AgentRuntime {
                 driverWords.observe(event.event)  // F-18 §23 item 5: this turn's final words only; never logged (I-8)
                 switch event.event {
                 case .userTranscript(let text, let isFinal):
+                    if isFinal { CallBudget.shared.newTurn() }  // F-18 §32 item 1: a new driver turn
                     // F-05a: the subtitle comes from `DriverTranscript`; Gemini's text is its fallback only.
                     await transcript.gemini(text, isFinal: isFinal)
                 case .replyText(_, let text):
@@ -1539,6 +1541,9 @@ final class AgentRuntime {
         // F-15b §4 item 6: Qwen picks among 高德's results with the search model's key; no key → 高德's first result.
         // F-15b §50 item 10 (T-040x): the `qwen fallback` line (route, models, reason, ok, ms only; I-8) to the log.
         QwenFallback.shared.setLog { line in RuntimeLog.agent.notice("\(line, privacy: .public)") }
+        // F-18 §32 (T-046u): the day counter survives restarts (UserDefaults); `paid` lines carry counts only (I-8).
+        CallBudget.shared.setStore(DefaultsBudgetStore())
+        CallBudget.shared.setLog { line in RuntimeLog.agent.notice("\(line, privacy: .public)") }
         let picker = QwenPlacePicker(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) })
         let photon = PhotonPlaceSearch()
         let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock, picker: picker,

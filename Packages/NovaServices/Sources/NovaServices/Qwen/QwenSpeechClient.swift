@@ -82,9 +82,12 @@ public final class QwenSpeechClient: FirstAudioTimedSynthesizer {
     private let transport: any StreamingHTTPTransport
     private let clock: any NovaClock
     private let lastWarm = Mutex<NovaInstant?>(nil)
+    /// F-18 §32: counted and recorded; not capped (`PaidRoute.capped`), only the quota breaker refuses.
+    private let budget: CallBudget?
 
     public init(config: QwenSpeechConfig, transport: any StreamingHTTPTransport = URLSessionStreamingTransport(),
-                clock: any NovaClock = SystemClock()) {
+                clock: any NovaClock = SystemClock(), budget: CallBudget? = nil) {
+        self.budget = budget
         self.config = config
         self.transport = transport
         self.clock = clock
@@ -130,6 +133,31 @@ public final class QwenSpeechClient: FirstAudioTimedSynthesizer {
 
     /// One request: the piece's audio bytes in order, and when the first ones arrived.
     func fetch(_ text: String) async throws -> (Data, NovaInstant?) {
+        if let budget, case .refuse(let r) = budget.ask(.qwenTTS, model: QwenSpeechConfig.model, key: "") {
+            throw SpeechSynthesisError("QWEN_TTS_BUDGET_\(r.rawValue.uppercased())")
+        }
+        var status = 0
+        var raw = Data()
+        do {
+            let r = try await fetchSent(text, status: &status, raw: &raw)
+            budget?.done(.qwenTTS, model: QwenSpeechConfig.model, ok: true, tokens: nil)
+            return r
+        } catch {
+            budget?.done(.qwenTTS, model: QwenSpeechConfig.model, ok: false, tokens: nil,
+                         quotaError: Self.quota(status: status, body: raw))
+            throw error
+        }
+    }
+
+    static func quota(status: Int, body: Data) -> Bool {
+        var parser = QwenSSEParser()
+        let framed = (parser.feed(body) + parser.finish()).first.map { Data($0.data.utf8) }
+        let object = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])
+            ?? framed.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return QuotaError.dashScope(status: status, code: object?["code"] as? String, message: object?["message"] as? String)
+    }
+
+    private func fetchSent(_ text: String, status outStatus: inout Int, raw outRaw: inout Data) async throws -> (Data, NovaInstant?) {
         let request = request(text)
         let clock = clock
         var parser = QwenSSEParser()
@@ -157,6 +185,8 @@ public final class QwenSpeechClient: FirstAudioTimedSynthesizer {
         } catch {
             throw Self.transportError(error)
         }
+        outStatus = status
+        outRaw = raw
         try Task.checkCancellation()
         guard (200..<300).contains(status) else { throw SpeechSynthesisError(Self.code(status: status, body: raw)) }
         try take(parser.finish())

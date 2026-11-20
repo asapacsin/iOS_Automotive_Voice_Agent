@@ -67,7 +67,7 @@ public struct QwenPlacePicker: PlacePicker {
     public func pick(_ choices: [PlaceChoice]) async throws -> [Int?] {
         guard let key = key(), !key.isEmpty else { throw PlacePickerNotConfigured() }
         // §50 item 10 (T-040x): a 429 or a quota 403 switches once to the backup, within what is left of 2.5 s.
-        let (status, body) = try await fallback.run(.picker) { route, timeout in
+        let (status, body) = try await fallback.run(.picker, request: Self.question(choices)) { route, timeout in
             var req = request(choices, key: key, route: route)
             req.limit(timeout)
             return try await send(req)

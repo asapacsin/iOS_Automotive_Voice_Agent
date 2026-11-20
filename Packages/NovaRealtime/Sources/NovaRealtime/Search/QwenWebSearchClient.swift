@@ -116,7 +116,7 @@ public struct QwenWebSearchClient: WebSearchService {
         let body: Data
         do {
             // §50 item 10 (T-040x): a 429 or a quota 403 switches once to the route's backup model, same body except `model`.
-            (status, body) = try await fallback.run(Self.route) { route, timeout in
+            (status, body) = try await fallback.run(Self.route, request: query) { route, timeout in
                 var req = request(query, key: key, route: route)
                 req.limit(timeout)
                 let body = req.httpBody
@@ -126,6 +126,8 @@ public struct QwenWebSearchClient: WebSearchService {
                 exchange(status: r.status, body: r.body, error: nil, urlError: nil)
                 return r
             }
+        } catch let refused as BudgetRefused {
+            throw WebSearchError.budget(refused.reason)  // F-18 §32: nothing was sent
         } catch {
             let urlError = (error as? URLError)?.code.rawValue
             if Task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError {
