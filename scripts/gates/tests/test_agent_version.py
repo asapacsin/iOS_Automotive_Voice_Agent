@@ -21,6 +21,9 @@ class AgentVersionGateTests(unittest.TestCase):
         new["setupHash"] = "ffffffffffff"
         (root / gate.PARTS / f"{version}.json").write_text(json.dumps(new), encoding="utf-8")
         reg = (ROOT / gate.REGISTRY).read_text(encoding="utf-8")
+        # The rig starts from 1.0.0 alone, so later real rows do not change what these tests bump from.
+        reg = "\n".join(line for line in reg.split("\n")
+                        if not (gate.rows(line) and gate.rows(line)[0]["version"] != "1.0.0"))
         reg = reg.replace("|---|---|---|---|---|---|\n",
                           f"|---|---|---|---|---|---|\n| {version} | ffffffffffff | 2026-11-21 | x | {note} | F-09b §15 |\n")
         (root / gate.REGISTRY).write_text(reg, encoding="utf-8")
