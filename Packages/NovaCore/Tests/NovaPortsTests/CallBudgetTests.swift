@@ -141,5 +141,10 @@ struct CallBudgetTests {
         #expect(!QuotaError.dashScope(status: 429, code: "Throttling.RateQuota", message: nil))
         #expect(QuotaError.gemini(status: 429, body: Data(#"{"error":{"code":"quota_exceeded"}}"#.utf8)))
         #expect(!QuotaError.gemini(status: 429, body: Data(#"{"error":{"code":"rate_limit_exceeded"}}"#.utf8)))
+        // The live API's form: the quotaId names the window.
+        let day = #"{"error":{"code":429,"message":"You exceeded your current quota","status":"RESOURCE_EXHAUSTED","details":[{"violations":[{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}]}}"#
+        let minute = day.replacingOccurrences(of: "PerDay", with: "PerMinute")
+        #expect(QuotaError.gemini(status: 429, body: Data(day.utf8)))
+        #expect(!QuotaError.gemini(status: 429, body: Data(minute.utf8)))
     }
 }

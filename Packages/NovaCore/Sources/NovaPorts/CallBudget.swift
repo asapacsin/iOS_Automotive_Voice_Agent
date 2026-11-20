@@ -246,6 +246,9 @@ public final class CallBudget: Sendable {
 ///   `BudgetLimitExceeded` (429), and `Throttling.AllocationQuota` (429) only with "Free allocated quota exceeded"
 ///   (the same code also means a TPM limit).
 /// - Gemini (aistudio.google.com/docs/api-errors): 429 `quota_exceeded` ("You have exceeded your daily quota").
+///   Seen live on generativelanguage.googleapis.com (2026-11-20): 429 RESOURCE_EXHAUSTED "You exceeded your current
+///   quota" with a `QuotaFailure` violation whose `quotaId` names the window; only a per-day window is used up for
+///   the day (a per-minute one is a rate limit).
 public enum QuotaError {
     public static func dashScope(status: Int, code: String?, message: String?) -> Bool {
         guard status == 403 || status == 429, let code else { return false }
@@ -258,6 +261,7 @@ public enum QuotaError {
 
     public static func gemini(status: Int, body: Data) -> Bool {
         guard status == 429, let text = String(data: body, encoding: .utf8) else { return false }
-        return text.contains("quota_exceeded") || text.lowercased().contains("exceeded your daily quota")
+        if text.contains("quota_exceeded") || text.lowercased().contains("exceeded your daily quota") { return true }
+        return text.range(of: #""quotaId"\s*:\s*"[^"]*PerDay"#, options: .regularExpression) != nil
     }
 }

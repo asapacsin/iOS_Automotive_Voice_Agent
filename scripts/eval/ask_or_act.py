@@ -18,16 +18,17 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 import time
 import urllib.error
 import urllib.request
 
 HOST = "https://generativelanguage.googleapis.com"
-QUOTA = ("quota_exceeded", "exceeded your daily quota")
+QUOTA = ("quota_exceeded", "exceeded your daily quota", "PerDay")  # a per-day quotaId; per-minute waits
 MAX_TOOL_ROUNDS = 4
-RETRIES = 3
-WAIT = [3, 10]
+RETRIES = 6
+WAIT = [5, 15, 30, 60, 60]
 sleep = time.sleep
 
 # Fixed results for the tools the cases reach; anything else gets {"ok": true}.
@@ -131,7 +132,8 @@ def run_case(case: dict, setup: dict, model: str, key: str, budget: Budget, read
                 # Bounded retries (dev.to "Bounded retries for agent tool calls", F-18 §32): only a 503 overload or
                 # a 429 that is not a quota error; every try counts against --max-calls.
                 if status in (429, 503) and not any(q in raw for q in QUOTA) and attempt + 1 < RETRIES:
-                    sleep(WAIT[attempt])
+                    delay = re.search(r'"retryDelay": "(\d+)', raw)
+                    sleep(min(90, int(delay[1]) + 1) if delay else WAIT[attempt])
                     continue
                 break
             if status != 200:
