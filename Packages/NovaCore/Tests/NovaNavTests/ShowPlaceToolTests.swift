@@ -5,7 +5,37 @@ import Testing
 @testable import NovaPorts
 @testable import NovaTools
 
-/// F-09b §16 item 8 (T-031za): `show_place` resolves a place on screen or a named one and is done only when shown.
+/// A search that answers per city: `local` for a city-limited search, `country` for a nationwide one.
+final class CitySearch: PlaceSearch {
+    struct Query: Hashable { let keywords: String; let city: String?; let cityLimit: Bool }
+    let queries = Mutex<[Query]>([])
+    let local: [Place]
+    let country: [Place]
+    let error: AmapWebError?
+
+    init(local: [Place] = [], country: [Place] = [], error: AmapWebError? = nil) {
+        self.local = local
+        self.country = country
+        self.error = error
+    }
+
+    func text(_ keywords: String, city: String?) async throws -> [Place] {
+        try await text(keywords, city: city, cityLimit: false)
+    }
+
+    func text(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place] {
+        queries.withLock { $0.append(Query(keywords: keywords, city: city, cityLimit: cityLimit)) }
+        if let error { throw error }
+        return cityLimit ? local : country
+    }
+
+    func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] { [] }
+    func polygon(_ keywords: String, vertices: [GeoCoordinate]) async throws -> [Place] { [] }
+    func detail(id: String) async throws -> Place? { nil }
+}
+
+/// F-09b §16 item 8 (T-031za), row 12: `show_place(name)` finds the place, the App fills and shows the card, and it is
+/// done only when shown.
 @Suite("F-09b §16 show_place")
 struct ShowPlaceToolTests {
     static func place(_ id: String, _ name: String, address: String? = nil) -> Place {
@@ -19,87 +49,91 @@ struct ShowPlaceToolTests {
         let cards = Mutex<[TripCard]>([])
     }
 
-    func run(_ arguments: JSONValue, screen: [Place], search: CountingSearch = CountingSearch(places: []),
-             shown: Bool = true, intro: String? = "大型综合商场", lines: Mutex<[String]>? = nil,
+    final class Lines: Sendable {
+        let all = Mutex<[String]>([])
+        var first: String? { all.withLock { $0.first } }
+        var last: String? { all.withLock { $0.last } }
+    }
+
+    func run(_ name: String, screen: [Place] = [], search: CitySearch = CitySearch(), city: String? = "440400",
+             shown: Bool = true, intro: String? = "大型综合商场", lines: Lines = Lines(),
              presented: Presented = Presented()) async -> ToolResult {
-        let tool = ShowPlaceTool(onScreen: { screen }, search: search,
+        let tool = ShowPlaceTool(onScreen: { screen }, search: search, cityCode: { city },
                                  present: { card in
                                      presented.cards.withLock { $0.append(card) }
                                      return ShowPlaceTool.Shown(shown: shown, intro: intro, address: "香洲区")
                                  },
-                                 clock: ManualClock(), onLine: { line in lines?.withLock { $0.append(line) } })
-        return await tool.execute(ToolCall(id: CallID("c1")!, name: "show_place", arguments: arguments))
+                                 clock: ManualClock(), onLine: { line in lines.all.withLock { $0.append(line) } })
+        return await tool.execute(ToolCall(id: CallID("c1")!, name: "show_place", arguments: ["name": .string(name)]))
     }
 
-    @Test("T-031za: index picks the place with that number on screen; facts carry the intro")
-    func byIndex() async {
+    @Test("T-031za: a name on screen opens that place without a search; facts carry the intro; log has no name")
+    func onScreen() async {
+        let search = CitySearch(local: [Self.place("X", "别的")])
         let presented = Presented()
-        let lines = Mutex<[String]>([])
-        let result = await run(["index": 3], screen: list, lines: lines, presented: presented)
+        let lines = Lines()
+        let result = await run("富华里", screen: list, search: search, lines: lines, presented: presented)
         #expect(result.ok)
         #expect(presented.cards.withLock { $0.map(\.placeID) } == ["B3"])
         #expect(result.data["facts"]?["shown"] == .bool(true))
         #expect(result.data["facts"]?["name"] == .string("富华里"))
         #expect(result.data["facts"]?["intro"] == .string("大型综合商场"))
         #expect(result.data["facts"]?["address"] == .string("香洲区"))
-        // I-8: the line has codes only, no name.
-        let line = lines.withLock { $0 }.first ?? ""
-        #expect(line.hasPrefix("show place ok=yes via=index intro=yes ms="))
-        #expect(!line.contains("富华里"))
-    }
-
-    @Test("T-031za: index outside the places on screen is OUT_OF_RANGE and nothing opens")
-    func outOfRange() async {
-        let presented = Presented()
-        let result = await run(["index": 4], screen: list, presented: presented)
-        #expect(!result.ok && result.code == .outOfRange)
-        #expect(result.data["facts"]?["on_screen"] == .int(3))
-        #expect(presented.cards.withLock { $0.isEmpty })
-        let empty = await run(["index": 1], screen: [], presented: presented)
-        #expect(!empty.ok && empty.code == .outOfRange)
-    }
-
-    @Test("T-031za: a name on screen is used without a search; two matches are AMBIGUOUS")
-    func byName() async {
-        let search = CountingSearch(places: [Self.place("X", "别的")])
-        let one = await run(["name": "富华里"], screen: list, search: search)
-        #expect(one.ok && one.data["facts"]?["name"] == .string("富华里"))
-        let two = await run(["name": "华发商都"], screen: list, search: search)
-        #expect(!two.ok && two.code == .ambiguous)
-        #expect(two.data["facts"]?["names"] == .array([.string("华发商都(新香洲店)"), .string("华发商都(横琴店)")]))
         #expect(search.queries.withLock { $0.isEmpty })
+        let line = lines.first ?? ""
+        #expect(line.hasPrefix("show place ok=yes via=screen intro=yes ms="))
+        #expect(!line.contains("富华里"))
+        // Several on screen match: the first is used.
+        let first = await run("华发商都", screen: list, presented: presented)
+        #expect(first.ok && first.data["facts"]?["name"] == .string("华发商都(新香洲店)"))
     }
 
-    @Test("T-031za: a name not on screen is searched; nothing found is NO_CANDIDATES; a failed search is honest")
+    @Test("T-031za: not on screen searches the car's city first, nationwide only when the city finds nothing")
     func searched() async {
-        let search = CountingSearch(places: [Self.place("Z1", "珠海渔女", address: "香炉湾")])
-        let found = await run(["name": "珠海渔女"], screen: [], search: search)
-        #expect(found.ok && found.data["facts"]?["name"] == .string("珠海渔女"))
-        #expect(search.queries.withLock { $0 } == ["珠海渔女"])
-        let none = await run(["name": "不存在的地方"], screen: [], search: CountingSearch(places: []))
+        let search = CitySearch(local: [Self.place("Z1", "珠海渔女")], country: [Self.place("Q", "别处渔女")])
+        let lines = Lines()
+        let local = await run("珠海渔女", search: search, lines: lines)
+        #expect(local.ok && local.data["facts"]?["name"] == .string("珠海渔女"))
+        #expect(search.queries.withLock { $0 } == [.init(keywords: "珠海渔女", city: "440400", cityLimit: true)])
+        #expect(lines.first?.contains("via=city") == true)
+
+        let wide = CitySearch(local: [], country: [Self.place("Q", "故宫")])
+        let country = await run("故宫", search: wide, lines: lines)
+        #expect(country.ok && country.data["facts"]?["name"] == .string("故宫"))
+        #expect(wide.queries.withLock { $0.map(\.cityLimit) } == [true, false])
+        #expect(lines.last?.contains("via=country") == true)
+
+        let noCity = CitySearch(country: [Self.place("Q", "故宫")])
+        _ = await run("故宫", search: noCity, city: nil)
+        #expect(noCity.queries.withLock { $0 } == [.init(keywords: "故宫", city: nil, cityLimit: false)])
+    }
+
+    @Test("T-031za: nothing found is NO_CANDIDATES; a failed search is honest; nothing opens")
+    func notFound() async {
+        let presented = Presented()
+        let none = await run("不存在的地方", presented: presented)
         #expect(!none.ok && none.code == .noCandidates)
-        let failed = await run(["name": "珠海渔女"], screen: [], search: CountingSearch(places: [], error: .keyMissing))
+        let failed = await run("珠海渔女", search: CitySearch(error: .keyMissing), presented: presented)
         #expect(!failed.ok && failed.code == .amapWebKeyMissing)
+        #expect(presented.cards.withLock { $0.isEmpty })
     }
 
     @Test("T-031za: not shown is not done (PLACE_NOT_SHOWN, shown=false); no intro gives intro null")
     func notShown() async {
-        let result = await run(["index": 1], screen: list, shown: false)
+        let result = await run("富华里", screen: list, shown: false)
         #expect(!result.ok && result.code == .placeNotShown)
         #expect(result.data["facts"]?["shown"] == .bool(false))
-        let noIntro = await run(["index": 1], screen: list, intro: nil)
+        let noIntro = await run("富华里", screen: list, intro: nil)
         #expect(noIntro.ok && noIntro.data["facts"]?["intro"] == .null)
     }
 
-    @Test("T-031za: declared NON_BLOCKING with exactly one of index 1-10 or name 1-40")
+    @Test("T-031za: declared NON_BLOCKING with one name of 1-40 characters")
     func declaration() {
         #expect(ToolCatalog.spec("show_place") != nil)
         #expect(AsyncTool(name: "show_place") == .showPlace)
-        #expect(ToolCatalog.validate("show_place", ["index": 2]) == nil)
         #expect(ToolCatalog.validate("show_place", ["name": "珠海渔女"]) == nil)
         #expect(ToolCatalog.validate("show_place", [:]) == .invalidFields)
-        #expect(ToolCatalog.validate("show_place", ["index": 1, "name": "x"]) == .invalidFields)
-        #expect(ToolCatalog.validate("show_place", ["index": 11]) == .invalidFieldValue)
+        #expect(ToolCatalog.validate("show_place", ["index": 1]) == .invalidFields)
         #expect(ToolCatalog.validate("show_place", ["name": "  "]) == .invalidFieldValue)
         #expect(ToolCatalog.validate("show_place", ["name": .string(String(repeating: "长", count: 41))]) == .invalidFieldValue)
     }

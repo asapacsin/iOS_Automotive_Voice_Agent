@@ -663,6 +663,8 @@ final class AgentRuntime {
     /// F-09b §16 item 8 (T-031za): opens the details sheet for any place (same loading as a card tap) and reports
     /// whether the sheet holds it, with the introduction when one was found.
     func showPlaceCard(_ card: TripCard) async -> ShowPlaceTool.Shown {
+        // §16 item 8 step 3: DriveView shows one sheet at a time; with 我的行程 open the card would not be seen.
+        guard !model.tripPlansOpen else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
         await openTripDetail(card)
         guard model.tripDetail?.placeID == card.placeID else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
         let intro: String? = if case .text(let text)? = model.tripIntro { text } else { nil }
@@ -1004,21 +1006,26 @@ final class AgentRuntime {
         for name in TripPlanner.tools { executors[name] = trip.planner }
         executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo, work: work)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
-        // F-09b §16 item 8 (T-031za): the place card for a place on screen or a named one; done only when the sheet
-        // holds that place. `show place` line: codes only (I-8).
+        // F-09b §16 item 8 (T-031za): show_place(name); code finds the place (on screen, the car's city, nationwide),
+        // fills and shows the card; done only when the sheet holds that place. `show place` line: codes only (I-8).
         executors[ShowPlaceTool.tool] = ShowPlaceTool(
             onScreen: { [model] in
                 let nav = await navigation.current
-                if nav.phase == .awaitingDestinationSelection { return nav.places }
+                var places = nav.phase == .awaitingDestinationSelection ? nav.places : []
                 if let destination = nav.destination,
                    nav.phase == .awaitingRouteSelection || nav.phase == .calculatingRoute || nav.phase == .navigating {
-                    return [destination]
+                    places.append(destination)
                 }
-                return await MainActor.run {
+                let stops = await MainActor.run {
                     model.tripCardsHidden || model.tripList.isEmpty ? [] : model.tripList.stops.map(\.place)
                 }
+                return places + stops
             },
             search: web,
+            cityCode: { [location, web] in
+                guard let fix = await location.latestFix() else { return nil }
+                return try? await web.adcode(at: fix.coordinate)
+            },
             present: { [weak self] card in
                 guard let self else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
                 return await self.showPlaceCard(card)
