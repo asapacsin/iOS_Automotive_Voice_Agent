@@ -1547,12 +1547,13 @@
     {
       "id": "T-031z",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 1,
       "depends_on": ["T-031p", "T-031y"],
       "action": "F-09b §16 items 1-10: ScreenState keys on/off reported by each DriveView panel on appear/disappear, music on only when heard (RMS), musicVolume 0-10; one [系统] 屏幕 line on connect and on change (after her reply); tools answer done only when the key changes; bundled song file; show_place opens TripDetailSheet; record screen line; one NavigationPhase enum; rows 1-11.",
       "notes": "Owner phone test 2026-11-20 (e195ea4): fake 音乐放起来了 x3, 收起来 on the route page not understood, no place card. Owner: the state is not sent to the LLM. Owner rule: state from the display, keys on/off only, volume a number. Needs the bundled song file from the owner.",
-      "evidence": []
+      "blocked_by": "Item 7 needs the bundled song file nova_drive_loop.m4a from the owner (royalty-free, owner approves it); rows 7-11 need a device run",
+      "evidence": ["Off-device parts done: items 1-6, 9, 10. scripts/gates/run_all.sh PASS on 364b701 (Linux Swift 6.1.2; NovaCore 1058 tests, 1 known NoiseCorpus issue; spec-trace 158 ids; check_single_types, check_agent_version 2.2.0, check_record_format 3 OK); spec-reviewer high effort FAIL (exit waited on panels it did not close) -> fixed in 364b701 -> medium re-check PASS; rows 1-6 unit/gate; App and NovaAudio files read, not compiled; rows 7-11 device NOT_VERIFIED; item 7 not done"]
     }
   ]
 }
