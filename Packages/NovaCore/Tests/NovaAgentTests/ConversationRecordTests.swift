@@ -89,13 +89,13 @@ struct ConversationRecordTests {
 
     @Test("Row 3: a full queue writes dropped=<n>; a failed write stops the record without an error")
     func queue() {
-        // Five header lines (F-18 §16 item 12 added webSearch) leave room for one more line.
-        let record = ConversationRecord.make(enabled: true, header: header, capacity: 7)!
+        // recordFormat (F-12 §21) and five header lines (F-18 §16 item 12 added webSearch) leave room for two more.
+        let record = ConversationRecord.make(enabled: true, header: header, capacity: 8)!
         let w = MemoryWriter()
         for i in 0..<5 { record.submit(.heardGemini("第\(i)句")) }
         record.drain(to: w)
         let written = w.lines.withLock { $0 }
-        #expect(written.count == 5 + 2 + 1)
+        #expect(written.count == 6 + 2 + 1)
         #expect(written.last == "dropped=3")
         w.fail.withLock { $0 = true }
         record.submit(.session("closed"))
@@ -122,7 +122,7 @@ struct ConversationRecordTests {
         let w = MemoryWriter()
         record.drain(to: w)
         let text = w.lines.withLock { $0 }.joined(separator: "\n")
-        #expect(text.hasPrefix("app 1.0(7)\ncomfortMode model\n可以打断她 off\nspeakingStyle default\n"))
+        #expect(text.hasPrefix("recordFormat 1\napp 1.0(7)\ncomfortMode model\n可以打断她 off\nspeakingStyle default\n"))
         #expect(!text.contains(fake))
         #expect(!text.contains(PersonaInstruction.base.prefix(40)))
     }

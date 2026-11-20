@@ -380,6 +380,11 @@ public protocol RecordWriter: Sendable {
 /// stops the record for the session.
 public final class ConversationRecord: Sendable {
     public static let capacity = 2000
+    /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
+    /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
+    public static let formatVersion = 1
+    /// §21 item 1: the first line of every new file. A file without it is format 0.
+    public static var formatLine: String { "recordFormat \(formatVersion)" }
 
     private struct State {
         var recorder = ConversationRecorder()
@@ -403,7 +408,7 @@ public final class ConversationRecord: Sendable {
         self.capacity = capacity
         self.now = now
         start = now()
-        state.withLock { $0.queue = header.lines }
+        state.withLock { $0.queue = [Self.formatLine] + header.lines }
     }
 
     public var isStopped: Bool { state.withLock { $0.stopped } }
