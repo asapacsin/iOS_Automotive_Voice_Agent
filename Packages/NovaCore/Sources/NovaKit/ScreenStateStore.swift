@@ -4,14 +4,15 @@ public actor ScreenStateStore {
     private var state = ScreenState()
     private var waiters: [Int: (predicate: @Sendable (ScreenState) -> Bool, resume: CheckedContinuation<Bool, Never>)] = [:]
     private var nextWaiter = 0
-    private var listeners: [@Sendable (ScreenState) -> Void] = []
+    private var listener: (@Sendable (ScreenState) -> Void)?
 
     public init(_ initial: ScreenState = ScreenState()) { state = initial }
 
     public var current: ScreenState { state }
 
-    /// Called with every changed state (the App's settle-and-send path, item 4).
-    public func onChange(_ listener: @escaping @Sendable (ScreenState) -> Void) { listeners.append(listener) }
+    /// Called with every changed state (the App's settle-and-send path, item 4). One listener: a new session's
+    /// replaces the last one's.
+    public func onChange(_ listener: @escaping @Sendable (ScreenState) -> Void) { self.listener = listener }
 
     public func report(_ panel: ScreenPanel, on: Bool) { change { $0.report(panel, on: on) } }
     public func reportMusic(heard: Bool) { change { $0.reportMusic(heard: heard) } }
@@ -19,7 +20,7 @@ public actor ScreenStateStore {
 
     private func change(_ edit: (inout ScreenState) -> Bool) {
         guard edit(&state) else { return }
-        for listener in listeners { listener(state) }
+        listener?(state)
         for (id, waiter) in waiters where waiter.predicate(state) {
             waiters[id] = nil
             waiter.resume.resume(returning: true)

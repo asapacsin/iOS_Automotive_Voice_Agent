@@ -185,7 +185,7 @@ private struct DriveContent: View {
                 workSteps
                 // F-15b §11 (T-040j): the trip list's cards, or the strip while moving.
                 TripCardsView(model: model, runtime: runtime)
-                if let card = model.previewCard { PreviewCardView(card: card) }
+                if let card = model.previewCard { PreviewCardView(card: card).screenPanel(.musicCard) }
                 conversation
                 locateRow
                 carCard
@@ -193,10 +193,10 @@ private struct DriveContent: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
-            if model.cameraOpen { CameraWindow(model: model, runtime: runtime) }
+            if model.cameraOpen { CameraWindow(model: model, runtime: runtime).screenPanel(.camera) }
         }
         // F-15b §11 item 6: a card's details, not moving only.
-        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading, intro: model.tripIntro) }
+        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading, intro: model.tripIntro).screenPanel(.tripDetail) }
         // T-044c: 我的位置 and the camera follow the policy (F-16b); the view only applies its commands.
         .onChange(of: model.geometry) { _, geometry in position.navigation(model.nav, geometry: geometry) }
         .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }
@@ -222,7 +222,7 @@ private struct DriveContent: View {
             }
         }
         // F-15b §16 item 6: 「我的行程」.
-        .sheet(isPresented: $model.tripPlansOpen) { TripPlansSheet(model: model, runtime: runtime) }
+        .sheet(isPresented: $model.tripPlansOpen) { TripPlansSheet(model: model, runtime: runtime).screenPanel(.tripPlans) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && model.cameraOpen { runtime.closeCamera() }
             // F-16b §9: 我的位置 streams only while the drive screen is visible, not in the background.
@@ -470,9 +470,13 @@ private struct DriveContent: View {
                             .accessibilityIdentifier("hud-alternative-\(alternative.row)")
                     }
                 }
+                // F-09b §16 item 1: the route choice over the running guidance is routePicking too.
+                .screenPanel(.routePicking)
             }
         }
         .accessibilityIdentifier("hud-panel")
+        // F-09b §16 item 1 (T-031z): the guidance panel.
+        .screenPanel(.navigation)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(.green.opacity(0.18), in: RoundedRectangle(cornerRadius: 14))
@@ -492,6 +496,7 @@ private struct DriveContent: View {
             case _ where presentation.list == .places:
                 Text(model.nav.alongRouteList ? "沿途结果：说第几个改去那里，或点一下" : "请说第几个，或点一下")
                     .font(.caption).foregroundStyle(.secondary)
+                    .screenPanel(.destinationList)
                 ForEach(Array(model.nav.places.enumerated()), id: \.offset) { index, place in
                     HStack {
                         Text("\(index + 1)").font(.headline).frame(width: 22)
@@ -516,11 +521,13 @@ private struct DriveContent: View {
                     .accessibilityIdentifier("place-row-\(index)")
                 }
             case .resolvingDestination:
-                Label("正在搜索地点…", systemImage: "magnifyingglass")
+                Label("正在搜索地点…", systemImage: "magnifyingglass").screenPanel(.routeCalculating)
             case .calculatingRoute:
                 Label("正在计算路线…", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    .screenPanel(.routeCalculating)
             case .awaitingRouteSelection:
                 Text("说第几条，或者「开始导航」").font(.caption).foregroundStyle(.secondary)
+                    .screenPanel(.routePicking)
                 ForEach(Array(model.nav.routes.enumerated()), id: \.offset) { index, route in
                     HStack {
                         Text("\(index + 1)").font(.headline).frame(width: 22)
@@ -566,6 +573,7 @@ private struct DriveContent: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("work-steps")
+                .screenPanel(.working)
             }
         }
     }

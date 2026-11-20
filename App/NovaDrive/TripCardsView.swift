@@ -35,6 +35,8 @@ struct TripCardsView: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("trip-strip")
+                // F-09b §16 item 1 (T-031z): the trip on screen (the strip while moving).
+                .screenPanel(.tripScreen)
         case .cards where model.tripCardsHidden:
             // §22 item 1: one 「行程」 button; a tap is the current day's read (shows the cards again).
             HStack {
@@ -90,6 +92,8 @@ struct TripCardsView: View {
                 }
                 .font(.subheadline)
             }
+            // F-09b §16 item 1 (T-031z): the trip cards on screen.
+            .screenPanel(.tripScreen)
         }
     }
 }

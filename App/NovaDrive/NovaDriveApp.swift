@@ -55,7 +55,7 @@ struct NovaDriveApp: App {
             TabView(selection: $navigation.tab) {
                 DriveView().tabItem { Label("驾驶", systemImage: "steeringwheel") }.tag(AppTab.drive)
                 ContentView().tabItem { Label("车辆", systemImage: "car") }.tag(AppTab.vehicle)
-                SettingsView().tabItem { Label("设置", systemImage: "key") }.tag(AppTab.settings)
+                SettingsView().screenPanel(.settings).tabItem { Label("设置", systemImage: "key") }.tag(AppTab.settings)
             }
         }
     }

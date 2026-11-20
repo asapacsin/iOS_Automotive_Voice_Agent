@@ -1136,6 +1136,14 @@ final class AgentRuntime {
             // Setting off: an undeclared web_search call is UNKNOWN_TOOL, as before T-046c.
             executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
         }
+        // F-09b §16 item 6 (T-031z): closing a panel and playing music answer from the screen state, not from intent.
+        let screen = ScreenReporter.shared.store
+        let screenTuning = ScreenTuning()
+        for name in ["exit_navigation_mode", "control_music", "play_music"] {
+            if let inner = executors[name] {
+                executors[name] = ScreenConfirmedExecutor(inner, screen: screen, clock: SystemClock(), tuning: screenTuning)
+            }
+        }
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(webSearch: webSearch),
                                    thinkingLevel: nil)
@@ -1172,6 +1180,33 @@ final class AgentRuntime {
             }
         })
         self.core = core
+        // F-09b §16 items 1-4 (T-031z): what the display shows (the views report into `ScreenReporter`), settled for
+        // `screenSettle` and sent to her; the core sends the 屏幕 line on connect and after a change, never mid-reply.
+        let screenChanges = AsyncStream.makeStream(of: ScreenState.self, bufferingPolicy: .bufferingNewest(1))
+        await screen.onChange { screenChanges.continuation.yield($0) }
+        await core.send(.screen(await screen.current))
+        tasks.append(Task {
+            for await _ in screenChanges.stream {
+                try? await Task.sleep(for: .milliseconds(Int(screenTuning.screenSettle.milliseconds)))
+                await core.send(.screen(await screen.current))
+            }
+        })
+        // §16 items 1, 3: musicVolume is the saved media volume; music is on only when the player plays, the volume is
+        // above 0 and the media lane's tap measures sound within `mediaCheck`.
+        tasks.append(Task { [audio, music] in
+            let settings = DefaultsSettingsStore()
+            while !Task.isCancelled {
+                let volume = VolumeLevels.saved(in: settings).media
+                await screen.reportVolume(volume)
+                var heard = false
+                if volume > 0, await music.isPlaying {
+                    heard = await audio.mediaHeard(floor: screenTuning.mediaAudibleRms,
+                                                   within: .milliseconds(Int(screenTuning.mediaCheck.milliseconds)))
+                }
+                await screen.reportMusic(heard: heard)
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        })
         // F-09b §14 item 1 (T-031p): the `现在` facts every 15 s (place, time); the core sends the note on (re)connect and
         // when one of them other than the time changes. Highway is not known yet: left out. What the screen shows is the
         // `屏幕` line's (F-09b §16 item 4).

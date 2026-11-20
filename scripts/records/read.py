@@ -76,7 +76,12 @@ def read_format_2(session: str, lines: list[str]) -> list[dict]:
     return _events(session, lines[1:], legacy=False, agent=agent_fields(lines))
 
 
-READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2}
+def read_format_3(session: str, lines: list[str]) -> list[dict]:
+    """F-09b §16 item 9 (T-031z): as format 2, plus `screen <key>=<on|off> ... musicVolume=<n>` event lines."""
+    return read_format_2(session, lines)
+
+
+READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2, 3: read_format_3}
 
 
 def read(path: pathlib.Path) -> list[dict]:

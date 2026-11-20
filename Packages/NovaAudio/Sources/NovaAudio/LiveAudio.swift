@@ -4,6 +4,7 @@ import NovaKit
 import NovaPorts
 import NovaVoice
 import os
+import Synchronization
 
 /// One voice-processing `AVAudioEngine` (ios-architecture §6.4): echo-cancelled 16 kHz capture, a reply
 /// lane with epoch flush, and a guidance lane. Apple voice processing is the G0 choice for now
@@ -38,6 +39,10 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
     private let ring: PreviewRing
     /// §18 item 1: copies frames from `ring`, zeros otherwise. Atomics and a copy only.
     private let preview: AVAudioSourceNode
+    /// F-09b §16 item 3 (T-031z): the media lane (bundled loop and preview) mixes here before the main mixer, so a tap
+    /// measures only the song.
+    private let mediaMixer = AVAudioMixerNode()
+    private let mediaLevel = MediaLevel()
     private let replyFormat = AVAudioFormat(standardFormatWithSampleRate: Double(PCMBuffer.replySampleRate), channels: 1)!
     private let captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(PCMFrame16k.sampleRate),
                                               channels: 1, interleaved: true)!
@@ -90,12 +95,17 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         engine.attach(media)
         engine.attach(cue)
         engine.attach(preview)
+        engine.attach(mediaMixer)
         engine.connect(reply, to: engine.mainMixerNode, format: replyFormat)
         engine.connect(guidance, to: engine.mainMixerNode, format: replyFormat)
         // Music goes through the same voice-processing engine, so it is inside the echo reference.
-        engine.connect(media, to: engine.mainMixerNode, format: replyFormat)
+        engine.connect(media, to: mediaMixer, format: replyFormat)
         engine.connect(cue, to: engine.mainMixerNode, format: replyFormat)
-        engine.connect(preview, to: engine.mainMixerNode, format: previewFormat)
+        engine.connect(preview, to: mediaMixer, format: previewFormat)
+        engine.connect(mediaMixer, to: engine.mainMixerNode, format: previewFormat)
+        // §16 item 3: the RMS of what the media lane really outputs (after its gain), off the render thread.
+        let level = mediaLevel
+        mediaMixer.installTap(onBus: 0, bufferSize: 2048, format: nil) { buffer, _ in level.measure(buffer) }
     }
 
     // MARK: CaptureSource
@@ -531,6 +541,18 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         lane(command) { apply(machine.stop()) }
     }
 
+    /// F-09b §16 item 3 (T-031z): true when the media lane's measured RMS goes above `floor` within `within`
+    /// (a measurement made after this call), and the engine runs. Silence, a stopped engine or volume 0 is false.
+    public func mediaHeard(floor: Double, within: Duration) async -> Bool {
+        let since = DispatchTime.now().uptimeNanoseconds
+        let deadline = ContinuousClock.now + within
+        while ContinuousClock.now < deadline {
+            if engine.isRunning, mediaLevel.loudest(since: since) > floor { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
     public var mediaPlaying: Bool {
         let (on, isPreview) = lock.withLock { (lanePlaying, lanePreview) }
         return on && (isPreview ? engine.isRunning : media.isPlaying)
@@ -657,5 +679,28 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
             return input
         }
         return error == nil ? output : nil
+    }
+}
+
+/// F-09b §16 item 3 (T-031z): the latest media-lane RMS from the tap, with when it was measured.
+final class MediaLevel: Sendable {
+    private let state = Mutex<(rms: Double, at: UInt64)>((0, 0))
+
+    func measure(_ buffer: AVAudioPCMBuffer) {
+        guard let data = buffer.floatChannelData, buffer.frameLength > 0 else { return }
+        let frames = Int(buffer.frameLength)
+        var sum = 0.0
+        for channel in 0..<Int(buffer.format.channelCount) {
+            let samples = data[channel]
+            for i in 0..<frames { sum += Double(samples[i]) * Double(samples[i]) }
+        }
+        let rms = (sum / Double(frames * max(1, Int(buffer.format.channelCount)))).squareRoot()
+        let now = DispatchTime.now().uptimeNanoseconds
+        state.withLock { $0 = (rms, now) }
+    }
+
+    /// The last RMS if it was measured after `since`, else 0.
+    func loudest(since: UInt64) -> Double {
+        state.withLock { $0.at > since ? $0.rms : 0 }
     }
 }
