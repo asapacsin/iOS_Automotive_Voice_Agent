@@ -5,6 +5,11 @@ import NovaKit
 /// Pure.
 public struct ExchangeMemory: Sendable {
     /// F-09b §15 item 1 (T-031y): the summary note template.
+    public static func summaryLine(driver: String, reply: String, tools: [String]) -> String {
+        let named = tools.isEmpty ? "" : "（" + tools.joined(separator: "，") + "）"
+        return "司机「\(driver)」→ 你「\(reply)」" + named
+    }
+
     public static func summaryText(_ lines: String) -> String {
         "[系统] 接着之前的对话。最近几句：" + lines + "。这句不用回答。"
     }
@@ -46,8 +51,7 @@ public struct ExchangeMemory: Sendable {
             return nil
         }
         let lines = kept.map { e -> String in
-            let tools = e.tools.isEmpty ? "" : "（" + e.tools.joined(separator: "，") + "）"
-            return "司机「\(e.driver)」→ 你「\(e.reply)」" + tools
+            Self.summaryLine(driver: e.driver, reply: e.reply, tools: e.tools)
         }
         let text = Self.summaryText(lines.joined(separator: "；"))
         return SessionSummary(text: text, exchanges: kept.count, ageS: Int(age.milliseconds / 1000))

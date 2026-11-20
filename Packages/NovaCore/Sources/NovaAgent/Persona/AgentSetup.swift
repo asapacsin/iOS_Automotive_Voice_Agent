@@ -78,18 +78,33 @@ public struct AgentSetup: Sendable, Hashable {
     public static var noteTemplates: [(String, String)] {
         var out = CorrectionReason.allCases.map { ("correction.\($0.rawValue)", $0.instruction) }
         out.append(("correction.wrongLanguageHeard", CorrectionReason.wrongLanguage(heard: "<words>")))
-        out.append(("summary", ExchangeMemory.summaryText("<lines>")))
+        out.append(("summary", ExchangeMemory.summaryText(ExchangeMemory.summaryLine(driver: "<driver>", reply: "<reply>",
+                                                                                       tools: ["<tool>", "<tool>"]))))
+        out.append(("summaryNoTools", ExchangeMemory.summaryLine(driver: "<driver>", reply: "<reply>", tools: [])))
+        // Both branches of every conditional part (review of T-031y): off/on, playing or not, speed known or not.
         out.append(("carState", CarStateSnapshot(acOn: false, temperatureC: 0, fanLevel: 0, windows: [:], driverSeat: 0,
                                                  musicPlaying: false, speedKmh: nil).note))
+        out.append(("carStateOn", CarStateSnapshot(acOn: true, temperatureC: 0.5, fanLevel: 0, windows: [:], driverSeat: 0,
+                                                   musicPlaying: true, speedKmh: 0).note))
         out.append(("destination", AgentState.destinationNote("<name>")))
         out.append(("destinationNone", AgentState.destinationNote(nil)))
-        out.append(("screenPick", AgentState.screenPickNote(tool: "<tool>", index: "<index>", result: "<result>")))
+        out.append(("screenPick", AgentState.screenPickNote(tool: "<tool>", index: AgentState.screenPickIndex("<index>"),
+                                                            result: "<result>")))
         out.append(("now", ContextSnapshot(place: ContextPlace(city: "<city>", district: "<district>"), onHighway: true,
                                            localTime: "<time>", navigating: true, tripShown: true).note))
-        out.append(("tripArrivedNext", TripPlanner.arrivedNextNote(index: "<n>", name: "<name>", next: "<next>", minutes: "<minutes>")))
+        out.append(("nowOther", ContextSnapshot(place: nil, onHighway: false, localTime: "<time>", navigating: false,
+                                                tripShown: false).note))
+        out.append(("nowTrip", ContextSnapshot(place: ContextPlace(city: nil, district: nil, trip: "<trip>"), onHighway: nil,
+                                               localTime: "<time>", navigating: false, tripShown: true).note))
+        out.append(("tripArrivedNext", TripPlanner.arrivedNextNote(index: "<n>", name: "<name>", next: "<next>",
+                                                                   minutes: TripPlanner.minutesText("<minutes>"))))
         out.append(("tripArrivedHotel", TripPlanner.arrivedHotelNote(name: "<name>", nextDay: "<day>")))
         out.append(("tripArrivedDayDone", TripPlanner.arrivedDayDoneNote(index: "<n>", name: "<name>")))
-        out.append(("tripScreenEdit", TripPlanner.screenEditNote(what: "<what>", count: "<count>")))
+        for (name, what) in [("Opened", TripPlanner.editOpened("<name>")), ("Removed", TripPlanner.editRemoved("<n>", "<name>")),
+                             ("Moved", TripPlanner.editMoved("<from>", "<to>")), ("Next", TripPlanner.editNext("<name>")),
+                             ("Added", TripPlanner.editAdded("<name>"))] {
+            out.append(("tripScreenEdit\(name)", TripPlanner.screenEditNote(what: what, count: "<count>")))
+        }
         return out
     }
 

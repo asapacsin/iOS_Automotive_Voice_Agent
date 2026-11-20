@@ -1909,7 +1909,7 @@ public actor TripPlanner: ToolExecutor {
         let rest = plan.days[day - 1].stops.first { $0.index > stop.index && $0.mark == nil }
         let note: String
         if let rest {
-            let minutes = rest.legSeconds.map { "，约\(max(1, ($0 + 59) / 60))分钟" } ?? ""
+            let minutes = rest.legSeconds.map { Self.minutesText("\(max(1, ($0 + 59) / 60))") } ?? ""
             note = Self.arrivedNextNote(index: "\(stop.index)", name: stop.place.name, next: rest.place.name, minutes: minutes)
         } else {
             note = stop.role == .hotel
@@ -2462,14 +2462,14 @@ public actor TripPlanner: ToolExecutor {
         case .day, .deletePlan:
             // Only the screen changed (a day tab, a saved plan gone): no note.
             return (result, nil)
-        case .openPlan(let name): what = "打开了行程「\(result.data["name"]?.stringValue ?? name)」"
-        case .remove(let index): what = "去掉了第\(index)个：\(Self.removedName(result) ?? "")"
-        case .move(let from, let to): what = "把第\(from)个移到了第\(to)个"
-        case .next: what = "开始了去\(result.data["name"]?.stringValue ?? "下一站")的导航"
+        case .openPlan(let name): what = Self.editOpened(result.data["name"]?.stringValue ?? name)
+        case .remove(let index): what = Self.editRemoved("\(index)", Self.removedName(result) ?? "")
+        case .move(let from, let to): what = Self.editMoved("\(from)", "\(to)")
+        case .next: what = Self.editNext(result.data["name"]?.stringValue ?? "下一站")
         case .add(let place):
             // An already listed place changed nothing: no note.
             if result.data["changed"] == "none" { return (result, nil) }
-            what = "加入了\(place.name)"
+            what = Self.editAdded(place.name)
         }
         return (result, Self.screenEditNote(what: what, count: "\(list.count)"))
     }
@@ -2484,6 +2484,12 @@ public actor TripPlanner: ToolExecutor {
     public static func arrivedDayDoneNote(index: String, name: String) -> String {
         "[系统] 已到达第\(index)站\(name)。这一天的地点都去完了。问司机要不要开始下一天。"
     }
+    public static func minutesText(_ minutes: String) -> String { "，约\(minutes)分钟" }
+    public static func editOpened(_ name: String) -> String { "打开了行程「\(name)」" }
+    public static func editRemoved(_ index: String, _ name: String) -> String { "去掉了第\(index)个：\(name)" }
+    public static func editMoved(_ from: String, _ to: String) -> String { "把第\(from)个移到了第\(to)个" }
+    public static func editNext(_ name: String) -> String { "开始了去\(name)的导航" }
+    public static func editAdded(_ name: String) -> String { "加入了\(name)" }
     public static func screenEditNote(what: String, count: String) -> String {
         "[系统] 司机在屏幕上\(what)，现在清单有\(count)个地点。这句不用回答。"
     }

@@ -101,7 +101,7 @@ struct SpeakingStyleTests {
 struct BaseInstructionScopeTests {
     let base = PersonaInstruction.base
 
-    @Test("F-21 §14 row 1: both scopes in order, rules 2–7 kept, ≤ 1 500 characters, no one-or-two-sentence cap")
+    @Test("F-21 §14 row 1 (as rewritten by F-09b §14 item 2): four parts in order, simulated car, ≤ 1 500 characters")
     func scopes() throws {
         // F-09b §14 item 2 (T-031q): the scopes and numbered rules became four parts (BaseInstructionTests row 5).
         let parts = try ["【你是谁】", "【你有什么】", "【怎么决定】", "【安全】"].map { try #require(base.range(of: $0)).lowerBound }

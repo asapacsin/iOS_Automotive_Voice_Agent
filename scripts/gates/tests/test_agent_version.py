@@ -66,6 +66,18 @@ class AgentVersionGateTests(unittest.TestCase):
             self.assertIn("1.0.1: a row needs a note and a spec section",
                           self.rig(tmp, lambda p: p.__setitem__("tuning.x", "1"), "1.0.1", note=""))
 
+    def test_nested_parameter_added_is_major(self):
+        import json as j
+        def nest(p):
+            k = next(n for n in sorted(p) if n.endswith(".schema"))
+            schema = j.loads(p[k])
+            schema.setdefault("properties", {})["options"] = {"type": "array", "items": {"type": "object", "properties": {}}}
+            p[k] = j.dumps(schema)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.rig(tmp, nest, "2.0.0"), [])
+        self.assertEqual(gate.params('{"properties":{"o":{"type":"array","items":{"properties":{"action":{}}}}}}'),
+                         {"o", "o[].action"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -372,6 +372,8 @@ public struct AgentState: Sendable {
     }
 
     /// F-09b §15 item 1 (T-031y): the screen-pick note template.
+    public static func screenPickIndex(_ index: String) -> String { " index=\(index)" }
+
     public static func screenPickNote(tool: String, index: String, result: String) -> String {
         "[系统] 用户在屏幕上点选了 \(tool)\(index)，" + "结果：\(result)。只按这个结果用一句话告诉用户，不要再调用工具。"
     }
@@ -762,7 +764,7 @@ public struct AgentState: Sendable {
         answerOwed = true
         // The tap is the driver's own request: she may answer it while navigating (R6).
         arbiter.driverSpoke(at: now)
-        let note = Self.screenPickNote(tool: call.name, index: call.arguments["index"].map { " index=\($0)" } ?? "", result: json)
+        let note = Self.screenPickNote(tool: call.name, index: call.arguments["index"].map { Self.screenPickIndex("\($0)") } ?? "", result: json)
         return [.provider(.text([TextTurn(role: .user, text: note)], turnComplete: true))]
     }
 

@@ -33,9 +33,21 @@ def sections(text: str) -> dict:
 
 
 def params(schema: str) -> set:
+    """Every parameter path, nested ones included (`options[].action`)."""
+    def walk(node, prefix):
+        out = set()
+        if not isinstance(node, dict):
+            return out
+        for name, sub in (node.get("properties") or {}).items():
+            path = prefix + name
+            out.add(path)
+            out |= walk(sub, path + ".")
+        if isinstance(node.get("items"), dict):
+            out |= walk(node["items"], prefix[:-1] + "[]." if prefix else "[].")
+        return out
     try:
-        return set((json.loads(schema).get("properties") or {}).keys())
-    except (ValueError, AttributeError):
+        return walk(json.loads(schema), "")
+    except ValueError:
         return set()
 
 

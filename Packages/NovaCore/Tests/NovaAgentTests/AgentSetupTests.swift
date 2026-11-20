@@ -84,7 +84,9 @@ struct AgentSetupTests {
         if ProcessInfo.processInfo.environment["AGENT_SETUP_WRITE"] == "1", !FileManager.default.fileExists(atPath: url.path) {
             try json.write(to: url)
         }
-        #expect(try Data(contentsOf: url) == json, "agent-setup-parts/\(AgentSetup.version).json is stale")
+        let stored = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? NSDictionary
+        let now = try JSONSerialization.jsonObject(with: json) as? NSDictionary
+        #expect(stored == now, "agent-setup-parts/\(AgentSetup.version).json is stale")
     }
 
     @Test("T-031y F-09b §15 row 5: AgentSetup.tuning names equal the // agentSetup marks in Tuning.swift")
