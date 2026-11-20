@@ -574,3 +574,81 @@ T-016p. Trace ids are added with the tests (`T-031c: F-12 F-09b` and so on), not
 | Task | Scope | Verify |
 |---|---|---|
 | T-031y | Items 1–8; rows 1–8 | unit, gate, build, D |
+
+## 16. She gets the screen state: every panel on or off, from what the display really shows (iOS, APPROVED 2026-11-20)
+
+**Why.** Owner phone test 2026-11-20, ipa e195ea4 (records `20261120-170741`, `-170902`, `-171536`):
+- 「明明没有音乐却说音乐放起来了」, three times. `control_music play` answered `status=playing` once the player node
+  was started; nothing checked that sound came out. When the driver said 「我没听到」 she said 「我再试一次」 and
+  called nothing.
+- 「把这个东西收起来」 / 「停止导航」 on the candidate list and the route-picking page: her note says only
+  正在导航 / 没在导航 (§14 item 1), so she did not know which page was open.
+- 「介绍一下这个地方」 should show a picture and text; she said 「我无法直接向您展示图片」.
+- The record has no screen state, so what she was told could not be compared with what the driver saw.
+
+**Owner rule (2026-11-20).** The state she gets is made each time something really changes on the display. Each key
+is only `on` / `off`; volume is a number. Nothing else in the state: no names, counts or minutes (those come from
+tool results).
+
+1. **Keys.** One per panel `DriveView` shows, plus music:
+
+   | Key | On when the display shows |
+   |---|---|
+   | `destinationList` | the candidate list (`nav.listOpen`) |
+   | `routePicking` | the route choice (`nav.routeTapTargets` not empty) |
+   | `routeCalculating` | the calculating / resolving state |
+   | `navigation` | the guidance panel |
+   | `tripScreen` | the trip cards |
+   | `tripDetail` | a trip stop's detail sheet (`TripDetailSheet`) |
+   | `tripPlans` | the saved-plans sheet (`TripPlansSheet`) |
+   | `musicCard` | the song card (`PreviewCardView`) |
+   | `camera` | the camera window |
+   | `working` | the work-progress panel |
+   | `settings` | the settings page |
+   | `music` | sound is really coming out of the media lane (item 3) |
+   | `musicVolume` | 0–10, the saved media volume |
+
+2. **Source: the display, not the code's intent.** Each panel's view reports `on` in `onAppear` and `off` in
+   `onDisappear` (App, `ScreenState` reporter). `ScreenState` (NovaCore, pure) holds the keys; a key changes only
+   from that report. A flow that thinks it closed a page while the view is still shown keeps the key `on`.
+3. **`music`.** `on` only when the media node plays, the engine runs, `musicVolume` > 0 and a tap on the media mixer
+   measures an RMS above `Tuning.mediaAudibleRms` within `Tuning.mediaCheckMs` (800 ms). Otherwise `off`.
+4. **Sent to her.** One line, every key, fixed order:
+   > [系统] 屏幕：destinationList off；routePicking on；routeCalculating off；navigation off；tripScreen off；tripDetail off；tripPlans off；musicCard off；music off；musicVolume 0；camera off；working off；settings off。这句不用回答。
+   - On connect, and after any key changes. Changes within `Tuning.screenSettleMs` (300 ms) go as one line.
+   - Never during her reply: queued and sent when the reply ends (same queue as §5 item 2), only the latest line.
+   - Replaces `navigating` and `trip` in the §14 item 1 note and `音乐<在放|没放>` in the §5 note.
+5. **Her instruction (one sentence, §14 item 2 「你有什么」).** 「屏幕状态就是司机眼前看到的；"这个"指屏幕上开着的东西。」
+6. **Tools answer from the screen state.** After acting, a tool waits up to `Tuning.screenConfirmMs` (1500 ms) for the
+   key it changes:
+   - closing a panel (`exit_navigation_mode` and the trip hide): done only when its key is `off`; else not done
+     (F-09b §13) with fact `still_on=<key>`.
+   - `control_music play` / `play_music`: done only when `music` is `on`; with `musicVolume` 0 not done with fact
+     `musicVolume=0`; the fixed 「说一句：音乐放起来了」 is removed.
+   - 「没有在导航」 only when `destinationList`, `routePicking`, `routeCalculating` and `navigation` are all `off`.
+7. **Bundled song.** A real audio file `nova_drive_loop.m4a` (royalty-free, owner approves the file) ships in the App
+   bundle; the generated sine loop is removed.
+8. **Place card.** 「介绍一下X」 for a place on screen (candidate list, destination, trip stop) opens the same
+   `TripDetailSheet` (photo + intro) through a `show_place` tool; `tripDetail` goes `on`.
+9. **Record.** On every sent line: `screen <key>=<on|off> … musicVolume=<n>` (I-8: no names).
+10. **One navigation phase enum.** `NovaKit/States.swift` and `NovaNav` both define `NavigationPhase`; merge into one.
+
+**Acceptance.**
+
+| # | Check | Expected | Kind |
+|---|---|---|---|
+| 1 | Unit: panel reports on/off | key follows the report only; a flow cancel without the view's `off` keeps it `on` | unit |
+| 2 | Unit: line text | all keys, fixed order, on/off and a number only | unit |
+| 3 | Unit: changes during her reply | one line after the reply, latest state | unit |
+| 4 | Unit: play with `musicVolume` 0; node on but RMS under the floor | not done; `music off` | unit |
+| 5 | Unit: close with the key still `on` after `screenConfirmMs` | not done, `still_on` | unit |
+| 6 | Gate: one `NavigationPhase` | a second definition fails | gate |
+| 7 | Device: candidate list, 「把这个收起来」 | list closes; record `destinationList on` then `off` | D |
+| 8 | Device: route page, 「不去了」 | page closes; record `routePicking on` then `off` | D |
+| 9 | Device: volume 0, 「放首歌」 | she says the volume is 0, never 「放起来了」 | D |
+| 10 | Device: 「放首歌」 at normal volume | song heard; record `music=on` | D |
+| 11 | Device: 「介绍一下华发商都」 on the candidate list | photo and text card; record `tripDetail=on` | D |
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031z | Items 1–10; rows 1–11 | unit, gate, build, D |
