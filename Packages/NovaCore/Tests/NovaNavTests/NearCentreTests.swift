@@ -265,6 +265,21 @@ struct NearCentreTests {
         #expect(await rig.nav.current.phase == .idle)
     }
 
+    @Test("F-15b §51 row 189: near_country 日本 is JP; a name not in the table, or JPN, counts as missing")
+    func row189() async {
+        #expect(NavigationController.nearCountry("日本") == "JP" && NavigationController.nearCountry(" jp ") == "JP")
+        #expect(NavigationController.nearCountry("澳门") == "MO" && NavigationController.nearCountry("中国") == "CN")
+        #expect(NavigationController.nearCountry("火星") == nil && NavigationController.nearCountry("JPN") == nil)
+        #expect(NavigationController.nearCountry("") == nil && NavigationController.nearCountry(nil) == nil)
+        let amap = AmapSpy()
+        let photon = FakeApple(["便利店": [jp("Lawson", lat: 35.69, lng: 139.77)]])
+        let rig = await NearRig(phone: zhuhai, home: amap, photon: photon)
+        let r = await rig.nav.execute(nav(["destination": "便利店", "near": "place", "near_name": "东京", "near_country": "日本"]))
+        #expect(r.ok && r.data["facts"]?["vendor"] == "photon")
+        let odd = await rig.nav.execute(nav(["destination": "便利店", "near": "place", "near_name": "东京", "near_country": "火星"]))
+        #expect(odd.code == .invalidFields && odd.data["facts"]?["missing"] == ["near_country"])
+    }
+
     @Test("F-15b §51 row 186: schema: navigate_to has near, near_name, near_country; no abroad, no city; catalog text as item 8")
     func row186() throws {
         let spec = try #require(ToolCatalog.spec("navigate_to"))

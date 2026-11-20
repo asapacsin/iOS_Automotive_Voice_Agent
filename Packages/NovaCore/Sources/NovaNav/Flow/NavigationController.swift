@@ -230,7 +230,7 @@ public actor NavigationController: ToolExecutor {
             return Self.nearInvalid(["near": raw])
         }
         let name = args["near_name"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
-        let country = args["near_country"]?.stringValue?.trimmingCharacters(in: .whitespaces).uppercased().nonEmpty
+        let country = Self.nearCountry(args["near_country"]?.stringValue)
         switch kind {
         case .here: return await nearHere(destination)
         case .route:
@@ -250,6 +250,22 @@ public actor NavigationController: ToolExecutor {
         case .trip:
             return await nearTripStop(destination, name: name ?? "")
         }
+    }
+
+    /// F-15b §51 item 8 (row 189): `near_country` as an ISO 3166 alpha-2 code. The live model often writes the name
+    /// (「日本」), which is two characters and passed the length check, then failed the country check. Common names map
+    /// to their code; anything else that is not two ASCII letters counts as missing (the model is asked again).
+    static let countryNames: [String: String] = [
+        "中国": "CN", "中国大陆": "CN", "日本": "JP", "韩国": "KR", "香港": "HK", "中国香港": "HK", "澳门": "MO",
+        "中国澳门": "MO", "台湾": "TW", "中国台湾": "TW", "美国": "US", "新加坡": "SG", "泰国": "TH", "马来西亚": "MY",
+        "越南": "VN", "英国": "GB", "法国": "FR", "德国": "DE", "意大利": "IT", "西班牙": "ES", "澳大利亚": "AU",
+        "新西兰": "NZ", "加拿大": "CA",
+    ]
+    static func nearCountry(_ raw: String?) -> String? {
+        guard let s = raw?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return nil }
+        if let code = countryNames[s] { return code }
+        let up = s.uppercased()
+        return up.count == 2 && up.unicodeScalars.allSatisfy({ ("A"..."Z").contains($0) }) ? up : nil
     }
 
     /// F-09b §13: a refused `near` as facts (what was wrong, the allowed values) and rules; no sentence. Nothing searched.

@@ -1826,6 +1826,7 @@ test trip from the day before still saved:
      lists the accepted `near` values or "asks". Run on the PC against the live route (`QwenRoute` live, qwen3.7-flash),
      3 runs each. **Pass:** right centre or a question in ≥ 95%; a search in the wrong country without saying so: 0;
      `near=trip` while the trip is hidden: 0.
+   - **`near_country` names (2026-11-20, PC eval).** The live model writes 「日本」 instead of `JP` in most `place` calls. Two characters pass the length check, and the country check then refused the search. Code maps common Chinese country and region names to their code (`NavigationController.countryNames`); anything else that is not two ASCII letters counts as missing (row 189).
    - **Not changed.** `trip_next`, `route_trip` and trip planning (they use the plan's own places); item 7; F-16's
      candidate list and far-result line.
 
@@ -1861,6 +1862,7 @@ test trip from the day before still saved:
 | 186 | Schema | `navigate_to` has `near`, `near_name`, `near_country`; no `abroad`, no `city`; catalog text as item 8 | unit |
 | 187 | `NearEval` on the PC (live route, 3 runs × 4 set-ups) | Right centre or a question ≥ 95%; wrong country without saying so 0; `near=trip` while hidden 0 | eval |
 | 188 | Device, Zhuhai, Tokyo trip shown: 「附近有什么好吃的」, 「东京的便利店」, 「酒店附近吃的」; then hide the cards and 「附近有什么酒店」 | Zhuhai places; Tokyo places; places by the trip hotel; Zhuhai hotels, or one question which side | D |
+| 189 | `near_country` 「日本」, 「澳门」, 「火星」, `JPN` | 日本 → JP and the search runs; 澳门 → MO; 火星 and JPN count as missing (`invalidFields`, nothing searched) | unit |
 
 **Not verified.**
 - Whether the model still passes `abroad=true` for a named foreign place without the trip default (row 163's sentence on
@@ -1871,4 +1873,4 @@ test trip from the day before still saved:
 | Task | Scope | Status |
 |---|---|---|
 | T-040y | §51 items 1–3, 5, 7 (item 4 moved to T-031l); rows 161–168, 170–175 | NOT_RUN |
-| T-040z | §51 item 8 (model names the centre; code resolves and checks); rows 176–188 | NOT_RUN |
+| T-040z | §51 item 8 (model names the centre; code resolves and checks); rows 176–189 | NOT_RUN |
