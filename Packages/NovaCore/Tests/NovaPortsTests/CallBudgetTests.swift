@@ -100,7 +100,9 @@ struct CallBudgetTests {
         now.set(noon.addingTimeInterval(86_400))
         #expect(budget(store, now: now).ask(.qwenLive, model: "m1", key: "c") == .allow)
         let t = budget()
-        for _ in 0..<10 { #expect(t.ask(.qwenTTS, model: "tts", key: "") == .allow) }
+        for _ in 0..<400 { #expect(t.ask(.qwenTTS, model: "tts", key: "") == .allow) }
+        // Her voice uses none of the shared counters: a search is still allowed after 400 tts calls.
+        #expect(t.ask(.qwenLive, model: "m", key: "a") == .allow)
     }
 
     @Test("T-046u F-18 §32 row 7 (budget side): after a refusal the same turn makes no further paid call")

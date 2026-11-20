@@ -175,8 +175,11 @@ public final class CallBudget: Sendable {
                 if recent.count >= limits.repeatMax { return refuse(.repeat) }
                 s.sent[key] = recent + [at]
             }
-            s.turnCalls += route.capped ? 1 : 0
-            s.turnByRoute[route, default: 0] += route.capped ? 1 : 0
+            // An uncapped route (qwen.tts) is recorded but uses none of the shared counters, so her voice can never
+            // use up the budget of search, picker, ground or vision.
+            guard route.capped else { return (.allow, nil) }
+            s.turnCalls += 1
+            s.turnByRoute[route, default: 0] += 1
             s.sessionCalls += 1
             day.calls += 1
             s.day = day

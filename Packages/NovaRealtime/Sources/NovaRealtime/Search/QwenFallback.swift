@@ -9,7 +9,8 @@ import NovaPorts
 /// F-15b §50 item 10 (T-040x, owner 2026-11-19): the backup model of a `QwenRoute` when the primary's budget is used up.
 /// Model Studio counts free quota and rate limits per model for the whole account, so another model (not another key)
 /// gives more room; gateways do the same (LiteLLM fallbacks and cooldowns).
-/// - Switches only for an HTTP 429, or a 403 whose error `code` contains `Quota`. Bodies are read whole and a non-200
+/// - Switches only for an HTTP 429, a 403 whose error `code` contains `Quota`, or a published quota code (F-18 §32
+///   item 3, `QuotaError.dashScope`; a quota 429 skips the primary like a quota 403). Bodies are read whole and a non-200
 ///   status carries no answer, so a switch never follows a streamed answer (a 200 with an error chunk never switches).
 /// - One switch per request, to the route's backup (same body except `model`, and `search_strategy` for `ground`).
 /// - The backup gets only what is left of the route's budget (`QwenRoute.budget`); none left: no backup call.
