@@ -155,7 +155,7 @@ public actor NavigationController: ToolExecutor {
 
     /// F-15b §36 item 2d (T-040p): plain searches abroad. `search` is Photon, `center` a city's centre outside China.
     /// §51 item 8 (T-040z): used for `near=place` geocodes abroad (`area`, then `center`) and Photon searches; the trip is
-    /// consulted only for `near=trip` (and the `trip_city` fact).
+    /// consulted for `near=trip` and, while shown, `near=here` (§51 item 9).
     private var abroadSearch: (any PlaceSearch)?
     private var abroadCenter: (@Sendable (String) async -> GeoCoordinate?)?
     private var abroadArea: (@Sendable (String) async -> TripArea?)?
@@ -169,9 +169,12 @@ public actor NavigationController: ToolExecutor {
         abroadArea = area
     }
     public func setTripArrival(_ arrived: @escaping @Sendable (String) async -> Void) { tripArrived = arrived }
-    /// F-15b §51 item 8 (T-040z): the plan as `near=trip` and the `trip_city` fact see it; nil when there is none.
+    /// F-15b §51 item 8 (T-040z): the plan as `near=trip` and a shown `near=here` (item 9) see it; nil when there is none.
     private var nearTrip: (@Sendable () async -> NearTrip?)?
     public func setNearTrip(_ trip: @escaping @Sendable () async -> NearTrip?) { nearTrip = trip }
+    /// F-15b §51 item 9 (T-040za): the simulated car (`RouteGeometry.car`, GCJ-02) while a route runs in 模拟导航.
+    private var simulatedCar: (@Sendable () async -> GeoCoordinate?)?
+    public func setSimulatedCar(_ car: @escaping @Sendable () async -> GeoCoordinate?) { simulatedCar = car }
     /// §51 item 8: 高德 `/v3/geocode/geo` for `near=place` in China, 香港, 澳门 and 台湾; nil: the 高德 text search.
     private var homeGeocode: (any PlaceLookup)?
     public func setHomeGeocode(_ lookup: any PlaceLookup) { homeGeocode = lookup }
@@ -283,8 +286,11 @@ public actor NavigationController: ToolExecutor {
     }
 
     /// `here`: the phone's fix (or the demo point); 高德 in China (the F-16 search), Photon abroad, kept to 50 km.
-    /// When the shown trip is in another country than the phone, `trip_city` lets her say which side was searched.
+    /// §51 item 9 (T-040za): while the trip cards are shown over a plan with stops, `here` is the trip location instead.
     private func nearHere(_ destination: String) async -> ToolResult {
+        if let trip = await nearTrip?(), !trip.hidden, let next = trip.next {
+            return await nearTripHere(destination, next: next)
+        }
         let fix = await usableFix()
         let demo = location.source == .demo
         let source = demo ? "demo" : "fix"
@@ -293,20 +299,6 @@ public actor NavigationController: ToolExecutor {
         let phoneAbroad = fix.map { CoordinateConverter.outOfChina($0.latitude, $0.longitude) } ?? false
         var facts: [String: JSONValue] = ["searched_around": .string(label)]
         if fix == nil { facts["located"] = false }
-        if let fix, let trip = await nearTrip?(), !trip.hidden, !trip.stops.isEmpty,
-           let city = trip.city ?? trip.stops.first?.name {
-            let tripCountry = trip.stops.lazy.compactMap(\.countryCode).first ?? (trip.abroad ? nil : "CN")
-            let other: Bool
-            if !phoneAbroad {
-                other = tripCountry.map { !TripRegion.isChina($0) } ?? trip.abroad
-            } else if let tripCountry, TripRegion.isChina(tripCountry) {
-                other = true
-            } else {
-                // Phone abroad, trip abroad: another country unless a stop is near the phone (no country for the fix).
-                other = trip.stops.allSatisfy { SelfPosition.distanceMeters(fix, $0.coordinate) > Self.otherTripMeters }
-            }
-            if other { facts["trip_city"] = .string(city) }
-        }
         if phoneAbroad, let fix, abroadSearch != nil {
             let (r, found, dropped) = await searchAbroad(destination, center: fix, area: TripArea(center: fix, countryCode: nil),
                                                          aroundFix: true, label: label)
@@ -323,8 +315,27 @@ public actor NavigationController: ToolExecutor {
         return Self.withFacts(r, facts)
     }
 
-    /// A shown trip with no stop within this of the phone abroad is taken as another place (`trip_city`).
-    static let otherTripMeters = 300_000.0
+    /// §51 item 9 (T-040za, owner 2026-11-20): cards shown, `here` is the trip location: the simulated car while a trip
+    /// stop guidance runs in 模拟导航, else the trip's next stop. The vendor by that point (the stop's country; the car
+    /// by the China box, as a fix). Facts `searched_around` 「行程位置（…）」 and `source=trip_here`; no `trip_city`.
+    private func nearTripHere(_ destination: String, next: NearTripStop) async -> ToolResult {
+        // Read before the search: a search ends the trip stop guidance (`endTripStop`).
+        let car = snapshot.navigating && snapshot.tripStopID != nil && snapshot.mode == .emulator
+            ? await simulatedCar?() : nil
+        let center = car ?? next.coordinate
+        let country = car == nil ? next.countryCode : nil
+        let label = "行程位置（\(car == nil ? next.name : "模拟车")）"
+        let abroad = Self.abroad(country: country, at: center) && abroadSearch != nil
+        let result = abroad
+            ? await searchAbroad(destination, center: center, area: TripArea(center: center, countryCode: country),
+                                 aroundFix: false, label: label)
+            : await searchHome(destination, center: center, label: label)
+        let vendor = abroad ? "photon" : "amap"
+        nearLine(.here, vendor: vendor, source: "trip_here", found: result.found, dropped: result.dropped, reason: "ok")
+        return Self.withFacts(result.result, ["searched_around": .string(label), "source": "trip_here",
+                                              "vendor": .string(vendor), "found": .int(Int64(result.found))])
+    }
+
 
     /// `place`: `near_name` geocoded on 高德 (`/v3/geocode/geo`) when `near_country` is CN, HK, MO or TW, else on
     /// Photon (its area, then its centre). A point found in another country than `near_country` is refused

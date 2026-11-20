@@ -1452,6 +1452,8 @@ final class AgentRuntime {
         // F-15b §47 (T-040s): abroad, routes and recalculations from OSRM inside the app; one OSRM request per second
         // shared with the §36 item 2c table. `route plan` / `route recalc` lines, numbers and enums only (I-8).
         let osrmThrottle = OsrmThrottle()
+        // F-15b §51 item 9 (T-040za): the simulated car for `navigate_to near=here` while the trip cards are shown.
+        let simulatedCar = SimulatedCarBox()
         let engine = AmapRouteEngine(key: amapKey, origin: routeOrigin,
                                      location: location, clock: navigationClock,
                                      abroadSource: OsrmRouteSource(throttle: osrmThrottle),
@@ -1459,7 +1461,10 @@ final class AgentRuntime {
                                          RuntimeLog.agent.notice("\(line, privacy: .public)")
                                          tripSession.record()?.submit(.trip(line))
                                      },
-                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
+                                     onGeometry: { geometry in
+                                         simulatedCar.set(geometry.car)
+                                         Task { @MainActor in model.geometry = geometry }
+                                     })
         // F-16 §14 (T-042c): near-first search; the turn count is the uplink gate's (F-04a), never a transcript.
         let nearFirst = NearFirstSearch(
             match: DestinationMatch(pinyin: FoundationPinyinConverter()), geocoder: web,
@@ -1492,6 +1497,7 @@ final class AgentRuntime {
             listeners.yield(snapshot)
         }
         await navigation.start()
+        await navigation.setSimulatedCar { simulatedCar.get() }
         // F-15b (T-040i): the app's one trip list, next to the navigation controller; it outlives voice sessions.
         // F-15b §14 (T-040l): the plan and the saved plans live in Application Support/trip/.
         // F-15b §4 item 6: Qwen picks among 高德's results with the search model's key; no key → 高德's first result.
@@ -1723,6 +1729,14 @@ enum UplinkEvent: Sendable {
 }
 
 /// The uplink gate behind a lock; it runs on the capture thread.
+/// F-15b §51 item 9 (T-040za): the latest `RouteGeometry.car` (GCJ-02; nil without a simulated route).
+final class SimulatedCarBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var car: GeoCoordinate?
+    func set(_ value: GeoCoordinate?) { lock.withLock { car = value } }
+    func get() -> GeoCoordinate? { lock.withLock { car } }
+}
+
 final class GateBox: @unchecked Sendable {
     private let lock = NSLock()
     /// Held while outputs are computed and forwarded, so a release from the recognizer's thread and live capture

@@ -107,18 +107,18 @@ private let tokyoStops = [stop(1, "浅草寺", .sight, GeoCoordinate(latitude: 3
 
 @Suite("T-040z F-15b §51 item 8: the model names the search centre; code resolves and checks it")
 struct NearCentreTests {
-    @Test("F-15b §51 row 176: Zhuhai, Tokyo trip shown, 咖啡店 near=here: 高德 around the phone; facts searched_around the phone and trip_city Tokyo; nav near kind=here vendor=amap source=fix")
+    @Test("F-15b §51 row 176 (cards hidden since item 9): Zhuhai, Tokyo trip hidden, 咖啡店 near=here: 高德 around the phone; facts searched_around the phone, no trip_city; nav near kind=here vendor=amap source=fix")
     func row176() async {
         let home = FakeApple(["咖啡店": [place("瑞幸", 300), place("星巴克", 600)]])
         let photon = FakeApple(["咖啡店": [jp("Doutor", lat: 35.69)]])
         let rig = await NearRig(phone: zhuhai, home: home, photon: photon)
         let planner = await rig.tokyoTrip()
+        #expect(await planner.hideCards())
         let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
-        #expect(await planner.cardsHidden == false)
         #expect(r.ok && r.data["count"] == .int(2))
         #expect(home.centers.withLock { $0 }.allSatisfy { $0 == CoordinateConverter.gcj02(zhuhai) })
         #expect(photon.asked.withLock { $0 }.isEmpty)
-        #expect(r.data["facts"]?["searched_around"] == "手机位置" && r.data["facts"]?["trip_city"] == "Tokyo, Japan")
+        #expect(r.data["facts"]?["searched_around"] == "手机位置" && r.data["facts"]?["trip_city"] == nil)
         #expect(r.data["facts"]?["vendor"] == "amap" && r.data["facts"]?["found"] == .int(2))
         #expect(rig.near() == ["nav near kind=here vendor=amap source=fix found=2 dropped=0 reason=ok"])
     }
@@ -433,24 +433,33 @@ struct NearCentreTests {
         #expect(r.data["facts"]?["searched_around"] == "没有定位" && r.data["facts"]?["located"] == false)
     }
 
-    @Test("F-15b §51 item 8: trip_city compares countries: a shown trip in China (Zhuhai phone) adds none; one in Seoul (inside the box) adds it")
-    func tripCityByCountry() async {
+    @Test("T-040za F-15b §51 item 9: cards shown, the vendor goes by the next stop's country: a China trip (Tianjin) on 高德 around the stop, a Seoul trip (KR, inside the China box) on Photon")
+    func tripHereVendorByStopCountry() async {
         let tianjin = GeoCoordinate(latitude: 39.13, longitude: 117.2, datum: .gcj02)
         let seoul = GeoCoordinate(latitude: 37.57, longitude: 126.98, datum: .gcj02)
-        for (trip, expected) in [
-            (NearTrip(hidden: false, abroad: false, city: nil,
-                      stops: [NearTripStop(day: 1, name: "古文化街", asked: "古文化街", role: .sight, coordinate: tianjin, countryCode: nil)]),
-             JSONValue?.none),
-            (NearTrip(hidden: false, abroad: true, city: "Seoul, Korea",
-                      stops: [NearTripStop(day: 1, name: "景福宫", asked: "景福宫", role: .sight, coordinate: seoul, countryCode: "KR")]),
-             .string("Seoul, Korea")),
-        ] {
-            let home = FakeApple(["咖啡店": [place("瑞幸", 300), place("星巴克", 600)]])
-            let rig = await NearRig(phone: zhuhai, home: home, photon: FakeApple([:]))
-            await rig.nav.setNearTrip { trip }
-            let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
-            #expect(r.data["facts"]?["trip_city"] == expected)
-        }
+        let china = NearTrip(hidden: false, abroad: false, city: nil,
+                             stops: [NearTripStop(day: 1, name: "古文化街", asked: "古文化街", role: .sight, coordinate: tianjin,
+                                                  countryCode: "CN")])
+        let home = FakeApple(["咖啡店": [place("瑞幸", 300)]])
+        let rigCN = await NearRig(phone: zhuhai, home: home, photon: FakeApple([:]))
+        await rigCN.nav.setNearTrip { china }
+        let r1 = await rigCN.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
+        #expect(home.centers.withLock { $0 } == [tianjin])
+        #expect(r1.data["facts"]?["searched_around"] == "行程位置（古文化街）" && r1.data["facts"]?["vendor"] == "amap")
+        #expect(r1.data["facts"]?["trip_city"] == nil)
+
+        let korea = NearTrip(hidden: false, abroad: true, city: "Seoul, Korea",
+                             stops: [NearTripStop(day: 1, name: "景福宫", asked: "景福宫", role: .sight, coordinate: seoul,
+                                                  countryCode: "KR")])
+        let amap = AmapSpy()
+        let photon = FakeApple(["咖啡店": [jp("Ediya", lat: 37.57, lng: 126.98, country: "KR")]])
+        let rigKR = await NearRig(phone: zhuhai, home: amap, photon: photon,
+                                  area: .some(TripArea(center: seoul, countryCode: "KR")))
+        await rigKR.nav.setNearTrip { korea }
+        let r2 = await rigKR.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
+        #expect(amap.calls.withLock { $0 }.isEmpty)
+        #expect(r2.data["facts"]?["vendor"] == "photon" && r2.data["facts"]?["source"] == "trip_here")
+        #expect(rigKR.near() == ["nav near kind=here vendor=photon source=trip_here found=1 dropped=0 reason=ok"])
     }
 
     @Test("F-15b §51 item 8: near=here abroad keeps to 50 km (an Osaka result for a Tokyo phone is dropped)")
@@ -480,5 +489,90 @@ struct NearCentreTests {
         #expect(trip.match("酒店").map(\.name) == ["Hotel Gracery"])
         #expect(trip.match("晴空塔").isEmpty)
         #expect(NearTrip.day(in: "第三天") == 3 && NearTrip.day(in: "酒店") == nil)
+    }
+}
+
+@Suite("T-040za F-15b §51 item 9: cards shown, 附近 is the trip location; cards hidden, the phone")
+struct TripHereTests {
+    @Test("T-040za F-15b §51 row 190: phone in Zhuhai, Tokyo trip shown, no guidance, 咖啡店 near=here: Photon around the next stop; searched_around 行程位置（…）; source=trip_here; no 高德 request")
+    func row190() async {
+        let amap = AmapSpy()
+        let photon = FakeApple(["咖啡店": [jp("Doutor", lat: 35.71, lng: 139.79)]])
+        let rig = await NearRig(phone: zhuhai, home: amap, photon: photon)
+        let planner = await rig.tokyoTrip()
+        let next = await planner.nearTrip()?.next
+        #expect(next != nil && next?.day == 1)
+        let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
+        #expect(amap.calls.withLock { $0 }.isEmpty)
+        #expect(photon.asked.withLock { $0 } == ["咖啡店"])
+        #expect(r.data["facts"]?["searched_around"] == .string("行程位置（\(next?.name ?? "")）"))
+        #expect(r.data["facts"]?["source"] == "trip_here" && r.data["facts"]?["vendor"] == "photon")
+        #expect(r.data["facts"]?["trip_city"] == nil)
+        #expect(rig.near().count == 1 && rig.near()[0].hasPrefix("nav near kind=here vendor=photon source=trip_here "))
+    }
+
+    @Test("T-040za F-15b §51 item 9: the next stop is the current day's first stop not marked; a visited first stop moves it to the second")
+    func nextSkipsMarked() async {
+        let rig = await NearRig(phone: zhuhai, home: AmapSpy(), photon: FakeApple([:]))
+        let planner = await rig.tokyoTrip()
+        let stops = await planner.nearTrip()?.stops ?? []
+        #expect(stops.count == 2)
+        _ = await planner.execute(trip("edit_trip_list", ["action": "visited", "index": .int(1)]))
+        #expect(await planner.nearTrip()?.next?.name == stops.last?.name)
+    }
+
+    @Test("T-040za F-15b §51 row 191: a trip stop guidance in 模拟导航 with the simulated car in Tokyo: around the car; searched_around 行程位置（模拟车）")
+    func row191() async {
+        let car = GeoCoordinate(latitude: 35.70, longitude: 139.75, datum: .gcj02)
+        let photon = FakeApple(["咖啡店": [jp("Doutor", lat: 35.701, lng: 139.751)]])
+        let rig = await NearRig(phone: zhuhai, home: AmapSpy(), photon: photon)
+        let planner = await rig.tokyoTrip()
+        await rig.nav.setSimulatedCar { car }
+        #expect(await rig.nav.tripNext(jp("浅草寺", lat: 35.71), abroad: true).ok)
+        let flow = await rig.nav.current
+        #expect(flow.tripStopID != nil && flow.mode == .emulator && flow.navigating)
+        #expect(await planner.cardsHidden == false)
+        let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
+        #expect(photon.asked.withLock { $0 } == ["咖啡店"])
+        #expect(r.data["facts"]?["searched_around"] == "行程位置（模拟车）" && r.data["facts"]?["source"] == "trip_here")
+        #expect(rig.near().count == 1 && rig.near()[0].hasPrefix("nav near kind=here vendor=photon source=trip_here "))
+    }
+
+    @Test("T-040za F-15b §51 row 191 (no car): no trip stop guidance, a car hook set: the next stop, not the car")
+    func row191NoGuidance() async {
+        let rig = await NearRig(phone: zhuhai, home: AmapSpy(), photon: FakeApple(["咖啡店": [jp("Doutor", lat: 35.71)]]))
+        let planner = await rig.tokyoTrip()
+        await rig.nav.setSimulatedCar { GeoCoordinate(latitude: 35.0, longitude: 135.0, datum: .gcj02) }
+        let next = await planner.nearTrip()?.next?.name ?? ""
+        let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
+        #expect(r.data["facts"]?["searched_around"] == .string("行程位置（\(next)）"))
+    }
+
+    @Test("T-040za F-15b §51 row 192: same trip, cards hidden: near=here is the phone on 高德, as row 176")
+    func row192() async {
+        let home = FakeApple(["咖啡店": [place("瑞幸", 300)]])
+        let photon = FakeApple(["咖啡店": [jp("Doutor", lat: 35.69)]])
+        let rig = await NearRig(phone: zhuhai, home: home, photon: photon)
+        #expect(await rig.tokyoTrip().hideCards())
+        let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
+        #expect(photon.asked.withLock { $0 }.isEmpty)
+        #expect(home.centers.withLock { $0 }.allSatisfy { $0 == CoordinateConverter.gcj02(zhuhai) })
+        #expect(r.data["facts"]?["searched_around"] == "手机位置" && r.data["facts"]?["source"] == nil)
+        #expect(rig.near() == ["nav near kind=here vendor=amap source=fix found=1 dropped=0 reason=ok"])
+    }
+
+    @Test("T-040za F-15b §51 row 193: cards shown, navigate_to 珠海站 near=place near_country=CN: 高德 geocode and search as item 8, not the trip")
+    func row193() async {
+        let station = GeoCoordinate(latitude: 22.215, longitude: 113.55, datum: .gcj02)
+        let home = FakeApple(["咖啡店": [place("瑞幸", 300)]])
+        let photon = FakeApple(["咖啡店": [jp("Doutor", lat: 35.69)]])
+        let geocode = FakeGeocode(.success([LookedUpPlace(name: "珠海站", coordinate: station)]))
+        let rig = await NearRig(phone: zhuhai, home: home, photon: photon, geocode: geocode)
+        let planner = await rig.tokyoTrip()
+        #expect(await planner.cardsHidden == false)
+        let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "place", "near_name": "珠海站", "near_country": "CN"]))
+        #expect(geocode.asked.withLock { $0 } == ["珠海站"])
+        #expect(home.centers.withLock { $0 } == [station] && photon.asked.withLock { $0 }.isEmpty)
+        #expect(r.data["facts"]?["searched_around"] == "珠海站" && r.data["facts"]?["source"] == nil)
     }
 }
