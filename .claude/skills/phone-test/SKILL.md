@@ -19,9 +19,9 @@ missing, fix this file in the same session (commit it) so the next session does 
 - Auth header is **`x-auth-token`** (not `Authorization`). The value is a network secret on the environment for
   `api.codemagic.io`, injected by the proxy; send `-H "x-auth-token: proxy-injected"`. A 401 means the secret is
   missing, wrong, or saved under the wrong header: ask with `request_credential` (host api.codemagic.io,
-  header_name `x-auth-token`). Never put the token in a file or the chat.
+  header_name `x-auth-token`, no prefix; an `Authorization` secret gives 401). Never put the token in a file or the chat.
 - App id: `curl -s https://api.codemagic.io/apps -H "x-auth-token: proxy-injected"` -> the app whose repository is
-  asapacsin/iOS_Automotive_Voice_Agent. Record it here once known: **APP_ID = (unknown, fill in)**.
+  asapacsin/iOS_Automotive_Voice_Agent. Record it here once known: **APP_ID = `6ae16755fe16d00f4e50d187`** (verified 2026-11-20).
 - Start: `POST https://api.codemagic.io/builds` with `{"appId": APP_ID, "workflowId": "novadrive-ios",
   "branch": "<branch under test>"}` -> `buildId`. Workflow id comes from `codemagic.yaml` (the API does not list it).
 - Wait: `GET /builds/<buildId>` about every 2 minutes with Monitor (an until-loop), not a sleep chain. The build
