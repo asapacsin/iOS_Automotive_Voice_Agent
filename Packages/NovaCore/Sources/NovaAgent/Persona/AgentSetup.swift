@@ -10,7 +10,7 @@ import NovaVoice
 /// Not in it: audio, UI, network and log code, keys (item 1).
 public struct AgentSetup: Sendable, Hashable {
     /// Item 3: equals the newest row of specs/contracts/agent-versions.md.
-    public static let version = "2.0.0"
+    public static let version = "2.1.0"
 
     /// One session's settings that change what is sent (item 1). Comfort mode has one value ("model"); the language
     /// has no setting (F-05a: she follows the driver), so neither is a dimension.
@@ -91,11 +91,12 @@ public struct AgentSetup: Sendable, Hashable {
         out.append(("screenPick", AgentState.screenPickNote(tool: "<tool>", index: AgentState.screenPickIndex("<index>"),
                                                             result: "<result>")))
         out.append(("now", ContextSnapshot(place: ContextPlace(city: "<city>", district: "<district>"), onHighway: true,
-                                           localTime: "<time>", navigating: true, tripShown: true).note))
-        out.append(("nowOther", ContextSnapshot(place: nil, onHighway: false, localTime: "<time>", navigating: false,
-                                                tripShown: false).note))
+                                           localTime: "<time>").note))
+        out.append(("nowOther", ContextSnapshot(place: nil, onHighway: false, localTime: "<time>").note))
         out.append(("nowTrip", ContextSnapshot(place: ContextPlace(city: nil, district: nil, trip: "<trip>"), onHighway: nil,
-                                               localTime: "<time>", navigating: false, tripShown: true).note))
+                                               localTime: "<time>").note))
+        // F-09b §16 item 4 (T-031z): the 屏幕 line's text (all off, volume 0; only on/off and the number vary).
+        out.append(("screen", ScreenState().line))
         out.append(("tripArrivedNext", TripPlanner.arrivedNextNote(index: "<n>", name: "<name>", next: "<next>",
                                                                    minutes: TripPlanner.minutesText("<minutes>"))))
         out.append(("tripArrivedHotel", TripPlanner.arrivedHotelNote(name: "<name>", nextDay: "<day>")))

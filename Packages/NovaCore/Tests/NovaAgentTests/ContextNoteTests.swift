@@ -11,9 +11,9 @@ struct ContextNoteTests {
     static let zhuhai = GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .gcj02)
 
     static func snap(district: String = "香洲区", trip: String? = nil, time: String = "11月20日 星期五 14:05",
-                     navigating: Bool = false, shown: Bool = false) -> ContextSnapshot {
-        ContextSnapshot(place: ContextPlace(city: "珠海市", district: district, trip: trip), onHighway: nil,
-                        localTime: time, navigating: navigating, tripShown: shown)
+                     onHighway: Bool? = nil) -> ContextSnapshot {
+        ContextSnapshot(place: ContextPlace(city: "珠海市", district: district, trip: trip), onHighway: onHighway,
+                        localTime: time)
     }
 
     static func fields(_ effects: [AgentEffect]) -> [[String]] {
@@ -25,19 +25,19 @@ struct ContextNoteTests {
         var d = Drive()
         d.send(.context(Self.snap()))
         d.connect()
-        #expect(FlexibleAssistantTests.notes(d.effects).contains { $0.contains("[系统] 现在：位置：珠海市香洲区；当地时间 11月20日 星期五 14:05；没在导航；屏幕上没有行程。这句不用回答。") })
-        #expect(Self.fields(d.effects) == [["place", "time", "navigating", "trip"]])
+        #expect(FlexibleAssistantTests.notes(d.effects).contains { $0.contains("[系统] 现在：位置：珠海市香洲区；当地时间 11月20日 星期五 14:05。这句不用回答。") })
+        #expect(Self.fields(d.effects) == [["place", "time"]])
         // A fix in the same district, a minute later: no note.
         #expect(Self.fields(d.send(.context(Self.snap(time: "11月20日 星期五 14:06")))).isEmpty)
         // District change: a note with the new place.
         let moved = d.send(.context(Self.snap(district: "金湾区")))
         #expect(Self.fields(moved).count == 1)
         #expect(FlexibleAssistantTests.notes(moved).joined().contains("珠海市金湾区"))
-        // Navigation starts: one of the facts changed.
-        #expect(Self.fields(d.send(.context(Self.snap(district: "金湾区", navigating: true)))).count == 1)
+        // The highway fact appears: one of the facts changed (navigating is the 屏幕 line's, F-09b §16 item 4).
+        #expect(Self.fields(d.send(.context(Self.snap(district: "金湾区", onHighway: true)))).count == 1)
         // The log line names fields only.
-        let line = DiagnosticEvent.contextNote(fields: [.place, .highway, .time, .navigating, .trip]).logLine
-        #expect(line == "contextNote fields=place,highway,time,navigating,trip")
+        let line = DiagnosticEvent.contextNote(fields: [.place, .highway, .time]).logLine
+        #expect(line == "contextNote fields=place,highway,time")
         var highway = Self.snap()
         highway.onHighway = true
         #expect(highway.note.contains("；在高速上；") && highway.fields.contains(.highway))
@@ -69,9 +69,9 @@ struct ContextNoteTests {
     func row2() {
         let center = ContextCenter(coordinate: GeoCoordinate(latitude: 34.69, longitude: 135.53, datum: .gcj02), trip: "大阪城")
         let place = ContextPlace(center: center, address: PlaceAddress(formatted: "大阪府大阪市中央区", district: "中央区", road: nil))
-        let s = ContextSnapshot(place: place, onHighway: nil, localTime: "11月20日 星期五 14:05", navigating: false, tripShown: true)
-        #expect(s.note.contains("位置：行程位置（大阪城）") && s.note.contains("屏幕上显示着行程"))
-        let none = ContextSnapshot(place: nil, onHighway: nil, localTime: "t", navigating: false, tripShown: false)
+        let s = ContextSnapshot(place: place, onHighway: nil, localTime: "11月20日 星期五 14:05")
+        #expect(s.note.contains("位置：行程位置（大阪城）") && !s.note.contains("行程；"))
+        let none = ContextSnapshot(place: nil, onHighway: nil, localTime: "t")
         #expect(none.note.contains("位置：不知道"))
     }
 

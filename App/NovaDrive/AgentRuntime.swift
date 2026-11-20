@@ -345,6 +345,7 @@ struct RuntimeSink: AgentEffectSink {
         case .stateNote(let reason): record?.submit(.stateNote(reason))  // F-09b §8
         case .summaryNote(let n, let age): record?.submit(.summaryNote(exchanges: n, ageS: age))  // F-09b §8
         case .contextNote(let fields): record?.submit(.nowNote(fields: fields))  // F-09b §14 item 8
+        case .screenLine(let screen): record?.submit(.screen(screen))  // F-09b §16 item 9
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
@@ -906,8 +907,6 @@ final class AgentRuntime {
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         // F-18 §21 item 1: written by the navigation stream below, read by web_search.
         let currentDestination = DestinationHolder()
-        // F-09b §14 item 1 (T-031p): whether guidance runs, for the `现在` note; written by the navigation stream.
-        let navigatingNow = NavigatingBox()
         // F-18 §23 item 5: the driver's last final words, only for the search model's message and the local record.
         let driverWords = DriverWordsHolder()
         // This session listens to the trip from now on; it first sees the trip as it is (a drive that went
@@ -1173,9 +1172,9 @@ final class AgentRuntime {
             }
         })
         self.core = core
-        // F-09b §14 item 1 (T-031p): the `现在` facts every 15 s (place, time, navigating, trip shown); the core sends
-        // the note on (re)connect and when one of them other than the time changes. Highway is not known yet: left out.
-        let planner = trip.planner
+        // F-09b §14 item 1 (T-031p): the `现在` facts every 15 s (place, time); the core sends the note on (re)connect and
+        // when one of them other than the time changes. Highway is not known yet: left out. What the screen shows is the
+        // `屏幕` line's (F-09b §16 item 4).
         tasks.append(Task {
             var tracker = ContextPlaceTracker()
             var lastPlace: ContextPlace?
@@ -1198,10 +1197,8 @@ final class AgentRuntime {
                     }
                 }
                 if place != nil { lastPlace = place }
-                let shown = await planner.nearTrip().map { !$0.hidden } ?? false
                 await core.send(.context(ContextSnapshot(place: place, onHighway: nil,
-                                                         localTime: ContextSnapshot.localTime(Date()),
-                                                         navigating: navigatingNow.get(), tripShown: shown)))
+                                                         localTime: ContextSnapshot.localTime(Date()))))
                 try? await Task.sleep(for: .seconds(15))
             }
         })
@@ -1353,7 +1350,6 @@ final class AgentRuntime {
                     currentDestination.set(name)
                     await core.send(.destination(name))
                 }
-                navigatingNow.set(snapshot.navigating)
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen)))
@@ -1812,14 +1808,6 @@ enum UplinkEvent: Sendable {
     case words(DriverWords)
     /// F-08 §17 item 11 (T-022e): confirmed new words; comes before the released utterance's marks.
     case bargeInStop
-}
-
-/// F-09b §14 item 1 (T-031p): the navigation stream's `navigating`, for the context loop.
-final class NavigatingBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-    func set(_ v: Bool) { lock.withLock { value = v } }
-    func get() -> Bool { lock.withLock { value } }
 }
 
 /// F-15b §51 item 9 (T-040za): the latest `RouteGeometry.car` (GCJ-02; nil without a simulated route).

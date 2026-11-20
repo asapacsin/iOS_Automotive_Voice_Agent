@@ -21,7 +21,7 @@ struct EvalExportTests {
         let car = CarStateSnapshot(acOn: true, temperatureC: 24, fanLevel: 2, windows: [:], driverSeat: 3,
                                    musicPlaying: false, speedKmh: 60).note
         let now = ContextSnapshot(place: ContextPlace(city: "珠海市", district: "香洲区"), onHighway: nil,
-                                  localTime: "14:30", navigating: false, tripShown: false).note
+                                  localTime: "14:30").note
         return ["instruction": instruction, "tools": tools, "notes": [car, now]]
     }
 

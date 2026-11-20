@@ -52,7 +52,7 @@ struct FlexibleAssistantTests {
         var s = Self.car(speed: nil)
         s.windows[.frontLeft] = 30
         s.temperatureC = 22.5
-        #expect(s.note == "[系统] 车内状态：空调开，22.5度，风量2；车窗 主驾30% 副驾0% 后左0% 后右0%；座椅 主驾5档；音乐没放；车速未知公里。这句不用回答。")
+        #expect(s.note == "[系统] 车内状态：空调开，22.5度，风量2；车窗 主驾30% 副驾0% 后左0% 后右0%；座椅 主驾5档；车速未知公里。这句不用回答。")
         #expect(Self.car().note.contains("车速60公里"))
     }
 

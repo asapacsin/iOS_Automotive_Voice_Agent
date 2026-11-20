@@ -49,21 +49,18 @@ public struct ContextPlace: Sendable, Hashable {
 }
 
 /// F-09b §14 item 1 (T-031p): the facts of the `[系统] 现在` note. `localTime` is the text of the local date and
-/// time at the moment the app made the snapshot; it is sent with the note but is no reason for one.
+/// time at the moment the app made the snapshot; it is sent with the note but is no reason for one. What the screen
+/// shows (navigating, the trip) is the `屏幕` line's (F-09b §16 item 4, T-031z), not this note's.
 public struct ContextSnapshot: Sendable, Hashable {
     public var place: ContextPlace?
     /// From the route when known; nil leaves the field out.
     public var onHighway: Bool?
     public var localTime: String
-    public var navigating: Bool
-    public var tripShown: Bool
 
-    public init(place: ContextPlace?, onHighway: Bool?, localTime: String, navigating: Bool, tripShown: Bool) {
+    public init(place: ContextPlace?, onHighway: Bool?, localTime: String) {
         self.place = place
         self.onHighway = onHighway
         self.localTime = localTime
-        self.navigating = navigating
-        self.tripShown = tripShown
     }
 
     /// The local date and time as the note says it (「11月20日 星期五 14:05」).
@@ -81,7 +78,7 @@ public struct ContextSnapshot: Sendable, Hashable {
 
     /// Item 8: the field names the note carries (no values, I-8).
     public var fields: [ContextNoteField] {
-        [.place] + (onHighway == nil ? [] : [.highway]) + [.time, .navigating, .trip]
+        [.place] + (onHighway == nil ? [] : [.highway]) + [.time]
     }
 
     /// Item 1, exact form.
@@ -89,8 +86,6 @@ public struct ContextSnapshot: Sendable, Hashable {
         var parts = ["位置：\(place?.text ?? "不知道")"]
         if let onHighway { parts.append(onHighway ? "在高速上" : "不在高速上") }
         parts.append("当地时间 \(localTime)")
-        parts.append(navigating ? "正在导航" : "没在导航")
-        parts.append(tripShown ? "屏幕上显示着行程" : "屏幕上没有行程")
         return "[系统] 现在：" + parts.joined(separator: "；") + "。这句不用回答。"
     }
 }

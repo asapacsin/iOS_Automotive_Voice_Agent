@@ -27,6 +27,7 @@ enum RecordFormatSession {
         .audio("route=speaker"),
         .contextNote(destination: "测试地点"),
         .nowNote(fields: [ContextNoteField.allCases[0]]),
+        .screen(ScreenState(on: [.routePicking], musicVolume: 6)),
         .stateNote(StateNoteReason.allCases[0]),
         .summaryNote(exchanges: 3, ageS: 60),
         .turnStarted(t1),
@@ -108,15 +109,15 @@ enum RecordFormatSession {
 
 @Suite("T-031u F-12 §21 record format")
 struct RecordFormatTests {
-    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat <n> (2 since T-031y), then the app line with the commit")
+    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat <n> (3 since T-031z), then the app line with the commit")
     func row1() {
         let record = ConversationRecord.make(enabled: true, header: RecordHeader(
             appVersion: "0.1.0(1) abcdef0", comfortMode: "model", interruptible: false, speakingStyle: "default"))!
         let w = MemoryWriter()
         record.drain(to: w)
         let lines = w.lines.withLock { $0 }
-        #expect(ConversationRecord.formatVersion == 2)
-        #expect(Array(lines.prefix(2)) == ["recordFormat 2", "app 0.1.0(1) abcdef0"])
+        #expect(ConversationRecord.formatVersion == 3)
+        #expect(Array(lines.prefix(2)) == ["recordFormat 3", "app 0.1.0(1) abcdef0"])
     }
 
     @Test("T-031u F-12 §21 rows 2-3: the fixed session encodes exactly to record-format-<formatVersion>.txt")

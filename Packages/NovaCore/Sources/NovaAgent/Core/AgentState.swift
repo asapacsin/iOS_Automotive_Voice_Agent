@@ -52,6 +52,9 @@ public enum AgentEvent: Sendable, Hashable {
     /// F-09b §14 item 1 (T-031p): the place, highway, local time, navigating and trip-shown facts now. The core sends
     /// the `现在` note on (re)connect and when one of them (not the time) changes.
     case context(ContextSnapshot)
+    /// F-09b §16 item 4 (T-031z): what the display shows now (the App's `ScreenState`, already settled for
+    /// `Tuning.screenSettleMs`). The core sends the `屏幕` line on (re)connect and after any key changes.
+    case screen(ScreenState)
 }
 
 /// F-09b §5 item 1 (T-031j): what the car-state note says. The same values as `get_vehicle_state`; never a location.
@@ -76,14 +79,15 @@ public struct CarStateSnapshot: Sendable, Hashable {
     }
 
     /// Everything but the speed (a speed change alone is no state change; only a crossing is, §5 item 2).
-    var cabin: CarStateSnapshot { var c = self; c.speedKmh = nil; return c }
+    /// F-09b §16 item 4: music is the `屏幕` line's `music` key, so it is no car-state change either.
+    var cabin: CarStateSnapshot { var c = self; c.speedKmh = nil; c.musicPlaying = false; return c }
 
     /// §5 item 1, exact form.
     public var note: String {
         func t(_ c: Double) -> String { c == c.rounded() ? String(Int(c)) : String(format: "%.1f", c) }
         func w(_ id: WindowID) -> Int { windows[id] ?? 0 }
         let speed = speedKmh.map { String(Int($0.rounded())) } ?? "未知"
-        return "[系统] 车内状态：空调\(acOn ? "开" : "关")，\(t(temperatureC))度，风量\(fanLevel)；车窗 主驾\(w(.frontLeft))% 副驾\(w(.frontRight))% 后左\(w(.rearLeft))% 后右\(w(.rearRight))%；座椅 主驾\(driverSeat)档；音乐\(musicPlaying ? "在放" : "没放")；车速\(speed)公里。这句不用回答。"
+        return "[系统] 车内状态：空调\(acOn ? "开" : "关")，\(t(temperatureC))度，风量\(fanLevel)；车窗 主驾\(w(.frontLeft))% 副驾\(w(.frontRight))% 后左\(w(.rearLeft))% 后右\(w(.rearRight))%；座椅 主驾\(driverSeat)档；车速\(speed)公里。这句不用回答。"
     }
 }
 
@@ -344,6 +348,11 @@ public struct AgentState: Sendable {
     private var contextNow: ContextSnapshot?
     private var contextSent: ContextSnapshot?
     private var contextPending = false
+    /// F-09b §16 item 4 (T-031z): the latest screen state, what the last `屏幕` line said, and a line owed. Only the
+    /// latest is sent: changes during her reply go as one line when it ends.
+    private var screenNow: ScreenState?
+    private var screenSent: ScreenState?
+    private var screenPending = false
     /// F-15b §13 item 4: screen-edit notes waiting for an idle moment, in order.
     private var pendingScreen: [String] = []
     private var stateSinceTurn = false
@@ -401,6 +410,10 @@ public struct AgentState: Sendable {
             contextNow = new
             let connected = ![.disconnected, .connecting, .reconnecting, .error].contains(session.state)
             if connected, contextSent != new.key { contextPending = true }
+        case .screen(let new):
+            screenNow = new
+            let connected = ![.disconnected, .connecting, .reconnecting, .error].contains(session.state)
+            if connected, screenSent != new { screenPending = true }
         case .vehicleState(let new):
             let old = carState
             carState = new
@@ -421,6 +434,7 @@ public struct AgentState: Sendable {
             stateSinceTurn = false
             if carState != nil { pendingState = .connect }
             if contextNow != nil { contextPending = true }
+            if screenNow != nil { screenPending = true }
         default:
             break
         }
@@ -480,6 +494,12 @@ public struct AgentState: Sendable {
             texts.append(now.note)
             diagnostics.append(.diagnostic(.contextNote(fields: now.fields)))
         }
+        if screenPending, let screen = screenNow {
+            screenPending = false
+            screenSent = screen
+            texts.append(screen.line)
+            diagnostics.append(.diagnostic(.screenLine(screen)))
+        }
         if let reason = pendingState, let state = carState, reason == .connect || !stateSinceTurn {
             pendingState = nil
             carChanged = false
@@ -508,7 +528,7 @@ public struct AgentState: Sendable {
 
     private mutating func dispatch(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
         switch event {
-        case .destination, .vehicleState, .screenNote, .context:
+        case .destination, .vehicleState, .screenNote, .context, .screen:
             return []
         case .start:
             return session(.start, at: now)
