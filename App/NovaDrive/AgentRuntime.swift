@@ -1133,17 +1133,26 @@ final class AgentRuntime {
         let planner = trip.planner
         tasks.append(Task {
             var tracker = ContextPlaceTracker()
+            var lastPlace: ContextPlace?
             while !Task.isCancelled {
                 var place: ContextPlace?
                 if let center = await navigation.contextCenter() {
                     if let known = tracker.known(center) {
                         place = known
                     } else {
-                        let address = try? await web.address(at: center.coordinate)
-                        place = ContextPlace(center: center, address: address)
-                        if address != nil { tracker.looked(center, place) }
+                        // A failed lookup (no network, a stop abroad) keeps the last place for the same trip
+                        // location and is cached for this center, so it is not retried every 15 s.
+                        if let address = try? await web.address(at: center.coordinate) {
+                            place = ContextPlace(center: center, address: address)
+                        } else if let last = lastPlace, last.trip == center.trip {
+                            place = last
+                        } else {
+                            place = ContextPlace(center: center, address: nil)
+                        }
+                        tracker.looked(center, place)
                     }
                 }
+                if place != nil { lastPlace = place }
                 let shown = await planner.nearTrip().map { !$0.hidden } ?? false
                 await core.send(.context(ContextSnapshot(place: place, onHighway: nil,
                                                          localTime: ContextSnapshot.localTime(Date()),
@@ -1755,7 +1764,6 @@ enum UplinkEvent: Sendable {
     case bargeInStop
 }
 
-/// F-15b §51 item 9 (T-040za): the latest `RouteGeometry.car` (GCJ-02; nil without a simulated route).
 /// F-09b §14 item 1 (T-031p): the navigation stream's `navigating`, for the context loop.
 final class NavigatingBox: @unchecked Sendable {
     private let lock = NSLock()
@@ -1764,6 +1772,7 @@ final class NavigatingBox: @unchecked Sendable {
     func get() -> Bool { lock.withLock { value } }
 }
 
+/// F-15b §51 item 9 (T-040za): the latest `RouteGeometry.car` (GCJ-02; nil without a simulated route).
 final class SimulatedCarBox: @unchecked Sendable {
     private let lock = NSLock()
     private var car: GeoCoordinate?

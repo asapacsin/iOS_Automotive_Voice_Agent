@@ -45,6 +45,8 @@ struct ContextNoteTests {
         // Nothing while disconnected; on the next connect the note goes again.
         var off = Drive()
         #expect(Self.fields(off.send(.context(Self.snap()))).isEmpty)
+        off.connect()
+        #expect(Self.fields(off.effects).count == 1)
     }
 
     @Test("T-031p F-09b §14 row 1: city cut from the regeo address; regeo only after a move or a trip change")
@@ -93,6 +95,10 @@ struct ContextNoteTests {
         // A read-only tool before agreement is fine.
         let read = [AskOrActEval.TurnRun(tools: ["query_live_info"], asked: true), .init(tools: ["navigate_to"], asked: false)]
         #expect(AskOrActEval.score(sleepy, read) == nil)
+        // After 好, navigate_to lists places and she asks which: the pick question is no failure.
+        let pick = [AskOrActEval.TurnRun(tools: [], asked: true), .init(tools: ["navigate_to"], asked: true, picking: true)]
+        #expect(AskOrActEval.score(sleepy, pick) == nil)
+        #expect(AskOrActEval.score(sleepy, [.init(tools: [], asked: true), .init(tools: ["navigate_to"], asked: true)])?.failure == .askedWhenDecided)
         // A suggestion that does not ask.
         #expect(AskOrActEval.score(sleepy, [.init(tools: [], asked: false)])?.failure == .noQuestion)
         // A question in a decided case.

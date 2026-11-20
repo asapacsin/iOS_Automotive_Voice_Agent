@@ -12,7 +12,7 @@ public enum AskOrActEval {
 
     /// Tools that only read: allowed in a turn where the driver has not decided.
     public static let readOnly: Set<String> = ["get_vehicle_state", "query_live_info", "web_search",
-                                                     "google_search", "trip_plans"]
+                                                     "google_search", "describe_camera_view"]
 
     /// What one driver turn expects of her.
     public enum Expect: Sendable, Hashable {
@@ -55,10 +55,14 @@ public enum AskOrActEval {
         public let tools: [String]
         public let asked: Bool
         public let claimsMatch: Bool
-        public init(tools: [String], asked: Bool, claimsMatch: Bool = true) {
+        /// The acting tool returned options waiting for the driver's pick (navigate_to's list, §14 item 4): her
+        /// pick question is the tool's step, not a question in a decided case.
+        public let picking: Bool
+        public init(tools: [String], asked: Bool, claimsMatch: Bool = true, picking: Bool = false) {
             self.tools = tools
             self.asked = asked
             self.claimsMatch = claimsMatch
+            self.picking = picking
         }
     }
 
@@ -74,7 +78,7 @@ public enum AskOrActEval {
         case .act(let tools):
             let called = tools.isEmpty ? acting : run.tools.filter { tools.contains($0) }
             if called.isEmpty { return run.tools.isEmpty ? .noTool : .wrongTool }
-            if run.asked { return .askedWhenDecided }
+            if run.asked && !run.picking { return .askedWhenDecided }
         case .offer:
             if !acting.isEmpty { return .actedBeforeAgreement }
             if !run.asked { return .noQuestion }
@@ -82,7 +86,7 @@ public enum AskOrActEval {
             if !acting.isEmpty { return .actedBeforeAgreement }
             if run.asked { return .askedWhenDecided }
         case .goes:
-            if run.asked { return .askedWhenDecided }
+            if run.asked && !run.picking { return .askedWhenDecided }
         }
         return nil
     }
