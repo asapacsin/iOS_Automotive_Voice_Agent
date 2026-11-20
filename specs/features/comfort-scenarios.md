@@ -393,3 +393,43 @@ Community review 2026-11-03:
 | Task | Scope | Verify |
 |---|---|---|
 | T-031i | Items 1–4; rows 1–4 | unit, build, D |
+
+## 21. Record format version and the PC archive (iOS, APPROVED 2026-11-20)
+
+**Why.** Owner 2026-11-20: records from many builds will be collected and read for patterns ("store the record, later collect from those logs and learn the pattern"), and "every version of log might differ". Today the header has `app 0.1.0(1) <commit>` (§17 item 3) but no format number, so a reader cannot tell which line format a file uses. This section registers every record with its format and build. Labelling and pattern reports come later (F-09b, separate tasks).
+
+**Rule in plain words.** Every record file says which format it is written in and which build wrote it. A test stops the format from changing without a new number. A PC script pulls the records, files each one by build and format, and refuses a format it does not know.
+
+1. **Header.** The first line of every new file is `recordFormat <n>`; the second is §17's `app` line, which already carries the commit. `ConversationRecord.formatVersion` holds `n`; this section sets it to 1. A file without the line is format 0 (every record written before this change).
+2. **Format 1 is today's lines, unchanged**, plus the header line. Nothing else in §17 changes (setting off by default, 50 newest files, privacy, never in the way).
+3. **Format check (unit test, gate).** A fixed session that writes every `RecordEvent` kind at least once is encoded and compared with `Packages/NovaCore/Tests/NovaAgentTests/Fixtures/record-format-<n>.txt`.
+   - Any change to a line's text, a new event kind or a removed one fails the test until `formatVersion` goes up by one and a new fixture is added. Old fixtures stay in the repository.
+   - The test also fails if the event list has a kind the fixture session does not write, so a new kind cannot skip the check.
+4. **Format notes.** `specs/contracts/record-format.md` lists each format: the version, the first commit that writes it, and what changed from the one before (one line per change). A format bump without a line there fails `scripts/gates/check_record_format.py` (new, Linux, in `run_all.sh`).
+5. **PC collector `scripts/records/collect.py`** (Windows PC, the phone on USB):
+   - Pulls `Documents/conversations/*.txt` from the app (bundle `XTL-Y6YT9YM42U.com.asapacsin.novadrive`) with pymobiledevice3's app-container access. The exact command is not verified; the task finds the working one and records it in the `phone-test` skill. If the container cannot be read, the script says so and stops (the owner can export the folder through the Files app instead, and `--from <folder>` reads that).
+   - Files each record as `D:\ndrecords\<commit>\<file name>`, unchanged.
+   - Keeps `D:\ndrecords\index.csv` with one row per file: file, sha256, commit, app version, recordFormat, start time, line count, `dropped=` count. A file with a sha256 already in the index is skipped, so pulling twice adds nothing.
+   - A file whose format has no reader (item 6) is archived and indexed with `reader=none`, and the run ends with "unknown recordFormat <n> in <commit>"; it is never parsed by guessing.
+   - Nothing leaves the PC; no network call.
+6. **Readers `scripts/records/read.py`.** One reader per format turns a file into the same rows (session, turn id, time, kind, fields). Format 0 is read best-effort and every row from it is marked `legacy=true`. Each reader has a test on its fixture file (item 3's fixtures, copied into `scripts/fixtures/records/`).
+7. **Log.** No new `RuntimeLog` line. The archive is on the PC only and may contain addresses, like the records (§17 item 5).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | A new record file | Line 1 `recordFormat 1`, line 2 the `app` line with the commit | unit |
+| 2 | The fixed session encoded | Equals `record-format-1.txt` | unit |
+| 3 | A line's text changed with `formatVersion` unchanged | Item 3's test fails | unit |
+| 4 | A new `RecordEvent` kind the fixture session does not write | Item 3's test fails | unit |
+| 5 | `formatVersion` 2 with no line in `record-format.md` | `check_record_format.py` fails | unit (gate) |
+| 6 | `collect.py --from` a folder with one format-0 file, one format-1 file, one `recordFormat 9` file, and a copy of the format-1 file | 3 files archived under their commits; index has 3 rows; the copy skipped; the format-9 row `reader=none` and the run reports it | unit (PC script test) |
+| 7 | `read.py` on the format-0 and format-1 fixtures | Same row shape; format-0 rows `legacy=true` | unit |
+| 8 | Device: record on, a short drive, then `collect.py` on the PC | Files pulled and indexed under the build's commit; the pull command written into the `phone-test` skill | D |
+
+**Trace gate.** Add `T-031u: F-12` to `specs/trace-ids.txt` together with the first `@Test` that names T-031u.
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031u | Items 1–7; rows 1–8 | unit, gate, D |
