@@ -521,3 +521,56 @@ T-016p. Trace ids are added with the tests (`T-031c: F-12 F-09b` and so on), not
 | Task | Scope | Verify |
 |---|---|---|
 | T-031t | Stage E: items 1–6; rows 11–22 | unit, eval, build, D |
+
+## 15. Her setup has a version, and every record says which one (iOS, APPROVED 2026-11-20)
+
+**Why.** Owner 2026-11-20: "this system would have a version assigned by the system rule setting; after build into app it would record the log labelled with that version". Records are collected and read for patterns (F-12 §21). A build commit alone does not say whether her behaviour changed: many builds change only audio or UI. Comparing her behaviour needs a version of what shapes it.
+
+**Sources (checked 2026-11-20).**
+- **Langfuse.** Every prompt change is a new, unchangeable numbered version; each generation links to the version it used; metrics are grouped per version; a label such as `production` points at a version and moving it back is a rollback. ([version control](https://langfuse.com/docs/prompt-management/features/prompt-version-control), [link to traces](https://langfuse.com/docs/prompt-management/features/link-to-traces), [at scale](https://langfuse.com/resources/engineering/prompt-management-at-scale))
+- **MLflow Prompt Registry.** Git-like: unchangeable versions with a commit message and a diff; lineage from a prompt version to the application version. ([MLflow](https://mlflow.org/docs/3.5.0/genai/prompt-registry), [Databricks](https://docs.databricks.com/aws/en/mlflow3/genai/prompt-version-mgmt/prompt-registry/track-prompts-app-versions))
+- **OpenTelemetry GenAI conventions** (status Development). `gen_ai.agent.version`, `gen_ai.request.model`; guides add `gen_ai.response.model`, because the model that answered can differ from the one asked. ([registry](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/), [agent spans](https://raw.githubusercontent.com/open-telemetry/semantic-conventions-genai/main/docs/gen-ai/gen-ai-agent-spans.md), [explainer](https://www.dash0.com/knowledge/opentelemetry-genai-semantic-conventions-explained))
+- **Not taken from Langfuse:** changing the live prompt from a server. Her setup stays in the app build (App Store guideline 2.5.2 on changing features after review; the safety rules are tested against the exact texts).
+
+**Rule in plain words.** What shapes her behaviour has a version number in a registry file and a fingerprint the app computes from what it really sends. A test fails when the fingerprint changes without a new version. Every record names the version, the fingerprint and the model.
+
+1. **Her setup** (`AgentSetup`, NovaCore) is, in a fixed order:
+   - the model id requested;
+   - the base instruction as sent, for each value of the session settings that change it (speaking style, comfort mode, web search on or off, language);
+   - every tool the model can see: name, description, parameter schema, in catalog order, for each such setting;
+   - the `[系统]` note templates (with their variable parts as placeholders);
+   - behaviour values in `Tuning` that she acts on (marked `// agentSetup` in `Tuning.swift`; e.g. `offerOpenSeconds`, the suggestion limit).
+   - Not in it: audio, UI, network and log code; keys.
+2. **`agentHash`.** SHA-256 over item 1's parts as UTF-8 with a separator, first 12 hex characters. Computed at session start from the texts actually sent, for that session's settings (`agentHash`), and in the test for all settings combined (`agentSetupHash`).
+3. **Registry `specs/contracts/agent-versions.md`.** One row per version, newest first: `agentVersion`, `agentSetupHash`, date, first commit, a one-line note, the spec sections. `AgentSetup.version` in code equals the newest row. This section starts at `1.0.0`, the setup at the commit that implements it.
+4. **Bump rules.**
+   - **Major:** a tool added or removed, a tool parameter added or removed, or a whole part of the base instruction (§14 item 2's four parts) rewritten, or the model id changed.
+   - **Minor:** any other text change in the base instruction, a tool description or a note template.
+   - **Patch:** an item 1 `Tuning` value changed.
+   - The note says which rule applied.
+5. **Gate.** A unit test computes `agentSetupHash` and compares it with the registry row for `AgentSetup.version`. A different hash fails with "agent setup changed: add a version row". `scripts/gates/check_agent_version.py` (Linux, in `run_all.sh`) checks the registry: versions in order, each bump matches item 4 against the previous row's recorded parts list (the test writes `agentSetup.parts.json` next to the fixtures with each part's own hash), no row without a note and a spec section.
+6. **Record and log.**
+   - The record header (F-12 §21) gains `agentVersion <v>`, `agentHash <h>`, `model <requested>` after the `app` line; and a `model-served <name>` line when Gemini's setup or first response names the model that answers, if it names one. This is a header change, so F-12 §21's `recordFormat` goes up by one.
+   - `RuntimeLog` gets one line at session start: `agent version=<v> hash=<h> model=<requested>` (no text, I-8).
+   - The field names follow OpenTelemetry: `agentVersion` = `gen_ai.agent.version`, `model` = `gen_ai.request.model`, `model-served` = `gen_ai.response.model`.
+7. **PC side.** F-12 §21's reader returns `agentVersion`, `agentHash` and `model` with every row; `index.csv` gains the three columns. Reports compare by `agentVersion` (several builds can share one). A record whose `agentHash` matches no registry row for its version is flagged `setup=unregistered` (a debug build).
+8. **Rollback** is a rebuild at an older commit (Codemagic); the registry row shows which.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | `AgentSetup` for each session-setting combination | Parts in item 1's order; audio, UI and keys not included | unit |
+| 2 | One character changed in a tool description, version unchanged | Gate test fails with "agent setup changed" | unit |
+| 3 | Same, with a minor row added to the registry | Passes | unit |
+| 4 | A tool added with only a minor row | `check_agent_version.py` fails (major required) | unit (gate) |
+| 5 | A marked `Tuning` value changed, patch row added | Passes; an unmarked value changed: hash unchanged | unit |
+| 6 | Session start | Record header has `agentVersion`, `agentHash` for that session's settings, `model`; `RuntimeLog` line has no text | unit |
+| 7 | `read.py` on a record with the new header | Rows carry the three fields; index has the columns; an unknown hash flagged `setup=unregistered` | unit (PC script test) |
+| 8 | Device: one session with speaking style changed between two sessions | Two records, same `agentVersion`, different `agentHash` | D |
+
+**Trace gate.** Add `T-031y: F-09b` to `specs/trace-ids.txt` together with the first `@Test` that names T-031y.
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031y | Items 1–8; rows 1–8 | unit, gate, build, D |

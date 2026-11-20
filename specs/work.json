@@ -1502,6 +1502,18 @@
       "action": "F-12 §21 items 1-7: recordFormat header (format 1 = today's lines), format fixture test that fails on any unbumped change, record-format.md + check_record_format.py gate, scripts/records/collect.py (pull, archive D:\ndrecords\\<commit>, index.csv, refuse unknown formats), read.py with one reader per format; rows 1-8.",
       "notes": "Owner 2026-11-20: 'can you register the log with version' - records from many builds will be collected and read for patterns.",
       "evidence": []
+    },
+    {
+      "id": "T-031y",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031u"
+      ],
+      "action": "F-09b §15 items 1-8: AgentSetup (model, base instruction, tool names/descriptions/schemas, note templates, marked Tuning values) -> agentHash; specs/contracts/agent-versions.md registry with major/minor/patch bump rules; gate test + check_agent_version.py; record header agentVersion/agentHash/model/model-served (recordFormat +1) and RuntimeLog line; PC reader columns; rows 1-8.",
+      "notes": "Owner 2026-11-20: her setup gets a version assigned by fixed rules and every record is labelled with it. Sources: Langfuse, MLflow Prompt Registry, OpenTelemetry GenAI conventions.",
+      "evidence": []
     }
   ]
 }
