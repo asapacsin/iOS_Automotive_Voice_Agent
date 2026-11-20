@@ -170,7 +170,7 @@ struct StateTests {
 @Suite("T-010 typed diagnostics (I-7, I-8)")
 struct DiagnosticsTests {
     static let samples: [DiagnosticEvent] = [
-        .stateNote(reason: .speed), .summaryNote(exchanges: 3, ageS: 600),
+        .stateNote(reason: .speed), .summaryNote(exchanges: 3, ageS: 600), .contextNote(fields: [.place, .time]),
         .sessionState(.listening), .listeningState(.sleep), .navigationPhase(.navigating),
         .reconnectAttempt(attempt: 1, delay: .milliseconds(200)), .providerEventsDropped(count: 1),
         .setupTimeout, .toolRefused(code: .ambiguousReferent), .toolFailed(code: .vehicleExecutionFailed),

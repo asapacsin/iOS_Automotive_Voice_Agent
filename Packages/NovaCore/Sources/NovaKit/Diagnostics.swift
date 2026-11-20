@@ -69,6 +69,13 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case stateNote(reason: StateNoteReason)
     /// F-09b §8 (T-016p): a summary of earlier exchanges went to the model. Numbers only, no words (I-8, I-7).
     case summaryNote(exchanges: Int, ageS: Int)
+    /// F-09b §14 item 8 (T-031p): a `现在` context note went to the model. Field names only, no values (I-8).
+    case contextNote(fields: [ContextNoteField])
+}
+
+/// F-09b §14 item 8 (T-031p): the field names a `现在` note carries (names only, never values).
+public enum ContextNoteField: String, Sendable, Hashable, CaseIterable {
+    case place, highway, time, navigating, trip
 }
 
 /// F-09b §5 item 2 (T-031j): why a car-state note is sent.
@@ -146,6 +153,7 @@ extension DiagnosticEvent {
         case asyncToolDropped
         case stateNote
         case summaryNote
+        case contextNote
     }
 
     public var kind: Kind {
@@ -192,6 +200,7 @@ extension DiagnosticEvent {
         case .asyncToolDropped: .asyncToolDropped
         case .stateNote: .stateNote
         case .summaryNote: .summaryNote
+        case .contextNote: .contextNote
         }
     }
 }
@@ -225,6 +234,7 @@ extension DiagnosticEvent {
         case .asyncToolDropped(let tool): "tool-result \(tool.rawValue) dropped reason=reconnect"
         case .stateNote(let reason): "state-note reason=\(reason.rawValue)"
         case .summaryNote(let n, let age): "summary-note exchanges=\(n) age_s=\(age)"
+        case .contextNote(let fields): "contextNote fields=\(fields.map(\.rawValue).joined(separator: ","))"
         default: "diagnostic \(self)"
         }
     }

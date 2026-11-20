@@ -50,24 +50,24 @@ private struct SeparateRig {
 
 @Suite("T-040y F-15b §51 plain navigation separate from the trip")
 struct TripNavSeparateTests {
-    @Test("F-15b §51 row 161: Zhuhai, Tokyo trip shown, navigate_to 附近的咖啡店 (no abroad): 高德 around the phone, no Photon, no abroad=yes")
+    @Test("F-15b §51 row 161 (cards hidden since item 9): Zhuhai, Tokyo trip hidden, navigate_to 附近的咖啡店 (no abroad): 高德 around the phone, no Photon, no abroad=yes")
     func row161() async {
         let amap = AmapSpy()
         let photon = FakeApple(["咖啡店": [jp("Doutor", lat: 35.69)]])
         let rig = await SeparateRig(phone: zhuhai, home: amap, photon: photon)
-        _ = await rig.tokyoTrip()
+        #expect(await rig.tokyoTrip().hideCards())
         _ = await rig.nav.execute(navCall(["destination": "附近的咖啡店", "near": "here"]))
         #expect(amap.calls.withLock { $0 }.contains("咖啡店"))
         #expect(photon.asked.withLock { $0 }.isEmpty && rig.areas.withLock { $0 }.isEmpty)
         #expect(rig.lines.withLock { $0 }.allSatisfy { !$0.contains("abroad=yes") })
     }
 
-    @Test("F-15b §51 row 162: Tokyo trip shown, navigate_to 浅草寺 (no abroad): home search, the trip is not consulted")
+    @Test("F-15b §51 row 162 (cards hidden since item 9): Tokyo trip hidden, navigate_to 浅草寺 (no abroad): home search, the trip is not consulted")
     func row162() async {
         let amap = AmapSpy()
         let photon = FakeApple(tokyo)
         let rig = await SeparateRig(phone: zhuhai, home: amap, photon: photon)
-        _ = await rig.tokyoTrip()
+        #expect(await rig.tokyoTrip().hideCards())
         _ = await rig.nav.execute(navCall(["destination": "浅草寺", "near": "here"]))
         #expect(!amap.calls.withLock { $0 }.isEmpty)
         #expect(photon.asked.withLock { $0 }.isEmpty && rig.areas.withLock { $0 }.isEmpty)

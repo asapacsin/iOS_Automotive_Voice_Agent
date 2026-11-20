@@ -78,6 +78,8 @@ public enum RecordEvent: Sendable, Hashable {
     case stateNote(StateNoteReason)
     /// F-09b §8 (T-016p): `summary-note exchanges=<n> age_s=<s>`.
     case summaryNote(exchanges: Int, ageS: Int)
+    /// F-09b §14 item 8 (T-031p): `contextNote fields=<names>`; field names only (I-8).
+    case nowNote(fields: [ContextNoteField])
     /// F-09b §8 (T-031j): `undo ok=<yes|no> restored=<n>`.
     case undo(String)
     /// F-15b §7 (T-040i): `trip list …`, `trip lookup …`, `trip route …`, `trip stop-passed …`; codes and numbers only.
@@ -231,6 +233,7 @@ public struct ConversationRecorder: Sendable {
         case .claimCut(let turn, let played): return [line("claim-cut", "turn=\(turn) played_ms=\(played)")]
         case .stateNote(let reason): return [line("state-note", "reason=\(reason.rawValue)")]
         case .summaryNote(let n, let age): return [line("summary-note", "exchanges=\(n) age_s=\(age)")]
+        case .nowNote(let fields): return [line("contextNote", "fields=\(fields.map(\.rawValue).joined(separator: ","))")]
         case .undo(let text): return ["\(ms) \(text)"]
         case .trip(let text): return ["\(ms) \(text)"]
         case .volume(let text), .audio(let text): return ["\(ms) \(text)"]

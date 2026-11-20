@@ -223,7 +223,7 @@ with none suggested, it picks well-known places itself and does not ask where (�
 **Catalog text:**
 > 做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点名（最多16个，每个只写地名，不写介绍）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[["广州塔","陈家祠"],["长隆野生动物世界"]]。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。
 >
-> (Revised 2026-11-16, §15 item 6: the old text began 「把刚才推荐的地点做成打卡清单」, and on the device she asked which places instead of planning.)
+> (Revised 2026-11-16, §15 item 6: the old text began 「把刚才推荐的地点做成打卡清单」, and on the device she asked which places instead of planning.) (2026-11-20: this text is rewritten under F-09b §14 stage D, T-031s; 「不要反问去哪里」 goes.)
 
 ### 5.2 `edit_trip_list`
 
@@ -1844,7 +1844,7 @@ test trip from the day before still saved:
    - **Unchanged:** `near=place`, `near=trip`, `near=route`; `query_live_info` and `current_location` (the phone);
      route starts (`routeOrigin`, item 7).
    - **Replaces** for `near=here` while the cards are shown: item 1's 「附近 … always the home search around the phone,
-     also with a trip shown」, item 8's `trip_city` fact, rows 161, 173 and 176 (they hold with the cards hidden).
+     also with a trip shown」, item 8's `trip_city` fact, rows 161, 162, 173 and 176 (they hold with the cards hidden).
    - **Log:** `nav near kind=here … source=trip_here` (enums only, I-8).
 
 **Acceptance (iOS).**

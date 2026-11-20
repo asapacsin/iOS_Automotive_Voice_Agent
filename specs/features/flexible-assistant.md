@@ -371,3 +371,206 @@ T-016p. Trace ids are added with the tests (`T-031c: F-12 F-09b` and so on), not
 | T-031m | Item 4; rows 5, 9 (stage 2), 11, 13 | unit, eval, build, D |
 | T-031n | Item 5, item 8 made failing; rows 6, 8, 9 (stage 3), 12 | unit, eval, build, D |
 | T-031o | Item 6; rows 7, 9 (stage 4) | unit, eval, build |
+
+## 14. She gets the state, the context and the tools, and decides; code keeps only the safety checks (iOS, APPROVED 2026-11-20)
+
+**Why.**
+- **What happened.** Owner 2026-11-20, ipa b5c0933:
+  - 「有點困了」 got a tool call or a sentence that made no sense, not 「要不要去個咖啡廳，或者找個地方坐坐」.
+  - 「想帶家人玩三天，但不知道去哪」 got a whole plan for a place the model picked, with no question.
+- **What the owner wants (2026-11-20).** "the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base". If the driver has decided, she follows. If not, she is proactive: she suggests something with a reason and the driver's answer steers her.
+- **The cause is our text, not the model.** Each earlier complaint was fixed with a rule for one phrase, and the rules now decide for her. Audit at b5c0933:
+
+  | Where | What it does now | Example |
+  |---|---|---|
+  | Base instruction, rules 4–9 (`SpeakingStyle.swift`) | Phrase → tool scripts | 「我现在在哪」 → `query_live_info kind=current_location`; 「现在几点」 → `current_time` |
+  | Rule 5 + sleepy sentence (§12) | Fixed actions for feelings, 「不要反问」 | 累 → `navigate_to 附近的咖啡店` at once; 「座位有点高：座椅降低一级」 |
+  | 34 tool descriptions (`ToolCatalog+Generated.swift` from Android, `ToolCatalog.swift`) | About 245 quoted driver phrases, most mapped to an action or value | `control_climate`: 「有点热」 → `adjust_temperature,value=-2`, 「不要反问」 |
+  | 「不要反问」 | In `control_climate`, `control_seat`, `run_scenario`, `make_trip_list`, rule 5 | `make_trip_list`: 「没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里」 (F-15b §15 item 6) |
+  | Notes from code that say what to reply | Trip arrival, corrections | 「问司机要不要现在去下一站」; 「请用一句简短的话问司机…」 |
+
+- **What she is not told.** She gets notes for the car state (§5), the destination, the trip and screen edits. She is not told where the car is (city or district), whether it is on a highway, or the local time. To suggest 「清远，开车一个半小时」 or a service area, she must call a tool first or guess.
+
+**Sources (checked 2026-11-20).**
+- **OpenAI, function calling, "Best practices for defining functions".** "Explicitly describe the purpose of the function and each parameter (and its format), and what the output represents." "Use the system prompt to describe when (and when not) to use each function." "Include examples and edge cases, especially to rectify any recurring failures", and "Adding examples may hurt performance for reasoning models." "Offload the burden from the model and use code where possible." The "intern test": could a person use the tool with only what the model is given? ([OpenAI](https://developers.openai.com/api/docs/guides/function-calling))
+- **Anthropic, define tools, "Best practices for tool definitions".** "Provide extremely detailed descriptions", "by far the most important factor in tool performance": what the tool does, when it should be used and when it shouldn't, what each parameter means. "Prioritize descriptions"; examples are an addition for complex tools. ([Anthropic docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools))
+- **Anthropic, writing tools for agents.** Describe a tool "to a new hire on your team"; too many or overlapping tools distract the agent. ([Anthropic](https://www.anthropic.com/engineering/writing-tools-for-agents))
+- **Google Gemini function calling.** In the default `auto` mode the model decides whether to call a function or answer; descriptions should give a clear explanation of the function's purpose. ([Google](https://aistudio.google.com/docs/function-calling); the best-practices part was read only as a summary)
+- **OpenAI Model Spec.** If intent is unclear, make a safe guess, "stating assumptions and asking clarifying questions as appropriate"; "The expected benefit of clarification should justify its cost." ([model_spec.md](https://raw.githubusercontent.com/openai/model_spec/main/model_spec.md))
+- **OpenAI GPT-5 prompting guide.** "Do not ask the human to confirm or clarify assumptions, as you can always adjust later" is the `<persistence>` setting for agents whose steps can be undone. Our 「不要反问」 is that setting used for actions the driver feels. ([guide](https://developers.openai.com/cookbook/examples/gpt-5/gpt-5_prompting_guide))
+- **Google conversation design, Questions.** Use what you already know before asking; one narrow question per turn; give the information first, then ask. ([Google](https://developers.google.com/assistant/conversation-design/questions))
+- **In-car offers.** Nuance's CES demo offers a stop ([GearBrain](https://www.gearbrain.com/car-voice-assistant-nuance-ces-2625657420.html)); Cerence Co-Pilot offers coffee ([Voicebot](https://voicebot.ai/2021/12/22/cerence-co-pilot-introduces-proactive-car-voice-assistant)); Mercedes ATTENTION ASSIST offers a rest-area search and the driver picks (§12).
+- **Travel planning.** Ask-before-Plan: find what is missing, ask, then plan ([arXiv 2406.12639](https://arxiv.org/html/2406.12639v2)).
+
+**Rule in plain words.** Code gives her the facts (car, place, time, trip, conversation) and the tools, each described like to a new colleague. She decides what to do and what to say. Code still checks every action and every claim (I-1..I-14, §4, F-09b §13). No phrase lists, no fixed replies, no 「不要反问」.
+
+1. **Context in (code).** A `[系统] 现在` note with: city and district (reverse geocode of the phone, or the trip location per F-15b §51 item 9 while the trip cards are shown), on a highway or not when known from the route, local date and time, navigating or not, trip shown or not. Sent at session start and when one of them changes (district change, not every GPS fix). It ends 「这句不用回答」, as the other notes. It is the same kind of note as §5's car state; no new permission, no place text in the log (I-8).
+2. **Base instruction rewritten in four parts**, with no phrase list:
+   - **Who and where:** 小诺, a voice assistant; the driver is driving and listening, so short spoken sentences.
+   - **What she has:** the `[系统]` notes are the current facts; the tools and what each does; a tool result is the only proof something happened.
+   - **How she decides:** if the driver has decided (named the place, the setting, or said yes to her suggestion), do it. If not, and a guess could go the wrong way, suggest one concrete thing from what she knows, with a short reason, and ask what the driver thinks; one question per turn; do not ask what the notes or the conversation already say. 「随便」 means her suggestion. Small car changes the driver can undo at once (temperature, fan, seat) are done, not asked.
+   - **Safety:** never say done without a tool result; driving first (stop when told, short during guidance); the three languages (F-05a).
+   - The text is written once, from the sources above, and measured (item 5). It is not tuned by adding sentences for single phrases; a failure is fixed in the tool description or the facts given (item 3), and recorded with its eval number.
+   - Length: `maxBaseCharacters` is re-measured and recorded in STATUS.
+3. **Tool descriptions rewritten** (iOS override for every tool the model sees; Android's generated text stays as data):
+   - Each says what the tool does, when to use it and when not, each parameter, and what the result means. 3–5 sentences, more for the trip tools.
+   - No 「phrase」 → value tables, no 「不要反问」, no wording for her reply.
+   - Examples only where item 5 shows a recurring failure: at most two per tool, each recorded with the eval run that needed it.
+   - Values the model must not invent stay code-side (current temperature, positions, ids): the description says to use the result, not to compute.
+4. **Code keeps (unchanged):** the vehicle action policy, claim guards and correction notes (their wording becomes facts under §13), `AMBIGUOUS_REFERENT`, navigation never starting before the driver's pick, `undo_last_change`, the trip planner's checks.
+5. **Measured before and after (the gate for each stage).** One eval run on the PC with the live model (Gemini, user env `GEMINI_API_KEY`) and the app's real instruction, notes and tools:
+   - the comfort set (F-09b §3), `NearEval` (F-15b §51), the live-info set (F-18);
+   - **`AskOrActEval`** (new, multi-turn, scripted driver replies): 「有點困了」 → 「好」 / 「不用」; 「想带家人玩三天，不知道去哪」 → 「太近了」 → 「好」; 「周末带孩子去哪玩」 → 「随便」;
+   - **the complaint set**: every phrase an earlier rule was written for, with what the driver expected then: 「有点热」, 「广东三天」, 「做个打卡清单」 after a recommendation, 「再低一点」, 「我现在在哪」, 「现在几点」, 「导航去珠海站」, 「第二个」, 「为什么开车容易犯困」.
+   - Scoring is by behaviour, not wording: tool called or not, right tool, nothing done before agreement where the driver had not decided, a question only where the driver had not decided, claims match results.
+   - Baseline first, at today's text. A stage passes when no set drops by more than 2 points, the complaint set has no new failure, and `AskOrActEval` ≥ 9 of 10 per case. Results in STATUS with the model name.
+6. **Stages** (one build and phone test each, so a drop is found in one place):
+   - **A:** item 1's note, `AskOrActEval`, the complaint set, the baseline run. No text change.
+   - **B:** the base instruction (item 2).
+   - **C:** the car tools' descriptions (climate, window, seat, music, volume, camera, call, undo, state).
+   - **D:** navigation, trip and live-info tools' descriptions.
+7. **Superseded.** §12 item 1's sleepy sentence; rule 5's fixed examples; F-15b §15 item 6's 「不要反问去哪里」 (removed with the `make_trip_list` text in stage D). Their acceptance rows stay as complaint-set cases (item 5).
+8. **Log.** One line when the `现在` note is sent: `contextNote fields=<names>` (field names only, I-8).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Session start in Zhuhai, then a district change, then a GPS fix in the same district | Note sent at start and on the change, not on the fix; fields as item 1; log has field names only | unit |
+| 2 | Trip cards shown | The note's place is the trip location (F-15b §51 item 9) | unit |
+| 3 | `AskOrActEval` and complaint-set definitions and scorer | Item 5's cases; scorer fails a tool before agreement and a question in a decided case | unit |
+| 4 | Stage A baseline on the PC | All sets run; numbers in STATUS | eval (PC) |
+| 5 | The base instruction after stage B | Four parts; no quoted driver phrase mapped to a tool; no 「不要反问」; length recorded | unit |
+| 6 | Every model-visible tool description after stages C and D | No 「不要反问」; no 「phrase」 → value table; examples ≤ 2 per tool, each listed in STATUS with its eval run | unit |
+| 7 | Eval after each of stages B, C, D | Item 5's pass line against the baseline | eval (PC) |
+| 8 | Device: 「有點困了」, then 「好」 | She offers a rest in her own words with a reason; nothing starts before 「好」; then nearby places to pick | D |
+| 9 | Device: 「想带家人玩三天，不知道去哪」 → 「太近了」 → 「好」 | One place with a reason, then another, then the plan; no plan before 「好」 | D |
+| 10 | Device: 「有点热」, 「准备一个广东三天的旅游行程」, 「导航去公司」 | Acts at once, no question | D |
+
+**Not verified.**
+- Whether Gemini Live keeps to one question per turn over a long drive; the record will show it.
+- How much the base and tool text costs per turn after the rewrite; measured in stage B (F-21 §14).
+
+**Trace gate.** Add `T-031p: F-09b`, `T-031q: F-09b`, `T-031r: F-09b` and `T-031s: F-09b` to `specs/trace-ids.txt` together with the first `@Test` that names each.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031p | Stage A: items 1, 5, 8; rows 1–4 | unit, eval |
+| T-031q | Stage B: item 2; rows 5, 7, 8 | unit, eval, build, D |
+| T-031r | Stage C: item 3 for the car tools; rows 6, 7, 10 | unit, eval, build, D |
+| T-031s | Stage D: item 3 for navigation, trip and live-info tools, item 7; rows 6, 7, 9, 10 | unit, eval, build, D |
+
+### 14E. Stage E: she decides, code runs the step (owner request 2026-11-20)
+
+**Why.** Owner 2026-11-20: "you actually can build some deterministic code here that let llm decide to call". Stages A–D let her decide; stage E gives her three tools whose steps run the same way every time, so "nothing before the driver agrees" and "real places with real drive times" are done by code, not hoped for.
+
+**Sources (checked 2026-11-20).**
+- **Rasa CALM.** The LLM picks a flow by its description; inside the flow, code runs fixed steps (collect missing information, conditions); "LLMs keep the conversation fluent but don't guess your business logic". ([CALM](https://rasa.com/docs/learn/concepts/calm/), [flows](https://rasa.com/docs/reference/primitives/flows), [command generator](https://rasa.com/docs/pro/customize/command-generator))
+- **Home Assistant.** The LLM picks a tool; the tool runs Home Assistant's own intent handlers; the tool list is built per request. ([developers](https://developers.home-assistant.io/docs/core/llm/))
+- **Ask-user tools.** Asking is itself a tool: the model calls `ask_user(question, options)`, the runtime shows it and waits, the answer comes back as the result; use it sparingly or the agent becomes a form. ([Spring AI](https://spring.io/blog/2026/01/16/spring-ai-ask-user-question-tool/), [TrueFoundry](https://www.truefoundry.com/docs/agent-platform/agent-harness/ask-user-questions), [LangChain](https://reference.langchain.com/python/deepagents-cli/ask_user/ASK_USER_TOOL_DESCRIPTION))
+- **LangGraph human-in-the-loop.** Code pauses a tool whose required details are missing and asks; an open ask tool for general questions plus code checks for details that must never be filled in silently (the second part is a forum post). ([docs](https://docs.langchain.com/oss/python/langgraph/human-in-the-loop), [interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts), [forum](https://forum.langchain.com/t/what-is-the-right-way-to-conditionally-interrupt/4637))
+- **Anthropic, Building effective agents.** Predefined code paths for well-defined tasks; model-directed where flexibility is needed. ([Anthropic](https://www.anthropic.com/research/building-effective-agents))
+
+1. **`offer_choices` (new tool).** She calls it when she decides the driver has not decided.
+   - Arguments: `question` (her words); `options`, 1–3 items of `label`, `reason`, and `action` = one of `navigate_to {place_id}`, `make_trip_list {place, days}`, `none`.
+   - Code shows the options as cards and keeps the offer open for 120 s (`Tuning.offerOpenSeconds`). The driver's next turn is matched before it reaches her:
+     - 「好」「可以」「行」 with one option, or 「第N个」, or a label word → that option;
+     - 「随便」「你定」「都行」 → option 1;
+     - 「不要」「不用」「都不要」 → declined;
+     - anything else → no match; the turn goes to her as usual and the offer stays open.
+   - On a pick, code runs the option's `action` itself; a tap on a card is the same pick.
+   - Result to her (§13 facts): `picked` {label, action result} / `declined` {round} / `timeout`. Three declined rounds in a row: `may` [ask_what_kind], `must_not` [offer_again].
+   - **Check:** while an offer is open, a direct `navigate_to` or `make_trip_list` call is refused with `OFFER_OPEN` (`may` [wait_for_pick]); the action runs only through the pick.
+   - The matching words are a fixed list in NovaCore for the answer to an open offer only (§7's withdrawn word lists judged what she should do; this one reads a pick, as `choose_navigation_option` reads 「第N个」).
+2. **`suggest_destinations` (new tool).**
+   - Arguments: `days` (1–7), `max_drive_hours` (optional, default 3 for ≤ 3 days, else 6), `interests` (optional strings).
+   - Code: from the `现在` note's location (item 1 of §14), a fixed data table in NovaCore of cities and scenic areas (name, coordinate, country, tags such as 亲子, 山水, 美食, 海边, 温泉); drive times from the route service already used by the trip planner, cached per origin district for a day; returns up to 5 within `max_drive_hours`, best tag match first: name, drive minutes, tags.
+   - The table covers mainland China, Hong Kong and Macau at first; abroad returns `NO_CANDIDATES` with `may` [suggest_from_knowledge] and she says the drive time is not checked.
+3. **`find_rest_stop` (new tool).**
+   - Argument: `kind` = `any` | `coffee` | `service_area`.
+   - Highway with a route running: the next two service areas ahead on the route through `AlongRouteCorridor`, with distance and minutes.
+   - Otherwise: the nearest 2–3 coffee shops or rest places around the `现在` location through the existing nearby search (F-15b §51 item 9 for the trip location), with distance.
+   - Each result has the `place_id` that `offer_choices` and `navigate_to` take. Nothing is shown and nothing starts.
+4. **`make_trip_list` without a place.** A call with no place the driver named or picked (no `places`/`days`, or the driver's turns name no place) returns `DESTINATION_MISSING` with `may` [suggest_destinations, offer_choices]; nothing is planned. With a place named (「广东三天」) nothing changes.
+5. **Descriptions** follow stage C/D's form (what, when, when not, parameters, result). `offer_choices`: "use when the driver has not decided and a wrong guess would go the wrong way; not for car comfort changes or when the driver named what they want".
+6. **Log.** `offer opened n=<count>`, `offer picked index=<i> by=<voice|tap>`, `offer declined round=<r>`, `offer timeout`, `offer refused tool=<name>`, `restStop source=<route|nearby> n=<count>`, `suggestDestinations n=<count>`. No place names (I-8).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 11 | Offer open with 2 options; driver says 「第二个」, 「清远那个」, 「随便」, 「都不要」, 「今天天气怎么样」 | Option 2; option with 清远; option 1; declined; no match (turn goes to her, offer stays open) | unit |
+| 12 | Offer open; model calls `navigate_to` directly | `OFFER_OPEN`, nothing starts | unit |
+| 13 | Offer open 121 s | `timeout`; cards removed | unit |
+| 14 | Pick an option with `navigate_to {place_id}` | Code starts navigation to that place; result `picked` with the navigation result | unit |
+| 15 | Three declined rounds | Result has `may` ask_what_kind, `must_not` offer_again | unit |
+| 16 | `suggest_destinations days=3 interests=[亲子]` from Zhuhai with fixed drive times | ≤ 5 places within 3 h, 亲子 first, drive minutes from the fixture | unit |
+| 17 | `find_rest_stop` on a highway route fixture; and in a city | Two service areas ahead with distance; nearest coffee shops with distance | unit |
+| 18 | `make_trip_list` with no place in the driver's turns | `DESTINATION_MISSING`; nothing planned | unit |
+| 19 | §14 item 5 eval with stage E tools | Not decided: `offer_choices` before any action ≥ 9 of 10; decided: no `offer_choices` | eval (PC) |
+| 20 | Device: 「有點困了」 on a highway route → 「好」 | She offers the next service area with its distance; navigation starts after 「好」 | D |
+| 21 | Device: 「想带家人玩三天，不知道去哪」 → 「太近了」 → 「第一个」 | Cards with real drive times; a farther set; the plan for the picked place | D |
+| 22 | Device: offer open, tap a card | Same as saying it | D |
+
+**Not verified.** How often Gemini reaches for `offer_choices` when the driver has decided; row 19 measures it.
+
+**Trace gate.** Add `T-031t: F-09b` to `specs/trace-ids.txt` together with the first `@Test` that names T-031t.
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031t | Stage E: items 1–6; rows 11–22 | unit, eval, build, D |
+
+## 15. Her setup has a version, and every record says which one (iOS, APPROVED 2026-11-20)
+
+**Why.** Owner 2026-11-20: "this system would have a version assigned by the system rule setting; after build into app it would record the log labelled with that version". Records are collected and read for patterns (F-12 §21). A build commit alone does not say whether her behaviour changed: many builds change only audio or UI. Comparing her behaviour needs a version of what shapes it.
+
+**Sources (checked 2026-11-20).**
+- **Langfuse.** Every prompt change is a new, unchangeable numbered version; each generation links to the version it used; metrics are grouped per version; a label such as `production` points at a version and moving it back is a rollback. ([version control](https://langfuse.com/docs/prompt-management/features/prompt-version-control), [link to traces](https://langfuse.com/docs/prompt-management/features/link-to-traces), [at scale](https://langfuse.com/resources/engineering/prompt-management-at-scale))
+- **MLflow Prompt Registry.** Git-like: unchangeable versions with a commit message and a diff; lineage from a prompt version to the application version. ([MLflow](https://mlflow.org/docs/3.5.0/genai/prompt-registry), [Databricks](https://docs.databricks.com/aws/en/mlflow3/genai/prompt-version-mgmt/prompt-registry/track-prompts-app-versions))
+- **OpenTelemetry GenAI conventions** (status Development). `gen_ai.agent.version`, `gen_ai.request.model`; guides add `gen_ai.response.model`, because the model that answered can differ from the one asked. ([registry](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/), [agent spans](https://raw.githubusercontent.com/open-telemetry/semantic-conventions-genai/main/docs/gen-ai/gen-ai-agent-spans.md), [explainer](https://www.dash0.com/knowledge/opentelemetry-genai-semantic-conventions-explained))
+- **Not taken from Langfuse:** changing the live prompt from a server. Her setup stays in the app build (App Store guideline 2.5.2 on changing features after review; the safety rules are tested against the exact texts).
+
+**Rule in plain words.** What shapes her behaviour has a version number in a registry file and a fingerprint the app computes from what it really sends. A test fails when the fingerprint changes without a new version. Every record names the version, the fingerprint and the model.
+
+1. **Her setup** (`AgentSetup`, NovaCore) is, in a fixed order:
+   - the model id requested;
+   - the base instruction as sent, for each value of the session settings that change it (speaking style, comfort mode, web search on or off, language);
+   - every tool the model can see: name, description, parameter schema, in catalog order, for each such setting;
+   - the `[系统]` note templates (with their variable parts as placeholders);
+   - behaviour values in `Tuning` that she acts on (marked `// agentSetup` in `Tuning.swift`; e.g. `offerOpenSeconds`, the suggestion limit).
+   - Not in it: audio, UI, network and log code; keys.
+2. **`agentHash`.** SHA-256 over item 1's parts as UTF-8 with a separator, first 12 hex characters. Computed at session start from the texts actually sent, for that session's settings (`agentHash`), and in the test for all settings combined (`agentSetupHash`).
+3. **Registry `specs/contracts/agent-versions.md`.** One row per version, newest first: `agentVersion`, `agentSetupHash`, date, first commit, a one-line note, the spec sections. `AgentSetup.version` in code equals the newest row. This section starts at `1.0.0`, the setup at the commit that implements it.
+4. **Bump rules.**
+   - **Major:** a tool added or removed, a tool parameter added or removed, or a whole part of the base instruction (§14 item 2's four parts) rewritten, or the model id changed.
+   - **Minor:** any other text change in the base instruction, a tool description or a note template.
+   - **Patch:** an item 1 `Tuning` value changed.
+   - The note says which rule applied.
+5. **Gate.** A unit test computes `agentSetupHash` and compares it with the registry row for `AgentSetup.version`. A different hash fails with "agent setup changed: add a version row". `scripts/gates/check_agent_version.py` (Linux, in `run_all.sh`) checks the registry: versions in order, each bump matches item 4 against the previous row's recorded parts list (the test writes `agentSetup.parts.json` next to the fixtures with each part's own hash), no row without a note and a spec section.
+6. **Record and log.**
+   - The record header (F-12 §21) gains `agentVersion <v>`, `agentHash <h>`, `model <requested>` after the `app` line; and a `model-served <name>` line when Gemini's setup or first response names the model that answers, if it names one. This is a header change, so F-12 §21's `recordFormat` goes up by one.
+   - `RuntimeLog` gets one line at session start: `agent version=<v> hash=<h> model=<requested>` (no text, I-8).
+   - The field names follow OpenTelemetry: `agentVersion` = `gen_ai.agent.version`, `model` = `gen_ai.request.model`, `model-served` = `gen_ai.response.model`.
+7. **PC side.** F-12 §21's reader returns `agentVersion`, `agentHash` and `model` with every row; `index.csv` gains the three columns. Reports compare by `agentVersion` (several builds can share one). A record whose `agentHash` matches no registry row for its version is flagged `setup=unregistered` (a debug build).
+8. **Rollback** is a rebuild at an older commit (Codemagic); the registry row shows which.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | `AgentSetup` for each session-setting combination | Parts in item 1's order; audio, UI and keys not included | unit |
+| 2 | One character changed in a tool description, version unchanged | Gate test fails with "agent setup changed" | unit |
+| 3 | Same, with a minor row added to the registry | Passes | unit |
+| 4 | A tool added with only a minor row | `check_agent_version.py` fails (major required) | unit (gate) |
+| 5 | A marked `Tuning` value changed, patch row added | Passes; an unmarked value changed: hash unchanged | unit |
+| 6 | Session start | Record header has `agentVersion`, `agentHash` for that session's settings, `model`; `RuntimeLog` line has no text | unit |
+| 7 | `read.py` on a record with the new header | Rows carry the three fields; index has the columns; an unknown hash flagged `setup=unregistered` | unit (PC script test) |
+| 8 | Device: one session with speaking style changed between two sessions | Two records, same `agentVersion`, different `agentHash` | D |
+
+**Trace gate.** Add `T-031y: F-09b` to `specs/trace-ids.txt` together with the first `@Test` that names T-031y.
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031y | Items 1–8; rows 1–8 | unit, gate, build, D |

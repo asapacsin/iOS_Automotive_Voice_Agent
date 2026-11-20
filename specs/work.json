@@ -1344,14 +1344,16 @@
     {
       "id": "T-040za",
       "owner": "AUTONOMOUS",
-      "status": "TODO",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-040z"
       ],
       "action": "F-15b §51 item 9: navigate_to near=here while the trip cards are shown searches around the simulated car (trip stop guidance in 模拟导航) or else the trip's next stop; vendor by that point; facts searched_around 行程位置, source=trip_here; cards hidden: the phone as item 8; rows 190-194.",
       "notes": "Owner 2026-11-20: 'if you using the card, the here mean the simulate one otherwise the current real location'; no catalog text change. Gemini eval (real setup) showed near=here is chosen reliably for 附近 sentences.",
-      "evidence": []
+      "evidence": [
+        "9ff8136, 9fcec8c: gates green (1022 NovaCore tests, 1 known issue as before; spec-trace 152 ids, 0 missing); high-effort read-only review FAIL (car vendor by China box) fixed, medium re-check PASS. Row 194 (device) NOT_VERIFIED."
+      ]
     },
     {
       "id": "T-900a",
@@ -1430,6 +1432,92 @@
       "evidence": [
         "Gates: run_static.sh green at c3bc173 (90 tests, history check PASS); frontier.py check valid (199). High-effort review of 1f34763 FAIL (range ids) fixed; medium re-check of c3bc173 PASS. First pass: 120 archived, 60 kept, 101 STATUS rows moved; STATUS.md 62/75 KB, work.json 91/110 KB."
       ]
+    },
+    {
+      "id": "T-031p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031o"
+      ],
+      "action": "F-09b §14 stage A (items 1, 5, 8): [系统] 现在 context note (city/district, highway, local time, navigating, trip shown); AskOrActEval and complaint set; baseline eval on Gemini; rows 1-4.",
+      "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
+      "evidence": [
+        "Gates green at f337210 on Linux Swift 6.1.2 (NovaCore 1027 tests, 1 pre-existing known issue; NovaRealtime 52; NovaServices 110; spec-trace 153 ids, 0 missing)",
+        "Independent high-effort review FAIL at cb052c1 (pick question scored askedWhenDecided) -> fixed in f337210 -> medium re-check PASS",
+        "Row 4 (PC baseline eval, live Gemini) NOT RUN: needs GEMINI_API_KEY and a PC harness; App files read, not compiled"
+      ]
+    },
+    {
+      "id": "T-031q",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031p"
+      ],
+      "action": "F-09b §14 stage B (item 2): base instruction rewritten in four parts with no phrase scripts or 不要反问; eval against baseline; rows 5, 7, 8.",
+      "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
+      "evidence": []
+    },
+    {
+      "id": "T-031r",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031q"
+      ],
+      "action": "F-09b §14 stage C (item 3): car tool descriptions as purpose / when / parameters / result, no phrase tables; eval against baseline; rows 6, 7, 10.",
+      "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
+      "evidence": []
+    },
+    {
+      "id": "T-031s",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031r"
+      ],
+      "action": "F-09b §14 stage D (items 3, 7): navigation, trip and live-info tool descriptions; make_trip_list loses 不要反问去哪里; rows 6, 7, 9, 10.",
+      "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
+      "evidence": []
+    },
+    {
+      "id": "T-031t",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031s"
+      ],
+      "action": "F-09b §14E stage E (items 1-6): offer_choices tool (cards, 120 s open offer, code maps 好/第N个/随便/不要 and runs the picked action; navigate_to and make_trip_list refused with OFFER_OPEN while open); suggest_destinations (fixed city table + real drive times); find_rest_stop (service areas ahead via AlongRouteCorridor, else nearby coffee); make_trip_list DESTINATION_MISSING; rows 11-22.",
+      "notes": "Owner 2026-11-20: 'you actually can build some deterministic code here that let llm decide to call'; sources Rasa CALM, Home Assistant, ask_user tools, LangGraph HITL, Anthropic.",
+      "evidence": []
+    },
+    {
+      "id": "T-031u",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [],
+      "action": "F-12 §21 items 1-7: recordFormat header (format 1 = today's lines), format fixture test that fails on any unbumped change, record-format.md + check_record_format.py gate, scripts/records/collect.py (pull, archive D:\ndrecords\\<commit>, index.csv, refuse unknown formats), read.py with one reader per format; rows 1-8.",
+      "notes": "Owner 2026-11-20: 'can you register the log with version' - records from many builds will be collected and read for patterns.",
+      "evidence": []
+    },
+    {
+      "id": "T-031y",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031u"
+      ],
+      "action": "F-09b §15 items 1-8: AgentSetup (model, base instruction, tool names/descriptions/schemas, note templates, marked Tuning values) -> agentHash; specs/contracts/agent-versions.md registry with major/minor/patch bump rules; gate test + check_agent_version.py; record header agentVersion/agentHash/model/model-served (recordFormat +1) and RuntimeLog line; PC reader columns; rows 1-8.",
+      "notes": "Owner 2026-11-20: her setup gets a version assigned by fixed rules and every record is labelled with it. Sources: Langfuse, MLflow Prompt Registry, OpenTelemetry GenAI conventions.",
+      "evidence": []
     }
   ]
 }

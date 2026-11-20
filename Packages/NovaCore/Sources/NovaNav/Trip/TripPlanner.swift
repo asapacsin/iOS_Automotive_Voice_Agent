@@ -276,18 +276,21 @@ public actor TripPlanner: ToolExecutor {
     public func connectCards() async {
         await navigation.setTripCards { [weak self] in await self?.hideCards() ?? false }
         await navigation.setTripArrival { [weak self] id in await self?.arrived(id) }
-        // §51 item 8 (T-040z): `navigate_to near=trip` and the `trip_city` fact see the plan's stops and whether it is shown.
+        // §51 item 8 (T-040z): `navigate_to near=trip` and a shown `near=here` (item 9) see the plan's stops and whether it is shown.
         await navigation.setNearTrip { [weak self] in await self?.nearTrip() }
     }
 
     /// §51 item 8: the plan as `navigate_to` sees it; nil when it has no stops.
     public func nearTrip() -> NearTrip? {
         guard plan.stopCount > 0 else { return nil }
-        let stops = plan.allStops.map { day, stop in
+        func near(_ day: Int, _ stop: TripStop) -> NearTripStop {
             NearTripStop(day: day, name: stop.place.name, asked: stop.asked, role: stop.role,
                          coordinate: stop.place.coordinate, countryCode: stop.place.countryCode)
         }
-        return NearTrip(hidden: cardsHidden, abroad: plan.abroad, city: plan.city, stops: stops)
+        let stops = plan.allStops.map { near($0.day, $0.stop) }
+        // §51 item 9 (T-040za): the next stop as `trip_next` takes it (the current day's first unmarked stop).
+        let next = plan.days[plan.currentDay - 1].stops.first { $0.mark == nil }.map { near(plan.currentDay, $0) }
+        return NearTrip(hidden: cardsHidden, abroad: plan.abroad, city: plan.city, stops: stops, next: next)
     }
 
     /// §22 item 2: hides shown cards of a plan with stops; false when there is nothing to hide.

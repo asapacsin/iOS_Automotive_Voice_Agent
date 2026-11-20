@@ -32,18 +32,23 @@ public struct NearTripStop: Sendable, Hashable {
     }
 }
 
-/// The plan as `navigate_to` may see it: only for `near=trip` (its stops) and the `trip_city` fact of `near=here`.
+/// The plan as `navigate_to` may see it: `near=trip` (its stops) and
+/// §51 item 9 (T-040za) `near=here` while shown (`next`).
 public struct NearTrip: Sendable, Hashable {
     public let hidden: Bool
     public let abroad: Bool
     public let city: String?
     public let stops: [NearTripStop]
+    /// §51 item 9: the trip's next stop: the first stop of the current day not yet marked (as `trip_next`, §29); none
+    /// left, the first stop of the plan. nil only without stops.
+    public let next: NearTripStop?
 
-    public init(hidden: Bool, abroad: Bool, city: String?, stops: [NearTripStop]) {
+    public init(hidden: Bool, abroad: Bool, city: String?, stops: [NearTripStop], next: NearTripStop? = nil) {
         self.hidden = hidden
         self.abroad = abroad
         self.city = city
         self.stops = stops
+        self.next = next ?? stops.first
     }
 
     /// §51 item 8 `trip`: `near_name` against the stops: the name contains a stop's name (or the stop's name contains

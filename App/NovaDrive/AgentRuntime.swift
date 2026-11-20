@@ -344,6 +344,7 @@ struct RuntimeSink: AgentEffectSink {
         case .asyncToolDropped(let tool): record?.submit(.toolDropped(tool))  // F-18 §27 item 4
         case .stateNote(let reason): record?.submit(.stateNote(reason))  // F-09b §8
         case .summaryNote(let n, let age): record?.submit(.summaryNote(exchanges: n, ageS: age))  // F-09b §8
+        case .contextNote(let fields): record?.submit(.nowNote(fields: fields))  // F-09b §14 item 8
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
@@ -893,6 +894,8 @@ final class AgentRuntime {
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         // F-18 §21 item 1: written by the navigation stream below, read by web_search.
         let currentDestination = DestinationHolder()
+        // F-09b §14 item 1 (T-031p): whether guidance runs, for the `现在` note; written by the navigation stream.
+        let navigatingNow = NavigatingBox()
         // F-18 §23 item 5: the driver's last final words, only for the search model's message and the local record.
         let driverWords = DriverWordsHolder()
         // This session listens to the trip from now on; it first sees the trip as it is (a drive that went
@@ -1125,6 +1128,38 @@ final class AgentRuntime {
             }
         })
         self.core = core
+        // F-09b §14 item 1 (T-031p): the `现在` facts every 15 s (place, time, navigating, trip shown); the core sends
+        // the note on (re)connect and when one of them other than the time changes. Highway is not known yet: left out.
+        let planner = trip.planner
+        tasks.append(Task {
+            var tracker = ContextPlaceTracker()
+            var lastPlace: ContextPlace?
+            while !Task.isCancelled {
+                var place: ContextPlace?
+                if let center = await navigation.contextCenter() {
+                    if let known = tracker.known(center) {
+                        place = known
+                    } else {
+                        // A failed lookup (no network, a stop abroad) keeps the last place for the same trip
+                        // location and is cached for this center, so it is not retried every 15 s.
+                        if let address = try? await web.address(at: center.coordinate) {
+                            place = ContextPlace(center: center, address: address)
+                        } else if let last = lastPlace, last.trip == center.trip {
+                            place = last
+                        } else {
+                            place = ContextPlace(center: center, address: nil)
+                        }
+                        tracker.looked(center, place)
+                    }
+                }
+                if place != nil { lastPlace = place }
+                let shown = await planner.nearTrip().map { !$0.hidden } ?? false
+                await core.send(.context(ContextSnapshot(place: place, onHighway: nil,
+                                                         localTime: ContextSnapshot.localTime(Date()),
+                                                         navigating: navigatingNow.get(), tripShown: shown)))
+                try? await Task.sleep(for: .seconds(15))
+            }
+        })
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.
         trip.session.attach(core: core, record: record)
         // A new session's turn count starts again: no yes-needed list or no-state carries over.
@@ -1272,6 +1307,7 @@ final class AgentRuntime {
                     currentDestination.set(name)
                     await core.send(.destination(name))
                 }
+                navigatingNow.set(snapshot.navigating)
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen)))
@@ -1452,6 +1488,8 @@ final class AgentRuntime {
         // F-15b §47 (T-040s): abroad, routes and recalculations from OSRM inside the app; one OSRM request per second
         // shared with the §36 item 2c table. `route plan` / `route recalc` lines, numbers and enums only (I-8).
         let osrmThrottle = OsrmThrottle()
+        // F-15b §51 item 9 (T-040za): the simulated car for `navigate_to near=here` while the trip cards are shown.
+        let simulatedCar = SimulatedCarBox()
         let engine = AmapRouteEngine(key: amapKey, origin: routeOrigin,
                                      location: location, clock: navigationClock,
                                      abroadSource: OsrmRouteSource(throttle: osrmThrottle),
@@ -1459,7 +1497,10 @@ final class AgentRuntime {
                                          RuntimeLog.agent.notice("\(line, privacy: .public)")
                                          tripSession.record()?.submit(.trip(line))
                                      },
-                                     onGeometry: { geometry in Task { @MainActor in model.geometry = geometry } })
+                                     onGeometry: { geometry in
+                                         simulatedCar.set(geometry.car)
+                                         Task { @MainActor in model.geometry = geometry }
+                                     })
         // F-16 §14 (T-042c): near-first search; the turn count is the uplink gate's (F-04a), never a transcript.
         let nearFirst = NearFirstSearch(
             match: DestinationMatch(pinyin: FoundationPinyinConverter()), geocoder: web,
@@ -1492,6 +1533,7 @@ final class AgentRuntime {
             listeners.yield(snapshot)
         }
         await navigation.start()
+        await navigation.setSimulatedCar { simulatedCar.get() }
         // F-15b (T-040i): the app's one trip list, next to the navigation controller; it outlives voice sessions.
         // F-15b §14 (T-040l): the plan and the saved plans live in Application Support/trip/.
         // F-15b §4 item 6: Qwen picks among 高德's results with the search model's key; no key → 高德's first result.
@@ -1720,6 +1762,22 @@ enum UplinkEvent: Sendable {
     case words(DriverWords)
     /// F-08 §17 item 11 (T-022e): confirmed new words; comes before the released utterance's marks.
     case bargeInStop
+}
+
+/// F-09b §14 item 1 (T-031p): the navigation stream's `navigating`, for the context loop.
+final class NavigatingBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func set(_ v: Bool) { lock.withLock { value = v } }
+    func get() -> Bool { lock.withLock { value } }
+}
+
+/// F-15b §51 item 9 (T-040za): the latest `RouteGeometry.car` (GCJ-02; nil without a simulated route).
+final class SimulatedCarBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var car: GeoCoordinate?
+    func set(_ value: GeoCoordinate?) { lock.withLock { car = value } }
+    func get() -> GeoCoordinate? { lock.withLock { car } }
 }
 
 /// The uplink gate behind a lock; it runs on the capture thread.
