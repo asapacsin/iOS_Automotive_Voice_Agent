@@ -30,8 +30,8 @@ final class MapPositionModel: ObservableObject {
     private var fix: LocationFix?
     private var permission = LocationAuthorization.notDetermined
     private var source: LocationSource
-    // NovaKit has its own NavigationPhase; the flow's is NovaNav's.
-    private var phase = NovaNav.NavigationPhase.idle
+    // F-09b §16 item 10: one NavigationPhase, in NovaKit.
+    private var phase = NovaKit.NavigationPhase.idle
     private var mode = NaviMode.emulator
     private var car: GeoCoordinate?
     private var carHeading: Double?
