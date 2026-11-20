@@ -1511,14 +1511,14 @@
     {
       "id": "T-031y",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-031u"
       ],
       "action": "F-09b §15 items 1-8: AgentSetup (model, base instruction, tool names/descriptions/schemas, note templates, marked Tuning values) -> agentHash; specs/contracts/agent-versions.md registry with major/minor/patch bump rules; gate test + check_agent_version.py; record header agentVersion/agentHash/model/model-served (recordFormat +1) and RuntimeLog line; PC reader columns; rows 1-8.",
       "notes": "Owner 2026-11-20: her setup gets a version assigned by fixed rules and every record is labelled with it. Sources: Langfuse, MLflow Prompt Registry, OpenTelemetry GenAI conventions.",
-      "evidence": []
+      "evidence": ["scripts/gates/run_all.sh green on a clean clone of 88723be (Linux Swift 6.1.2; NovaCore 1044 tests; spec-trace 156 ids, 0 missing; check_agent_version OK); spec-reviewer high effort FAIL (note-template branches and fragments not hashed) -> fixed in 2034d5d -> medium re-check PASS; agent-versions 1.0.0 = 6dbbd9c5d47e; rows 1-7 unit/gate; row 8 device NOT_VERIFIED; model-served not written (no served-model name exposed) NOT_VERIFIED"]
        },
     {
       "id": "T-046u",
