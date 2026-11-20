@@ -50,6 +50,11 @@ missing, fix this file in the same session (commit it) so the next session does 
 - phone_check report + screenshots in `--out`.
 - Device log while the owner tests (on the PC): `pymobiledevice3 syslog live` filtered to NovaDrive
   (unverified flags: check `pymobiledevice3 syslog live --help` and record the working line here).
+- Conversation records after the test (F-12 §21, T-031u): `python scripts\records\collect.py` pulls
+  `Documents/conversations` and files them under `D:\ndrecords\<commit>\` with `index.csv`. The pull command in
+  `collect.py` (`pymobiledevice3 apps afc --documents <bundle> pull ...`) is NOT verified yet: on the first run, check
+  `pymobiledevice3 apps --help`, fix `collect.pull` and record the working line here. If the container cannot be
+  read, export the folder through the Files app and run `collect.py --from <folder>`.
 
 ## 5. Hand over
 - The checklist for the build: the device rows still NOT_VERIFIED in specs/STATUS.md and the feature specs
