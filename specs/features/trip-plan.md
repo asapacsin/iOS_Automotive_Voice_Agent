@@ -1844,7 +1844,7 @@ test trip from the day before still saved:
    - **Unchanged:** `near=place`, `near=trip`, `near=route`; `query_live_info` and `current_location` (the phone);
      route starts (`routeOrigin`, item 7).
    - **Replaces** for `near=here` while the cards are shown: item 1's 「附近 … always the home search around the phone,
-     also with a trip shown」, item 8's `trip_city` fact, rows 161, 173 and 176 (they hold with the cards hidden).
+     also with a trip shown」, item 8's `trip_city` fact, rows 161, 162, 173 and 176 (they hold with the cards hidden).
    - **Log:** `nav near kind=here … source=trip_here` (enums only, I-8).
 
 **Acceptance (iOS).**

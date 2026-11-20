@@ -316,14 +316,15 @@ public actor NavigationController: ToolExecutor {
     }
 
     /// §51 item 9 (T-040za, owner 2026-11-20): cards shown, `here` is the trip location: the simulated car while a trip
-    /// stop guidance runs in 模拟导航, else the trip's next stop. The vendor by that point (the stop's country; the car
-    /// by the China box, as a fix). Facts `searched_around` 「行程位置（…）」 and `source=trip_here`; no `trip_city`.
+    /// stop guidance runs in 模拟导航, else the trip's next stop. The vendor by the trip stop's country (also for the
+    /// car). Facts `searched_around` 「行程位置（…）」 and `source=trip_here`; no `trip_city`.
     private func nearTripHere(_ destination: String, next: NearTripStop) async -> ToolResult {
         // Read before the search: a search ends the trip stop guidance (`endTripStop`).
         let car = snapshot.navigating && snapshot.tripStopID != nil && snapshot.mode == .emulator
             ? await simulatedCar?() : nil
         let center = car ?? next.coordinate
-        let country = car == nil ? next.countryCode : nil
+        // The car drives inside the trip: the trip's country (never the China box, which holds Osaka and Seoul).
+        let country = next.countryCode
         let label = "行程位置（\(car == nil ? next.name : "模拟车")）"
         let abroad = Self.abroad(country: country, at: center) && abroadSearch != nil
         let result = abroad

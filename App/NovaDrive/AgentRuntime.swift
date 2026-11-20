@@ -1728,7 +1728,6 @@ enum UplinkEvent: Sendable {
     case bargeInStop
 }
 
-/// The uplink gate behind a lock; it runs on the capture thread.
 /// F-15b §51 item 9 (T-040za): the latest `RouteGeometry.car` (GCJ-02; nil without a simulated route).
 final class SimulatedCarBox: @unchecked Sendable {
     private let lock = NSLock()
@@ -1737,6 +1736,7 @@ final class SimulatedCarBox: @unchecked Sendable {
     func get() -> GeoCoordinate? { lock.withLock { car } }
 }
 
+/// The uplink gate behind a lock; it runs on the capture thread.
 final class GateBox: @unchecked Sendable {
     private let lock = NSLock()
     /// Held while outputs are computed and forwarded, so a release from the recognizer's thread and live capture

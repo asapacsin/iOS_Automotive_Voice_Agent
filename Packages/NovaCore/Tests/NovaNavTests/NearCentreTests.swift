@@ -538,6 +538,25 @@ struct TripHereTests {
         #expect(rig.near().count == 1 && rig.near()[0].hasPrefix("nav near kind=here vendor=photon source=trip_here "))
     }
 
+    @Test("T-040za F-15b §51 row 191 (Osaka): the simulated car in Osaka (inside the China box) on a JP trip is searched on Photon by the trip's country, never 高德")
+    func row191Osaka() async {
+        let car = GeoCoordinate(latitude: 34.69, longitude: 135.50, datum: .gcj02)
+        let osaka = NearTrip(hidden: false, abroad: true, city: "Osaka, Japan",
+                             stops: [NearTripStop(day: 1, name: "大阪城", asked: "大阪城", role: .sight,
+                                                  coordinate: GeoCoordinate(latitude: 34.687, longitude: 135.526, datum: .gcj02),
+                                                  countryCode: "JP")])
+        let amap = AmapSpy()
+        let photon = FakeApple(["咖啡店": [jp("Doutor", lat: 34.691, lng: 135.501)]])
+        let rig = await NearRig(phone: zhuhai, home: amap, photon: photon,
+                                area: .some(TripArea(center: car, countryCode: "JP")))
+        await rig.nav.setNearTrip { osaka }
+        await rig.nav.setSimulatedCar { car }
+        #expect(await rig.nav.tripNext(jp("大阪城", lat: 34.687, lng: 135.526), abroad: true).ok)
+        let r = await rig.nav.execute(nav(["destination": "咖啡店", "near": "here"]))
+        #expect(amap.calls.withLock { $0 }.isEmpty && photon.asked.withLock { $0 } == ["咖啡店"])
+        #expect(r.data["facts"]?["searched_around"] == "行程位置（模拟车）" && r.data["facts"]?["vendor"] == "photon")
+    }
+
     @Test("T-040za F-15b §51 row 191 (no car): no trip stop guidance, a car hook set: the next stop, not the car")
     func row191NoGuidance() async {
         let rig = await NearRig(phone: zhuhai, home: AmapSpy(), photon: FakeApple(["咖啡店": [jp("Doutor", lat: 35.71)]]))
