@@ -1342,6 +1342,18 @@
       ]
     },
     {
+      "id": "T-040za",
+      "owner": "AUTONOMOUS",
+      "status": "TODO",
+      "priority": 1,
+      "depends_on": [
+        "T-040z"
+      ],
+      "action": "F-15b §51 item 9: navigate_to near=here while the trip cards are shown searches around the simulated car (trip stop guidance in 模拟导航) or else the trip's next stop; vendor by that point; facts searched_around 行程位置, source=trip_here; cards hidden: the phone as item 8; rows 190-194.",
+      "notes": "Owner 2026-11-20: 'if you using the card, the here mean the simulate one otherwise the current real location'; no catalog text change. Gemini eval (real setup) showed near=here is chosen reliably for 附近 sentences.",
+      "evidence": []
+    },
+    {
       "id": "T-900a",
       "owner": "AUTONOMOUS",
       "status": "PASS",

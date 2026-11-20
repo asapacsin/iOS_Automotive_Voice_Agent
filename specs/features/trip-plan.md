@@ -1830,6 +1830,23 @@ test trip from the day before still saved:
    - **Not changed.** `trip_next`, `route_trip` and trip planning (they use the plan's own places); item 7; F-16's
      candidate list and far-result line.
 
+9. **Cards shown: 「附近」 is the trip; cards hidden: 「附近」 is the phone (owner 2026-11-20, T-040za).**
+   - **Owner's rule.** 「if you using the card, the here mean the simulate one, otherwise the current real location」. A
+     fixed rule in code on what is on screen; nothing for the model to guess, no new catalog text.
+   - **`navigate_to near=here` while the trip cards are shown** (`NearTrip.hidden == false`, a plan with stops) searches
+     around the trip location instead of the phone:
+     - the simulated car, when a trip stop guidance is running in 模拟导航 (F-15a);
+     - otherwise the trip's next stop: the first stop of the current day not yet arrived at (§29); none left, the
+       first stop of the plan.
+     The vendor is picked by that point as item 8 (高德 in China, Photon abroad). Facts: `searched_around`
+     「行程位置（<stop or 模拟车>）」, `source=trip_here`; no `trip_city` fact.
+   - **Cards hidden, or no plan:** `near=here` is the phone's fix or the demo point, as item 8.
+   - **Unchanged:** `near=place`, `near=trip`, `near=route`; `query_live_info` and `current_location` (the phone);
+     route starts (`routeOrigin`, item 7).
+   - **Replaces** for `near=here` while the cards are shown: item 1's 「附近 … always the home search around the phone,
+     also with a trip shown」, item 8's `trip_city` fact, rows 161, 173 and 176 (they hold with the cards hidden).
+   - **Log:** `nav near kind=here … source=trip_here` (enums only, I-8).
+
 **Acceptance (iOS).**
 
 | # | Given / when | Then | Test |
@@ -1863,14 +1880,20 @@ test trip from the day before still saved:
 | 187 | `NearEval` on the PC (live route, 3 runs × 4 set-ups) | Right centre or a question ≥ 95%; wrong country without saying so 0; `near=trip` while hidden 0 | eval |
 | 188 | Device, Zhuhai, Tokyo trip shown: 「附近有什么好吃的」, 「东京的便利店」, 「酒店附近吃的」; then hide the cards and 「附近有什么酒店」 | Zhuhai places; Tokyo places; places by the trip hotel; Zhuhai hotels, or one question which side | D |
 | 189 | `near_country` 「日本」, 「澳门」, 「火星」, `JPN` | 日本 → JP and the search runs; 澳门 → MO; 火星 and JPN count as missing (`invalidFields`, nothing searched) | unit |
+| 190 | Phone in Zhuhai, Tokyo trip shown, no guidance; `navigate_to 咖啡店 near=here` | Photon around the next stop (first stop of the day not arrived); `searched_around` 「行程位置（…）」; `source=trip_here`; no 高德 request | unit |
+| 191 | Same, a trip stop guidance running in 模拟导航 (simulated car in Tokyo) | Around the simulated car | unit |
+| 192 | Same trip, cards hidden (「把卡片收起来」 or a tap); `near=here` | Around the phone on 高德, as row 176 | unit |
+| 193 | Cards shown; `navigate_to 珠海站 near=place near_country=CN`; `query_live_info` weather `here` | 珠海站 on 高德 (item 8); weather at the phone | unit |
+| 194 | Device, Zhuhai: open the Tokyo trip, 「附近有什么好吃的」; then 「把卡片收起来」, 「附近有什么好吃的」 | Tokyo places by the next stop; then Zhuhai places | D |
 
 **Not verified.**
 - Whether the model still passes `abroad=true` for a named foreign place without the trip default (row 163's sentence on
   the device). Superseded by item 8's `near=place` once T-040z is in (row 187 measures it).
 
-**Trace gate.** Add `T-040y: F-15b` and `T-040z: F-15b` to `specs/trace-ids.txt`, each together with the first `@Test` that names it.
+**Trace gate.** Add `T-040y: F-15b`, `T-040z: F-15b` and `T-040za: F-15b` to `specs/trace-ids.txt`, each together with the first `@Test` that names it.
 
 | Task | Scope | Status |
 |---|---|---|
 | T-040y | §51 items 1–3, 5, 7 (item 4 moved to T-031l); rows 161–168, 170–175 | NOT_RUN |
 | T-040z | §51 item 8 (model names the centre; code resolves and checks); rows 176–189 | NOT_RUN |
+| T-040za | §51 item 9 (cards shown: 附近 is the trip location); rows 190–194 | NOT_RUN |
