@@ -15,4 +15,4 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
-| 1.0.0 | 6dbbd9c5d47e | 2026-11-20 | T-031y | first version: the setup after F-09b §14 stage B (four-part base instruction) | F-09b §14, §15 |
+| 1.0.0 | 6dbbd9c5d47e | 2026-11-20 | 2034d5d | first version: the setup after F-09b §14 stage B (four-part base instruction) | F-09b §14, §15 |
