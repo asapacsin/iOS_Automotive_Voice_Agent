@@ -461,3 +461,63 @@ T-016p. Trace ids are added with the tests (`T-031c: F-12 F-09b` and so on), not
 | T-031q | Stage B: item 2; rows 5, 7, 8 | unit, eval, build, D |
 | T-031r | Stage C: item 3 for the car tools; rows 6, 7, 10 | unit, eval, build, D |
 | T-031s | Stage D: item 3 for navigation, trip and live-info tools, item 7; rows 6, 7, 9, 10 | unit, eval, build, D |
+
+### 14E. Stage E: she decides, code runs the step (owner request 2026-11-20)
+
+**Why.** Owner 2026-11-20: "you actually can build some deterministic code here that let llm decide to call". Stages A–D let her decide; stage E gives her three tools whose steps run the same way every time, so "nothing before the driver agrees" and "real places with real drive times" are done by code, not hoped for.
+
+**Sources (checked 2026-11-20).**
+- **Rasa CALM.** The LLM picks a flow by its description; inside the flow, code runs fixed steps (collect missing information, conditions); "LLMs keep the conversation fluent but don't guess your business logic". ([CALM](https://rasa.com/docs/learn/concepts/calm/), [flows](https://rasa.com/docs/reference/primitives/flows), [command generator](https://rasa.com/docs/pro/customize/command-generator))
+- **Home Assistant.** The LLM picks a tool; the tool runs Home Assistant's own intent handlers; the tool list is built per request. ([developers](https://developers.home-assistant.io/docs/core/llm/))
+- **Ask-user tools.** Asking is itself a tool: the model calls `ask_user(question, options)`, the runtime shows it and waits, the answer comes back as the result; use it sparingly or the agent becomes a form. ([Spring AI](https://spring.io/blog/2026/01/16/spring-ai-ask-user-question-tool/), [TrueFoundry](https://www.truefoundry.com/docs/agent-platform/agent-harness/ask-user-questions), [LangChain](https://reference.langchain.com/python/deepagents-cli/ask_user/ASK_USER_TOOL_DESCRIPTION))
+- **LangGraph human-in-the-loop.** Code pauses a tool whose required details are missing and asks; an open ask tool for general questions plus code checks for details that must never be filled in silently (the second part is a forum post). ([docs](https://docs.langchain.com/oss/python/langgraph/human-in-the-loop), [interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts), [forum](https://forum.langchain.com/t/what-is-the-right-way-to-conditionally-interrupt/4637))
+- **Anthropic, Building effective agents.** Predefined code paths for well-defined tasks; model-directed where flexibility is needed. ([Anthropic](https://www.anthropic.com/research/building-effective-agents))
+
+1. **`offer_choices` (new tool).** She calls it when she decides the driver has not decided.
+   - Arguments: `question` (her words); `options`, 1–3 items of `label`, `reason`, and `action` = one of `navigate_to {place_id}`, `make_trip_list {place, days}`, `none`.
+   - Code shows the options as cards and keeps the offer open for 120 s (`Tuning.offerOpenSeconds`). The driver's next turn is matched before it reaches her:
+     - 「好」「可以」「行」 with one option, or 「第N个」, or a label word → that option;
+     - 「随便」「你定」「都行」 → option 1;
+     - 「不要」「不用」「都不要」 → declined;
+     - anything else → no match; the turn goes to her as usual and the offer stays open.
+   - On a pick, code runs the option's `action` itself; a tap on a card is the same pick.
+   - Result to her (§13 facts): `picked` {label, action result} / `declined` {round} / `timeout`. Three declined rounds in a row: `may` [ask_what_kind], `must_not` [offer_again].
+   - **Check:** while an offer is open, a direct `navigate_to` or `make_trip_list` call is refused with `OFFER_OPEN` (`may` [wait_for_pick]); the action runs only through the pick.
+   - The matching words are a fixed list in NovaCore for the answer to an open offer only (§7's withdrawn word lists judged what she should do; this one reads a pick, as `choose_navigation_option` reads 「第N个」).
+2. **`suggest_destinations` (new tool).**
+   - Arguments: `days` (1–7), `max_drive_hours` (optional, default 3 for ≤ 3 days, else 6), `interests` (optional strings).
+   - Code: from the `现在` note's location (item 1 of §14), a fixed data table in NovaCore of cities and scenic areas (name, coordinate, country, tags such as 亲子, 山水, 美食, 海边, 温泉); drive times from the route service already used by the trip planner, cached per origin district for a day; returns up to 5 within `max_drive_hours`, best tag match first: name, drive minutes, tags.
+   - The table covers mainland China, Hong Kong and Macau at first; abroad returns `NO_CANDIDATES` with `may` [suggest_from_knowledge] and she says the drive time is not checked.
+3. **`find_rest_stop` (new tool).**
+   - Argument: `kind` = `any` | `coffee` | `service_area`.
+   - Highway with a route running: the next two service areas ahead on the route through `AlongRouteCorridor`, with distance and minutes.
+   - Otherwise: the nearest 2–3 coffee shops or rest places around the `现在` location through the existing nearby search (F-15b §51 item 9 for the trip location), with distance.
+   - Each result has the `place_id` that `offer_choices` and `navigate_to` take. Nothing is shown and nothing starts.
+4. **`make_trip_list` without a place.** A call with no place the driver named or picked (no `places`/`days`, or the driver's turns name no place) returns `DESTINATION_MISSING` with `may` [suggest_destinations, offer_choices]; nothing is planned. With a place named (「广东三天」) nothing changes.
+5. **Descriptions** follow stage C/D's form (what, when, when not, parameters, result). `offer_choices`: "use when the driver has not decided and a wrong guess would go the wrong way; not for car comfort changes or when the driver named what they want".
+6. **Log.** `offer opened n=<count>`, `offer picked index=<i> by=<voice|tap>`, `offer declined round=<r>`, `offer timeout`, `offer refused tool=<name>`, `restStop source=<route|nearby> n=<count>`, `suggestDestinations n=<count>`. No place names (I-8).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 11 | Offer open with 2 options; driver says 「第二个」, 「清远那个」, 「随便」, 「都不要」, 「今天天气怎么样」 | Option 2; option with 清远; option 1; declined; no match (turn goes to her, offer stays open) | unit |
+| 12 | Offer open; model calls `navigate_to` directly | `OFFER_OPEN`, nothing starts | unit |
+| 13 | Offer open 121 s | `timeout`; cards removed | unit |
+| 14 | Pick an option with `navigate_to {place_id}` | Code starts navigation to that place; result `picked` with the navigation result | unit |
+| 15 | Three declined rounds | Result has `may` ask_what_kind, `must_not` offer_again | unit |
+| 16 | `suggest_destinations days=3 interests=[亲子]` from Zhuhai with fixed drive times | ≤ 5 places within 3 h, 亲子 first, drive minutes from the fixture | unit |
+| 17 | `find_rest_stop` on a highway route fixture; and in a city | Two service areas ahead with distance; nearest coffee shops with distance | unit |
+| 18 | `make_trip_list` with no place in the driver's turns | `DESTINATION_MISSING`; nothing planned | unit |
+| 19 | §14 item 5 eval with stage E tools | Not decided: `offer_choices` before any action ≥ 9 of 10; decided: no `offer_choices` | eval (PC) |
+| 20 | Device: 「有點困了」 on a highway route → 「好」 | She offers the next service area with its distance; navigation starts after 「好」 | D |
+| 21 | Device: 「想带家人玩三天，不知道去哪」 → 「太近了」 → 「第一个」 | Cards with real drive times; a farther set; the plan for the picked place | D |
+| 22 | Device: offer open, tap a card | Same as saying it | D |
+
+**Not verified.** How often Gemini reaches for `offer_choices` when the driver has decided; row 19 measures it.
+
+**Trace gate.** Add `T-031t: F-09b` to `specs/trace-ids.txt` together with the first `@Test` that names T-031t.
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031t | Stage E: items 1–6; rows 11–22 | unit, eval, build, D |

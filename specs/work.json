@@ -1480,6 +1480,18 @@
       "action": "F-09b §14 stage D (items 3, 7): navigation, trip and live-info tool descriptions; make_trip_list loses 不要反问去哪里; rows 6, 7, 9, 10.",
       "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
       "evidence": []
+    },
+    {
+      "id": "T-031t",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031s"
+      ],
+      "action": "F-09b §14E stage E (items 1-6): offer_choices tool (cards, 120 s open offer, code maps 好/第N个/随便/不要 and runs the picked action; navigate_to and make_trip_list refused with OFFER_OPEN while open); suggest_destinations (fixed city table + real drive times); find_rest_stop (service areas ahead via AlongRouteCorridor, else nearby coffee); make_trip_list DESTINATION_MISSING; rows 11-22.",
+      "notes": "Owner 2026-11-20: 'you actually can build some deterministic code here that let llm decide to call'; sources Rasa CALM, Home Assistant, ask_user tools, LangGraph HITL, Anthropic.",
+      "evidence": []
     }
   ]
 }

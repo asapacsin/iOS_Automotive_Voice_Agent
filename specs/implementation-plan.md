@@ -132,6 +132,7 @@ NOT_VERIFIED until a device run is attached.
 | T-031q | Stage B: base instruction rewritten (who, what she has, how she decides, safety); no phrase scripts | F-09b §14 | T-031p | `Packages/NovaCore/` | F-09b §14 rows 5, 7, 8 | unit, eval, build, D |
 | T-031r | Stage C: car tool descriptions as purpose / when / parameters / result | F-09b §14 | T-031q | `Packages/NovaCore/` | F-09b §14 rows 6, 7, 10 | unit, eval, build, D |
 | T-031s | Stage D: navigation, trip and live-info tool descriptions; 「不要反问去哪里」 removed | F-09b §14 | T-031r | `Packages/NovaCore/` | F-09b §14 rows 6, 7, 9, 10 | unit, eval, build, D |
+| T-031t | Stage E: `offer_choices` (code reads the pick and runs the action), `suggest_destinations`, `find_rest_stop`, `make_trip_list` DESTINATION_MISSING | F-09b §14E | T-031s | `Packages/NovaCore/`, `App/NovaDrive/` | F-09b §14 rows 11–22 | unit, eval, build, D |
 | T-016p | In-memory summary of the last 6 exchanges for a new session without a resumption handle (30 min) | F-09b §6 | T-031c | `Core/NovaAgent/`, `App/NovaDrive/` | F-09b §9 rows 6, 10 | unit, build, D |
 | T-017c | Withdraw the 落域 word-list areas, `NOT_A_CAR_REQUEST` and the tired silence in code | F-09b §7, F-09a | T-031j | `Core/NovaAgent/`, `Core/NovaTools/Dispatch/`, `App/NovaDrive/` | F-09b §9 rows 7, 11 | unit, build |
 | T-032 | Bundled music on the media lane; `control_music` | F-13 | T-021 | `Core/NovaTools/Media/`, `Packages/NovaAudio/Sources/MediaLane/` | F-13 §10 row 1 offline; no self barge-in during music (D) | unit, D |
