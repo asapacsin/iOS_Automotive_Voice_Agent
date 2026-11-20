@@ -1162,3 +1162,70 @@ The code already uses an ephemeral `URLSession` (`URLSessionTransport`), and QUI
 | Task | Scope | Verify |
 |---|---|---|
 | T-046t | Items 1–10; rows 1–12 | unit, build, D |
+
+## 32. Paid calls have a budget, checked before each call; repeats and quota errors stop the calls (iOS, PROPOSED 2026-11-20)
+
+**Why.** On 2026-11-20 the DashScope console showed `qwen3.7-flash` at "Remaining 0 / Total 1M" with Stop-on-Exhaust on, so every search and picker call failed. The 1M is the one-time free quota of that model, used up since the key was first used. Where the tokens went is not proven:
+- No session on the PC ran a live Qwen test on 2026-11-20. `scripts/search_eval/` has no `results.csv` on the PC.
+- The app calls `qwen3.7-flash` for live search, the place picker and the ground backup (`QwenRoute`), and nothing in the app counts or limits those calls.
+- `scripts/search_eval/run.py` sends 2 setups × 20 questions × 3 runs = 120 calls on that model per full run, with no limit and no prompt before it starts.
+
+Commit 9059a11 moved the routes to the dated snapshot `qwen3.7-flash-2026-07-15`, which has its own quota. Without a budget it can go the same way.
+
+**Sources (2026-11-20, community practice copied, not invented).**
+- **Check before the call, not after.** LiteLLM Agent Iteration Budgets check spend against the budget before each call and answer over-budget requests with 429; AWS Well-Architected Agentic AI Lens AGENTCOST07-BP01 asks for budget enforcement per agent task.
+- **Separate caps for model calls and tool calls, plus one shared cap.** dev.to "Tool call budgets stop runaway agent loops" (each tool call costs the API and the tokens to read its result); open-multi-agent "budgets and limits" (a shared aggregate cap, so a loop cannot spread over many tools).
+- **Stop repeated identical calls.** OpenRouter "How to stop an AI agent stuck in an infinite loop": fingerprint name plus arguments and block the third identical call; tools whose job is to repeat are exempt.
+- **Say the failure plainly to the model.** dev.to "5 patterns that prevent agent loops and silent failures": a silent failure causes retry storms.
+- **Bounded retries.** dev.to "Bounded retries for agent tool calls".
+- **Provider-side cap as the last backstop.** OpenRouter guide (credit limit on the key); here DashScope Stop-on-Exhaust.
+
+**Rule in plain words.** Every paid call goes through one counter in NovaCore that is asked before the call is sent. A call over its turn, session or day limit, a third identical call, or a call to a model that already answered "quota used up" today is not sent; the tool gets a plain refusal she can say. Every call and every refusal is a record line. PC scripts that call a paid model print how many calls they will make and need `--yes` or a typed `y` first.
+
+1. **`CallBudget` in `Packages/NovaCore` (pure, no networking).**
+   - Routes counted: `qwen.live`, `qwen.picker`, `qwen.ground` (each attempt, backup model included), `gemini.vision`, `glm.vision`, `qwen.tts`. The realtime voice session is not counted here.
+   - `func ask(route:, key:, at:) -> BudgetDecision` (`.allow` or `.refuse(reason)`), then `func done(route:, model:, tokens:, quotaError:)` after the call.
+   - Limits, marked `Tuning` (F-09b §15 counts them in the agent setup):
+     - per driver turn: 3 calls over all routes, 2 on any one route;
+     - per session: 40 calls over all routes;
+     - per day (phone local date): 300 calls and 300 000 reported tokens over all routes.
+   - The day counter is kept through a NovaPorts `BudgetStore` port; the app's adapter writes it to `UserDefaults`. It survives app restarts and resets at local midnight.
+2. **Repeats.** The key is route + model + the normalised request (query text trimmed and lower-cased, coordinates rounded to 3 decimals). A key already sent twice in this session in the last 10 minutes is refused with `repeat`; the first answer, when the existing cache has it, is served instead. No route is exempt.
+3. **Quota errors open a breaker.**
+   - DashScope HTTP 403 or 429 whose error code names the quota or the free tier, and Gemini HTTP 429 `RESOURCE_EXHAUSTED`, count as a quota error. The exact codes are taken from the vendors' error-code pages and pinned in a fixture test (EVIDENCE: copy the published code list into this section before T-046u starts).
+   - After a quota error that model is refused with `quota` for the rest of the local day. The route's backup model is tried once, if it has one and its own breaker is closed. A rate-limit 429 that is not a quota error is retried at most once, as now.
+4. **What she hears.** A refusal returns `LIVE_INFO_UNAVAILABLE` with `reason=budget|repeat|quota` to the tool. She says one honest sentence that the online lookup is not available now. She is not told to retry, and the same turn makes no further paid call.
+5. **Record and log.** Each call: `paid route= model= ok= tokens= turnN= sessionN= dayN= dayTokens=`. Each refusal: `paid route= model= refused=budget|repeat|quota`. No query text, place or coordinate (I-8).
+6. **PC scripts.** `scripts/search_eval/run.py` and every script under `scripts/` that sends to a paid model:
+   - prints the planned call count (setups × questions × runs) and the model names;
+   - starts only with `--yes` or a typed `y`;
+   - takes `--max-calls N` (default: the planned count) and stops at N;
+   - stops the whole run at the first quota error and writes what it has.
+   A gate test fails when a script that names a paid host has no `--max-calls`.
+7. **Backstop stays on.** DashScope Stop-on-Exhaust stays enabled on every model the app uses (owner setting; recorded here, not code).
+8. **Not changed.** What each route sends and its 10 s limits; the weather sources (§31); the 10-minute caches.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | One driver turn asks `qwen.live` 3 times | 2 allowed, 3rd refused `budget`; no send for the 3rd | unit |
+| 2 | 41st paid call in one session | Refused `budget` | unit |
+| 3 | Day counter at 300 calls; app restarted; next local day | Refused; still refused after restart; allowed after midnight | unit |
+| 4 | Same query to `qwen.live` 3 times within 10 min | 3rd refused `repeat`; cached answer returned when present | unit |
+| 5 | Fake DashScope 403 quota code on `qwen3.7-flash-2026-07-15` | Backup `qwen3.8-flash` tried once; later calls to the first model refused `quota` until midnight | unit |
+| 6 | Fake 429 rate limit (not quota) | Retried once, breaker stays closed | unit |
+| 7 | Refusal reaches the tool | `LIVE_INFO_UNAVAILABLE reason=…`; no second paid call in the turn | unit |
+| 8 | Record after allowed and refused calls | `paid` lines with counts; no query, place or coordinate | unit |
+| 9 | `run.py` without `--yes`, input `n`; with `--max-calls 5`; fake quota error at call 3 | 0 calls; 5 calls; stops after 3 with partial results written | gate |
+| 10 | Gate over `scripts/` | Fails on a paid-host script without `--max-calls` | gate |
+| 11 | App build | Compiles (Codemagic) | build |
+| 12 | Device: 10 search questions in one drive, then the record | `paid` lines with day counts; nothing over the limits | D |
+
+**Trace gate.** Add `T-046u: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046u.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046u | Items 1–8; rows 1–12 | unit, gate, build, D |

@@ -1518,6 +1518,16 @@
       "action": "F-09b §15 items 1-8: AgentSetup (model, base instruction, tool names/descriptions/schemas, note templates, marked Tuning values) -> agentHash; specs/contracts/agent-versions.md registry with major/minor/patch bump rules; gate test + check_agent_version.py; record header agentVersion/agentHash/model/model-served (recordFormat +1) and RuntimeLog line; PC reader columns; rows 1-8.",
       "notes": "Owner 2026-11-20: her setup gets a version assigned by fixed rules and every record is labelled with it. Sources: Langfuse, MLflow Prompt Registry, OpenTelemetry GenAI conventions.",
       "evidence": []
+       },
+    {
+      "id": "T-046u",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [],
+      "action": "F-18 §32 items 1-8: CallBudget in NovaCore asked before every paid call (per turn 3/2 per route, per session 40, per day 300 calls and 300k tokens, BudgetStore port), repeat key refused on the 3rd send in 10 min, quota breaker per model per day with one backup try, LIVE_INFO_UNAVAILABLE reason=budget|repeat|quota, paid record lines (I-8), PC scripts print planned calls and need --yes and --max-calls, gate; rows 1-12.",
+      "notes": "Owner 2026-11-20: qwen3.7-flash free quota (1M) ran out; nothing limited paid calls. Sources: LiteLLM iteration budgets, AWS Agentic AI Lens AGENTCOST07-BP01, OpenRouter loop guide, dev.to tool-call budgets. Quota error codes still to be copied from vendor pages before start.",
+      "evidence": []
     }
   ]
 }
