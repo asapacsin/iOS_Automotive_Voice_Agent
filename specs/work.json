@@ -1500,12 +1500,12 @@
     {
       "id": "T-031u",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [],
       "action": "F-12 §21 items 1-7: recordFormat header (format 1 = today's lines), format fixture test that fails on any unbumped change, record-format.md + check_record_format.py gate, scripts/records/collect.py (pull, archive D:\ndrecords\\<commit>, index.csv, refuse unknown formats), read.py with one reader per format; rows 1-8.",
       "notes": "Owner 2026-11-20: 'can you register the log with version' - records from many builds will be collected and read for patterns.",
-      "evidence": []
+      "evidence": ["scripts/gates/run_all.sh T-031u T-046u green on a clean clone of f83f078 (Linux Swift 6.1.2; spec-trace 2 ids, 0 missing); spec-reviewer high effort PASS (mutation check: changed line and removed kind both fail the fixture tests); rows 1-7 unit/gate; row 8 device pull NOT_VERIFIED (pymobiledevice3 command unverified, noted in phone-test skill)"]
     },
     {
       "id": "T-031y",

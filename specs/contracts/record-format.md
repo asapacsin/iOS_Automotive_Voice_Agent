@@ -11,4 +11,4 @@ To change a line: raise `formatVersion` by one, add the new fixture (old ones st
 | Format | First commit that writes it | What changed from the one before |
 |---|---|---|
 | 0 | (before T-031u) | Records written before `recordFormat` existed: §17 header (`app …`) then `<ms> <kind> <content>` lines. Read best-effort, rows marked `legacy=true`. |
-| 1 | T-031u (branch claude/nice-mccarthy-4af8pp) | Adds the first line `recordFormat 1`; every other line is unchanged from format 0. |
+| 1 | f4dc949 (T-031u) | Adds the first line `recordFormat 1`; every other line is unchanged from format 0. |

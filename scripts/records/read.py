@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """F-12 §21 item 6 (T-031u): one reader per record format; every reader gives the same rows.
 
-Row: session (file name without .txt), turn (the `turn=<n>` / `t<n>` id on the line, or ""), ms, kind, fields,
+Row: session (file name without .txt), turn (the `turn=<n>` on the line, or ""), ms, kind, fields,
 legacy ("true" for format 0). Usage: read.py <record.txt> [...] prints CSV rows. A format with no reader raises
 UnknownFormat; it is never parsed by guessing.
 """

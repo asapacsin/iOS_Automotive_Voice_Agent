@@ -30,12 +30,13 @@ struct ToolPurposeTests {
 
     @Test("F-09b §3 item 3, §12 item 4: rule 5 rewritten; the sleepy sentence is §12's, not F-12 §20's silence")
     func sleepyRule() {
-        let rule = PersonaInstruction.comfortRule
+        // F-09b §14 item 7 (T-031q): rule 5 is gone; the base holds none of its phrases.
+        let rule = PersonaInstruction.base
         #expect(!rule.contains("不要说话，不回应"))
         #expect(!rule.contains("提神") && !rule.contains("有异味、困"))
         #expect(!PersonaInstruction.base.contains("车内场景（有蚊子、闷）"))
         #expect(!PersonaInstruction.base.contains("闷、困"))
         #expect(!PersonaInstruction.base.contains("有点热、太热了：调低一度温度"))
-        #expect(PersonaInstruction.base.contains("座位有点高：座椅降低一级。"))
+        #expect(!PersonaInstruction.base.contains("座位有点高：座椅降低一级。"))  // §14 item 7
     }
 }

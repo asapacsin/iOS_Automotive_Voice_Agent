@@ -24,13 +24,11 @@ struct SleepyRestTests {
         ComfortRun(caseID: c.id, attempt: 1, end: end ?? c.start, calls: calls, reply: reply, firstAudioMs: 900)
     }
 
-    @Test("T-031k F-09b §12 row 1: the base holds item 1's sentence, not 不要说话，不回应, within maxBaseCharacters")
+    @Test("T-031k F-09b §12 row 1 (superseded by §14 item 7, T-031q): no sleepy sentence, not 不要说话，不回应, within maxBaseCharacters")
     func baseSentence() {
-        #expect(PersonaInstruction.sleepySentence == Self.sentence)
-        #expect(PersonaInstruction.comfortRule.contains(Self.sentence))
         for search in [false, true] {
             let text = PersonaInstruction.base(PersonaInstruction.base, webSearch: search)
-            #expect(text.contains(Self.sentence))
+            #expect(!text.contains(Self.sentence))
             #expect(!text.contains("不要说话，不回应"))
             #expect(text.count <= PersonaInstruction.maxBaseCharacters, "\(search) \(text.count)")
         }

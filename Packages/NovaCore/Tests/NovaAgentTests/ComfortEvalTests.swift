@@ -118,10 +118,11 @@ struct ComfortEvalTests {
         let base = PersonaInstruction.base
         #expect(!base.contains("车内场景（有蚊子、闷）"))
         #expect(!base.contains("有点热、太热了：调低一度温度"))
-        #expect(base.contains("5. 司机说车里的感受或情况：按车内状态选一个合理的小动作直接做，不要反问。要做动作就先调用工具。做了就用一句话说改成了什么；司机说「不用」「改回去」「刚才那个不要」就调用 undo_last_change。只是提到别处的事或问知识时不做任何操作。只说真正做成的，没做成的要说。"))
+        // F-09b §14 item 7 (T-031q): rule 5 and its fixed examples are superseded by the four-part base.
+        #expect(!base.contains("5. 司机说车里的感受或情况"))
         #expect(!base.contains("get_vehicle_state"))
-        #expect(base.contains(PersonaInstruction.sleepySentence))
-        #expect(base.contains("座位有点高：座椅降低一级。"))
+        #expect(!base.contains("座位有点高：座椅降低一级。"))
+        #expect(base.contains("undo_last_change"))
         #expect(base.count <= PersonaInstruction.maxBaseCharacters, "\(base.count)")
         for search in [false, true] {
             #expect(PersonaInstruction.base(base, webSearch: search).count <= PersonaInstruction.maxBaseCharacters)

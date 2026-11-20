@@ -101,7 +101,8 @@ struct CurrentTimeZoneTests {
         #expect(ToolCatalog.webSearchSpec.declaration.description.hasSuffix("不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。不用于查现在的气温或10天内的天气预报（用 query_live_info 的 weather）。"))
         for mode in ["model"] {
             let base = PersonaInstruction.base
-            #expect(base.contains("9. 问现在几点、今天几号、星期几，不管问哪里（包括澳门和外国城市）：调用 query_live_info（kind=current_time），不是手机所在地就填 time_zone（IANA 时区名，比如仙台 Asia/Tokyo）。只按返回的结果回答，不要用 web_search 查时间，不要自己猜。"))
+            // F-09b §14 item 2 (T-031q): rule 9 left the base; the query_live_info description above carries it.
+            #expect(!base.contains("9. 问现在几点"))
             for search in [false, true] {
                 let text = PersonaInstruction.base(base, webSearch: search)
                 #expect(text.count <= PersonaInstruction.maxBaseCharacters, "\(mode) \(search) \(text.count)")

@@ -34,7 +34,7 @@ struct BuildStampTests {
         for mode in ["model"] {
             for search in [false, true] {
                 let text = PersonaInstruction.base(PersonaInstruction.base, webSearch: search)
-                #expect(text.contains("音乐、音量、"), "\(mode)")
+                #expect(text.contains("调音量"), "\(mode)")  // F-09b §14 item 2: named in 【你有什么】
                 #expect(text.count <= PersonaInstruction.maxBaseCharacters, "\(mode) \(search) \(text.count)")
             }
         }

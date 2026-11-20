@@ -103,22 +103,12 @@ struct BaseInstructionScopeTests {
 
     @Test("F-21 §14 row 1: both scopes in order, rules 2–7 kept, ≤ 1 500 characters, no one-or-two-sentence cap")
     func scopes() throws {
-        let car = try #require(base.range(of: "【车辆与出行（严格）】"))
-        let other = try #require(base.range(of: "【其他问题（自然回答）】"))
-        let guardrails = try #require(base.range(of: "【注意】"))
-        #expect(car.lowerBound < other.lowerBound && other.lowerBound < guardrails.lowerBound)
-        for rule in ["2. 车辆控制是模拟车辆，结果以工具返回为准。",
-                     "3. 工具返回的 next 是规则，不是台词：照规则做，用自己的话说，不要照念。屏幕上已经显示的列表不要念出来。",
-                     "4. 用户说「再低一点」「再高一点」这类没说明对象的话，也照常调用相应工具",
-                     "5. 司机说车里的感受或情况：按车内状态选一个合理的小动作直接做，不要反问。",
-                     "6. 导航：「导航去X」用 navigate_to；",
-                     "7. 问「我现在在哪」「这是哪里」：调用 query_live_info（kind=current_location）"] {
-            let range = try #require(base.range(of: rule), "\(rule)")
-            #expect(range.lowerBound > car.lowerBound && range.lowerBound < other.lowerBound, "\(rule)")
-        }
-        #expect(base.count <= PersonaInstruction.maxBaseCharacters)
-        #expect(!base.contains("一般一两句话") && !base.contains("不知道的事情如实说不知道"))
-        #expect(base.contains("三到五句") && base.contains("查不了实时信息") && base.contains("绝不能说已经做好了"))
+        // F-09b §14 item 2 (T-031q): the scopes and numbered rules became four parts (BaseInstructionTests row 5).
+        let parts = try ["【你是谁】", "【你有什么】", "【怎么决定】", "【安全】"].map { try #require(base.range(of: $0)).lowerBound }
+        #expect(parts == parts.sorted())
+        #expect(base.contains("模拟车辆") && base.contains("AMBIGUOUS_REFERENT"))
+        #expect(!base.contains("一两句话以内"))
+        #expect(base.count <= 1500)
     }
 
     @Test("F-21 §14 item 5: the style is still appended after the whole base")
@@ -142,11 +132,11 @@ enum ToolPromptCoverage: Sendable {
         "get_vehicle_state": .notByVoice("read by the model on its own; the state arrives by note (F-09b §5)"),
         // F-09b §4: rule 5 names it for 不用、改回去.
         "undo_last_change": .phrase("undo_last_change"),
-        "navigate_to": .phrase("navigate_to"),
-        "choose_navigation_option": .phrase("choose_navigation_option"),
-        "exit_navigation_mode": .phrase("exit_navigation_mode"),
-        "query_live_info": .phrase("query_live_info"),
-        "describe_camera_view": .phrase("describe_camera_view"),
+        "navigate_to": .phrase("导航"),
+        "choose_navigation_option": .phrase("导航"),
+        "exit_navigation_mode": .phrase("导航"),
+        "query_live_info": .phrase("位置和时间"),
+        "describe_camera_view": .phrase("摄像头"),
         "play_music": .phrase("音乐"),
         "control_music": .phrase("音乐"),
         "place_call": .phrase("电话"),
@@ -189,15 +179,14 @@ struct CameraScopeTests {
 
     @Test("F-21 §15 row 1: camera in the strict scope, rule 8, other scope excludes it, ≤ 1 500 characters")
     func cameraRule() throws {
-        let car = try #require(base.range(of: "【车辆与出行（严格）】"))
-        let other = try #require(base.range(of: "【其他问题（自然回答）】"))
-        let topic = try #require(base.range(of: "摄像头画面"))
-        let rule = try #require(base.range(of: "8. 问摄像头"))
-        #expect(topic.lowerBound > car.lowerBound && topic.lowerBound < other.lowerBound)
-        #expect(rule.lowerBound > car.lowerBound && rule.lowerBound < other.lowerBound)
-        #expect(base.contains("一定调用 describe_camera_view（question 填用户原话；说后面、倒车时 camera=rear）"))
-        #expect(base.contains("不用工具（要看画面的问题除外）"))
-        #expect(base.count <= PersonaInstruction.maxBaseCharacters)
+        // F-09b §14 item 2 (T-031q): rule 8 left the base; the camera is named in 【你有什么】 and the
+        // describe_camera_view description says when to use it.
+        let has = try #require(base.range(of: "【你有什么】"))
+        let decide = try #require(base.range(of: "【怎么决定】"))
+        let camera = try #require(base.range(of: "看摄像头"))
+        #expect(camera.lowerBound > has.lowerBound && camera.lowerBound < decide.lowerBound)
+        #expect(!base.contains("8. 问摄像头"))
+        #expect(base.count <= 1500)
     }
 
     @Test("F-21 §15 row 7: every catalog tool is reached by the base (or marked notByVoice)")
@@ -209,7 +198,7 @@ struct CameraScopeTests {
 
     @Test("F-21 §15 row 8: dropping the camera from a copy of the base, or a new tool, fails and names it")
     func guardFails() {
-        let stripped = base.replacingOccurrences(of: "describe_camera_view", with: "")
+        let stripped = base.replacingOccurrences(of: "摄像头", with: "")
         #expect(ToolPromptCoverage.gaps(tools: tools, base: stripped).contains { $0.hasPrefix("describe_camera_view:") })
         let gaps = ToolPromptCoverage.gaps(tools: tools + ["fake_tool"], base: base)
         #expect(gaps.count == 1 && gaps[0].hasPrefix("fake_tool:"))
@@ -220,8 +209,10 @@ struct CameraScopeTests {
 struct TimeRuleTests {
     @Test("Row 7: the time rule is in the base, 时间 in the strict scope, base within 1700 characters (§25 item 5)")
     func rule() {
-        #expect(PersonaInstruction.base.contains("9. 问现在几点、今天几号、星期几，不管问哪里（包括澳门和外国城市）：调用 query_live_info（kind=current_time），不是手机所在地就填 time_zone（IANA 时区名，比如仙台 Asia/Tokyo）。只按返回的结果回答，不要用 web_search 查时间，不要自己猜。"))
-        #expect(PersonaInstruction.base.contains("当前位置、时间、"))
+        // F-09b §14 item 2 (T-031q): rule 9 left the base (time is in the query_live_info description and code
+        // blocks time questions to web_search, F-18 §25 item 7); 时间 stays among what her tools can look up.
+        #expect(!PersonaInstruction.base.contains("9. 问现在几点"))
+        #expect(PersonaInstruction.base.contains("位置和时间"))
         #expect(PersonaInstruction.base.count <= PersonaInstruction.maxBaseCharacters)
     }
 }
