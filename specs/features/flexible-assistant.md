@@ -690,3 +690,86 @@ tool results).
 |---|---|---|
 | T-031za | Item 8 (`show_place`); rows 12, 13 | unit, gate, build, D |
 | T-031z | Items 1–7, 9, 10; rows 1–11 | unit, gate, build, D |
+
+## 17. 「收起来」 closes the top panel: a panel stack from the same view reports; every panel has a close path (iOS, APPROVED 2026-11-20)
+
+**Why.** Owner phone test 2026-11-20, build 3d84411, record `20261120-215214`. The 商场 list was on screen;
+「介绍一下创新方」 opened the place card over it; 「把这个收起来」 → she called `exit_navigation_mode`, the **list
+underneath** closed, she said 「好的，已取消」, and the card stayed (`screen … tripDetail=on`). Three holes:
+- **No close for the card.** §16 item 8 (`show_place`) opens `tripDetail`; no tool closes it.
+- **She did not get the changes.** The §16 屏幕 line waits for `noteIdle` (no reply, no tool, driver not speaking).
+  The driver talked over her, so in 35 s only two lines went (connect, and after the cancel); the list and the card
+  opening never reached her.
+- **Changes are recorded only when sent.** The record could not show what was on screen when she chose the tool.
+
+Audit of the §16 keys on 3d84411 (closed by voice):
+
+| Panel | Opened by | Closed by voice before this section |
+|---|---|---|
+| `destinationList`, `routePicking`, `routeCalculating`, `navigation`, `tripScreen` | `navigate_to`, pick, trip tools | `exit_navigation_mode` |
+| `tripDetail` (place card) | `show_place`, tap | none (swipe, or the car moving) |
+| `tripPlans` (我的行程) | tap | none (「完成」 tap) |
+| `musicCard` (preview card) | `play_music` | none (only when the session ends) |
+| `camera` | tap | none (tap) |
+| `working`, `settings` | app state, tab | not closed by her |
+
+**Rule in plain words.** The views' own on/off reports (§16 item 2) also keep the panels in a stack ordered by layer.
+「收起来」 closes the top one, chosen by code, and she is told which one closed.
+
+1. **Layer per panel.** Each `ScreenPanel` has a fixed layer:
+
+   | Layer | Panels |
+   |---|---|
+   | 3 sheet over everything | `tripDetail`, `tripPlans` |
+   | 2 full panel | `destinationList`, `routePicking`, `routeCalculating`, `tripScreen`, `camera` |
+   | 1 small floating card | `musicCard` |
+   | 0 base | `navigation` |
+
+   `working` and `settings` have no layer and are never closed by her.
+2. **The stack.** `ScreenStateStore` keeps, besides the §16 keys, the panels that are on with the time each turned
+   on. It changes only from the same `report(panel, on:)` call (§16 item 2), so keys and stack cannot disagree.
+   **Top** = the panel on the highest layer; on the same layer, the newest. Layer 1 is never top while a panel of
+   layer 2 or 3 is on.
+3. **Registry: every panel has its tools.** One table in `NovaKit` per `ScreenPanel`: the tools that open it, the
+   tool that closes it, the tools that act on it. `scripts/gates/check_panel_tools.py` fails when a panel used with
+   `.screenPanel(...)` in `App/NovaDrive` has no entry, or an entry with a layer and no close tool.
+   `exit_navigation_mode` is the close tool of every panel with a layer.
+4. **「收起来」 closes the top.** `exit_navigation_mode` reads the top from the stack and closes only that panel:
+   - `tripDetail` → the sheet is dismissed; `tripPlans` → the sheet is dismissed; `camera` → `closeCamera()`;
+     `musicCard` → the preview stops and the card goes; the navigation panels and `tripScreen` → as today.
+   - Done only when the panel's own report says `off` within `ScreenTuning.screenConfirm` (§16 item 6); else
+     `STILL_ON_SCREEN`.
+   - The result: `closed=<panel>`, `top=<new top or none>`. Her `next` names what closed (「卡片收起来了」); 「已取消」
+     only when `closed` is a navigation panel. Said again, it closes the next top.
+   - A named panel (「把音乐卡片关掉」「关掉导航」) closes that panel, as today, not the top.
+5. **She sees the top.** The §16 屏幕 line gains one field at the end: `top <panel|none>`. Nothing else is added.
+6. **She gets every change.** An owed 屏幕 line no longer waits for `noteIdle`. It is sent with the driver's next turn
+   and added to the next tool result as `screen` (the latest line), whichever comes first; never as audio and never
+   inside her reply. Still latest only, still settled for `screenSettle`.
+7. **Every change is recorded when it happens.** One record line per view report, at that moment:
+   `panel <key> <on|off> top=<panel|none>`. The `screen …` line stays for what was sent to her. `RuntimeLog`: keys
+   only (I-8).
+8. **Not changed.** The §16 keys and their meaning, music and volume, §16 items 6–8 apart from item 4 here, the tools
+   that open panels.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Card over the list, `exit_navigation_mode` | card closes, list stays; `closed=tripDetail top=destinationList`; no 已取消 | unit, D |
+| 2 | Then `exit_navigation_mode` again | the list closes; `top=none` | unit, D |
+| 3 | List on, then music card on | top is the list (layer 2 over 1); `exit_navigation_mode` closes the list | unit |
+| 4 | Music card alone, 「关掉」 | the preview stops, the card goes; `closed=musicCard` | unit, D |
+| 5 | 我的行程 sheet open, 「收起来」 | the sheet closes | unit, D |
+| 6 | Card report never says off | `STILL_ON_SCREEN`, she does not say it closed | unit |
+| 7 | List and card open while the driver keeps talking | the next driver turn and the next tool result carry the latest 屏幕 line with `top tripDetail` | unit, D |
+| 8 | Any report | a `panel … on/off top=…` record line at that moment | unit |
+| 9 | A `.screenPanel(...)` with no registry entry, or a layered entry with no close tool | gate fails | gate |
+| 10 | Device: 商场 list, 「介绍一下第一个」, 「收起来」, 「收起来」 | card closes first, then the list; she says what closed each time | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-031zb | Items 1–8; rows 1–10 | unit, gate, build, D |
+
