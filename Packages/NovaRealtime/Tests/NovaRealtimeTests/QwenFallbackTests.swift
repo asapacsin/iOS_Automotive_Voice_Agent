@@ -89,7 +89,7 @@ struct QwenFallbackTests {
         let client = QwenWebSearchClient(key: { "k" }, send: fake.send, fallback: fallback)
         let reply = try await client.search("北京天气", attempt: 1)
         #expect(reply.answer == "晴，20度。")
-        #expect(fake.models == ["qwen3.7-flash", "qwen3.8-flash"])
+        #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
         let sent = fake.sent.withLock { $0 }
         #expect(dropModel(sent[0].body) == dropModel(sent[1].body))
         #expect(lines.all == ["qwen fallback route=live from=qwen3.7-flash to=qwen3.8-flash reason=429 ok=yes ms=300"])
@@ -97,11 +97,11 @@ struct QwenFallbackTests {
 
         clock.advance(by: .seconds(59))
         _ = try await client.search("北京天气", attempt: 1)
-        #expect(fake.models == ["qwen3.7-flash", "qwen3.8-flash", "qwen3.8-flash"])
+        #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash", "qwen3.8-flash"])
         clock.advance(by: .seconds(1))
         #expect(fallback.skipped(.live) == nil)
         _ = try await client.search("北京天气", attempt: 1)
-        #expect(fake.models.last == "qwen3.7-flash")
+        #expect(fake.models.last == "qwen3.7-flash-2026-07-15")
     }
 
     @Test("T-040x F-15b row 157: picker quota 403 switches and skips the primary until restart; InvalidApiKey 403, 401, 500, timeout never switch")
@@ -109,12 +109,12 @@ struct QwenFallbackTests {
         let (fake, fallback, clock, lines) = rig([(10, .http(403, quota403)), (10, .http(200, pickAnswer))])
         let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
         #expect(try await picker.pick(choices) == [1])
-        #expect(fake.models == ["qwen3.7-flash", "qwen3.8-flash"])
+        #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
         #expect(lines.all == ["qwen fallback route=picker from=qwen3.7-flash to=qwen3.8-flash reason=quota ok=yes ms=20"])
         clock.advance(by: .minutes(10))
         #expect(fallback.skipped(.picker) == .quota)
         #expect(try await picker.pick(choices) == [1])
-        #expect(fake.models == ["qwen3.7-flash", "qwen3.8-flash", "qwen3.8-flash"])
+        #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash", "qwen3.8-flash"])
         // A new process (restart) starts with the primary again.
         #expect(QwenFallback(clock: clock).skipped(.picker) == nil)
 
@@ -123,7 +123,7 @@ struct QwenFallbackTests {
             let (fake, fallback, _, lines) = rig([(10, reply), (10, .http(200, pickAnswer))])
             let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
             await #expect(throws: (any Error).self) { try await picker.pick(choices) }
-            #expect(fake.models == ["qwen3.7-flash"])
+            #expect(fake.models == ["qwen3.7-flash-2026-07-15"])
             #expect(lines.all.isEmpty)
             #expect(fallback.skipped(.picker) == nil)
         }
@@ -136,12 +136,12 @@ struct QwenFallbackTests {
         let (fake, fallback, _, lines) = rig([(10, .http(200, started))])
         let client = QwenWebSearchClient(key: { "k" }, send: fake.send, fallback: fallback)
         await #expect(throws: WebSearchError.api("Throttling.RateQuota")) { try await client.search("q", attempt: 1) }
-        #expect(fake.models == ["qwen3.7-flash"] && lines.all.isEmpty)
+        #expect(fake.models == ["qwen3.7-flash-2026-07-15"] && lines.all.isEmpty)
 
         let (twice, fallback2, _, lines2) = rig([(10, .http(429, throttled))])
         let live = QwenWebSearchClient(key: { "k" }, send: twice.send, fallback: fallback2)
         await #expect(throws: WebSearchError.http(429, code: "Throttling.RateQuota")) { try await live.search("q", attempt: 1) }
-        #expect(twice.models == ["qwen3.7-flash", "qwen3.8-flash"])
+        #expect(twice.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
         #expect(lines2.all == ["qwen fallback route=live from=qwen3.7-flash to=qwen3.8-flash reason=429 ok=no ms=20"])
 
         // ground: backup is qwen3.7-flash with turbo; its 429 falls back to the model's places (failed), one switch.
@@ -150,7 +150,7 @@ struct QwenFallbackTests {
         let request = TripGroundRequest(city: "Tokyo, Japan", days: 1, places: [TripGroundPlace(name: "浅草寺", minutes: 60, importance: 3)],
                                         wishes: nil, start: nil, end: nil, hotelNear: nil)
         await #expect(throws: TripGroundError.failed) { try await grounder.ground(request) }
-        #expect(g.models == ["qwen3.7-plus", "qwen3.7-flash"])
+        #expect(g.models == ["qwen3.7-plus", "qwen3.7-flash-2026-07-15"])
         #expect(g.sent.withLock { $0.map(\.strategy) } == ["turbo", "turbo"])
         #expect(lines3.all == ["qwen fallback route=ground from=qwen3.7-plus to=qwen3.7-flash reason=429 ok=no ms=20"])
     }
@@ -161,7 +161,7 @@ struct QwenFallbackTests {
         let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
         await #expect(throws: (any Error).self) { try await picker.pick(choices) }
         let sent = fake.sent.withLock { $0 }
-        #expect(sent.map(\.model) == ["qwen3.7-flash", "qwen3.8-flash"])
+        #expect(sent.map(\.model) == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
         #expect(sent[1].timeout == 0.5)
         #expect(lines.all == ["qwen fallback route=picker from=qwen3.7-flash to=qwen3.8-flash reason=429 ok=no ms=2500"])
 
@@ -169,7 +169,7 @@ struct QwenFallbackTests {
         let (late, fallback2, _, lines2) = rig([(2500, .http(429, throttled))])
         let p2 = QwenPlacePicker(key: { "k" }, send: late.send, fallback: fallback2)
         await #expect(throws: QwenPlacePicker.PickError.http(429)) { try await p2.pick(choices) }
-        #expect(late.models == ["qwen3.7-flash"])
+        #expect(late.models == ["qwen3.7-flash-2026-07-15"])
         #expect(lines2.all == ["qwen fallback route=picker from=qwen3.7-flash to=qwen3.8-flash reason=429 ok=no ms=2500"])
     }
 }

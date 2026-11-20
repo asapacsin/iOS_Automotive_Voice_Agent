@@ -46,8 +46,8 @@ RESPONSES = DEFAULT_BASE + RESPONSES_PATH
 SEARCH_USD_PER_CALL = 10 / 1000
 
 SETUPS = {
-    "S0": {"model": "qwen3.7-flash", "api": "multimodal", "system": "app"},
-    "S1": {"model": "qwen3.7-flash", "api": "multimodal", "system": "freshprompt"},
+    "S0": {"model": "qwen3.7-flash-2026-07-15", "api": "multimodal", "system": "app"},
+    "S1": {"model": "qwen3.7-flash-2026-07-15", "api": "multimodal", "system": "freshprompt"},
     "S2": {"model": "qwen3.8-max", "api": "agent_max", "system": "freshprompt"},
     "S3": {"model": "qwen3.8-flash", "api": "responses", "system": "freshprompt"},
 }

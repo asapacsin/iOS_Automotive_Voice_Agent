@@ -26,7 +26,7 @@ struct PlacePickerTests {
         let r = QwenPlacePicker(key: { "k" }).request(choices, key: "k")
         #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer k")
         let body = try JSONDecoder().decode(JSONValue.self, from: r.httpBody ?? Data())
-        #expect(body["model"] == "qwen3.7-flash")
+        #expect(body["model"] == "qwen3.7-flash-2026-07-15")
         #expect(body["parameters"]?["enable_search"] == false && body["parameters"]?["enable_thinking"] == false)
         let text = String(decoding: r.httpBody ?? Data(), as: UTF8.self)
         #expect(!text.contains("\"k\""))

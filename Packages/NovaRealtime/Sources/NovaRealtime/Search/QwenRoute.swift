@@ -60,13 +60,13 @@ public struct QwenRoute: Sendable, Hashable {
     public static let endpoint = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 
     /// F-18 §16 live info and §21 introductions (unchanged: §20 item 1, §22 item 1 chose `turbo`).
-    public static let live = QwenRoute(job: .live, model: "qwen3.7-flash",
+    public static let live = QwenRoute(job: .live, model: "qwen3.7-flash-2026-07-15",
                                        search: Search(strategy: "turbo", forced: true, enableSource: true),
                                        thinking: false, stream: true,
                                        backupModel: "qwen3.8-flash",
                                        backupSearch: Search(strategy: "turbo", forced: true, enableSource: true))
     /// F-15b §4 item 6 picker (unchanged): search off, not streamed.
-    public static let picker = QwenRoute(job: .picker, model: "qwen3.7-flash", search: nil, thinking: false, stream: false,
+    public static let picker = QwenRoute(job: .picker, model: "qwen3.7-flash-2026-07-15", search: nil, thinking: false, stream: false,
                                          backupModel: "qwen3.8-flash", backupSearch: nil,
                                          budget: .milliseconds(2500))
     /// F-15b §50 item 1: `forced_search` so the search must run (the answer's `search_info` is checked); plus is the
@@ -75,7 +75,7 @@ public struct QwenRoute: Sendable, Hashable {
     public static let ground = QwenRoute(job: .ground, model: "qwen3.7-plus",
                                          search: Search(strategy: "turbo", forced: true, enableSource: true),
                                          thinking: false, stream: true,
-                                         backupModel: "qwen3.7-flash",
+                                         backupModel: "qwen3.7-flash-2026-07-15",
                                          backupSearch: Search(strategy: "turbo", forced: true, enableSource: true),
                                          budget: .seconds(30))
 

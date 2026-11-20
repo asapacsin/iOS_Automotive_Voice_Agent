@@ -63,7 +63,7 @@ class PromptTests(unittest.TestCase):
         url, body, streamed = se.request("S0", msgs)
         self.assertEqual(url, se.MULTIMODAL)
         self.assertTrue(streamed)
-        self.assertEqual(body["model"], "qwen3.7-flash")
+        self.assertEqual(body["model"], "qwen3.7-flash-2026-07-15")
         self.assertEqual(body["parameters"]["search_options"], {"search_strategy": "turbo", "enable_source": True, "forced_search": True})
         self.assertFalse(body["parameters"]["enable_thinking"])
         _, s1, _ = se.request("S1", se.messages("S1", QUESTION, TODAY, ZONE))
@@ -123,7 +123,7 @@ class RunTests(unittest.TestCase):
             self.assertIn("InvalidParameter", files["results.csv"])
             self.assertIn("https://www.nmc.cn/a", files["results.csv"])
             summary = files["summary.csv"]
-            self.assertIn("S0,qwen3.7-flash,60,0,0,60,60,0,0,", summary)
+            self.assertIn("S0,qwen3.7-flash-2026-07-15,60,0,0,60,60,0,0,", summary)
             self.assertIn("S3,qwen3.8-flash,60,0,0,0,0,60,0,", summary)
             self.assertIn("search_fee_only_usd_per_question", summary)
             s0 = next(r for r in se.summary([dict(r) for r in __import__("csv").DictReader(io.StringIO(files["results.csv"]))])

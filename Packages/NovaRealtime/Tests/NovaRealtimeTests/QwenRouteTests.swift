@@ -35,10 +35,10 @@ private let goodJSON = #"{"places":[{"name":"浅草寺","english":"Senso-ji","mi
 struct QwenRouteTests {
     @Test("T-040v F-15b row 154: QwenRoute table and bodies: ground is qwen3.7-plus, agent, forced, sources, thinking off, streamed, date turn")
     func row154() throws {
-        #expect(QwenRoute.live.model == "qwen3.7-flash" && QwenRoute.live.search?.strategy == "turbo")
-        #expect(QwenRoute.picker.model == "qwen3.7-flash" && QwenRoute.picker.search == nil && !QwenRoute.picker.stream)
+        #expect(QwenRoute.live.model == "qwen3.7-flash-2026-07-15" && QwenRoute.live.search?.strategy == "turbo")
+        #expect(QwenRoute.picker.model == "qwen3.7-flash-2026-07-15" && QwenRoute.picker.search == nil && !QwenRoute.picker.stream)
         #expect(QwenRoute.ground.model == "qwen3.7-plus" && QwenRoute.ground.search?.strategy == "turbo")
-        #expect(QwenRoute.ground.backupModel == "qwen3.7-flash" && QwenRoute.live.backupModel == "qwen3.8-flash")
+        #expect(QwenRoute.ground.backupModel == "qwen3.7-flash-2026-07-15" && QwenRoute.live.backupModel == "qwen3.8-flash")
         #expect(QwenWebSearchClient.model == QwenRoute.live.model)
 
         let grounder = QwenTripGrounder(key: { "k" }, send: { _ in (200, Data()) }, now: { fixed }, zone: { tokyoZone })

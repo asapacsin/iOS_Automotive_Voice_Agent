@@ -22,6 +22,6 @@ struct DriverWordsRecordTests {
             return
         }
         #expect(first["text"] == .string(message))
-        #expect(QwenWebSearchClient.model == "qwen3.7-flash")
+        #expect(QwenWebSearchClient.model == "qwen3.7-flash-2026-07-15")
     }
 }

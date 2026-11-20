@@ -41,7 +41,7 @@ struct WebSearchClientTests {
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         #expect(request.value(forHTTPHeaderField: "X-DashScope-SSE") == "enable")
         let body = try JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data())
-        #expect(body["model"] == "qwen3.7-flash")
+        #expect(body["model"] == "qwen3.7-flash-2026-07-15")
         #expect(body["parameters"] == ["result_format": "message", "incremental_output": true, "enable_thinking": false,
                                        "enable_search": true,
                                        "search_options": ["search_strategy": "turbo", "enable_source": true,
@@ -56,7 +56,7 @@ struct WebSearchClientTests {
         let text = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
         #expect(!text.contains(TestKey.value) && !(request.url?.absoluteString.contains(TestKey.value) ?? true))
         #expect(!text.contains("google"))
-        #expect(QwenWebSearchClient.model == "qwen3.7-flash")
+        #expect(QwenWebSearchClient.model == "qwen3.7-flash-2026-07-15")
     }
 
     static let stream = """
