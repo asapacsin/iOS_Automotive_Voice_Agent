@@ -61,8 +61,8 @@ public struct MusicToolHandler: ToolExecutor {
             return ToolReply.notDone(.notPlaying, facts: ["source": "bundled", "playing": false],
                                      may: [.tryLater]).result
         }
-        return .success(["status": "playing", "source": "bundled",
-                         "next": "说一句：音乐放起来了。"])
+        // F-09b §16 item 6 (T-031z): no fixed 「音乐放起来了」; done only once `ScreenConfirmedExecutor` hears it.
+        return .success(["status": "playing", "source": "bundled"])
     }
 
     private func stop() async -> ToolResult {

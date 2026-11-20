@@ -122,6 +122,12 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case placeNotSaved = "PLACE_NOT_SAVED"
     /// F-09b §16 item 8 (T-031za): `show_place` did not get the place card on screen.
     case placeNotShown = "PLACE_NOT_SHOWN"
+    /// F-09b §16 item 6 (T-031z): the tool acted, but the panel it closes is still on screen after `screenConfirm`.
+    case stillOnScreen = "STILL_ON_SCREEN"
+    /// F-09b §16 item 6 (T-031z): the saved media volume is 0, so nothing would be heard.
+    case mediaVolumeZero = "MEDIA_VOLUME_ZERO"
+    /// F-09b §16 item 3 (T-031z): the player started but no sound was measured on the media lane.
+    case musicNotHeard = "MUSIC_NOT_HEARD"
     /// PROPOSED: `open_app` read the screen back and it is not the asked one.
     case appNotOpened = "APP_NOT_OPENED"
     case liveInfoUnavailable = "LIVE_INFO_UNAVAILABLE"

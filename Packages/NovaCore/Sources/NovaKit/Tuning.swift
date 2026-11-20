@@ -270,3 +270,16 @@ public struct WakeRetryTuning: Sendable, Hashable {
     public var reconcileInterval = NovaDuration.milliseconds(1500)
     public init() {}
 }
+
+/// F-09b §16 (T-031z): the screen state's timings and the media audibility floor.
+public struct ScreenTuning: Sendable, Hashable {
+    /// Item 4: key changes within this window go as one `屏幕` line.
+    public var screenSettle = NovaDuration.milliseconds(300)
+    /// Item 6: how long a tool waits for the key it changes.
+    public var screenConfirm = NovaDuration.milliseconds(1500)
+    /// Item 3: how long the media tap may take to hear sound.
+    public var mediaCheck = NovaDuration.milliseconds(800)
+    /// Item 3: the RMS (float samples, 0–1) above which the media lane counts as heard.
+    public var mediaAudibleRms: Double = 0.003
+    public init() {}
+}
