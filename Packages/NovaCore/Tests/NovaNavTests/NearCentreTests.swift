@@ -594,4 +594,15 @@ struct TripHereTests {
         #expect(home.centers.withLock { $0 } == [station] && photon.asked.withLock { $0 }.isEmpty)
         #expect(r.data["facts"]?["searched_around"] == "珠海站" && r.data["facts"]?["source"] == nil)
     }
+
+    @Test("T-031p F-09b §14 row 2: the 现在 note's center is the trip's next stop while the cards are shown, the phone when hidden")
+    func contextCenter() async {
+        let rig = await NearRig(phone: zhuhai, home: AmapSpy(), photon: FakeApple([:]))
+        await rig.nav.setNearTrip { NearTrip(hidden: false, abroad: true, city: "Tokyo, Japan", stops: tokyoStops) }
+        let shown = await rig.nav.contextCenter()
+        #expect(shown?.trip == "浅草寺" && shown?.coordinate == tokyoStops[0].coordinate)
+        await rig.nav.setNearTrip { NearTrip(hidden: true, abroad: true, city: "Tokyo, Japan", stops: tokyoStops) }
+        let hidden = await rig.nav.contextCenter()
+        #expect(hidden != nil && hidden?.trip == nil)
+    }
 }

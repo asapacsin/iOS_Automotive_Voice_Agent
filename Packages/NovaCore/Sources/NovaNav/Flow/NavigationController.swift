@@ -1465,6 +1465,18 @@ public actor NavigationController: ToolExecutor {
 
     private func usableFix() async -> GeoCoordinate? { await currentFix()?.coordinate }
 
+    /// F-09b §14 item 1 (T-031p): the point the `[系统] 现在` note names. While the trip cards are shown over a plan
+    /// with stops, the trip location of F-15b §51 item 9 (the simulated car in 模拟导航 trip stop guidance, else the
+    /// next stop); otherwise the phone's usable fix; nil without either.
+    public func contextCenter() async -> ContextCenter? {
+        if let trip = await nearTrip?(), !trip.hidden, let next = trip.next {
+            let car = snapshot.navigating && snapshot.tripStopID != nil && snapshot.mode == .emulator
+                ? await simulatedCar?() : nil
+            return ContextCenter(coordinate: car ?? next.coordinate, trip: car == nil ? next.name : "模拟车")
+        }
+        return await usableFix().map { ContextCenter(coordinate: $0, trip: nil) }
+    }
+
     private func advance(to phase: NavigationPhase) -> Generation {
         snapshot.generation = snapshot.generation.next()
         snapshot.phase = phase

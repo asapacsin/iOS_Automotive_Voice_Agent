@@ -344,6 +344,7 @@ struct RuntimeSink: AgentEffectSink {
         case .asyncToolDropped(let tool): record?.submit(.toolDropped(tool))  // F-18 §27 item 4
         case .stateNote(let reason): record?.submit(.stateNote(reason))  // F-09b §8
         case .summaryNote(let n, let age): record?.submit(.summaryNote(exchanges: n, ageS: age))  // F-09b §8
+        case .contextNote(let fields): record?.submit(.nowNote(fields: fields))  // F-09b §14 item 8
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
@@ -893,6 +894,8 @@ final class AgentRuntime {
         let flags = AsyncStream.makeStream(of: NavigationFlowState.self, bufferingPolicy: .bufferingNewest(16))
         // F-18 §21 item 1: written by the navigation stream below, read by web_search.
         let currentDestination = DestinationHolder()
+        // F-09b §14 item 1 (T-031p): whether guidance runs, for the `现在` note; written by the navigation stream.
+        let navigatingNow = NavigatingBox()
         // F-18 §23 item 5: the driver's last final words, only for the search model's message and the local record.
         let driverWords = DriverWordsHolder()
         // This session listens to the trip from now on; it first sees the trip as it is (a drive that went
@@ -1125,6 +1128,29 @@ final class AgentRuntime {
             }
         })
         self.core = core
+        // F-09b §14 item 1 (T-031p): the `现在` facts every 15 s (place, time, navigating, trip shown); the core sends
+        // the note on (re)connect and when one of them other than the time changes. Highway is not known yet: left out.
+        let planner = trip.planner
+        tasks.append(Task {
+            var tracker = ContextPlaceTracker()
+            while !Task.isCancelled {
+                var place: ContextPlace?
+                if let center = await navigation.contextCenter() {
+                    if let known = tracker.known(center) {
+                        place = known
+                    } else {
+                        let address = try? await web.address(at: center.coordinate)
+                        place = ContextPlace(center: center, address: address)
+                        if address != nil { tracker.looked(center, place) }
+                    }
+                }
+                let shown = await planner.nearTrip().map { !$0.hidden } ?? false
+                await core.send(.context(ContextSnapshot(place: place, onHighway: nil,
+                                                         localTime: ContextSnapshot.localTime(Date()),
+                                                         navigating: navigatingNow.get(), tripShown: shown)))
+                try? await Task.sleep(for: .seconds(15))
+            }
+        })
         // F-16 §14 items 5, 9 (T-042c): the trip reads this session's driver-turn count and writes its record.
         trip.session.attach(core: core, record: record)
         // A new session's turn count starts again: no yes-needed list or no-state carries over.
@@ -1272,6 +1298,7 @@ final class AgentRuntime {
                     currentDestination.set(name)
                     await core.send(.destination(name))
                 }
+                navigatingNow.set(snapshot.navigating)
                 await core.send(.navigation(NavigationFlags(navigating: snapshot.navigating,
                                                             guidanceRunning: snapshot.navigating,
                                                             listOpen: snapshot.listOpen)))
@@ -1729,6 +1756,14 @@ enum UplinkEvent: Sendable {
 }
 
 /// F-15b §51 item 9 (T-040za): the latest `RouteGeometry.car` (GCJ-02; nil without a simulated route).
+/// F-09b §14 item 1 (T-031p): the navigation stream's `navigating`, for the context loop.
+final class NavigatingBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func set(_ v: Bool) { lock.withLock { value = v } }
+    func get() -> Bool { lock.withLock { value } }
+}
+
 final class SimulatedCarBox: @unchecked Sendable {
     private let lock = NSLock()
     private var car: GeoCoordinate?
