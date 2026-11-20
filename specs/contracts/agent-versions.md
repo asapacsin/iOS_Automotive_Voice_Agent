@@ -15,6 +15,7 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
+| 3.1.0 | 0ceb4606f71a | 2026-11-20 | (this commit) | minor: note template: the `屏幕` line gains `；top <panel\|none>` at the end | F-09b §17 item 5 |
 | 3.0.0 | 9e127cecdf02 | 2026-11-20 | ba58dac | major: tool added (`show_places`, with search on); base web_search sentence adds 司机想找能做什么、去哪玩的地方：先 web_search 找，再 show_places 给他看，他说要去才导航。 (maxBaseCharacters 1022 → 1079) | F-16 §15 items 2, 5 |
 | 2.2.0 | 35529b4982fe | 2026-11-20 | c0957a1 | minor: base 【你有什么】 adds 屏幕状态就是司机眼前看到的；"这个"指屏幕上开着的东西。 (maxBaseCharacters 994 → 1022) | F-09b §16 item 5 |
 | 2.1.0 | 634b5f633ac5 | 2026-11-20 | bff0cfb | minor: note templates: the `屏幕` line added; 现在 drops 正在导航/屏幕上显示着行程, the car note drops 音乐 (now screen keys) | F-09b §16 item 4 |

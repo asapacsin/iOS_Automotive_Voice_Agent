@@ -12,6 +12,7 @@ python3 "$root/scripts/gates/check_paid_scripts.py"  # F-18 §32 item 6 (T-046u)
 python3 "$root/scripts/gates/check_record_format.py"  # F-12 §21 item 4 (T-031u)
 python3 "$root/scripts/gates/check_agent_version.py"  # F-09b §15 item 5 (T-031y)
 python3 "$root/scripts/gates/check_single_types.py"  # F-09b §16 item 10 (T-031z)
+python3 "$root/scripts/gates/check_panel_tools.py"  # F-09b §17 item 3 (T-031zb)
 # F-09b §13 item 8: strict from the end of stage 3 (T-031n).
 python3 "$root/scripts/gates/check_scripts.py" --strict
 python3 "$root/scripts/history.py" check

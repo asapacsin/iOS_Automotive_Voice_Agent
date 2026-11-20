@@ -462,6 +462,21 @@ public struct AgentState: Sendable {
         }
     }
 
+    /// F-09b §17 item 6 (T-031zb): the owed 屏幕 line (latest only), taken once; nil when none is owed.
+    private mutating func takeOwedScreen() -> (text: String, diagnostic: AgentEffect)? {
+        guard screenPending, let screen = screenNow,
+              ![.disconnected, .connecting, .reconnecting, .error].contains(session.state) else { return nil }
+        screenPending = false
+        screenSent = screen
+        return (screen.line, .diagnostic(.screenLine(screen)))
+    }
+
+    /// §17 item 6: the owed line as a text turn (`turnComplete: false`, as the idle notes) before the driver's audio.
+    private mutating func owedScreenTurn() -> [AgentEffect] {
+        guard let line = takeOwedScreen() else { return [] }
+        return [.provider(.text([TextTurn(role: .user, text: line.text)], turnComplete: false)), line.diagnostic]
+    }
+
     /// §21 item 2 "Only when idle": connected, no reply open, no answer owed, no tool running, driver not
     /// speaking, no guidance prompt waiting. A note never interrupts a reply.
     private var noteIdle: Bool {
@@ -579,7 +594,8 @@ public struct AgentState: Sendable {
             // The driver speaks to her: a reply may claim focus again after a permanent loss (R4).
             if recentSpeech { arbiter.regainFocus() }
             let effects = cleared + bargeIn(.speechStarted(recentSpeech: recentSpeech), at: now)
-            return effects + session(.speechStarted, at: now) + arbiterChanged(at: now)
+            // F-09b §17 item 6 (T-031zb): an owed 屏幕 line goes ahead of the driver's turn, not after idle.
+            return effects + owedScreenTurn() + session(.speechStarted, at: now) + arbiterChanged(at: now)
         case .speechStopped:
             utteranceOpen = false
             lastSpeechEndAt = now
@@ -634,12 +650,20 @@ public struct AgentState: Sendable {
             // can take longer than the 10 s window after the utterance).
             arbiter.driverSpoke(at: now)
             context.record(call, ok: result.ok, at: now)
-            let finished = dispatcher.finish(call, result)
+            var finished = dispatcher.finish(call, result)
+            // F-09b §17 item 6 (T-031zb): an owed 屏幕 line rides on the next tool result as `screen`.
+            var screenSent: [AgentEffect] = []
+            if let line = takeOwedScreen() {
+                var data = finished.data
+                data["screen"] = .string(line.text)
+                finished = ToolResult(ok: finished.ok, code: finished.code, data: data, advice: finished.advice)
+                screenSent = [line.diagnostic]
+            }
             let response = ToolResponse(id: call.id, name: call.name, result: finished, elapsedMs: elapsedMs)
             // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
             // The model answers a tool result with a new turn: guidance waits for it (F-14 RESPONSE_OPEN).
             answerOwed = true
-            return [.provider(.toolResponses([response]))] + pipeline(.toolResult(turn, response), at: now)
+            return [.provider(.toolResponses([response]))] + screenSent + pipeline(.toolResult(turn, response), at: now)
         case .playback(let playback):
             switch playback {
             // Only the current reply epoch counts: a late event of a flushed reply changes nothing.

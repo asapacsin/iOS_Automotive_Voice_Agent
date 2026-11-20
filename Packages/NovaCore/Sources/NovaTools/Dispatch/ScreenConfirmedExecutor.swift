@@ -3,6 +3,8 @@ import NovaPorts
 
 /// F-09b §16 item 6 (T-031z): a tool that changes the screen answers from the screen state, not from its own intent.
 /// After the inner tool says ok, it waits up to `ScreenTuning.screenConfirm` for the key it changes:
+/// - `exit_navigation_mode` (§17 item 4, T-031zb): only the top panel closes; a sheet, the camera or the music card
+///   through `close`, the navigation panels through the flow. The result carries `closed` and `top`.
 /// - `exit_navigation_mode`: every panel it closes (on before the call) must be `off`; else `STILL_ON_SCREEN` with
 ///   `still_on=<key>`. 「没有在导航」 (`no_navigation_active`) only when every navigation key is `off`.
 /// - `control_music play` / `play_music`: `musicVolume` 0 is not done before playing (`MEDIA_VOLUME_ZERO`); after
@@ -21,13 +23,23 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
         }
     }
 
+    /// F-09b §17 item 4 (T-031zb): the panels `exit_navigation_mode` closes itself through `close` when one is the top
+    /// (the navigation panels and `tripScreen` go through the navigation flow, as before), with the name her `next` uses.
+    public static let ownClose: [ScreenPanel: String] = [
+        .tripDetail: "地方卡片", .tripPlans: "我的行程", .camera: "摄像头画面", .musicCard: "音乐卡片",
+    ]
+
     private let inner: any ToolExecutor
     private let screen: ScreenStateStore
     private let clock: any NovaClock
     private let tuning: ScreenTuning
+    private let close: @Sendable (ScreenPanel) async -> Void
 
+    /// `close`: the App dismisses that panel (the sheet, the camera, the preview and its card); done only when the
+    /// panel's own report says off.
     public init(_ inner: any ToolExecutor, screen: ScreenStateStore, clock: any NovaClock,
-                tuning: ScreenTuning = ScreenTuning()) {
+                tuning: ScreenTuning = ScreenTuning(), close: @escaping @Sendable (ScreenPanel) async -> Void = { _ in }) {
+        self.close = close
         self.inner = inner
         self.screen = screen
         self.clock = clock
@@ -45,6 +57,18 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
 
     private func exit(_ call: ToolCall) async -> ToolResult {
         let before = await screen.current
+        // §17 item 4: 「收起来」 closes the top panel only.
+        if let top = before.top, let name = Self.ownClose[top] {
+            await close(top)
+            let off = await screen.wait(until: { !$0.isOn(top) }, timeout: tuning.screenConfirm, clock: clock)
+            guard off else {
+                return ToolReply.notDone(.stillOnScreen, facts: ["still_on": .string(top.rawValue)],
+                                         may: [.tryLater], mustNot: [.invent]).result
+            }
+            let now = await screen.current.top
+            return .success(["status": "panel_closed", "closed": .string(top.rawValue),
+                             "top": .string(now?.rawValue ?? "none"), "next": .string("说一句：\(name)收起来了。")])
+        }
         let result = await inner.execute(call)
         guard result.ok else { return result }
         if result.data["status"]?.stringValue == "no_navigation_active",
@@ -54,14 +78,23 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
                                      may: [.tryLater], mustNot: [.invent]).result
         }
         let closing = Self.closes(status: result.data["status"]?.stringValue).filter(before.isOn)
-        guard !closing.isEmpty else { return result }
+        guard !closing.isEmpty else { return await withTop(result, before: before) }
         let closed = await screen.wait(until: { s in closing.allSatisfy { !s.isOn($0) } },
                                        timeout: tuning.screenConfirm, clock: clock)
-        if closed { return result }
+        if closed { return await withTop(result, before: before) }
         let still = await screen.current
         let key = closing.first(where: still.isOn) ?? closing[0]
         return ToolReply.notDone(.stillOnScreen, facts: ["still_on": .string(key.rawValue)],
                                  may: [.tryLater], mustNot: [.invent]).result
+    }
+
+    /// §17 item 4: a navigation close says `closed=<the top before>` and `top=<the top now>`.
+    private func withTop(_ result: ToolResult, before: ScreenState) async -> ToolResult {
+        guard result.ok, let closed = before.top else { return result }
+        var data = result.data
+        data["closed"] = .string(closed.rawValue)
+        data["top"] = .string(await screen.current.top?.rawValue ?? "none")
+        return ToolResult(ok: result.ok, code: result.code, data: data, advice: result.advice)
     }
 
     private func play(_ call: ToolCall) async -> ToolResult {

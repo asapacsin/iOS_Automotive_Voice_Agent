@@ -14,12 +14,25 @@ public actor ScreenStateStore {
     /// replaces the last one's.
     public func onChange(_ listener: @escaping @Sendable (ScreenState) -> Void) { self.listener = listener }
 
-    public func report(_ panel: ScreenPanel, on: Bool) { change { $0.report(panel, on: on) } }
+    /// F-09b §17 item 7 (T-031zb): called at each view report that changed a key, with the state after it (the record's
+    /// `panel` line). One listener, like `onChange`.
+    public func onReport(_ listener: @escaping @Sendable (ScreenPanel, Bool, ScreenState) -> Void) { reportListener = listener }
+    private var reportListener: (@Sendable (ScreenPanel, Bool, ScreenState) -> Void)?
+
+    public func report(_ panel: ScreenPanel, on: Bool) {
+        guard state.report(panel, on: on) else { return }
+        reportListener?(panel, on, state)
+        changed()
+    }
     public func reportMusic(heard: Bool) { change { $0.reportMusic(heard: heard) } }
     public func reportVolume(_ volume: Int) { change { $0.reportVolume(volume) } }
 
     private func change(_ edit: (inout ScreenState) -> Bool) {
         guard edit(&state) else { return }
+        changed()
+    }
+
+    private func changed() {
         listener?(state)
         for (id, waiter) in waiters where waiter.predicate(state) {
             waiters[id] = nil

@@ -584,6 +584,18 @@ final class AgentRuntime {
         }
     }
 
+    /// F-09b §17 item 4 (T-031zb): `exit_navigation_mode` closing the top panel the App owns; the panel's view reports
+    /// `off` when it is really gone.
+    func closePanel(_ panel: ScreenPanel) {
+        switch panel {
+        case .tripDetail: model.tripDetail = nil
+        case .tripPlans: model.tripPlansOpen = false
+        case .camera: closeCamera()
+        case .musicCard: model.previewCard = nil
+        default: break
+        }
+    }
+
     func closeCamera() {
         camera.stop()
         model.cameraOpen = false
@@ -1144,7 +1156,13 @@ final class AgentRuntime {
         let screenTuning = ScreenTuning()
         for name in ["exit_navigation_mode", "control_music", "play_music"] {
             if let inner = executors[name] {
-                executors[name] = ScreenConfirmedExecutor(inner, screen: screen, clock: SystemClock(), tuning: screenTuning)
+                // F-09b §17 item 4 (T-031zb): the top sheet, the camera or the music card closes here; done on its own
+                // report `off`.
+                executors[name] = ScreenConfirmedExecutor(inner, screen: screen, clock: SystemClock(), tuning: screenTuning,
+                                                          close: { [weak self, previewBox] panel in
+                    if panel == .musicCard { await previewBox.music?.stop() }
+                    await MainActor.run { self?.closePanel(panel) }
+                })
             }
         }
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
@@ -1187,6 +1205,8 @@ final class AgentRuntime {
         // `screenSettle` and sent to her; the core sends the 屏幕 line on connect and after a change, never mid-reply.
         let screenChanges = AsyncStream.makeStream(of: ScreenState.self, bufferingPolicy: .bufferingNewest(1))
         await screen.onChange { screenChanges.continuation.yield($0) }
+        // F-09b §17 item 7 (T-031zb): every view report, at that moment, as a `panel` record line (codes only, I-8).
+        await screen.onReport { [record] panel, on, after in record?.submit(.panel(panel, on: on, after: after)) }
         await core.send(.screen(await screen.current))
         tasks.append(Task {
             for await _ in screenChanges.stream {

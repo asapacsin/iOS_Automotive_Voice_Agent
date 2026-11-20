@@ -122,7 +122,7 @@ struct ConversationRecordTests {
         let w = MemoryWriter()
         record.drain(to: w)
         let text = w.lines.withLock { $0 }.joined(separator: "\n")
-        #expect(text.hasPrefix("recordFormat 3\napp 1.0(7)\ncomfortMode model\n可以打断她 off\nspeakingStyle default\n"))
+        #expect(text.hasPrefix("recordFormat 4\napp 1.0(7)\ncomfortMode model\n可以打断她 off\nspeakingStyle default\n"))
         #expect(!text.contains(fake))
         #expect(!text.contains(PersonaInstruction.base.prefix(40)))
     }

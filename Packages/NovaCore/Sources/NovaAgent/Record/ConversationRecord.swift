@@ -82,6 +82,8 @@ public enum RecordEvent: Sendable, Hashable {
     case nowNote(fields: [ContextNoteField])
     /// F-09b §16 item 9 (T-031z): a `屏幕` line was sent: `screen <key>=<on|off> … musicVolume=<n>` (codes only, I-8).
     case screen(ScreenState)
+    /// F-09b §17 item 7 (T-031zb): one view report, at that moment: `panel <key> <on|off> top=<panel|none>` (I-8).
+    case panel(ScreenPanel, on: Bool, after: ScreenState)
     /// F-09b §8 (T-031j): `undo ok=<yes|no> restored=<n>`.
     case undo(String)
     /// F-15b §7 (T-040i): `trip list …`, `trip lookup …`, `trip route …`, `trip stop-passed …`; codes and numbers only.
@@ -245,6 +247,7 @@ public struct ConversationRecorder: Sendable {
         case .summaryNote(let n, let age): return [line("summary-note", "exchanges=\(n) age_s=\(age)")]
         case .nowNote(let fields): return [line("contextNote", "fields=\(fields.map(\.rawValue).joined(separator: ","))")]
         case .screen(let state): return ["\(ms) \(state.recordLine)"]
+        case .panel(let panel, let on, let after): return ["\(ms) \(after.panelLine(panel, on: on))"]
         case .undo(let text): return ["\(ms) \(text)"]
         case .trip(let text): return ["\(ms) \(text)"]
         case .volume(let text), .audio(let text): return ["\(ms) \(text)"]
@@ -393,7 +396,7 @@ public final class ConversationRecord: Sendable {
     public static let capacity = 2000
     /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
     /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
-    public static let formatVersion = 3
+    public static let formatVersion = 4
     /// §21 item 1: the first line of every new file. A file without it is format 0.
     public static var formatLine: String { "recordFormat \(formatVersion)" }
 

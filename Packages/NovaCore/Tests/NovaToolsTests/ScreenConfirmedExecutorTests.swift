@@ -106,4 +106,83 @@ struct ScreenConfirmedExecutorTests {
         // Other tools pass through untouched.
         #expect(await empty.execute(Self.call("control_music", ["action": "stop"])).ok)
     }
+
+    // MARK: F-09b §17 (T-031zb): 「收起来」 closes the top panel
+
+    /// The App side: closing a panel makes its view report off (or never, for row 6).
+    static func closer(_ screen: ScreenStateStore, closed: ClosedPanels, reports: Bool = true)
+        -> @Sendable (ScreenPanel) async -> Void {
+        { panel in
+            closed.all.withLock { $0.append(panel) }
+            if reports { await screen.report(panel, on: false) }
+        }
+    }
+
+    @Test("T-031zb rows 1-2: card over the list: the card closes, list stays, no 已取消; again: the list closes, top none")
+    func rows1and2() async {
+        let screen = ScreenStateStore()
+        await screen.report(.destinationList, on: true)
+        await screen.report(.tripDetail, on: true)
+        let closed = ClosedPanels()
+        let nav = ActingTool(result: .success(["status": "navigation_selection_cancelled", "next": "说一句：好的，已取消。"]),
+                             act: { await screen.report(.destinationList, on: false) })
+        let tool = ScreenConfirmedExecutor(nav, screen: screen, clock: ManualClock(),
+                                           close: Self.closer(screen, closed: closed))
+        let first = await tool.execute(Self.call("exit_navigation_mode"))
+        #expect(first.ok && first.data["closed"] == "tripDetail" && first.data["top"] == "destinationList")
+        #expect(first.data["next"]?.stringValue?.contains("已取消") == false)
+        #expect(nav.calls.withLock { $0 } == 0 && closed.all.withLock { $0 } == [.tripDetail])
+        #expect(await screen.current.isOn(.destinationList))
+        let second = await tool.execute(Self.call("exit_navigation_mode"))
+        #expect(second.ok && second.data["closed"] == "destinationList" && second.data["top"] == "none")
+        #expect(nav.calls.withLock { $0 } == 1)
+    }
+
+    @Test("T-031zb row 3: list over the music card: the list is top and closes through the flow")
+    func row3() async {
+        let screen = ScreenStateStore()
+        await screen.report(.destinationList, on: true)
+        await screen.report(.musicCard, on: true)
+        let closed = ClosedPanels()
+        let nav = ActingTool(result: .success(["status": "navigation_selection_cancelled"]),
+                             act: { await screen.report(.destinationList, on: false) })
+        let tool = ScreenConfirmedExecutor(nav, screen: screen, clock: ManualClock(),
+                                           close: Self.closer(screen, closed: closed))
+        let r = await tool.execute(Self.call("exit_navigation_mode"))
+        #expect(r.ok && r.data["closed"] == "destinationList" && r.data["top"] == "musicCard")
+        #expect(closed.all.withLock { $0 }.isEmpty && nav.calls.withLock { $0 } == 1)
+    }
+
+    @Test("T-031zb rows 4-5: the music card alone, then 我的行程: each closes through the App, closed names it")
+    func rows4and5() async {
+        let screen = ScreenStateStore()
+        await screen.report(.musicCard, on: true)
+        let closed = ClosedPanels()
+        let nav = ActingTool()
+        let tool = ScreenConfirmedExecutor(nav, screen: screen, clock: ManualClock(),
+                                           close: Self.closer(screen, closed: closed))
+        let music = await tool.execute(Self.call("exit_navigation_mode"))
+        #expect(music.ok && music.data["closed"] == "musicCard" && music.data["top"] == "none")
+        await screen.report(.tripScreen, on: true)
+        await screen.report(.tripPlans, on: true)
+        let plans = await tool.execute(Self.call("exit_navigation_mode"))
+        #expect(plans.ok && plans.data["closed"] == "tripPlans" && plans.data["top"] == "tripScreen")
+        #expect(closed.all.withLock { $0 } == [.musicCard, .tripPlans] && nav.calls.withLock { $0 } == 0)
+    }
+
+    @Test("T-031zb row 6: the card never reports off: STILL_ON_SCREEN, not done")
+    func row6() async {
+        let clock = ManualClock()
+        let screen = ScreenStateStore(ScreenState(on: [.tripDetail]))
+        let closed = ClosedPanels()
+        let tool = ScreenConfirmedExecutor(ActingTool(), screen: screen, clock: clock,
+                                           close: Self.closer(screen, closed: closed, reports: false))
+        let r = await Self.timedOut(tool, Self.call("exit_navigation_mode"), clock: clock)
+        #expect(!r.ok && r.code == .stillOnScreen && r.data["facts"]?["still_on"] == "tripDetail")
+        #expect(closed.all.withLock { $0 } == [.tripDetail])
+    }
+}
+
+final class ClosedPanels: Sendable {
+    let all = Mutex<[ScreenPanel]>([])
 }
