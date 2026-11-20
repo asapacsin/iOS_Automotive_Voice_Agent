@@ -80,9 +80,9 @@ def collect(source: pathlib.Path, archive: pathlib.Path) -> tuple[list[dict], li
 
 
 def pull(pmd3: str, dest: pathlib.Path) -> bool:
-    """Pulls Documents/conversations from the app's container. The command is not verified on the device yet
-    (F-12 §21 row 8): when it fails the script says so; export the folder through the Files app and use --from."""
-    cmd = [pmd3, "apps", "afc", "--documents", BUNDLE, "pull", "Documents/conversations", str(dest)]
+    """Pulls Documents/conversations from the app's container (verified 2026-11-20, pymobiledevice3 `apps pull`;
+    the remote path needs the leading slash). When it fails, export the folder through the Files app and use --from."""
+    cmd = [pmd3, "apps", "pull", "--documents", BUNDLE, "/Documents/conversations", str(dest / "conversations")]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as e:

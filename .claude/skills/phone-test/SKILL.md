@@ -51,9 +51,9 @@ missing, fix this file in the same session (commit it) so the next session does 
 - Device log while the owner tests (on the PC): `pymobiledevice3 syslog live` filtered to NovaDrive
   (unverified flags: check `pymobiledevice3 syslog live --help` and record the working line here).
 - Conversation records after the test (F-12 §21, T-031u): `python scripts\records\collect.py` pulls
-  `Documents/conversations` and files them under `D:\ndrecords\<commit>\` with `index.csv`. The pull command in
-  `collect.py` (`pymobiledevice3 apps afc --documents <bundle> pull ...`) is NOT verified yet: on the first run, check
-  `pymobiledevice3 apps --help`, fix `collect.pull` and record the working line here. If the container cannot be
+  `Documents/conversations` and files them under `D:\ndrecords\<commit>\` with `index.csv`. Working pull (verified
+  2026-11-20): `pymobiledevice3 apps pull --documents <bundle> /Documents/conversations <local dir>` (leading slash
+  needed; from Git Bash set `MSYS_NO_PATHCONV=1` or the path is mangled). If the container cannot be
   read, export the folder through the Files app and run `collect.py --from <folder>`.
 
 ## 5. Hand over
