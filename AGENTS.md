@@ -4,9 +4,11 @@
 - Read only the section a task names: `scripts/spec_section.py <feature>` lists sections with line ranges,
   `scripts/spec_section.py <feature> <§>` prints one (trip-plan.md is ~160 KB; §51 alone is ~19 KB).
   A Read of a file over 40 KB without offset is refused by `scripts/hooks/read_guard.py`.
-- Token budget (specs/token-budget.md): build and fix in the main session; a subagent only for the required
-  PASS review (`spec-reviewer`, high effort); re-checks after a fix at medium effort; parallel agents only when
-  the owner asks; no `/goal` while the work waits on the owner; `/clear` between batches, not a new session.
+- Token budget (specs/token-budget.md): the required PASS review is a subagent (`spec-reviewer`, high effort);
+  re-checks after a fix at medium effort. Owner rule (2026-11-20, replaces "parallel agents only when the owner
+  asks"): split work into subagents or parallel worktree agents by estimated cost and benefit (token-budget.md
+  item 7: independent pieces or context-flooding side tasks split; coupled pieces stay in one agent); say the
+  choice in one line. No `/goal` while the work waits on the owner; `/clear` between batches, not a new session.
 - Never open the Android repository unless the feature file says "allowed Android lookup" for a
   specific symbol; request it with an EVIDENCE_REQUEST (specs/ai-agent-workflow.md) instead of browsing.
 - Pure logic goes in Packages/NovaCore (no UIKit/AVFoundation). Vendor SDKs only in their adapter

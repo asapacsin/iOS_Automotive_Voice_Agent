@@ -40,9 +40,27 @@ read it. `specs/work.json` (~190 KB) and `specs/STATUS.md` (~120 KB) grow with e
 3. **Agent routing (T-900c).** `.claude/agents/Explore.md`: read-only search on `model: haiku` (search does not
    need the main model). `.claude/agents/spec-reviewer.md`: the independent read-only review AGENTS.md requires,
    `model: inherit`, tools Read/Grep/Glob/Bash, told to read only the item's sections via the helper.
-4. **Workflow rule (T-900d)** in AGENTS.md: build and fix in the main session; a subagent only for the required
-   high-effort PASS review; re-checks after a fix at medium effort; parallel agents only when the owner asks;
-   no `/goal` while the work waits on the owner; `/clear` between batches instead of a new session.
+4. **Workflow rule (T-900d)** in AGENTS.md: the required high-effort PASS review is a subagent; re-checks after a
+   fix at medium effort; no `/goal` while the work waits on the owner; `/clear` between batches instead of a new
+   session. **Replaced 2026-11-20 (owner: "decide to split agent or not based on estimate cost and benefit"):**
+   whether to build in the main session, hand a side task to a subagent, or run tasks in parallel agents is
+   decided per task by item 7, not by a fixed rule.
+7. **Split by cost and benefit (owner rule 2026-11-20).** Before starting a batch, estimate both sides and write
+   the choice in one line of the reply (what is split, why).
+   - **Cost:** a subagent starts cold and re-reads what it needs; Anthropic measured agents at about 4× and
+     multi-agent systems at about 15× the tokens of a chat, worth it only when the task's value pays for it
+     (https://www.anthropic.com/engineering/multi-agent-research-system). Subagent requests count toward the same
+     usage limits (https://code.claude.com/docs/en/sub-agents).
+   - **Split when:** the pieces are independent (no `depends_on` between them, no shared files, no decision one
+     makes that the other must follow), e.g. two unrelated work items, or breadth-first lookups ("multiple
+     independent directions", Anthropic); or a side task would flood the main context with output not needed
+     again (search results, logs, long files: Claude Code docs), with a cheaper model where it suffices.
+   - **Keep in one agent when:** the pieces share context or depend on each other (stages of one rewrite, a fix
+     and its re-test, edits to the same files): "actions carry implicit decisions, and conflicting decisions
+     carry bad results" (https://cognition.com/blog/dont-build-multi-agents); "most coding tasks involve fewer
+     truly parallelizable tasks than research" (Anthropic).
+   - **Parallel builders** each work in their own git worktree and each item still needs gates plus its own
+     review before PASS; the main session merges and runs the gates on the merged branch.
 5. **Environment setup script (T-900e).** The owner's cloud environment installs Swift 6.1.2 into `/opt/swift`,
    puts it on PATH and runs `swift build --build-tests` for NovaCore, NovaServices, NovaRealtime, so a new
    session does not rebuild by hand. Stored on the environment, not in the repo; text in §5.
