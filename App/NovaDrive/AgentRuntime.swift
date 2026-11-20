@@ -667,7 +667,10 @@ final class AgentRuntime {
         // §16 item 8 step 3: DriveView shows one sheet at a time; with 我的行程 open the card would not be seen.
         guard !model.tripPlansOpen else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
         await openTripDetail(card)
-        guard model.tripDetail?.placeID == card.placeID else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
+        // §16 item 8 step 4 with item 2 built: the sheet holds the place and the display reports it on.
+        let onScreen = await ScreenReporter.shared.store.wait(until: { $0.isOn(.tripDetail) },
+                                                             timeout: ScreenTuning().screenConfirm, clock: SystemClock())
+        guard onScreen, model.tripDetail?.placeID == card.placeID else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
         let intro: String? = if case .text(let text)? = model.tripIntro { text } else { nil }
         return ShowPlaceTool.Shown(shown: true, intro: intro, address: model.tripDetailPlace?.address)
     }

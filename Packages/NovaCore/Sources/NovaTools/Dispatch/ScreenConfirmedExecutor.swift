@@ -8,8 +8,18 @@ import NovaPorts
 /// - `control_music play` / `play_music`: `musicVolume` 0 is not done before playing (`MEDIA_VOLUME_ZERO`); after
 ///   playing, done only when `music` is `on`; else `MUSIC_NOT_HEARD`.
 public struct ScreenConfirmedExecutor: ToolExecutor {
-    /// The panels `exit_navigation_mode` closes: the navigation ones and the trip cards.
-    public static let closedByExit: [ScreenPanel] = ScreenPanel.navigationKeys + [.tripScreen]
+
+    /// The panels a result of `exit_navigation_mode` closes (only those are waited for: a list closed over kept
+    /// guidance leaves `navigation` on; stopping guidance leaves the trip cards).
+    static func closes(status: String?) -> [ScreenPanel] {
+        switch status {
+        case "navigation_stopped": [.navigation, .routePicking]
+        case "list_closed_guidance_kept": [.destinationList]
+        case "navigation_selection_cancelled": [.destinationList, .routePicking, .routeCalculating, .tripScreen]
+        case "trip_cards_hidden": [.tripScreen]
+        default: []
+        }
+    }
 
     private let inner: any ToolExecutor
     private let screen: ScreenStateStore
@@ -43,7 +53,7 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
             return ToolReply.notDone(.stillOnScreen, facts: ["still_on": .string(shown.rawValue)],
                                      may: [.tryLater], mustNot: [.invent]).result
         }
-        let closing = Self.closedByExit.filter(before.isOn)
+        let closing = Self.closes(status: result.data["status"]?.stringValue).filter(before.isOn)
         guard !closing.isEmpty else { return result }
         let closed = await screen.wait(until: { s in closing.allSatisfy { !s.isOn($0) } },
                                        timeout: tuning.screenConfirm, clock: clock)

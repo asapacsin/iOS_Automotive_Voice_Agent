@@ -92,6 +92,17 @@ struct ScreenConfirmedExecutorTests {
         let empty = ScreenConfirmedExecutor(ActingTool(result: .success(["status": "no_navigation_active"])),
                                             screen: ScreenStateStore(), clock: ManualClock())
         #expect(await empty.execute(Self.call("exit_navigation_mode")).ok)
+        // A list closed over kept guidance waits for the list only; stopping guidance does not wait for the trip cards.
+        let over = ScreenStateStore(ScreenState(on: [.destinationList, .navigation]))
+        let kept = ScreenConfirmedExecutor(ActingTool(result: .success(["status": "list_closed_guidance_kept"]),
+                                                      act: { await over.report(.destinationList, on: false) }),
+                                           screen: over, clock: ManualClock())
+        #expect(await kept.execute(Self.call("exit_navigation_mode")).ok)
+        let trip = ScreenStateStore(ScreenState(on: [.navigation, .tripScreen]))
+        let stopped = ScreenConfirmedExecutor(ActingTool(result: .success(["status": "navigation_stopped"]),
+                                                         act: { await trip.report(.navigation, on: false) }),
+                                              screen: trip, clock: ManualClock())
+        #expect(await stopped.execute(Self.call("exit_navigation_mode")).ok)
         // Other tools pass through untouched.
         #expect(await empty.execute(Self.call("control_music", ["action": "stop"])).ok)
     }

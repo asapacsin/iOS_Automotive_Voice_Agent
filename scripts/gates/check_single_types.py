@@ -15,7 +15,7 @@ DIRS = ("Packages", "App")
 def problems(root: pathlib.Path = ROOT) -> list[str]:
     out = []
     for name, home in SINGLE.items():
-        pattern = re.compile(rf"^\s*(public\s+|internal\s+|fileprivate\s+|private\s+)?(indirect\s+)?enum\s+{name}\b", re.M)
+        pattern = re.compile(rf"^\s*(@\w+\s+)*((public|package|internal|fileprivate|private)\s+)?(indirect\s+)?(enum|struct|class|typealias)\s+{name}\b", re.M)
         found = sorted(str(p.relative_to(root)) for d in DIRS if (root / d).exists()
                        for p in (root / d).rglob("*.swift")
                        if "/.build/" not in str(p) and pattern.search(p.read_text(encoding="utf-8", errors="ignore")))

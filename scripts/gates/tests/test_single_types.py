@@ -28,6 +28,15 @@ class SingleTypesGateTests(unittest.TestCase):
             self.assertEqual(len(issues), 1)
             self.assertIn("NovaNav/X.swift", issues[0])
 
+    def test_typealias_or_struct_also_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = self.rig(tmp, {HOME: "public enum NavigationPhase { case idle }\n",
+                                    "App/B.swift": "@frozen public struct NavigationPhase {}\n",
+                                    "App/C.swift": "package typealias NavigationPhase = Int\n"})
+            self.assertEqual(len(issues), 1)
+            self.assertIn("App/B.swift", issues[0])
+            self.assertIn("App/C.swift", issues[0])
+
     def test_one_definition_and_uses_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(self.rig(tmp, {HOME: "public enum NavigationPhase { case idle }\n",
