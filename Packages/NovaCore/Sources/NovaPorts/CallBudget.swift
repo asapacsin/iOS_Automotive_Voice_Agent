@@ -160,7 +160,8 @@ public final class CallBudget: Sendable {
         let (decision, line): (BudgetDecision, String?) = state.withLock { s in
             var day = Self.today(&s, today)
             func refuse(_ r: BudgetReason) -> (BudgetDecision, String?) {
-                if route.capped { s.turnClosed = true }
+                // A quota refusal leaves the turn open: the route's backup model is tried once (item 3).
+                if route.capped, r != .quota { s.turnClosed = true }
                 return (.refuse(r), "paid route=\(route.rawValue) model=\(model) refused=\(r.rawValue)")
             }
             if day.quotaModels.contains(model) { return refuse(.quota) }

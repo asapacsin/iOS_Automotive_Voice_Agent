@@ -92,7 +92,7 @@ struct QwenFallbackTests {
         #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
         let sent = fake.sent.withLock { $0 }
         #expect(dropModel(sent[0].body) == dropModel(sent[1].body))
-        #expect(lines.all == ["qwen fallback route=live from=qwen3.7-flash to=qwen3.8-flash reason=429 ok=yes ms=300"])
+        #expect(lines.all == ["qwen fallback route=live from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=429 ok=yes ms=300"])
         #expect(fallback.skipped(.live) == .rateLimit)
 
         clock.advance(by: .seconds(59))
@@ -110,7 +110,7 @@ struct QwenFallbackTests {
         let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
         #expect(try await picker.pick(choices) == [1])
         #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
-        #expect(lines.all == ["qwen fallback route=picker from=qwen3.7-flash to=qwen3.8-flash reason=quota ok=yes ms=20"])
+        #expect(lines.all == ["qwen fallback route=picker from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=quota ok=yes ms=20"])
         clock.advance(by: .minutes(10))
         #expect(fallback.skipped(.picker) == .quota)
         #expect(try await picker.pick(choices) == [1])
@@ -142,7 +142,7 @@ struct QwenFallbackTests {
         let live = QwenWebSearchClient(key: { "k" }, send: twice.send, fallback: fallback2)
         await #expect(throws: WebSearchError.http(429, code: "Throttling.RateQuota")) { try await live.search("q", attempt: 1) }
         #expect(twice.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
-        #expect(lines2.all == ["qwen fallback route=live from=qwen3.7-flash to=qwen3.8-flash reason=429 ok=no ms=20"])
+        #expect(lines2.all == ["qwen fallback route=live from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=429 ok=no ms=20"])
 
         // ground: backup is qwen3.7-flash with turbo; its 429 falls back to the model's places (failed), one switch.
         let (g, fallback3, _, lines3) = rig([(10, .http(429, throttled))])
@@ -152,7 +152,7 @@ struct QwenFallbackTests {
         await #expect(throws: TripGroundError.failed) { try await grounder.ground(request) }
         #expect(g.models == ["qwen3.7-plus", "qwen3.7-flash-2026-07-15"])
         #expect(g.sent.withLock { $0.map(\.strategy) } == ["turbo", "turbo"])
-        #expect(lines3.all == ["qwen fallback route=ground from=qwen3.7-plus to=qwen3.7-flash reason=429 ok=no ms=20"])
+        #expect(lines3.all == ["qwen fallback route=ground from=qwen3.7-plus to=qwen3.7-flash-2026-07-15 reason=429 ok=no ms=20"])
     }
 
     @Test("T-040x F-15b row 159: picker primary 429 at 2.0 s: the backup gets 0.5 s; at 2.5 s the failure path (高德's first result)")
@@ -163,13 +163,56 @@ struct QwenFallbackTests {
         let sent = fake.sent.withLock { $0 }
         #expect(sent.map(\.model) == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
         #expect(sent[1].timeout == 0.5)
-        #expect(lines.all == ["qwen fallback route=picker from=qwen3.7-flash to=qwen3.8-flash reason=429 ok=no ms=2500"])
+        #expect(lines.all == ["qwen fallback route=picker from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=429 ok=no ms=2500"])
 
         // A 429 that arrives with no budget left: no backup call.
         let (late, fallback2, _, lines2) = rig([(2500, .http(429, throttled))])
         let p2 = QwenPlacePicker(key: { "k" }, send: late.send, fallback: fallback2)
         await #expect(throws: QwenPlacePicker.PickError.http(429)) { try await p2.pick(choices) }
         #expect(late.models == ["qwen3.7-flash-2026-07-15"])
-        #expect(lines2.all == ["qwen fallback route=picker from=qwen3.7-flash to=qwen3.8-flash reason=429 ok=no ms=2500"])
+        #expect(lines2.all == ["qwen fallback route=picker from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=429 ok=no ms=2500"])
+    }
+}
+
+/// F-18 §32 (T-046u) rows 5-7 through the real `QwenFallback` and `QwenWebSearchClient`.
+@Suite("T-046u F-18 §32 budget in QwenFallback")
+struct QwenFallbackBudgetTests {
+    private func setup(_ replies: [(after: Int64, reply: FakeQwen.Reply)]) -> (FakeQwen, QwenFallback, CallBudget) {
+        let clock = ManualClock()
+        let budget = CallBudget(clock: clock)
+        return (FakeQwen(clock, replies), QwenFallback(clock: clock, budget: budget), budget)
+    }
+
+    @Test("T-046u F-18 §32 row 5: a quota 403 tries the backup once; later calls skip the used-up model")
+    func row5() async throws {
+        let (fake, fallback, budget) = setup([(10, .http(403, quota403)), (10, .http(200, liveAnswer))])
+        let client = QwenWebSearchClient(key: { "k" }, send: fake.send, fallback: fallback)
+        _ = try await client.search("q1", attempt: 1)
+        #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
+        budget.newTurn()
+        let fresh = QwenFallback(clock: ManualClock(), budget: budget)  // a restart keeps the day's breaker
+        let again = QwenWebSearchClient(key: { "k" }, send: fake.send, fallback: fresh)
+        _ = try await again.search("q2", attempt: 1)
+        #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash", "qwen3.8-flash"])
+    }
+
+    @Test("T-046u F-18 §32 row 6: a 429 rate limit is retried once on the backup; the breaker stays closed")
+    func row6() async throws {
+        let (fake, fallback, budget) = setup([(10, .http(429, throttled)), (10, .http(200, liveAnswer))])
+        let client = QwenWebSearchClient(key: { "k" }, send: fake.send, fallback: fallback)
+        _ = try await client.search("q", attempt: 1)
+        #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
+        budget.newTurn()
+        #expect(budget.ask(.qwenLive, model: "qwen3.7-flash-2026-07-15", key: "other") == .allow)
+    }
+
+    @Test("T-046u F-18 §32 row 7: a refused call sends nothing and reaches the tool as WebSearchError.budget")
+    func row7() async throws {
+        let (fake, fallback, _) = setup([(10, .http(200, liveAnswer))])
+        let client = QwenWebSearchClient(key: { "k" }, send: fake.send, fallback: fallback)
+        _ = try await client.search("q", attempt: 1)
+        _ = try await client.search("q", attempt: 1)
+        await #expect(throws: WebSearchError.budget(.budget)) { try await client.search("q", attempt: 1) }
+        #expect(fake.models.count == 2)
     }
 }

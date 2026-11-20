@@ -107,7 +107,7 @@ class RunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out, err = io.StringIO(), io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                code = se.main(["--setups", "S0,S1,S3", "--runs", "3"], env={se.KEY_ENV: FAKE_KEY}, post=post,
+                code = se.main(["--setups", "S0,S1,S3", "--runs", "3", "--yes"], env={se.KEY_ENV: FAKE_KEY}, post=post,
                                out_dir=pathlib.Path(tmp))
             self.assertEqual(code, 0)
             files = {p.name: p.read_text(encoding="utf-8") for p in pathlib.Path(tmp).iterdir()}
@@ -168,7 +168,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual(url, "https://ws.example.com" + se.MULTIMODAL_PATH)
         seen = []
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
-            se.main(["--setups", "S3", "--runs", "1", "--base-url", "https://ws.example.com"], env={se.KEY_ENV: FAKE_KEY},
+            se.main(["--setups", "S3", "--runs", "1", "--yes", "--base-url", "https://ws.example.com"], env={se.KEY_ENV: FAKE_KEY},
                     post=lambda u, h, b, t: (seen.append(u), (200, b"{}"))[1], out_dir=pathlib.Path(tmp))
         self.assertEqual(set(seen), {"https://ws.example.com" + se.RESPONSES_PATH})
 
@@ -183,9 +183,41 @@ class RunTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(KeyboardInterrupt):
-                se.main(["--setups", "S1"], env={se.KEY_ENV: FAKE_KEY}, post=post, out_dir=pathlib.Path(tmp))
+                se.main(["--setups", "S1", "--yes"], env={se.KEY_ENV: FAKE_KEY}, post=post, out_dir=pathlib.Path(tmp))
             lines = (pathlib.Path(tmp) / "results.csv").read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(lines), 3)  # header + the 2 rows done before the crash
+
+
+    def test_t046u_row9_confirm_max_calls_and_quota_stop(self):
+        """T-046u F-18 §32 row 9: no --yes and `n` sends 0; --max-calls 5 sends 5; a quota error at call 3 stops."""
+        calls = []
+
+        def post(url, headers, body, timeout):
+            calls.append(1)
+            return 200, STREAM.encode()
+
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()) as out:
+            code = se.main(["--setups", "S1"], env={se.KEY_ENV: FAKE_KEY}, post=post, out_dir=pathlib.Path(tmp),
+                           ask=lambda prompt: "n")
+            self.assertEqual((code, calls), (1, []))
+            self.assertIn("planned paid calls:", out.getvalue())
+            se.main(["--setups", "S1", "--max-calls", "5"], env={se.KEY_ENV: FAKE_KEY}, post=post,
+                    out_dir=pathlib.Path(tmp), ask=lambda prompt: "y")
+            self.assertEqual(len(calls), 5)
+
+        calls.clear()
+
+        def quota(url, headers, body, timeout):
+            calls.append(1)
+            if len(calls) == 3:
+                return 403, b'{"code":"AllocationQuota.FreeTierOnly","message":"The free tier of the model has been exhausted."}'
+            return 200, STREAM.encode()
+
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            se.main(["--setups", "S1", "--yes"], env={se.KEY_ENV: FAKE_KEY}, post=quota, out_dir=pathlib.Path(tmp))
+            lines = (pathlib.Path(tmp) / "results.csv").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(lines), 4)  # header + 3 rows, the quota row included
 
 
 if __name__ == "__main__":

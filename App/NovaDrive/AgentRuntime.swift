@@ -1544,6 +1544,7 @@ final class AgentRuntime {
         // F-18 §32 (T-046u): the day counter survives restarts (UserDefaults); `paid` lines carry counts only (I-8).
         CallBudget.shared.setStore(DefaultsBudgetStore())
         CallBudget.shared.setLog { line in RuntimeLog.agent.notice("\(line, privacy: .public)") }
+        QwenFallback.shared.setBudget(.shared)
         let picker = QwenPlacePicker(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) })
         let photon = PhotonPlaceSearch()
         let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock, picker: picker,

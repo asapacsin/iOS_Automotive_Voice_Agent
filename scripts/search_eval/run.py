@@ -278,13 +278,34 @@ def parse(setup: str, raw: bytes) -> dict:
 
 # ---- Run and summary ----
 
+# F-18 §32 item 3 (T-046u): DashScope codes that mean the quota is used up (alibabacloud.com/help/en/model-studio/error-code).
+# `Throttling.AllocationQuota` also means a TPM limit; a script stops on it either way (the safe side).
+QUOTA_CODES = {"AllocationQuota.FreeTierOnly", "BudgetLimitExceeded", "Throttling.AllocationQuota"}
+
+
+class QuotaStop(Exception):
+    pass
+
+
 def run(setups, questions, runs, today, zone, key, post=http_post, clock=time.monotonic, timeout=120.0,
-        base=DEFAULT_BASE, on_row=lambda row: None) -> list[dict]:
-    """Every row is handed to `on_row` as soon as it exists, so a crash keeps what was done."""
+        base=DEFAULT_BASE, on_row=lambda row: None, max_calls=None) -> list[dict]:
+    """Every row is handed to `on_row` as soon as it exists, so a crash keeps what was done. F-18 §32 item 6: at most
+    `max_calls` requests; the whole run stops at the first quota error."""
     rows = []
+    try:
+        _run(rows, setups, questions, runs, today, zone, key, post, clock, timeout, base, on_row, max_calls)
+    except QuotaStop:
+        print("stopped: quota error (F-18 §32 item 6)", flush=True)
+    return rows
+
+
+def _run(rows, setups, questions, runs, today, zone, key, post, clock, timeout, base, on_row, max_calls):
     for setup in setups:
         for q in questions:
             for n in range(1, runs + 1):
+                if max_calls is not None and len(rows) >= max_calls:
+                    print(f"stopped: --max-calls {max_calls} reached", flush=True)
+                    return
                 url, body, streamed = request(setup, messages(setup, q, today, zone), base)
                 start = clock()
                 network = ""
@@ -302,7 +323,8 @@ def run(setups, questions, runs, today, zone, key, post=http_post, clock=time.mo
                 rows.append(row)
                 on_row(row)
                 print(f"{setup} {q['id']} run {n}: status {status} {parsed['error_code'] or network or 'ok'} {elapsed}s", flush=True)
-    return rows
+                if parsed["error_code"] in QUOTA_CODES:
+                    raise QuotaStop()
 
 
 def summary(rows: list[dict]) -> list[dict]:
@@ -333,7 +355,7 @@ def write_csv(path: pathlib.Path, rows: list[dict], fields: list[str]) -> None:
         w.writerows(rows)
 
 
-def main(argv=None, env=os.environ, post=http_post, out_dir: pathlib.Path = HERE) -> int:
+def main(argv=None, env=os.environ, post=http_post, out_dir: pathlib.Path = HERE, ask=input) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--setups", default="S0,S1,S2,S3")
     p.add_argument("--runs", type=int, default=RUNS)
@@ -341,6 +363,8 @@ def main(argv=None, env=os.environ, post=http_post, out_dir: pathlib.Path = HERE
     p.add_argument("--questions", default=str(HERE / "questions.json"))
     p.add_argument("--base-url", default=DEFAULT_BASE, help="API host, e.g. a workspace domain (paths are kept)")
     p.add_argument("--summary-only", action="store_true", help="recount summary.csv from a marked results.csv")
+    p.add_argument("--yes", action="store_true", help="start without the typed y (F-18 §32 item 6)")
+    p.add_argument("--max-calls", type=int, default=None, help="stop after N paid calls (default: the planned count)")
     a = p.parse_args(argv)
     results, summary_path = out_dir / "results.csv", out_dir / "summary.csv"
     if a.summary_only:
@@ -358,6 +382,20 @@ def main(argv=None, env=os.environ, post=http_post, out_dir: pathlib.Path = HERE
             return 2
         questions = json.loads(pathlib.Path(a.questions).read_text(encoding="utf-8"))["questions"]
         today = datetime.datetime.now(ZoneInfo(a.tz)).date()
+        # F-18 §32 item 6: say what will be paid for and ask first.
+        planned = len(setups) * len(questions) * a.runs
+        max_calls = planned if a.max_calls is None else min(a.max_calls, planned)
+        models = sorted({SETUPS[s]["model"] for s in setups})
+        print(f"planned paid calls: {planned} ({len(setups)} setups x {len(questions)} questions x {a.runs} runs); "
+              f"max-calls {max_calls}; models: {', '.join(models)}", flush=True)
+        if not a.yes:
+            try:
+                answer = ask("send? [y/N] ")
+            except EOFError:
+                answer = ""
+            if answer.strip().lower() != "y":
+                print("not started: 0 calls", flush=True)
+                return 1
         with results.open("w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=RESULT_FIELDS)
             w.writeheader()
@@ -366,7 +404,8 @@ def main(argv=None, env=os.environ, post=http_post, out_dir: pathlib.Path = HERE
             def append(row):
                 w.writerow(row)
                 f.flush()
-            rows = run(setups, questions, a.runs, today, a.tz, key, post=post, base=a.base_url, on_row=append)
+            rows = run(setups, questions, a.runs, today, a.tz, key, post=post, base=a.base_url, on_row=append,
+                       max_calls=max_calls)
     summ = summary(rows)
     write_csv(summary_path, summ, list(summ[0].keys()) if summ else ["setup"])
     for s in summ:

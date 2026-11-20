@@ -24,25 +24,27 @@ public final class QwenFallback: Sendable {
     }
 
     /// One process-wide state, so every client of a route sees the same skip (all keys share the model's limits).
-    /// F-18 §32: the app's instance asks `CallBudget.shared` before every attempt.
-    public static let shared = QwenFallback(budget: .shared)
+    /// F-18 §32: the app attaches `CallBudget.shared` at start (`setBudget`); tests that use it get none.
+    public static let shared = QwenFallback()
 
     private struct State {
         var skippedUntil: [QwenRoute.Job: NovaInstant] = [:]
         var quotaSkipped: Set<QwenRoute.Job> = []
         var log: (@Sendable (String) -> Void)?
+        var budget: CallBudget?
     }
 
     private let clock: any NovaClock
     private let state: Mutex<State>
-    /// F-18 §32 (T-046u): nil only in tests that do not test the budget.
-    private let budget: CallBudget?
+    /// F-18 §32 (T-046u): asked before every attempt; nil only in tests that do not test the budget.
+    private var budget: CallBudget? { state.withLock { $0.budget } }
 
     public init(clock: any NovaClock = SystemClock(), budget: CallBudget? = nil, log: (@Sendable (String) -> Void)? = nil) {
         self.clock = clock
-        self.budget = budget
-        state = Mutex(State(log: log))
+        state = Mutex(State(log: log, budget: budget))
     }
+
+    public func setBudget(_ budget: CallBudget) { state.withLock { $0.budget = budget } }
 
     /// The app's log sink for the fallback line.
     public func setLog(_ log: @escaping @Sendable (String) -> Void) {
