@@ -139,3 +139,56 @@ Sources 2026-11-05:
 | Task | Scope | Verify |
 |---|---|---|
 | T-042c | Items 1–11; rows 1–8 | unit, PC, D |
+
+## 15. Explore: 「附近有没有滑雪的地方」 is searched and shown, not routed (iOS, APPROVED 2026-11-20)
+
+**Why.** Phone test 2026-11-20, build 3d84411, record `20261120-214921`, car in 横琴:
+
+| Driver | Her call | 高德 | What she said |
+|---|---|---|---|
+| 「这附近有没有什么好玩的地方?」 | `navigate_to 好玩的地方 near=here` | 5, top 天沐河碧道 0.8 km | 「没找到好玩的地方」 |
+| 「滑雪的有没有啊这附近?」 | `navigate_to 滑雪场 near=here` | 2, top 雪自由(珠海环宇城) 12 km | 「附近没有找到可以滑雪的地方」 |
+| 「那爬山总有了吧?」 | `navigate_to 登山 near=here` | 5, top 景山公园 16 km | 「附近好像没有特定的登山点」 |
+
+Two causes:
+- **Wrong path.** She treated a wish as a destination. 高德 keyword search matches names and types; it cannot judge
+  「能滑雪」 or 「好玩」.
+- **Results dropped.** §14 scores each candidate by pinyin similarity to `destination` plus the distance prior. That
+  check is for a misheard *name*. 「滑雪场」 vs 「雪自由」 share one syllable, so 雪自由 scored 0.45 < `askMin` 0.5,
+  `check=none`, and the tool returned `NO_CANDIDATES` with `found=0` although 高德 had returned places.
+
+**Rule in plain words.** When the driver is asking for ideas, she searches, shows what she found, and navigates only
+when the driver says to go.
+
+1. **Explore.** The driver wants ideas for where to go or what to do (「附近有没有X的」「哪里可以X」「有什么好玩的」),
+   not a place they named. She decides this from the words, the screen state (F-09b §16) and the car's place.
+2. **Search, then show.** On explore she calls `web_search` with the wish and the car's place, then the new tool
+   `show_places` with the places from the answer, each `{name, about}` (up to `maxCandidates`). The app looks each
+   name up with 高德 text search in the car's city for its coordinate, distance and address, and opens the candidate
+   list with the `about` line under each name. A name 高德 cannot find is listed without distance. She says briefly
+   what they are. Nothing is routed.
+3. **Navigate only on go.** She calls `navigate_to` with that place only after the driver says they want to go to it
+   (「去这个」「就去雪自由」). Picking from the list works as today.
+4. **No silent drop.** The §14 name check does not apply to `show_places`. When §14 ends in `check=none` while 高德
+   returned places, the result says how many were found and that none matched the name; never `found=0`.
+5. **Instruction.** One sentence in her base text, next to the `web_search` sentence:
+   「司机想找能做什么、去哪玩的地方：先 web_search 找，再 show_places 给他看，他说要去才导航。」
+6. **Not changed.** §14 for a named destination, plain kinds (「附近的加油站」) through `navigate_to`, the
+   `web_search` model and its prompt (owner rule 2026-11-05), routing.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 1 | Car at 横琴: 「附近有没有滑雪的地方」 | `web_search` → `show_places` (e.g. 雪自由); list on screen; no `navigate_to`, no route | eval, D |
+| 2 | 「那爬山总有了吧」, 「这附近有没有什么好玩的地方」 | Real places on the list with what each is; never 没找到 | eval, D |
+| 3 | Then 「就去这个」 / 「就去雪自由」 | `navigate_to` that place; route starts | eval, D |
+| 4 | `show_places` with 3 names, one unknown to 高德 | 3 on the list, the unknown one without distance; no route | unit |
+| 5 | §14 search, 高德 returns 2, both under `askMin` | Result facts `found=2`, no `found=0` | unit |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-042d | Items 1–6; rows 1–5 | unit, eval, D |
+

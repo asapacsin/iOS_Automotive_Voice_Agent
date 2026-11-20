@@ -1554,6 +1554,7 @@
       "notes": "Owner phone test 2026-11-20 (e195ea4): fake 音乐放起来了 x3, 收起来 on the route page not understood, no place card. Owner: the state is not sent to the LLM. Owner rule: state from the display, keys on/off only, volume a number. Needs the bundled song file from the owner.",
       "blocked_by": "Item 7 needs the bundled song file nova_drive_loop.m4a from the owner (royalty-free, owner approves it); rows 7-11 need a device run",
       "evidence": ["Off-device parts done: items 1-6, 9, 10. scripts/gates/run_all.sh PASS on 364b701 (Linux Swift 6.1.2; NovaCore 1058 tests, 1 known NoiseCorpus issue; spec-trace 158 ids; check_single_types, check_agent_version 2.2.0, check_record_format 3 OK); spec-reviewer high effort FAIL (exit waited on panels it did not close) -> fixed in 364b701 -> medium re-check PASS; rows 1-6 unit/gate; App and NovaAudio files read, not compiled; rows 7-11 device NOT_VERIFIED; item 7 not done"]
-    }
+    },
+    {"id": "T-042d", "owner": "AUTONOMOUS", "status": "NOT_RUN", "priority": 1, "depends_on": ["T-042c"], "action": "F-16 §15 items 1-6: explore (「附近有没有滑雪的」) → web_search → new show_places tool (list with about lines, no route); navigate_to only after the driver says go; §14 never reports found=0 when 高德 returned places; one base-text sentence; rows 1-5.", "notes": "Owner phone test 2026-11-20 (3d84411, record 20261120-214921): 滑雪/爬山/好玩 all 没找到; 雪自由 12 km dropped by the §14 name check (0.45 < askMin). Owner approved the explore-only version 2026-11-20.", "evidence": []}
   ]
 }
