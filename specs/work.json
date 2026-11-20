@@ -1511,7 +1511,7 @@
     {
       "id": "T-031y",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 1,
       "depends_on": [
         "T-031u"
