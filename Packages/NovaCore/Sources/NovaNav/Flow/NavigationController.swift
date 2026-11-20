@@ -275,6 +275,8 @@ public actor NavigationController: ToolExecutor {
         guard !wanted.isEmpty else {
             return ToolReply.failure(.invalidFieldValue, facts: ["shown": false], mustNot: [.claimDone, .invent]).result
         }
+        // A cancel, tap or new request during the lookups wins: this list is then stale.
+        let generation = snapshot.generation
         let fix = await usableFix()
         let city = await cityCode?()
         var places: [Place] = []
@@ -297,7 +299,7 @@ public actor NavigationController: ToolExecutor {
             }
             let place: Place
             if let hit {
-                // The listed name stays the one she gave when 高德's is only longer (雪自由 → 雪自由(珠海环宇城)).
+                // 高德's own name is listed (雪自由 → 雪自由(珠海环宇城)); the distance is computed when 高德 gives none.
                 let meters = hit.distanceMeters ?? fix.map { Int(SelfPosition.distanceMeters($0, hit.coordinate).rounded()) }
                 place = Place(id: hit.id, name: hit.name, address: hit.address, coordinate: hit.coordinate,
                               distanceMeters: meters, openingHours: hit.openingHours, phone: hit.phone, city: hit.city,
@@ -315,6 +317,7 @@ public actor NavigationController: ToolExecutor {
         places = places.filter { !unlocated.contains($0.id) } + places.filter { unlocated.contains($0.id) }
         let ms = max(0, Int((clock.now - started).milliseconds))
         onExploreLine("show places n=\(places.count) located=\(places.count - unlocated.count) ms=\(ms)")
+        guard generation == snapshot.generation else { return .failure(.optionsStale) }
         // Every lookup failed (key, quota, network): nothing useful to show.
         if failed == wanted.count {
             return LookupReply.failed(.liveInfoUnavailable, what: "places", cause: .network,
@@ -590,7 +593,8 @@ public actor NavigationController: ToolExecutor {
 
     /// Places offered by a result: the listed count, 1 for a started route, else 0.
     static func found(_ r: ToolResult) -> Int {
-        guard r.ok else { return 0 }
+        // F-16 §15 item 4: a no-fit result carries how many 高德 returned; the log line says that, not 0.
+        guard r.ok else { return r.data["facts"]?["found"]?.intValue.map(Int.init) ?? 0 }
         return r.data["count"]?.intValue.map(Int.init) ?? 1
     }
 

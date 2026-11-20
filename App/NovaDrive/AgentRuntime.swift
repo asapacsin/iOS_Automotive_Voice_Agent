@@ -1025,7 +1025,9 @@ final class AgentRuntime {
         executors[ShowPlaceTool.tool] = ShowPlaceTool(
             onScreen: { [model] in
                 let nav = await navigation.current
-                var places = nav.phase == .awaitingDestinationSelection || nav.alongRouteList ? nav.places : []
+                // F-16 §15 item 2: a listed name 高德 could not find is not a place to show a card for.
+                var places = nav.phase == .awaitingDestinationSelection || nav.alongRouteList
+                    ? nav.places.filter { !nav.unlocated($0) } : []
                 if let destination = nav.destination,
                    nav.phase == .awaitingRouteSelection || nav.phase == .calculatingRoute || nav.phase == .navigating {
                     places.append(destination)

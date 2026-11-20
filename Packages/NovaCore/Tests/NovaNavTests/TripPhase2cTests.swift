@@ -124,7 +124,7 @@ struct TripPhase2cTests {
     func row63() {
         let android = ToolCatalog.generatedSpecs.first { $0.name == "exit_navigation_mode" }!.declaration.description
         let ios = ToolCatalog.spec("exit_navigation_mode")!.declaration.description
-        #expect(ios == android.replacingOccurrences(of: "按 status 答：", with: ToolCatalog.exitCardsText))
+        #expect(ios == android.replacingOccurrences(of: "按 status 答：", with: ToolCatalog.exitPanelText + ToolCatalog.exitCardsText))  // + F-09b §17 item 4
         #expect(ios.contains("每次说关掉都要调用，没调用不要说已关闭。按 status 答：trip_cards_hidden=已收起行程卡片，navigation_stopped="))
         #expect(ToolCatalog.spec("edit_trip_list")!.declaration.description.contains("「清单里有什么」「打开行程」「看看行程」→read"))
     }

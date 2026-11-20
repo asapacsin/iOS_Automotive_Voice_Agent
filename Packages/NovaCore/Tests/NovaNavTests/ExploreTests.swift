@@ -81,6 +81,18 @@ struct ExploreTests {
         #expect(await nav.current.about(spot("雪自由(珠海环宇城)", km: 12)) == nil)
     }
 
+    @Test("F-16 §15 item 3: picking an unlocated name searches it by name, never routes to a made-up point")
+    func unlocatedPick() async {
+        let search = StepSearch(city: ["雪自由": [spot("雪自由(珠海环宇城)", km: 12)]])
+        let (nav, engine) = await controller(search)
+        _ = await nav.execute(tool("show_places", ["places": .array([entry("雪自由", "a"), entry("无名雪场", "b")])]))
+        let before = search.log.withLock { $0 }.count
+        let picked = await nav.execute(tool("choose_navigation_option", ["index": 2]))
+        #expect(!picked.ok)
+        #expect(search.log.withLock { $0 }.dropFirst(before).contains { $0.contains("无名雪场") })
+        #expect(engine.calls.withLock { $0 }.isEmpty)
+    }
+
     @Test("F-16 §15 item 2: catalog validation: 1–5 places with a name, about optional")
     func validation() {
         #expect(ToolCatalog.validate("show_places", ["places": .array([entry("雪自由", "室内滑雪场")])]) == nil)

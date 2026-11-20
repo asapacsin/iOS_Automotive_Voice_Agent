@@ -170,6 +170,36 @@ struct ScreenConfirmedExecutorTests {
         #expect(closed.all.withLock { $0 } == [.musicCard, .tripPlans] && nav.calls.withLock { $0 } == 0)
     }
 
+    @Test("T-031zb item 4: a named panel closes that panel, not the top: 结束导航 with the music card over guidance")
+    func namedPanel() async {
+        let screen = ScreenStateStore()
+        await screen.report(.navigation, on: true)
+        await screen.report(.musicCard, on: true)
+        let closed = ClosedPanels()
+        let nav = ActingTool(result: .success(["status": "navigation_stopped"]),
+                             act: { await screen.report(.navigation, on: false) })
+        let tool = ScreenConfirmedExecutor(nav, screen: screen, clock: ManualClock(),
+                                           close: Self.closer(screen, closed: closed))
+        let r = await tool.execute(Self.call("exit_navigation_mode", ["panel": "navigation"]))
+        #expect(r.ok && r.data["closed"] == "navigation" && r.data["top"] == "musicCard")
+        #expect(closed.all.withLock { $0 }.isEmpty && nav.calls.withLock { $0 } == 1)
+        #expect(ToolCatalog.validate("exit_navigation_mode", ["panel": "navigation"]) == nil)
+        #expect(ToolCatalog.validate("exit_navigation_mode", ["panel": "working"]) == .invalidFieldValue)
+        #expect(ToolCatalog.validate("exit_navigation_mode", [:]) == nil)
+    }
+
+    @Test("T-031zb item 4: closed is what really went off: guidance stopped under the trip cards says navigation")
+    func closedIsWhatWentOff() async {
+        let screen = ScreenStateStore()
+        await screen.report(.navigation, on: true)
+        await screen.report(.tripScreen, on: true)
+        let nav = ActingTool(result: .success(["status": "navigation_stopped"]),
+                             act: { await screen.report(.navigation, on: false) })
+        let tool = ScreenConfirmedExecutor(nav, screen: screen, clock: ManualClock())
+        let r = await tool.execute(Self.call("exit_navigation_mode"))
+        #expect(r.ok && r.data["closed"] == "navigation" && r.data["top"] == "tripScreen")
+    }
+
     @Test("T-031zb row 6: the card never reports off: STILL_ON_SCREEN, not done")
     func row6() async {
         let clock = ManualClock()

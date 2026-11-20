@@ -36,6 +36,7 @@ public enum ToolCatalog {
         let live = spec.name == "query_live_info"
         let schema = live ? forecastArguments(longerDays(spec.declaration.parametersJSONSchema))
             : spec.name == "navigate_to" ? navigateNearArguments(spec.declaration.parametersJSONSchema)
+            : spec.name == "exit_navigation_mode" ? exitPanelArguments
             : spec.declaration.parametersJSONSchema
         let description: String
         switch spec.name {
@@ -373,11 +374,19 @@ public enum ToolCatalog {
 
     /// F-15b §22 item 4 (T-040m): 「把页面关掉」 also calls it and hides the trip cards; a checked replace of the
     /// Android text.
+    /// F-09b §17 item 4 (T-031zb): a named panel closes that panel; without `panel` the top one closes.
+    public static let exitPanels = ["navigation", "destinationList", "tripScreen", "tripDetail", "tripPlans", "camera", "musicCard"]
+    static let exitPanelArguments: JSONValue = [
+        "type": "object",
+        "properties": ["panel": ["type": "string", "enum": .array(exitPanels.map { .string($0) })]],
+        "additionalProperties": false,
+    ]
+    static let exitPanelText = "司机说了要关哪个（导航、列表、行程、地方卡片、我的行程、摄像头、音乐卡片）就填 panel；只说「收起来」「关掉」不填，关掉屏幕最上面的那个。"
     static let exitCardsText = "「把页面关掉」「关掉这个页面」「收起来」也调用它：没有导航时收起行程卡片，行程还在。每次说关掉都要调用，没调用不要说已关闭。按 status 答：trip_cards_hidden=已收起行程卡片，"
     static func exitDescription(_ text: String) -> String {
         let cut = "按 status 答："
         precondition(text.components(separatedBy: cut).count == 2, "exit_navigation_mode description changed")
-        return text.replacingOccurrences(of: cut, with: exitCardsText)
+        return text.replacingOccurrences(of: cut, with: exitPanelText + exitCardsText)
     }
 
     /// F-18 §16 item 9 as changed by §23 item 1: with search on, `query_live_info` keeps every kind, argument and
@@ -615,7 +624,14 @@ public enum ToolCatalog {
             default: ["action", "name"]
             }
             if keys != need { return .invalidFields }
-        case "exit_navigation_mode", "end_conversation", "get_vehicle_state", "undo_last_change":
+        case "exit_navigation_mode":
+            // F-09b §17 item 4: an optional named panel.
+            if !keys.isSubset(of: ["panel"]) { return .invalidFields }
+            if keys.contains("panel") {
+                guard let panel = str("panel") else { return .invalidFieldType }
+                if !exitPanels.contains(panel) { return .invalidFieldValue }
+            }
+        case "end_conversation", "get_vehicle_state", "undo_last_change":
             if !keys.isEmpty { return .invalidFields }
         case "open_app":
             if keys != ["app"] { return .invalidFields }

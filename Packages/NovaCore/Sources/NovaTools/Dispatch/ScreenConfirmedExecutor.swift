@@ -57,8 +57,10 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
 
     private func exit(_ call: ToolCall) async -> ToolResult {
         let before = await screen.current
-        // §17 item 4: 「收起来」 closes the top panel only.
-        if let top = before.top, let name = Self.ownClose[top] {
+        // §17 item 4: a named panel closes that panel; 「收起来」 (no panel) closes the top one only.
+        let named = call.arguments["panel"]?.stringValue.flatMap(ScreenPanel.init(rawValue:))
+        let target = named ?? before.top
+        if let top = target, let name = Self.ownClose[top], before.isOn(top) {
             await close(top)
             let off = await screen.wait(until: { !$0.isOn(top) }, timeout: tuning.screenConfirm, clock: clock)
             guard off else {
@@ -69,7 +71,8 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
             return .success(["status": "panel_closed", "closed": .string(top.rawValue),
                              "top": .string(now?.rawValue ?? "none"), "next": .string("说一句：\(name)收起来了。")])
         }
-        let result = await inner.execute(call)
+        // The navigation flow takes no panel argument.
+        let result = await inner.execute(ToolCall(id: call.id, name: call.name, arguments: [:]))
         guard result.ok else { return result }
         if result.data["status"]?.stringValue == "no_navigation_active",
            let shown = ScreenPanel.navigationKeys.first(where: before.isOn) {
@@ -88,12 +91,19 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
                                  may: [.tryLater], mustNot: [.invent]).result
     }
 
-    /// §17 item 4: a navigation close says `closed=<the top before>` and `top=<the top now>`.
+    /// §17 item 4: a navigation close says `closed` (a layered panel that was on and is off now: the old top when it
+    /// went, else the highest of them; none when nothing went off) and `top=<the top now>`.
     private func withTop(_ result: ToolResult, before: ScreenState) async -> ToolResult {
-        guard result.ok, let closed = before.top else { return result }
+        guard result.ok else { return result }
+        let now = await screen.current
+        let gone = before.order.filter { $0.layer != nil && !now.isOn($0) }
         var data = result.data
-        data["closed"] = .string(closed.rawValue)
-        data["top"] = .string(await screen.current.top?.rawValue ?? "none")
+        if let top = before.top, gone.contains(top) {
+            data["closed"] = .string(top.rawValue)
+        } else if let highest = gone.max(by: { ($0.layer ?? 0) < ($1.layer ?? 0) }) {
+            data["closed"] = .string(highest.rawValue)
+        }
+        data["top"] = .string(now.top?.rawValue ?? "none")
         return ToolResult(ok: result.ok, code: result.code, data: data, advice: result.advice)
     }
 
