@@ -22,7 +22,7 @@ public struct ShowPlaceTool: ToolExecutor {
         }
     }
 
-    enum Via: String { case screen, city, country }
+    enum Via: String { case screen, city, country, none }
 
     private let onScreen: @Sendable () async -> [Place]
     private let search: any PlaceSearch
@@ -49,6 +49,7 @@ public struct ShowPlaceTool: ToolExecutor {
         let started = clock.now
         let name = (call.arguments["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
+            log(ok: false, via: .none, intro: false, since: started)
             return ToolReply.failure(.invalidFieldValue, facts: ["shown": false], may: [.askPlace],
                                      mustNot: [.claimDone, .invent]).result
         }
@@ -63,14 +64,17 @@ public struct ShowPlaceTool: ToolExecutor {
             do {
                 found = try await searchNear(name)
             } catch let error as AmapWebError {
+                log(ok: false, via: .none, intro: false, since: started)
                 let cause = LookupReply.cause(of: error)
                 return LookupReply.failed(LookupReply.code(for: cause), what: "place", cause: cause,
                                           facts: ["shown": false], mustNot: [.claimDone])
             } catch {
+                log(ok: false, via: .none, intro: false, since: started)
                 return LookupReply.failed(.liveInfoUnavailable, what: "place", cause: .network,
                                           facts: ["shown": false], mustNot: [.claimDone])
             }
             guard let found else {
+                log(ok: false, via: .none, intro: false, since: started)
                 return LookupReply.notFound(.noCandidates, what: name, facts: ["shown": false], may: [.askPlace],
                                             mustNot: [.claimDone])
             }
@@ -78,8 +82,7 @@ public struct ShowPlaceTool: ToolExecutor {
         }
         // Steps 2 and 3: the App fills and opens the card.
         let shown = await present(Self.card(for: place))
-        let ms = max(0, Int((clock.now - started).milliseconds))
-        onLine("show place ok=\(shown.shown ? "yes" : "no") via=\(via.rawValue) intro=\(shown.intro == nil ? "no" : "yes") ms=\(ms)")
+        log(ok: shown.shown, via: via, intro: shown.intro != nil, since: started)
         // Step 4: return the result.
         guard shown.shown else {
             return ToolReply.notDone(.placeNotShown, facts: ["shown": false, "name": .string(place.name)],
@@ -89,6 +92,12 @@ public struct ShowPlaceTool: ToolExecutor {
                                           "intro": shown.intro.map { .string($0) } ?? .null]
         if let address = shown.address ?? place.address { facts["address"] = .string(address) }
         return ToolReply.success(facts: facts, mustNot: [.invent]).result
+    }
+
+    /// Every outcome writes one line, codes only (I-8); `via=none` when no place was found.
+    private func log(ok: Bool, via: Via, intro: Bool, since started: NovaInstant) {
+        let ms = max(0, Int((clock.now - started).milliseconds))
+        onLine("show place ok=\(ok ? "yes" : "no") via=\(via.rawValue) intro=\(intro ? "yes" : "no") ms=\(ms)")
     }
 
     /// The car's city first (`citylimit=true`); nationwide when that finds nothing or the city is unknown.

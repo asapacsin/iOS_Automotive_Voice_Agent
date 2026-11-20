@@ -1011,7 +1011,7 @@ final class AgentRuntime {
         executors[ShowPlaceTool.tool] = ShowPlaceTool(
             onScreen: { [model] in
                 let nav = await navigation.current
-                var places = nav.phase == .awaitingDestinationSelection ? nav.places : []
+                var places = nav.phase == .awaitingDestinationSelection || nav.alongRouteList ? nav.places : []
                 if let destination = nav.destination,
                    nav.phase == .awaitingRouteSelection || nav.phase == .calculatingRoute || nav.phase == .navigating {
                     places.append(destination)

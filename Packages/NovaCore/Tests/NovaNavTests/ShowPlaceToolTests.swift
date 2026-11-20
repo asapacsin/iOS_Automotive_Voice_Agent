@@ -86,6 +86,10 @@ struct ShowPlaceToolTests {
         // Several on screen match: the first is used.
         let first = await run("华发商都", screen: list, presented: presented)
         #expect(first.ok && first.data["facts"]?["name"] == .string("华发商都(新香洲店)"))
+        // The asked name is longer than the name on screen: still that place, no search.
+        let longer = await run("富华里商场", screen: list, search: search)
+        #expect(longer.ok && longer.data["facts"]?["name"] == .string("富华里"))
+        #expect(search.queries.withLock { $0.isEmpty })
     }
 
     @Test("T-031za: not on screen searches the car's city first, nationwide only when the city finds nothing")
@@ -111,7 +115,10 @@ struct ShowPlaceToolTests {
     @Test("T-031za: nothing found is NO_CANDIDATES; a failed search is honest; nothing opens")
     func notFound() async {
         let presented = Presented()
-        let none = await run("不存在的地方", presented: presented)
+        let lines = Lines()
+        let none = await run("不存在的地方", lines: lines, presented: presented)
+        #expect(lines.first?.hasPrefix("show place ok=no via=none intro=no ms=") == true)
+        #expect(lines.first?.contains("不存在") == false)
         #expect(!none.ok && none.code == .noCandidates)
         let failed = await run("珠海渔女", search: CitySearch(error: .keyMissing), presented: presented)
         #expect(!failed.ok && failed.code == .amapWebKeyMissing)
@@ -120,7 +127,10 @@ struct ShowPlaceToolTests {
 
     @Test("T-031za: not shown is not done (PLACE_NOT_SHOWN, shown=false); no intro gives intro null")
     func notShown() async {
-        let result = await run("富华里", screen: list, shown: false)
+        let lines = Lines()
+        let result = await run("富华里", screen: list, shown: false, lines: lines)
+        #expect(lines.first?.hasPrefix("show place ok=no via=screen intro=yes ms=") == true)
+        #expect(lines.first?.contains("富华里") == false)
         #expect(!result.ok && result.code == .placeNotShown)
         #expect(result.data["facts"]?["shown"] == .bool(false))
         let noIntro = await run("富华里", screen: list, intro: nil)
@@ -131,6 +141,9 @@ struct ShowPlaceToolTests {
     func declaration() {
         #expect(ToolCatalog.spec("show_place") != nil)
         #expect(AsyncTool(name: "show_place") == .showPlace)
+        let schema = ToolCatalog.spec("show_place")?.declaration.parametersJSONSchema
+        if case .object(let properties)? = schema?["properties"] { #expect(properties.keys.sorted() == ["name"]) } else { Issue.record("no properties") }
+        #expect(schema?["required"] == .array([.string("name")]))
         #expect(ToolCatalog.validate("show_place", ["name": "珠海渔女"]) == nil)
         #expect(ToolCatalog.validate("show_place", [:]) == .invalidFields)
         #expect(ToolCatalog.validate("show_place", ["index": 1]) == .invalidFields)
