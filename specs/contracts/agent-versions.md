@@ -15,6 +15,6 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
-| 2.1.0 | 634b5f633ac5 | 2026-11-20 | (next commit) | minor: note templates: the `屏幕` line added; 现在 drops 正在导航/屏幕上显示着行程, the car note drops 音乐 (now screen keys) | F-09b §16 item 4 |
+| 2.1.0 | 634b5f633ac5 | 2026-11-20 | bff0cfb | minor: note templates: the `屏幕` line added; 现在 drops 正在导航/屏幕上显示着行程, the car note drops 音乐 (now screen keys) | F-09b §16 item 4 |
 | 2.0.0 | dae929dc9ff0 | 2026-11-20 | bf39cfb | major: tool added (`show_place`); base 【你有什么】 打开地图或设置 → 打开地图、设置或地方卡片, 【怎么决定】 drops 地方介绍 from the no-tool rule | F-09b §16 item 8 |
 | 1.0.0 | 6dbbd9c5d47e | 2026-11-20 | 2034d5d | first version: the setup after F-09b §14 stage B (four-part base instruction) | F-09b §14, §15 |
