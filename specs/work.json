@@ -1452,13 +1452,13 @@
     {
       "id": "T-031q",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 1,
       "depends_on": [
         "T-031p"
       ],
       "action": "F-09b §14 stage B (item 2): base instruction rewritten in four parts with no phrase scripts or 不要反问; eval against baseline; rows 5, 7, 8.",
-      "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
+      "notes": "BLOCKED 2026-11-20: item 2 and row 5 built (base 994 chars, 4 parts; superseded tests updated; gates green at 0c685e2). Row 7 needs a PC eval harness that drives Gemini Live with the real instruction, notes and tools plus a baseline run, which spends the owner's Gemini quota: owner decision asked. Row 8 device. Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
       "evidence": []
     },
     {
