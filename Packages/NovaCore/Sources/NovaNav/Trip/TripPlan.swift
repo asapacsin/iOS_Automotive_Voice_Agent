@@ -123,6 +123,11 @@ public struct TripPlan: Sendable, Hashable {
         return true
     }
 
+    /// §52 item 9 (T-040zc): the day in front on the screen; not a plan change (no revision).
+    public mutating func show(_ day: Int) {
+        currentDay = min(max(day, 1), days.count)
+    }
+
     /// §15 item 2: `make_trip_list day=d` replaces day d (d ≤ dayCount + 1, at most 5 days); false when out of range.
     public mutating func replaceDay(_ day: Int, with list: TripList) -> Bool {
         guard day >= 1, day <= min(days.count + 1, Self.maxDays) else { return false }

@@ -20,6 +20,8 @@ final class DriveModel: ObservableObject {
     @Published var geometry = RouteGeometry()
     /// F-15b §11 (T-040j): the app's trip list, and whether the phone is moving (cards or the strip).
     @Published var tripList = TripList()
+    /// F-15b §52 item 9 (T-040zc): the whole plan; the trip screen is shown from it, not from the day in front.
+    @Published var tripPlan = TripPlan()
     @Published var tripMoving = false
     /// F-15b §11 item 6: the card whose details sheet is open, with the place detail once it arrived.
     @Published var tripDetail: TripCard?
@@ -1033,7 +1035,7 @@ final class AgentRuntime {
                     places.append(destination)
                 }
                 let stops = await MainActor.run {
-                    model.tripCardsHidden || model.tripList.isEmpty ? [] : model.tripList.stops.map(\.place)
+                    model.tripCardsHidden || model.tripList.isEmpty ? [] : model.tripList.stops.filter(\.placed).map(\.place)
                 }
                 return places + stops
             },
@@ -1653,6 +1655,7 @@ final class AgentRuntime {
                                   files: AppTripFiles(), onLine: tripLine,
                                   onChange: { list in Task { @MainActor in model.tripList = list } },
                                   onPlans: { plans in Task { @MainActor in model.tripPlans = plans } },
+                                  onPlan: { plan in Task { @MainActor in model.tripPlan = plan } },
                                   onHidden: { hidden in Task { @MainActor in model.tripCardsHidden = hidden } },
                                   // F-15b §26 (T-040n): driving times from 高德 /v3/distance, kept 30 minutes.
                                   times: TripTimes(service: web, clock: navigationClock),

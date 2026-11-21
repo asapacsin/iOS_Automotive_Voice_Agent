@@ -513,7 +513,7 @@ private struct DriveContent: View {
                         // F-15b §13 item 3: the already-found place joins the trip list, no new lookup.
                         // F-15b §51 item 2: not offered while the trip cards are hidden.
                         // F-16 §15 item 2: a name 高德 could not find has no real place to add.
-                        if !model.tripList.isEmpty && !model.tripMoving && !model.tripCardsHidden
+                        if !model.tripPlan.isEmpty && !model.tripMoving && !model.tripCardsHidden
                             && !model.nav.unlocated(place) {
                             Button("加入清单") { Task { await runtime.tripTap(.add(place)) } }
                                 .font(.caption).buttonStyle(.bordered)

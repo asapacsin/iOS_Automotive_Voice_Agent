@@ -14,7 +14,8 @@ struct TripCardsView: View {
     let runtime: AgentRuntime
 
     var body: some View {
-        switch TripScreen.of(model.tripList, moving: model.tripMoving) {
+        // F-15b §52 item 9 (T-040zc): shown while the plan has any stop; the day in front only picks the cards.
+        switch TripScreen.of(plan: model.tripPlan, moving: model.tripMoving) {
         case .none:
             // §16 item 6: the saved plans stay reachable with an empty current plan (not moving).
             if !model.tripMoving, let plans = model.tripPlans, !plans.saved.isEmpty {
@@ -37,7 +38,7 @@ struct TripCardsView: View {
                 .accessibilityIdentifier("trip-strip")
                 // F-09b §16 item 1 (T-031z): the trip on screen (the strip while moving).
                 .screenPanel(.tripScreen)
-        case .cards where model.tripCardsHidden:
+        case .cards where model.tripCardsHidden, .emptyDay where model.tripCardsHidden:
             // §22 item 1: one 「行程」 button; a tap is the current day's read (shows the cards again).
             HStack {
                 Button("行程") { Task { await runtime.tripTap(.day(model.tripPlans?.currentDay ?? 1)) } }
@@ -45,20 +46,21 @@ struct TripCardsView: View {
                     .accessibilityIdentifier("trip-show")
                 Spacer()
             }
+        case .emptyDay:
+            // §52 item 9: an empty day is still the trip screen: every day tab and 「这一天还没有安排」.
+            VStack(alignment: .leading, spacing: 6) {
+                dayTabs
+                Text(TripScreen.emptyDayText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .accessibilityIdentifier("trip-empty-day")
+                HStack { Spacer(); plansButton }.font(.subheadline)
+            }
+            .screenPanel(.tripScreen)
         case .cards(let cards):
             VStack(alignment: .leading, spacing: 6) {
-                // §11 item 5: day tabs when the plan has more than one day.
-                if let plans = model.tripPlans, plans.days > 1 {
-                    HStack(spacing: 6) {
-                        ForEach(1...plans.days, id: \.self) { day in
-                            Button("第\(day)天") { Task { await runtime.tripTap(.day(day)) } }
-                                .buttonStyle(.bordered)
-                                .tint(day == plans.currentDay ? .blue : .gray)
-                                .accessibilityIdentifier("trip-day-\(day)")
-                        }
-                    }
-                    .font(.caption)
-                }
+                dayTabs
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(cards) { card in
@@ -99,6 +101,21 @@ struct TripCardsView: View {
 }
 
 extension TripCardsView {
+    /// §11 item 5 with §52 item 9: a tab for every day of the plan; a tap only changes the day in front.
+    @ViewBuilder private var dayTabs: some View {
+        if model.tripPlan.dayCount > 1 {
+            HStack(spacing: 6) {
+                ForEach(1...model.tripPlan.dayCount, id: \.self) { day in
+                    Button("第\(day)天") { Task { await runtime.tripTap(.day(day)) } }
+                        .buttonStyle(.bordered)
+                        .tint(day == model.tripPlan.currentDay ? .blue : .gray)
+                        .accessibilityIdentifier("trip-day-\(day)")
+                }
+            }
+            .font(.caption)
+        }
+    }
+
     private var plansButton: some View {
         Button("我的行程") { model.tripPlansOpen = true }
             .buttonStyle(.bordered)

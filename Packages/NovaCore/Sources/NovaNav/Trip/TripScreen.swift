@@ -65,6 +65,9 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public var tag: String? = nil
     /// §46 item 6 (T-040r): the placeholder's icon and colours; `.other` when the kind is unknown.
     public var kind: PlaceKind = .other
+    /// §52 item 9 (T-040zc): false for a stop not on the map yet; the card shows `unplacedText` instead of the place.
+    public var placed = true
+    public static let unplacedText = "位置待确认"
 
     static func tag(_ stop: TripStop) -> String? {
         switch stop.role {
@@ -87,6 +90,20 @@ public enum TripScreen: Sendable, Hashable {
     case cards([TripCard])
     /// Moving: one text line of numbers and names, no photos, no buttons, taps do nothing.
     case strip(String)
+    /// §52 item 9 (T-040zc): the plan has stops but the day in front has none (not moving): the day tabs and
+    /// `emptyDayText`.
+    case emptyDay
+
+    public static let emptyDayText = "这一天还没有安排"
+
+    /// §52 item 9: the screen from the whole plan. Nothing only when the plan has no stop; the day in front decides
+    /// the cards, and an empty day is still the trip screen.
+    public static func of(plan: TripPlan, moving: Bool) -> TripScreen {
+        guard !plan.isEmpty else { return .none }
+        let day = plan.days[plan.currentDay - 1]
+        if day.isEmpty { return moving ? .strip(emptyDayText) : .emptyDay }
+        return of(day, moving: moving)
+    }
 
     /// §11 item 4: the strip is at most 2 lines.
     public static let stripLimit = 48
@@ -98,11 +115,12 @@ public enum TripScreen: Sendable, Hashable {
             return .strip(full.count <= stripLimit ? full : String(full.prefix(stripLimit - 1)) + "…")
         }
         return .cards(list.stops.map { stop in
-            TripCard(index: stop.index, placeID: stop.place.id, name: stop.place.name, district: stop.place.district,
-                     km: stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 }, photoURL: stop.place.photoURL,
+            TripCard(index: stop.index, placeID: stop.place.id, name: stop.place.name,
+                     district: stop.placed ? stop.place.district : TripCard.unplacedText,
+                     km: stop.placed ? stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 } : nil, photoURL: stop.place.photoURL,
                      initial: String(stop.place.name.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
                      minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
-                     tag: TripCard.tag(stop), kind: stop.place.kind ?? .other)
+                     tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed)
         })
     }
 }
@@ -118,7 +136,8 @@ public struct TripPin: Sendable, Hashable, Identifiable {
 
     /// Pins 1…n at the stops; visited and skipped stops greyed.
     public static func pins(_ list: TripList) -> [TripPin] {
-        list.stops.map { stop in
+        // §52 item 9 (T-040zc): a stop not on the map yet has no pin.
+        list.stops.filter(\.placed).map { stop in
             TripPin(index: stop.index, coordinate: stop.place.coordinate, label: "\(stop.index)", passed: stop.mark != nil)
         }
     }

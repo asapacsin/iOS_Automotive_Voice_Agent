@@ -127,6 +127,8 @@ public actor TripPlanner: ToolExecutor {
     private let onLine: @Sendable (String) -> Void
     private let onChange: @Sendable (TripList) -> Void
     private let onPlans: @Sendable (TripPlansSummary) -> Void
+    /// §52 item 9 (T-040zc): the whole plan, on every change and every day-view change.
+    private let onPlan: @Sendable (TripPlan) -> Void
     /// §22 (T-040m): the cards are put away (not saved: a restart shows them).
     public private(set) var cardsHidden = false
     private let onHidden: @Sendable (Bool) -> Void
@@ -180,6 +182,7 @@ public actor TripPlanner: ToolExecutor {
                 onLine: @escaping @Sendable (String) -> Void = { _ in },
                 onChange: @escaping @Sendable (TripList) -> Void = { _ in },
                 onPlans: @escaping @Sendable (TripPlansSummary) -> Void = { _ in },
+                onPlan: @escaping @Sendable (TripPlan) -> Void = { _ in },
                 onHidden: @escaping @Sendable (Bool) -> Void = { _ in },
                 times: TripTimes? = nil,
                 startLabel: @escaping @Sendable () async -> String = { "here" },
@@ -202,6 +205,7 @@ public actor TripPlanner: ToolExecutor {
         self.startLabel = startLabel
         self.onNote = onNote
         self.onPlans = onPlans
+        self.onPlan = onPlan
         self.onHidden = onHidden
         self.files = files
         self.now = now
@@ -259,9 +263,15 @@ public actor TripPlanner: ToolExecutor {
         // §51 item 3 (T-040y): a restored trip starts hidden; 「打开行程」 shows it. Nothing is deleted.
         if plan.stopCount > 0 { setHidden(true) }
         onLine("trip load ok=\(ok ? "yes" : "no") days=\(plan.dayCount) stops=\(plan.stopCount) hidden=\(cardsHidden ? "yes" : "no")")
-        onChange(list)
+        publish()
         onPlans(TripPlansSummary(plan, saved))
         photos()
+    }
+
+    /// The screen's inputs: the day in front (`onChange`) and the whole plan (§52 item 9, `onPlan`).
+    private func publish() {
+        onChange(list)
+        onPlan(plan)
     }
 
     private func persist() {
@@ -966,7 +976,7 @@ public actor TripPlanner: ToolExecutor {
             }
             guard plan.select(day) else { return dayOutOfRange() }
             // The current day is the last one made, edited, read or routed (§15 item 1).
-            onChange(list)
+            publish()
             persist()
         }
         let n = list.count
@@ -1853,10 +1863,11 @@ public actor TripPlanner: ToolExecutor {
     private func next(_ args: JSONValue) async -> ToolResult {
         if let day = Self.int(args["day"]) {
             guard plan.select(day) else { return dayOutOfRange() }
-            onChange(list)
+            publish()
             persist()
         }
-        guard !list.isEmpty else { return failure(.noTripList) }
+        // §52 item 9 (T-040zc): reads use the plan; an empty day in a plan is a day with nothing left, not no trip.
+        guard !plan.isEmpty else { return failure(.noTripList) }
         let target: TripStop
         if let asked = args["stop"]?.stringValue {
             if let n = Int(asked) {
@@ -1868,7 +1879,7 @@ public actor TripPlanner: ToolExecutor {
                 guard let only = found.first else { return failure(.notFound) }
                 target = list.stops[only - 1]
             }
-        } else if let open = list.stops.first(where: { $0.mark == nil }) {
+        } else if let open = list.stops.first(where: { $0.mark == nil && $0.placed }) {
             target = open
         } else {
             onLine("trip next index=0 day=\(plan.currentDay) ok=no code=DAY_DONE")
@@ -1877,6 +1888,8 @@ public actor TripPlanner: ToolExecutor {
             return ToolReply.failure(.dayDone, facts: ["day": .int(Int64(plan.currentDay)), "day_count": .int(Int64(plan.dayCount))],
                                      may: more ? [.askNextDay] : [], mustNot: [.claimStarted, .invent]).result
         }
+        // §52 item 4: a stop not on the map yet has no route.
+        guard target.placed else { return failure(.notFound, facts: ["name": .string(target.place.name), "placed": false]) }
         // §47 item 1 (T-040s): an `abroad` trip's stop is routed by OSRM inside the app.
         let result = await navigation.tripNext(target.place, abroad: plan.abroad)
         onLine("trip next index=\(target.index) day=\(plan.currentDay) ok=\(result.ok ? "yes" : "no") code=\(result.code?.rawValue ?? "none")")
@@ -2348,7 +2361,7 @@ public actor TripPlanner: ToolExecutor {
 
     private func changed() {
         applyKnownPhotos()
-        onChange(list)
+        publish()
         persist()
         photos()
     }
@@ -2466,6 +2479,8 @@ public actor TripPlanner: ToolExecutor {
     /// While moving it is refused with `NOT_WHILE_MOVING` and changes nothing. `note` is the §13 item 4 silent note
     /// for a connected session, nil when nothing changed.
     public func tap(_ tap: TripTap, moving: Bool) async -> (result: ToolResult, note: String?) {
+        // §52 item 9 (T-040zc): a day tap only changes the day in front; not a tool call, it cannot fail.
+        if case .day(let day) = tap { return (viewDay(day), nil) }
         let result: ToolResult
         if moving {
             result = failure(.notWhileMoving)
@@ -2478,8 +2493,7 @@ public actor TripPlanner: ToolExecutor {
             case .next:
                 result = await execute(ToolCall(id: CallID("ui-trip")!, name: "trip_next", arguments: [:]))
             case .day(let day):
-                result = await execute(ToolCall(id: CallID("ui-trip")!, name: "edit_trip_list",
-                                                arguments: ["action": "read", "day": .int(Int64(day))]))
+                result = viewDay(day)
             case .openPlan(let name):
                 result = await execute(ToolCall(id: CallID("ui-trip")!, name: "trip_plans",
                                                 arguments: ["action": "open", "name": .string(name)]))
@@ -2536,6 +2550,19 @@ public actor TripPlanner: ToolExecutor {
     }
 
     /// §13 item 3: an already-found place added at the end, with no new lookup.
+    /// §52 item 9 (T-040zc): the day in front becomes `day` (clamped to the plan's days); hidden cards are shown
+    /// (the 「行程」 button). No plan change, no revision: a running change is not made stale by a look at another day.
+    /// `trip day-view day=N`.
+    private func viewDay(_ day: Int) -> ToolResult {
+        let shown = min(max(day, 1), plan.dayCount)
+        plan.show(shown)
+        setHidden(false)
+        onLine("trip day-view day=\(shown)")
+        publish()
+        onPlans(TripPlansSummary(plan, saved))
+        return .success(["status": "trip_day", "day": .int(Int64(shown)), "days": .int(Int64(plan.dayCount))])
+    }
+
     /// §13 (screen taps): the driver's own remove of stop `index` of the day in front. §52 item 14 removed the voice
     /// action; the tap stays.
     private func screenRemove(_ index: Int) -> ToolResult {
@@ -2691,7 +2718,7 @@ public actor TripPlanner: ToolExecutor {
         }
         // Saved plans keep the link, not the image (§12 item 4).
         if counts.values.contains(where: { $0.ok > 0 }) { persist() }
-        onChange(list)
+        publish()
     }
 
     /// Tests: the photo lookups of the last change have finished.

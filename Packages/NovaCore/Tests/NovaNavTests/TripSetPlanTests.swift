@@ -216,3 +216,53 @@ struct TripSetPlanTests {
         #expect(ToolCatalog.tripEditActions == ["replace", "clear", "read", "visited", "skip"])
     }
 }
+
+@Suite("T-040zc F-15b §52 item 9 the screen and reads from the plan")
+struct TripPlanScreenTests {
+    @Test("T-040zc F-15b row 199: day 2 selected and empty: trip screen still shown with every day tab; read returns the whole plan; no NO_TRIP_LIST")
+    func row199() async {
+        let (rig, ids) = await sightsRig()
+        _ = await rig.run(setPlan([[stop(ids["A"]), stop(ids["B"])], []]))
+        let revision = await rig.planner.currentPlan.revision
+        let tapped = await rig.planner.tap(.day(2), moving: true)
+        #expect(tapped.result.ok && tapped.note == nil)
+        let plan = await rig.planner.currentPlan
+        #expect(plan.currentDay == 2 && plan.revision == revision)
+        #expect(TripScreen.of(plan: plan, moving: false) == .emptyDay)
+        #expect(TripScreen.of(plan: plan, moving: true) == .strip(TripScreen.emptyDayText) && TripScreen.emptyDayText == "这一天还没有安排")
+        #expect(await !rig.planner.cardsHidden)
+        #expect(rig.lines.withLock { $0 }.contains("trip day-view day=2"))
+        #expect(!rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip tap action=day") })
+        let read = await rig.run(trip("edit_trip_list", ["action": "read"]))
+        #expect(read.ok && read.code != .noTripList && stopsOf(read.data["plan"]).map(\.count) == [2, 0])
+        let next = await rig.run(trip("trip_next"))
+        #expect(next.code == .dayDone)
+        // A day out of range is clamped; a tap never fails.
+        #expect(await rig.planner.tap(.day(9), moving: false).result.ok)
+        #expect(await rig.planner.currentPlan.currentDay == 2)
+        _ = await rig.planner.tap(.day(1), moving: false)
+        guard case .cards(let cards) = TripScreen.of(plan: await rig.planner.currentPlan, moving: false) else {
+            Issue.record("cards"); return
+        }
+        #expect(cards.map(\.name) == ["A", "B"])
+        #expect(TripScreen.of(plan: TripPlan(), moving: false) == .none)
+    }
+
+    @Test("T-040zc F-15b §52 item 9: the view model gets the whole plan on every change; an unplaced stop shows 位置待确认 and has no pin")
+    func viewModel() async {
+        let seen = TripLines()
+        let nav = NavigationController(search: TripSearch(sapporo), engine: ScriptedNaviEngine(routes: []), location: NoLocation(),
+                                       clock: ManualClock())
+        await nav.start()
+        let planner = TripPlanner(search: TripSearch(sapporo), navigation: nav, origin: { nil }, clock: ManualClock(),
+                                  onPlan: { plan in seen.append("days=\(plan.dayCount) stops=\(plan.stopCount) day=\(plan.currentDay)") })
+        _ = await planner.execute(setPlan([[stop(name: "A"), stop(name: "无此地")], [stop(name: "B")]]))
+        _ = await planner.tap(.day(2), moving: false)
+        #expect(seen.withLock { $0 }.suffix(2) == ["days=2 stops=3 day=1", "days=2 stops=3 day=2"])
+        _ = await planner.tap(.day(1), moving: false)
+        let plan = await planner.currentPlan
+        guard case .cards(let cards) = TripScreen.of(plan: plan, moving: false) else { Issue.record("cards"); return }
+        #expect(cards.last?.placed == false && cards.last?.district == "位置待确认" && cards.last?.km == nil)
+        #expect(TripPin.pins(plan.days[0]).count == 1)
+    }
+}
