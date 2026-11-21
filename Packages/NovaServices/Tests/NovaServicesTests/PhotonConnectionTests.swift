@@ -118,4 +118,53 @@ struct PhotonConnectionTests {
         #expect(await s.warmUp())
         #expect(stub.requests.count == 2)
     }
+
+    @Test("T-040zd §52 item 11: the warm-up's connection is the next lookup's first try; later lookups and tries open new ones; used connections are closed")
+    func warmConnectionReused() async throws {
+        let opened = ClosingConnector()
+        let lines = PhotonLines()
+        let s = PhotonPlaceSearch(connect: { opened.next() }, timing: fast, log: { lines.add($0) })
+        #expect(await s.warmUp())
+        #expect(opened.count == 1 && opened.closed == 0)
+        _ = try await s.text("浅草寺 (Senso-ji)", city: nil)
+        // No new connection: the first try went over the warm one, which is closed after it.
+        #expect(opened.count == 1)
+        #expect(lines.lines.last?.hasPrefix("photon try=1 reason=reply ms=") == true && lines.lines.last?.hasSuffix(" conn=warm") == true)
+        #expect(opened.closed == 1)
+        _ = try await s.text("Ginza", city: nil)
+        #expect(opened.count == 2 && opened.closed == 2)
+        #expect(lines.lines.last?.contains("conn=warm") == false)
+    }
+
+    @Test("T-040zd §52 item 11: a failed try waits a little before the next, on a new connection")
+    func failedWaits() async {
+        let s = PhotonPlaceSearch(connect: { FailingConnection() },
+                                  timing: PhotonTiming(tryTimeoutSeconds: 0.3, tries: 3, perNameSeconds: 5, failedRetrySeconds: 0.1))
+        let t0 = Date()
+        await #expect(throws: AmapWebError.slow) { try await s.text("x", city: nil) }
+        #expect(Date().timeIntervalSince(t0) >= 0.19)
+    }
+}
+
+private struct FailingConnection: HTTPTransport {
+    func send(_ request: URLRequest) async throws -> (status: Int, body: Data) { throw URLError(.cannotConnectToHost) }
+}
+
+/// Replies at once and counts the connections opened and closed.
+private final class ClosingConnector: @unchecked Sendable {
+    final class Conn: ClosableTransport, @unchecked Sendable {
+        let owner: ClosingConnector
+        init(_ o: ClosingConnector) { owner = o }
+        func send(_ request: URLRequest) async throws -> (status: Int, body: Data) { (200, Data(PhotonPlaceSearchTests.senso.utf8)) }
+        func close() { owner.lock.withLock { owner.closedCount += 1 } }
+    }
+    let lock = NSLock()
+    var openedCount = 0
+    var closedCount = 0
+    var count: Int { lock.withLock { openedCount } }
+    var closed: Int { lock.withLock { closedCount } }
+    func next() -> any HTTPTransport {
+        lock.withLock { openedCount += 1 }
+        return Conn(self)
+    }
 }

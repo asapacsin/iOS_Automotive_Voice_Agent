@@ -1446,6 +1446,13 @@ final class AgentRuntime {
                 switch output {
                 case .speechStarted(let sent):
                     wakeWatch.speechStarted(sentToModel: sent)
+                    // F-15b §52 item 11 (T-040zd): a trip abroad on screen → open the Photon connection first
+                    // (at most one per 30 s, the search's own limit); the next lookup's first try reuses it.
+                    let warms = await MainActor.run { TripPlan.warmsPhoton(model.tripPlan, cardsHidden: model.tripCardsHidden) }
+                    if warms {
+                        let photon = trip.photon
+                        Task.detached { await photon.warmUp() }
+                    }
                     // F-04 §14 item 1: the core follows the gate's decision, never re-checks it.
                     await core.send(.speechStarted(recentSpeech: gate.recentSpeech, sentToModel: sent))
                 case .utterance(let utterance):
@@ -1650,7 +1657,8 @@ final class AgentRuntime {
         CallBudget.shared.setLog { line in RuntimeLog.agent.notice("\(line, privacy: .public)") }
         QwenFallback.shared.setBudget(.shared)
         let picker = QwenPlacePicker(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) })
-        let photon = PhotonPlaceSearch()
+        // §52 item 11 (T-040zd): `photon try=` lines (try number, reason, ms; no place text, I-8) to the log and record.
+        let photon = PhotonPlaceSearch(log: tripLine)
         let planner = TripPlanner(search: web, navigation: navigation, origin: routeOrigin, clock: navigationClock, picker: picker,
                                   files: AppTripFiles(), onLine: tripLine,
                                   onChange: { list in Task { @MainActor in model.tripList = list } },
@@ -1728,7 +1736,7 @@ final class AgentRuntime {
                 try? await Task.sleep(for: .seconds(1))
             }
         }
-        let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners,
+        let trip = AppTrip(navigation: navigation, web: web, savedPlaces: savedPlaces, listeners: listeners, photon: photon,
                            session: tripSession, planner: planner, intro: intro)
         self.trip = trip
         return trip
@@ -2307,6 +2315,8 @@ struct AppTrip {
     let web: AmapWebClient
     let savedPlaces: SavedPlaces
     let listeners: TripListeners
+    /// §52 item 11: Photon (trips abroad); warmed when the driver starts speaking with a trip abroad on screen.
+    let photon: PhotonPlaceSearch
     let session: TripSession
     let planner: TripPlanner
     let intro: TripIntro

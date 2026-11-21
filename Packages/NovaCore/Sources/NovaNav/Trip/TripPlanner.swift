@@ -35,7 +35,11 @@ public struct TripTuning: Sendable, Hashable {
     /// Device 2026-11-17: 2 of 5 lookups failed with 4 at once (高德's per-second limit); now 2 at once, and a busy,
     /// timed-out or failed lookup is tried up to twice more (`retryDelay`, then twice that).
     public var parallelLookups = 2
-    public var resolveLimit = NovaDuration.seconds(15)
+    /// §52 item 11 (T-040zd): each name has its own limit (12 s), counted from when its lookup starts; there is no
+    /// budget for the whole batch. A lookup still running then is `timeout` (said as `search_slow` by set_trip_plan).
+    public var nameLimit = NovaDuration.seconds(12)
+    /// §52 item 11: lookups abroad (Photon, no per-second limit like 高德's) run 4 at once.
+    public var abroadParallelLookups = 4
     public var retryDelay = NovaDuration.milliseconds(600)
     /// §4 item 6: 高德 results kept per name for the picker, and how long the picker may take (Ultravox's default
     /// tool timeout); after that every open name takes 高德's first result.
@@ -1197,7 +1201,8 @@ public actor TripPlanner: ToolExecutor {
                 notPlaced.append(name)
                 onLine("trip lookup index=\(i + 1) ok=no reason=\(reason)")
                 // §52 item 11 seam (T-040zd): a lookup out of tries comes back `slow`; it is said as `search_slow`.
-                if reason == "slow" { slow.append(name) }
+                // A lookup still running at its own limit (`timeout`) is slow too, never "not found" (§52 item 4).
+                if reason == "slow" || reason == "timeout" { slow.append(name) }
             case .candidates, .keyMissing: notPlaced.append(name)
             }
         }
@@ -1280,7 +1285,8 @@ public actor TripPlanner: ToolExecutor {
         if var request = fix {
             request.far = []
             request.notHotels = []
-            request.notFound = notPlaced
+            // §52 item 11: a slow name stays in `search_slow`; only names the search did not find are not found.
+            request.notFound = notPlaced.filter { !slow.contains($0) }
             let base = facts
             let makeNotes = request.notes
             return checked(request) { [self] missing, more in
@@ -2085,7 +2091,8 @@ public actor TripPlanner: ToolExecutor {
     }
 
     /// Each name through `PlaceSearch.text` (Apple's around the first found name when `abroad`, §36 item 2), at
-    /// most `parallelLookups` at once, all within `resolveLimit`; a lookup still running then is `timeout`. Results
+    /// most `parallelLookups` at once (`abroadParallelLookups` abroad), each within its own `nameLimit` (§52 item 11);
+    /// a lookup still running then is `timeout`. Results
     /// are in `names` order; the count is the results dropped by the wrong-country guard (§36 item 3).
     private func resolveCounting(_ names: [String], city: String?, abroad: Bool, guardCountry: Bool = true,
                                  near hint: GeoCoordinate? = nil) async -> ([Lookup], Int) {
@@ -2100,14 +2107,15 @@ public actor TripPlanner: ToolExecutor {
                 var near = hint ?? cached.compactMap { $0 }.first?.coordinate
                 var done = 0
                 while near == nil, done < missing.count {
-                    let one = await fetch([names[missing[done]]], city: nil, search: vendor, guardCountry: guardCountry, near: nil)
+                    let one = await fetch([names[missing[done]]], city: nil, search: vendor, guardCountry: guardCountry, near: nil,
+                                          parallel: tuning.abroadParallelLookups)
                     fetched += one
                     done += 1
                     if case .candidates(let places) = one[0].0 { near = places.first?.coordinate }
                 }
                 if done < missing.count {
                     fetched += await fetch(missing[done...].map { names[$0] }, city: nil, search: vendor,
-                                           guardCountry: guardCountry, near: near)
+                                           guardCountry: guardCountry, near: near, parallel: tuning.abroadParallelLookups)
                 }
             } else {
                 fetched = await fetch(missing.map { names[$0] }, city: city, search: vendor, guardCountry: false, near: nil)
@@ -2206,12 +2214,12 @@ public actor TripPlanner: ToolExecutor {
     }
 
     private func fetch(_ names: [String], city: String?, search: any PlaceSearch, guardCountry: Bool,
-                       near: GeoCoordinate?) async -> [(Lookup, Int)] {
-        let limit = tuning.parallelLookups, clock = clock, retry = tuning.retryDelay, kept = tuning.candidates
+                       near: GeoCoordinate?, parallel: Int? = nil) async -> [(Lookup, Int)] {
+        let limit = max(1, parallel ?? tuning.parallelLookups), clock = clock, retry = tuning.retryDelay, kept = tuning.candidates
+        let nameLimit = tuning.nameLimit
         let region = near.map { ($0, tuning.abroadRegionMeters) }
         // §50 item 3: only trip lookups abroad (the country guard on) stay inside the area.
         let inside: AreaCheck? = guardCountry ? area.map { AreaCheck(area: $0, km: tuning.areaKm, limit: tuning.areaLimit) } : nil
-        let deadline = clock.now + tuning.resolveLimit
         let (stream, feed) = AsyncStream.makeStream(of: (Int, Lookup, Int)?.self)
         let work = Task {
             await withTaskGroup(of: Void.self) { group in
@@ -2221,8 +2229,11 @@ public actor TripPlanner: ToolExecutor {
                     let i = next
                     next += 1
                     _ = group.addTaskUnlessCancelled {
-                        let (lookup, dropped) = await Self.lookup(names[i], city: city, search: search, retryDelay: retry, kept: kept,
-                                                                  guardCountry: guardCountry, region: region, area: inside)
+                        // §52 item 11: this name's own limit, from when its lookup starts.
+                        let (lookup, dropped) = await Self.limited(clock: clock, limit: nameLimit) {
+                            await Self.lookup(names[i], city: city, search: search, retryDelay: retry, kept: kept,
+                                              guardCountry: guardCountry, region: region, area: inside)
+                        }
                         feed.yield((i, lookup, dropped))
                     }
                 }
@@ -2231,19 +2242,36 @@ public actor TripPlanner: ToolExecutor {
             }
             feed.yield(nil)
         }
-        let timer = Task {
-            try? await clock.sleep(until: deadline)
-            if !Task.isCancelled { feed.yield(nil) }
-        }
         var results = [(Lookup, Int)?](repeating: nil, count: names.count)
         for await item in stream {
             guard let (i, lookup, dropped) = item else { break }
             results[i] = (lookup, dropped)
         }
         work.cancel()
-        timer.cancel()
         feed.finish()
         return results.map { $0 ?? (.missing("timeout"), 0) }
+    }
+
+    /// §52 item 11: one lookup within its own limit; still running then → `timeout` (the lookup is cancelled and not
+    /// waited for, so a stalled vendor never holds the batch).
+    static func limited(clock: any NovaClock, limit: NovaDuration,
+                        _ body: @escaping @Sendable () async -> (Lookup, Int)) async -> (Lookup, Int) {
+        let (stream, feed) = AsyncStream.makeStream(of: (Lookup, Int).self)
+        let deadline = clock.now + limit
+        let work = Task { feed.yield(await body()) }
+        let timer = Task {
+            try? await clock.sleep(until: deadline)
+            if !Task.isCancelled { feed.yield((.missing("timeout"), 0)) }
+        }
+        var out: (Lookup, Int) = (.missing("timeout"), 0)
+        for await r in stream {
+            out = r
+            break
+        }
+        work.cancel()
+        timer.cancel()
+        feed.finish()
+        return out
     }
 
     /// §50 item 3 (T-040v): the trip area a lookup abroad is kept inside.
@@ -2260,7 +2288,9 @@ public actor TripPlanner: ToolExecutor {
         // limit and answers those within it).
         var result = await lookupOnce(name, city: city, search: search, kept: kept, guardCountry: guardCountry, region: region, area: area)
         for attempt in 0..<2 {
-            guard case .missing(let reason) = result.0, reason != "nomatch", reason != "country", reason != "area", !Task.isCancelled else { return result }
+            // §52 item 11: `slow` (Photon out of its own tries, ~12 s) is not tried again here.
+            guard case .missing(let reason) = result.0, reason != "nomatch", reason != "country", reason != "area",
+                  reason != "slow", !Task.isCancelled else { return result }
             try? await Task.sleep(for: .milliseconds(retryDelay.milliseconds << attempt))
             if Task.isCancelled { return result }
             result = await lookupOnce(name, city: city, search: search, kept: kept, guardCountry: guardCountry, region: region, area: area)

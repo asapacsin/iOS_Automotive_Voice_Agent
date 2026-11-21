@@ -28,6 +28,9 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
     private let log: @Sendable (String) -> Void
     private let gate: PhotonGate
     private let warmUpLimiter: PhotonWarmUpLimiter
+    /// §52 item 11: the connection the last warm-up opened; the next lookup's first try uses it (later tries open
+    /// new connections).
+    private let warm = PhotonWarmConnection()
 
     /// One transport for every try (tests, existing callers).
     public convenience init(transport: any HTTPTransport, timing: PhotonTiming = PhotonTiming(),
@@ -36,7 +39,7 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
     }
 
     /// §52 item 11: `connect` gives a new connection per try; the default is a fresh ephemeral URLSession each time.
-    public init(connect: @escaping @Sendable () -> any HTTPTransport = { URLSessionTransport() },
+    public init(connect: @escaping @Sendable () -> any HTTPTransport = { PhotonSessionTransport() },
                 timing: PhotonTiming = PhotonTiming(), now: @escaping @Sendable () -> Date = { Date() },
                 log: @escaping @Sendable (String) -> Void = { _ in }) {
         self.connect = connect
@@ -51,7 +54,7 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
     @discardableResult
     public func warmUp() async -> Bool {
         guard await warmUpLimiter.take() else { return false }
-        _ = try? await search("Tokyo", near: nil, limit: 1)
+        _ = try? await search("Tokyo", near: nil, limit: 1, warming: true)
         return true
     }
 
@@ -134,7 +137,7 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
     }
 
     func search(_ keywords: String, near: GeoCoordinate?, limit: Int, box: GeoBox? = nil,
-                keepFoundName: Bool = false) async throws -> [Place] {
+                keepFoundName: Bool = false, warming: Bool = false) async throws -> [Place] {
         let (shown, query) = Self.split(keywords)
         var items = [URLQueryItem(name: "limit", value: String(limit))]
         if let tag = Self.tags[query] {
@@ -157,7 +160,7 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = timing.tryTimeoutSeconds
         request.setValue("NovaDrive/1.0 (iOS)", forHTTPHeaderField: "User-Agent")
-        let response = try await send(request)
+        let response = try await send(request, warming: warming)
         if response.status == 429 { throw AmapWebError.quota }
         guard response.status == 200 else { throw AmapWebError.failed }
         let places = try Self.parse(response.body)
@@ -172,9 +175,10 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
     private enum Try: Sendable { case reply(Int, Data), timeout, failed }
 
     /// §52 item 11: up to `tries` tries, each on a new connection and waiting at most `tryTimeoutSeconds`, within this
-    /// name's own `perNameSeconds` (counted once it may run); at most `parallel` lookups at once.
-    /// Out of tries or time → `AmapWebError.slow`.
-    private func send(_ request: URLRequest) async throws -> (status: Int, body: Data) {
+    /// name's own `perNameSeconds` (counted once it may run); at most `parallel` lookups at once. The first try uses
+    /// the connection a warm-up left open, if any. A failed try waits `failedRetrySeconds` before the next.
+    /// Out of tries or time → `AmapWebError.slow`. Each connection is closed after its try (`close`).
+    private func send(_ request: URLRequest, warming: Bool = false) async throws -> (status: Int, body: Data) {
         await gate.acquire()
         defer { Task { await gate.release() } }
         let start = Date()
@@ -182,7 +186,8 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
             let left = timing.perNameSeconds - Date().timeIntervalSince(start)
             guard left > 0 else { break }
             let wait = min(timing.tryTimeoutSeconds, left)
-            let transport = connect()
+            let reused = n == 1 && !warming ? warm.take() : nil
+            let transport = reused ?? connect()
             let began = Date()
             let outcome: Try = await withTaskGroup(of: Try?.self) { group in
                 group.addTask {
@@ -205,14 +210,22 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
                 return first
             }
             let ms = Int(Date().timeIntervalSince(began) * 1000)
+            let via = reused != nil ? " conn=warm" : ""
             switch outcome {
             case .reply(let status, let body):
-                log("photon try=\(n) reason=reply ms=\(ms)")
+                log("photon try=\(n) reason=reply ms=\(ms)\(via)")
+                // A warm-up keeps its open connection for the next lookup's first try; any other is closed.
+                if warming, status == 200 { warm.put(transport) } else { (transport as? any ClosableTransport)?.close() }
                 return (status, body)
             case .timeout:
-                log("photon try=\(n) reason=timeout ms=\(ms)")
+                (transport as? any ClosableTransport)?.close()
+                log("photon try=\(n) reason=timeout ms=\(ms)\(via)")
             case .failed:
-                log("photon try=\(n) reason=failed ms=\(ms)")
+                (transport as? any ClosableTransport)?.close()
+                log("photon try=\(n) reason=failed ms=\(ms)\(via)")
+                if n < timing.tries, timing.failedRetrySeconds > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(timing.failedRetrySeconds * 1_000_000_000))
+                }
             }
             try Task.checkCancellation()
         }
@@ -256,9 +269,13 @@ public struct PhotonTiming: Sendable {
     public var perNameSeconds: Double
     public var parallel: Int
     public var warmUpEverySeconds: Double
+    /// A short wait before retrying a try that failed at once (no network, refused), so the tries are not spent in
+    /// the same instant.
+    public var failedRetrySeconds: Double
 
     public init(tryTimeoutSeconds: Double = 3, tries: Int = 4, perNameSeconds: Double = 12, parallel: Int = 4,
-                warmUpEverySeconds: Double = 30) {
+                warmUpEverySeconds: Double = 30, failedRetrySeconds: Double = 0.3) {
+        self.failedRetrySeconds = failedRetrySeconds
         self.tryTimeoutSeconds = tryTimeoutSeconds
         self.tries = tries
         self.perNameSeconds = perNameSeconds
@@ -293,4 +310,38 @@ actor PhotonWarmUpLimiter {
         last = t
         return true
     }
+}
+
+/// A connection that can be closed after use (a per-try URLSession is invalidated, §52 item 11).
+public protocol ClosableTransport: HTTPTransport {
+    func close()
+}
+
+/// §52 item 11: one Photon connection: its own ephemeral URLSession, invalidated by `close` once its try is over.
+public final class PhotonSessionTransport: ClosableTransport, @unchecked Sendable {
+    private let session: URLSession
+
+    public init(timeoutSeconds: Double = PhotonPlaceSearch.timeoutSeconds) {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = timeoutSeconds
+        session = URLSession(configuration: config)
+    }
+
+    public func send(_ request: URLRequest) async throws -> (status: Int, body: Data) {
+        let (data, response) = try await session.data(for: request)
+        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+    }
+
+    public func close() { session.finishTasksAndInvalidate() }
+}
+
+/// The connection a warm-up opened, kept for one later first try; a newer warm-up replaces (and closes) it.
+final class PhotonWarmConnection: @unchecked Sendable {
+    private let lock = NSLock()
+    private var kept: (any HTTPTransport)?
+    func put(_ t: any HTTPTransport) {
+        let old = lock.withLock { () -> (any HTTPTransport)? in defer { kept = t }; return kept }
+        if let old, old as AnyObject !== t as AnyObject { (old as? any ClosableTransport)?.close() }
+    }
+    func take() -> (any HTTPTransport)? { lock.withLock { defer { kept = nil }; return kept } }
 }

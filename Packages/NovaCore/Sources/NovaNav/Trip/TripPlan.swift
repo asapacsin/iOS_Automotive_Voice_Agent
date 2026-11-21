@@ -102,6 +102,13 @@ public struct TripPlan: Sendable, Hashable {
     public var stopCount: Int { days.reduce(0) { $0 + $1.count } }
     public var isEmpty: Bool { stopCount == 0 }
 
+    /// F-15b §52 item 11 (T-040zd): when the driver starts speaking, warm the Photon connection only while a trip
+    /// abroad (outside China) is on screen: the plan has a stop and its cards are not hidden (§52 item 9). The
+    /// 30 s limit is the search's own.
+    public static func warmsPhoton(_ plan: TripPlan, cardsHidden: Bool) -> Bool {
+        plan.abroad && !plan.isEmpty && !cardsHidden
+    }
+
     /// The current day's list. Setting it is a change only when the list itself changed (a photo link is not).
     public var current: TripList {
         get { days[currentDay - 1] }
