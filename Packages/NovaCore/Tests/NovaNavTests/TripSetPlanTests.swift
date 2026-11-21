@@ -207,7 +207,8 @@ struct TripSetPlanTests {
     @Test("T-040zb F-15b §52 items 3, 14: set_trip_plan declared async with the §52 text; validation; old actions gone")
     func catalog() {
         #expect(AsyncTool(name: "set_trip_plan") != nil && TripPlanner.tools.contains("set_trip_plan"))
-        #expect(ToolCatalog.setTripPlanDescription.hasPrefix("修改行程：把整份行程（每天的地点，带 id 和 role）按司机的意思改好后整份传回。已有的地点只写 id；新地点写 name。role：start 出发点"))
+        // §54 item 2 (T-040zg) puts its sentence after 「修改行程：」.
+        #expect(ToolCatalog.setTripPlanDescription.contains("把整份行程（每天的地点，带 id 和 role）按司机的意思改好后整份传回。已有的地点只写 id；新地点写 name。role：start 出发点"))
         #expect(ToolCatalog.setTripPlanDescription.hasSuffix("去掉的地点不写。结果稍后回来：" + ToolCatalog.tripWorkingLine))
         #expect(ToolCatalog.validate(setPlan([[stop("s1"), stop(name: "X", role: "hotel")]], ["optimise": true, "pace": "relaxed"])) == nil)
         #expect(ToolCatalog.validate(setPlan([[stop("s1", name: "X")]])) == .invalidFields)

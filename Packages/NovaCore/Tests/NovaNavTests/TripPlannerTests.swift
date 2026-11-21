@@ -20,8 +20,12 @@ final class TripSearch: PlaceSearch, @unchecked Sendable {
     /// F-15b §49 (T-040u): what 「酒店」 around a point answers; nil = nothing.
     let hotels: (@Sendable (GeoCoordinate) -> [Place])?
 
+    /// F-15b §54 (T-040zg): a name here answers nothing until it has been asked this many times before.
+    let lateAnswer: [String: Int]
+
     init(_ table: [String: [Place]], slow: Set<String> = [], error: AmapWebError? = nil, failFirst: Int = 0,
-         hotels: (@Sendable (GeoCoordinate) -> [Place])? = nil) {
+         hotels: (@Sendable (GeoCoordinate) -> [Place])? = nil, lateAnswer: [String: Int] = [:]) {
+        self.lateAnswer = lateAnswer
         self.hotels = hotels
         self.table = table
         self.slow = slow
@@ -38,6 +42,7 @@ final class TripSearch: PlaceSearch, @unchecked Sendable {
         if let error { throw error }
         if failing.withLock({ n in defer { n = max(n - 1, 0) }; return n > 0 }) { throw AmapWebError.quota }
         defer { returned.withLock { $0 += 1 } }
+        if let n = lateAnswer[keywords], asked.withLock({ $0.filter { $0 == keywords }.count }) <= n { return [] }
         return table[keywords] ?? []
     }
     func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {

@@ -55,6 +55,8 @@ public struct TripTuning: Sendable, Hashable {
     public var abroadRegionMeters = 100_000
     /// §50 item 9 (T-040v): the whole Qwen `ground` request (route `ground`), after which the model's places are used.
     public var groundTimeout = NovaDuration.seconds(30)
+    /// F-15b §54 item 3 (T-040zg): a new stop farther than this from every kept stop of `set_trip_plan` is a new trip.
+    public var newTripKilometres = 300.0
     /// §50 item 3: a place abroad is kept only within this many km of the trip city's centre.
     public var areaKm = 50.0
     /// §50 item 3: Photon results asked per trip lookup inside the box.
@@ -1160,8 +1162,8 @@ public actor TripPlanner: ToolExecutor {
         let written = Self.writtenDays(args)
         let stopTotal = written.reduce(0) { $0 + $1.count }
         var counts = (kept: 0, new: 0, removed: 0, notPlaced: 0)
-        func log(_ ok: Bool) {
-            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) check=\(ok ? "ok" : "fail") ms=\(ms(since: started))")
+        func log(_ ok: Bool, check: String? = nil) {
+            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) check=\(check ?? (ok ? "ok" : "fail")) ms=\(ms(since: started))")
         }
         work?.step(WorkProgress.tripRevise)
         // §52 item 13 (T-040ze): a plan with no stops is a clear of the whole trip.
@@ -1205,6 +1207,35 @@ public actor TripPlanner: ToolExecutor {
                 // A lookup still running at its own limit (`timeout`) is slow too, never "not found" (§52 item 4).
                 if reason == "slow" || reason == "timeout" { slow.append(name) }
             case .candidates, .keyMissing: notPlaced.append(name)
+            }
+        }
+        // §54 item 3 (T-040zg): one trip, one area. A new stop in another country group, or farther than
+        // `newTripKilometres` from every kept placed stop, makes this a new trip: nothing is saved.
+        let keptPlaced = written.joined().compactMap { w in w.id.flatMap { known[$0] } }.filter(\.placed).map(\.place)
+        if !keptPlaced.isEmpty, !newNames.isEmpty {
+            var whereIs = placeOf
+            // Item 3.1: a name not found near the trip is searched once more without the trip's area, the trip's own
+            // vendor first, only to learn where it is.
+            for abroadTry in (plan.abroad ? [true, false] : [false, true]) {
+                // A lookup that only ran out of time (`search_slow`) is not searched again here.
+                let unknown = newNames.filter { whereIs[$0] == nil && !slow.contains($0) }
+                guard !unknown.isEmpty, !abroadTry || abroadSearch != nil else { continue }
+                let found = abroadTry ? await resolveCounting(unknown, city: nil, abroad: true, guardCountry: false).0
+                                      : await resolve(unknown, city: nil)
+                for (i, n) in unknown.enumerated() { if case .found(let place) = found[i] { whereIs[n] = place } }
+            }
+            guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
+            let foreign = newNames.filter { n in whereIs[n].map { Self.isForeign($0, kept: keptPlaced, kilometres: tuning.newTripKilometres) } ?? false }
+            if !foreign.isEmpty {
+                counts = (written.joined().filter { $0.id != nil }.count, newNames.count, 0, notPlaced.count)
+                log(false, check: "new_trip")
+                var result = failure(.planCheck, facts: [
+                    "problems": .array(foreign.map { .string("\($0)不在这份行程的地方，这是新的行程") }),
+                    "new_trip": true, "plan_kept": true])
+                var data = result.data
+                data["next"] = "先不要跟司机说话，调用 make_trip_list 规划新的行程，会替换旧行程。"
+                result = ToolResult(ok: false, code: .planCheck, data: data, advice: result.advice)
+                return result
             }
         }
         let here = await origin()
@@ -2424,6 +2455,14 @@ public actor TripPlanner: ToolExecutor {
         // F-09b §13 item 4 (T-031m): choosing; what is on the list, and she may ask which.
         ToolReply.choosing(.outOfRange, onScreen: list.count, names: list.stops.map(\.place.name),
                            facts: ["list": "trip"], mustNot: [.readList]).result
+    }
+
+    /// §54 item 3.2: `place` is in another country group than every kept place (China = CN/HK/MO/TW), or farther than
+    /// `kilometres` from each of them.
+    static func isForeign(_ place: Place, kept: [Place], kilometres: Double) -> Bool {
+        func group(_ code: String?) -> String { TripRegion.isChina(code) ? "CN" : (code ?? "").uppercased() }
+        guard kept.contains(where: { group($0.countryCode) == group(place.countryCode) }) else { return true }
+        return kept.allSatisfy { SelfPosition.distanceMeters($0.coordinate, place.coordinate) > kilometres * 1000 }
     }
 
     private func distance(_ here: GeoCoordinate?, _ place: Place) -> Int? {
