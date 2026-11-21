@@ -889,7 +889,8 @@ public actor TripPlanner: ToolExecutor {
             let driving = Int((Double(day.stops.reduce(0) { $0 + ($1.legSeconds ?? 0) }) / 60).rounded())
             let area = sights.last.map { $0.place.district ?? $0.place.name }
             return TripChecks.Day(minutes: Self.dayMinutes(day), drivingMinutes: driving,
-                                  onlyMustSee: !sights.isEmpty && sights.allSatisfy { $0.importance == 3 }, area: area)
+                                  onlyMustSee: !sights.isEmpty && sights.allSatisfy { $0.importance == 3 }, area: area,
+                                  sights: sights.count, longestSightMinutes: sights.map(\.visitMinutes).max() ?? 0)
         }
         var hotels: [Int: [TripChecks.HotelChoice]] = [:]
         if plan.wishes != nil || hotelNearActive {
@@ -1780,7 +1781,7 @@ public actor TripPlanner: ToolExecutor {
             let budget = fit.pace.budgetMinutes
             let optionalCount = pending.filter(\.optional).count + extras.count
             // §48 item 12: numbers and enums only (I-8).
-            onLine("trip fit days=\(days.count) pace=\(fit.pace.rawValue) budget=\(budget) required=\(total - pending.filter(\.optional).count) optional=\(optionalCount) kept=\(optionalCount - spare.count) dropped=\(spare.count) over=\(m.filter { $0 > budget }.count) under=\(m.filter { $0 * 2 < budget }.count) max_day=\(m.max() ?? 0) min_day=\(m.min() ?? 0) moves=\(moves) ms=\(ms(since: fitStarted))")
+            onLine("trip fit days=\(days.count) pace=\(fit.pace.rawValue) budget=\(budget) required=\(total - pending.filter(\.optional).count) optional=\(optionalCount) kept=\(optionalCount - spare.count) dropped=\(spare.count) over=\(m.filter { $0 > budget }.count) under=\(m.filter { TripChecks.underMinutes($0, budgetMinutes: budget) }.count) max_day=\(m.max() ?? 0) min_day=\(m.min() ?? 0) moves=\(moves) ms=\(ms(since: fitStarted))")
         }
         return .success(Ordered(days: days, picked: picked, nightsWithoutHotel: withoutHotel, estimated: table.estimated,
                                 spare: spare, dayMinutes: minutes, hotelChoices: choices))
@@ -1794,7 +1795,7 @@ public actor TripPlanner: ToolExecutor {
 
     static func hours(_ minutes: Int) -> Int { Int((Double(minutes) / 60).rounded()) }
 
-    /// §48 item 7: what she says once per fitted plan: the load, the places left out, a day too full, a day half empty.
+    /// §48 item 7: what she says once per fitted plan: the load, the places left out, a day too full, a day thin (§53).
     static func fitNotes(_ dayMinutes: [Int], budget: Int, spare: [String]) -> [String] {
         guard let lo = dayMinutes.min(), let hi = dayMinutes.max() else { return [] }
         var notes: [String] = []
@@ -1803,7 +1804,8 @@ public actor TripPlanner: ToolExecutor {
         if !spare.isEmpty { notes.append("时间不够，没排进：\(spare.joined(separator: "、"))") }
         for (d, m) in dayMinutes.enumerated() where m > budget { notes.append("第\(d + 1)天大约\(hours(m))小时，比较紧") }
         if spare.isEmpty {
-            for (d, m) in dayMinutes.enumerated() where m * 2 < budget {
+            // F-15b §53 item 3 (T-040zf): under 75% of the budget, the minutes part only.
+            for (d, m) in dayMinutes.enumerated() where TripChecks.underMinutes(m, budgetMinutes: budget) {
                 notes.append("第\(d + 1)天还空大约\(max(1, hours(budget - m)))小时，可以再加几个地方")
             }
         }

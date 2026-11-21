@@ -2036,3 +2036,69 @@ each together with the first `@Test` that names it.
 | T-040zc | §52 item 9 (screen and reads from the plan; day tap only a view); row 199, 207 | NOT_RUN |
 | T-040zd | §52 items 10–11 (names by id, split rule, Photon 3 s tries, per-name limit, warm-up, `search_slow`); rows 202–204 | NOT_RUN |
 | T-040ze | §52 items 12–13 (no "done" before the result; confirm before clearing); rows 205, 206 | NOT_RUN |
+
+## 53. Full days: the model gives a pool, code fills the days (owner request 2026-11-21)
+
+**Why (owner 2026-11-21).** Multi-day plans come out with about one attraction a day. Two causes in the setup:
+- The `make_trip_list` description's only multi-day example is `days=[["广州塔","陈家祠"],["长隆野生动物世界"]]`
+  (2 + 1 bare names). The model copies it, writes thin day groups itself, and the fit keeps groups (§48 item 4.4), so
+  the pool path that fills days by importance and budget (§48 items 1, 4; §49 item 3) is skipped.
+- The `under` check (§49 item 4) fires only below half the day budget (4 h of 8 h, driving included) and counts no
+  sights, so one sight plus a long drive passes.
+
+**Published practice this copies.**
+- Visit times: museum averages 58 and 112 minutes in measured studies, 1.5–2 h in planning guides, 3 h+ for major
+  museums; a theme park is a full day (Tokyo Disneyland 8–9 h) (academia.edu/86062359, arxiv.org/pdf/2602.11160,
+  arxiv.org/html/2602.08367). The §48 item 2 defaults (60/90/120) are in this range and are not changed.
+- Sights per day: guides converge on 1 (slow), 2 (moderate), 3 (fast) major sights a day, more when close together
+  (frommers.com "how to craft the perfect itinerary", walksofitaly.com/blog/?p=8726, ricksteves.com itinerary tips).
+  Minor stops (food, a viewpoint) come on top, so the counts here (item 3) are one higher than the guides' major sights.
+- Pool then fill: the LLM returns a candidate pool with time-on-site and must-see flags, code picks by priority until
+  the day budget is full (dev.to "Trip Buddy"); Google's trip ideas draft activities with duration and importance and
+  an optimizer fits them (research.google/blog/optimizing-llm-based-trip-planning, as §49).
+- Day density is a scored property: TripScore's schedule density (arxiv.org/html/2510.09011v1) wants each day
+  "neither overly lengthy nor excessively brief"; TravelAgent checks "the number of attractions per day"
+  (arxiv.org/html/2409.08069v1). Neither publishes a threshold: the 75% in item 3 is this project's choice, kept as a
+  named constant so it can be tuned.
+
+1. **A plan for N days is a pool.** For 「规划X N天」 the model sends `places` (the whole trip's pool, about 1.5 times
+   what the days need, `{name, minutes, importance}`) and `day_count`; code orders and fills the days (§48 item 4,
+   §49 item 3). `days` groups are only for when the driver said which day each place is on.
+2. **Catalog text, `make_trip_list`.** The sentence 「几天的行程一次调用，用 days 代替 places，每天一组地点：「规划广州两天」→days=[[\"广州塔\",\"陈家祠\"],[\"长隆野生动物世界\"]]。」 becomes:
+   「几天的行程一次调用：places 填整个行程的地点池，加 day_count，代码会按车程和时间分到每天，比如「规划广州两天」→day_count=2，places=[{name:\"广州塔\",minutes:90,importance:3},{name:\"长隆野生动物世界\",minutes:480,importance:3},{name:\"陈家祠\",minutes:60,importance:2},{name:\"沙面\",minutes:60,importance:2},{name:\"北京路步行街\",minutes:60,importance:2},{name:\"越秀公园\",minutes:90,importance:1},{name:\"广州酒家\",minutes:60,importance:1},{name:\"珠江夜游\",minutes:90,importance:1}]。司机自己说了哪天去哪里，才用 days 代替 places，每天一组地点。」
+3. **Thin day (replaces §49 item 4 `under`'s condition, and §48 item 7's "under half").** With budget B (§48 item 3)
+   and pace sights S (`relaxed` 2, `normal` 3, `packed` 4), a day is thin when neither exemption holds and either:
+   - its minutes are under 75% of B (`TripChecks.thinShare = 0.75`); or
+   - it has fewer than S sights and at least 90 minutes of B left (room for one more).
+   Exemptions: a day with a sight of 360 minutes or more (a theme park is the day); a one-day plan whose sights are
+   all importance 3 (the driver listed what they want).
+   - `under` still needs `spare` empty (a spare place left means nothing more fits). Its line is unchanged:
+     「第N天还空约X小时，在<区名>附近加1到2个」, with X = hours to B, at least 1.
+   - §48 item 7's line 「第N天还空大约X小时，可以再加几个地方」 uses the minutes part only (under 75% of B, `spare` empty).
+4. **Record.** `trip fit … under=<n>` counts days under 75% of B; `trip check … under=<n>` counts item 3's thin days.
+   Formats unchanged.
+5. **Agent version.** Item 2 is a tool description change: minor bump (5.2.0) with a row in agent-versions.md.
+6. **Code.** `TripChecks` (`thinShare`, `minSights`, `Day.sights`, `Day.longestSightMinutes`, the thin rule);
+   `TripPlanner.runChecks` fills the new fields and the one-day exemption; `fitNotes` and the `trip fit` line use 75%;
+   `ToolCatalog.makeTripListDescription`; `AgentSetup.version`.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 208 | `normal`, 2-day plan; day 1 one 90-min sight and 150 min of driving (240 min) | `under` for day 1 (240 < 360) | unit |
+| 209 | `normal`; a day of 2 sights (120 + 120) and 150 min of driving (390 min) | `under` (2 < 3 sights, 90 min left) | unit |
+| 210 | `normal`; a day of 2 sights of 180 each and 60 min of driving (420 min) | no `under` (60 min left < 90) | unit |
+| 211 | `normal`; a day with one 480-min sight | no `under` (360+ sight) | unit |
+| 212 | One-day plan, two importance-3 sights, 200 min | no `under`; same plan with a sight of importance 2 → `under` | unit |
+| 213 | `relaxed` (360); a day of 2 sights, 280 min | no `under` (280 ≥ 270, 2 sights) | unit |
+| 214 | `fitNotes` with day minutes [300, 400], budget 480, no spare | 「第1天还空…」 only (300 < 360 ≤ 400) | unit |
+| 215 | `make_trip_list` description | Has 「places 填整个行程的地点池，加 day_count」 and no `days=[[` example | unit |
+| 216 | Eval: 「规划广州三天」 on the live model with the app's tools | `places` + `day_count=3`, at least 9 places with minutes and importance | eval |
+| 217 | Device: 「规划杭州三天的行程」 | At least 3 sights each day (a theme-park day excepted); each day about 6–9 h | D |
+
+**Trace gate.** Add `T-040zf: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zf | §53 items 1–6 (pool for N days, catalog text, thin-day rule, record counts, agent 5.2.0); rows 208–217 | NOT_RUN |

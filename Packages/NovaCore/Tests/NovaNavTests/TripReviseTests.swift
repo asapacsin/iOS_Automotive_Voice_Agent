@@ -127,13 +127,14 @@ struct TripReviseTests {
         #expect(await rig.run(await sameCall(rig)).data["status"] == "trip_list")
     }
 
-    @Test("F-15b row 133: a day of 75% driving and a day at 30% of its budget with no spare: driving and under, one result")
+    @Test("F-15b row 133 (with §53 item 3): a day of 75% driving and a day at 30% of its budget with no spare: driving and under, one result")
     func row133() async {
         let (rig, _) = await timesRig(times, table: places)
         let r = await rig.run(trip("make_trip_list", ["days": [[item("G", 120)], [item("远方", 60)]]]))
         #expect(r.data["status"] == "trip_needs_fix")
-        // Day 1: 20 + 120 = 140 of 480. Day 2: 180 driving + 60.
-        #expect(strings(r.data["issues"]) == ["第2天大半时间在开车，考虑把这天换到一个区域", "第1天还空约6小时，在和平区附近加1到2个"])
+        // Day 1: 20 + 120 = 140 of 480. Day 2: 180 driving + 60 = 240, under 75% of 480 since §53 item 3 (T-040zf).
+        #expect(strings(r.data["issues"]) == ["第2天大半时间在开车，考虑把这天换到一个区域", "第1天还空约6小时，在和平区附近加1到2个",
+                                              "第2天还空约4小时，在和平区附近加1到2个"])
     }
 
     @Test("F-15b row 134: wishes and 2 nights: hotel issue with 3 choices per night and distances; picks set them; an unlisted pick is invalidFields")

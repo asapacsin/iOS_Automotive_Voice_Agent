@@ -323,10 +323,10 @@ struct TripReviewFix2Tests {
         #expect(ToolCatalog.validate(trip("make_trip_list", [:])) == .invalidFields)
     }
 
-    @Test("F-15b row 38: the make_trip_list text says to pick places herself and not ask, and to use days for a multi-day plan")
+    @Test("F-15b row 38 (multi-day part replaced by §53 item 2): the make_trip_list text says to pick places herself and not ask, and a multi-day plan is one call")
     func row38() {
         let d = ToolCatalog.makeTripListDescription
         #expect(d.contains("没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里"))
-        #expect(d.contains("几天的行程一次调用，用 days 代替 places"))
+        #expect(d.contains("几天的行程一次调用"))
     }
 }

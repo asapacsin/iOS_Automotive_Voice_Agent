@@ -15,6 +15,7 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
+| 5.2.0 | a0b02067b451 | 2026-11-21 | (this commit) | minor: `make_trip_list` description: a multi-day plan is a pool (`places` + `day_count`, 8-place 广州 example with minutes and importance); `days` only when the driver said which day | F-15b §53 item 2 |
 | 5.1.0 | 06e741b9b470 | 2026-11-21 | b2af6eb | minor: note template: correction `TRIP_RESULT_PENDING` (结果还没回来，不要说已经做好) | F-15b §52 item 12 |
 | 5.0.0 | 4ff565488e05 | 2026-11-21 | b4588d5 | major: tool added (`set_trip_plan`), tool removed (`revise_trip_list`), `edit_trip_list` parameters removed (`to_index`, `start`, `days`, `to_day`; actions add/remove/move/reorganize gone); edit and make descriptions point to set_trip_plan; edit adds CONFIRM_CLEAR | F-15b §52 items 3, 13, 14 |
 | 4.0.0 | e06a5c030dab | 2026-11-20 | 14fa121 | major: tool parameter added (`exit_navigation_mode.panel`, optional enum); exit description adds the named-panel sentence | F-09b §17 item 4 |
