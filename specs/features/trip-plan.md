@@ -1897,3 +1897,142 @@ test trip from the day before still saved:
 | T-040y | §51 items 1–3, 5, 7 (item 4 moved to T-031l); rows 161–168, 170–175 | NOT_RUN |
 | T-040z | §51 item 8 (model names the centre; code resolves and checks); rows 176–189 | NOT_RUN |
 | T-040za | §51 item 9 (cards shown: 附近 is the trip location); rows 190–194 | NOT_RUN |
+
+## 52. The plan is one data structure the model reads and writes (owner request 2026-11-21)
+
+**Why (owner, ipa a253d83, 2026-11-21, phone records 20261121-000733, -002727, -005519 and -103731).** A Sapporo trip:
+- 「先千岁机场吧」 → `edit_trip_list reorganize start="New Chitose Airport"`; the lookup ran out of time
+  (`trip lookup index=0 ok=no reason=timeout`, 15 s) and came back `NOT_FOUND`. She told the driver four times that
+  New Chitose Airport could not be found.
+- 「回程也是千岁」 and 「酒店在桥本酒店」 had no tool: `edit_trip_list` has `start` but no end and no hotel;
+  `revise_trip_list.hotels` only picks from hotels the app offered, and only replaces a hotel stop already in the plan.
+  She fell back to `web_search`, which changes nothing.
+- The plan was made without a start (`order=NO_START`), so all 7 sights were on day 1 and days 2–5 were empty.
+- A tap on a day tab (any day after day 1) hid the whole trip screen (`trip tap action=day ok=no`,
+  `panel tripScreen off`). 「我的打卡清单去哪了」 then got `NO_TRIP_LIST` while the plan still had `days=5 stops=8`.
+- 「去跟回来都是同一个机场」 → `edit_trip_list add 新千岁机场`: the airport became a sight at the end of day 1.
+- The hotel added by name became a sight on day 1; `reorganize` then picked a different hotel for each night
+  (HOTEL ROUTE-INN, Hotel Musashitei). Day 1 had two hotels.
+- 「最后要加一个新千岁机场」 → `add "New Chitose Airport (新千岁机场)"`, the name as the plan shows it;
+  `PhotonPlaceSearch.split` searched the bracket part 新千岁机场 (Photon: 0 results; "New Chitose Airport": 3).
+- She said 「我已经为您将行程起点设为新千岁机场」 before the result came back, and the result was a failure.
+- 「你把那个行程拿回去吧」 became `edit_trip_list clear` and the whole trip was gone.
+
+**Causes, from the code at a253d83.**
+1. Most trip code works on `list` = the selected day (`TripPlanner.list` → `plan.current`), not the plan:
+   `edit_trip_list` refuses with `NO_TRIP_LIST` when the selected day is empty (`TripPlanner.swift` line 1110), and the
+   screen gets only the selected day (`onChange(list)`) and hides when it is empty (`DriveView.swift` line 516).
+2. The model never sees the plan with roles: tool results carry `plan` as names per day; `stops` are the selected day
+   only. It cannot tell a hotel from a sight or see which hotel the app picked.
+3. The model can change the plan only through fixed actions (`add`, `remove`, `move`, `reorganize start=`, `revise`
+   picks). None sets an end or a hotel the driver names; `add` always makes a sight.
+4. A stop already in the plan is referred to by name, so a copied name is searched again, in the wrong half.
+5. A lookup that runs out of time is `NOT_FOUND` (§4 items 4–5, `TripPlannerTests.limits`), and it fails the whole edit.
+6. Photon (§36 item 2b) waits up to 8 s per try inside one 15 s budget for all names, two at a time. Phone network log
+   2026-11-21 00:27:44 (syslog-20261121-001944): new connection over the phone's VPN, TCP open in 0.5 s, TLS hello sent,
+   no byte back for 7.5 s; the retry the same, cut at 15 s. At 00:55 the same route answered in 0.2 s. From the PC the
+   server answers in 0.2–0.4 s on an open connection; a new one costs 0.6–2.5 s.
+
+**Published practice this copies (checked 2026-11-21).**
+- **The itinerary is a structured object with a hotel slot per day, checked by code.** TravelPlanner (Xie et al.,
+  ICML 2024; github.com/OSU-NLP-Group/TravelPlanner, `evaluation/hard_constraint.py`): each day of a plan has one
+  `accommodation` entry (empty or `-` = none) next to transportation and meals; code checks the plan's constraints.
+- **Accommodation is an activity type in each day, and code validates the plan.** ChinaTravel (arXiv 2412.13682):
+  each day has `activities` with `type` (`attraction`, `accommodation`, meals…); the environment rules include
+  "A hotel is necessary for multi-day trips" and the logical rules "specified hotels"; plans are validated by a
+  Python checker.
+- **The public Photon server is for light use; heavy users host their own** (dawarich.app reverse-geocoding docs:
+  "photon.komoot.io is a free service with limited usage … host your own"). NovaDrive's volume is a few searches per
+  trip; §52 item 9 keeps it on the public server and handles a stalled connection.
+
+**What changes.**
+1. **One plan.** `TripPlan` is the only trip data: `days` → stops; each stop has `id` (stable for the plan's life),
+   `name`, `role` (`start`, `sight`, `hotel`, `end`, `rental_pickup`, `rental_return`), `minutes`, `importance`,
+   `placed` (bool: on the map or not yet), `picked_by` (`driver`, `model` or `app`) and its mark (visited/skipped).
+   The selected day is only which day the screen shows in front. No check, refusal or hide depends on it.
+2. **The model reads the plan.** Every trip tool result and the trip line of the state note (F-09b §16) carry the whole
+   plan as `{"days":[[{"id","name","role","placed","picked_by","minutes"}…]…]}`, every day, not names only. A plan
+   longer than 2,000 characters keeps all ids, names and roles and drops `minutes` first.
+3. **The model writes the plan: one tool, `set_trip_plan`.** Arguments: `days` (array of days, each an array of stops)
+   and optional `pace`. A stop is `{"id"}` (kept as it is), `{"id","role"}` / `{"id","minutes"}` (kept, field changed)
+   or `{"name","role"?,"minutes"?,"importance"?}` (new; `role` defaults to `sight`). The model decides everything the
+   driver asks: start and end (an airport as `start` on day 1 and `end` on the last day), the driver's hotel as the
+   `hotel` of each night, which sights go on which day, order within a day. Async (§4 item 9), like `make_trip_list`.
+4. **Code keeps known stops and looks up only new names.** A stop with an `id` keeps its place, photo, times and mark;
+   no search. A new name is searched as a place of the trip (§36, §50 item 3), with the name rule of item 10.
+   A name not found, or a search still running at its limit, is kept with `placed=false` and searched again in the
+   background (3 tries, 10 s apart, after item 9); the edit succeeds. Facts: `not_placed` (names), never `NOT_FOUND`
+   for the whole edit.
+5. **Code checks the written plan** and refuses with `PLAN_CHECK` and the list of problems (the model sends a fixed
+   plan; §49's round limit applies):
+   - at most one `start` (first stop of day 1) and one `end` (last stop of the last day);
+   - each night k (1…days−1): exactly one `hotel`, the last stop of day k and the first stop of day k+1, the same place;
+   - day count 1…`TripPlan.maxDays`; an unknown `id` or a duplicate `id`;
+   - a visited or skipped stop keeps its day.
+6. **The driver's hotel wins.** A hotel the model wrote (`picked_by=model`, from the driver's words) is never replaced
+   by the app. The app picks a hotel (§37 item 4) only for a night with none, as `picked_by=app`, and says so in facts
+   (`app_picked_hotels`).
+7. **Removed stops are reported.** A stop of the old plan missing from the new one is removed and listed in facts
+   (`removed`: names), so a stop dropped by mistake is heard and can be put back.
+8. **Times and fit after the write.** Driving times (§36 item 6) and the day fit (§48) run over the written plan; the
+   model's order within a day is kept unless the driver asked to optimise (`optimise: true` in the call, the existing
+   ordering of §28 item 3 over each day between its fixed ends). Over-budget days are notes, as §48, not refusals.
+9. **The screen shows the plan.** The view model gets the whole plan on every change. The trip screen is shown while
+   the plan has any stop and the cards are not hidden (§51); day tabs for every day; an empty day shows
+   「这一天还没有安排」; a stop with `placed=false` shows 「位置待确认」. A day tap only changes the day in front; it is not
+   a tool call and cannot fail. Reads (`edit_trip_list read` until it is removed, `trip_next`) use the plan.
+10. **Names are not searched twice and not by the wrong half.** A stop in the plan is always referred to by `id`.
+    `PhotonPlaceSearch.split` searches the bracket part only when it has no CJK character; otherwise it searches the
+    outer part (「New Chitose Airport (新千岁机场)」 → "New Chitose Airport").
+11. **Photon connection.** One try waits at most 3 s for a reply, then a new connection is opened (up to 4 tries);
+    each name has its own limit (12 s), not one budget for the whole batch; 4 lookups at once. When a trip abroad is
+    on screen and the driver starts speaking, one small Photon request opens the connection first (at most one per
+    30 s). A lookup that ran out of tries is `slow`, not `nomatch`; the result says `search_slow` (names), never that
+    the place does not exist.
+12. **Done only from the result.** While a trip tool runs (async), a reply that says the change is done is not allowed:
+    the turn's `next` says 「结果还没回来，不要说已经做好」, and the reply check (F-05a §4 item 4) treats a "done" claim
+    before the result as drift.
+13. **Clearing the whole trip asks first.** `clear` without `day` (or `set_trip_plan` with no stops) returns
+    `CONFIRM_CLEAR` the first time; only the driver's yes in the next turn clears it.
+14. **Removed tools.** `edit_trip_list` actions `add`, `remove`, `move`, `move_to_day`, `reorganize` and
+    `revise_trip_list` are removed once `set_trip_plan` passes rows 195–207; `edit_trip_list read` and `trip_next` stay
+    until the plan in every result makes them redundant (owner decides). Catalog text changes bump the agent version
+    (`scripts/gates/check_agent_version.py`).
+
+**Catalog text (`set_trip_plan`).** 「修改行程：把整份行程（每天的地点，带 id 和 role）按司机的意思改好后整份传回。已有的地点只写 id；新地点写 name。
+role：start 出发点（第一天第一个）、end 终点（最后一天最后一个）、hotel 住的酒店（每晚一个：当天最后一个、第二天第一个）、sight 景点。
+司机说了住哪个酒店，就把它写成每晚的 hotel。去掉的地点不写。结果稍后回来：\(tripWorkingLine)」
+
+**Record and log.** `trip set days=N stops=M kept=K new=X removed=R not_placed=P check=ok|fail ms=…`;
+`trip place-retry name=… try=N ok=yes|no`; `photon try=N reason=reply|timeout|failed ms=…` per try; `trip day-view day=N`.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 195 | Sapporo 3-day plan; `set_trip_plan` with New Chitose (`start` day 1, `end` day 3), driver hotel as `hotel` nights 1–2, sights by id spread over 3 days | Saved as written; one hotel per night, the driver's; airport first and last; no lookup for id stops | unit |
+| 196 | Same, two different hotels on night 1, or a `hotel` not at the end of its day | `PLAN_CHECK` listing the problem; plan unchanged | unit |
+| 197 | Same, a new name whose search is held past its limit | Edit succeeds; stop `placed=false`; `not_placed` in facts; background retry places it when released | unit |
+| 198 | Plan with a stop dropped from the written plan | Removed; `removed` names it | unit |
+| 199 | Day 2 selected and empty | Trip screen still shown with every day tab; read returns the whole plan; no `NO_TRIP_LIST` | unit, build |
+| 200 | Every trip tool result | Carries the whole plan with id, name, role, placed, picked_by for every day | unit |
+| 201 | Night with no hotel after `set_trip_plan` | App picks one as `picked_by=app`, listed in `app_picked_hotels`; a model-written hotel never replaced | unit |
+| 202 | `PhotonPlaceSearch.split` on 「New Chitose Airport (新千岁机场)」 and 「浅草寺 (Senso-ji)」 | "New Chitose Airport"; "Senso-ji" | unit |
+| 203 | Photon transport that never replies on the first connection, replies on the second | Answer after about 3 s, two `photon try` lines; 10 names finish without a batch-wide cut | unit |
+| 204 | Lookup out of tries | `search_slow`, not `nomatch`; her reply does not say the place does not exist | unit, eval |
+| 205 | 「清空行程」 / 「把行程拿回去」 with a plan | `CONFIRM_CLEAR` first; cleared only after yes | unit, eval |
+| 206 | Reply while `set_trip_plan` is running | No "done" claim before the result (reply check counts it as drift) | unit, eval |
+| 207 | Device, Sapporo: 「三天，去跟回来都是新千岁机场，住桥本酒店」, then tap each day | Airport first and last, Hotel Hashimoto every night, sights over 3 days; every tap shows that day, the trip never disappears | D |
+
+**Not verified.** Whether the live model writes a whole 5-day plan reliably in one call (the evals of rows 204–206
+measure it; if not, the owner decides on a patch form of the same structure).
+
+**Trace gate.** Add `T-040zb: F-15b`, `T-040zc: F-15b`, `T-040zd: F-15b` and `T-040ze: F-15b` to `specs/trace-ids.txt`,
+each together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zb | §52 items 1–8, 14 (plan structure, plan in every result, `set_trip_plan`, checks, driver hotel, removed); rows 195–198, 200, 201 | NOT_RUN |
+| T-040zc | §52 item 9 (screen and reads from the plan; day tap only a view); row 199, 207 | NOT_RUN |
+| T-040zd | §52 items 10–11 (names by id, split rule, Photon 3 s tries, per-name limit, warm-up, `search_slow`); rows 202–204 | NOT_RUN |
+| T-040ze | §52 items 12–13 (no "done" before the result; confirm before clearing); rows 205, 206 | NOT_RUN |
