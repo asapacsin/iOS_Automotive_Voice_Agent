@@ -36,6 +36,9 @@ struct TripThinDayTests {
     @Test("F-15b row 211: a day with one 480-min sight is the day, not thin")
     func row211() {
         #expect(under([day(480, driving: 0, sights: [480]), full]).isEmpty)
+        // A 480-min park plus 40 min of driving on a must-see day: neither under nor over.
+        let park = day(520, driving: 40, sights: [480], mustSee: true)
+        #expect(TripChecks.run(notFound: [], days: [park, full], budgetMinutes: 480, spareEmpty: true).isEmpty)
         #expect(under([day(300, driving: 0, sights: [360]), full]).isEmpty)
     }
 
@@ -54,7 +57,7 @@ struct TripThinDayTests {
         #expect(under([day(260, driving: 40, sights: [110, 110]), full], budget: 360).count == 1)
     }
 
-    @Test("F-15b row 213: spare places left means nothing more fits, so no under; unknown sights use minutes only")
+    @Test("F-15b §53 item 3: spare places left means nothing more fits, so no under; unknown sights use minutes only")
     func spareAndUnknown() {
         let thin = day(240, driving: 150, sights: [90])
         #expect(TripChecks.run(notFound: [], days: [thin, full], budgetMinutes: 480, spareEmpty: false)

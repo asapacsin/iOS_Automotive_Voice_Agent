@@ -2072,6 +2072,8 @@ each together with the first `@Test` that names it.
    - it has fewer than S sights and at least 90 minutes of B left (room for one more).
    Exemptions: a day with a sight of 360 minutes or more (a theme park is the day); a one-day plan whose sights are
    all importance 3 (the driver listed what they want).
+   - A day with a sight of 360 minutes or more is not `over` either (§49 item 4): the park is the day, and the
+     example in item 2 must not push the model to drop it.
    - `under` still needs `spare` empty (a spare place left means nothing more fits). Its line is unchanged:
      「第N天还空约X小时，在<区名>附近加1到2个」, with X = hours to B, at least 1.
    - §48 item 7's line 「第N天还空大约X小时，可以再加几个地方」 uses the minutes part only (under 75% of B, `spare` empty).
@@ -2101,4 +2103,4 @@ each together with the first `@Test` that names it.
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040zf | §53 items 1–6 (pool for N days, catalog text, thin-day rule, record counts, agent 5.2.0); rows 208–217 | NOT_RUN |
+| T-040zf | §53 items 1–6 (pool for N days, catalog text, thin-day rule, record counts, agent 5.2.0); rows 208–217 | PASS; rows 216 eval, 217 device NOT_VERIFIED |

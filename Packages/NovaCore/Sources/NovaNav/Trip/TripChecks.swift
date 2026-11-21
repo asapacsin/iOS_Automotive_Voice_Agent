@@ -91,7 +91,8 @@ public enum TripChecks {
         for name in notHotels { out.append(Issue(kind: .notFound, line: "\(name)不是酒店")) }
         // §50 item 4: a place no road reaches, or over 4 h on the straight-line estimate.
         for name in far { out.append(Issue(kind: .far, line: "\(name)开车到不了或者太远，换一个\(city)附近的")) }
-        for (d, day) in days.enumerated() where day.minutes > budgetMinutes && day.onlyMustSee {
+        for (d, day) in days.enumerated() where day.minutes > budgetMinutes && day.onlyMustSee
+            && day.longestSightMinutes < fullDaySightMinutes {  // §53 item 3: a full-day sight is the day
             out.append(Issue(kind: .over, line: "第\(d + 1)天超了约\(hours(day.minutes - budgetMinutes))小时，减少或换掉一个必去的地方"))
         }
         for (d, day) in days.enumerated() where day.minutes > 0 && Double(day.drivingMinutes) > drivingShare * Double(day.minutes) {
