@@ -2305,6 +2305,8 @@ public actor TripPlanner: ToolExecutor {
             return (.missing("busy"), 0)
         } catch AmapWebError.timeout {
             return (.missing("timeout"), 0)
+        } catch AmapWebError.slow {
+            return (.missing("slow"), 0)
         } catch {
             return (.missing("failed"), 0)
         }
