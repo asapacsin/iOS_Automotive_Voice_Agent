@@ -329,20 +329,18 @@ struct TripSetPlanReviewTests {
     func retryWaitsForEdit() async {
         let clock = ManualClock()
         var table = sapporoTable
-        table["慢二"] = [spot("慢二", lat: 43.09, lng: 141.38)]
-        let search = TripSearch(table, slow: ["慢地方", "慢二"])
+        table["晚到"] = [spot("晚到", lat: 43.09, lng: 141.38)]
+        table["慢二"] = [spot("慢二", lat: 43.10, lng: 141.39)]
+        // 晚到: not found by the first write, found by the retry (which would raise the revision); 慢二 holds the second write.
+        let search = TripSearch(table, slow: ["慢二"], lateAnswer: ["晚到": 1])
         let (rig, ids) = await sightsRig(search: search, clock: clock)
-        let first = Task { await rig.run(setPlan([[stop(ids["A"]), stop(name: "慢地方")]])) }
+        #expect(await rig.run(setPlan([[stop(ids["A"]), stop(name: "晚到")]])).ok)
+        let lateID = await rig.planner.currentPlan.allStops.first { $0.stop.asked == "晚到" }!.stop.id
+        #expect(await rig.planner.currentPlan.allStops.first { $0.stop.id == lateID }?.stop.placed == false)
+        let second = Task { await rig.run(setPlan([[stop(ids["A"]), stop(lateID), stop(name: "慢二")]])) }
         for _ in 0..<5000 where search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
         try? await Task.sleep(for: .milliseconds(20))
-        clock.advance(by: .seconds(16))
-        #expect(await first.value.ok)
-        search.release()
-        let slowID = await rig.planner.currentPlan.allStops.first { $0.stop.asked == "慢地方" }!.stop.id
-        // A second edit holds 慢二; the retry's time comes while it runs.
-        let second = Task { await rig.run(setPlan([[stop(ids["A"]), stop(slowID), stop(name: "慢二")]])) }
-        for _ in 0..<5000 where search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
-        try? await Task.sleep(for: .milliseconds(20))
+        // The retry's 10 s pass while 慢二 is held, then the name limit.
         for _ in 0..<16 {
             clock.advance(by: .seconds(1))
             try? await Task.sleep(for: .milliseconds(5))
@@ -350,6 +348,51 @@ struct TripSetPlanReviewTests {
         let r = await second.value
         #expect(r.ok && r.code != .optionsStale, "\(r)")
         search.release()
+    }
+
+    @Test("T-040zd F-15b row 204 (review): every slow path is search_slow with a code that is not not-found")
+    func slowPaths() async {
+        func held(_ call: ToolCall, _ rig: TripRig, _ search: TripSearch, _ clock: ManualClock) async -> ToolResult {
+            let made = Task { await rig.run(call) }
+            for _ in 0..<5000 where search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
+            try? await Task.sleep(for: .milliseconds(20))
+            clock.advance(by: .seconds(16))
+            let r = await made.value
+            search.release()
+            return r
+        }
+        let notFoundCodes: [ToolErrorCode?] = [.notFound, .noCandidates]
+        // All slow, places without day.
+        do {
+            let clock = ManualClock(); let search = TripSearch(sapporoTable, slow: ["慢地方"])
+            let rig = await TripRig(search: search, clock: clock)
+            let r = await held(trip("make_trip_list", ["places": ["慢地方"]]), rig, search, clock)
+            #expect(!notFoundCodes.contains(r.code) && strings(r.data["facts"]?["search_slow"]) == ["慢地方"], "\(r)")
+        }
+        // All slow, places with day.
+        do {
+            let clock = ManualClock(); let search = TripSearch(sapporoTable, slow: ["慢地方"])
+            let rig = await TripRig(search: search, clock: clock)
+            let r = await held(trip("make_trip_list", ["places": ["慢地方"], "day": 1]), rig, search, clock)
+            #expect(!notFoundCodes.contains(r.code) && strings(r.data["facts"]?["search_slow"]) == ["慢地方"], "\(r)")
+        }
+        // A slow frame stop (start).
+        do {
+            let clock = ManualClock(); let search = TripSearch(sapporoTable, slow: ["慢地方"])
+            let rig = await TripRig(search: search, clock: clock)
+            var r = await held(trip("make_trip_list", ["places": ["A", "B"], "start": "慢地方"]), rig, search, clock)
+            r = await settle(rig, r)
+            #expect(strings(r.data["facts"]?["search_slow"]) == ["慢地方"], "\(r)")
+            let nf = strings(r.data["not_found"]) + strings(r.data["facts"]?["not_found"])
+            #expect(!nf.contains("慢地方"))
+        }
+        // Replace with a slow name.
+        do {
+            let clock = ManualClock(); let search = TripSearch(sapporoTable, slow: ["慢地方"])
+            let (rig, _) = await sightsRig(search: search, clock: clock)
+            let r = await held(trip("edit_trip_list", ["action": "replace", "index": 2, "name": "慢地方"]), rig, search, clock)
+            #expect(!notFoundCodes.contains(r.code) && strings(r.data["facts"]?["search_slow"]) == ["慢地方"], "\(r)")
+        }
     }
 
     @Test("T-040zb F-15b §51 item 8 (review): a stop not on the map is never the trip's next stop or a search centre")

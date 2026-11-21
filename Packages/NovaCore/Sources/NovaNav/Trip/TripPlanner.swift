@@ -1031,6 +1031,9 @@ public actor TripPlanner: ToolExecutor {
         case "replace":
             guard let name else { return .failure(.invalidFields) }
             guard let index, (1...n).contains(index) else { return outOfRange() }
+            // A plan write too: the background retry waits (review 2026-11-21).
+            planWrites += 1
+            defer { planWrites -= 1 }
             let generation = plan.revision
             let here = await origin()
             let lookup = await resolve([name], city: nil, abroad: plan.abroad, near: regionHint()).first ?? .missing("failed")
@@ -2407,7 +2410,9 @@ public actor TripPlanner: ToolExecutor {
         if !notFound.isEmpty { facts["not_found"] = .array(notFound.map { .string($0) }) }
         if !slow.isEmpty { facts["search_slow"] = .array(slow.map { .string($0) }) }
         if notFound.isEmpty, !slow.isEmpty {
-            return LookupReply.failed(code, what: what, cause: .network, facts: facts, mustNot: [.claimDone])
+            // Never a "not found" code for a search that only ran out of time (review 2026-11-21).
+            return LookupReply.failed(LookupReply.code(for: .network), what: what, cause: .network, facts: facts,
+                                      mustNot: [.claimDone])
         }
         return LookupReply.notFound(code, what: what, facts: facts, mustNot: [.claimDone])
     }
