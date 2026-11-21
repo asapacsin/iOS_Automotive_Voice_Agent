@@ -137,6 +137,17 @@ struct TripReviseTests {
                                               "第2天还空约4小时，在和平区附近加1到2个"])
     }
 
+    @Test("T-040zf F-15b §53 item 3 through the planner: one 340-min sight (360 of 480) is thin by sights; a 400-min one is the day")
+    func thinBySightsWired() async {
+        let (rig, _) = await timesRig(times, table: places)
+        let r = await rig.run(trip("make_trip_list", ["days": [[item("G", 340)], [item("远方", 60)]]]))
+        // Day 1: 20 + 340 = 360, not under 75% of 480, but 1 sight < 3 with 120 min left.
+        #expect(strings(r.data["issues"]).contains("第1天还空约2小时，在和平区附近加1到2个"))
+        let (rig2, _) = await timesRig(times, table: places)
+        let s = await rig2.run(trip("make_trip_list", ["days": [[item("G", 400)], [item("远方", 60)]]]))
+        #expect(!strings(s.data["issues"]).contains { $0.hasPrefix("第1天还空") })
+    }
+
     @Test("F-15b row 134: wishes and 2 nights: hotel issue with 3 choices per night and distances; picks set them; an unlisted pick is invalidFields")
     func row134() async {
         let (rig, _) = await timesRig(times, table: places, search: TripSearch(places, hotels: threeHotels))
