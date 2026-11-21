@@ -1216,7 +1216,8 @@ public actor TripPlanner: ToolExecutor {
             var whereIs = placeOf
             // Item 3.1: a name not found near the trip is searched once more without the trip's area, the trip's own
             // vendor first, only to learn where it is.
-            for abroadTry in (plan.abroad ? [true, false] : [false, true]) {
+            // At home the first lookup was already nationwide 高德, so only Photon is asked again (review 2026-11-21).
+            for abroadTry in (plan.abroad ? [true, false] : [true]) {
                 // A lookup that only ran out of time (`search_slow`) is not searched again here.
                 let unknown = newNames.filter { whereIs[$0] == nil && !slow.contains($0) }
                 guard !unknown.isEmpty, !abroadTry || abroadSearch != nil else { continue }
@@ -1225,7 +1226,7 @@ public actor TripPlanner: ToolExecutor {
                 for (i, n) in unknown.enumerated() { if case .found(let place) = found[i] { whereIs[n] = place } }
             }
             guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-            let foreign = newNames.filter { n in whereIs[n].map { Self.isForeign($0, kept: keptPlaced, kilometres: tuning.newTripKilometres) } ?? false }
+            let foreign = newNames.filter { n in whereIs[n].map { Self.isForeign($0, kept: keptPlaced, kilometres: plan.abroad ? tuning.newTripKilometres : nil) } ?? false }
             if !foreign.isEmpty {
                 counts = (written.joined().filter { $0.id != nil }.count, newNames.count, 0, notPlaced.count)
                 log(false, check: "new_trip")
@@ -2459,9 +2460,11 @@ public actor TripPlanner: ToolExecutor {
 
     /// §54 item 3.2: `place` is in another country group than every kept place (China = CN/HK/MO/TW), or farther than
     /// `kilometres` from each of them.
-    static func isForeign(_ place: Place, kept: [Place], kilometres: Double) -> Bool {
+    /// `kilometres` nil (a trip at home, whose lookups have no area): the country group only.
+    static func isForeign(_ place: Place, kept: [Place], kilometres: Double?) -> Bool {
         func group(_ code: String?) -> String { TripRegion.isChina(code) ? "CN" : (code ?? "").uppercased() }
         guard kept.contains(where: { group($0.countryCode) == group(place.countryCode) }) else { return true }
+        guard let kilometres else { return false }
         return kept.allSatisfy { SelfPosition.distanceMeters($0.coordinate, place.coordinate) > kilometres * 1000 }
     }
 

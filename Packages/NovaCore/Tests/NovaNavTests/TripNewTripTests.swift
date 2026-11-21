@@ -4,12 +4,19 @@ import Testing
 @testable import NovaPorts
 @testable import NovaTools
 
-/// F-15b §54 (T-040zg): a trip to a new place is a new plan. Sights A–C near Sapporo; 关闸 in Macau; 近处 15 km away.
+/// F-15b §54 (T-040zg): a trip to a new place is a new plan. Sights A–C near Sapporo with Japan's code (as Photon
+/// gives); 关闸 in Macau (高德, no code = China); 近处 15 km from A. 人民公园 is the home case: a China place 1,000+ km away.
+private func jp(_ name: String, lat: Double, lng: Double) -> Place {
+    Place(id: name, name: name, address: nil, coordinate: GeoCoordinate(latitude: lat, longitude: lng, datum: .wgs84),
+          distanceMeters: nil, district: "中央区", countryCode: "JP")
+}
+
 private let table: [String: [Place]] = [
-    "A": [spot("A", lat: 43.00, lng: 141.35)], "B": [spot("B", lat: 43.01, lng: 141.35)],
-    "C": [spot("C", lat: 43.02, lng: 141.35)],
+    "A": [jp("A", lat: 43.00, lng: 141.35)], "B": [jp("B", lat: 43.01, lng: 141.35)], "C": [jp("C", lat: 43.02, lng: 141.35)],
     "关闸": [spot("关闸", lat: 22.216, lng: 113.549)],
-    "近处": [spot("近处", lat: 43.13, lng: 141.40)],
+    "近处": [jp("近处", lat: 43.13, lng: 141.40)],
+    "广州塔": [spot("广州塔", lat: 23.106, lng: 113.324)], "陈家祠": [spot("陈家祠", lat: 23.126, lng: 113.245)],
+    "人民公园": [spot("人民公园", lat: 31.232, lng: 121.471)],
 ]
 
 private func stop(_ id: String? = nil, name: String? = nil, role: String? = nil) -> JSONValue {
@@ -53,12 +60,19 @@ struct TripNewTripTests {
 
     @Test("F-15b row 220: 关闸 not found near the trip, found by the second search: same refusal")
     func row220() async {
-        let search = TripSearch(table, lateAnswer: ["关闸": 1])
-        let (rig, ids) = await rigWithPlan(search)
+        // 高德 never finds it here; Photon (the second search) does.
+        let photon = TripSearch(table)
+        let rig = await TripRig(search: TripSearch(table, lateAnswer: ["关闸": 99]), abroad: photon)
+        _ = await rig.run(setPlan([["A", "B", "C"].map { stop(name: $0) }]))
+        var ids: [String: String] = [:]
+        for s in await rig.planner.currentPlan.allStops { ids[s.stop.place.name] = s.stop.id }
+        let search = photon
         let before = await rig.planner.currentPlan
         let r = await rig.run(setPlan([[stop(name: "关闸", role: "start"), stop(ids["A"]), stop(ids["B"])]]))
         #expect(r.code == .planCheck && r.data["facts"]?["new_trip"] == true, "\(r)")
-        #expect(search.asked.withLock { $0.filter { $0 == "关闸" }.count } >= 2)
+        #expect(r.data["next"]?.stringValue?.contains("make_trip_list") == true)
+        #expect(rig.lines.withLock { $0 }.contains { $0.contains(" check=new_trip ") })
+        #expect(search.asked.withLock { $0.filter { $0 == "关闸" }.count } >= 1)
         #expect(await rig.planner.currentPlan == before)
     }
 
@@ -68,6 +82,15 @@ struct TripNewTripTests {
         let r = await rig.run(setPlan([[stop(ids["A"]), stop(ids["B"]), stop(ids["C"]), stop(name: "近处")]]))
         #expect(r.ok && r.data["facts"]?["new_trip"] == nil, "\(r)")
         #expect(await rig.planner.currentPlan.allStops.map(\.stop.place.name).contains("近处"))
+    }
+
+    @Test("F-15b row 221: at home (no country codes) a 人民公园 found 1,000 km away is an edit, not a new trip")
+    func row221Home() async {
+        let rig = await TripRig(search: TripSearch(table))
+        _ = await rig.run(setPlan([["广州塔", "陈家祠"].map { stop(name: $0) }]))
+        let ids = await rig.planner.currentPlan.allStops.map(\.stop.id)
+        let r = await rig.run(setPlan([ids.map { stop($0) } + [stop(name: "人民公园")]]))
+        #expect(r.ok && r.data["facts"]?["new_trip"] == nil, "\(r)")
     }
 
     @Test("F-15b row 222: every stop new (no ids) in Macau is saved; isForeign by country group and distance")
@@ -84,5 +107,7 @@ struct TripNewTripTests {
                            distanceMeters: nil)
         #expect(TripPlanner.isForeign(macau, kept: [tokyo], kilometres: 300))
         #expect(!TripPlanner.isForeign(zhuhai, kept: [macau], kilometres: 300))
+        // At home the distance part is off: same country group is never foreign.
+        #expect(!TripPlanner.isForeign(zhuhai, kept: [Place(id: "s", name: "S", address: nil, coordinate: GeoCoordinate(latitude: 31.2, longitude: 121.5, datum: .gcj02), distanceMeters: nil)], kilometres: nil))
     }
 }

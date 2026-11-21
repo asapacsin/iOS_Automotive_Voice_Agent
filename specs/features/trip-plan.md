@@ -2130,11 +2130,14 @@ each function"). A check in code backs the text, because a description makes the
 2. **`set_trip_plan` text.** 「修改行程：」 becomes
    「修改行程：只用来改屏幕上这份行程（加减地点、换酒店、调顺序）；司机要规划去别的城市或国家，用 make_trip_list。」
 3. **Code check: one trip, one area.** After `set_trip_plan`'s lookups (§52 item 4) and before anything is saved:
-   1. A new name not found near the trip is searched once more without the trip's area (高德 nationwide, then Photon),
-      only to learn where it is; this result is not used as a stop.
+   1. A new name not found near the trip is searched once more without the trip's area, only to learn where it is;
+      this result is not used as a stop. Abroad: Photon then 高德. At home (the first lookup was already nationwide
+      高德): Photon only.
    2. A new stop is **foreign** to the plan when it is in another country group than the kept placed stops (China:
-      CN/HK/MO/TW as `TripRegion.isChina`, versus each other country code), or more than 300 km
-      (`TripTuning.newTripKilometres`) from every kept placed stop.
+      CN/HK/MO/TW as `TripRegion.isChina`, versus each other country code), or, for a trip abroad only, more than
+      300 km (`TripTuning.newTripKilometres`) from every kept placed stop. At home the distance part is off: home
+      lookups have no area, so a common name (人民公园) can resolve to another city and must not throw the trip away
+      (review 2026-11-21). A new trip inside China is left to the tool texts (items 1–2).
    3. When any new stop is foreign: the result is `PLAN_CHECK` with `new_trip: true`, `plan_kept: true`, the problem
       line 「<名字>不在这份行程的地方，这是新的行程」, and `next`: 「先不要跟司机说话，调用 make_trip_list 规划新的行程，会替换旧行程。」.
       Nothing is changed or saved; it does not count toward §52 item 5's fix rounds.
@@ -2152,9 +2155,9 @@ F-09b (reply check) once the record confirms what was called.
 | # | Check | Pass | Type |
 |---|---|---|---|
 | 218 | `make_trip_list` and `set_trip_plan` descriptions | Contain the item 1 and item 2 sentences | unit |
-| 219 | Tokyo plan; `set_trip_plan` keeps the Tokyo ids and adds 关闸 as `start` (found in Macau) | `PLAN_CHECK`, `new_trip: true`, plan unchanged, nothing saved; `next` says make_trip_list; `trip set … check=new_trip` | unit |
+| 219 | Tokyo plan (abroad, JP); `set_trip_plan` keeps the Tokyo ids and adds 关闸 as `start` (found in Macau) | `PLAN_CHECK`, `new_trip: true`, plan unchanged, nothing saved; `next` says make_trip_list; `trip set … check=new_trip` | unit |
 | 220 | Same, 关闸 not found near Tokyo; the second search finds it in Macau | Same as 219 | unit |
-| 221 | Guangzhou plan; `set_trip_plan` adds 佛山祖庙 (about 20 km) | Saved as an edit (not foreign) | unit |
+| 221 | Guangzhou plan; `set_trip_plan` adds 佛山祖庙 (about 20 km), or a 人民公园 that 高德 finds 1,000 km away | Saved as an edit (not foreign) | unit |
 | 222 | Tokyo plan; `set_trip_plan` with every stop new (no ids) in Macau | Saved (item 3.4) | unit |
 | 223 | Eval: Tokyo plan in context, 「规划澳门两天」 | `make_trip_list`, not `set_trip_plan` | eval |
 | 224 | Device: Tokyo trip saved, 「规划澳门两天」 | Macau-only plan replaces Tokyo; no Tokyo stop on the strip | D |
