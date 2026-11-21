@@ -2104,3 +2104,63 @@ each together with the first `@Test` that names it.
 | Task | Scope | Status |
 |---|---|---|
 | T-040zf | §53 items 1–6 (pool for N days, catalog text, thin-day rule, record counts, agent 5.2.0); rows 208–217 | PASS; rows 216 eval, 217 device NOT_VERIFIED |
+
+## 54. A trip to a new place is a new plan, not an edit of the old one (owner request 2026-11-21)
+
+**Why (owner phone test 2026-11-21, build 97a14cb, screenshot IMG_0651).** With a Tokyo trip saved, the driver said
+「规划澳门两天」. The trip strip then showed 「1 关闸 (Border Gate) · 2 Sensō-ji (浅草寺) · 3 Roppon…」: a Macau start
+on the old Tokyo plan. She answered 「抱歉，我听不清您的指令…」. Most likely, not yet confirmed by the record: the model
+called `set_trip_plan` (an edit, §52 item 3) instead of `make_trip_list` (which replaces the plan), kept the Tokyo
+stops by id and wrote 关闸 as the new start. Causes in the setup, not in the request:
+- Since §52 item 2 the whole plan with ids is in every trip result and in the 现在 note, so a 「规划X」 is read as a
+  change to the plan in hand.
+- The `set_trip_plan` description says what it does (「修改行程：把整份行程…改好后整份传回」) but not when it is the
+  wrong tool; the `make_trip_list` text says 「会替换旧清单」 but not that a new place means a new plan.
+- `set_trip_plan` checks only the plan's shape (§52 item 5), not that its places belong to one trip.
+
+**Published practice this copies.** Tool descriptions are the model's only definition of a tool: say when to use it
+and when not, and make similar tools unambiguous (Anthropic, "Writing effective tools for agents",
+anthropic.com/engineering/writing-tools-for-agents: "clearly define … when it should be used"; OpenAI function
+calling guide, platform.openai.com/docs/guides/function-calling: "explicitly describe … when (and when not) to use
+each function"). A check in code backs the text, because a description makes the right choice likely, not certain
+(product invariants are code-enforced, AGENTS.md).
+
+1. **`make_trip_list` text.** 「会替换旧清单。」 becomes
+   「会替换旧清单。司机说去一个新地方、规划新的行程（比如有东京的行程时说「规划澳门两天」），就用这个，不要用 set_trip_plan 改旧行程。」
+2. **`set_trip_plan` text.** 「修改行程：」 becomes
+   「修改行程：只用来改屏幕上这份行程（加减地点、换酒店、调顺序）；司机要规划去别的城市或国家，用 make_trip_list。」
+3. **Code check: one trip, one area.** After `set_trip_plan`'s lookups (§52 item 4) and before anything is saved:
+   1. A new name not found near the trip is searched once more without the trip's area (高德 nationwide, then Photon),
+      only to learn where it is; this result is not used as a stop.
+   2. A new stop is **foreign** to the plan when it is in another country group than the kept placed stops (China:
+      CN/HK/MO/TW as `TripRegion.isChina`, versus each other country code), or more than 300 km
+      (`TripTuning.newTripKilometres`) from every kept placed stop.
+   3. When any new stop is foreign: the result is `PLAN_CHECK` with `new_trip: true`, `plan_kept: true`, the problem
+      line 「<名字>不在这份行程的地方，这是新的行程」, and `next`: 「先不要跟司机说话，调用 make_trip_list 规划新的行程，会替换旧行程。」.
+      Nothing is changed or saved; it does not count toward §52 item 5's fix rounds.
+   4. A plan with no kept placed stop (every stop new) is never foreign: it is the model writing a new plan in full.
+4. **Record.** `trip set … check=new_trip` (the check field gains the value `new_trip`). Numbers and enums only (I-8).
+5. **Agent version.** Items 1–2 change tool descriptions: minor bump (5.3.0) with a row in agent-versions.md.
+6. **Code.** `ToolCatalog` (both texts); `TripPlanner.setPlan` (the second search and the foreign check);
+   `TripTuning.newTripKilometres = 300`; `AgentSetup.version`.
+
+**Not covered here.** Her 「我听不清」 after acting is the reply check missing a claim with no tool result; it is left to
+F-09b (reply check) once the record confirms what was called.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 218 | `make_trip_list` and `set_trip_plan` descriptions | Contain the item 1 and item 2 sentences | unit |
+| 219 | Tokyo plan; `set_trip_plan` keeps the Tokyo ids and adds 关闸 as `start` (found in Macau) | `PLAN_CHECK`, `new_trip: true`, plan unchanged, nothing saved; `next` says make_trip_list; `trip set … check=new_trip` | unit |
+| 220 | Same, 关闸 not found near Tokyo; the second search finds it in Macau | Same as 219 | unit |
+| 221 | Guangzhou plan; `set_trip_plan` adds 佛山祖庙 (about 20 km) | Saved as an edit (not foreign) | unit |
+| 222 | Tokyo plan; `set_trip_plan` with every stop new (no ids) in Macau | Saved (item 3.4) | unit |
+| 223 | Eval: Tokyo plan in context, 「规划澳门两天」 | `make_trip_list`, not `set_trip_plan` | eval |
+| 224 | Device: Tokyo trip saved, 「规划澳门两天」 | Macau-only plan replaces Tokyo; no Tokyo stop on the strip | D |
+
+**Trace gate.** Add `T-040zg: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zg | §54 items 1–6 (both tool texts, one-area check with a second search, `check=new_trip`, agent 5.3.0); rows 218–224 | NOT_RUN |
