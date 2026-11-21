@@ -2166,4 +2166,4 @@ F-09b (reply check) once the record confirms what was called.
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040zg | §54 items 1–6 (both tool texts, one-area check with a second search, `check=new_trip`, agent 5.3.0); rows 218–224 | NOT_RUN |
+| T-040zg | §54 items 1–6 (both tool texts, one-area check with a second search, `check=new_trip`, agent 5.3.0); rows 218–224 | PASS; rows 223 eval, 224 device NOT_VERIFIED |

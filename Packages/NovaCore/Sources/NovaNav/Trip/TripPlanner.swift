@@ -1210,12 +1210,12 @@ public actor TripPlanner: ToolExecutor {
             }
         }
         // §54 item 3 (T-040zg): one trip, one area. A new stop in another country group, or farther than
-        // `newTripKilometres` from every kept placed stop, makes this a new trip: nothing is saved.
+        // `newTripKilometres` from every kept placed stop (abroad only), makes this a new trip: nothing is saved.
         let keptPlaced = written.joined().compactMap { w in w.id.flatMap { known[$0] } }.filter(\.placed).map(\.place)
         if !keptPlaced.isEmpty, !newNames.isEmpty {
             var whereIs = placeOf
-            // Item 3.1: a name not found near the trip is searched once more without the trip's area, the trip's own
-            // vendor first, only to learn where it is.
+            // Item 3.1: a name not found near the trip is searched once more without the trip's area, only to learn
+            // where it is: abroad Photon then 高德, at home Photon only.
             // At home the first lookup was already nationwide 高德, so only Photon is asked again (review 2026-11-21).
             for abroadTry in (plan.abroad ? [true, false] : [true]) {
                 // A lookup that only ran out of time (`search_slow`) is not searched again here.

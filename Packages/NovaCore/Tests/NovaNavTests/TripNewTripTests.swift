@@ -107,6 +107,11 @@ struct TripNewTripTests {
                            distanceMeters: nil)
         #expect(TripPlanner.isForeign(macau, kept: [tokyo], kilometres: 300))
         #expect(!TripPlanner.isForeign(zhuhai, kept: [macau], kilometres: 300))
+        // Abroad, same country but 300+ km (Sapporo → Fukuoka) is foreign; 15 km is not.
+        let sapporo = Place(id: "sp", name: "SP", address: nil, coordinate: GeoCoordinate(latitude: 43.06, longitude: 141.35, datum: .wgs84), distanceMeters: nil, countryCode: "JP")
+        let fukuoka = Place(id: "fk", name: "FK", address: nil, coordinate: GeoCoordinate(latitude: 33.59, longitude: 130.40, datum: .wgs84), distanceMeters: nil, countryCode: "JP")
+        #expect(TripPlanner.isForeign(fukuoka, kept: [sapporo], kilometres: 300))
+        #expect(!TripPlanner.isForeign(fukuoka, kept: [sapporo], kilometres: nil))
         // At home the distance part is off: same country group is never foreign.
         #expect(!TripPlanner.isForeign(zhuhai, kept: [Place(id: "s", name: "S", address: nil, coordinate: GeoCoordinate(latitude: 31.2, longitude: 121.5, datum: .gcj02), distanceMeters: nil)], kilometres: nil))
     }
