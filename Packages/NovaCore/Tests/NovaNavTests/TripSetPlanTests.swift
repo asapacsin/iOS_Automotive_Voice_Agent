@@ -350,6 +350,27 @@ struct TripSetPlanReviewTests {
         search.release()
     }
 
+    @Test("T-040zb F-15b row 197 (review): the background retry also waits for an edit_trip_list replace")
+    func retryWaitsForReplace() async {
+        let clock = ManualClock()
+        var table = sapporoTable
+        table["晚到"] = [spot("晚到", lat: 43.09, lng: 141.38)]
+        table["慢二"] = [spot("慢二", lat: 43.10, lng: 141.39)]
+        let search = TripSearch(table, slow: ["慢二"], lateAnswer: ["晚到": 1])
+        let (rig, ids) = await sightsRig(search: search, clock: clock)
+        #expect(await rig.run(setPlan([[stop(ids["A"]), stop(name: "晚到")]])).ok)
+        let replace = Task { await rig.run(trip("edit_trip_list", ["action": "replace", "index": 1, "name": "慢二"])) }
+        for _ in 0..<5000 where search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
+        try? await Task.sleep(for: .milliseconds(20))
+        for _ in 0..<11 {
+            clock.advance(by: .seconds(1))
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        search.release()
+        let r = await replace.value
+        #expect(r.ok && r.code != .optionsStale, "\(r)")
+    }
+
     @Test("T-040zd F-15b row 204 (review): every slow path is search_slow with a code that is not not-found")
     func slowPaths() async {
         func held(_ call: ToolCall, _ rig: TripRig, _ search: TripSearch, _ clock: ManualClock) async -> ToolResult {

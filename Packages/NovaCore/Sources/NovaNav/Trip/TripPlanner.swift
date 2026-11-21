@@ -1445,7 +1445,7 @@ public actor TripPlanner: ToolExecutor {
     static let placeRetries = 3
     private var retryTask: Task<Void, Never>?
     private var planCheckRounds = 0
-    /// §52 item 4 (review 2026-11-21): `set_trip_plan` or `make_trip_list` running. The background retry places
+    /// §52 item 4 (review 2026-11-21): `set_trip_plan`, `make_trip_list` or an `edit_trip_list` replace running. The background retry places
     /// nothing meanwhile (placing raises the revision, which made the running write return OPTIONS_STALE).
     private var planWrites = 0
 
