@@ -15,20 +15,59 @@ import NovaPorts
 /// WGS-84, equal to GCJ-02 outside China.
 public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
     public static let host = "https://photon.komoot.io/api/"
-    public static let timeoutSeconds: Double = 8
+    public static let timeoutSeconds: Double = 3  // §52 item 11: one try
     /// Categories searched by tag (OpenStreetMap keys), so 「酒店」 finds hotels in any language.
     static let tags: [String: (q: String, tag: String)] = [
         "酒店": ("hotel", "tourism:hotel"), "宾馆": ("hotel", "tourism:hotel"),
         "租车": ("car rental", "amenity:car_rental"), "租车公司": ("car rental", "amenity:car_rental"),
         "加油站": ("fuel", "amenity:fuel"), "停车场": ("parking", "amenity:parking"),
     ]
-    private let transport: any HTTPTransport
+    /// §52 item 11 (T-040zd): each try opens a new connection (a fresh transport from `connect`).
+    private let connect: @Sendable () -> any HTTPTransport
+    private let timing: PhotonTiming
+    private let log: @Sendable (String) -> Void
+    private let gate: PhotonGate
+    private let warmUpLimiter: PhotonWarmUpLimiter
 
-    public init(transport: any HTTPTransport = URLSessionTransport()) {
-        self.transport = transport
+    /// One transport for every try (tests, existing callers).
+    public convenience init(transport: any HTTPTransport, timing: PhotonTiming = PhotonTiming(),
+                            log: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.init(connect: { transport }, timing: timing, log: log)
+    }
+
+    /// §52 item 11: `connect` gives a new connection per try; the default is a fresh ephemeral URLSession each time.
+    public init(connect: @escaping @Sendable () -> any HTTPTransport = { URLSessionTransport() },
+                timing: PhotonTiming = PhotonTiming(), now: @escaping @Sendable () -> Date = { Date() },
+                log: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.connect = connect
+        self.timing = timing
+        self.log = log
+        gate = PhotonGate(permits: timing.parallel)
+        warmUpLimiter = PhotonWarmUpLimiter(every: timing.warmUpEverySeconds, now: now)
+    }
+
+    /// §52 item 11: one small Photon request that opens the connection first, at most one per 30 s. Returns whether a
+    /// request was sent. Errors are ignored (the lookups that follow retry on their own).
+    @discardableResult
+    public func warmUp() async -> Bool {
+        guard await warmUpLimiter.take() else { return false }
+        _ = try? await search("Tokyo", near: nil, limit: 1)
+        return true
+    }
+
+    /// §52 item 10 (T-040zd): true when `s` has a Chinese, Japanese or Korean character.
+    static func hasCJK(_ s: String) -> Bool {
+        s.unicodeScalars.contains { u in
+            switch u.value {
+            case 0x3040...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0xAC00...0xD7AF, 0x20000...0x2FFFF: true
+            default: false
+            }
+        }
     }
 
     /// 「浅草寺 (Senso-ji)」 → shown 浅草寺, searched Senso-ji; a name without brackets is searched as it is.
+    /// §52 item 10: the bracket part is searched only when it has no CJK character; otherwise the outer part
+    /// (「New Chitose Airport (新千岁机场)」 → shown 新千岁机场, searched New Chitose Airport).
     static func split(_ name: String) -> (shown: String?, query: String) {
         let s = name.replacingOccurrences(of: "（", with: "(").replacingOccurrences(of: "）", with: ")")
             .trimmingCharacters(in: .whitespaces)
@@ -36,6 +75,7 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
         let inner = s[s.index(after: open)..<s.index(before: s.endIndex)].trimmingCharacters(in: .whitespaces)
         let outer = s[..<open].trimmingCharacters(in: .whitespaces)
         guard !inner.isEmpty else { return (nil, outer) }
+        if Self.hasCJK(inner), !outer.isEmpty { return (inner, outer) }
         return (outer.isEmpty ? nil : outer, inner)
     }
 
@@ -115,16 +155,9 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
         var components = URLComponents(string: Self.host)!
         components.queryItems = items
         var request = URLRequest(url: components.url!)
-        request.timeoutInterval = Self.timeoutSeconds
+        request.timeoutInterval = timing.tryTimeoutSeconds
         request.setValue("NovaDrive/1.0 (iOS)", forHTTPHeaderField: "User-Agent")
-        let response: (status: Int, body: Data)
-        do {
-            response = try await transport.send(request)
-        } catch let error as URLError where error.code == .timedOut {
-            throw AmapWebError.timeout
-        } catch {
-            throw AmapWebError.failed
-        }
+        let response = try await send(request)
         if response.status == 429 { throw AmapWebError.quota }
         guard response.status == 200 else { throw AmapWebError.failed }
         let places = try Self.parse(response.body)
@@ -134,6 +167,56 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
             Place(id: p.id, name: shown, address: p.address ?? p.name, coordinate: p.coordinate, distanceMeters: nil,
                   city: p.city, district: p.district, countryCode: p.countryCode, kind: p.kind)
         }
+    }
+
+    private enum Try: Sendable { case reply(Int, Data), timeout, failed }
+
+    /// §52 item 11: up to `tries` tries, each on a new connection and waiting at most `tryTimeoutSeconds`, within this
+    /// name's own `perNameSeconds` (counted once it may run); at most `parallel` lookups at once.
+    /// Out of tries or time → `AmapWebError.slow`.
+    private func send(_ request: URLRequest) async throws -> (status: Int, body: Data) {
+        await gate.acquire()
+        defer { Task { await gate.release() } }
+        let start = Date()
+        for n in 1...max(1, timing.tries) {
+            let left = timing.perNameSeconds - Date().timeIntervalSince(start)
+            guard left > 0 else { break }
+            let wait = min(timing.tryTimeoutSeconds, left)
+            let transport = connect()
+            let began = Date()
+            let outcome: Try = await withTaskGroup(of: Try?.self) { group in
+                group.addTask {
+                    do {
+                        let r = try await transport.send(request)
+                        return .reply(r.status, r.body)
+                    } catch let error as URLError where error.code == .timedOut {
+                        return .timeout
+                    } catch {
+                        return Task.isCancelled ? nil : .failed
+                    }
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                    return Task.isCancelled ? nil : .timeout
+                }
+                var first: Try = .timeout
+                for await r in group { if let r { first = r; break } }
+                group.cancelAll()
+                return first
+            }
+            let ms = Int(Date().timeIntervalSince(began) * 1000)
+            switch outcome {
+            case .reply(let status, let body):
+                log("photon try=\(n) reason=reply ms=\(ms)")
+                return (status, body)
+            case .timeout:
+                log("photon try=\(n) reason=timeout ms=\(ms)")
+            case .failed:
+                log("photon try=\(n) reason=failed ms=\(ms)")
+            }
+            try Task.checkCancellation()
+        }
+        throw AmapWebError.slow
     }
 
     static func parse(_ body: Data) throws -> [Place] {
@@ -163,5 +246,51 @@ public final class PhotonPlaceSearch: AreaPlaceSearch, @unchecked Sendable {
         let dLat = (b.latitude - a.latitude) * p, dLng = (b.longitude - a.longitude) * p
         let h = sin(dLat / 2) * sin(dLat / 2) + cos(a.latitude * p) * cos(b.latitude * p) * sin(dLng / 2) * sin(dLng / 2)
         return 2 * r * asin(min(1, sqrt(h)))
+    }
+}
+
+/// §52 item 11 (T-040zd): Photon connection timing; injectable so tests run with short times.
+public struct PhotonTiming: Sendable {
+    public var tryTimeoutSeconds: Double
+    public var tries: Int
+    public var perNameSeconds: Double
+    public var parallel: Int
+    public var warmUpEverySeconds: Double
+
+    public init(tryTimeoutSeconds: Double = 3, tries: Int = 4, perNameSeconds: Double = 12, parallel: Int = 4,
+                warmUpEverySeconds: Double = 30) {
+        self.tryTimeoutSeconds = tryTimeoutSeconds
+        self.tries = tries
+        self.perNameSeconds = perNameSeconds
+        self.parallel = parallel
+        self.warmUpEverySeconds = warmUpEverySeconds
+    }
+}
+
+/// At most `permits` lookups at once; the rest wait in order.
+actor PhotonGate {
+    private var free: Int
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    init(permits: Int) { free = max(1, permits) }
+    func acquire() async {
+        if free > 0 { free -= 1; return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func release() {
+        if waiting.isEmpty { free += 1 } else { waiting.removeFirst().resume() }
+    }
+}
+
+/// §52 item 11: at most one warm-up per `every` seconds.
+actor PhotonWarmUpLimiter {
+    private let every: Double
+    private let now: @Sendable () -> Date
+    private var last: Date?
+    init(every: Double, now: @escaping @Sendable () -> Date) { self.every = every; self.now = now }
+    func take() -> Bool {
+        let t = now()
+        if let last, t.timeIntervalSince(last) < every { return false }
+        last = t
+        return true
     }
 }

@@ -335,6 +335,7 @@ public struct LiveInfoExecutor: ToolExecutor {
             case .quota: "quota"
             case .timeout: "timeout"
             case .failed: "failed"
+            case .slow: "slow"
             }
         case let e as QWeatherError: e.reason
         case ForecastError.timeout: "timeout"

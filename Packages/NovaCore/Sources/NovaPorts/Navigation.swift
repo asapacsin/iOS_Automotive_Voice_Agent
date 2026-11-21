@@ -604,4 +604,6 @@ public enum AmapWebError: Error, Sendable, Hashable {
     case quota
     case timeout
     case failed
+    /// F-15b §52 item 11 (T-040zd): the lookup ran out of tries (`search_slow`); never "the place does not exist".
+    case slow
 }
