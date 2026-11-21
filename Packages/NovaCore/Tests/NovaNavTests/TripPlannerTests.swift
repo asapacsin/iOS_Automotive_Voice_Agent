@@ -287,7 +287,7 @@ struct TripPlannerTests {
         #expect(await rig.order() == ["古文化街", "五大道"])
     }
 
-    @Test("F-15b §4 items 4-5: a lookup still running at the limit is a timeout; a missing key is AMAP_WEB_KEY_MISSING")
+    @Test("F-15b §4 items 4-5 (with §52 item 11): a lookup still running at the limit is a timeout, said as search_slow; a missing key is AMAP_WEB_KEY_MISSING")
     func limits() async {
         let clock = ManualClock()
         let rig = await TripRig(search: TripSearch(tianjin, slow: ["南开大学"]), clock: clock)
@@ -299,7 +299,9 @@ struct TripPlannerTests {
         try? await Task.sleep(for: .milliseconds(20))
         clock.advance(by: .seconds(16))
         let r = await made.value
-        #expect(r.data["count"] == .int(1) && r.data["not_found"] == names(["南开大学"]), "\(r)")
+        // §52 item 11 (T-040zd, review 2026-11-21): a lookup at its limit is search_slow, never not found.
+        #expect(r.data["count"] == .int(1) && (r.data["not_found"] == nil || r.data["not_found"] == .array([])), "\(r)")
+        #expect(r.data["facts"]?["search_slow"] == names(["南开大学"]) || r.data["search_slow"] == names(["南开大学"]), "\(r)")
         #expect(rig.lines.withLock { $0 }.contains("trip lookup index=2 ok=no reason=timeout"))
         rig.search.release()
         let noKey = await TripRig(search: TripSearch(tianjin, error: .keyMissing))
