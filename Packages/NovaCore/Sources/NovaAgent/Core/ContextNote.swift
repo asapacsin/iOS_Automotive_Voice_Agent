@@ -56,11 +56,14 @@ public struct ContextSnapshot: Sendable, Hashable {
     /// From the route when known; nil leaves the field out.
     public var onHighway: Bool?
     public var localTime: String
+    /// F-15b §52 item 2 (T-040zb): the trip line, the whole plan (`TripPlanJSON.noteLine`); nil without a plan.
+    public var tripPlan: String?
 
-    public init(place: ContextPlace?, onHighway: Bool?, localTime: String) {
+    public init(place: ContextPlace?, onHighway: Bool?, localTime: String, tripPlan: String? = nil) {
         self.place = place
         self.onHighway = onHighway
         self.localTime = localTime
+        self.tripPlan = tripPlan
     }
 
     /// The local date and time as the note says it (「11月20日 星期五 14:05」).
@@ -78,7 +81,7 @@ public struct ContextSnapshot: Sendable, Hashable {
 
     /// Item 8: the field names the note carries (no values, I-8).
     public var fields: [ContextNoteField] {
-        [.place] + (onHighway == nil ? [] : [.highway]) + [.time]
+        [.place] + (onHighway == nil ? [] : [.highway]) + [.time] + (tripPlan == nil ? [] : [.trip])
     }
 
     /// Item 1, exact form.
@@ -86,6 +89,7 @@ public struct ContextSnapshot: Sendable, Hashable {
         var parts = ["位置：\(place?.text ?? "不知道")"]
         if let onHighway { parts.append(onHighway ? "在高速上" : "不在高速上") }
         parts.append("当地时间 \(localTime)")
+        if let tripPlan { parts.append(tripPlan) }
         return "[系统] 现在：" + parts.joined(separator: "；") + "。这句不用回答。"
     }
 }

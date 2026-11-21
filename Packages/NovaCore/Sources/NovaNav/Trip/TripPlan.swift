@@ -15,7 +15,11 @@ public struct TripPlan: Sendable, Hashable {
     public var abroad = false
     /// §36 item 2d (T-040p): an `abroad` trip's city ("Tokyo, Japan"), the default of `navigate_to` while it runs.
     public var city: String?
-    public private(set) var days: [TripList] = [TripList()]
+    public private(set) var days: [TripList] = [TripList()] {
+        didSet { assignIDs() }
+    }
+    /// §52 item 1 (T-040zb): the number of the next stop id (`s<n>`); ids are never reused within a plan.
+    private var nextStopID = 1
     /// 1-based.
     public private(set) var currentDay = 1
     public private(set) var revision = 0
@@ -33,6 +37,65 @@ public struct TripPlan: Sendable, Hashable {
         self.name = name
         self.days = days.isEmpty ? [TripList()] : Array(days.prefix(Self.maxDays))
         self.currentDay = min(max(currentDay, 1), self.days.count)
+        assignIDs()
+    }
+
+    /// §52 item 1: every stop gets a stable id. A stop without one gets `s<n>`; the two copies of one night's hotel
+    /// (same place, both new) get the same id. An id already given is kept.
+    private mutating func assignIDs() {
+        var used = Set<String>()
+        for day in days { for s in day.stops where !s.id.isEmpty { used.insert(s.id) } }
+        for id in used {
+            if id.hasPrefix("s"), let n = Int(id.dropFirst()), n >= nextStopID { nextStopID = n + 1 }
+        }
+        guard days.contains(where: { $0.stops.contains { $0.id.isEmpty } }) else { return }
+        var fresh: [String: String] = [:]
+        var out = days
+        for d in out.indices {
+            var stops = out[d].stops
+            for i in stops.indices where stops[i].id.isEmpty {
+                let key = stops[i].role == .hotel ? "hotel|\(stops[i].place.id)" : ""
+                if !key.isEmpty, let known = fresh[key] {
+                    stops[i].id = known
+                } else {
+                    stops[i].id = "s\(nextStopID)"
+                    nextStopID += 1
+                    if !key.isEmpty { fresh[key] = stops[i].id }
+                }
+            }
+            out[d].setIDs(stops.map(\.id))
+        }
+        days = out
+    }
+
+    /// §52 item 1: the stop with this id and its day (1-based); the first copy of a night's hotel.
+    public func stop(id: String) -> (day: Int, stop: TripStop)? {
+        allStops.first { $0.stop.id == id }
+    }
+
+    /// §52 item 3 (T-040zb): the whole plan written by `set_trip_plan` (already checked). Stops keep their ids; the
+    /// current day stays when it still exists. Always a change.
+    public mutating func write(days lists: [TripList]) {
+        days = lists.isEmpty ? [TripList()] : Array(lists.prefix(Self.maxDays))
+        currentDay = min(max(currentDay, 1), days.count)
+        revision += 1
+    }
+
+    /// §52 item 4: the stop with `id` is now placed at `place` (a background retry found it); false when gone.
+    public mutating func place(id: String, at place: Place) -> Bool {
+        var found = false
+        for d in days.indices {
+            for (i, s) in days[d].stops.enumerated() where s.id == id && !s.placed {
+                var stop = TripStop(index: 0, asked: s.asked, place: place, distanceMeters: s.distanceMeters, mark: s.mark,
+                                    role: s.role, minutes: s.minutes, importance: s.importance, id: s.id, placed: true,
+                                    pickedBy: s.pickedBy)
+                stop.legSeconds = nil
+                days[d].set(stop, at: i + 1)
+                found = true
+            }
+        }
+        if found { revision += 1 }
+        return found
     }
 
     public var dayCount: Int { days.count }
@@ -189,6 +252,10 @@ public enum TripPlanFile {
         var optional: Bool?
         /// T-040u §49 item 1 (optional): importance 1–3; nil reads from `optional` (false = 3, true = 1).
         var importance: Int?
+        /// T-040zb §52 item 1 (optional): the stop id, not placed yet, who chose it.
+        var sid: String?
+        var unplaced: Bool?
+        var by: TripPickedBy?
     }
 
     struct Plan: Codable, Hashable {
@@ -220,7 +287,8 @@ public enum TripPlanFile {
              district: s.place.district, lat: s.place.coordinate.latitude, lng: s.place.coordinate.longitude,
              photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city,
              role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode, kind: s.place.kind?.rawValue,
-             minutes: s.minutes, optional: s.optional ? true : nil, importance: s.importance == 3 || s.importance == 1 ? nil : s.importance)
+             minutes: s.minutes, optional: s.optional ? true : nil, importance: s.importance == 3 || s.importance == 1 ? nil : s.importance,
+             sid: s.id.isEmpty ? nil : s.id, unplaced: s.placed ? nil : true, by: s.pickedBy)
     }
 
     static func encode(_ plan: TripPlan, savedAt: Date? = nil) -> Plan {
@@ -237,7 +305,8 @@ public enum TripPlanFile {
                               distanceMeters: nil, city: s.city, district: s.district,
                               photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country, kind: s.kind.flatMap(PlaceKind.init(rawValue:))),
                  distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false,
-                 minutes: s.minutes, optional: s.optional ?? false, importance: s.importance)
+                 minutes: s.minutes, optional: s.optional ?? false, importance: s.importance,
+                 id: s.sid ?? "", placed: !(s.unplaced ?? false), pickedBy: s.by ?? ((s.picked ?? false) ? .app : .model))
     }
 
     static func decode(_ plan: Plan) -> TripPlan {

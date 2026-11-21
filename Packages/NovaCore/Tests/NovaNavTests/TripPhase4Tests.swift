@@ -241,20 +241,6 @@ struct TripPhase4Tests {
         #expect(await rig.order() == ["浅草寺", "皇居", "东京塔"])
     }
 
-    @Test("F-15b row 94: NO_START, then reorganize start=成田机场 (not in the plan): one search, role start, ordered from it")
-    func row94() async {
-        let apple = FakeApple(tokyo)
-        let (rig, _) = await timesRig(here: GeoCoordinate(latitude: 22.27, longitude: 113.57, datum: .gcj02), abroad: apple)
-        _ = await rig.run(trip("make_trip_list", ["places": names(["东京塔", "浅草寺", "皇居"]), "abroad": true]))
-        let before = apple.asked.withLock { $0.count }
-        let r = await rig.run(trip("edit_trip_list", ["action": "reorganize", "start": "成田机场"]))
-        #expect(r.ok)
-        #expect(apple.asked.withLock { $0.count } == before + 1)
-        let stops = await rig.planner.current.stops
-        #expect(stops.first?.place.name == "成田机场" && stops.first?.role == .start)
-        #expect(stops.dropFirst().map(\.place.name) == ["浅草寺", "皇居", "东京塔"])
-    }
-
     @Test("F-15b §37 item 7: arriving at a night's hotel ends the day; the next morning's hotel is reached too")
     func hotelEndsDay() async {
         let (rig, _) = await timesRig(abroad: FakeApple(tokyo))
@@ -298,7 +284,7 @@ struct TripPhase4Tests {
         #expect(cards.first?.tag == "机场" && cards.last?.tag == "住")
         func text(_ n: String) -> String { ToolCatalog.spec(n)!.declaration.description }
         #expect(text("make_trip_list").contains("行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 \"Tokyo, Japan\"；地名（包括 start、end、hotels）都写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」「成田机场 (Narita International Airport)」。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。"))
-        #expect(text("edit_trip_list").hasSuffix("司机回答从哪里出发→reorganize 填 start。司机说「打开行程」「看看行程」时用 action=read。"))
+        #expect(text("edit_trip_list").hasSuffix("司机说「打开行程」「看看行程」时用 action=read。"))
         #expect(text("trip_next").hasSuffix("已在苹果地图打开=告诉司机，到了说「已经到了」。"))
     }
 

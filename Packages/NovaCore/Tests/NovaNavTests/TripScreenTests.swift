@@ -108,11 +108,11 @@ struct TripScreenTests {
         #expect(TripPhotoLink.secure("http://a.cn/x.jpg")?.absoluteString == "https://a.cn/x.jpg")
         #expect(TripPhotoLink.secure("ftp://a.cn/x.jpg") == nil && TripPhotoLink.secure("") == nil)
         // §12 item 5: the failed one is tried once more after the next change, the no-photo one is not.
-        _ = await rig.planner.execute(trip("edit_trip_list", ["action": "move", "index": 3, "to_index": 1]))
+        _ = await rig.planner.tap(.move(from: 3, to: 1), moving: false)
         await rig.planner.photosSettled()
         #expect(search.details.withLock { $0 }.filter { $0 == "天津之眼" }.count == 2)
         #expect(search.details.withLock { $0 }.filter { $0 == "五大道" }.count == 1)
-        _ = await rig.planner.execute(trip("edit_trip_list", ["action": "move", "index": 3, "to_index": 1]))
+        _ = await rig.planner.tap(.move(from: 3, to: 1), moving: false)
         await rig.planner.photosSettled()
         #expect(search.details.withLock { $0 }.filter { $0 == "天津之眼" }.count == 2)
     }
@@ -137,9 +137,6 @@ struct TripScreenTests {
         #expect(removed.result.ok)
         #expect(removed.note == "[系统] 司机在屏幕上去掉了第2个：五大道，现在清单有3个地点。这句不用回答。")
         #expect(await rig.planner.current.stops.map(\.index) == [1, 2, 3])
-        // Exactly one edit_trip_list remove reached the executor (the moving tap never did).
-        let edits = rig.lines.withLock { $0 }.filter { $0.hasPrefix("trip list") && $0.contains("action=remove") }
-        #expect(edits.count == 1 && edits[0].hasSuffix("action=remove ok=yes"))
         #expect(rig.lines.withLock { $0 }.filter { $0.hasPrefix("trip tap") } == ["trip tap action=remove ok=no", "trip tap action=remove ok=yes"])
         let dragged = await rig.planner.tap(.move(from: 3, to: 1), moving: false)
         #expect(dragged.result.data["changed"] == "moved" && dragged.note?.contains("把第3个移到了第1个") == true)
@@ -156,7 +153,7 @@ struct TripScreenTests {
         #expect(long.code == .tripTooLong)
         // F-09b §13 row 7 (T-031o): the limit is a fact.
         #expect(long.data["facts"] == .object(["max_stops": .int(16)]))
-        _ = await rig.planner.execute(trip("edit_trip_list", ["action": "remove", "index": 16]))
+        _ = await rig.planner.tap(.remove(index: 16), moving: false)
         let lookups = rig.search.texts.withLock { $0 }
         let added = await rig.planner.tap(.add(place), moving: false)
         #expect(added.result.ok && added.note == "[系统] 司机在屏幕上加入了天津之眼，现在清单有16个地点。这句不用回答。")

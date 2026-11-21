@@ -69,7 +69,7 @@ struct TripRentalTests {
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip frame ") && $0.hasSuffix(" rental=both") })
         #expect(factsText(r).contains("租车需要提前在网上预订"))
         // The plan the model reads says which stop is the pickup.
-        #expect(r.data["plan"] == .array(d.map { .array($0.map { .string($0.place.name + TripPlanner.roleNote($0.role)) }) }))
+        #expect(planNames(r.data["plan"]) == .array(d.map { .array($0.map { .string($0.place.name + TripPlanner.roleNote($0.role)) }) }))
         #expect(TripPlanner.roleNote(.rentalPickup) == "（取车）" && TripPlanner.roleNote(.rentalReturn) == "（还车）")
     }
 
@@ -79,11 +79,19 @@ struct TripRentalTests {
         let (rig, _) = await timesRig(abroad: photon)
         _ = await rig.run(trip("make_trip_list", ["days": threeDays, "abroad": true, "start": "成田机场",
                                                   "end": "成田机场", "rental": true]))
+        _ = await rig.planner.tap(.day(3), moving: false)
         while let i = await stops(rig)[2].firstIndex(where: { $0.role == .sight }) {
-            _ = await rig.run(trip("edit_trip_list", ["action": "remove", "index": .int(Int64(i + 1)), "day": 3]))
+            _ = await rig.planner.tap(.remove(index: i + 1), moving: false)
         }
         let before = await stops(rig)[2].map(\.role)
-        _ = await rig.run(trip("edit_trip_list", ["action": "add", "name": "银座", "day": 3]))
+        // §52 (T-040zb): the model writes the sight before the day's rental return and end.
+        let plan = await rig.planner.currentPlan
+        let d: [JSONValue] = plan.days.enumerated().map { n, day in
+            var ids: [JSONValue] = day.stops.map { .object(["id": .string($0.id)]) }
+            if n == 2 { ids.insert(.object(["name": "银座"]), at: max(ids.count - 2, 0)) }
+            return .array(ids)
+        }
+        _ = await rig.run(trip("set_trip_plan", ["days": .array(d)]))
         let after = await stops(rig)[2].map(\.role)
         #expect(after.count == before.count + 1)
         #expect(after.suffix(3) == [.sight, .rentalReturn, .end])
@@ -171,17 +179,4 @@ struct TripRentalTests {
         #expect(ToolCatalog.validate(trip("make_trip_list", ["places": names(["浅草寺"]), "rental": "yes"])) == .invalidFields)
     }
 
-    @Test("F-15b §45 item 4: reorganize keeps the pickup after the start and the return before the end")
-    func reorganizeKeepsRental() async {
-        let photon = FakeRentals(rentalTable, rentals: [(narita, [nissan])])
-        let (rig, _) = await timesRig(abroad: photon)
-        _ = await rig.run(trip("make_trip_list", ["days": threeDays, "abroad": true, "start": "成田机场",
-                                                  "end": "成田机场", "rental": true]))
-        let r = await rig.run(trip("edit_trip_list", ["action": "reorganize"]))
-        #expect(r.ok)
-        let d = await stops(rig)
-        #expect(d[0].prefix(2).map(\.role) == [.start, .rentalPickup])
-        #expect(d[d.count - 1].suffix(2).map(\.role) == [.rentalReturn, .end])
-        #expect(photon.rentalSearches == 1)
-    }
 }

@@ -78,6 +78,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
 /// F-09b §14 item 8 (T-031p): the field names a `现在` note carries (names only, never values).
 public enum ContextNoteField: String, Sendable, Hashable, CaseIterable {
     case place, highway, time
+    /// F-15b §52 item 2 (T-040zb): the trip line (the whole plan).
+    case trip
 }
 
 /// F-09b §5 item 2 (T-031j): why a car-state note is sent.
@@ -92,8 +94,8 @@ public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     /// F-15b §4 item 9: trip lists are made and changed in the background.
     case makeTripList = "make_trip_list"
     case editTripList = "edit_trip_list"
-    /// F-15b §49 item 7 (T-040u): a revision fits and checks again in the background.
-    case reviseTripList = "revise_trip_list"
+    /// F-15b §52 item 3 (T-040zb): the whole plan written, looked up and timed in the background.
+    case setTripPlan = "set_trip_plan"
     /// F-09b §16 item 8 (T-031za): the card answers after the introduction arrives.
     case showPlace = "show_place"
 

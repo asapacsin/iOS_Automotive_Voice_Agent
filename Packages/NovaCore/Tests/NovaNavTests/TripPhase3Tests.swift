@@ -85,77 +85,6 @@ struct TripPhase3Tests {
 
     // MARK: §28 the plan
 
-    @Test("F-15b row 67: reorganize start=天津之眼 puts it first, the rest by driving time from it; start=named")
-    func row67() async {
-        let (rig, _) = await timesRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["五大道", "古文化街", "天津之眼"])]))
-        #expect(await rig.order() == ["五大道", "古文化街", "天津之眼"])
-        let r = await rig.run(trip("edit_trip_list", ["action": "reorganize", "start": "天津之眼"]))
-        #expect(r.ok)
-        #expect(await rig.order() == ["天津之眼", "古文化街", "五大道"])
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip order ok=yes stops=3 days=1 start=named") })
-    }
-
-    @Test("F-15b row 69: a reorganize keeps the same place ids; a faked ordering with another id is PLAN_CHANGED, plan unchanged")
-    func row69() async {
-        let (rig, _) = await timesRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "五大道", "古文化街"])]))
-        let before = await dayNames(rig)
-        await rig.planner.setTamper { days in
-            var d = days
-            var list = TripList()
-            list.replace([("x", spot("别的地方", lat: 39.3, lng: 117.2), nil)])
-            d[0] = list
-            return d
-        }
-        let r = await rig.run(trip("edit_trip_list", ["action": "reorganize"]))
-        #expect(r.code == .planChanged)
-        #expect(await dayNames(rig) == before)
-    }
-
-    @Test("F-15b row 70: reorganize start not in the plan is searched once (§37 item 5), NOT_FOUND when nothing; two matches AMBIGUOUS")
-    func row70() async {
-        var table = tianjin
-        table["五大道博物馆"] = [spot("五大道博物馆", lat: 39.045, lng: 117.2)]
-        let (rig, _) = await timesRig(table: table)
-        _ = await rig.run(trip("make_trip_list", ["places": names(["五大道", "五大道博物馆", "古文化街"])]))
-        let asked = rig.search.asked.withLock { $0.count }
-        #expect(await rig.run(trip("edit_trip_list", ["action": "reorganize", "start": "环宇城"])).code == .notFound)
-        #expect(rig.search.asked.withLock { $0.count } == asked + 1)
-        #expect(await rig.run(trip("edit_trip_list", ["action": "reorganize", "start": "五大道"])).code == .ambiguous)
-    }
-
-    @Test("F-15b row 71: no position and no start: NO_START, plan unchanged, no 高德 request")
-    func row71() async {
-        let (rig, service) = await timesRig(noOrigin: true)
-        _ = await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "五大道"])]))
-        let before = service.requests.withLock { $0 }
-        #expect(await rig.run(trip("edit_trip_list", ["action": "reorganize"])).code == .noStart)
-        #expect(await rig.order() == ["天津之眼", "五大道"])
-        #expect(service.requests.withLock { $0 } == before)
-    }
-
-    @Test("F-15b row 72: one pair's time missing after retries: ROUTE_TIMES_UNAVAILABLE, plan unchanged")
-    func row72() async {
-        let eye = 39.16
-        let (rig, _) = await timesRig { a, b in a.latitude == eye && b.latitude != eye ? nil : byLine(a, b) }
-        _ = await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "五大道", "古文化街"])]))
-        #expect(await rig.order() == ["天津之眼", "五大道", "古文化街"])
-        #expect(await rig.run(trip("edit_trip_list", ["action": "reorganize"])).code == .routeTimesUnavailable)
-        #expect(await rig.order() == ["天津之眼", "五大道", "古文化街"])
-    }
-
-    @Test("F-15b row 73: a second reorganize within 30 minutes makes no 高德 request; trip order … cached=")
-    func row73() async {
-        let (rig, service) = await timesRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "五大道", "古文化街"])]))
-        _ = await rig.run(trip("edit_trip_list", ["action": "reorganize"]))
-        let before = service.requests.withLock { $0 }
-        #expect(await rig.run(trip("edit_trip_list", ["action": "reorganize"])).ok)
-        #expect(service.requests.withLock { $0 } == before)
-        #expect(rig.lines.withLock { $0 }.last { $0.hasPrefix("trip order") }?.contains("requests=0 cached=3") == true)
-    }
-
     @Test("F-15b row 74 (with §48 item 4.4): make_trip_list days=[[A,B],[C]] comes back ordered by driving time, each place on its group's day, with plan")
     func row74() async {
         let (rig, _) = await timesRig()
@@ -164,28 +93,9 @@ struct TripPhase3Tests {
         // §48 item 4.4 (T-040t) replaces the re-cut of §27 item 3: each group stays a day, ordered from the origin
         // (39.00) north: 瓷房子 39.02, then 天津之眼 39.16; day 2 is 五大道.
         #expect(await dayNames(rig) == [["瓷房子", "天津之眼"], ["五大道"]])
-        #expect(r.data["plan"] == [names(["瓷房子", "天津之眼"]), names(["五大道"])])
+        #expect(planNames(r.data["plan"]) == [names(["瓷房子", "天津之眼"]), names(["五大道"])])
         #expect(await rig.order() == ["瓷房子", "天津之眼"])
     }
-
-    @Test("F-15b row 75: move index=1 to_day=1 puts the stop on day 1, ordered; the place set unchanged")
-    func row75() async {
-        let (rig, _) = await timesRig { a, b in byLine(a, b) }
-        _ = await rig.run(trip("make_trip_list", ["places": names(["瓷房子", "天津之眼"]), "day": 1]))
-        _ = await rig.run(trip("make_trip_list", ["places": names(["南开大学", "五大道"]), "day": 2]))
-        // Day 2 was ordered from the origin: 五大道 (39.04) before 南开大学 (39.25).
-        #expect(await dayNames(rig)[1] == ["五大道", "南开大学"])
-        let all = await rig.planner.currentPlan.allStops.map(\.stop.place.id).sorted()
-        let r = await rig.run(trip("edit_trip_list", ["action": "move", "index": 1, "to_day": 1, "day": 2]))
-        #expect(r.ok, "\(r)")
-        let days = await dayNames(rig)
-        #expect(days[0].count == 3 && days[0].contains("五大道") && days[1] == ["南开大学"])
-        // Ordered from its first stop 瓷房子 (39.02): 五大道 39.04, then 天津之眼 39.16.
-        #expect(days[0] == ["瓷房子", "五大道", "天津之眼"])
-        #expect(await rig.planner.currentPlan.allStops.map(\.stop.place.id).sorted() == all)
-    }
-
-    // MARK: §29 one stop at a time
 
     @Test("F-15b row 76: trip_next with stop 1 visited drives to stop 2, a single destination; stop 3 is the one after")
     func row76() async {
@@ -240,7 +150,7 @@ struct TripPhase3Tests {
         _ = await rig.run(trip("edit_trip_list", ["action": "visited", "index": 1]))
         _ = await rig.run(trip("trip_plans", ["action": "save", "name": "天津两日"]))
         let r = await rig.run(trip("trip_plans", ["action": "open", "name": "天津两日"]))
-        #expect(r.data["plan"] == [names(["古文化街（已去过）", "五大道"]), names(["天津之眼"])])
+        #expect(planNames(r.data["plan"]) == [names(["古文化街（已去过）", "五大道"]), names(["天津之眼"])])
     }
 
     @Test("F-15b row 80: no route_trip; trip_next declared; the §31 texts present")
@@ -249,12 +159,13 @@ struct TripPhase3Tests {
         #expect(!declared.contains("route_trip") && declared.contains("trip_next"))
         func text(_ n: String) -> String { ToolCatalog.spec(n)!.declaration.description }
         #expect(text("make_trip_list").contains("清单会按司机现在的位置和真实车程自动排好顺序、分好天。"))
-        #expect(text("edit_trip_list").contains("「重新排一下」「从横琴开始重新排」→reorganize（start 填清单里的地点名，days 填天数）；「把X放到第二天」→move 加 to_day；「已经去过了」→visited；「跳过这个」→skip。按结果的 plan 说每天去哪。NO_START=问司机从哪里出发。"))
+        // §52 item 14 (T-040zb): reorganize and move to_day are removed; set_trip_plan writes the plan.
+        #expect(text("edit_trip_list").contains("「已经去过了」→visited；「跳过这个」→skip。"))
+        #expect(text("edit_trip_list").contains("都用 set_trip_plan"))
         #expect(text("trip_next").hasPrefix("行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。"))
         #expect(text("trip_plans").contains("打开后要导航就调用 trip_next。") && !text("trip_plans").contains("route_trip"))
         #expect(ToolCatalog.validate(trip("trip_next", ["day": 2, "stop": "长隆"])) == nil)
-        #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": "reorganize", "start": "横琴", "days": 2])) == nil)
-        #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": "remove", "index": 1, "start": "x"])) == .invalidFields)
+        #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": "reorganize", "start": "横琴", "days": 2])) == .invalidFields)
         #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": "visited"])) == .invalidFields)
     }
 

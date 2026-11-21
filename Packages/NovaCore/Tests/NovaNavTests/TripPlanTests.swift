@@ -57,7 +57,8 @@ struct TripPlanTests {
         let first = await PlanRig(files: files)
         _ = await first.run("make_trip_list", ["places": names(["古文化街", "五大道"]), "day": 1])
         _ = await first.run("make_trip_list", ["places": names(["天津之眼", "瓷房子", "海河"]), "day": 2])
-        _ = await first.run("edit_trip_list", ["action": "remove", "index": 3, "day": 2])
+        _ = await first.planner.tap(.day(2), moving: false)
+        _ = await first.planner.tap(.remove(index: 3), moving: false)
 
         let second = await PlanRig(files: files)
         await second.planner.restore()
@@ -91,7 +92,7 @@ struct TripPlanTests {
     func row28() async {
         let rig = await PlanRig()
         _ = await rig.run("make_trip_list", ["places": names(["古文化街", "五大道", "盘山"])])
-        _ = await rig.run("edit_trip_list", ["action": "remove", "name": "五大道"])
+        _ = await rig.run("edit_trip_list", ["action": "replace", "index": 2, "name": "五大道"])
         _ = await rig.run("trip_next", [:])
         _ = await rig.run("trip_plans", ["action": "save", "name": "天津一日游"])
         _ = await rig.planner.tap(.remove(index: 1), moving: false)
@@ -262,7 +263,7 @@ struct TripReviewFixTests {
                                   onChange: { list in seen.withLock { $0.append(list) } })
         _ = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道", "瓷房子"])]))
         for _ in 0..<2000 where search.waiting < TripTuning().parallelLookups { try? await Task.sleep(for: .milliseconds(1)) }
-        _ = await planner.execute(trip("edit_trip_list", ["action": "move", "index": 3, "to_index": 1]))
+        _ = await planner.tap(.move(from: 3, to: 1), moving: false)
         search.release()
         await planner.photosSettled()
         #expect(search.details.withLock { $0 }.count == 3)

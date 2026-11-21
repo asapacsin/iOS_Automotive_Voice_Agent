@@ -17,13 +17,16 @@ struct ToolReplyStage3Tests {
             let rig = await TripRig()
             _ = await rig.run(trip("make_trip_list", ["places": names(trip3)]))
             let order = await rig.order()
-            let r = await rig.run(trip("edit_trip_list", ["action": "remove", "index": 2]))
+            // §52 (T-040zb): the stop is left out of the plan written back.
+            var keep = order
+            keep.remove(at: 1)
+            let r = await rig.run(await planCall(rig, [keep]))
             expectSuccess(r, "remove")
-            #expect(r.data["facts"]?["removed"] == .string(order[1]) && r.data["facts"]?["count"] == .int(Int64(order.count - 1)))
-            #expect(r.data["facts"]?["changed"] == "removed")
-            #expect(replyValues(r.data["must_not"]) == ["read_list"])
+            #expect(r.data["facts"]?["removed"] == names([order[1]]) && r.data["facts"]?["count"] == .int(Int64(order.count - 1)))
+            #expect(r.data["facts"]?["changed"] == "set")
+            #expect(replyValues(r.data["must_not"]) == ["read_list", "read_distances"])
             // The same rules each time; the words are hers (the facts differ by trip).
-            #expect(r.data["next"] == "用自己的话简短地说。不要：不要念屏幕上的列表。")
+            #expect(r.data["next"]?.stringValue?.hasPrefix("用自己的话简短地说。不要：不要念屏幕上的列表") == true)
         }
     }
 
@@ -33,9 +36,10 @@ struct ToolReplyStage3Tests {
         let made = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
         expectSuccess(made, "make")
         #expect(made.data["facts"]?["count"] == .int(2) && made.data["facts"]?["ordered"] != nil)
-        let moved = await rig.run(trip("edit_trip_list", ["action": "move", "index": 1, "to_index": 2]))
+        let order = await rig.order()
+        let moved = await rig.run(await planCall(rig, [[order[1], order[0]]]))
         expectSuccess(moved, "move")
-        #expect(moved.data["facts"]?["to_index"] == .int(2) && moved.data["facts"]?["name"] != nil)
+        #expect(moved.data["facts"]?["kept"] == .int(2) && moved.data["facts"]?["removed"] == nil)
         let visited = await rig.run(trip("edit_trip_list", ["action": "visited", "index": 1]))
         expectSuccess(visited, "visited")
         #expect(visited.data["facts"]?["changed"] == "visited" && visited.data["facts"]?["index"] == .int(1))

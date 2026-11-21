@@ -77,7 +77,7 @@ struct TripPhotosAbroadTests {
         #expect(list.generation == 1)
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip photo vendor=wikipedia ok=0 none=0 failed=2 ms=") })
         for _ in 0..<2 {
-            _ = await rig.planner.execute(trip("edit_trip_list", ["action": "move", "index": 2, "to_index": 1]))
+            _ = await rig.planner.tap(.move(from: 2, to: 1), moving: false)
             await rig.planner.photosSettled()
         }
         #expect(rig.photos.asked.withLock { $0 }.filter { $0 == sensoAsked }.count == 2)

@@ -102,17 +102,18 @@ struct TripNavSeparateTests {
         #expect(rig.areas.withLock { $0 }.isEmpty)
     }
 
-    @Test("F-15b §51 row 165: cards hidden: trip_next, revise_trip_list, edit_trip_list move each return tripHidden; plan unchanged; still hidden")
+    @Test("F-15b §51 row 165: cards hidden: trip_next, set_trip_plan, edit_trip_list visited each return tripHidden; plan unchanged; still hidden")
     func row165() async {
         let rig = await TripRig()
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼"])]))
         #expect(await rig.planner.hideCards())
         let before = await rig.order()
-        let calls = [trip("trip_next"), trip("revise_trip_list", ["pace": "packed"]),
-                     trip("edit_trip_list", ["action": "move", "index": 1, "to_index": 3])]
+        let calls = [trip("trip_next"), await sameCall(rig), trip("edit_trip_list", ["action": "visited", "index": 1])]
         for call in calls {
             let r = await rig.run(call)
-            #expect(r.code == .tripHidden && r.advice == nil && r == TripPlanner.tripHiddenResult, "\(call.name)")
+            // §52 item 2: the refusal carries the plan too; otherwise it is the fixed refusal.
+            #expect(r.code == .tripHidden && r.advice == nil && r.data.filter { $0.key != "plan" } == TripPlanner.tripHiddenResult.data,
+                    "\(call.name)")
             #expect(rig.lines.withLock { $0 }.contains("trip blocked tool=\(call.name) reason=hidden"))
         }
         #expect(await rig.order() == before)

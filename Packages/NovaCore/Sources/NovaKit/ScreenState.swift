@@ -125,7 +125,7 @@ public enum PanelRegistry {
         .destinationList: PanelEntry(layer: 2, opens: ["navigate_to", "show_places", "trip_next"], close: "exit_navigation_mode", acts: ["choose_navigation_option", "show_place"]),
         .routePicking: PanelEntry(layer: 2, opens: ["navigate_to", "choose_navigation_option"], close: "exit_navigation_mode", acts: ["choose_navigation_option"]),
         .routeCalculating: PanelEntry(layer: 2, opens: ["navigate_to", "choose_navigation_option", "trip_next"], close: "exit_navigation_mode", acts: []),
-        .tripScreen: PanelEntry(layer: 2, opens: ["make_trip_list", "trip_plans"], close: "exit_navigation_mode", acts: ["edit_trip_list", "revise_trip_list", "trip_next", "show_place"]),
+        .tripScreen: PanelEntry(layer: 2, opens: ["make_trip_list", "trip_plans"], close: "exit_navigation_mode", acts: ["edit_trip_list", "set_trip_plan", "trip_next", "show_place"]),
         .camera: PanelEntry(layer: 2, opens: [], close: "exit_navigation_mode", acts: ["describe_camera_view"]),
         .musicCard: PanelEntry(layer: 1, opens: ["play_music"], close: "exit_navigation_mode", acts: ["control_music"]),
         .navigation: PanelEntry(layer: 0, opens: ["choose_navigation_option", "trip_next"], close: "exit_navigation_mode", acts: ["choose_navigation_option", "navigate_to"]),

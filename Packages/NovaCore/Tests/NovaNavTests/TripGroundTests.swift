@@ -235,7 +235,7 @@ struct TripGroundTests {
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip check round=0 ") && $0.contains(" far=1 ") })
         var n = 0
         while r.data["status"] == "trip_needs_fix", n < 3 {
-            r = await rig.run(trip("revise_trip_list", ["pace": "normal"]))
+            r = await rig.run(await sameCall(rig.planner))
             n += 1
         }
         #expect(r.data["status"] == "trip_list")
@@ -281,12 +281,12 @@ struct TripGroundTests {
         #expect(lines.withLock { $0 }.contains { $0.hasPrefix("nav search vendor=photon abroad=yes found=0 ") && $0.hasSuffix(" area_dropped=3") })
     }
 
-    @Test("T-040v F-15b row 148: make_trip_list and revise_trip_list say item 5's one line first")
+    @Test("T-040v F-15b row 148: make_trip_list and set_trip_plan (§52, replaces revise_trip_list) say item 5's one line first")
     func row148() {
         let line = "先只说一句：好，我规划一下，大概半分钟。然后不要说话，等结果。"
         #expect(TripGround.workingLine == line)
         #expect(ToolCatalog.makeTripListDescription.contains(line))
-        #expect(ToolCatalog.reviseTripListDescription.contains(line))
+        #expect(ToolCatalog.setTripPlanDescription.contains(line))
         #expect(ToolCatalog.makeTripListDescription.contains("hotel_near"))
     }
 }

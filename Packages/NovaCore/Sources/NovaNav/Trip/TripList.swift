@@ -16,6 +16,12 @@ public enum TripRole: String, Sendable, Hashable, Codable {
     case rentalReturn = "rental_return"
 }
 
+/// F-15b §52 item 1 (T-040zb): who chose a stop: the driver (a screen add), the model (`set_trip_plan`, from the
+/// driver's words) or the app (a hotel or rental it picked).
+public enum TripPickedBy: String, Sendable, Hashable, Codable {
+    case driver, model, app
+}
+
 /// One stop of the trip list (F-15b §3 item 1): the name asked and the place 高德 resolved it to.
 public struct TripStop: Sendable, Hashable {
     /// 1-based, renumbered 1…n after every change.
@@ -30,8 +36,17 @@ public struct TripStop: Sendable, Hashable {
     public var legSeconds: Int?
     /// §37 item 2: start, sight, hotel or end.
     public var role: TripRole
-    /// §37 item 4: a hotel the app picked (not named by the driver).
-    public var picked: Bool
+    /// §37 item 4: a hotel the app picked (not named by the driver). §52 item 1: `pickedBy == .app`.
+    public var picked: Bool {
+        get { pickedBy == .app }
+        set { pickedBy = newValue ? .app : (pickedBy == .app ? .model : pickedBy) }
+    }
+    /// §52 item 1 (T-040zb): stable for the plan's life; "" until the plan gives it one (`TripPlan` assigns them).
+    public var id: String
+    /// §52 item 1: on the map (a place was found) or not yet (searched again in the background, item 4).
+    public var placed: Bool
+    /// §52 item 1: who chose the stop.
+    public var pickedBy: TripPickedBy
     /// §48 item 1 (T-040t): the model's visit estimate (15–600), nil = by kind and role (`visitMinutes`).
     public var minutes: Int?
     /// §48 item 1: an extra the fit may leave out (kept as `spare`); the driver's and the must-see places are false.
@@ -45,11 +60,14 @@ public struct TripStop: Sendable, Hashable {
 
     public init(index: Int, asked: String, place: Place, distanceMeters: Int?, mark: TripMark? = nil,
                 legSeconds: Int? = nil, role: TripRole = .sight, picked: Bool = false,
-                minutes: Int? = nil, optional: Bool = false, importance: Int? = nil) {
+                minutes: Int? = nil, optional: Bool = false, importance: Int? = nil,
+                id: String = "", placed: Bool = true, pickedBy: TripPickedBy? = nil) {
+        self.id = id
+        self.placed = placed
+        self.pickedBy = pickedBy ?? (picked ? .app : .model)
         self.minutes = minutes
         self.importance = importance.map(Self.clampImportance) ?? (optional ? 1 : 3)
         self.role = role
-        self.picked = picked
         self.index = index
         self.asked = asked
         self.place = place
@@ -60,7 +78,7 @@ public struct TripStop: Sendable, Hashable {
 
     func renumbered(_ index: Int) -> TripStop {
         TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds,
-                 role: role, picked: picked, minutes: minutes, importance: importance)
+                 role: role, minutes: minutes, importance: importance, id: id, placed: placed, pickedBy: pickedBy)
     }
 
     /// §49 item 1: importance is 1–3.
@@ -168,6 +186,11 @@ public struct TripList: Sendable, Hashable {
         for i in stops.indices { stops[i].legSeconds = nil }
     }
 
+    /// §52 item 1 (T-040zb): the plan's stop ids, in order (not a change: the stops are the same).
+    mutating func setIDs(_ ids: [String]) {
+        for i in stops.indices where i < ids.count { stops[i].id = ids[i] }
+    }
+
     public func contains(placeID: String) -> Bool { stops.contains { $0.place.id == placeID } }
 
     /// F-15b §12: a photo link arrived. Not a list change: no renumbering, no new generation, so it never makes a
@@ -175,8 +198,8 @@ public struct TripList: Sendable, Hashable {
     public mutating func setPhoto(placeID: String, url: URL?) {
         stops = stops.map { $0.place.id == placeID
             ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters,
-                       mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role, picked: $0.picked,
-                       minutes: $0.minutes, importance: $0.importance)
+                       mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role,
+                       minutes: $0.minutes, importance: $0.importance, id: $0.id, placed: $0.placed, pickedBy: $0.pickedBy)
             : $0 }
     }
 

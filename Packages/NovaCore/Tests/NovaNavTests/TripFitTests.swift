@@ -147,27 +147,6 @@ struct TripFitTests {
         #expect(ints(r.data["day_minutes"]).first.map { $0 <= 480 } == true)
     }
 
-    @Test("F-15b row 124: 把X也加上 with X spare: no new search; remove a stop: day cost recomputed, nothing dropped")
-    func row124() async {
-        let (rig, _) = await timesRig(twenty, table: area)
-        _ = await rig.run(trip("make_trip_list", ["places": mixed, "day_count": 2]))
-        let asked = rig.search.asked.withLock { $0 }.count
-        let added = await rig.run(trip("edit_trip_list", ["action": "add", "name": "O7", "day": 2]))
-        #expect(added.ok && added.data["changed"] == "added")
-        #expect(rig.search.asked.withLock { $0 }.count == asked)
-        #expect(strings(added.data["spare"]).isEmpty)
-        #expect(await rig.planner.current.stops.contains { $0.place.name == "O7" && $0.optional && $0.minutes == 90 })
-        let before = ints(added.data["day_minutes"])
-        let count = await rig.planner.currentPlan.stopCount
-        let removed = await rig.run(trip("edit_trip_list", ["action": "remove", "name": "O7", "day": 2]))
-        #expect(removed.ok)
-        #expect(await rig.planner.currentPlan.stopCount == count - 1)
-        let after = ints(removed.data["day_minutes"])
-        #expect(after.count == 2 && after[1] < before[1])
-        // An add over budget is said, not dropped.
-        #expect(added.data["next"]?.stringValue?.contains("比较紧") == (before[1] > 480))
-    }
-
     @Test("F-15b row 125: driving times fail at home: no place dropped; the model's order, required first; ROUTE_TIMES_UNAVAILABLE")
     func row125() async {
         let (rig, _) = await timesRig({ _, _ in nil }, table: area)
@@ -177,7 +156,6 @@ struct TripFitTests {
         #expect(r.data["spare"] == nil)
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip fit ") } == false)
         #expect(r.data["facts"]?["ordered"] == .bool(false))
-        #expect(await rig.run(trip("edit_trip_list", ["action": "reorganize"])).code == .routeTimesUnavailable)
         #expect(await rig.order() == ["R1", "R2", "O1"])
     }
 

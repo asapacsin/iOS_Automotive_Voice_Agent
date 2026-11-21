@@ -58,6 +58,36 @@ func trip(_ name: String, _ args: [String: JSONValue] = [:]) -> ToolCall {
 
 func names(_ list: [String]) -> JSONValue { .array(list.map { .string($0) }) }
 
+/// The plan of a result (§52 item 2's JSON) as the old names-per-day form, with role and mark notes.
+func planNames(_ v: JSONValue?) -> JSONValue {
+    guard case .array(let days)? = v?["days"] else { return .null }
+    return .array(days.map { day in
+        guard case .array(let stops) = day else { return .array([]) }
+        return .array(stops.map { s in
+            let role = TripRole(rawValue: s["role"]?.stringValue ?? "") ?? .sight
+            let mark = s["mark"]?.stringValue
+            return .string((s["name"]?.stringValue ?? "") + TripPlanner.roleNote(role)
+                           + (mark == "visited" ? "（已去过）" : mark == "skipped" ? "（跳过）" : ""))
+        })
+    })
+}
+
+/// F-15b §52 (T-040zb): a `set_trip_plan` call writing `days` by name: a name already in the plan is sent as its id,
+/// any other as a new name; `roles` gives a role per name.
+func planCall(_ rig: TripRig, _ days: [[String]], roles: [String: String] = [:], extra: [String: JSONValue] = [:]) async -> ToolCall {
+    let plan = await rig.planner.currentPlan
+    var byName: [String: String] = [:]
+    for s in plan.allStops where byName[s.stop.place.name] == nil { byName[s.stop.place.name] = s.stop.id }
+    let d: [JSONValue] = days.map { day in
+        .array(day.map { n in
+            var o: [String: JSONValue] = byName[n].map { ["id": .string($0)] } ?? ["name": .string(n)]
+            if let r = roles[n] { o["role"] = .string(r) }
+            return .object(o)
+        })
+    }
+    return trip("set_trip_plan", ["days": .array(d)].merging(extra) { $1 })
+}
+
 /// Tianjin-ish stops on a line north of the origin, so nearest-next is predictable.
 let origin = GeoCoordinate(latitude: 39.00, longitude: 117.20, datum: .gcj02)
 let tianjin: [String: [Place]] = [
@@ -198,16 +228,14 @@ struct TripPlannerTests {
         #expect(await rig.order() == ["古文化街", "五大道"])
     }
 
-    @Test("F-15b row 4: remove index, remove by name, move, then replace out of range changes nothing")
+    @Test("F-15b row 4 (with §52, T-040zb): a stop left out of set_trip_plan is removed, the written order kept; replace out of range changes nothing")
     func row4() async {
         let rig = await TripRig()
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼", "瓷房子", "意式风情区"])]))
-        #expect(await rig.run(trip("edit_trip_list", ["action": "remove", "index": 2])).data["changed"] == "removed")
+        let removed = await rig.run(await planCall(rig, [["古文化街", "天津之眼", "瓷房子", "意式风情区"]]))
+        #expect(removed.data["facts"]?["removed"] == names(["五大道"]), "\(removed)")
         #expect(await rig.order() == ["古文化街", "天津之眼", "瓷房子", "意式风情区"])
-        #expect(await rig.run(trip("edit_trip_list", ["action": "remove", "name": "古文化街"])).ok)
-        #expect(await rig.order() == ["天津之眼", "瓷房子", "意式风情区"])
-        let moved = await rig.run(trip("edit_trip_list", ["action": "move", "index": 3, "to_index": 1]))
-        #expect(moved.data["changed"] == "moved")
+        #expect(await rig.run(await planCall(rig, [["意式风情区", "天津之眼", "瓷房子"]])).ok)
         #expect(await rig.order() == ["意式风情区", "天津之眼", "瓷房子"])
         #expect(await rig.planner.current.stops.map(\.index) == [1, 2, 3])
         let out = await rig.run(trip("edit_trip_list", ["action": "replace", "index": 9, "name": "五大道"]))
@@ -216,27 +244,23 @@ struct TripPlannerTests {
         #expect(rig.lines.withLock { $0 }.contains { $0.hasSuffix("action=replace ok=no") })
     }
 
-    @Test("F-15b row 5: a name matching two stops is AMBIGUOUS; any action but add/clear on an empty list is NO_TRIP_LIST")
+    @Test("F-15b row 5: any action but clear on an empty plan is NO_TRIP_LIST; the removed actions are invalid")
     func row5() async {
         let rig = await TripRig()
-        for action in ["read", "remove", "move"] {
-            var args: [String: JSONValue] = ["action": .string(action)]
-            if action == "remove" { args["index"] = 1 }
-            if action == "move" { args["index"] = 1; args["to_index"] = 2 }
+        for args: [String: JSONValue] in [["action": "read"], ["action": "visited", "index": 1]] {
             #expect(await rig.run(trip("edit_trip_list", args)).code == .noTripList)
         }
         #expect(await rig.run(trip("edit_trip_list", ["action": "clear"])).ok)
-        _ = await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "水上公园"])]))
-        let both = await rig.run(trip("edit_trip_list", ["action": "remove", "name": "天津"]))
-        #expect(both.code == .ambiguous)
-        #expect(await rig.order() == ["天津之眼", "天津水上公园"])
+        for action in ["add", "remove", "move", "reorganize"] {
+            #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": .string(action), "name": "天津"])) == .invalidFields)
+        }
     }
 
-    @Test("F-15b row 6: an add whose lookup is slow returns OPTIONS_STALE after make_trip_list replaced the list")
+    @Test("F-15b row 6: a replace whose lookup is slow returns OPTIONS_STALE after make_trip_list replaced the list")
     func row6() async {
         let rig = await TripRig(search: TripSearch(tianjin, slow: ["南开大学"]))
         _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        let add = Task { await rig.run(trip("edit_trip_list", ["action": "add", "name": "南开大学"])) }
+        let add = Task { await rig.run(trip("edit_trip_list", ["action": "replace", "index": 1, "name": "南开大学"])) }
         for _ in 0..<2000 where rig.search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
         #expect(rig.search.waiting == 1)
         let fresh = await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子"])]))
@@ -307,7 +331,7 @@ struct TripLookupTests {
         #expect(r.data["check"] == nil && r.data["next"]?.stringValue?.hasPrefix("用自己的话简短地说。") == true)
         #expect(picker.calls.withLock { $0 } == [["北京故宫", "陈家祠", "路环那家葡挞"]])
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=3 none=1 ok=yes") })
-        let added = await rig.run(trip("edit_trip_list", ["action": "add", "name": "陈家祠"]))
+        let added = await rig.run(trip("edit_trip_list", ["action": "replace", "index": 1, "name": "陈家祠"]))
         #expect(added.data["duplicates"] == names(["陈家祠"]))
     }
 
@@ -366,13 +390,13 @@ struct TripLookupTests {
         let rig = await TripRig(search: search)
         let made = Task { await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子"])])) }
         while search.waiting == 0 { await Task.yield() }
-        let edited = Task { await rig.run(trip("edit_trip_list", ["action": "add", "name": "海河"])) }
+        let edited = Task { await rig.run(trip("edit_trip_list", ["action": "read"])) }
         while await rig.planner.waiting == 0 { await Task.yield() }
         search.release()
         let r = await made.value
         let e = await edited.value
         #expect(r.ok && r.data["count"] == .int(2))
-        #expect(e.ok && e.data["count"] == .int(3))
+        #expect(e.ok && e.data["count"] == .int(2))
     }
 
     @Test("F-15b row 52: a first result taken because the picker failed is not cached; the next list asks again")

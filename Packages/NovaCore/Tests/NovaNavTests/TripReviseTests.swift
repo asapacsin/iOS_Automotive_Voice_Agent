@@ -4,17 +4,26 @@ import Testing
 @testable import NovaPorts
 @testable import NovaTools
 
-/// §49 (T-040u): a `trip_needs_fix` answered as a model that changes nothing would (the same pace), until the normal
-/// `trip_list` comes back (at most 2 rounds). For tests of earlier sections whose plans now fail a check.
+/// §49 (T-040u) with §52 (T-040zb): a `trip_needs_fix` answered as a model that changes nothing would (the same plan
+/// written back by id with `set_trip_plan`), until the normal `trip_list` comes back (at most 2 rounds). For tests of
+/// earlier sections whose plans now fail a check.
 func settle(_ rig: TripRig, _ first: ToolResult) async -> ToolResult {
     var r = first
     var n = 0
     while r.data["status"] == "trip_needs_fix", n < TripPlanner.maxFixRounds + 1 {
-        let pace = TripFitter.Pace(budgetMinutes: r.data["budget_minutes"]?.intValue.map(Int.init)).rawValue
-        r = await rig.run(trip("revise_trip_list", ["pace": .string(pace)]))
+        r = await rig.run(await sameCall(rig))
         n += 1
     }
     return r
+}
+
+/// The current plan written back unchanged, every stop by id.
+func sameCall(_ rig: TripRig) async -> ToolCall { await sameCall(rig.planner) }
+
+func sameCall(_ planner: TripPlanner) async -> ToolCall {
+    let plan = await planner.currentPlan
+    let d: [JSONValue] = plan.days.map { day in .array(day.stops.map { .object(["id": .string($0.id)]) }) }
+    return trip("set_trip_plan", ["days": .array(d)])
 }
 
 /// Places north of the origin; every drive between two different points is 20 minutes, except to or from 远方 (3 hours).
@@ -89,32 +98,17 @@ struct TripReviseTests {
         #expect(r.days == [[1, 10]] && r.spare == [11] && r.moves == 1)
     }
 
-    @Test("F-15b row 130: one place not found: trip_needs_fix round=1 with its line; next says to call revise_trip_list")
+    @Test("F-15b row 130: one place not found: trip_needs_fix round=1 with its line; next says to call set_trip_plan")
     func row130() async {
         let (rig, _) = await timesRig(times, table: places)
         let r = await rig.run(trip("make_trip_list", ["places": [item("A", 400), item("无名", 60)]]))
         #expect(r.ok && r.data["status"] == "trip_needs_fix" && r.data["round"] == .int(1))
         #expect(strings(r.data["issues"]) == ["无名没找到，换一个附近类似的或者去掉"])
-        #expect(r.data["next"]?.stringValue?.contains("直接调用 revise_trip_list") == true)
+        #expect(r.data["next"]?.stringValue?.contains("调用 set_trip_plan") == true)
         #expect(r.data["next"]?.stringValue?.contains("先不要跟司机说话") == true)
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip check round=0 not_found=1 over=0 driving=0 under=0 hotel=0 far=0 ms=") })
         // The plan is kept as fitted so far.
         #expect(await rig.order() == ["A"])
-    }
-
-    @Test("F-15b row 131: then revise_trip_list replace with a found place: fitted and checked again; trip_list naming the change")
-    func row131() async {
-        let (rig, _) = await timesRig(times, table: places)
-        _ = await rig.run(trip("make_trip_list", ["places": [item("A", 400), item("无名", 60)]]))
-        let r = await rig.run(trip("revise_trip_list", ["replace": [["name": "无名", "with": item("B", 30)]]]))
-        #expect(r.ok && r.data["status"] == "trip_list")
-        #expect(await rig.order().sorted() == ["A", "B"])
-        #expect(factsText(r).contains("无名没找到，换成了B"))
-        #expect(strings(r.data["not_found"]).isEmpty)
-        let lines = rig.lines.withLock { $0 }
-        #expect(lines.contains { $0.hasPrefix("trip check round=1 not_found=0 over=0 driving=0 under=0 hotel=0 far=0 ms=") })
-        #expect(lines.contains { $0.hasPrefix("trip revise round=1 replace=1 add=0 drop=0 hotels=0 ok=yes code=none ms=") })
-        #expect(lines.contains { $0.hasPrefix("trip fit ") && $0.contains(" moves=") })
     }
 
     @Test("F-15b row 132: checks still fail after round 2: no round 3, trip_list with the issue in next")
@@ -122,16 +116,15 @@ struct TripReviseTests {
         let (rig, _) = await timesRig(times, table: places)
         let a = await rig.run(trip("make_trip_list", ["places": [item("A", 400), item("无名", 60)]]))
         #expect(a.data["round"] == .int(1))
-        let b = await rig.run(trip("revise_trip_list", ["replace": [["name": "无名", "with": item("无名二", 60)]]]))
+        // §52 (T-040zb): the fix is the whole plan written back with set_trip_plan.
+        let b = await rig.run(await planCall(rig, [["A", "无名二"]]))
         #expect(b.data["status"] == "trip_needs_fix" && b.data["round"] == .int(2))
-        #expect(strings(b.data["issues"]) == ["无名二没找到，换一个附近类似的或者去掉"])
-        let c = await rig.run(trip("revise_trip_list", ["replace": [["name": "无名二", "with": item("无名三", 60)]]]))
+        #expect(strings(b.data["issues"]).first == "无名二没找到，换一个附近类似的或者去掉")
+        let c = await rig.run(await planCall(rig, [["A", "无名三"]]))
         #expect(c.ok && c.data["status"] == "trip_list" && c.data["round"] == nil)
         #expect(strings(c.data["not_found"]).contains("无名三"))
-        // The request is closed: the next revision opens a new one (round 1 again).
-        // The request is closed: its not-found names are gone with it.
-        #expect(await rig.run(trip("revise_trip_list", ["drop": ["无名三"]])).code == .invalidFields)
-        #expect(await rig.run(trip("revise_trip_list", ["pace": "normal"])).data["status"] == "trip_list")
+        // The request is closed: the next write is a plain one.
+        #expect(await rig.run(await sameCall(rig)).data["status"] == "trip_list")
     }
 
     @Test("F-15b row 133: a day of 75% driving and a day at 30% of its budget with no spare: driving and under, one result")
@@ -158,18 +151,6 @@ struct TripReviseTests {
         let plan = await rig.planner.currentPlan
         let night1 = plan.days[0].stops.last
         #expect(night1?.role == .hotel && night1?.place.name.hasSuffix("-1") == true)
-        let unlisted = await rig.run(trip("revise_trip_list", ["hotels": [["night": 1, "pick": "不在名单里的酒店"]]]))
-        #expect(unlisted.code == .invalidFields)
-        #expect(await rig.planner.currentPlan == plan)
-        let second1 = night1!.place.name.replacingOccurrences(of: "-1", with: "-2")
-        let night2 = plan.days[1].stops.last!.place.name.replacingOccurrences(of: "-1", with: "-3")
-        let picked = await rig.run(trip("revise_trip_list", ["hotels": [["night": 1, "pick": .string(second1)],
-                                                                         ["night": 2, "pick": .string(night2)]]]))
-        #expect(picked.ok && picked.data["status"] == "trip_list")
-        let days = await rig.planner.currentPlan.days
-        #expect(days[0].stops.last?.place.name == second1 && days[1].stops.first?.place.name == second1)
-        #expect(days[1].stops.last?.place.name == night2 && days[2].stops.first?.place.name == night2)
-        #expect(factsText(picked).contains("第1晚住\(second1)"))
     }
 
     @Test("F-15b row 135: no wishes: the first hotel is taken as §37 item 4; no hotel issue, no round for it")
@@ -181,35 +162,6 @@ struct TripReviseTests {
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip check round=0 ") && $0.contains(" hotel=0 ") })
     }
 
-    @Test("F-15b row 136: revise_trip_list pace=relaxed with no request open: opens one: fit, checks, rounds")
-    func row136() async {
-        let (rig, _) = await timesRig(times, table: places)
-        let made = await rig.run(trip("make_trip_list", ["places": [item("A", 400), item("B", 30)]]))
-        #expect(made.data["status"] == "trip_list")
-        // 470 minutes of must-sees over a 360 budget.
-        let r = await rig.run(trip("revise_trip_list", ["pace": "relaxed"]))
-        #expect(r.data["status"] == "trip_needs_fix" && r.data["round"] == .int(1) && r.data["budget_minutes"] == .int(360))
-        #expect(strings(r.data["issues"]) == ["第1天超了约2小时，减少或换掉一个必去的地方"])
-        let fixed = await rig.run(trip("revise_trip_list", ["drop": ["B"], "replace": [["name": "A", "with": item("C", 300)]]]))
-        #expect(fixed.data["status"] == "trip_list")
-        #expect(await rig.order() == ["C"])
-    }
-
-    @Test("F-15b row 137: an empty call or a name not in the plan: invalidFields, plan unchanged; no plan: NO_REVISION")
-    func row137() async {
-        let (rig, _) = await timesRig(times, table: places)
-        #expect(await rig.run(trip("revise_trip_list", ["pace": "packed"])).code == .noRevision)
-        _ = await rig.run(trip("make_trip_list", ["places": [item("A", 400), item("B", 30)]]))
-        let before = await rig.planner.currentPlan
-        #expect(ToolCatalog.validate(trip("revise_trip_list")) == .invalidFields)
-        #expect(await rig.run(trip("revise_trip_list")).code == .invalidFields)
-        #expect(await rig.run(trip("revise_trip_list", ["drop": ["不存在"]])).code == .invalidFields)
-        #expect(await rig.run(trip("revise_trip_list", ["replace": [["name": "不存在", "with": item("C", 60)]]])).code == .invalidFields)
-        #expect(ToolCatalog.validate(trip("revise_trip_list", ["add": [item("C", 60, 0)]])) == .invalidFields)
-        #expect(await rig.planner.currentPlan == before)
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip revise round=0 replace=0 add=0 drop=1 hotels=0 ok=no code=INVALID_FIELDS ms=") })
-    }
-
     @Test("F-15b §49 item 4: TripChecks lines in order; §49 item 10: the catalog texts")
     func checksAndCatalog() {
         let days = [TripChecks.Day(minutes: 600, drivingMinutes: 300, onlyMustSee: true, area: nil)]
@@ -219,7 +171,8 @@ struct TripReviseTests {
         #expect(issues.last?.line == "第1晚从这几个里挑一个：H（0.8公里）")
         #expect(ToolCatalog.makeTripListDescription.contains("写进 wishes"))
         #expect(ToolCatalog.makeTripListDescription.contains("optional=false") == false)
-        #expect(ToolCatalog.spec("revise_trip_list")?.declaration.description == ToolCatalog.reviseTripListDescription)
-        #expect(AsyncTool(name: "revise_trip_list") != nil)
+        // §52 item 14 (T-040zb): revise_trip_list is removed; set_trip_plan writes the plan.
+        #expect(ToolCatalog.spec("revise_trip_list") == nil && AsyncTool(name: "revise_trip_list") == nil)
+        #expect(ToolCatalog.spec("set_trip_plan")?.declaration.description == ToolCatalog.setTripPlanDescription)
     }
 }

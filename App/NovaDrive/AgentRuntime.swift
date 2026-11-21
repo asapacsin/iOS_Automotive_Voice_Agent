@@ -1257,8 +1257,10 @@ final class AgentRuntime {
                     }
                 }
                 if place != nil { lastPlace = place }
+                // F-15b §52 item 2 (T-040zb): the trip line carries the whole plan.
+                let tripPlan = TripPlanJSON.noteLine(await trip.planner.currentPlan)
                 await core.send(.context(ContextSnapshot(place: place, onHighway: nil,
-                                                         localTime: ContextSnapshot.localTime(Date()))))
+                                                         localTime: ContextSnapshot.localTime(Date()), tripPlan: tripPlan)))
                 try? await Task.sleep(for: .seconds(15))
             }
         })
