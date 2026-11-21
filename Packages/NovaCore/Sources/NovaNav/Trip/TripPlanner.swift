@@ -312,9 +312,12 @@ public actor TripPlanner: ToolExecutor {
             NearTripStop(day: day, name: stop.place.name, asked: stop.asked, role: stop.role,
                          coordinate: stop.place.coordinate, countryCode: stop.place.countryCode)
         }
-        let stops = plan.allStops.map { near($0.day, $0.stop) }
-        // §51 item 9 (T-040za): the next stop as `trip_next` takes it (the current day's first unmarked stop).
-        let next = plan.days[plan.currentDay - 1].stops.first { $0.mark == nil }.map { near(plan.currentDay, $0) }
+        // §52 item 4: a stop not on the map yet has a dummy (0,0) coordinate; it is never a search centre
+        // (review 2026-11-21: near=here searched around 0°,0°).
+        let stops = plan.allStops.filter(\.stop.placed).map { near($0.day, $0.stop) }
+        guard !stops.isEmpty else { return nil }
+        // §51 item 9 (T-040za): the next stop as `trip_next` takes it (the current day's first unmarked placed stop).
+        let next = plan.days[plan.currentDay - 1].stops.first { $0.mark == nil && $0.placed }.map { near(plan.currentDay, $0) }
         return NearTrip(hidden: cardsHidden, abroad: plan.abroad, city: plan.city, stops: stops, next: next)
     }
 
@@ -442,6 +445,8 @@ public actor TripPlanner: ToolExecutor {
     // MARK: make_trip_list
 
     private func make(_ args: JSONValue) async -> ToolResult {
+        planWrites += 1
+        defer { planWrites -= 1 }
         let started = clock.now
         if case .array(let raw)? = args["days"] {
             let dayItems: [[PlaceItem]] = raw.map { day in
@@ -471,6 +476,7 @@ public actor TripPlanner: ToolExecutor {
         }
         var entries: [(asked: String, place: Place, distanceMeters: Int?)] = []
         var notFound: [String] = []
+        var slowNames: [String] = []
         var duplicates: [String] = []
         for (offset, lookup) in lookups.enumerated() {
             switch lookup {
@@ -481,7 +487,7 @@ public actor TripPlanner: ToolExecutor {
                     entries.append((names[offset], place, distance(here, place)))
                 }
             case .missing(let reason):
-                notFound.append(names[offset])
+                if Self.isSlow(reason) { slowNames.append(names[offset]) } else { notFound.append(names[offset]) }
                 onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)")
             case .keyMissing, .candidates: break
             }
@@ -489,9 +495,7 @@ public actor TripPlanner: ToolExecutor {
         guard !entries.isEmpty else {
             line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
             // F-09b §13 item 3 (T-031l): the names not found as facts; the list is unchanged.
-            return LookupReply.notFound(.noCandidates, what: "trip_places",
-                                        facts: ["not_found": .array(notFound.map { .string($0) }), "changed": false],
-                                        mustNot: [.claimDone])
+            return nothingPlaced(.noCandidates, what: "trip_places", notFound: notFound, slow: slowNames)
         }
         var made = TripList()
         made.replace(entries)
@@ -504,6 +508,7 @@ public actor TripPlanner: ToolExecutor {
         line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
         var facts = Self.orderFacts(arranged)
         if ignored { facts["frame_kept"] = true }
+        if !slowNames.isEmpty { facts["search_slow"] = .array(slowNames.map(JSONValue.string)) }
         return listResult(changed: nil, notFound: notFound, duplicates: duplicates, facts: facts)
     }
 
@@ -595,6 +600,7 @@ public actor TripPlanner: ToolExecutor {
         }
         var seen = Set<String>()
         var notFound: [String] = []
+        var slowNames: [String] = []
         var duplicates: [String] = []
         var lists: [TripList] = []
         // §48: optional places go to the fit beside the plan (with their group's day when there are groups).
@@ -624,7 +630,7 @@ public actor TripPlanner: ToolExecutor {
                         duplicates.append(item.name)
                     }
                 case .missing(let reason):
-                    notFound.append(item.name)
+                    if Self.isSlow(reason) { slowNames.append(item.name) } else { notFound.append(item.name) }
                     onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)")
                 case .keyMissing, .candidates: break
                 }
@@ -641,16 +647,14 @@ public actor TripPlanner: ToolExecutor {
         guard lists.contains(where: { $0.count > 0 }) || !optionalStops.isEmpty else {
             line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
             // F-09b §13 item 3 (T-031l): the names not found as facts; the list is unchanged.
-            return LookupReply.notFound(.noCandidates, what: "trip_places",
-                                        facts: ["not_found": .array(notFound.map { .string($0) }), "changed": false],
-                                        mustNot: [.claimDone])
+            return nothingPlaced(.noCandidates, what: "trip_places", notFound: notFound, slow: slowNames)
         }
         // §37 item 1: a frame name not found is left out and named in not_found.
         func frameStop(_ name: String?, _ role: TripRole) -> TripStop? {
             guard let name else { return nil }
             defer { offset += 1 }
             guard case .found(let place) = lookups[offset] else {
-                notFound.append(name)
+                if case .missing(let reason) = lookups[offset], Self.isSlow(reason) { slowNames.append(name) } else { notFound.append(name) }
                 if case .missing(let reason) = lookups[offset] { onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)") }
                 return nil
             }
@@ -762,6 +766,7 @@ public actor TripPlanner: ToolExecutor {
         let orderFacts = extra["order"] != nil ? [:] : Self.orderFacts(arranged)
         let answer: ([String], [String]) -> ToolResult = { [self] missing, more0 in
             var facts = orderFacts
+            if !slowNames.isEmpty { facts["search_slow"] = .array(slowNames.map(JSONValue.string)) }
             let all = more0 + notes
             if !all.isEmpty { facts["notes"] = .array(all.map(JSONValue.string)) }
             if single, plan.dayCount == 1 {
@@ -1038,6 +1043,7 @@ public actor TripPlanner: ToolExecutor {
             case .keyMissing: return LookupReply.failed(.amapWebKeyMissing, what: "trip_list", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
             case .missing(let reason):
                 onLine("trip lookup index=\(index) ok=no reason=\(reason)")
+                if Self.isSlow(reason) { return nothingPlaced(.notFound, what: "trip_list", notFound: [], slow: [name]) }
                 return failure(.notFound)
             }
             let replacing = index
@@ -1138,9 +1144,12 @@ public actor TripPlanner: ToolExecutor {
         for (id, at) in places.sorted(by: { $0.key < $1.key }) where at.count > 1 {
             if !at.allSatisfy({ role($0.2) == .hotel && allowed.contains("\($0.0)|\($0.1)") }) { problems.append("id 重复：\(id)") }
         }
-        // A visited or skipped stop keeps its day.
+        // A visited or skipped stop keeps its day. A night's hotel is on two days (evening and next morning), so either
+        // of the days it was on is its day (review 2026-11-21: a reached hotel could not be written back).
+        var daysOf: [String: Set<Int>] = [:]
+        for s in old.allStops { daysOf[s.stop.id, default: []].insert(s.day) }
         for (d, _, s) in positions {
-            guard let id = s.id, let was = known[id], was.stop.mark != nil, was.day != d + 1 else { continue }
+            guard let id = s.id, let was = known[id], was.stop.mark != nil, daysOf[id]?.contains(d + 1) != true else { continue }
             problems.append("\(was.stop.place.name)已经去过或跳过，要留在第\(was.day)天")
         }
         var unique = Set<String>()
@@ -1158,6 +1167,8 @@ public actor TripPlanner: ToolExecutor {
     /// background), picks a hotel only for a night with none, times the days, and saves. Facts: `kept`, `new`,
     /// `removed`, `not_placed`, `search_slow`, `app_picked_hotels`, `notes`.
     private func setPlan(_ args: JSONValue) async -> ToolResult {
+        planWrites += 1
+        defer { planWrites -= 1 }
         let started = clock.now
         let written = Self.writtenDays(args)
         let stopTotal = written.reduce(0) { $0 + $1.count }
@@ -1431,6 +1442,9 @@ public actor TripPlanner: ToolExecutor {
     static let placeRetries = 3
     private var retryTask: Task<Void, Never>?
     private var planCheckRounds = 0
+    /// §52 item 4 (review 2026-11-21): `set_trip_plan` or `make_trip_list` running. The background retry places
+    /// nothing meanwhile (placing raises the revision, which made the running write return OPTIONS_STALE).
+    private var planWrites = 0
 
     /// Tests: waits until the background retries are done.
     func retriesSettled() async { await retryTask?.value }
@@ -1447,8 +1461,10 @@ public actor TripPlanner: ToolExecutor {
         var seen = Set<String>()
         let targets = plan.allStops.map(\.stop).filter { !$0.placed && seen.insert($0.id).inserted }
         guard !targets.isEmpty else { return true }
+        guard planWrites == 0 else { return false }
         let lookups = await resolve(targets.map(\.asked), city: plan.abroad ? nil : plan.city, abroad: plan.abroad, near: regionHint())
         guard !Task.isCancelled else { return true }
+        guard planWrites == 0 else { return false }
         var any = false
         for (i, stop) in targets.enumerated() {
             var ok = false
@@ -2381,6 +2397,21 @@ public actor TripPlanner: ToolExecutor {
 
     /// F-09b §13 item 5 (T-031n): `facts` say what changed (plus `count`, `day`, `days`); the cards show the list,
     /// so `must_not` keeps `read_list` unless the driver asked to hear it.
+    /// §52 item 11 (T-040zd, review 2026-11-21): a lookup out of tries (`slow`) or still running at its limit
+    /// (`timeout`) is `search_slow`, never "not found", on every trip path.
+    static func isSlow(_ reason: String) -> Bool { reason == "slow" || reason == "timeout" }
+
+    /// A lookup reply for names none of which were placed: `search_slow` when only slow ones are missing.
+    private func nothingPlaced(_ code: ToolErrorCode, what: String, notFound: [String], slow: [String]) -> ToolResult {
+        var facts: [String: JSONValue] = ["changed": false]
+        if !notFound.isEmpty { facts["not_found"] = .array(notFound.map { .string($0) }) }
+        if !slow.isEmpty { facts["search_slow"] = .array(slow.map { .string($0) }) }
+        if notFound.isEmpty, !slow.isEmpty {
+            return LookupReply.failed(code, what: what, cause: .network, facts: facts, mustNot: [.claimDone])
+        }
+        return LookupReply.notFound(code, what: what, facts: facts, mustNot: [.claimDone])
+    }
+
     private func listResult(changed: String?, notFound: [String] = [], duplicates: [String] = [],
                             facts: [String: JSONValue] = [:], may: [ReplyMay] = [],
                             mustNot: [ReplyMustNot] = [.readList],
