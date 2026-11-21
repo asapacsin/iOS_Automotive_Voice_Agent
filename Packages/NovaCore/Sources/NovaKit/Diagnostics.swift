@@ -100,6 +100,11 @@ public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     case showPlace = "show_place"
 
     public init?(name: String) { self.init(rawValue: name) }
+
+    /// F-15b §52 item 12 (T-040ze): the trip tools; while one runs no reply may say the change is done.
+    public var isTrip: Bool { self == .makeTripList || self == .editTripList || self == .setTripPlan }
+    /// §52 item 12: the `next` of a turn while a trip tool's result has not come back.
+    public static let tripPendingNext = "结果还没回来，不要说已经做好"
     /// The `scheduling` their response carries (F-18 §27 item 3).
     public static let scheduling = "WHEN_IDLE"
 }

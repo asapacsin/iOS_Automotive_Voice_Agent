@@ -266,3 +266,40 @@ struct TripPlanScreenTests {
         #expect(TripPin.pins(plan.days[0]).count == 1)
     }
 }
+
+@Suite("T-040ze F-15b §52 item 13 clearing the whole trip asks first")
+struct TripClearConfirmTests {
+    @Test("T-040ze F-15b row 205 (unit): 清空行程 / 把行程拿回去 with a plan: CONFIRM_CLEAR first; cleared only by the clear on the driver's next turn")
+    func row205() async {
+        let turns = TripLines()
+        let nav = NavigationController(search: TripSearch(sapporo), engine: ScriptedNaviEngine(routes: []), location: NoLocation(),
+                                       clock: ManualClock())
+        await nav.start()
+        let lines = TripLines()
+        let planner = TripPlanner(search: TripSearch(sapporo), navigation: nav, origin: { nil }, clock: ManualClock(),
+                                  onLine: { lines.append($0) }, driverTurns: { turns.withLock { $0 }.count })
+        _ = await planner.execute(setPlan([[stop(name: "A"), stop(name: "B")]]))
+        turns.append("driver: 把行程拿回去")
+        let asked = await planner.execute(trip("edit_trip_list", ["action": "clear"]))
+        #expect(asked.code == .confirmClear && replyValues(asked.data["may"]) == ["ask_confirm"], "\(asked)")
+        #expect(await planner.currentPlan.stopCount == 2)
+        // The same turn again: still asks (no yes heard yet).
+        #expect(await planner.execute(trip("edit_trip_list", ["action": "clear"])).code == .confirmClear)
+        turns.append("driver: 对")
+        let cleared = await planner.execute(trip("edit_trip_list", ["action": "clear"]))
+        let empty = await planner.currentPlan.isEmpty
+        #expect(cleared.ok && empty)
+        #expect(lines.withLock { $0 }.filter { $0.hasPrefix("trip clear") } == ["trip clear confirm=asked via=edit", "trip clear confirm=asked via=edit", "trip clear confirm=yes via=edit"])
+        // set_trip_plan with no stops is a whole clear too; another call in between forgets the question.
+        _ = await planner.execute(setPlan([[stop(name: "A")]]))
+        turns.append("driver: 清空行程")
+        #expect(await planner.execute(setPlan([[]])).code == .confirmClear)
+        turns.append("driver: 先看看")
+        _ = await planner.execute(trip("edit_trip_list", ["action": "read"]))
+        turns.append("driver: 清空")
+        #expect(await planner.execute(setPlan([[]])).code == .confirmClear)
+        #expect(await planner.currentPlan.stopCount == 1)
+        // clear day=N stays immediate.
+        #expect(await planner.execute(trip("edit_trip_list", ["action": "clear", "day": 1])).ok)
+    }
+}

@@ -126,7 +126,8 @@ struct TripPlanTests {
         let plan = await rig.planner.currentPlan
         #expect(plan.dayCount == 2 && plan.days[0].stops.first?.place.name == "五大道")
         #expect(await rig.run("edit_trip_list", ["action": "read", "day": 3]).code == .outOfRange)
-        // Without a day the whole plan is cleared.
+        // Without a day the whole plan is cleared, after the driver's yes (§52 item 13).
+        _ = await rig.run("edit_trip_list", ["action": "clear"])
         _ = await rig.run("edit_trip_list", ["action": "clear"])
         #expect(await rig.planner.currentPlan.isEmpty)
     }

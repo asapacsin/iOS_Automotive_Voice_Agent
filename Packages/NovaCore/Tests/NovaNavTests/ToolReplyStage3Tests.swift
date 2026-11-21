@@ -46,6 +46,8 @@ struct ToolReplyStage3Tests {
         let read = await rig.run(trip("edit_trip_list", ["action": "read"]))
         expectSuccess(read, "read")
         #expect(replyValues(read.data["may"]) == ["read_list_in_order"] && replyValues(read.data["must_not"]).isEmpty)
+        // F-15b §52 item 13 (T-040ze): the first clear asks; the driver's yes (the next clear) clears.
+        #expect(await rig.run(trip("edit_trip_list", ["action": "clear"])).code == .confirmClear)
         let cleared = await rig.run(trip("edit_trip_list", ["action": "clear"]))
         expectSuccess(cleared, "clear")
         #expect(cleared.data["facts"]?["changed"] == "cleared" && cleared.data["facts"]?["count"] == .int(0))

@@ -348,6 +348,14 @@ public struct AgentState: Sendable {
     private var contextNow: ContextSnapshot?
     private var contextSent: ContextSnapshot?
     private var contextPending = false
+    /// F-15b §52 item 12: `next` gains 「结果还没回来，不要说已经做好」.
+    static func withTripPending(_ result: ToolResult) -> ToolResult {
+        var data = result.data
+        let next = data["next"]?.stringValue ?? ""
+        data["next"] = .string(next.isEmpty ? AsyncTool.tripPendingNext : next + "；" + AsyncTool.tripPendingNext)
+        return ToolResult(ok: result.ok, code: result.code, data: data, advice: result.advice)
+    }
+
     /// F-09b §16 item 4 (T-031z): the latest screen state, what the last `屏幕` line said, and a line owed. Only the
     /// latest is sent: changes during her reply go as one line when it ends.
     private var screenNow: ScreenState?
@@ -651,6 +659,11 @@ public struct AgentState: Sendable {
             arbiter.driverSpoke(at: now)
             context.record(call, ok: result.ok, at: now)
             var finished = dispatcher.finish(call, result)
+            // F-15b §52 item 12 (T-040ze): while a trip tool's result has not come back, any other result's `next`
+            // says so: she must not say the trip change is done.
+            if AsyncTool(name: call.name)?.isTrip != true, asyncCalls.values.contains(where: { $0.tool.isTrip }) {
+                finished = Self.withTripPending(finished)
+            }
             // F-09b §17 item 6 (T-031zb): an owed 屏幕 line rides on the next tool result as `screen`.
             var screenSent: [AgentEffect] = []
             if let line = takeOwedScreen() {

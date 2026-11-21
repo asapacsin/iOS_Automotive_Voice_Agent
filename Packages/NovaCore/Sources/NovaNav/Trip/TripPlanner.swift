@@ -129,6 +129,11 @@ public actor TripPlanner: ToolExecutor {
     private let onPlans: @Sendable (TripPlansSummary) -> Void
     /// §52 item 9 (T-040zc): the whole plan, on every change and every day-view change.
     private let onPlan: @Sendable (TripPlan) -> Void
+    /// §52 item 13 (T-040ze): the count of driver utterances (as `navigate_to`'s `CONFIRM_FIRST`); nil counts each call
+    /// as a later turn.
+    private let driverTurns: (@Sendable () async -> Int)?
+    /// §52 item 13: the turn a whole-trip clear was asked on (`.some(nil)` with no turn count); nil when none waits.
+    private var clearAsked: Int??
     /// §22 (T-040m): the cards are put away (not saved: a restart shows them).
     public private(set) var cardsHidden = false
     private let onHidden: @Sendable (Bool) -> Void
@@ -193,7 +198,9 @@ public actor TripPlanner: ToolExecutor {
                 abroadTimes: TripTimes? = nil,
                 abroadPhotos: (any PlacePhotoSource)? = nil,
                 grounder: (any TripGrounder)? = nil,
-                abroadArea: (@Sendable (String) async -> TripArea?)? = nil) {
+                abroadArea: (@Sendable (String) async -> TripArea?)? = nil,
+                driverTurns: (@Sendable () async -> Int)? = nil) {
+        self.driverTurns = driverTurns
         self.grounder = grounder
         self.abroadArea = abroadArea
         self.abroadPhotos = abroadPhotos
@@ -367,6 +374,15 @@ public actor TripPlanner: ToolExecutor {
         }
     }
 
+    /// §52 item 13: `clear` without `day`, or `set_trip_plan` with no stops.
+    static func clearsWhole(_ call: ToolCall) -> Bool {
+        switch call.name {
+        case "edit_trip_list": call.arguments["action"]?.stringValue == "clear" && call.arguments["day"] == nil
+        case "set_trip_plan": TripPlanner.writtenDays(call.arguments).allSatisfy(\.isEmpty)
+        default: false
+        }
+    }
+
     /// §51 item 2: the calls that show the cards; `trip_plans` list/save/delete/rename leave them as they are.
     static func showsCards(_ call: ToolCall) -> Bool {
         switch call.name {
@@ -405,6 +421,8 @@ public actor TripPlanner: ToolExecutor {
     private func run(_ call: ToolCall) async -> ToolResult {
         // The dispatcher validated the call (ToolCatalog.validate); this is the backstop for direct callers.
         if let code = ToolCatalog.validate(call) { return .failure(code) }
+        // §52 item 13: a waiting whole-trip clear is answered only by the next clear; any other trip call forgets it.
+        if !Self.clearsWhole(call) { clearAsked = nil }
         switch call.name {
         case "make_trip_list": return await make(call.arguments)
         case "edit_trip_list": return await edit(call.arguments)
@@ -1276,7 +1294,26 @@ public actor TripPlanner: ToolExecutor {
     }
 
     /// `clear` without `day`, or `set_trip_plan` with no stops: the whole plan is cleared.
+    /// §52 item 13 (T-040ze): the first time it returns `CONFIRM_CLEAR` and changes nothing; only a clear on the
+    /// driver's next turn (his yes) clears. `trip clear confirm=asked|yes via=edit|plan`.
     private func clearWhole(viaPlan: Bool) async -> ToolResult {
+        let via = viaPlan ? "plan" : "edit"
+        let turn = await driverTurns?()
+        let answered: Bool = switch clearAsked {
+        case .some(.some(let asked)): turn.map { $0 == asked + 1 } ?? true
+        case .some(.none): true
+        case .none: false
+        }
+        // An empty plan has nothing to lose: cleared at once.
+        let confirmed = plan.isEmpty || answered
+        guard confirmed else {
+            clearAsked = .some(turn)
+            onLine("trip clear confirm=asked via=\(via)")
+            return ToolReply.notDone(.confirmClear, facts: ["days": .int(Int64(plan.dayCount)), "stops": .int(Int64(plan.stopCount)),
+                                                            "plan_kept": true], may: [.askConfirm]).result
+        }
+        clearAsked = nil
+        onLine("trip clear confirm=yes via=\(via)")
         plan.clearAll()
         retryTask?.cancel()
         changed()

@@ -11,6 +11,8 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case clarifyReferent = "CLARIFY_REFERENT"
     case unverifiedClaim = "UNVERIFIED_CLAIM"
     case wrongLanguage = "WRONG_LANGUAGE"
+    /// F-15b §52 item 12 (T-040ze): a "done" claim while a trip tool's result has not come back.
+    case tripResultPending = "TRIP_RESULT_PENDING"
 
     /// Sent to the model as a text turn. Code decides when; the sentence only explains (I-11).
     public var instruction: String {
@@ -24,6 +26,7 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         case .unverifiedClaim: "[系统] 你声称已完成操作，但没有成功的工具结果。请先调用工具，或如实说明。"
         // F-05a §15 item 4 as changed by §16 item 5 (T-016n): never with the driver's words.
         case .wrongLanguage: "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
+        case .tripResultPending: "[系统] TRIP_RESULT_PENDING：\(AsyncTool.tripPendingNext)。"
         }
     }
 
@@ -110,6 +113,8 @@ public struct DriverTurnPipeline: Sendable {
         var pendingCalls: Set<CallID> = []
         /// F-18 §27 item 5 (T-020c): NON_BLOCKING calls; the turn is not held for them.
         var backgroundCalls: Set<CallID> = []
+        /// F-15b §52 item 12 (T-040ze): trip tool calls whose result has not come back.
+        var tripPending: Set<CallID> = []
         var hadBlockingCall = false
         var results: [ToolResponse] = []
         var hadToolCall = false
@@ -146,6 +151,8 @@ public struct DriverTurnPipeline: Sendable {
     private var utterancePending: Set<CallID> = []
     /// F-18 §27 item 5: the utterance's NON_BLOCKING calls (a subset of the calls it made).
     private var utteranceBackground: Set<CallID> = []
+    /// F-15b §52 item 12: the utterance's trip tool calls (a later turn inherits the ones still running).
+    private var utteranceTrip: Set<CallID> = []
     private var utteranceResults: [ToolResponse] = []
     private var utteranceAsksAction = false
     /// A real utterance arrived since the last turn opened.
@@ -194,6 +201,7 @@ public struct DriverTurnPipeline: Sendable {
             utteranceCalls = []
             utterancePending = []
             utteranceBackground = []
+            utteranceTrip = []
             utteranceResults = []
             // A new driver turn cancels a pending correction and starts the no-answer clock.
             return cancel(.correction) + cancel(.giveUp) + cancel(.fallback)
@@ -204,6 +212,7 @@ public struct DriverTurnPipeline: Sendable {
             opened.results = utteranceResults
             opened.pendingCalls = utterancePending
             opened.backgroundCalls = utterancePending.intersection(utteranceBackground)
+            opened.tripPending = utterancePending.intersection(utteranceTrip)
             opened.hadToolCall = !utteranceCalls.isEmpty
             opened.hadBlockingCall = !utteranceCalls.subtracting(utteranceBackground).isEmpty
             turn = opened
@@ -243,9 +252,11 @@ public struct DriverTurnPipeline: Sendable {
             utteranceCalls.formUnion(calls.map(\.id))
             utterancePending.formUnion(calls.map(\.id))
             utteranceBackground.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
+            utteranceTrip.formUnion(calls.filter { AsyncTool(name: $0.name)?.isTrip == true }.map(\.id))
             guard var t = current(id) else { return [] }
             t.pendingCalls.formUnion(calls.map(\.id))
             t.backgroundCalls.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
+            t.tripPending.formUnion(calls.filter { AsyncTool(name: $0.name)?.isTrip == true }.map(\.id))
             t.hadToolCall = true
             if calls.contains(where: { AsyncTool(name: $0.name) == nil }) { t.hadBlockingCall = true }
             turn = t
@@ -258,6 +269,7 @@ public struct DriverTurnPipeline: Sendable {
             // The result may arrive after its own turn closed; it then proves the utterance's open turn.
             guard var t = turn, t.id == id || ofUtterance else { return [] }
             t.pendingCalls.remove(response.id)
+            t.tripPending.remove(response.id)
             if !t.results.contains(response) { t.results.append(response) }
             turn = t
             return judge(at: now)
@@ -349,6 +361,8 @@ public struct DriverTurnPipeline: Sendable {
             if t.claims.isEmpty { return final ? .clean : .pending }
             return .disproven(.clarifyReferent)
         }
+        // F-15b §52 item 12 (T-040ze): "done" before a trip tool's result is drift, whatever else proved.
+        if !t.claims.isEmpty, !t.tripPending.isEmpty { return .disproven(.tripResultPending) }
         if !t.claims.isEmpty, acting.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
             return .disproven(.partialScenario)
         }

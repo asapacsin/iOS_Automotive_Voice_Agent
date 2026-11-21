@@ -1686,7 +1686,9 @@ final class AgentRuntime {
                                   // F-15b §50 items 1 and 9 (T-040v): Qwen `ground` route with web search, the F-18 key.
                                   grounder: QwenTripGrounder(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
                                   // §50 item 3: the city's centre and country; trip lookups stay inside its box.
-                                  abroadArea: { city in await photon.area(city) })
+                                  abroadArea: { city in await photon.area(city) },
+                                  // F-15b §52 item 13 (T-040ze): clearing the whole trip waits for the driver's next turn.
+                                  driverTurns: { await tripSession.driverTurns() })
         await planner.restore()
         // §50 item 6 (T-040w): trip steps on screen.
         await planner.setWork(work)
