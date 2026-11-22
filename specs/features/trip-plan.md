@@ -2167,3 +2167,114 @@ F-09b (reply check) once the record confirms what was called.
 | Task | Scope | Status |
 |---|---|---|
 | T-040zg | §54 items 1–6 (both tool texts, one-area check with a second search, `check=new_trip`, agent 5.3.0); rows 218–224 | PASS; rows 223 eval, 224 device NOT_VERIFIED |
+
+## 55. The model writes every plan, new or changed; code places and checks, never splits (owner request 2026-11-22)
+
+**Why (owner phone test 2026-11-22, build bdc1e2a, record 20261122-211727).** 「帮我规划一下上海五天的行程」:
+- The model called `make_trip_list` with a flat pool of 14 places and `day_count: 5`, no city and no start.
+- Code splits a pool into days only from a start point (§48 item 4, `TripPlanner` ordering). There was none:
+  `trip order ok=no … start=none`, `order: NO_START`. All 14 places stayed on day 1 and days 2–5 were empty
+  (`sights_per_day:[14,0,0,0,0]`). The result still said `ok=true`, and she said 「我为您规划好了上海五天的行程」.
+- No city was sent, so the search had no area (`center=no`): 新天地 was placed as 「北京新天地」.
+
+**Cause: the design, not the model.** §52 made the plan one data structure the model writes (`set_trip_plan`), but
+only for changes. A new trip still goes through `make_trip_list`, where the model may not write days: §53 item 1 makes
+it send a pool that code splits, and §54 items 1–2 tell it never to use `set_trip_plan` for a new place (§54 item 3
+refuses one). So the plan is not under the model's control exactly when it is made, and the code that took over
+cannot do the job without a start point. This contradicts the owner's rule (2026-11-21): the plan is a plain data
+structure; the model decides what is in it; code only places names on the map and checks the edit.
+
+**Published practice this copies (as §49 and §52).** The itinerary is a structured object the LLM writes, one entry
+per day with a hotel slot (TravelPlanner, Xie et al., ICML 2024; ChinaTravel, arXiv 2412.13682). Code critics check
+the plan and send all failed checks back to the LLM, which revises (LLM-Modulo, Kambhampati et al., ICML 2024;
+Google Research 2025 trip planning, research.google/blog/optimizing-llm-based-trip-planning). Neither lets code
+redistribute the plan's days.
+
+**What changes.**
+1. **One tool makes and changes the plan: `set_trip_plan`.** A new trip is a `set_trip_plan` call whose stops are all
+   new (`{"name",…}`, no `id`). The model writes every day: which sights on which day, `start`/`end` when the driver
+   named them, a `hotel` for each night. A check-in list (「把这些地方存下来」) is a one-day plan.
+2. **New field `city`** (string): the trip's city, or the province/region for a trip across cities (as
+   `make_trip_list.city` today). Required when the call keeps no `id` (a new plan); otherwise the plan's city is kept.
+   `abroad` is derived from where `city` is (§36), not sent.
+3. **A new plan replaces the old one.** A call with no kept `id` replaces the plan in hand, as `make_trip_list` did
+   (no `CONFIRM_CLEAR`: §52 item 13 is for clearing without a new plan). §54 item 3 (the foreign-stop refusal,
+   `new_trip`) is removed.
+4. **New names are looked up inside the city.** At home: 高德 with `city=<city>` and `citylimit=true` (§4 item 6),
+   then the Qwen picker as today. Abroad: the box around the city centre (§50 item 3) and the Qwen grounding of §50
+   item 1. A name not found inside the city is kept with `placed=false` (§52 item 4) and gets a `not_found` issue
+   (item 8). Never a nationwide guess.
+5. **Code never moves stops between days.** The days are the model's. Within a day the model's order is kept;
+   `optimise: true` reorders between the day's fixed ends (§52 item 8). The pool fill (§48 item 4 steps 2–3, §49 item
+   3) and `day_count` are removed.
+6. **No start point is not an error.** Without a `start`, day 1 begins at its first stop and times are counted from
+   there. `NO_START` is never returned for a written plan; the result may carry `may: ask_start` after the plan is
+   saved.
+7. **Hotels.** A hotel stop is `{"name","role":"hotel"}` (the driver's or a named one) or
+   `{"role":"hotel","near":"<place>"}` (the driver said 「住在X附近」): code picks the closest hotel to `near` as §50
+   item 2 and the stop is `picked_by=app`. A night with no hotel stop gets a `hotel` issue (item 8); the app no longer
+   fills it silently (§52 item 6's app pick applies only to `near`).
+8. **Checks after every write (the critics).** Shape errors stay a refusal (`PLAN_CHECK`, §52 item 5; nothing saved).
+   A plan of the right shape is saved and shown, then checked; every failed check is one line in `issues`:
+   - `empty`: a day with no sight → 「第N天没有安排，把第M天的一部分挪过来或者加几个地方」 (M = the fullest day);
+   - `over`: a day's minutes (stops plus driving) above 1.25 × budget B (§48 item 3) → 「第N天大约X小时，太满了，挪一部分到第M天」
+     (M = the emptiest day); a day with a sight of 360 minutes or more is over only when its other sights add more than
+     B on top;
+   - `under`: §53 item 3 (thin day), its line unchanged;
+   - `driving`: §49 item 4, unchanged;
+   - `not_found`: item 4, 「<名字>在<city>没找到，换一个或者去掉」;
+   - `hotel`: a night without a hotel stop, for plans of 2 days or more → 「第N晚还没有酒店，写一个酒店或者 near」.
+9. **She fixes before she speaks.** When `issues` is not empty the result is `status: trip_needs_fix` with `round`
+   (1 or 2), `issues`, the whole plan, and `next`: 「先不要跟司机说话，按 issues 改好整份行程，再调用 set_trip_plan。」 At most
+   2 rounds per driver request; after round 2, or when all checks pass, the result is `trip_list` and any issue still
+   failing goes into `next` (「…跟司机说还有这些问题：…」) as §49 item 6.
+10. **No done-claim while the plan has issues (code, not prompt).** While the last trip result is `trip_needs_fix`
+    with a round left, a reply that says the plan is done (「规划好了」「安排好了」) is drift for the reply check
+    (F-05a §4 item 4, as §52 item 12). A result whose plan has an `empty` or `over` day carries `facts.ready: false`.
+11. **Removed.** `make_trip_list` (with `places`, `day_count`, `days`, `day`, `wishes`, `hotel_near`), `edit_trip_list`
+    (its `read`: the plan is in every result and in the 现在 note, §52 item 2), the pool fill, `NO_START` for plans,
+    and §54 items 1–3. `trip_next` and the trip screen stay. §53 items 1–2 (the pool example) are void; §53 item 3
+    (thin day) stays as the `under` check. `pace` stays on `set_trip_plan` (it sets B).
+12. **Catalog text (`set_trip_plan`).** 「做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，
+    跨城市就写省或地区）。改行程：已有的地点只写 id，新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。
+    role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，
+    说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},
+    {name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},
+    {name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。结果稍后回来：\(tripWorkingLine)」
+    - Day 2 of the example is a theme-park day with nothing else, so item 8's 360-minute exemption applies.
+    - `trip_next`'s text and the 现在 note are unchanged.
+13. **Agent version.** A tool removed and a tool text changed: major bump (6.0.0) with a row in agent-versions.md.
+14. **Record.** `trip set days=N stops=M kept=K new=X removed=R not_placed=P new_plan=yes|no check=ok|fail
+    issues=<n> round=<0|1|2> ms=…` (replaces §52's line; `check=new_trip` is gone); `trip check round=…` as §49 item
+    11 with `empty=<n>` added. Numbers and enums only (I-8).
+15. **Code.** `ToolCatalog` (`set_trip_plan` schema with `city` and hotel `near`, its text; `make_trip_list` and
+    `edit_trip_list` removed); `TripPlanner.setPlan` (new plan when no kept id, city-limited lookups, no day moves,
+    no `NO_START`, hotel `near`, checks and rounds); `TripChecks` (`empty`, `over` at 1.25 × B, `hotel`); the reply
+    check's done-claim rule; `AgentSetup.version`. Tests that exercise `make_trip_list` move to `set_trip_plan` or go.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 225 | `set_trip_plan` with city 上海, 5 days, 14 sights all on day 1, days 2–5 empty, no start | Saved and shown as written (no day moves); `trip_needs_fix round=1`; `issues` has `over` for day 1 and `empty` for days 2–5; `facts.ready: false`; no `NO_START` | unit |
+| 226 | Same, then a fixed plan (3–4 sights a day, a hotel each night) | All checks pass → `trip_list`; `trip set … new_plan=no issues=0` | unit |
+| 227 | Checks still failing after round 2 | No round 3: `trip_list` with the remaining issues in `next` | unit |
+| 228 | Reply 「我为您规划好了」 while the last result is `trip_needs_fix` with a round left | Counted as drift by the reply check | unit |
+| 229 | New plan (no ids) for 上海 while a Sapporo plan is saved | Replaces it; no `PLAN_CHECK new_trip`; the Sapporo stops are gone | unit |
+| 230 | City 上海, name 新天地 (高德 fake: 上海新天地 inside the city, 北京新天地 outside) | Request has `city=上海&citylimit=true`; placed as 上海新天地; with no in-city answer the stop is `placed=false` with a `not_found` issue | unit |
+| 231 | A new plan without `city` | `PLAN_CHECK` (city missing); nothing saved | unit |
+| 232 | Hotel `{"role":"hotel","near":"新宿站"}` on nights 1–2 | One hotel near 新宿站 picked (`picked_by=app`) for both nights; a night with no hotel stop gets a `hotel` issue | unit |
+| 233 | A day with one 480-min sight and nothing else | No `over`, no `under` | unit |
+| 234 | Tool catalog | No `make_trip_list`, no `edit_trip_list`; `set_trip_plan` text has the item 12 sentences and `city`; agent 6.0.0 | unit |
+| 235 | Eval: 「规划上海五天的行程」 on the live model with the app's tools | One `set_trip_plan` with `city`, 5 days, 3 or more sights a day (a full-day sight excepted), a hotel each night | eval |
+| 236 | Device: 「规划上海五天的行程」, then 「三天，去跟回来都是新千岁机场，住桥本酒店」 | Shanghai: every day has sights, no day over about 9 h, no stop outside Shanghai; then Sapporo replaces it: airport first and last, Hotel Hashimoto every night | D |
+
+**Not verified.** Whether the live voice model writes a full 5-day plan well in one call (row 235 measures it). If it
+does not, the same tool can have a text model write the plan behind it (owner's idea 2026-11-22); that is a separate
+decision and not part of this section.
+
+**Trace gate.** Add `T-040zh: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zh | §55 items 1–15 (set_trip_plan makes and changes plans; city; new plan replaces; city-limited lookups; no day moves; no NO_START; hotel near; checks empty/over/under/driving/not_found/hotel; trip_needs_fix rounds; no done-claim with issues; make_trip_list and edit_trip_list removed; agent 6.0.0; record); rows 225–236 | NOT_RUN |
