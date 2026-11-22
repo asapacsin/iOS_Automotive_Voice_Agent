@@ -281,7 +281,7 @@ struct AsyncToolCodecTests {
         })
         guard case .array(let tools)? = GeminiCodec.setup(config, resume: nil)["setup"]?["tools"],
               case .array(let decls)? = tools.first?["functionDeclarations"] else { Issue.record("no tools"); return }
-        #expect(decls.map { $0["behavior"] } == ["NON_BLOCKING", nil])
+        #expect(decls.map { $0["behavior"] } == ["NON_BLOCKING", "NON_BLOCKING", nil])
     }
 
     @Test("Rows 2–3: a live-info response carries scheduling WHEN_IDLE, errors too; control_climate none")
