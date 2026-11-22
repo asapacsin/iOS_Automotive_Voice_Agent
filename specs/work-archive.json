@@ -2219,6 +2219,186 @@
       ],
       "archived_on": "2026-11-19",
       "archive_reason": "finished 2026-11-10, nothing open depends on it; pending device rows stay in the feature spec and the phone checklist"
+    },
+    {
+      "id": "T-020a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-07 §14 items 1-11: PC check script (10 runs on one connection, length limit, each voice); QwenSpeechClient (required workspace host, one kept-open connection, SSE split on blank lines with data lines joined, base64 PCM 24 kHz, cuts, codes, no instruction); 设置 她的声音 source, API Host with format check, 龙安欢/龙安灵心/龙安风悦 picker (default longanhuan_v3.1) with 试听, 千问 default; VoiceSource at session start; one retry for both sources; onFailure wired to voice-failed record line; voice timing line with first_ms; docs; rows 1-11",
+      "depends_on": [
+        "T-020"
+      ],
+      "notes": "Owner 2026-11-06: replies showed text with no sound; Azure japaneast requests timed out (-1001) through the VPN, and the failure was not recorded. Owner judged Azure generally unreliable. Rows 9-11 are device rows. No fallback voice (owner may add later). Model qwen-audio-3.1-tts-flash: owner console shows 1M free characters until 2027-01-08 (qwen3-tts-flash only 10K). Owner workspace is Singapore (ap-southeast-1); sk-ws- key rejected by dashscope.aliyuncs.com; only the 龙安 voices work there (精品中文 voices give Engine error [411]). PC timing 2026-11-06, one kept connection: first audio 272-373 ms after warm-up; instruction delays first audio to 3.6-7.6 s, so none is sent.",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "PASS",
+          "commit": "4a925ea"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "PASS"
+        },
+        {
+          "row1": "NOT_VERIFIED no key"
+        },
+        {
+          "rows9-11": "NOT_VERIFIED device"
+        }
+      ],
+      "archived_on": "2026-11-22",
+      "archive_reason": "finished 2026-11-06, before the 2026-11-14 trip cycle; nothing open depends on it; pending device rows stay findable via history.py find"
+    },
+    {
+      "id": "T-032g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-13a §3, §4, §6, §7: media 0-10 and voice 2-10 levels saved in UserDefaults and applied as LiveAudio lane gains; set_volume tool (catalog, validator, executor, code-built announce, limit_reached, side-button hint); barge-in dip multiplies the voice gain; 设置 sliders through the same executor; volume set record lines; rows 1-5, 8 unit, 10-12 device",
+      "depends_on": [
+        "T-032f"
+      ],
+      "notes": "Owner 2026-11-10: \"currently the agent unable to change the sound level\"; asked how two sounds (her voice and music) are handled; then \"just write the spec\". iOS cannot set the system volume (Apple); cars keep one volume per group and duck media relative to it (AOSP). | 2026-11-10: Built bf18f6c (merge 2026-11-10). Gates PASS on d4861a1: python 58 OK, runners 0, imports 299/0, secrets 0, NovaCore 779 passed (1 known NoiseCorpus issue), NovaRealtime 45, NovaServices 74, spec-trace 117/0. Independent read-only high-effort review PASS; Low open: set to current end level gives no limit_reached; two announce lines (voice mute / below 2) are builder wording not yet in volume.md §4; setLaneGains waits on mediaQueue (must never wait on main). App/NovaAudio not compiled; device rows 10-12 NOT_VERIFIED.",
+      "evidence": [
+        "bf18f6c; scripts/gates/run_all.sh PASS on d4861a1 (python 58 OK, runners 0, imports 299/0, secrets 0, NovaCore 779 passed with 1 known NoiseCorpus issue, NovaRealtime 45, NovaServices 74, spec-trace 117/0)",
+        "Independent read-only review (high effort) 2026-11-10: PASS, 4 Low open"
+      ],
+      "archived_on": "2026-11-22",
+      "archive_reason": "finished 2026-11-13, before the 2026-11-14 trip cycle; nothing open depends on it; pending device rows stay findable via history.py find"
+    },
+    {
+      "id": "T-032i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-13a §10 items 1-6: NovaGitCommit build stamp in 设置 and the record header; tools declared line; 音量 in the base prompt strict list; set_volume description starts with its trigger; ClaimLexicon request gains 音量/大声/小声/调大/调小; rows 13-16 unit, 17 device (also closes T-032g rows 10-11).",
+      "depends_on": [
+        "T-032g"
+      ],
+      "notes": "Owner 2026-11-13: she says 無法調節音樂的音量; the phone shows no volume sliders, so the installed build predates T-032g, and every build reads 0.1.0(1).",
+      "evidence": [
+        "4e12309, f3ee834: run_all.sh green on Linux Swift 6.2 (NovaCore 781, 1 known issue; NovaRealtime 42; NovaServices 74)",
+        "independent high-effort review REWORK -> fixed -> PASS",
+        "rows 13-16 unit PASS; row 17 and T-032g rows 10-11 device NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-22",
+      "archive_reason": "finished 2026-11-13, before the 2026-11-14 trip cycle; nothing open depends on it; pending device rows stay findable via history.py find"
+    },
+    {
+      "id": "T-020d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-07 §17 items 1-8: delete AzureSpeechClient, AzureRegionProbe and every Azure setting, key and option; one-time cleanup (azure source -> Gemini 原声, delete azure_speech_key, remove azure_region/azure_voice, flag azure_removed_done); AzureSpeechTuning -> SpeechTuning unchanged values; SpeechSynthesizer loses style; gate test: no 'azure' under App/ or Packages/; update current-behaviour specs; rows 19-25.",
+      "depends_on": [
+        "T-020b"
+      ],
+      "notes": "Owner 2026-11-10: remove Azure completely (T-090 had kept it as a selectable source). Qwen and Gemini 原声 stay. Secrets-gate fixtures keep AZURE_SPEECH_KEY as a sample key name. | 2026-11-13: Built 6b68e53 + review fixes 9d3787b. Item 6 contract edit: the cleanup must name the retired keys (item 3), so RetiredVoiceSettings.swift and its test are the gate's only allowed paths; the secrets-gate fixture App/Info.plist planted key AzureSpeechKey -> ZhipuKey (the gate derives names from CredentialKey). HTTPTransport and the test StubTransport moved out of the deleted Azure files unchanged. CredentialWipe also removes the retired key. App/NovaAudio not compiled on Linux; row 23 build and rows 24-25 device NOT_VERIFIED.",
+      "evidence": [
+        "9d3787b; scripts/gates/run_all.sh PASS on Linux with Swift 6.2 (python gate tests OK, imports 302/0, NovaCore 776 passed with 1 known NoiseCorpus issue, NovaRealtime 42, NovaServices 74, spec-trace 121/0); baseline main b305c60 also green",
+        "Independent read-only review (high effort) 2026-11-13: REWORK (Medium: gate allowlist by file name), fixed in 9d3787b; re-review PASS"
+      ],
+      "archived_on": "2026-11-22",
+      "archive_reason": "finished 2026-11-13, before the 2026-11-14 trip cycle; nothing open depends on it; pending device rows stay findable via history.py find"
+    },
+    {
+      "id": "T-031e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-12 §16 items 1-14: end of reply at generationComplete, decision from last sentence, scorer checked on real replies and known outcomes, trial run, 100 cases, pass^3, paired comparison with interval, clean runs, correction in the runner, two small rule changes on tuning cases, score table and model; rows 1-9",
+      "depends_on": [
+        "T-031d"
+      ],
+      "notes": "Owner 2026-11-03 \"what ever you just take those approach and write that on spec\". Bars in item 14 are PROPOSED. Item 4 verdicts come from the owner and mentor before the full run. T-031c stays an owner decision.",
+      "evidence": [
+        "specs/STATUS.md:114 (2026-11-03, T-031e, result PASS): Run ends at audioDone or responseDone (stage answerDone, first reply only); decision from last sentence (ask) / first or last (refuse), real c4fa669 replies as fixtures; known good and bad outcome for all 100 cases; 34 new cases (20 held out h3*, 12 noTool/ask, 14 unprompted); 「试跑」 12 cases once, …"
+      ],
+      "archived_on": "2026-11-22",
+      "archive_reason": "finished 2026-11-03, before the 2026-11-14 trip cycle; nothing open depends on it; pending device rows stay findable via history.py find"
+    },
+    {
+      "id": "T-013j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 2,
+      "action": "F-04b §16 items 1-10: scripts/speaker_cohort.py (CN-Celeb1 dev cohort, EER threshold on CN-Celeb1 test), SpeakerScoreNorm (AS-norm, topN 300), whole-utterance scoring in SpeakerHold, no calibration, 设置 texts; rows 51-60. Do not download CN-Celeb in the cloud; tests use a synthetic cohort.",
+      "depends_on": [
+        "T-013i"
+      ],
+      "notes": "Owner 2026-11-06 (50a55a4): scores bunch at 0.40-0.64 around the 0.46 threshold, so the lock cannot separate voices. Owner wants only their own voiceprint, no calibration, copied from published practice (WeSpeaker AS-norm). Row 57 (real cohort file) runs on the owner PC and is committed before the device rows.",
+      "evidence": [
+        "Gates run_all.sh exit 0",
+        "Row 51: scripts/gates/tests/test_speaker_cohort.py (6 tests, synthetic set, fake embedder); speaker_cohort.py unchanged",
+        "Unit rows 52-56: SpeakerCohortTests; row 52 parity 1.1272553062759825 from speaker_cohort.as_norm",
+        "Removed tests for §13, §14 items 1-7 and §15 rows 27-32, 37-41, 47-48 (no longer apply); row 42 notice test kept",
+        "Independent high-effort review PASS, no blocking findings",
+        "Row 57 owner PC run pending; rows 58-60 device NOT_VERIFIED"
+      ],
+      "archived_on": "2026-11-22",
+      "archive_reason": "finished 2026-11-06, before the 2026-11-14 trip cycle; nothing open depends on it; pending device rows stay findable via history.py find"
+    },
+    {
+      "id": "T-046l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 3,
+      "action": "F-18 §23 items 5-8: driver words to Qwen (FreshPrompt user message), scripts/search_eval harness (not run); unit row 5",
+      "depends_on": [
+        "T-046j"
+      ],
+      "notes": "Race blocker fixed 2026-11-05. App line (AgentRuntime driverWords: words(for:)) builds only on iOS CI.",
+      "evidence": [
+        "Gates run_all.sh exit 0 (NovaCore 633, 1 known NoiseCorpus issue; NovaRealtime 36)",
+        "Words snapshot per CallID at toolCalls (DriverWordsHolder.words(for:)); test snapshotPerCall",
+        "Independent high-effort review PASS; its eviction finding fixed (no snapshot -> nil)",
+        "Row 6 (PC search_eval run) NOT_VERIFIED: needs DASHSCOPE_API_KEY on the owner's PC"
+      ],
+      "archived_on": "2026-11-22",
+      "archive_reason": "finished 2026-11-05, before the 2026-11-14 trip cycle; nothing open depends on it; pending device rows stay findable via history.py find"
+    },
+    {
+      "id": "T-046s",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §30 items 1-6: TCPHTTPTransport (NWConnection TCP+TLS, HTTP/1.1 GET, Connection: close, read to close) as OpenMeteoClient's default for geocoding and forecast; HTTP1Response.parse (Content-Length, chunked, to close); one retry on timeout or connection failure, not on non-200; WeatherSourceLog attempts= ms=; ConversationRecord .weather line from onWeather; F-18 §30 rows 1-9.",
+      "depends_on": [
+        "T-046r"
+      ],
+      "notes": "Device 2026-11-13: every Open-Meteo weather call failed (records 125926, 130250, 131201, 131842; Tokyo x6, Macau x1). Live log 13:25: forecast C42/C43 quic-connection, stalled at read_server_hello, -1001 after 4001 ms with 0 bytes; geocoding C41 over QUIC ok in 1.8 s; PC over TCP ok. URLSessionTransport is already ephemeral. Apple DTS (forum 796780): no good way to disable QUIC for one URLSession. Owner: \"well then write the spec\".",
+      "evidence": [
+        {
+          "gate": "scripts/gates/run_all.sh",
+          "result": "green at 48cffc6 in a clean worktree (spec-trace 120 ids 0 missing; imports, runners PASS); NovaServices 80 tests incl. OpenMeteoTCPTests rows 1-5; NovaNav WeatherAttemptsTests + NovaAgent WeatherRecordTests row 6. TCPHTTPFetcher (NovaPlatform) and App not compiled on Linux: row 7 NOT_VERIFIED until Codemagic; rows 8-9 device NOT_VERIFIED"
+        },
+        {
+          "review": "independent read-only high effort",
+          "result": "round 1 FAIL (chunk-size overflow crash; deviation unrecorded) fixed in 48cffc6; round 2 PASS. Deviation: NWConnection code in NovaPlatform (check_imports allows Network only there), injected by AgentRuntime; owner sign-off on §30 wording pending"
+        }
+      ],
+      "archived_on": "2026-11-22",
+      "archive_reason": "finished 2026-11-13, before the 2026-11-14 trip cycle; nothing open depends on it; pending device rows stay findable via history.py find"
+    },
+    {
+      "id": "T-046t",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "action": "F-18 §31 items 1-10: QWeatherClient (GeoAPI city lookup, /weather/v1 current, daily days=10, hourly hours=240, X-QW-Api-Key, localTime=true, lang=zh); qweather_host/qweather_key in 设置; 和风 lookup for HK, MO, foreign and non-Han names, 高德 geocode/regeo kept for Chinese names, here and destination; 高德 weather removed; Open-Meteo fallback on no key, timeout, 401/403/429/5xx or parse failure; 10-day window in all texts and forecast_days=10; record line source=qweather; F-18 §31 rows 1-12.",
+      "depends_on": [
+        "T-046s"
+      ],
+      "notes": "Device 2026-11-13 (f84b538): over TCP, Tokyo still failed 8 of 8; Open-Meteo (Germany) connect+TLS 1.0-2.2 s, sometimes over 4 s. Owner: \"you just write the spec that use 和風\". Needs the owner's 和风 API host and key; PC check of speed, free coverage and lookup order before the device test.",
+      "evidence": [
+        "gates: scripts/gates/run_all.sh PASS at 5898e56 (clean worktree; spec-trace 123, 0 missing; NovaServices 84 tests; NovaCore 779 passed, 1 known issue)",
+        "review: independent read-only high-effort reviewer FAIL at 57482d4 (M1-M3), fixed in 5898e56, re-review PASS",
+        "NOT_VERIFIED: row 10 Codemagic build/设置 check; rows 11-12 device runs with 和风 key; range=hk/mo device check",
+        "non-blocking follow-ups: L1 executor tests (adcode 81/82 hkmo, concurrent now requests, destination weather); L3 record line on regeo key error; L4 regeo address alongside 和风; L5 place date when daily fails; L7 dead code"
+      ],
+      "archived_on": "2026-11-22",
+      "archive_reason": "finished 2026-11-13, before the 2026-11-14 trip cycle; nothing open depends on it; pending device rows stay findable via history.py find"
     }
   ]
 }
