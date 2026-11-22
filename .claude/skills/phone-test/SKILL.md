@@ -39,6 +39,13 @@ missing, fix this file in the same session (commit it) so the next session does 
   signing team would install a second app and lose nothing, but it is not an update).
 - xtool can take 20+ minutes; run it in the background and wait on its output.
 
+- **Sideloadly overwrites the install.** Found 2026-11-22: `sideloadlydaemon.exe` (starts with Windows) keeps a
+  Nov 10 installation of NovaDrive (same bundle id, stored `NovaDrive-unsigned.ipa`, refresh every 96 h) and at a
+  refresh re-installs that old IPA over the xtool update. Before an install and before the owner tests, check
+  `Get-Process sideloadlydaemon`; if it runs, ask the owner to remove the Nova Drive entry (or turn off
+  auto-refresh) in Sideloadly. A record whose header has no build sha, or the text 「连接错误：」 on screen, means the
+  old Sideloadly build is on the phone.
+
 ## 3. Before it works (once per PC boot) - OWNER only if it fails
 - Phone plugged in, unlocked, trusted.
 - Elevated `pymobiledevice3 remote tunneld` running (UAC prompt once per boot): phone_check reports
