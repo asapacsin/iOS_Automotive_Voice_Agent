@@ -170,35 +170,13 @@ public enum ToolCatalog {
 
     public static let maxTripStops = 16
     public static let maxTripName = 40
-    /// F-15b §48 item 1 (T-040t): `places` may list about 1.5 times what the days need.
-    public static let maxTripCandidates = 24
     public static let tripPaces = ["relaxed", "normal", "packed"]
-    /// §48 item 1: a place is a name, or `{name, minutes, optional}`.
-    public static let tripPlaceItem: JSONValue = [
-        "type": "object",
-        "properties": [
-            "name": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
-            "minutes": ["type": "integer", "minimum": 15, "maximum": 600],
-            "optional": ["type": "boolean"],
-            // §49 item 1 (T-040u).
-            "importance": ["type": "integer", "minimum": 1, "maximum": 3],
-            // F-15b §50 item 2 (T-040v): the place is a night's hotel.
-            "role": ["type": "string", "enum": ["hotel"]],
-        ],
-        "required": ["name"],
-        "additionalProperties": false,
-    ]
-    /// F-15b §52 item 14 (T-040zb): `add`, `remove`, `move`, `move … to_day` and `reorganize` are removed; the plan is
-    /// written whole with `set_trip_plan`.
-    public static let tripEditActions = ["replace", "clear", "read", "visited", "skip"]
-
-    public static let makeTripListDescription = "做打卡清单或规划行程：「做个打卡清单」「规划天津三天的行程」「准备一个广东三天的旅游行程」「把这些地方存下来」。刚才推荐过地点就用那些；没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里（说的是省就挑省里有名的城市和景点）。places 填地点（最多24个，name 只写地名，不写介绍；吃东西的地方写店名，比如「安德鲁饼店」，不写「安德鲁葡挞」）；地点都在一个城市时填 city，跨城市时不填 city，地名前加城市，比如「潮州广济桥」。会替换旧清单。司机说去一个新地方、规划新的行程（比如有东京的行程时说「规划澳门两天」），就用这个，不要用 set_trip_plan 改旧行程。几天的行程一次调用：places 填整个行程的地点池，加 day_count，代码会按车程和时间分到每天，比如「规划广州两天」→day_count=2，places=[{name:\"广州塔\",minutes:90,importance:3},{name:\"长隆野生动物世界\",minutes:480,importance:3},{name:\"陈家祠\",minutes:60,importance:2},{name:\"沙面\",minutes:60,importance:2},{name:\"北京路步行街\",minutes:60,importance:2},{name:\"越秀公园\",minutes:90,importance:1},{name:\"广州酒家\",minutes:60,importance:1},{name:\"珠江夜游\",minutes:90,importance:1}]。司机自己说了哪天去哪里，才用 days 代替 places，每天一组地点。只改某一天时用 places 加 day：「第一天去古文化街和五大道」→day=1。结果稍后回来：\(tripWorkingLine)按结果答：按 next 说；not_found 里的地点说没找到；不要念整张清单，司机问时再念。清单会按司机现在的位置和真实车程自动排好顺序、分好天。行程在中国以外（不含港澳台）时填 abroad=true，并且 city 一定要填英文城市名加国家，比如 \"Tokyo, Japan\"；地名（包括 start、end、hotels）都写成「中文名 (英文名)」，比如「浅草寺 (Senso-ji)」「成田机场 (Narita International Airport)」。司机说了从哪里出发、在哪里结束就填 start、end（比如机场）；说了住哪里就填 hotels（一个=每晚都住这家，或每晚一个）；没说酒店就不填，会自动挑。没说起点就不填。NO_START=问司机从哪里出发。司机要租车就填 rental=true，会自动在起点附近找取车点、在终点附近找还车点。places 每项写 {name, minutes, importance}：minutes 是一般游玩要多少分钟（你估计，比如迪士尼 480、寺庙 60）；importance 3=必去（司机点名的、这趟就是为它来的），2=值得去，1=可去可不去。多给一些，大约是排满几天所需的 1.5 倍，最重要的放前面，排不下的会自动去掉。几天的行程填 day_count；司机说轻松一点填 pace=relaxed，排紧一点填 pace=packed。司机对行程有要求但不是地点的（酒店靠近车站、便宜一点、少一点寺庙）写进 wishes。司机要求酒店靠近某个地方（车站、景点）时，把那个地方写进 hotel_near，不要自己编酒店名。结果是 trip_needs_fix 时先不要说话，直接按 issues 改好行程，调用 set_trip_plan。"
     /// F-15b §49 item 10 (T-040u).
     /// F-15b §50 item 5 (T-040v): the one line she says while a trip is made or revised in the background; nothing
     /// between rounds (§49 item 9), one summary at the end.
     public static let tripWorkingLine = "先只说一句：好，我规划一下，大概半分钟。然后不要说话，等结果。"
-    /// F-15b §52 item 3 (T-040zb): the catalog text of `set_trip_plan`, exactly as §52 gives it.
-    public static let setTripPlanDescription = "修改行程：只用来改屏幕上这份行程（加减地点、换酒店、调顺序）；司机要规划去别的城市或国家，用 make_trip_list。把整份行程（每天的地点，带 id 和 role）按司机的意思改好后整份传回。已有的地点只写 id；新地点写 name。role：start 出发点（第一天第一个）、end 终点（最后一天最后一个）、hotel 住的酒店（每晚一个：当天最后一个、第二天第一个）、sight 景点。司机说了住哪个酒店，就把它写成每晚的 hotel。去掉的地点不写。结果稍后回来：\(tripWorkingLine)"
+    /// F-15b §55 item 12 (T-040zh, replaces §52's): the catalog text of `set_trip_plan`, exactly as §55 gives it.
+    public static let setTripPlanDescription = "做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，跨城市就写省或地区）。改行程：已有的地点只写 id，新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},{name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},{name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。结果稍后回来：\(tripWorkingLine)"
     public static let tripRoles = ["start", "sight", "hotel", "end", "rental_pickup", "rental_return"]
     public static let maxTripStopID = 12
     /// §52 item 3: a stop of `set_trip_plan`: `{id}` (kept), `{id, role|minutes}` (kept, field changed) or
@@ -211,11 +189,11 @@ public enum ToolCatalog {
             "role": ["type": "string", "enum": .array(tripRoles.map { .string($0) })],
             "minutes": ["type": "integer", "minimum": 15, "maximum": 600],
             "importance": ["type": "integer", "minimum": 1, "maximum": 3],
+            // F-15b §55 item 7 (T-040zh): `{role: hotel, near}`.
+            "near": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
         ],
         "additionalProperties": false,
     ]
-    public static let maxTripWishes = 60
-    public static let editTripListDescription = "改打卡清单里的一项（结果稍后回来：先只说一句在改，结果回来前不要说清单里有什么）：「第三个换成五大道」→replace；「清单里有什么」「打开行程」「看看行程」→read；「清空清单」→clear；「已经去过了」→visited；「跳过这个」→skip。第几个按她最后说的清单顺序；说到第几天时填 day，不说就是刚才那一天。加、去掉、挪动地点，改起点、终点、酒店，重新排，都用 set_trip_plan。按结果答：一句话说改了什么；ok=false 按 error：NO_TRIP_LIST=还没有清单，OUT_OF_RANGE=没有这一项，NOT_FOUND=没找到这个地方，CONFIRM_CLEAR=先问司机是不是要清空整个行程，司机说是再调用 clear。司机说「打开行程」「看看行程」时用 action=read。"
     /// F-15b §29 item 1, §31 (T-040n): one stop at a time.
     public static let tripNextDescription = "行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。已在苹果地图打开=告诉司机，到了说「已经到了」。"
     public static let tripPlansDescription = "保存、打开、列出、删除、改名行程：「把这个行程存成天津一日游」→save name=天津一日游；「打开天津一日游」→open；「我存了哪些行程」→list；「删掉天津那个行程」→delete；「改名叫周末出游」→rename。打开后要导航就调用 trip_next。按结果答：一句话说做了什么；list 只说有几个和名字；ok=false 按 error：NO_TRIP_LIST=还没有清单，PLAN_NOT_FOUND=没有这个行程，PLANS_FULL=最多存20个，AMBIGUOUS=有多个请说全名。"
@@ -223,50 +201,6 @@ public enum ToolCatalog {
     public static let tripDay: JSONValue = ["type": "integer", "minimum": 1, "maximum": 5]
 
     public static let tripSpecs: [ToolSpec] = [
-        ToolSpec(domain: "navigation", repeatSensitive: true, declaration: ToolDeclaration(
-            name: "make_trip_list", description: makeTripListDescription,
-            parametersJSONSchema: [
-                "type": "object",
-                "properties": [
-                    "places": ["type": "array", "minItems": 1, "maxItems": .int(Int64(maxTripCandidates)),
-                               "items": tripPlaceItem],
-                    "days": ["type": "array", "minItems": 1, "maxItems": 5,
-                             "items": ["type": "array", "minItems": 1, "maxItems": .int(Int64(maxTripStops)),
-                                       "items": tripPlaceItem]],
-                    // F-15b §48 item 1 (T-040t).
-                    "day_count": tripDay,
-                    "pace": ["type": "string", "enum": .array(tripPaces.map { .string($0) })],
-                    "city": ["type": "string", "maxLength": 20],
-                    "day": tripDay,
-                    // F-15b §36–§37 (T-040o).
-                    "abroad": ["type": "boolean"],
-                    "start": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
-                    "end": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
-                    "hotels": ["type": "array", "minItems": 1, "maxItems": 4,
-                               "items": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))]],
-                    // F-15b §45 item 1 (T-040q).
-                    "rental": ["type": "boolean"],
-                    // F-15b §49 item 2 (T-040u).
-                    "wishes": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripWishes))],
-                    // F-15b §50 item 2 (T-040v).
-                    "hotel_near": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
-                ],
-                "additionalProperties": false,
-            ])),
-        // Not repeat-sensitive: 「跳过这个，下一个也跳过」 can be two identical calls.
-        ToolSpec(domain: "navigation", repeatSensitive: false, declaration: ToolDeclaration(
-            name: "edit_trip_list", description: editTripListDescription,
-            parametersJSONSchema: [
-                "type": "object",
-                "properties": [
-                    "action": ["type": "string", "enum": .array(tripEditActions.map { .string($0) })],
-                    "index": ["type": "integer", "minimum": 1],
-                    "name": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
-                    "day": tripDay,
-                ],
-                "required": ["action"],
-                "additionalProperties": false,
-            ])),
         // F-15b §52 item 3 (T-040zb): the whole plan written back.
         ToolSpec(domain: "navigation", repeatSensitive: false, declaration: ToolDeclaration(
             name: "set_trip_plan", description: setTripPlanDescription,
@@ -277,6 +211,8 @@ public enum ToolCatalog {
                              "items": ["type": "array", "maxItems": .int(Int64(maxTripStops + 4)), "items": tripPlanStop]],
                     "pace": ["type": "string", "enum": .array(tripPaces.map { .string($0) })],
                     "optimise": ["type": "boolean"],
+                    // F-15b §55 item 2 (T-040zh): the trip's city (or province/region); required for a new plan.
+                    "city": ["type": "string", "minLength": 1, "maxLength": 20],
                 ],
                 "required": ["days"],
                 "additionalProperties": false,
@@ -466,109 +402,28 @@ public enum ToolCatalog {
             } else {
                 guard let n = str("name"), !trimmed(n).isEmpty, n.utf16.count <= 40 else { return .invalidName }
             }
-        case "make_trip_list":
-            // F-15b §5.1: 1–16 names of 1–40 characters, optional city ≤ 20.
-            // §15 item 6: either places (optional day) or days (1–5 groups of 1–16 names, no day).
-            guard keys.isSubset(of: ["places", "days", "city", "day", "abroad", "start", "end", "hotels", "rental",
-                                     "day_count", "pace", "wishes", "hotel_near"]),
-                  keys.contains("places") != keys.contains("days"),
-                  !(keys.contains("days") && keys.contains("day")) else { return .invalidFields }
-            if keys.contains("day"), !isDay(a["day"]) { return .invalidFields }
-            // §48 item 1 (T-040t): day_count 1–5 with places (not with one day), pace one of three.
-            if keys.contains("day_count") {
-                guard isDay(a["day_count"]), keys.contains("places"), !keys.contains("day") else { return .invalidFields }
-            }
-            if keys.contains("pace"), !(str("pace").map(tripPaces.contains) ?? false) { return .invalidFields }
-            // §49 item 2 (T-040u): wishes 1–60 characters.
-            if keys.contains("wishes") {
-                guard let w = str("wishes"), !trimmed(w).isEmpty, w.count <= maxTripWishes else { return .invalidFields }
-            }
-            // §50 item 2 (T-040v): hotel_near 1–40 characters.
-            if keys.contains("hotel_near") {
-                guard let h = str("hotel_near"), !trimmed(h).isEmpty, h.count <= maxTripName else { return .invalidFields }
-            }
-            var groups: [[JSONValue]] = []
-            if case .array(let places)? = a["places"] { groups = [places] }
-            if case .array(let days)? = a["days"] {
-                guard (1...5).contains(days.count) else { return .invalidFields }
-                for day in days {
-                    guard case .array(let places) = day else { return .invalidFields }
-                    groups.append(places)
-                }
-            }
-            guard !groups.isEmpty else { return .invalidFields }
-            for places in groups {
-                guard (1...(keys.contains("places") ? maxTripCandidates : maxTripStops)).contains(places.count) else { return .invalidFields }
-                for place in places {
-                    // §48 item 1: a name, or {name, minutes, optional} (minutes outside 15–600 is clamped, not refused).
-                    let n: String?
-                    if case .object(let o) = place {
-                        guard Set(o.keys).isSubset(of: ["name", "minutes", "optional", "importance", "role"]),
-                              o["role"] == nil || o["role"]?.stringValue == "hotel",
-                              o["importance"] == nil || (o["importance"]?.intValue.map { (1...3).contains($0) } ?? false),
-                              o["minutes"] == nil || o["minutes"]?.intValue != nil,
-                              o["optional"] == nil || o["optional"]?.boolValue != nil else { return .invalidFields }
-                        n = o["name"]?.stringValue
-                    } else {
-                        n = place.stringValue
-                    }
-                    guard let n, !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
-                }
-            }
-            if keys.contains("city") {
-                guard let c = str("city"), !trimmed(c).isEmpty, c.utf16.count <= 20 else { return .invalidFields }
-            }
-            // §36 item 1, §37 item 1 (T-040o): the flag, the trip's ends, 1–4 hotels (their count is checked against the days).
-            if keys.contains("abroad"), a["abroad"]?.boolValue == nil { return .invalidFields }
-            // §45 item 1 (T-040q): rental is a bool.
-            if keys.contains("rental"), a["rental"]?.boolValue == nil { return .invalidFields }
-            for k in ["start", "end"] where keys.contains(k) {
-                guard let n = str(k), !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
-            }
-            if keys.contains("hotels") {
-                guard case .array(let hotels)? = a["hotels"], (1...4).contains(hotels.count) else { return .invalidFields }
-                // One for every night, or one per night (days − 1).
-                let dayCount = keys.contains("days") ? groups.count : Int(a["day_count"]?.intValue ?? 1)
-                guard hotels.count == 1 || hotels.count == dayCount - 1 else { return .invalidFields }
-                for h in hotels {
-                    guard let n = h.stringValue, !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
-                }
-            }
-        case "edit_trip_list":
-            // F-15b §5.2 with §52 item 14 (T-040zb): the fields each kept action needs.
-            guard let action = str("action"), tripEditActions.contains(action) else { return .invalidFields }
-            guard keys.isSubset(of: ["action", "index", "name", "day"]) else { return .invalidFields }
-            if keys.contains("day"), !isDay(a["day"]) { return .invalidFields }
-            let keys = keys.subtracting(["day"])
-            if keys.contains("index") {
-                switch a["index"] {
-                case .int: break
-                case .double(let v) where v.truncatingRemainder(dividingBy: 1) == 0: break
-                default: return .invalidFields
-                }
-            }
-            if keys.contains("name") {
-                guard let n = str("name"), !trimmed(n).isEmpty, n.utf16.count <= maxTripName else { return .invalidFields }
-            }
-            let needs: Bool = switch action {
-            case "replace": keys == ["action", "index", "name"]
-            // §29 item 2: the stop of the current day.
-            case "visited", "skip": keys == ["action", "index"]
-            default: keys == ["action"]
-            }
-            if !needs { return .invalidFields }
         case "set_trip_plan":
             // F-15b §52 item 3 (T-040zb): 1–5 days of stops; each stop `{id}`, `{id, role|minutes}` or
             // `{name, role?, minutes?, importance?}`. The plan's own rules are §52 item 5's `PLAN_CHECK`, not these.
-            guard keys.contains("days"), keys.isSubset(of: ["days", "pace", "optimise"]) else { return .invalidFields }
+            guard keys.contains("days"), keys.isSubset(of: ["days", "pace", "optimise", "city"]) else { return .invalidFields }
+            // §55 item 2 (T-040zh): city 1–20 characters (its presence for a new plan is `PLAN_CHECK`).
+            if keys.contains("city") {
+                guard let c = str("city"), !trimmed(c).isEmpty, c.utf16.count <= 20 else { return .invalidFields }
+            }
             if keys.contains("pace"), !(str("pace").map(tripPaces.contains) ?? false) { return .invalidFields }
             if keys.contains("optimise"), a["optimise"]?.boolValue == nil { return .invalidFields }
             guard case .array(let days)? = a["days"], (1...5).contains(days.count) else { return .invalidFields }
             for day in days {
                 guard case .array(let stops) = day, stops.count <= maxTripStops + 4 else { return .invalidFields }
                 for stop in stops {
-                    guard case .object(let o) = stop, Set(o.keys).isSubset(of: ["id", "name", "role", "minutes", "importance"]),
-                          (o["id"] == nil) != (o["name"] == nil) else { return .invalidFields }
+                    // §55 item 7: exactly one of id, name and near; near only on a hotel.
+                    guard case .object(let o) = stop,
+                          Set(o.keys).isSubset(of: ["id", "name", "role", "minutes", "importance", "near"]),
+                          [o["id"], o["name"], o["near"]].compactMap({ $0 }).count == 1 else { return .invalidFields }
+                    if let n = o["near"] {
+                        guard o["role"]?.stringValue == "hotel", let v = n.stringValue, !trimmed(v).isEmpty,
+                              v.utf16.count <= maxTripName, o["minutes"] == nil, o["importance"] == nil else { return .invalidFields }
+                    }
                     if let id = o["id"] {
                         guard let v = id.stringValue, !trimmed(v).isEmpty, v.count <= maxTripStopID,
                               o["importance"] == nil else { return .invalidFields }

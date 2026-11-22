@@ -85,23 +85,11 @@ struct TripPhase3Tests {
 
     // MARK: §28 the plan
 
-    @Test("F-15b row 74 (with §48 item 4.4): make_trip_list days=[[A,B],[C]] comes back ordered by driving time, each place on its group's day, with plan")
-    func row74() async {
-        let (rig, _) = await timesRig()
-        let r = await rig.run(trip("make_trip_list", ["days": [names(["天津之眼", "瓷房子"]), names(["五大道"])]]))
-        #expect(r.ok)
-        // §48 item 4.4 (T-040t) replaces the re-cut of §27 item 3: each group stays a day, ordered from the origin
-        // (39.00) north: 瓷房子 39.02, then 天津之眼 39.16; day 2 is 五大道.
-        #expect(await dayNames(rig) == [["瓷房子", "天津之眼"], ["五大道"]])
-        #expect(planNames(r.data["plan"]) == [names(["瓷房子", "天津之眼"]), names(["五大道"])])
-        #expect(await rig.order() == ["瓷房子", "天津之眼"])
-    }
-
     @Test("F-15b row 76: trip_next with stop 1 visited drives to stop 2, a single destination; stop 3 is the one after")
     func row76() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼"])]))
-        _ = await rig.run(trip("edit_trip_list", ["action": "visited", "index": 1]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道", "天津之眼"])]))
+        await rig.planner.markForTests(index: 1, .visited)
         let r = await rig.run(trip("trip_next"))
         #expect(r.ok && r.data["status"] == "trip_next" && r.data["index"] == .int(2) && r.data["name"] == "五大道")
         #expect(r.data["after"] == "天津之眼")
@@ -109,14 +97,13 @@ struct TripPhase3Tests {
         #expect(request?.destinationName == "五大道")
         #expect(await rig.nav.current.tripStopID == "五大道")
         #expect(rig.lines.withLock { $0 }.contains("trip next index=2 day=1 ok=yes code=none"))
-        #expect(rig.lines.withLock { $0 }.contains("trip visit index=1 day=1 by=voice"))
     }
 
     @Test("F-15b row 77: arrived at the stop marks it visited and sends the note; guidance stopped early marks nothing")
     func row77() async {
         let notes = TripLines()
         let rig = await TripRig(notes: notes)
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         _ = await rig.run(trip("trip_next"))
         // Stopped early: no mark.
         _ = await rig.nav.execute(trip("exit_navigation_mode"))
@@ -132,9 +119,9 @@ struct TripPhase3Tests {
     @Test("F-15b row 78: every stop of the day visited or skipped: trip_next is DAY_DONE")
     func row78() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        _ = await rig.run(trip("edit_trip_list", ["action": "visited", "index": 1]))
-        _ = await rig.run(trip("edit_trip_list", ["action": "skip", "index": 2]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
+        await rig.planner.markForTests(index: 1, .visited)
+        await rig.planner.markForTests(index: 2, .skipped)
         let done = await rig.run(trip("trip_next"))
         #expect(done.code == .dayDone)
         // F-09b §13 row 7 (T-031o): the last day is done; no next day is offered.
@@ -146,8 +133,8 @@ struct TripPhase3Tests {
     @Test("F-15b row 79: trip_plans open has plan with every day's names and marks")
     func row79() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["days": [names(["古文化街", "五大道"]), names(["天津之眼"])]]))
-        _ = await rig.run(trip("edit_trip_list", ["action": "visited", "index": 1]))
+        _ = await rig.run(planCall(["days": [names(["古文化街", "五大道"]), names(["天津之眼"])]]))
+        await rig.planner.markForTests(index: 1, .visited)
         _ = await rig.run(trip("trip_plans", ["action": "save", "name": "天津两日"]))
         let r = await rig.run(trip("trip_plans", ["action": "open", "name": "天津两日"]))
         #expect(planNames(r.data["plan"]) == [names(["古文化街（已去过）", "五大道"]), names(["天津之眼"])])
@@ -158,15 +145,11 @@ struct TripPhase3Tests {
         let declared = ToolCatalog.declarations(webSearch: false).map(\.name)
         #expect(!declared.contains("route_trip") && declared.contains("trip_next"))
         func text(_ n: String) -> String { ToolCatalog.spec(n)!.declaration.description }
-        #expect(text("make_trip_list").contains("清单会按司机现在的位置和真实车程自动排好顺序、分好天。"))
-        // §52 item 14 (T-040zb): reorganize and move to_day are removed; set_trip_plan writes the plan.
-        #expect(text("edit_trip_list").contains("「已经去过了」→visited；「跳过这个」→skip。"))
-        #expect(text("edit_trip_list").contains("都用 set_trip_plan"))
         #expect(text("trip_next").hasPrefix("行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。"))
         #expect(text("trip_plans").contains("打开后要导航就调用 trip_next。") && !text("trip_plans").contains("route_trip"))
         #expect(ToolCatalog.validate(trip("trip_next", ["day": 2, "stop": "长隆"])) == nil)
-        #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": "reorganize", "start": "横琴", "days": 2])) == .invalidFields)
-        #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": "visited"])) == .invalidFields)
+        // §55 item 11 (T-040zh): make_trip_list and edit_trip_list are removed.
+        #expect(!declared.contains("make_trip_list") && !declared.contains("edit_trip_list"))
     }
 
     // MARK: review fixes
@@ -174,11 +157,11 @@ struct TripPhase3Tests {
     @Test("F-15b §29 item 1: trip_next while guiding stops the old guidance first, as 换成X")
     func nextReplacesGuidance() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         _ = await rig.run(trip("trip_next"))
         #expect(await rig.nav.current.navigating)
         rig.engine.calls.withLock { $0.removeAll() }
-        _ = await rig.run(trip("edit_trip_list", ["action": "skip", "index": 1]))
+        await rig.planner.markForTests(index: 1, .skipped)
         let r = await rig.run(trip("trip_next"))
         #expect(r.ok && r.data["name"] == "五大道")
         let calls = rig.engine.calls.withLock { $0 }

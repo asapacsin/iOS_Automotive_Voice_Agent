@@ -117,11 +117,11 @@ struct DispatchTests {
             "control_music", "play_music", "control_climate", "control_window", "control_seat",
             "describe_camera_view", "place_call", "query_live_info", "end_conversation", "set_speech_output",
             "set_speaking_style", "set_volume", "get_vehicle_state", "undo_last_change",
-            // F-15b §5 (T-040i).
-            "make_trip_list", "edit_trip_list", "set_trip_plan", "trip_next", "trip_plans",
+            // F-15b §5 (T-040i); §55 item 11 (T-040zh) removed make_trip_list and edit_trip_list.
+            "set_trip_plan", "trip_next", "trip_plans",
             // F-09b §16 item 8 (T-031za).
             "show_place"])
-        #expect(ToolCatalog.spec("edit_trip_list")?.repeatSensitive == false)
+        #expect(ToolCatalog.spec("set_trip_plan")?.repeatSensitive == false)
         #expect(ToolCatalog.spec("describe_camera_view")?.repeatSensitive == false)
         #expect(ToolCatalog.spec("set_speaking_style")?.repeatSensitive == true)
         #expect(ToolCatalog.spec("play_music")?.declaration.parametersJSONSchema["required"] == nil)

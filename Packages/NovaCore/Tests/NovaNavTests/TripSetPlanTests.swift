@@ -35,8 +35,11 @@ private func stop(_ id: String? = nil, name: String? = nil, role: String? = nil)
     return .object(o)
 }
 
+/// §55 item 2 (T-040zh): a plan that keeps no id is a new plan and needs `city`; these Sapporo plans get 札幌.
 private func setPlan(_ days: [[JSONValue]], _ extra: [String: JSONValue] = [:]) -> ToolCall {
-    trip("set_trip_plan", ["days": .array(days.map { .array($0) })].merging(extra) { $1 })
+    let new = !days.joined().contains { $0["id"] != nil } && !days.joined().isEmpty
+    let city: [String: JSONValue] = new ? ["city": "札幌"] : [:]
+    return trip("set_trip_plan", ["days": .array(days.map { .array($0) })].merging(city) { $1 }.merging(extra) { $1 })
 }
 
 /// A rig whose plan has sights A–F (by name, one day), and their ids.
@@ -60,7 +63,8 @@ struct TripSetPlanTests {
             [hotel, stop(ids["C"]), stop(ids["D"]), hotel],
             [hotel, stop(ids["E"]), stop(ids["F"]), stop(name: "新千岁机场", role: "end")],
         ]))
-        #expect(r.ok && r.data["status"] == "trip_list", "\(r)")
+        // §55 item 8 (T-040zh): two sights a day are thin (`under`), so the saved plan comes back to be fixed.
+        #expect(r.ok && r.data["status"] == "trip_needs_fix", "\(r)")
         // Only the two new names were searched.
         #expect(rig.search.asked.withLock { Array($0.dropFirst(asked)) }.sorted() == ["新千岁机场", "桥本酒店"])
         let plan = await rig.planner.currentPlan
@@ -73,7 +77,7 @@ struct TripSetPlanTests {
         // The kept sights keep their ids.
         #expect(plan.days[1].stops[1].id == ids["C"])
         #expect(r.data["facts"]?["kept"] == .int(6) && r.data["facts"]?["new"] == .int(2) && r.data["facts"]?["app_picked_hotels"] == nil)
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=3 stops=12 kept=6 new=2 removed=0 not_placed=0 check=ok ms=") })
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=3 stops=12 kept=6 new=2 removed=0 not_placed=0 new_plan=no check=fail issues=3 round=1 ms=") })
         // The same plan written back by id: still valid (one hotel id on both nights), no search at all.
         let again = rig.search.asked.withLock { $0 }.count
         let back = await rig.run(await sameCall(rig))
@@ -100,7 +104,7 @@ struct TripSetPlanTests {
         #expect(strings(unknown.data["facts"]?["problems"]) == ["没有这个 id：s99", "id 重复：\(ids["A"]!)"])
         // Nothing changed, and nothing was searched for a refused plan.
         #expect(await rig.planner.currentPlan == before)
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=2 stops=4 kept=0 new=0 removed=0 not_placed=0 check=fail ") })
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=2 stops=4 kept=0 new=0 removed=0 not_placed=0 new_plan=no check=fail ") })
         // §49's round limit: after 2 refusals in a row, the third is said to the driver.
         #expect(unknown.data["next"]?.stringValue?.contains("再调用 set_trip_plan") != true)
         // Pure: a visited stop keeps its day.
@@ -126,7 +130,7 @@ struct TripSetPlanTests {
         let slowStop = await rig.planner.currentPlan.allStops.first { $0.stop.asked == "慢地方" }?.stop
         #expect(slowStop?.placed == false)
         #expect(stopsOf(r.data["plan"]).first?.last?["placed"] == .bool(false))
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=1 stops=2 kept=1 new=1 removed=5 not_placed=1 check=ok ") })
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=1 stops=2 kept=1 new=1 removed=5 not_placed=1 new_plan=no check=ok ") })
         // The held search is released; the retry 10 s later asks again and is answered.
         search.release()
         for _ in 0..<200 where search.waiting == 0 {
@@ -154,8 +158,6 @@ struct TripSetPlanTests {
         let (rig, ids) = await sightsRig()
         _ = await rig.run(setPlan([[stop(ids["A"]), stop(ids["B"])], [stop(ids["C"])], []]))
         let results = [
-            await rig.run(trip("edit_trip_list", ["action": "read"])),
-            await rig.run(trip("edit_trip_list", ["action": "replace", "index": 9, "name": "D"])),
             await rig.run(trip("trip_plans", ["action": "list"])),
             await rig.run(await sameCall(rig)),
             await rig.run(trip("trip_next", ["day": 3])),
@@ -183,39 +185,16 @@ struct TripSetPlanTests {
         #expect(back?.allStops.map(\.stop.id) == (await rig.planner.currentPlan).allStops.map(\.stop.id))
     }
 
-    @Test("T-040zb F-15b row 201: a night with no hotel after set_trip_plan: the app picks one (picked_by=app, app_picked_hotels); a model-written hotel is never replaced")
-    func row201() async {
-        let hotel = spot("站前酒店", lat: 43.03, lng: 141.35)
-        let search = TripSearch(sapporo, hotels: { _ in [hotel] })
-        let (rig, ids) = await sightsRig(search: search)
-        let r = await rig.run(setPlan([[stop(ids["A"]), stop(ids["B"])], [stop(ids["C"])]]))
-        #expect(strings(r.data["facts"]?["app_picked_hotels"]) == ["站前酒店"], "\(r)")
-        var plan = await rig.planner.currentPlan
-        #expect(plan.days[0].stops.last?.pickedBy == .app && plan.days[1].stops.first?.place.name == "站前酒店")
-        #expect(stopsOf(r.data["plan"])[0].last?["picked_by"] == "app")
-        // The driver's hotel replaces it on that night; the app picks nothing.
-        let mine = stop(name: "桥本酒店", role: "hotel")
-        let r2 = await rig.run(setPlan([[stop(ids["A"]), stop(ids["B"]), mine], [mine, stop(ids["C"])]]))
-        #expect(r2.ok && r2.data["facts"]?["app_picked_hotels"] == nil)
-        plan = await rig.planner.currentPlan
-        #expect(plan.days[0].stops.last?.place.name == "桥本酒店" && plan.days[0].stops.last?.pickedBy == .model)
-        #expect(strings(r2.data["facts"]?["removed"]) == ["站前酒店"])
-        // Written back by id: still the driver's.
-        _ = await rig.run(await sameCall(rig))
-        #expect(await rig.planner.currentPlan.days[1].stops.first?.place.name == "桥本酒店")
-    }
-
     @Test("T-040zb F-15b §52 items 3, 14: set_trip_plan declared async with the §52 text; validation; old actions gone")
     func catalog() {
         #expect(AsyncTool(name: "set_trip_plan") != nil && TripPlanner.tools.contains("set_trip_plan"))
-        // §54 item 2 (T-040zg) puts its sentence after 「修改行程：」.
-        #expect(ToolCatalog.setTripPlanDescription.contains("把整份行程（每天的地点，带 id 和 role）按司机的意思改好后整份传回。已有的地点只写 id；新地点写 name。role：start 出发点"))
-        #expect(ToolCatalog.setTripPlanDescription.hasSuffix("去掉的地点不写。结果稍后回来：" + ToolCatalog.tripWorkingLine))
+        // §55 item 12 (T-040zh) replaces §52's text; row 234 checks it in full.
+        #expect(ToolCatalog.setTripPlanDescription.hasSuffix("结果稍后回来：" + ToolCatalog.tripWorkingLine))
         #expect(ToolCatalog.validate(setPlan([[stop("s1"), stop(name: "X", role: "hotel")]], ["optimise": true, "pace": "relaxed"])) == nil)
         #expect(ToolCatalog.validate(setPlan([[stop("s1", name: "X")]])) == .invalidFields)
         #expect(ToolCatalog.validate(setPlan([[stop(name: "X", role: "museum")]])) == .invalidFields)
         #expect(ToolCatalog.validate(trip("set_trip_plan", [:])) == .invalidFields)
-        #expect(ToolCatalog.tripEditActions == ["replace", "clear", "read", "visited", "skip"])
+        #expect(!TripPlanner.tools.contains("edit_trip_list") && ToolCatalog.spec("edit_trip_list") == nil)
     }
 }
 
@@ -235,8 +214,8 @@ struct TripPlanScreenTests {
         #expect(await !rig.planner.cardsHidden)
         #expect(rig.lines.withLock { $0 }.contains("trip day-view day=2"))
         #expect(!rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip tap action=day") })
-        let read = await rig.run(trip("edit_trip_list", ["action": "read"]))
-        #expect(read.ok && read.code != .noTripList && stopsOf(read.data["plan"]).map(\.count) == [2, 0])
+        let read = await rig.run(trip("trip_plans", ["action": "list"]))
+        #expect(read.code != .noTripList && stopsOf(read.data["plan"]).map(\.count) == [2, 0])
         let next = await rig.run(trip("trip_next"))
         #expect(next.code == .dayDone)
         // A day out of range is clamped; a tap never fails.
@@ -282,27 +261,25 @@ struct TripClearConfirmTests {
                                   onLine: { lines.append($0) }, driverTurns: { turns.withLock { $0 }.count })
         _ = await planner.execute(setPlan([[stop(name: "A"), stop(name: "B")]]))
         turns.append("driver: 把行程拿回去")
-        let asked = await planner.execute(trip("edit_trip_list", ["action": "clear"]))
+        let asked = await planner.execute(clearCall())
         #expect(asked.code == .confirmClear && replyValues(asked.data["may"]) == ["ask_confirm"], "\(asked)")
         #expect(await planner.currentPlan.stopCount == 2)
         // The same turn again: still asks (no yes heard yet).
-        #expect(await planner.execute(trip("edit_trip_list", ["action": "clear"])).code == .confirmClear)
+        #expect(await planner.execute(clearCall()).code == .confirmClear)
         turns.append("driver: 对")
-        let cleared = await planner.execute(trip("edit_trip_list", ["action": "clear"]))
+        let cleared = await planner.execute(clearCall())
         let empty = await planner.currentPlan.isEmpty
         #expect(cleared.ok && empty)
-        #expect(lines.withLock { $0 }.filter { $0.hasPrefix("trip clear") } == ["trip clear confirm=asked via=edit", "trip clear confirm=asked via=edit", "trip clear confirm=yes via=edit"])
+        #expect(lines.withLock { $0 }.filter { $0.hasPrefix("trip clear") } == ["trip clear confirm=asked via=plan", "trip clear confirm=asked via=plan", "trip clear confirm=yes via=plan"])
         // set_trip_plan with no stops is a whole clear too; another call in between forgets the question.
         _ = await planner.execute(setPlan([[stop(name: "A")]]))
         turns.append("driver: 清空行程")
         #expect(await planner.execute(setPlan([[]])).code == .confirmClear)
         turns.append("driver: 先看看")
-        _ = await planner.execute(trip("edit_trip_list", ["action": "read"]))
+        _ = await planner.execute(trip("trip_plans", ["action": "list"]))
         turns.append("driver: 清空")
         #expect(await planner.execute(setPlan([[]])).code == .confirmClear)
         #expect(await planner.currentPlan.stopCount == 1)
-        // clear day=N stays immediate.
-        #expect(await planner.execute(trip("edit_trip_list", ["action": "clear", "day": 1])).ok)
     }
 }
 
@@ -350,27 +327,6 @@ struct TripSetPlanReviewTests {
         search.release()
     }
 
-    @Test("T-040zb F-15b row 197 (review): the background retry also waits for an edit_trip_list replace")
-    func retryWaitsForReplace() async {
-        let clock = ManualClock()
-        var table = sapporoTable
-        table["晚到"] = [spot("晚到", lat: 43.09, lng: 141.38)]
-        table["慢二"] = [spot("慢二", lat: 43.10, lng: 141.39)]
-        let search = TripSearch(table, slow: ["慢二"], lateAnswer: ["晚到": 1])
-        let (rig, ids) = await sightsRig(search: search, clock: clock)
-        #expect(await rig.run(setPlan([[stop(ids["A"]), stop(name: "晚到")]])).ok)
-        let replace = Task { await rig.run(trip("edit_trip_list", ["action": "replace", "index": 1, "name": "慢二"])) }
-        for _ in 0..<5000 where search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
-        try? await Task.sleep(for: .milliseconds(20))
-        for _ in 0..<11 {
-            clock.advance(by: .seconds(1))
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        search.release()
-        let r = await replace.value
-        #expect(r.ok && r.code != .optionsStale, "\(r)")
-    }
-
     @Test("T-040zd F-15b row 204 (review): every slow path is search_slow with a code that is not not-found")
     func slowPaths() async {
         func held(_ call: ToolCall, _ rig: TripRig, _ search: TripSearch, _ clock: ManualClock) async -> ToolResult {
@@ -387,32 +343,25 @@ struct TripSetPlanReviewTests {
         do {
             let clock = ManualClock(); let search = TripSearch(sapporoTable, slow: ["慢地方"])
             let rig = await TripRig(search: search, clock: clock)
-            let r = await held(trip("make_trip_list", ["places": ["慢地方"]]), rig, search, clock)
+            let r = await held(planCall(["places": ["慢地方"]]), rig, search, clock)
             #expect(!notFoundCodes.contains(r.code) && strings(r.data["facts"]?["search_slow"]) == ["慢地方"], "\(r)")
         }
         // All slow, places with day.
         do {
             let clock = ManualClock(); let search = TripSearch(sapporoTable, slow: ["慢地方"])
             let rig = await TripRig(search: search, clock: clock)
-            let r = await held(trip("make_trip_list", ["places": ["慢地方"], "day": 1]), rig, search, clock)
+            let r = await held(planCall(["places": ["慢地方"], "day": 1]), rig, search, clock)
             #expect(!notFoundCodes.contains(r.code) && strings(r.data["facts"]?["search_slow"]) == ["慢地方"], "\(r)")
         }
         // A slow frame stop (start).
         do {
             let clock = ManualClock(); let search = TripSearch(sapporoTable, slow: ["慢地方"])
             let rig = await TripRig(search: search, clock: clock)
-            var r = await held(trip("make_trip_list", ["places": ["A", "B"], "start": "慢地方"]), rig, search, clock)
+            var r = await held(planCall(["places": ["A", "B"], "start": "慢地方"]), rig, search, clock)
             r = await settle(rig, r)
             #expect(strings(r.data["facts"]?["search_slow"]) == ["慢地方"], "\(r)")
             let nf = strings(r.data["not_found"]) + strings(r.data["facts"]?["not_found"])
             #expect(!nf.contains("慢地方"))
-        }
-        // Replace with a slow name.
-        do {
-            let clock = ManualClock(); let search = TripSearch(sapporoTable, slow: ["慢地方"])
-            let (rig, _) = await sightsRig(search: search, clock: clock)
-            let r = await held(trip("edit_trip_list", ["action": "replace", "index": 2, "name": "慢地方"]), rig, search, clock)
-            #expect(!notFoundCodes.contains(r.code) && strings(r.data["facts"]?["search_slow"]) == ["慢地方"], "\(r)")
         }
     }
 
@@ -437,7 +386,7 @@ struct TripSetPlanReviewTests {
         let clock = ManualClock()
         let search = TripSearch(sapporoTable, slow: ["慢地方"])
         let rig = await TripRig(search: search, clock: clock)
-        let made = Task { await rig.run(trip("make_trip_list", ["places": ["A", "慢地方"]])) }
+        let made = Task { await rig.run(planCall(["places": ["A", "慢地方"]])) }
         for _ in 0..<5000 where search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
         try? await Task.sleep(for: .milliseconds(20))
         clock.advance(by: .seconds(16))

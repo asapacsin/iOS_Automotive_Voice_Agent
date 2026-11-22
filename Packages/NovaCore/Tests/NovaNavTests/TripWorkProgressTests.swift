@@ -13,7 +13,7 @@ struct TripWorkProgressTests {
         let lines = Mutex<[String]>([])
         let board = WorkProgressBoard(clock: clock) { line in lines.withLock { $0.append(line) } }
         await rig.planner.setWork(board)
-        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "南开大学"])])) }
+        let made = Task { await rig.run(planCall(["places": names(["天津之眼", "南开大学"])])) }
         for _ in 0..<2000 where rig.search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
         #expect(board.panel == nil)
         clock.advance(by: .milliseconds(1_200))
@@ -33,7 +33,7 @@ struct TripWorkProgressTests {
         let lines = Mutex<[String]>([])
         let board = WorkProgressBoard(clock: clock) { line in lines.withLock { $0.append(line) } }
         await rig.planner.setWork(board)
-        #expect(await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])])).ok)
+        #expect(await rig.run(planCall(["places": names(["古文化街", "五大道"])])).ok)
         clock.advance(by: .seconds(2))
         #expect(board.panel == nil)
         #expect(lines.withLock { $0 }.isEmpty)

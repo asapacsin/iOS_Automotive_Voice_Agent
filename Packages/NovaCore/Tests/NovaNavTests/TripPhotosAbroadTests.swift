@@ -46,7 +46,7 @@ struct AbroadPhotoRig {
     }
 
     func make() async {
-        _ = await planner.execute(trip("make_trip_list", ["places": names(["浅草寺 (Senso-ji)", "东京塔 (Tokyo Tower)"]),
+        _ = await planner.execute(planCall(["places": names(["浅草寺 (Senso-ji)", "东京塔 (Tokyo Tower)"]),
                                                           "abroad": true]))
         await planner.photosSettled()
     }

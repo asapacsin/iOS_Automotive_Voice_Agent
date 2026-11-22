@@ -13,6 +13,8 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case wrongLanguage = "WRONG_LANGUAGE"
     /// F-15b §52 item 12 (T-040ze): a "done" claim while a trip tool's result has not come back.
     case tripResultPending = "TRIP_RESULT_PENDING"
+    /// F-15b §55 item 10 (T-040zh): a "done" claim while the last trip result is `trip_needs_fix` with a round left.
+    case tripNeedsFix = "TRIP_NEEDS_FIX"
 
     /// Sent to the model as a text turn. Code decides when; the sentence only explains (I-11).
     public var instruction: String {
@@ -27,6 +29,7 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         // F-05a §15 item 4 as changed by §16 item 5 (T-016n): never with the driver's words.
         case .wrongLanguage: "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
         case .tripResultPending: "[系统] TRIP_RESULT_PENDING：\(AsyncTool.tripPendingNext)。"
+        case .tripNeedsFix: "[系统] TRIP_NEEDS_FIX：行程还有问题没改好，不要说已经规划好。按 issues 改好整份行程，再调用 set_trip_plan。"
         }
     }
 
@@ -142,6 +145,9 @@ public struct DriverTurnPipeline: Sendable {
     /// playback or NAVIGATING state stale until a fresh report arrives after it (review 6).
     private var musicFresh = true
     private var navigationFresh = true
+    /// F-15b §55 item 10 (T-040zh): the last trip result was `trip_needs_fix` (each such result leaves a fix round:
+    /// round 2's fix is answered by `trip_list`), so the plan is not done.
+    private var tripNeedsFix = false
     private var musicConfirmed: Bool { musicPlaying && musicFresh }
     private var navigationConfirmed: Bool { navigation == .navigating && navigationFresh }
     private var lastUtterance = ""
@@ -266,6 +272,9 @@ public struct DriverTurnPipeline: Sendable {
         case .toolResult(let id, let response):
             let ofUtterance = utterancePending.remove(response.id) != nil
             if ofUtterance { utteranceResults.append(response) }
+            if AsyncTool(name: response.name)?.isTrip == true {
+                tripNeedsFix = response.result.data["status"]?.stringValue == "trip_needs_fix"
+            }
             // The result may arrive after its own turn closed; it then proves the utterance's open turn.
             guard var t = turn, t.id == id || ofUtterance else { return [] }
             t.pendingCalls.remove(response.id)
@@ -363,6 +372,8 @@ public struct DriverTurnPipeline: Sendable {
         }
         // F-15b §52 item 12 (T-040ze): "done" before a trip tool's result is drift, whatever else proved.
         if !t.claims.isEmpty, !t.tripPending.isEmpty { return .disproven(.tripResultPending) }
+        // §55 item 10 (T-040zh): "done" while the plan still has issues to fix is drift too.
+        if !t.claims.isEmpty, tripNeedsFix { return .disproven(.tripNeedsFix) }
         if !t.claims.isEmpty, acting.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
             return .disproven(.partialScenario)
         }

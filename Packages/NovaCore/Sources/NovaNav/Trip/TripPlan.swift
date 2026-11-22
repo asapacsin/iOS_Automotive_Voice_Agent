@@ -303,10 +303,11 @@ public enum TripPlanFile {
              sid: s.id.isEmpty ? nil : s.id, unplaced: s.placed ? nil : true, by: s.pickedBy)
     }
 
+    /// §55 item 2 (T-040zh): the city is kept at home too (new names are looked up inside it).
     static func encode(_ plan: TripPlan, savedAt: Date? = nil) -> Plan {
         Plan(name: plan.name, currentDay: plan.currentDay,
              days: plan.days.map { day in day.stops.map(encode) },
-             savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.abroad ? plan.city : nil,
+             savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.city,
              spare: plan.spare.isEmpty ? nil : plan.spare.map(encode), budget: plan.budgetMinutes, wishes: plan.wishes)
     }
 
@@ -329,7 +330,7 @@ public enum TripPlanFile {
         }
         var out = TripPlan(name: plan.name, days: Array(days), currentDay: plan.currentDay)
         out.abroad = plan.abroad ?? false
-        out.city = out.abroad ? plan.city : nil
+        out.city = plan.city
         out.spare = (plan.spare ?? []).prefix(TripFitter.maxCandidates).map(decode)
         out.budgetMinutes = plan.budget
         out.wishes = plan.wishes

@@ -91,9 +91,6 @@ public enum StateNoteReason: String, Sendable, Hashable, CaseIterable {
 public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     case webSearch = "web_search"
     case queryLiveInfo = "query_live_info"
-    /// F-15b §4 item 9: trip lists are made and changed in the background.
-    case makeTripList = "make_trip_list"
-    case editTripList = "edit_trip_list"
     /// F-15b §52 item 3 (T-040zb): the whole plan written, looked up and timed in the background.
     case setTripPlan = "set_trip_plan"
     /// F-09b §16 item 8 (T-031za): the card answers after the introduction arrives.
@@ -102,7 +99,8 @@ public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     public init?(name: String) { self.init(rawValue: name) }
 
     /// F-15b §52 item 12 (T-040ze): the trip tools; while one runs no reply may say the change is done.
-    public var isTrip: Bool { self == .makeTripList || self == .editTripList || self == .setTripPlan }
+    /// F-15b §55 item 11 (T-040zh): `make_trip_list` and `edit_trip_list` are removed; `set_trip_plan` makes every plan.
+    public var isTrip: Bool { self == .setTripPlan }
     /// §52 item 12: the `next` of a turn while a trip tool's result has not come back.
     public static let tripPendingNext = "结果还没回来，不要说已经做好"
     /// The `scheduling` their response carries (F-18 §27 item 3).

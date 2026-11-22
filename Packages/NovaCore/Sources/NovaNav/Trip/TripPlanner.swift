@@ -71,37 +71,18 @@ public struct TripTuning: Sendable, Hashable {
     public init() {}
 }
 
-/// F-15b (T-040i): `make_trip_list`, `edit_trip_list`, `trip_next` and `trip_plans`. Owns the app's one trip list (§3), resolves
+/// F-15b (T-040i, §55 T-040zh): `set_trip_plan` (makes and changes every plan), `trip_next` and `trip_plans`. Owns the app's one trip list (§3), resolves
 /// the model's names through 高德 (§4, never taken as places), and routes the list through `NavigationController`
 /// one stop at a time (§29). Record lines are codes and numbers only (§7, I-8).
 public actor TripPlanner: ToolExecutor {
-    public static let tools: Set<String> = ["make_trip_list", "edit_trip_list", "set_trip_plan", "trip_next", "trip_plans"]
-    /// §49 item 6 (T-040u): at most this many `trip_needs_fix` results per request.
+    public static let tools: Set<String> = ["set_trip_plan", "trip_next", "trip_plans"]
+    /// §49 item 6, §55 item 9 (T-040zh): at most this many `trip_needs_fix` results per driver request.
     public static let maxFixRounds = 2
 
-    /// §49 items 5–8 (T-040u): one request (a `make_trip_list`, or a driver change through `revise_trip_list`): the
-    /// `trip_needs_fix` rounds given so far, the names not found, the changes the model made from a check.
-    struct FixRequest: Sendable {
-        var round = 0
-        var notFound: [String] = []
-        var changes: [String] = []
-        /// What the make had to say besides the fit (hotels not found, rental), said once at the end.
-        var notes: [String] = []
-        /// §50 item 4 (T-040v): places that failed `far` in the last fit (left out of it), and §50 item 2's named
-        /// hotels that are not lodging. Both go to the model as issues.
-        var far: [String] = []
-        var notHotels: [String] = []
-        /// Everything left out for `far` or the hotel-only check during this request, named at the end.
-        var dropped: [String] = []
-    }
-    /// The request waiting for a `revise_trip_list`, nil when none.
-    private var fix: FixRequest?
-    /// §49 item 4 `hotel`: each night's hotel choices (1-based night) from the last hotel pick, and the nights the
-    /// model picked from them. Not saved.
-    private var hotelChoices: [Int: [(place: Place, meters: Int)]] = [:]
-    private var hotelsChosen: Set<Int> = []
-    /// §50 item 2 (T-040v): the hotel choices came from `hotel_near`, so the `hotel` check runs without wishes.
-    private var hotelNearActive = false
+    /// §55 item 9 (T-040zh): the `trip_needs_fix` rounds given for the current driver request, and that request's
+    /// driver turn (nil without a turn count: the rounds then end with the next `trip_list`).
+    private var fixRound = 0
+    private var fixTurn: Int?
     /// §50 item 1: Qwen with web search; nil keeps the model's own names.
     private let grounder: (any TripGrounder)?
     /// §50 item 3: the centre and country of an abroad trip's city; nil keeps §36's China-only check.
@@ -121,8 +102,8 @@ public actor TripPlanner: ToolExecutor {
     private let onHandoff: (@Sendable (Place) async -> Bool)?
     /// §4 item 6: nil picks 高德's first result.
     private let picker: (any PlacePicker)?
-    /// §4 item 9: list changes still running (`make_trip_list`, `edit_trip_list`); `trip_next` waits for them.
-    private var changes: [Int: (make: Bool, task: Task<ToolResult, Never>)] = [:]
+    /// §4 item 9: plan writes still running (`set_trip_plan`); `trip_next` waits for them.
+    private var changes: [Int: Task<ToolResult, Never>] = [:]
     private var nextChange = 0
     /// §4 item 9: calls waiting for running list changes (tests read it).
     private(set) var waiting = 0
@@ -156,6 +137,15 @@ public actor TripPlanner: ToolExecutor {
     /// Tests only (row 69): changes an ordering before the place check.
     private var tamper: (@Sendable ([TripList]) -> [TripList])?
     func setTamper(_ tamper: @escaping @Sendable ([TripList]) -> [TripList]) { self.tamper = tamper }
+    /// Tests only (§55 item 11 removed `edit_trip_list visited|skip`): marks stop `index` (1-based) of the current day
+    /// (or `day`), as a voice mark did: a reached night's hotel marks the next morning's copy too.
+    func markForTests(index: Int, _ mark: TripMark, day: Int? = nil) {
+        if let day { _ = plan.select(day) }
+        guard (1...max(list.count, 1)).contains(index), list.count > 0 else { return }
+        list.setMark(at: index, mark)
+        if mark == .visited { markOtherCopy(day: plan.currentDay, index: index, mark) }
+        changed()
+    }
     /// §50 item 6 (T-040w): the steps shown while a trip is made or revised; nil shows none.
     private var work: WorkProgressBoard?
     public func setWork(_ board: WorkProgressBoard?) { work = board }
@@ -342,19 +332,16 @@ public actor TripPlanner: ToolExecutor {
             onLine("trip blocked tool=\(call.name) reason=hidden")
             return withPlan(Self.tripHiddenResult)
         }
-        // Shows the cards (「打开行程」): make_trip_list, edit_trip_list action=read, trip_plans open.
+        // Shows the cards: a new plan (§55 item 1), trip_plans open.
         if Self.showsCards(call) { setHidden(false) }
         switch call.name {
-        case "make_trip_list":
-            // §3 item 4: a new list replaces any change still running, so it waits for none.
-            return withPlan(await tracked(call, make: true))
-        case "edit_trip_list", "set_trip_plan":
-            // §4 item 9: an edit changes the list being made, so it waits for running makes first.
-            await waitFor { $0.make }
-            return withPlan(await tracked(call, make: false))
+        case "set_trip_plan":
+            // §4 item 9: a write waits for the writes already running.
+            await waitFor()
+            return withPlan(await tracked(call))
         default:
             // §4 item 9: trip_next and trip_plans use the finished list: they wait until no change is running.
-            await waitFor { _ in true }
+            await waitFor()
             return withPlan(await run(call))
         }
     }
@@ -373,57 +360,50 @@ public actor TripPlanner: ToolExecutor {
     /// The `next` of that refusal.
     public static var tripHiddenNext: String { tripHiddenResult.data["next"]?.stringValue ?? "" }
 
-    /// §51 item 2: `trip_next`, `set_trip_plan` (§52, replaces `revise_trip_list`), and `edit_trip_list` with any
-    /// action but `read`.
+    /// §51 item 2: `trip_next` and a `set_trip_plan` that changes the plan (§52, replaces `revise_trip_list`). A new
+    /// plan (§55 item 1: stops written, none kept by id) is what `make_trip_list` was: it runs and shows the cards.
     static func blockedWhileHidden(_ call: ToolCall) -> Bool {
-        switch call.name {
-        case "trip_next", "set_trip_plan": true
-        case "edit_trip_list": call.arguments["action"]?.stringValue != "read"
-        default: false
-        }
+        call.name == "trip_next" || (call.name == "set_trip_plan" && !makesNewPlan(call))
     }
 
-    /// §52 item 13: `clear` without `day`, or `set_trip_plan` with no stops.
+    /// §55 item 1 (T-040zh): a `set_trip_plan` with stops, none of them kept by `id`.
+    static func makesNewPlan(_ call: ToolCall) -> Bool {
+        guard call.name == "set_trip_plan" else { return false }
+        let stops = TripPlanner.writtenDays(call.arguments).joined()
+        return !stops.isEmpty && !stops.contains { $0.id != nil }
+    }
+
+    /// §52 item 13: `set_trip_plan` with no stops.
     static func clearsWhole(_ call: ToolCall) -> Bool {
-        switch call.name {
-        case "edit_trip_list": call.arguments["action"]?.stringValue == "clear" && call.arguments["day"] == nil
-        case "set_trip_plan": TripPlanner.writtenDays(call.arguments).allSatisfy(\.isEmpty)
-        default: false
-        }
+        call.name == "set_trip_plan" && TripPlanner.writtenDays(call.arguments).allSatisfy(\.isEmpty)
     }
 
     /// §51 item 2: the calls that show the cards; `trip_plans` list/save/delete/rename leave them as they are.
     static func showsCards(_ call: ToolCall) -> Bool {
-        switch call.name {
-        case "make_trip_list": true
-        case "edit_trip_list": call.arguments["action"]?.stringValue == "read"
-        case "trip_plans": call.arguments["action"]?.stringValue == "open"
-        default: false
-        }
+        makesNewPlan(call) || (call.name == "trip_plans" && call.arguments["action"]?.stringValue == "open")
     }
 
-    private func waitFor(_ which: ((make: Bool, task: Task<ToolResult, Never>)) -> Bool) async {
+    private func waitFor() async {
         waiting += 1
         defer { waiting -= 1 }
         var done = Set<Int>()
-        while let next = changes.first(where: { !done.contains($0.key) && which($0.value) }) {
-            _ = await next.value.task.value
+        while let next = changes.first(where: { !done.contains($0.key) }) {
+            _ = await next.value.value
             done.insert(next.key)
         }
     }
 
-    private func tracked(_ call: ToolCall, make: Bool) async -> ToolResult {
+    private func tracked(_ call: ToolCall) async -> ToolResult {
         let id = nextChange
         nextChange += 1
         let task = Task { await self.run(call) }
-        changes[id] = (make, task)
-        // §50 item 6: a make opens the steps; a revise round continues them.
-        let steps = call.name == "make_trip_list" || call.name == "set_trip_plan"
-        if steps { call.name == "make_trip_list" ? work?.start(.trip) : work?.continueTrip() }
+        changes[id] = task
+        // §50 item 6: the first write of a request opens the steps; a fix round continues them.
+        fixRound == 0 ? work?.start(.trip) : work?.continueTrip()
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         changes[id] = nil
-        // The cards replace the steps; a `trip_needs_fix` round keeps them for the revise; a failure keeps its line.
-        if steps, result.data["status"]?.stringValue != "trip_needs_fix" { result.ok ? work?.clear(.trip) : work?.end() }
+        // The cards replace the steps; a `trip_needs_fix` round keeps them for the fix; a failure keeps its line.
+        if result.data["status"]?.stringValue != "trip_needs_fix" { result.ok ? work?.clear(.trip) : work?.end() }
         return result
     }
 
@@ -433,8 +413,6 @@ public actor TripPlanner: ToolExecutor {
         // §52 item 13: a waiting whole-trip clear is answered only by the next clear; any other trip call forgets it.
         if !Self.clearsWhole(call) { clearAsked = nil }
         switch call.name {
-        case "make_trip_list": return await make(call.arguments)
-        case "edit_trip_list": return await edit(call.arguments)
         case "set_trip_plan": return await setPlan(call.arguments)
         case "trip_next": return await next(call.arguments)
         case "trip_plans": return await plans(call.arguments)
@@ -442,389 +420,7 @@ public actor TripPlanner: ToolExecutor {
         }
     }
 
-    // MARK: make_trip_list
-
-    private func make(_ args: JSONValue) async -> ToolResult {
-        planWrites += 1
-        defer { planWrites -= 1 }
-        let started = clock.now
-        if case .array(let raw)? = args["days"] {
-            let dayItems: [[PlaceItem]] = raw.map { day in
-                guard case .array(let places) = day else { return [] }
-                return Self.items(places)
-            }
-            return await makeTrip(dayItems, single: false, city: args["city"]?.stringValue, args: args, started: started)
-        }
-        guard case .array(let raw)? = args["places"] else { return .failure(.invalidFields) }
-        let placeItems = Self.items(raw)
-        let names = placeItems.map(\.name)
-        let city = args["city"]?.stringValue
-        let day = Self.int(args["day"])
-        // §15 item 2: a day may be at most the number of days + 1.
-        if let day, !(1...min(plan.dayCount + 1, TripPlan.maxDays)).contains(day) { return dayOutOfRange() }
-        // §37 (T-040o): without `day` the places are a one-day trip with its frame (start, hotels, end).
-        if day == nil { return await makeTrip([placeItems], single: true, city: city, args: args, started: started) }
-        let ignored = ["start", "end", "hotels", "abroad", "rental"].contains { args[$0] != nil }
-        let generation = plan.revision
-        let here = await origin()
-        let lookups = await resolve(names, city: city, abroad: plan.abroad)
-        // A cancelled call (barge-in) or a newer change while the lookups ran: this one changes nothing.
-        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-        if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
-            line(stops: list.count, notFound: names.count, duplicates: 0, since: started)
-            return LookupReply.failed(.amapWebKeyMissing, what: "trip_list", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
-        }
-        var entries: [(asked: String, place: Place, distanceMeters: Int?)] = []
-        var notFound: [String] = []
-        var slowNames: [String] = []
-        var duplicates: [String] = []
-        for (offset, lookup) in lookups.enumerated() {
-            switch lookup {
-            case .found(let place):
-                if entries.contains(where: { $0.place.id == place.id }) {
-                    duplicates.append(names[offset])
-                } else {
-                    entries.append((names[offset], place, distance(here, place)))
-                }
-            case .missing(let reason):
-                if Self.isSlow(reason) { slowNames.append(names[offset]) } else { notFound.append(names[offset]) }
-                onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)")
-            case .keyMissing, .candidates: break
-            }
-        }
-        guard !entries.isEmpty else {
-            line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
-            // F-09b §13 item 3 (T-031l): the names not found as facts; the list is unchanged.
-            return nothingPlaced(.noCandidates, what: "trip_places", notFound: notFound, slow: slowNames)
-        }
-        var made = TripList()
-        made.replace(entries)
-        // §28 item 2: the new list ordered by driving time; when that fails it stays in the order asked.
-        let arranged = await ordered([made], dayCount: 1, named: String?.none)
-        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-        if case .success(let o) = arranged, let first = o.days.first { made = first }
-        if let day { _ = plan.replaceDay(day, with: made) } else { plan.replaceAll(with: made) }
-        changed()
-        line(stops: list.count, notFound: notFound.count, duplicates: duplicates.count, since: started)
-        var facts = Self.orderFacts(arranged)
-        if ignored { facts["frame_kept"] = true }
-        if !slowNames.isEmpty { facts["search_slow"] = .array(slowNames.map(JSONValue.string)) }
-        return listResult(changed: nil, notFound: notFound, duplicates: duplicates, facts: facts)
-    }
-
-    /// §15 item 6 and §37 (T-040o): a whole plan of one or several days in one call (parallel per-day calls would race
-    /// on `revision`), with its frame: `start`, `hotels` and `end` are searched with the places (§36) and are not
-    /// counted in the 16. The same place twice anywhere in the plan is a duplicate; a day where nothing was found stays
-    /// as an empty day.
-    /// §48 item 1 (T-040t): a place as the model gave it: a name, or `{name, minutes, optional}`.
-    struct PlaceItem: Sendable, Hashable {
-        let name: String
-        let minutes: Int?
-        /// §49 item 1 (T-040u): 3 must-see, 2 worth it, 1 extra.
-        let importance: Int
-        /// §50 item 2 (T-040v): `role: hotel`, a night's hotel given among the places.
-        var hotel = false
-        var optional: Bool { importance < 3 }
-    }
-
-    /// §48 item 1: a plain string is a required place with no minutes; minutes are clamped to 15–600.
-    /// §49 item 1: `importance` 1–3, else from `optional` (false → 3, true → 1); a plain string → 3.
-    static func items(_ raw: [JSONValue]) -> [PlaceItem] {
-        raw.compactMap { v in
-            if let name = v.stringValue { return PlaceItem(name: TranscriptText.normalize(name), minutes: nil, importance: 3) }
-            guard let name = v["name"]?.stringValue else { return nil }
-            let importance = v["importance"]?.intValue.map { TripStop.clampImportance(Int($0)) }
-                ?? ((v["optional"]?.boolValue ?? false) ? 1 : 3)
-            return PlaceItem(name: TranscriptText.normalize(name), minutes: v["minutes"]?.intValue.map { TripStop.clampMinutes(Int($0)) },
-                             importance: importance, hotel: v["role"]?.stringValue == "hotel")
-        }
-    }
-
-    private func makeTrip(_ modelItems: [[PlaceItem]], single: Bool, city: String?, args: JSONValue,
-                          started: NovaInstant) async -> ToolResult {
-        var dayItems = modelItems
-        let startName = args["start"]?.stringValue.map(TranscriptText.normalize).flatMap { $0.isEmpty ? nil : $0 }
-        let endName = args["end"]?.stringValue.map(TranscriptText.normalize).flatMap { $0.isEmpty ? nil : $0 }
-        let hotelNames: [String] = if case .array(let h)? = args["hotels"] {
-            h.compactMap(\.stringValue).map(TranscriptText.normalize).filter { !$0.isEmpty }
-        } else { [] }
-        // §48 item 1: `day_count` with places, else one day per group.
-        let dayCount = single ? min(max(Self.int(args["day_count"]) ?? 1, 1), TripPlan.maxDays) : max(1, modelItems.count)
-        let pace = args["pace"]?.stringValue.flatMap(TripFitter.Pace.init(rawValue:)) ?? .normal
-        // §37 item 1: one hotel for every night, or one per night.
-        if !hotelNames.isEmpty, hotelNames.count != 1, hotelNames.count != dayCount - 1 {
-            return .failure(.invalidFields, advice: "hotels 只能填一个（每晚都住），或者每晚一个（\(dayCount)天=\(max(dayCount - 1, 1))个）。请重新调用。")
-        }
-        // §36 item 2a: a trip abroad needs its city to search in.
-        let abroadAsked = args["abroad"]?.boolValue ?? false
-        if abroadAsked, abroadSearch != nil, abroadCenter != nil || abroadArea != nil,
-           (city ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
-            return .failure(.invalidFields, advice: "abroad=true 时必须填 city：英文城市名加国家，比如 \"Tokyo, Japan\"。请马上重新调用，不要告诉司机。")
-        }
-        let hotelNear = args["hotel_near"]?.stringValue.map(TranscriptText.normalize).flatMap { $0.isEmpty ? nil : $0 }
-        let wishes = args["wishes"]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
-        let generation = plan.revision
-        // §50 item 1 (T-040v): abroad, the model's places become real places from Qwen with web search, before any lookup.
-        var groundHotels: [TripGroundHotel] = []
-        // Day groups keep their places, so a request is only worth it for one list or for hotel_near's hotels.
-        if abroadAsked, single || hotelNear != nil, abroadSearch != nil, let grounder, let city,
-           !city.trimmingCharacters(in: .whitespaces).isEmpty {
-            let request = TripGroundRequest(city: city, days: dayCount,
-                                            places: modelItems.flatMap { $0 }.map {
-                                                TripGroundPlace(name: $0.name, minutes: $0.minutes, importance: $0.importance)
-                                            },
-                                            wishes: wishes, start: startName, end: endName, hotelNear: hotelNear)
-            work?.step(WorkProgress.tripFind)
-            if let grounded = await ground(request, with: grounder) {
-                let items = grounded.places.map {
-                    PlaceItem(name: TranscriptText.normalize(TripGround.written($0)), minutes: $0.minutes.map(TripStop.clampMinutes),
-                              importance: TripStop.clampImportance($0.importance))
-                }
-                // The model's day groups are kept as they are; one group (`places`) is replaced.
-                // §50 item 2: places marked `role: hotel` stay as the model gave them.
-                if single, !items.isEmpty { dayItems = [items + modelItems.flatMap { $0 }.filter(\.hotel)] }
-                groundHotels = grounded.hotels
-            }
-            guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-        }
-        let dayNames = dayItems.map { $0.map(\.name) }
-        let flat = dayNames.flatMap { $0 }
-        let extras = [startName, endName].compactMap { $0 } + hotelNames
-        let here = await origin()
-        let searched = await resolveTrip(flat + extras, city: city, abroad: args["abroad"]?.boolValue ?? false)
-        let lookups = searched.lookups
-        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-        if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
-            line(stops: plan.stopCount, notFound: flat.count, duplicates: 0, since: started)
-            return LookupReply.failed(.amapWebKeyMissing, what: "trip_list", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
-        }
-        var seen = Set<String>()
-        var notFound: [String] = []
-        var slowNames: [String] = []
-        var duplicates: [String] = []
-        var lists: [TripList] = []
-        // §48: optional places go to the fit beside the plan (with their group's day when there are groups).
-        var optionalStops: [(day: Int?, stop: TripStop)] = []
-        // §50 item 2: places marked as a night's hotel: lodging ones become the night's hotel; others fail the
-        // hotel-only check (`not_found` 「<名字>不是酒店」) and are not used.
-        var placeHotels: [TripStop] = []
-        var notHotels: [String] = []
-        var offset = 0
-        for (g, items) in dayItems.enumerated() {
-            var required: [TripStop] = []
-            for item in items {
-                defer { offset += 1 }
-                switch lookups[offset] {
-                case .found(let place):
-                    if item.hotel {
-                        if let kind = place.kind, kind != .hotel {
-                            notHotels.append(item.name)
-                        } else if seen.insert(place.id).inserted {
-                            placeHotels.append(TripStop(index: 0, asked: item.name, place: place, distanceMeters: nil, role: .hotel))
-                        }
-                    } else if seen.insert(place.id).inserted {
-                        let stop = TripStop(index: 0, asked: item.name, place: place, distanceMeters: distance(here, place),
-                                            minutes: item.minutes, importance: item.importance)
-                        if item.optional { optionalStops.append((single ? nil : g, stop)) } else { required.append(stop) }
-                    } else {
-                        duplicates.append(item.name)
-                    }
-                case .missing(let reason):
-                    if Self.isSlow(reason) { slowNames.append(item.name) } else { notFound.append(item.name) }
-                    onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)")
-                case .keyMissing, .candidates: break
-                }
-            }
-            // `places` over several days: the required places in the asked order, 16 a day, before the fit.
-            let chunks = single ? max(1, min(dayCount, (required.count + TripList.maxStops - 1) / TripList.maxStops)) : 1
-            for c in 0..<chunks {
-                var made = TripList()
-                made.arrange(Array(required.dropFirst(c * TripList.maxStops).prefix(TripList.maxStops)))
-                lists.append(made)
-            }
-        }
-        if single { while lists.count < dayCount { lists.append(TripList()) } }
-        guard lists.contains(where: { $0.count > 0 }) || !optionalStops.isEmpty else {
-            line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
-            // F-09b §13 item 3 (T-031l): the names not found as facts; the list is unchanged.
-            return nothingPlaced(.noCandidates, what: "trip_places", notFound: notFound, slow: slowNames)
-        }
-        // §37 item 1: a frame name not found is left out and named in not_found.
-        func frameStop(_ name: String?, _ role: TripRole) -> TripStop? {
-            guard let name else { return nil }
-            defer { offset += 1 }
-            guard case .found(let place) = lookups[offset] else {
-                if case .missing(let reason) = lookups[offset], Self.isSlow(reason) { slowNames.append(name) } else { notFound.append(name) }
-                if case .missing(let reason) = lookups[offset] { onLine("trip lookup index=\(offset + 1) ok=no reason=\(reason)") }
-                return nil
-            }
-            return TripStop(index: 0, asked: name, place: place, distanceMeters: distance(here, place), role: role)
-        }
-        let startStop = frameStop(startName, .start)
-        let endStop = frameStop(endName, .end)
-        var hotels = hotelNames.map { frameStop($0, .hotel) }
-        if hotelNames.isEmpty, !placeHotels.isEmpty {
-            hotels = placeHotels.count == dayCount - 1 ? placeHotels.map { Optional($0) } : [placeHotels[0]]
-        }
-        // §50 item 2 hotel-only check: a named hotel abroad whose OpenStreetMap kind is not lodging is not used.
-        if searched.abroad {
-            hotels = hotels.map { stop in
-                guard let stop, let kind = stop.place.kind, kind != .hotel else { return stop }
-                notHotels.append(stop.asked)
-                return nil
-            }
-        }
-        // §50 item 2: hotels near the named place (when the driver named no hotel).
-        var nearChoices: [(place: Place, meters: Int)] = []
-        var nearNote: String?
-        if let hotelNear, hotelNames.isEmpty, placeHotels.isEmpty, dayCount > 1 {
-            let found = await hotelsNear(hotelNear, city: city, abroad: searched.abroad, grounded: groundHotels)
-            guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-            if let found, let first = found.first {
-                nearChoices = found
-                hotels = [TripStop(index: 0, asked: "酒店", place: first.place, distanceMeters: nil, role: .hotel, picked: true)]
-            } else {
-                nearNote = "没找到\(hotelNear)，换一个更具体的地点"
-            }
-        }
-        // §45 items 2–5 (T-040q): a rental pickup near the start and a return near the end, picked by code.
-        let rentalAsked = args["rental"]?.boolValue ?? false
-        var rentalNotes: [String] = []
-        var pickup: TripStop?
-        var dropoff: TripStop?
-        if rentalAsked {
-            let rentals = await pickRentals(start: startStop, end: endStop, here: here,
-                                            lastSight: lists.last(where: { $0.count > 0 })?.stops.last, abroad: searched.abroad)
-            guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-            pickup = rentals.pickup
-            dropoff = rentals.dropoff
-            rentalNotes = rentals.notes
-        }
-        let source = Self.layout(lists, start: startStop, end: endStop, hotels: hotels, pickup: pickup, dropoff: dropoff)
-        // §28 item 2, §37 items 3–5: ordered by driving time between the fixed ends, hotels picked when none named.
-        // §48 item 4: fitted to the day budget.
-        let fit = FitRequest(pace: pace, groups: !single, extra: optionalStops)
-        let pickHotels = ((hotelNames.isEmpty && placeHotels.isEmpty) || (!notHotels.isEmpty && hotels.allSatisfy { $0 == nil }))
-            && nearChoices.isEmpty
-        let (arranged, far) = await orderedNear(source, dayCount: dayCount, pickHotels: pickHotels, abroad: searched.abroad,
-                                                rentalAsked: rentalAsked, fit: fit)
-        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-        var extra: [String: JSONValue] = [:]
-        var notes: [String] = []
-        var spare: [TripStop] = []
-        var fitted = false
-        var fitPart: [String] = []
-        switch arranged {
-        case .success(let o):
-            lists = o.days
-            spare = o.spare
-            if let m = o.dayMinutes {
-                fitted = true
-                fitPart = Self.fitNotes(m, budget: pace.budgetMinutes, spare: spare.map(\.place.name))
-                notes += fitPart
-            }
-            if o.estimated { extra["times"] = "estimated" }
-            if !o.nightsWithoutHotel.isEmpty {
-                notes.append("第\(o.nightsWithoutHotel.map(String.init).joined(separator: "、"))晚附近没找到酒店")
-            }
-            if o.picked > 0 { notes.append("酒店是自动挑的，司机可以换") }
-        case .failed(let code):
-            // §48 item 10: nothing fitted or dropped: the model's order and groups, the required places first.
-            let unfitted = Self.withOptional(lists, optionalStops)
-            lists = Self.layout(unfitted.days, start: startStop, end: endStop, hotels: hotels, pickup: pickup, dropoff: dropoff)
-            spare = unfitted.spare
-            if code == .noStart {
-                extra["order"] = .string(ToolErrorCode.noStart.rawValue)
-            } else {
-                // §42: the frame as built, unordered.
-                frameLine(start: startStop != nil ? "named" : "none", end: endStop != nil,
-                          hotels: hotels.contains { $0 != nil } ? "named" : "none", nights: max(dayCount - 1, 0), picked: 0,
-                          rental: Self.rentalLabel(source, asked: rentalAsked))
-            }
-        }
-        if let nearNote { notes.append(nearNote) }
-        // §45 items 5 and 8: a rental place not found is said once; booking is the driver's.
-        if rentalAsked { notes += rentalNotes + ["租车需要提前在网上预订"] }
-        plan.replaceAll(withDays: lists)
-        plan.spare = spare
-        plan.budgetMinutes = fitted ? pace.budgetMinutes : nil
-        plan.abroad = searched.abroad
-        plan.city = searched.abroad ? city?.trimmingCharacters(in: .whitespaces) : nil
-        changed()
-        line(stops: plan.stopCount, notFound: notFound.count, duplicates: duplicates.count, since: started)
-        // §49 item 2 (T-040u): the wishes go with the plan; the hotel choices of this pick replace older ones.
-        plan.wishes = wishes
-        if case .success(let o) = arranged { hotelChoices = o.hotelChoices } else { hotelChoices = [:] }
-        // §50 item 2: the `hotel` check offers the hotels near the named place, with the distance to it.
-        hotelNearActive = !nearChoices.isEmpty
-        if hotelNearActive, case .success = arranged, !far.contains(where: { f in nearChoices.contains { $0.place.name == f } }) {
-            hotelChoices = Dictionary(uniqueKeysWithValues: (1..<max(dayCount, 2)).map { ($0, nearChoices) })
-        }
-        hotelsChosen = []
-        // F-09b §13 item 5 (T-031n): NO_START asks where the trip starts (a `may`), no quoted question.
-        let askStart: [ReplyMay] = extra["order"] != nil ? [.askStart] : []
-        let orderFacts = extra["order"] != nil ? [:] : Self.orderFacts(arranged)
-        let answer: ([String], [String]) -> ToolResult = { [self] missing, more0 in
-            var facts = orderFacts
-            if !slowNames.isEmpty { facts["search_slow"] = .array(slowNames.map(JSONValue.string)) }
-            let all = more0 + notes
-            if !all.isEmpty { facts["notes"] = .array(all.map(JSONValue.string)) }
-            if single, plan.dayCount == 1 {
-                return listResult(changed: nil, notFound: missing, duplicates: duplicates, facts: facts, may: askStart,
-                                  extra: extra)
-            }
-            facts["sights_per_day"] = .array(plan.days.map { .int(Int64($0.stops.filter { $0.role == .sight }.count)) })
-            facts["main_places_per_day"] = 2
-            return listResult(changed: nil, notFound: missing, duplicates: duplicates, facts: facts, may: askStart,
-                              extra: extra)
-        }
-        // §49 items 4–6: a fitted plan is checked; a failure goes back to the model before anything is said.
-        guard fitted else {
-            fix = nil
-            return answer(notFound, [])
-        }
-        return checked(FixRequest(notFound: notFound, notes: notes.filter { !fitPart.contains($0) }, far: far, notHotels: notHotels,
-                                  dropped: far + notHotels), answer: answer)
-    }
-
-    // MARK: §50 grounding, hotels near a place, far places (T-040v)
-
-    /// §50 items 1 and 9: one `ground` request within `groundTimeout`; nil (the model's places) on a timeout, an
-    /// error, an answer without search results or with wrong fields. `trip ground vendor=qwen …` either way.
-    private func ground(_ request: TripGroundRequest, with grounder: any TripGrounder) async -> TripGroundAnswer? {
-        let started = clock.now
-        let (stream, feed) = AsyncStream.makeStream(of: Result<TripGroundAnswer, TripGroundError>.self)
-        let work = Task {
-            do { feed.yield(.success(try await grounder.ground(request))) } catch let e as TripGroundError {
-                feed.yield(.failure(e))
-            } catch { feed.yield(.failure(.failed)) }
-        }
-        let clock = clock, limit = tuning.groundTimeout
-        let timer = Task {
-            try? await clock.sleep(until: started + limit)
-            if !Task.isCancelled { feed.yield(.failure(.timeout)) }
-        }
-        var answer: Result<TripGroundAnswer, TripGroundError> = .failure(.failed)
-        for await a in stream {
-            answer = a
-            break
-        }
-        work.cancel()
-        timer.cancel()
-        feed.finish()
-        let elapsed = ms(since: started)
-        switch answer {
-        case .success(let a):
-            let (places, added) = TripGround.keepMustSee(model: request.places, answer: a.places)
-            let kept3 = places.filter { $0.importance == 3 }.count
-            onLine("trip ground vendor=qwen places=\(places.count) hotels=\(a.hotels.count) kept3=\(kept3) added=\(added) ok=yes ms=\(elapsed)")
-            return TripGroundAnswer(places: places, hotels: a.hotels, area: a.area)
-        case .failure(let e):
-            let kept3 = request.places.filter { $0.importance == 3 }.count
-            onLine("trip ground vendor=qwen places=\(request.places.count) hotels=0 kept3=\(kept3) added=0 ok=fallback reason=\(e.rawValue) ms=\(elapsed)")
-            return nil
-        }
-    }
+    // MARK: Hotels near a place (§50 item 2, §55 item 7)
 
     /// §50 item 2: the named place first (inside the trip area abroad), then hotels within 1 km of it, else 3 km, at
     /// most 5, nearest first, each with its distance to that place. The grounded hotel names are tried first; only one
@@ -860,214 +456,6 @@ public actor TripPlanner: ToolExecutor {
         return Array(out.prefix(tuning.hotelNearMax))
     }
 
-    /// §50 item 4 `far`: the plan ordered; when its times are the straight-line estimate (no OSRM time), a place whose
-    /// estimate to every other place is over `unreachableSeconds` is left out and the rest are fitted again (a far
-    /// hotel is replaced by §37's search). Returns the result and the far places' names.
-    private func orderedNear(_ source: [TripList], dayCount: Int, pickHotels: Bool, abroad: Bool?, rentalAsked: Bool = false,
-                             fit: FitRequest) async -> (OrderResult, [String]) {
-        let first = await ordered(source, dayCount: dayCount, named: String?.none, pickHotels: pickHotels, abroad: abroad,
-                                  rentalAsked: rentalAsked, fit: fit)
-        guard case .success(let o) = first, o.estimated else { return (first, []) }
-        let all = o.days.flatMap(\.stops)
-        let farIDs = TripGround.far(all.map(\.place), limitSeconds: tuning.unreachableSeconds)
-        guard !farIDs.isEmpty, !Task.isCancelled else { return (first, []) }
-        var names: [String] = []
-        for stop in all where farIDs.contains(stop.place.id) && !names.contains(stop.place.name) { names.append(stop.place.name) }
-        let hotelFar = all.contains { $0.role == .hotel && farIDs.contains($0.place.id) }
-        let kept = source.map { list -> TripList in
-            var l = TripList()
-            l.arrange(list.stops.filter { !farIDs.contains($0.place.id) })
-            return l
-        }
-        var again = fit
-        again.extra = fit.extra.filter { !farIDs.contains($0.stop.place.id) }
-        let second = await ordered(kept, dayCount: dayCount, named: String?.none, pickHotels: pickHotels || hotelFar, abroad: abroad,
-                                   rentalAsked: rentalAsked, fit: again)
-        return (second, names)
-    }
-
-    // MARK: §49 checks and revisions (T-040u)
-
-    /// §49 item 4: the checks over the current plan.
-    private func runChecks(_ request: FixRequest) -> [TripChecks.Issue] {
-        guard let budget = plan.budgetMinutes else { return [] }
-        let days = plan.days.map { day -> TripChecks.Day in
-            let sights = day.stops.filter { $0.role == .sight }
-            let driving = Int((Double(day.stops.reduce(0) { $0 + ($1.legSeconds ?? 0) }) / 60).rounded())
-            let area = sights.last.map { $0.place.district ?? $0.place.name }
-            return TripChecks.Day(minutes: Self.dayMinutes(day), drivingMinutes: driving,
-                                  onlyMustSee: !sights.isEmpty && sights.allSatisfy { $0.importance == 3 }, area: area,
-                                  sights: sights.count, longestSightMinutes: sights.map(\.visitMinutes).max() ?? 0)
-        }
-        var hotels: [Int: [TripChecks.HotelChoice]] = [:]
-        if plan.wishes != nil || hotelNearActive {
-            for (night, list) in hotelChoices where !hotelsChosen.contains(night) && night < plan.dayCount {
-                hotels[night] = list.map { TripChecks.HotelChoice(name: $0.place.name, meters: $0.meters) }
-            }
-        }
-        return TripChecks.run(notFound: request.notFound, days: days, budgetMinutes: budget, spareEmpty: plan.spare.isEmpty,
-                              hotels: hotels, notHotels: request.notHotels, far: request.far, city: TripGround.cityName(plan.city))
-    }
-
-    /// §49 items 5–6: checks the plan; while a check fails and fewer than 2 rounds were given, the result is
-    /// `trip_needs_fix` (nothing said); else the normal answer, built by `answer(notFound, extra notes)` with the
-    /// changes made and the issues still failing that §48 item 7 does not say already.
-    private func checked(_ request: FixRequest, answer: ([String], [String]) -> ToolResult) -> ToolResult {
-        let started = clock.now
-        var request = request
-        let issues = runChecks(request)
-        let count = { (k: TripChecks.Kind) in issues.filter { $0.kind == k }.count }
-        onLine("trip check round=\(request.round) not_found=\(count(.notFound)) over=\(count(.over)) driving=\(count(.driving)) under=\(count(.under)) hotel=\(count(.hotel)) far=\(count(.far)) ms=\(ms(since: started))")
-        if !issues.isEmpty, request.round < Self.maxFixRounds {
-            request.round += 1
-            fix = request
-            var data = answer(request.notFound, []).data
-            data["status"] = "trip_needs_fix"
-            data["round"] = .int(Int64(request.round))
-            data["issues"] = .array(issues.map { .string($0.line) })
-            data["wishes"] = plan.wishes.map(JSONValue.string) ?? .null
-            data["next"] = "先不要跟司机说话，直接按 issues 改好整份行程，调用 set_trip_plan，改完会再检查。"
-            return .success(data)
-        }
-        fix = nil
-        let leftover = issues.filter { $0.kind == .driving }.map(\.line)
-        // §50 item 4: a place still failing after round 2 is dropped and named.
-        var seen = Set<String>()
-        let dropped = request.dropped.filter { seen.insert($0).inserted }
-        let droppedLine = dropped.isEmpty ? [] : ["去掉了\(dropped.joined(separator: "、"))（开车到不了、太远或者不是酒店）"]
-        return answer(request.notFound, request.changes + leftover + droppedLine)
-    }
-
-    /// §37 item 2: the frame put round the days in the asked order (used before ordering, and kept when it fails):
-    /// day 1 from `start`, night k's hotel last on day k and first on day k+1, `end` last on the last day.
-    /// `hotels`: one for every night, or one per night (nil where it was not found).
-    /// §45 item 4 (T-040q): `pickup` right after `start` on day 1, `dropoff` just before `end` on the last day.
-    /// §48 item 10: the optional places after the required ones, on their group's day (else the first day with room),
-    /// at most 16 a day; the ones with no room are spare.
-    static func withOptional(_ days: [TripList], _ optional: [(day: Int?, stop: TripStop)]) -> (days: [TripList], spare: [TripStop]) {
-        var stops = days.map(\.stops)
-        var spare: [TripStop] = []
-        for o in optional {
-            let d = o.day.map { min($0, stops.count - 1) } ?? stops.firstIndex { $0.count < TripList.maxStops }
-            if let d, stops[d].count < TripList.maxStops { stops[d].append(o.stop) } else { spare.append(o.stop) }
-        }
-        return (stops.map { s in
-            var list = TripList()
-            list.arrange(s)
-            return list
-        }, spare)
-    }
-
-    static func layout(_ days: [TripList], start: TripStop?, end: TripStop?, hotels: [TripStop?],
-                       pickup: TripStop? = nil, dropoff: TripStop? = nil) -> [TripList] {
-        let nights = max(days.count - 1, 0)
-        func hotel(_ night: Int) -> TripStop? {
-            guard night < nights else { return nil }
-            if hotels.count == 1 { return hotels[0] }
-            return night < hotels.count ? hotels[night] : nil
-        }
-        return days.enumerated().map { d, day in
-            var stops: [TripStop] = []
-            if d == 0, let start { stops.append(start) }
-            if d == 0, let pickup { stops.append(pickup) }
-            if d > 0, let h = hotel(d - 1) { stops.append(h) }
-            stops += day.stops
-            if d < nights, let h = hotel(d) { stops.append(h) }
-            if d == days.count - 1, let dropoff { stops.append(dropoff) }
-            if d == days.count - 1, let end { stops.append(end) }
-            var list = TripList()
-            list.arrange(stops)
-            return list
-        }
-    }
-
-    // MARK: edit_trip_list
-
-    private func edit(_ args: JSONValue) async -> ToolResult {
-        let started = clock.now
-        let action = args["action"]?.stringValue ?? ""
-        let result = await editAction(action, args)
-        // not_found counts only a lookup that found nothing (add, replace); duplicates an add of a listed place.
-        let lookedUp = action == "replace" && result.code == .notFound
-        let duplicates: Int = if case .array(let d)? = result.data["duplicates"] { d.count } else { 0 }
-        onLine("trip list stops=\(list.count) not_found=\(lookedUp ? 1 : 0) duplicates=\(duplicates) ms=\(ms(since: started)) action=\(action) ok=\(result.ok ? "yes" : "no")")
-        return result
-    }
-
-    private func editAction(_ action: String, _ args: JSONValue) async -> ToolResult {
-        let index = Self.int(args["index"])
-        let name = args["name"]?.stringValue.map(TranscriptText.normalize)
-        let day = Self.int(args["day"])
-        if let day {
-            if action == "clear" {
-                guard plan.removeDay(day) else { return dayOutOfRange() }
-                changed()
-                return listResult(changed: "cleared", facts: ["removed_day": .int(Int64(day))])
-            }
-            guard plan.select(day) else { return dayOutOfRange() }
-            // The current day is the last one made, edited, read or routed (§15 item 1).
-            publish()
-            persist()
-        }
-        let n = list.count
-        // §52 item 1 (T-040zb): no refusal depends on the selected day; an empty day in a plan is just an empty day.
-        if plan.isEmpty, action != "clear" { return failure(.noTripList) }
-        switch action {
-        case "read":
-            // §13 item 5: the driver asked to hear it; the order rule is a `may`, not a line.
-            return listResult(changed: "none", may: [.readListInOrder], mustNot: [])
-        case "clear":
-            return await clearWhole(viaPlan: false)
-        case "visited", "skip":
-            guard let index, (1...n).contains(index) else { return outOfRange() }
-            let mark: TripMark = action == "visited" ? .visited : .skipped
-            let name = list.stops[index - 1].place.name
-            list.setMark(at: index, mark)
-            // §37 item 7: a night's hotel is one place on two days; 「已经到了」 there ends the day.
-            if action == "visited" { markOtherCopy(day: plan.currentDay, index: index, mark) }
-            changed()
-            onLine("trip visit index=\(index) day=\(plan.currentDay) by=\(action == "visited" ? "voice" : "skip")")
-            return listResult(changed: action, facts: ["name": .string(name), "index": .int(Int64(index))])
-        case "replace":
-            guard let name else { return .failure(.invalidFields) }
-            guard let index, (1...n).contains(index) else { return outOfRange() }
-            // A plan write too: the background retry waits (review 2026-11-21).
-            planWrites += 1
-            defer { planWrites -= 1 }
-            let generation = plan.revision
-            let here = await origin()
-            let lookup = await resolve([name], city: nil, abroad: plan.abroad, near: regionHint()).first ?? .missing("failed")
-            // §3 item 4: a newer change while this lookup ran wins; this one changes nothing.
-            guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-            let place: Place
-            switch lookup {
-            case .found(let found): place = found
-            case .candidates: return failure(.notFound)
-            case .keyMissing: return LookupReply.failed(.amapWebKeyMissing, what: "trip_list", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
-            case .missing(let reason):
-                onLine("trip lookup index=\(index) ok=no reason=\(reason)")
-                if Self.isSlow(reason) { return nothingPlaced(.notFound, what: "trip_list", notFound: [], slow: [name]) }
-                return failure(.notFound)
-            }
-            let replacing = index
-            if list.stops.contains(where: { $0.place.id == place.id && $0.index != replacing }) {
-                return listResult(changed: "none", duplicates: [name], facts: ["already_in_list": .string(place.name)])
-            }
-            // §37 items 2 and 4: a replaced start, hotel or end keeps its role; the driver chose it (not picked).
-            let old = list.stops[replacing - 1]
-            var stop = TripStop(index: 0, asked: name, place: place, distanceMeters: distance(here, place), role: old.role)
-            // §52 item 1: the stop keeps its id (it is the same stop with another place).
-            stop.id = old.id
-            list.set(stop, at: replacing)
-            if old.role == .hotel { replaceOtherCopy(day: plan.currentDay, index: replacing, of: old, with: stop) }
-            changed()
-            return listResult(changed: "replaced", facts: overFacts().merging(
-                ["index": .int(Int64(replacing)), "name": .string(place.name)]) { $1 })
-        default:
-            return .failure(.invalidFields)
-        }
-    }
-
     // MARK: set_trip_plan (§52, T-040zb)
 
     /// §52 item 3: one stop as the model wrote it: `{id}` (kept, maybe with a new role or minutes) or a new `name`.
@@ -1077,6 +465,8 @@ public actor TripPlanner: ToolExecutor {
         var role: TripRole?
         var minutes: Int?
         var importance: Int?
+        /// §55 item 7 (T-040zh): `{role: hotel, near}`: the app picks the hotel closest to this place.
+        var near: String?
     }
 
     static func writtenDays(_ args: JSONValue) -> [[WrittenStop]] {
@@ -1088,7 +478,8 @@ public actor TripPlanner: ToolExecutor {
                             name: s["name"]?.stringValue.map(TranscriptText.normalize),
                             role: s["role"]?.stringValue.flatMap(TripRole.init(rawValue:)),
                             minutes: s["minutes"]?.intValue.map { TripStop.clampMinutes(Int($0)) },
-                            importance: s["importance"]?.intValue.map { TripStop.clampImportance(Int($0)) })
+                            importance: s["importance"]?.intValue.map { TripStop.clampImportance(Int($0)) },
+                            near: s["near"]?.stringValue.map(TranscriptText.normalize))
             }
         }
     }
@@ -1101,8 +492,12 @@ public actor TripPlanner: ToolExecutor {
         guard (1...TripPlan.maxDays).contains(days.count) else { return ["天数要在1到\(TripPlan.maxDays)天之间"] }
         let known = Dictionary(old.allStops.map { ($0.stop.id, $0) }, uniquingKeysWith: { a, _ in a })
         func role(_ s: WrittenStop) -> TripRole { s.role ?? s.id.flatMap { known[$0]?.stop.role } ?? .sight }
-        func key(_ s: WrittenStop) -> String { s.id.map { "id:" + $0 } ?? "name:" + (s.name ?? "") }
-        func label(_ s: WrittenStop) -> String { s.name ?? s.id.flatMap { known[$0]?.stop.place.name } ?? s.id ?? "" }
+        func key(_ s: WrittenStop) -> String {
+            s.id.map { "id:" + $0 } ?? s.name.map { "name:" + $0 } ?? "near:" + (s.near ?? "")
+        }
+        func label(_ s: WrittenStop) -> String {
+            s.name ?? s.id.flatMap { known[$0]?.stop.place.name } ?? s.id ?? s.near.map { "\($0)附近的酒店" } ?? ""
+        }
         // Unknown ids.
         for s in days.joined() { if let id = s.id, known[id] == nil { problems.append("没有这个 id：\(id)") } }
         // start: at most one, the first stop of day 1; end: at most one, the last stop of the last day.
@@ -1165,24 +560,39 @@ public actor TripPlanner: ToolExecutor {
               coordinate: GeoCoordinate(latitude: 0, longitude: 0, datum: .gcj02), distanceMeters: nil)
     }
 
-    /// §52 items 3–8: `set_trip_plan`: checks the written plan, keeps the stops given by id (no search), looks up the
-    /// new names (one not found or still running at its limit is kept with `placed=false` and searched again in the
-    /// background), picks a hotel only for a night with none, times the days, and saves. Facts: `kept`, `new`,
-    /// `removed`, `not_placed`, `search_slow`, `app_picked_hotels`, `notes`.
+    /// §55 item 9 (T-040zh): the `next` of a `trip_needs_fix` result, exactly as §55 gives it.
+    public static let fixNext = "先不要跟司机说话，按 issues 改好整份行程，再调用 set_trip_plan。"
+    /// §55 item 9: the `next` part that names the issues still failing after the last round.
+    public static func leftoverNext(_ lines: [String]) -> String { "跟司机说还有这些问题：" + lines.joined(separator: "；") }
+    /// §55 item 2: the `PLAN_CHECK` line of a new plan without `city`.
+    public static let cityMissing = "新行程要写 city（城市，跨城市就写省或地区）"
+
+    /// §52 items 3–8 with §55 (T-040zh): `set_trip_plan` makes and changes every plan. A call that keeps no `id` is a
+    /// new plan: `city` is required and the plan in hand is replaced (no `CONFIRM_CLEAR`). New names are looked up
+    /// inside the plan's city (a name not found there is kept with `placed=false`, never a nationwide guess); a
+    /// `{role: hotel, near}` stop is the hotel closest to that place, picked by the app. Code never moves a stop to
+    /// another day and never asks for a start. The saved plan is then checked (§55 item 8); while a check fails and a
+    /// round is left, the result is `trip_needs_fix`.
     private func setPlan(_ args: JSONValue) async -> ToolResult {
         planWrites += 1
         defer { planWrites -= 1 }
         let started = clock.now
         let written = Self.writtenDays(args)
         let stopTotal = written.reduce(0) { $0 + $1.count }
+        let newPlan = !written.joined().contains { $0.id != nil }
+        let cityArg = args["city"]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
         var counts = (kept: 0, new: 0, removed: 0, notPlaced: 0)
-        func log(_ ok: Bool, check: String? = nil) {
-            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) check=\(check ?? (ok ? "ok" : "fail")) ms=\(ms(since: started))")
+        var issueCount = 0
+        var round = 0
+        func log(_ ok: Bool) {
+            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) new_plan=\(newPlan ? "yes" : "no") check=\(ok ? "ok" : "fail") issues=\(issueCount) round=\(round) ms=\(ms(since: started))")
         }
-        work?.step(WorkProgress.tripRevise)
+        // §50 item 6: a new plan's first step is the place check; a change is 调整行程.
+        work?.step(newPlan ? WorkProgress.tripCheck : WorkProgress.tripRevise)
         // §52 item 13 (T-040ze): a plan with no stops is a clear of the whole trip.
         if stopTotal == 0 { return await clearWhole(viaPlan: true) }
-        let problems = Self.planProblems(written, old: plan)
+        var problems = Self.planProblems(written, old: newPlan ? TripPlan() : plan)
+        if newPlan, cityArg == nil { problems.insert(Self.cityMissing, at: 0) }
         guard problems.isEmpty else {
             log(false)
             planCheckRounds += 1
@@ -1197,13 +607,37 @@ public actor TripPlanner: ToolExecutor {
         }
         planCheckRounds = 0
         let generation = plan.revision
-        let known = Dictionary(plan.allStops.map { ($0.stop.id, $0.stop) }, uniquingKeysWith: { a, _ in a })
+        let known = newPlan ? [:] : Dictionary(plan.allStops.map { ($0.stop.id, $0.stop) }, uniquingKeysWith: { a, _ in a })
+        let city = newPlan ? cityArg : plan.city
+        var abroad = newPlan ? false : plan.abroad
         // New names, once each (a night's hotel is written twice), looked up as places of the trip.
         var newNames: [String] = []
-        for s in written.joined() { if s.id == nil, let n = s.name, !newNames.contains(n) { newNames.append(n) } }
-        if plan.abroad, area == nil, let abroadArea, let city = plan.city { area = await abroadArea(city) }
-        let lookups = newNames.isEmpty ? [] : await resolve(newNames, city: plan.abroad ? nil : plan.city, abroad: plan.abroad,
-                                                            near: regionHint())
+        var nears: [String] = []
+        for s in written.joined() where s.id == nil {
+            if let n = s.name, !newNames.contains(n) { newNames.append(n) }
+            if s.name == nil, let n = s.near, !nears.contains(n) { nears.append(n) }
+        }
+        var lookups: [Lookup] = []
+        if newPlan {
+            // §55 item 2: `abroad` comes from where the city is (§36): the city's country when it is known.
+            var asked = false
+            area = nil
+            if abroadSearch != nil, let abroadArea, let city, let found = await abroadArea(city) {
+                asked = !TripRegion.isChina(found.countryCode)
+            }
+            if newNames.isEmpty {
+                abroad = asked
+                if asked, let abroadArea, let city { area = await abroadArea(city) }
+            } else {
+                // §55 item 4: at home 高德 with `city` and `citylimit=true`; abroad the box around the city's centre.
+                (lookups, abroad) = await resolveTrip(newNames, city: city, abroad: asked)
+            }
+        } else {
+            if plan.abroad, area == nil, let abroadArea, let city = plan.city { area = await abroadArea(city) }
+            if !newNames.isEmpty {
+                lookups = await resolve(newNames, city: plan.abroad ? nil : plan.city, abroad: plan.abroad, near: regionHint())
+            }
+        }
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         if lookups.contains(where: { if case .keyMissing = $0 { true } else { false } }) {
             return LookupReply.failed(.amapWebKeyMissing, what: "trip", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
@@ -1219,45 +653,22 @@ public actor TripPlanner: ToolExecutor {
                 onLine("trip lookup index=\(i + 1) ok=no reason=\(reason)")
                 // §52 item 11 seam (T-040zd): a lookup out of tries comes back `slow`; it is said as `search_slow`.
                 // A lookup still running at its own limit (`timeout`) is slow too, never "not found" (§52 item 4).
-                if reason == "slow" || reason == "timeout" { slow.append(name) }
+                if Self.isSlow(reason) { slow.append(name) }
             case .candidates, .keyMissing: notPlaced.append(name)
             }
         }
-        // §54 item 3 (T-040zg): one trip, one area. A new stop in another country group, or farther than
-        // `newTripKilometres` from every kept placed stop (abroad only), makes this a new trip: nothing is saved.
-        let keptPlaced = written.joined().compactMap { w in w.id.flatMap { known[$0] } }.filter(\.placed).map(\.place)
-        if !keptPlaced.isEmpty, !newNames.isEmpty {
-            var whereIs = placeOf
-            // Item 3.1: a name not found near the trip is searched once more without the trip's area, only to learn
-            // where it is: abroad Photon then 高德, at home Photon only.
-            // At home the first lookup was already nationwide 高德, so only Photon is asked again (review 2026-11-21).
-            for abroadTry in (plan.abroad ? [true, false] : [true]) {
-                // A lookup that only ran out of time (`search_slow`) is not searched again here.
-                let unknown = newNames.filter { whereIs[$0] == nil && !slow.contains($0) }
-                guard !unknown.isEmpty, !abroadTry || abroadSearch != nil else { continue }
-                let found = abroadTry ? await resolveCounting(unknown, city: nil, abroad: true, guardCountry: false).0
-                                      : await resolve(unknown, city: nil)
-                for (i, n) in unknown.enumerated() { if case .found(let place) = found[i] { whereIs[n] = place } }
-            }
-            guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-            let foreign = newNames.filter { n in whereIs[n].map { Self.isForeign($0, kept: keptPlaced, kilometres: plan.abroad ? tuning.newTripKilometres : nil) } ?? false }
-            if !foreign.isEmpty {
-                counts = (written.joined().filter { $0.id != nil }.count, newNames.count, 0, notPlaced.count)
-                log(false, check: "new_trip")
-                var result = failure(.planCheck, facts: [
-                    "problems": .array(foreign.map { .string("\($0)不在这份行程的地方，这是新的行程") }),
-                    "new_trip": true, "plan_kept": true])
-                var data = result.data
-                data["next"] = "先不要跟司机说话，调用 make_trip_list 规划新的行程，会替换旧行程。"
-                result = ToolResult(ok: false, code: .planCheck, data: data, advice: result.advice)
-                return result
-            }
+        // §55 item 7: `{role: hotel, near}`: the hotel closest to that place (§50 item 2), one for every night it is written.
+        var nearHotel: [String: Place] = [:]
+        for n in nears {
+            if let first = await hotelsNear(n, city: city, abroad: abroad, grounded: [])?.first { nearHotel[n] = first.place }
         }
+        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         let here = await origin()
-        // The new plan: kept stops as they were (place, photo, times, mark), with a changed role or minutes; new ones.
+        // The plan as written: kept stops as they were (place, photo, times, mark), with a changed role or minutes; new
+        // ones. A `near` hotel that found no hotel is left out (that night gets the `hotel` issue).
         var newStopOf: [String: TripStop] = [:]
         var days: [[TripStop]] = written.map { day in
-            day.map { w -> TripStop in
+            day.compactMap { w -> TripStop? in
                 if let id = w.id, var s = known[id] {
                     if let role = w.role, role != s.role {
                         s.role = role
@@ -1265,6 +676,13 @@ public actor TripPlanner: ToolExecutor {
                     }
                     if let m = w.minutes { s.minutes = m }
                     return s
+                }
+                if w.name == nil, let near = w.near {
+                    if let made = newStopOf["near:" + near] { return made }
+                    guard let hotel = nearHotel[near] else { return nil }
+                    let stop = TripStop(index: 0, asked: near, place: hotel, distanceMeters: nil, role: .hotel, pickedBy: .app)
+                    newStopOf["near:" + near] = stop
+                    return stop
                 }
                 let name = w.name ?? ""
                 let role = w.role ?? .sight
@@ -1278,72 +696,100 @@ public actor TripPlanner: ToolExecutor {
             }
         }
         let keptIDs = Set(written.joined().compactMap(\.id))
-        let removed = plan.allStops.filter { !keptIDs.contains($0.stop.id) }
         var removedNames: [String] = []
-        for r in removed where !removedNames.contains(r.stop.place.name) { removedNames.append(r.stop.place.name) }
-        counts = (keptIDs.count, newNames.count, removedNames.count, notPlaced.count)
-        // §52 item 6: a night with no hotel gets one the app picks; a hotel the model wrote is never replaced.
-        var appPicked: [String] = []
-        for k in 0..<max(days.count - 1, 0) where days[k].last?.role != .hotel && days[k + 1].first?.role != .hotel {
-            let ends = [days[k].last { $0.placed }, days[k + 1].first { $0.placed }].compactMap { $0 }
-            guard let a = ends.first else { continue }
-            let b = ends.last ?? a
-            let mid = GeoCoordinate(latitude: (a.place.coordinate.latitude + b.place.coordinate.latitude) / 2,
-                                    longitude: (a.place.coordinate.longitude + b.place.coordinate.longitude) / 2,
-                                    datum: a.place.coordinate.datum)
-            guard let hotel = await hotelPlaces(near: mid, abroad: plan.abroad).first else { continue }
-            let stop = TripStop(index: 0, asked: "酒店", place: hotel, distanceMeters: nil, role: .hotel, pickedBy: .app)
-            days[k].append(stop)
-            days[k + 1].insert(stop, at: 0)
-            if !appPicked.contains(hotel.name) { appPicked.append(hotel.name) }
+        for r in plan.allStops where !keptIDs.contains(r.stop.id) && !removedNames.contains(r.stop.place.name) {
+            removedNames.append(r.stop.place.name)
         }
-        guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-        // §52 item 8: the model's order within a day is kept unless she asked to optimise; then times and the fit.
+        counts = (keptIDs.count, newNames.count + nears.count, removedNames.count, notPlaced.count)
+        // §52 item 8, §55 item 5: the model's days and order are kept; `optimise` reorders within each day only.
         if args["optimise"]?.boolValue == true {
             for d in days.indices { days[d] = await optimisedDay(days[d]) }
         }
-        let timed = await timedDays(days)
+        let timed = await timedDays(days, abroad: abroad, keepFirstLegs: !newPlan)
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
-        plan.write(days: timed.days.map { stops in
+        let lists = timed.days.map { stops in
             var list = TripList()
             list.arrange(stops)
             return list
-        })
-        if let pace = args["pace"]?.stringValue.flatMap(TripFitter.Pace.init(rawValue:)) { plan.budgetMinutes = pace.budgetMinutes }
+        }
+        let pace = args["pace"]?.stringValue.flatMap(TripFitter.Pace.init(rawValue:))
+        if newPlan {
+            // §55 item 3: a new plan replaces the plan in hand (its name goes with the old plan).
+            plan.replaceAll(withDays: lists)
+            plan.city = city
+            plan.abroad = abroad
+            plan.budgetMinutes = (pace ?? .normal).budgetMinutes
+        } else {
+            plan.write(days: lists)
+            // §48 item 3: B is the pace's budget; a plan of no pace yet is `normal`.
+            plan.budgetMinutes = pace?.budgetMinutes ?? plan.budgetMinutes ?? TripFitter.Pace.normal.budgetMinutes
+        }
         plan.spare.removeAll { s in plan.allStops.contains { $0.stop.place.id == s.place.id } }
         changed()
-        log(true)
         // §52 item 4: names not on the map are searched again in the background.
         retryUnplaced()
         var facts: [String: JSONValue] = ["kept": .int(Int64(counts.kept)), "new": .int(Int64(counts.new))]
+        if newPlan { facts["new_plan"] = true }
         if !removedNames.isEmpty { facts["removed"] = .array(removedNames.map(JSONValue.string)) }
         if !notPlaced.isEmpty { facts["not_placed"] = .array(notPlaced.map(JSONValue.string)) }
         if !slow.isEmpty { facts["search_slow"] = .array(slow.map(JSONValue.string)) }
-        if !appPicked.isEmpty { facts["app_picked_hotels"] = .array(appPicked.map(JSONValue.string)) }
-        // §48 item 9 with §52 item 8: a day over its budget is a note, not a refusal.
-        var notes: [String] = []
-        if let budget = plan.budgetMinutes {
-            notes = Self.fitNotes(plan.days.map(Self.dayMinutes), budget: budget, spare: plan.spare.map(\.place.name))
-        }
         if timed.estimated { facts["times"] = "estimated" }
-        if !notes.isEmpty { facts["notes"] = .array(notes.map(JSONValue.string)) }
-        // §49 items 5–6 with §52 item 5: a waiting `trip_needs_fix` request is answered by this plan; the checks run
-        // again within the same round limit. The names not on the map are now the request's names not found.
-        if var request = fix {
-            request.far = []
-            request.notHotels = []
-            // §52 item 11: a slow name stays in `search_slow`; only names the search did not find are not found.
-            request.notFound = notPlaced.filter { !slow.contains($0) }
-            let base = facts
-            let makeNotes = request.notes
-            return checked(request) { [self] missing, more in
-                var f = base
-                let all = more + notes + makeNotes
-                if !all.isEmpty { f["notes"] = .array(all.map(JSONValue.string)) }
-                return listResult(changed: "set", notFound: missing, facts: f, mustNot: [.readList, .readDistances])
-            }
+        // §55 item 9: at most 2 rounds per driver request (one driver turn; without a turn count, until the next
+        // `trip_list`).
+        let turn = await driverTurns?()
+        if let turn, fixTurn != turn { fixRound = 0 }
+        // §55 item 8: the critics over the saved plan. A slow name stays in `search_slow`, never `not_found`.
+        let issues = planIssues(notFound: notPlaced.filter { !slow.contains($0) })
+        issueCount = issues.count
+        // §55 item 10: a plan with an empty or over day is not ready.
+        if issues.contains(where: { $0.kind == .empty || $0.kind == .over }) { facts["ready"] = false }
+        // §55 item 6: no start is not an error; she may ask for one after the plan is saved.
+        let hasStart = plan.days.first?.stops.first?.role == .start
+        let may: [ReplyMay] = newPlan && !hasStart ? [.askStart] : []
+        var data = listResult(changed: "set", facts: facts, may: may, mustNot: [.readList, .readDistances]).data
+        if !issues.isEmpty, fixRound < Self.maxFixRounds {
+            fixRound += 1
+            fixTurn = turn
+            round = fixRound
+            log(false)
+            data["status"] = "trip_needs_fix"
+            data["round"] = .int(Int64(round))
+            data["issues"] = .array(issues.map { .string($0.line) })
+            data["next"] = .string(Self.fixNext)
+            return .success(data)
         }
-        return listResult(changed: "set", facts: facts, mustNot: [.readList, .readDistances])
+        // All checks pass, or the rounds are used up: the plan as it is, with any issue still failing in `next`.
+        if issues.isEmpty || turn == nil { fixRound = 0 }
+        fixTurn = turn
+        log(issues.isEmpty)
+        if !issues.isEmpty {
+            data["issues"] = .array(issues.map { .string($0.line) })
+            let said = data["next"]?.stringValue ?? ""
+            let left = Self.leftoverNext(issues.map(\.line))
+            data["next"] = .string(said.isEmpty || said.hasSuffix("。") ? said + left : said + "；" + left)
+        }
+        return .success(data)
+    }
+
+    /// §55 item 8 (T-040zh): the checks over the plan in hand, in §55's order.
+    private func planIssues(notFound: [String]) -> [TripChecks.Issue] {
+        let started = clock.now
+        let budget = plan.budgetMinutes ?? TripFitter.Pace.normal.budgetMinutes
+        let days = plan.days.map { day -> TripChecks.Day in
+            let sights = day.stops.filter { $0.role == .sight }
+            let driving = Int((Double(day.stops.reduce(0) { $0 + ($1.legSeconds ?? 0) }) / 60).rounded())
+            let area = sights.last.map { $0.place.district ?? $0.place.name }
+            return TripChecks.Day(minutes: Self.dayMinutes(day), drivingMinutes: driving,
+                                  onlyMustSee: !sights.isEmpty && sights.allSatisfy { $0.importance == 3 }, area: area,
+                                  sights: sights.count, longestSightMinutes: sights.map(\.visitMinutes).max() ?? 0)
+        }
+        // A night k (1…days−1) has its hotel when day k ends with one.
+        let nights = plan.dayCount < 2 ? [] : (1..<plan.dayCount).filter { plan.days[$0 - 1].stops.last?.role != .hotel }
+        let issues = TripChecks.run(days: days, budgetMinutes: budget, spareEmpty: plan.spare.isEmpty, notFound: notFound,
+                                    nightsWithoutHotel: nights, city: TripGround.cityName(plan.city))
+        let count = { (k: TripChecks.Kind) in issues.filter { $0.kind == k }.count }
+        onLine("trip check round=\(fixRound) not_found=\(count(.notFound)) over=\(count(.over)) driving=\(count(.driving)) under=\(count(.under)) hotel=\(count(.hotel)) empty=\(count(.empty)) ms=\(ms(since: started))")
+        return issues
     }
 
     /// `clear` without `day`, or `set_trip_plan` with no stops: the whole plan is cleared.
@@ -1400,12 +846,12 @@ public actor TripPlanner: ToolExecutor {
 
     /// §52 item 8 with §36 item 6: driving seconds between the placed stops of each day, in the written order (one
     /// table per day; abroad the estimate when OSRM fails). A day whose table fails keeps no times.
-    private func timedDays(_ days: [[TripStop]]) async -> (days: [[TripStop]], estimated: Bool) {
-        let tableTimes = plan.abroad ? (abroadTimes ?? times) : times
+    private func timedDays(_ days: [[TripStop]], abroad: Bool, keepFirstLegs: Bool) async -> (days: [[TripStop]], estimated: Bool) {
+        let tableTimes = abroad ? (abroadTimes ?? times) : times
         var estimated = false
         var out = days
         // The drive into a day's first stop (from the car or the start) is kept when that stop was already first.
-        let firstBefore = Dictionary(plan.days.enumerated().compactMap { d, day in day.stops.first.map { ("\(d)|\($0.id)", $0.legSeconds) } },
+        let firstBefore = !keepFirstLegs ? [:] : Dictionary(plan.days.enumerated().compactMap { d, day in day.stops.first.map { ("\(d)|\($0.id)", $0.legSeconds) } },
                                      uniquingKeysWith: { a, _ in a })
         for d in out.indices {
             for i in out[d].indices {
@@ -1414,12 +860,12 @@ public actor TripPlanner: ToolExecutor {
             let placed = out[d].indices.filter { out[d][$0].placed }
             guard placed.count > 1 else { continue }
             let nodes = placed.map { TripTimes.Node(key: out[d][$0].place.id, coordinate: out[d][$0].place.coordinate) }
-            guard !Set(nodes.map(\.key)).isEmpty, tableTimes != nil || plan.abroad else { continue }
+            guard !Set(nodes.map(\.key)).isEmpty, tableTimes != nil || abroad else { continue }
             let asked = clock.now
             work?.step(WorkProgress.tripTimes)
             var table = await tableTimes?.table(start: nil, stops: nodes)
-            if table == nil, plan.abroad { table = TripTimes.estimate(start: nil, stops: nodes) }
-            let vendor = table?.estimated == true ? "estimate" : plan.abroad && abroadTimes != nil ? "osrm" : "amap"
+            if table == nil, abroad { table = TripTimes.estimate(start: nil, stops: nodes) }
+            let vendor = table?.estimated == true ? "estimate" : abroad && abroadTimes != nil ? "osrm" : "amap"
             onLine("trip times vendor=\(vendor) pairs=\(table?.pairs ?? 0) ms=\(ms(since: asked))")
             guard let table else { continue }
             if table.estimated { estimated = true }
@@ -1510,12 +956,6 @@ public actor TripPlanner: ToolExecutor {
     private enum OrderResult {
         case success(Ordered)
         case failed(ToolErrorCode)
-    }
-
-    /// §28 item 2: what `next` adds when the new plan could not be ordered.
-    private static func unordered(_ result: OrderResult) -> String {
-        if case .failed = result { return "；还没按车程排好顺序" }
-        return estimateNote(result)
     }
 
     /// §36 item 2c: said once when the times are estimated.
@@ -1701,7 +1141,7 @@ public actor TripPlanner: ToolExecutor {
                     nightHotel[k] = TripStop(index: 0, asked: "酒店", place: hotel, distanceMeters: nil, role: .hotel, picked: true)
                     picked += 1
                     // §49 item 4 `hotel`: the choices with their distance to that day's last place.
-                    choices[k + 1] = found.prefix(TripChecks.hotelChoices).map {
+                    choices[k + 1] = found.prefix(3).map {
                         ($0, Int(SelfPosition.distanceMeters(last.place.coordinate, $0.coordinate).rounded()))
                     }
                 } else {
@@ -1846,23 +1286,6 @@ public actor TripPlanner: ToolExecutor {
 
     static func hours(_ minutes: Int) -> Int { Int((Double(minutes) / 60).rounded()) }
 
-    /// §48 item 7: what she says once per fitted plan: the load, the places left out, a day too full, a day thin (§53).
-    static func fitNotes(_ dayMinutes: [Int], budget: Int, spare: [String]) -> [String] {
-        guard let lo = dayMinutes.min(), let hi = dayMinutes.max() else { return [] }
-        var notes: [String] = []
-        let (a, b) = (hours(lo), hours(hi))
-        notes.append(a == b ? "每天大约\(a)小时" : "每天大约\(a)到\(b)小时")
-        if !spare.isEmpty { notes.append("时间不够，没排进：\(spare.joined(separator: "、"))") }
-        for (d, m) in dayMinutes.enumerated() where m > budget { notes.append("第\(d + 1)天大约\(hours(m))小时，比较紧") }
-        if spare.isEmpty {
-            // F-15b §53 item 3 (T-040zf): under 75% of the budget, the minutes part only.
-            for (d, m) in dayMinutes.enumerated() where TripChecks.underMinutes(m, budgetMinutes: budget) {
-                notes.append("第\(d + 1)天还空大约\(max(1, hours(budget - m)))小时，可以再加几个地方")
-            }
-        }
-        return notes
-    }
-
     /// §48 item 9: after an edit, the current day over its budget is said; nothing is dropped.
     /// §48: the current day over its budget, as facts (F-09b §13 item 5).
     private func overFacts() -> [String: JSONValue] {
@@ -1897,48 +1320,6 @@ public actor TripPlanner: ToolExecutor {
         }
         let trimmed = brand.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? name : trimmed
-    }
-
-    /// §45 item 2: 「租车」 places around `center`, nearest first, within 3 km, else 10 km (Photon's amenity:car_rental
-    /// tag abroad, 高德's category search at home).
-    private func rentalPlaces(near center: GeoCoordinate, abroad: Bool) async -> [Place] {
-        let vendor = abroad ? (abroadSearch ?? search) : search
-        for radius in tuning.rentalRadii {
-            guard !Task.isCancelled else { return [] }
-            let found = (try? await vendor.aroundOnly("租车", center: center, radiusMeters: radius, sort: .distance)) ?? []
-            let usable = abroad ? found.filter { $0.countryCode == nil || !TripRegion.isChina($0.countryCode) } : found
-            if !usable.isEmpty { return usable }
-        }
-        return []
-    }
-
-    /// §45 items 2, 3 and 5: the pickup near the start (named, else the phone), the return near the end (else the last
-    /// day's last sight as asked), preferring the pickup's brand; one search when both are around the same point.
-    private func pickRentals(start: TripStop?, end: TripStop?, here: GeoCoordinate?, lastSight: TripStop?,
-                             abroad: Bool) async -> (pickup: TripStop?, dropoff: TripStop?, notes: [String]) {
-        var notes: [String] = []
-        let startCenter = start?.place.coordinate ?? here
-        let startName = start?.place.name ?? "出发点"
-        var startFound: [Place] = []
-        if let startCenter { startFound = await rentalPlaces(near: startCenter, abroad: abroad) }
-        let pickup = startFound.first.map {
-            TripStop(index: 0, asked: "租车", place: $0, distanceMeters: nil, role: .rentalPickup, picked: true)
-        }
-        if pickup == nil { notes.append("\(startName)附近没找到租车点") }
-        let endPoint = end ?? lastSight
-        let endName = endPoint?.place.name ?? "终点"
-        var endFound: [Place] = []
-        if let endCenter = endPoint?.place.coordinate {
-            endFound = endCenter == startCenter ? startFound : await rentalPlaces(near: endCenter, abroad: abroad)
-        }
-        let brand = pickup.map { Self.rentalBrand($0.place.name) }
-        let chosen = endFound.first { brand != nil && Self.rentalBrand($0.name) == brand } ?? endFound.first
-        let dropoff = chosen.map {
-            TripStop(index: 0, asked: "租车", place: $0, distanceMeters: nil, role: .rentalReturn, picked: true)
-        }
-        // Said once: the same place as the start is not named twice.
-        if dropoff == nil, !(pickup == nil && endName == startName) { notes.append("\(endName)附近没找到租车点") }
-        return (pickup, dropoff, notes)
     }
 
     /// §37 item 4: the first 「酒店」 within 3 km of `center`, else 10 km (高德 at home, Apple abroad); nil when none.
@@ -2404,19 +1785,6 @@ public actor TripPlanner: ToolExecutor {
     /// (`timeout`) is `search_slow`, never "not found", on every trip path.
     static func isSlow(_ reason: String) -> Bool { reason == "slow" || reason == "timeout" }
 
-    /// A lookup reply for names none of which were placed: `search_slow` when only slow ones are missing.
-    private func nothingPlaced(_ code: ToolErrorCode, what: String, notFound: [String], slow: [String]) -> ToolResult {
-        var facts: [String: JSONValue] = ["changed": false]
-        if !notFound.isEmpty { facts["not_found"] = .array(notFound.map { .string($0) }) }
-        if !slow.isEmpty { facts["search_slow"] = .array(slow.map { .string($0) }) }
-        if notFound.isEmpty, !slow.isEmpty {
-            // Never a "not found" code for a search that only ran out of time (review 2026-11-21).
-            return LookupReply.failed(LookupReply.code(for: .network), what: what, cause: .network, facts: facts,
-                                      mustNot: [.claimDone])
-        }
-        return LookupReply.notFound(code, what: what, facts: facts, mustNot: [.claimDone])
-    }
-
     private func listResult(changed: String?, notFound: [String] = [], duplicates: [String] = [],
                             facts: [String: JSONValue] = [:], may: [ReplyMay] = [],
                             mustNot: [ReplyMustNot] = [.readList],
@@ -2749,13 +2117,6 @@ public actor TripPlanner: ToolExecutor {
         ToolReply.success(facts: facts, may: may, mustNot: mustNot).result.data
     }
 
-    /// The order of a new list as facts: not ordered by driving time, or ordered with estimated times.
-    private static func orderFacts(_ result: OrderResult) -> [String: JSONValue] {
-        if case .failed = result { return ["ordered": false] }
-        if case .success(let o) = result, o.estimated { return ["ordered": true, "times": "estimated"] }
-        return ["ordered": true]
-    }
-
     private static func removedName(_ result: ToolResult) -> String? { result.data["removed"]?.stringValue }
 
     // MARK: Photos (§12)
@@ -2872,10 +2233,6 @@ public actor TripPlanner: ToolExecutor {
 
     /// Tests: the photo lookups of the last change have finished.
     public func photosSettled() async { await photoTask?.value }
-
-    private func line(stops: Int, notFound: Int, duplicates: Int, since: NovaInstant) {
-        onLine("trip list stops=\(stops) not_found=\(notFound) duplicates=\(duplicates) ms=\(ms(since: since))")
-    }
 
     private func ms(since: NovaInstant) -> Int64 { max(0, (clock.now - since).milliseconds) }
 

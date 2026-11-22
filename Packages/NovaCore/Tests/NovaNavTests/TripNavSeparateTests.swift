@@ -40,7 +40,7 @@ private struct SeparateRig {
         let planner = TripPlanner(search: TripSearch(tokyo), navigation: nav, origin: { tokyoCentre }, clock: ManualClock(),
                                   abroadSearch: FakeApple(tokyo))
         await planner.connectCards()
-        let made = await planner.execute(trip("make_trip_list", ["places": names(["浅草寺", "东京塔"]), "abroad": true,
+        let made = await planner.execute(planCall(["places": names(["浅草寺", "东京塔"]), "abroad": true,
                                                                  "city": "Tokyo, Japan"]))
         #expect(made.ok)
         #expect(await !planner.cardsHidden)
@@ -102,13 +102,13 @@ struct TripNavSeparateTests {
         #expect(rig.areas.withLock { $0 }.isEmpty)
     }
 
-    @Test("F-15b §51 row 165: cards hidden: trip_next, set_trip_plan, edit_trip_list visited each return tripHidden; plan unchanged; still hidden")
+    @Test("F-15b §51 row 165: cards hidden: trip_next and a set_trip_plan change each return tripHidden; plan unchanged; still hidden")
     func row165() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道", "天津之眼"])]))
         #expect(await rig.planner.hideCards())
         let before = await rig.order()
-        let calls = [trip("trip_next"), await sameCall(rig), trip("edit_trip_list", ["action": "visited", "index": 1])]
+        let calls = [trip("trip_next"), await sameCall(rig)]
         for call in calls {
             let r = await rig.run(call)
             // §52 item 2: the refusal carries the plan too; otherwise it is the fixed refusal.
@@ -120,17 +120,15 @@ struct TripNavSeparateTests {
         #expect(await rig.planner.cardsHidden)
         #expect(await !rig.nav.current.navigating)
         #expect(ToolFailureAdvice.forCode(.tripHidden) == nil && TripPlanner.tripHiddenNext.hasPrefix("用自己的话简短地说。"))
-        // §51 item 2: the catalog's 「打开行程」 sentence.
-        #expect(ToolCatalog.editTripListDescription.contains("司机说「打开行程」「看看行程」时用 action=read。"))
     }
 
-    @Test("F-15b §51 row 166: cards hidden: edit_trip_list read, trip_plans open, make_trip_list each run and show the cards")
+    @Test("F-15b §51 row 166: cards hidden: trip_plans open and a new plan (set_trip_plan, §55 item 1) each run and show the cards")
     func row166() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         #expect(await rig.run(trip("trip_plans", ["action": "save", "name": "天津一日游"])).ok)
-        let calls = [trip("edit_trip_list", ["action": "read"]), trip("trip_plans", ["action": "open", "name": "天津一日游"]),
-                     trip("make_trip_list", ["places": names(["天津之眼"])])]
+        let calls = [trip("trip_plans", ["action": "open", "name": "天津一日游"]),
+                     planCall(["places": names(["天津之眼"])])]
         for call in calls {
             #expect(await rig.planner.hideCards())
             let r = await rig.run(call)
@@ -142,7 +140,7 @@ struct TripNavSeparateTests {
     @Test("F-15b §51 row 167: cards hidden; trip_plans list runs and the cards stay hidden")
     func row167() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         #expect(await rig.planner.hideCards())
         #expect(await rig.run(trip("trip_plans", ["action": "list"])).ok)
         #expect(await rig.planner.cardsHidden)
@@ -152,16 +150,13 @@ struct TripNavSeparateTests {
     func row168() async {
         let files = MemoryTripFiles()
         let first = await PlanRig(files: files)
-        _ = await first.run("make_trip_list", ["places": names(["古文化街", "五大道"])])
+        _ = await first.run(planCall(["places": names(["古文化街", "五大道"])]))
         let second = await PlanRig(files: files)
         await second.planner.restore()
         #expect(await second.planner.currentPlan.stopCount == 2)
         #expect(await second.planner.cardsHidden)
         #expect(second.lines.withLock { $0 }.contains("trip cards hidden=yes"))
         #expect(second.lines.withLock { $0 }.contains("trip load ok=yes days=1 stops=2 hidden=yes"))
-        // 「打开行程」 shows it.
-        _ = await second.run("edit_trip_list", ["action": "read"])
-        #expect(await !second.planner.cardsHidden)
     }
 
     @Test("F-15b §51 row 173: abroad trip stop guidance, phone in Zhuhai; navigate_to 附近的咖啡店: trip stop ended, 高德 around the phone, new route not abroad")
@@ -196,7 +191,7 @@ struct TripNavSeparateTests {
     @Test("F-15b §51 row 165 (tap): cards hidden, 「加入清单」 tap is refused with tripHidden; list unchanged")
     func row165Tap() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         #expect(await rig.planner.hideCards())
         let before = await rig.order()
         let (r, note) = await rig.planner.tap(.add(place("瑞幸", 300)), moving: false)

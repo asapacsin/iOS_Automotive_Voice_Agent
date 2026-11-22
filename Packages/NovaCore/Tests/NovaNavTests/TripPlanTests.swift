@@ -47,6 +47,7 @@ struct PlanRig {
     }
 
     func run(_ name: String, _ args: [String: JSONValue]) async -> ToolResult { await planner.execute(trip(name, args)) }
+    func run(_ call: ToolCall) async -> ToolResult { await planner.execute(call) }
 }
 
 @Suite("T-040l F-15b phase 2b saved plans and days")
@@ -55,8 +56,7 @@ struct TripPlanTests {
     func row26() async {
         let files = MemoryTripFiles()
         let first = await PlanRig(files: files)
-        _ = await first.run("make_trip_list", ["places": names(["古文化街", "五大道"]), "day": 1])
-        _ = await first.run("make_trip_list", ["places": names(["天津之眼", "瓷房子", "海河"]), "day": 2])
+        _ = await first.run(planCall(["days": [names(["古文化街", "五大道"]), names(["天津之眼", "瓷房子", "海河"])]]))
         _ = await first.planner.tap(.day(2), moving: false)
         _ = await first.planner.tap(.remove(index: 3), moving: false)
 
@@ -91,8 +91,7 @@ struct TripPlanTests {
     @Test("F-15b row 28: no place names in the trip lines or the files' log lines")
     func row28() async {
         let rig = await PlanRig()
-        _ = await rig.run("make_trip_list", ["places": names(["古文化街", "五大道", "盘山"])])
-        _ = await rig.run("edit_trip_list", ["action": "replace", "index": 2, "name": "五大道"])
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道", "盘山"])]))
         _ = await rig.run("trip_next", [:])
         _ = await rig.run("trip_plans", ["action": "save", "name": "天津一日游"])
         _ = await rig.planner.tap(.remove(index: 1), moving: false)
@@ -103,43 +102,14 @@ struct TripPlanTests {
         }
     }
 
-    @Test("F-15b row 29: make day=1, then day=2, then day=4: two days kept, the third OUT_OF_RANGE")
-    func row29() async {
-        let rig = await PlanRig()
-        #expect(await rig.run("make_trip_list", ["places": names(["古文化街"]), "day": 1]).ok)
-        let two = await rig.run("make_trip_list", ["places": names(["五大道", "瓷房子"]), "day": 2])
-        #expect(two.data["day"] == .int(2) && two.data["days"] == .int(2))
-        #expect(await rig.run("make_trip_list", ["places": names(["天津之眼"]), "day": 4]).code == .outOfRange)
-        #expect(await rig.planner.currentPlan.dayCount == 2)
-        // Without a day the whole plan becomes one day (phase 1).
-        _ = await rig.run("make_trip_list", ["places": names(["海河"])])
-        #expect(await rig.planner.currentPlan.dayCount == 1)
-    }
-
-    @Test("F-15b row 31: clear day=1 on 3 days leaves 2; the old day 2 is now day 1")
-    func row31() async {
-        let rig = await PlanRig()
-        _ = await rig.run("make_trip_list", ["places": names(["古文化街"]), "day": 1])
-        _ = await rig.run("make_trip_list", ["places": names(["五大道"]), "day": 2])
-        _ = await rig.run("make_trip_list", ["places": names(["天津之眼"]), "day": 3])
-        #expect(await rig.run("edit_trip_list", ["action": "clear", "day": 1]).ok)
-        let plan = await rig.planner.currentPlan
-        #expect(plan.dayCount == 2 && plan.days[0].stops.first?.place.name == "五大道")
-        #expect(await rig.run("edit_trip_list", ["action": "read", "day": 3]).code == .outOfRange)
-        // Without a day the whole plan is cleared, after the driver's yes (§52 item 13).
-        _ = await rig.run("edit_trip_list", ["action": "clear"])
-        _ = await rig.run("edit_trip_list", ["action": "clear"])
-        #expect(await rig.planner.currentPlan.isEmpty)
-    }
-
     @Test("F-15b row 32: save, list, open by containment, rename, delete; the plan lines")
     func row32() async {
         let rig = await PlanRig()
-        _ = await rig.run("make_trip_list", ["places": names(["古文化街", "五大道"])])
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         let saved = await rig.run("trip_plans", ["action": "save", "name": "天津一日游"])
         #expect(saved.ok && saved.data["replaced"] == false)
         #expect(await rig.run("trip_plans", ["action": "save", "name": "天津一日游"]).data["replaced"] == true)
-        _ = await rig.run("make_trip_list", ["places": names(["天津之眼"])])
+        _ = await rig.run(planCall(["places": names(["天津之眼"])]))
         _ = await rig.run("trip_plans", ["action": "save", "name": "海河夜景"])
         let list = await rig.run("trip_plans", ["action": "list"])
         #expect(list.data["count"] == .int(2))
@@ -166,9 +136,9 @@ struct TripPlanTests {
     @Test("F-15b row 33: an unnamed plan with stops is kept as 上一个清单 when another plan is opened, and can be opened again")
     func row33() async {
         let rig = await PlanRig()
-        _ = await rig.run("make_trip_list", ["places": names(["古文化街"])])
+        _ = await rig.run(planCall(["places": names(["古文化街"])]))
         _ = await rig.run("trip_plans", ["action": "save", "name": "天津一日游"])
-        _ = await rig.run("make_trip_list", ["places": names(["天津之眼", "瓷房子"])])
+        _ = await rig.run(planCall(["places": names(["天津之眼", "瓷房子"])]))
         let opened = await rig.run("trip_plans", ["action": "open", "name": "天津一日游"])
         #expect(opened.data["kept_previous"] == true && opened.data["facts"]?["previous_kept_as"] == "上一个清单")
         #expect(await rig.run("trip_plans", ["action": "open", "name": "上一个清单"]).ok)
@@ -179,7 +149,7 @@ struct TripPlanTests {
     func row34() async {
         let rig = await PlanRig()
         #expect(await rig.run("trip_plans", ["action": "save", "name": "空"]).code == .noTripList)
-        _ = await rig.run("make_trip_list", ["places": names(["古文化街"])])
+        _ = await rig.run(planCall(["places": names(["古文化街"])]))
         for i in 1...20 { _ = await rig.run("trip_plans", ["action": "save", "name": .string("行程\(i)")]) }
         let full = await rig.run("trip_plans", ["action": "save", "name": "第二十一个"])
         #expect(full.code == .plansFull)
@@ -198,8 +168,8 @@ struct TripPlanTests {
     @Test("F-15b §11 item 5: a day tab is edit_trip_list read day; open from 我的行程 sends the open note; while moving both are refused")
     func taps() async {
         let rig = await PlanRig()
-        _ = await rig.run("make_trip_list", ["places": names(["古文化街"]), "day": 1])
-        _ = await rig.run("make_trip_list", ["places": names(["五大道"]), "day": 2])
+        _ = await rig.run(planCall(["places": names(["古文化街"]), "day": 1]))
+        _ = await rig.run(planCall(["places": names(["五大道"]), "day": 2]))
         _ = await rig.run("trip_plans", ["action": "save", "name": "天津两日游"])
         let day = await rig.planner.tap(.day(1), moving: false)
         let current = await rig.planner.currentPlan.currentDay
@@ -262,13 +232,13 @@ struct TripReviewFixTests {
         await nav.start()
         let planner = TripPlanner(search: search, navigation: nav, origin: { origin }, clock: ManualClock(),
                                   onChange: { list in seen.withLock { $0.append(list) } })
-        _ = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道", "瓷房子"])]))
+        _ = await planner.execute(planCall(["places": names(["古文化街", "五大道", "瓷房子"])]))
         for _ in 0..<2000 where search.waiting < TripTuning().parallelLookups { try? await Task.sleep(for: .milliseconds(1)) }
         _ = await planner.tap(.move(from: 3, to: 1), moving: false)
         search.release()
         await planner.photosSettled()
         #expect(search.details.withLock { $0 }.count == 3)
-        _ = await planner.execute(trip("make_trip_list", ["places": names(["五大道", "古文化街"])]))
+        _ = await planner.execute(planCall(["places": names(["五大道", "古文化街"])]))
         let last = seen.withLock { $0.last }
         #expect(last?.stops.allSatisfy { $0.place.photoURL != nil } == true)
         #expect(search.details.withLock { $0 }.count == 3)
@@ -288,45 +258,4 @@ struct TripReviewFixTests {
 
 @Suite("T-040l F-15b review fixes 2")
 struct TripReviewFix2Tests {
-    @Test("F-15b row 36: one make_trip_list days=[[…],[…],[…]] makes a new 3-day plan, replaces an older 4-day one, day 1 current, a place twice is a duplicate")
-    func row36() async {
-        let rig = await PlanRig(files: MemoryTripFiles())
-        for d in 1...4 { _ = await rig.run("make_trip_list", ["places": names(["海河"]), "day": .int(Int64(d))]) }
-        let r = await rig.run("make_trip_list", ["days": .array([names(["古文化街", "五大道"]), names(["天津之眼", "古文化街"]),
-                                                                 names(["瓷房子", "盘山"])])])
-        #expect(r.ok && r.data["days"] == .int(3) && r.data["day"] == .int(1))
-        #expect(r.data["duplicates"] == names(["古文化街"]) && r.data["not_found"] == names(["盘山"]))
-        let plan = await rig.planner.currentPlan
-        #expect(plan.days.map { $0.stops.map(\.place.name) } == [["古文化街", "五大道"], ["天津之眼"], ["瓷房子"]])
-        #expect(plan.name == nil)
-        #expect(r.data["facts"]?["sights_per_day"] == .array([2, 1, 1]))
-    }
-
-    @Test("F-15b row 36b: day 1 found nothing: it stays as an empty day and day 2 is current; nothing found anywhere is NO_CANDIDATES")
-    func row36b() async {
-        let rig = await PlanRig(files: MemoryTripFiles())
-        let r = await rig.run("make_trip_list", ["days": .array([names(["盘山"]), names(["五大道"])])])
-        #expect(r.ok && r.data["day"] == .int(2) && r.data["count"] == .int(1))
-        let none = await rig.run("make_trip_list", ["days": .array([names(["盘山"]), names(["盘山"])])])
-        #expect(none.code == .noCandidates)
-        #expect(await rig.planner.currentPlan.days.count == 2)
-    }
-
-    @Test("F-15b row 37: days and places together, days with day, 6 days, or an empty day are invalidFields")
-    func row37() {
-        let ok = trip("make_trip_list", ["days": .array([names(["古文化街"]), names(["五大道"])])])
-        #expect(ToolCatalog.validate(ok) == nil)
-        #expect(ToolCatalog.validate(trip("make_trip_list", ["days": .array([names(["古文化街"])]), "places": names(["五大道"])])) == .invalidFields)
-        #expect(ToolCatalog.validate(trip("make_trip_list", ["days": .array([names(["古文化街"])]), "day": 1])) == .invalidFields)
-        #expect(ToolCatalog.validate(trip("make_trip_list", ["days": .array(Array(repeating: names(["古文化街"]), count: 6))])) == .invalidFields)
-        #expect(ToolCatalog.validate(trip("make_trip_list", ["days": .array([names(["古文化街"]), .array([])])])) == .invalidFields)
-        #expect(ToolCatalog.validate(trip("make_trip_list", [:])) == .invalidFields)
-    }
-
-    @Test("F-15b row 38 (multi-day part replaced by §53 item 2): the make_trip_list text says to pick places herself and not ask, and a multi-day plan is one call")
-    func row38() {
-        let d = ToolCatalog.makeTripListDescription
-        #expect(d.contains("没推荐过就直接凭自己的知识挑有名的景点，不要反问去哪里"))
-        #expect(d.contains("几天的行程一次调用"))
-    }
 }

@@ -36,6 +36,36 @@ struct TripPendingClaimTests {
         after.close()
         after.advance(by: .seconds(30))
         #expect(!after.corrections.contains(.tripResultPending))
-        #expect(AsyncTool.setTripPlan.isTrip && AsyncTool.makeTripList.isTrip && !AsyncTool.webSearch.isTrip)
+        #expect(AsyncTool.setTripPlan.isTrip && !AsyncTool.webSearch.isTrip && AsyncTool(name: "make_trip_list") == nil)
+    }
+}
+
+@Suite("T-040zh F-15b §55 item 10 no done claim while the plan has issues")
+struct TripNeedsFixClaimTests {
+    @Test("T-040zh F-15b row 228 (unit): 「我为您规划好了」 while the last trip result is trip_needs_fix with a round left is drift (TRIP_NEEDS_FIX); after a trip_list it is not")
+    func row228() {
+        var h = PipelineHarness()
+        h.driver("帮我规划一下上海五天的行程")
+        let id = h.call("t1", "set_trip_plan")
+        h.result(id, "set_trip_plan", .success(["status": "trip_needs_fix", "round": 1]))
+        h.say("我为您规划好了上海五天的行程。")
+        h.close()
+        h.advance(by: .seconds(30))
+        #expect(h.corrections == [.tripNeedsFix], "\(h.out)")
+        #expect(!h.spoken.contains("规划好了"))
+        #expect(ClaimLexicon.claim(in: "我为您规划好了") == .action)
+        #expect(CorrectionReason.tripNeedsFix.instruction.hasPrefix("[系统] TRIP_NEEDS_FIX："))
+
+        // The fixed plan comes back as trip_list: the claim is proven by it.
+        var fixed = PipelineHarness()
+        fixed.driver("帮我规划一下上海五天的行程")
+        let first = fixed.call("t1", "set_trip_plan")
+        fixed.result(first, "set_trip_plan", .success(["status": "trip_needs_fix", "round": 1]))
+        let second = fixed.call("t2", "set_trip_plan")
+        fixed.result(second, "set_trip_plan", .success(["status": "trip_list"]))
+        fixed.say("我为您规划好了上海五天的行程。")
+        fixed.close()
+        fixed.advance(by: .seconds(30))
+        #expect(!fixed.corrections.contains(.tripNeedsFix), "\(fixed.out)")
     }
 }
