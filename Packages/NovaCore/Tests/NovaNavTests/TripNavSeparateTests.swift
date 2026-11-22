@@ -198,7 +198,7 @@ struct TripNavSeparateTests {
         #expect(r.code == .tripHidden && note == nil)
         #expect(await rig.order() == before)
         #expect(await rig.planner.cardsHidden)
-        #expect(rig.lines.withLock { $0 }.contains("trip blocked tool=edit_trip_list reason=hidden"))
+        #expect(rig.lines.withLock { $0 }.contains("trip blocked tool=tap_add reason=hidden"))
     }
 
     @Test("F-15b §51 row 174: during an abroad trip stop guidance, here (weather here, current_location) is the phone's fix, not Tokyo")

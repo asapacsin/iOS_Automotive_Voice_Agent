@@ -175,7 +175,8 @@ struct TripRig {
          picker: (any PlacePicker)? = nil, times: TripTimes? = nil, noOrigin: Bool = false,
          notes: TripLines? = nil, here: GeoCoordinate? = nil, abroad: (any PlaceSearch)? = nil,
          handoff: (@Sendable (Place) async -> Bool)? = nil,
-         center: (@Sendable (String) async -> GeoCoordinate?)? = nil, abroadTimes: TripTimes? = nil) async {
+         center: (@Sendable (String) async -> GeoCoordinate?)? = nil, abroadTimes: TripTimes? = nil,
+         area: (@Sendable (String) async -> TripArea?)? = nil) async {
         self.search = search
         let engine = engine ?? ScriptedNaviEngine(routes: [route(1, meters: 156_000, seconds: 14_640, toll: 20)])
         self.engine = engine
@@ -189,7 +190,7 @@ struct TripRig {
         planner = TripPlanner(search: search, navigation: nav, origin: { noOrigin ? nil : start }, clock: clock, tuning: t,
                               picker: picker, onLine: { line in lines.append(line) }, times: times,
                               onNote: { note in notes?.append(note) }, abroadSearch: abroad, onHandoff: handoff, abroadCenter: center,
-                              abroadTimes: abroadTimes)
+                              abroadTimes: abroadTimes, abroadArea: area)
         await planner.connectCards()
     }
 
@@ -199,7 +200,7 @@ struct TripRig {
 
 @Suite("T-040i F-15b phase 1 trip list")
 struct TripPlannerTests {
-    @Test("F-15b row 3: 25 names (§48: places takes up to 24) or a blank name are invalidFields; the list is unchanged")
+    @Test("F-15b row 3 (with §55): a day of 25 stops (over 16 + 4) or a blank name is invalidFields; the list is unchanged")
     func row3() async {
         let rig = await TripRig()
         _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
@@ -223,7 +224,7 @@ struct TripPlannerTests {
         #expect(await rig.planner.current.stops.map(\.index) == [1, 2, 3])
     }
 
-    @Test("F-15b §4 (barge-in): a cancelled make_trip_list changes nothing")
+    @Test("F-15b §4 (barge-in): a cancelled new plan (set_trip_plan) changes nothing")
     func cancelledMake() async {
         let rig = await TripRig(search: TripSearch(tianjin, slow: ["南开大学"]))
         _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
@@ -322,7 +323,7 @@ struct TripLookupTests {
         #expect(picker.calls.withLock { $0 } == [["北京故宫"]])
     }
 
-    @Test("F-15b row 49: trip_next called while make_trip_list waits on 高德 runs after it, on the new list")
+    @Test("F-15b row 49: trip_next called while a new plan (set_trip_plan) waits on 高德 runs after it, on the new list")
     func row49() async {
         let search = TripSearch(tianjin, slow: ["瓷房子"])
         let rig = await TripRig(search: search)

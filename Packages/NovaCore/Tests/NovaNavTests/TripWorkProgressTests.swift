@@ -6,7 +6,7 @@ import Testing
 
 @Suite("T-040w F-15b §50 item 6 trip steps from TripPlanner")
 struct TripWorkProgressTests {
-    @Test("T-040w row 149: a slow make_trip_list shows 检查地点位置 after 1 s; the cards clear it and log work show=trip")
+    @Test("T-040w row 149: a slow new plan (set_trip_plan) shows 检查地点位置 after 1 s; the cards clear it and log work show=trip")
     func slowMake() async {
         let rig = await TripRig(search: TripSearch(tianjin, slow: ["南开大学"]))
         let clock = ManualClock()
@@ -26,7 +26,7 @@ struct TripWorkProgressTests {
         #expect(logged.first?.hasPrefix("work show=trip steps=") == true)
     }
 
-    @Test("T-040w row 149: a quick make_trip_list shows nothing and logs no work line")
+    @Test("T-040w row 149: a quick new plan (set_trip_plan) shows nothing and logs no work line")
     func quickMake() async {
         let rig = await TripRig()
         let clock = ManualClock()

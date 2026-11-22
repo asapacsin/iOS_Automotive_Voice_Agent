@@ -69,15 +69,16 @@ private func jpPlace(_ name: String, lat: Double, lng: Double, kind: PlaceKind? 
 private struct ModelPlanRig {
     let planner: TripPlanner
     let lines = TripLines()
+    let clock = ManualClock()
     init(search: any PlaceSearch, abroad: (any PlaceSearch)? = nil, area: (@Sendable (String) async -> TripArea?)? = nil,
-         turns: (@Sendable () async -> Int)? = nil) async {
+         turns: (@Sendable () async -> Int)? = nil, grounder: (any TripGrounder)? = nil, abroadTimes: TripTimes? = nil) async {
         let lines = self.lines
-        let clock = ManualClock()
+        let clock = self.clock
         let nav = NavigationController(search: search, engine: ScriptedNaviEngine(routes: [route(1, meters: 9_000, seconds: 900)]),
                                        location: NoLocation(), clock: clock, onTripLine: { lines.append($0) })
         await nav.start()
         planner = TripPlanner(search: search, navigation: nav, origin: { GeoCoordinate(latitude: 31.2, longitude: 121.4, datum: .gcj02) },
-                              clock: clock, onLine: { lines.append($0) }, abroadSearch: abroad, abroadArea: area, driverTurns: turns)
+                              clock: clock, onLine: { lines.append($0) }, abroadSearch: abroad, abroadTimes: abroadTimes, grounder: grounder, abroadArea: area, driverTurns: turns)
         await planner.connectCards()
     }
     func run(_ call: ToolCall) async -> ToolResult { await planner.execute(call) }
@@ -284,4 +285,101 @@ struct TripModelPlanTests {
 private func stopsOfPlan(_ r: ToolResult) -> [[JSONValue]] {
     guard case .array(let days)? = r.data["plan"]?["days"] else { return [] }
     return days.map { if case .array(let s) = $0 { s } else { [] } }
+}
+
+private let groundTable: [String: [Place]] = [
+    "Senso-ji": [jpPlace("浅草寺", lat: 35.7148, lng: 139.7967, kind: .temple)],
+    "Tokyo Tower": [jpPlace("东京塔", lat: 35.6586, lng: 139.7454)],
+    "新宿站": [jpPlace("新宿駅", lat: shinjukuStation.latitude, lng: shinjukuStation.longitude)],
+    "Shinjuku Washington Hotel": [jpPlace("新宿华盛顿酒店", lat: shinjukuStation.latitude + 0.003, lng: shinjukuStation.longitude, kind: .hotel)],
+]
+private let groundAnswer = TripGroundAnswer(places: [
+    TripGroundPlace(name: "浅草寺", english: "Senso-ji", minutes: 60, importance: 3),
+    TripGroundPlace(name: "东京塔", english: "Tokyo Tower", minutes: 60, importance: 2),
+    TripGroundPlace(name: "明治神宫", english: "Meiji Jingu", minutes: 60, importance: 2),
+], hotels: [TripGroundHotel(night: 1, name: "新宿华盛顿酒店", english: "Shinjuku Washington Hotel")], area: "Tokyo")
+
+private func groundRig(_ grounder: FakeGrounder) async -> ModelPlanRig {
+    let photon = FakeAreaSearch(groundTable) { c in [jpPlace("车站旁的酒店", lat: c.latitude + 0.006, lng: c.longitude, kind: .hotel)] }
+    return await ModelPlanRig(search: CityLimitSearch(inCity: [:]), abroad: photon,
+                              area: { _ in TripArea(center: tokyoCentre, countryCode: "JP") }, grounder: grounder)
+}
+private let tokyoTwoDays = plan([[named("浅草寺"), ["role": "hotel", "near": "新宿站"]], [["role": "hotel", "near": "新宿站"], named("东京塔")]],
+                                city: "Tokyo, Japan")
+
+@Suite("T-040zh F-15b §55 item 4 with §50: grounding, timing and the country guard on a written plan abroad")
+struct TripModelPlanAbroadTests {
+    @Test("T-040zh F-15b §55 item 4 (old row 140): abroad new plan: Qwen grounds the written names (searched with english), its hotel is tried first for near; places it adds are not put in the plan")
+    func grounded() async {
+        let grounder = FakeGrounder(groundAnswer)
+        let rig = await groundRig(grounder)
+        let r = await rig.run(tokyoTwoDays)
+        #expect(r.ok, "\(r)")
+        let request = grounder.calls.withLock { $0 }.first
+        #expect(request?.city == "Tokyo, Japan" && request?.days == 2 && request?.places.map(\.name) == ["浅草寺", "东京塔"]
+                && request?.hotelNear == "新宿站")
+        let p = await rig.planner.currentPlan
+        #expect(p.days.map { $0.stops.filter { $0.role == .sight }.map(\.place.name) } == [["浅草寺"], ["东京塔"]])
+        // Only the english names are in this map: both sights placed means Qwen's english was searched.
+        #expect(p.allStops.filter { $0.stop.role == .sight }.allSatisfy { $0.stop.placed })
+        #expect(p.days[0].stops.last?.place.name == "新宿华盛顿酒店" && p.days[0].stops.last?.pickedBy == .app)
+        #expect(rig.line("trip ground vendor=qwen places=3 hotels=1 kept3=1 added=0 ok=yes ms=").count == 1, "\(rig.lines.withLock { $0 })")
+    }
+
+    @Test("T-040zh F-15b §55 item 4 (old row 141): Qwen never answers: after the ground timeout the written names are searched as they are; ok=fallback")
+    func groundTimeout() async {
+        let hanging = FakeGrounder(hang: true)
+        let rig = await groundRig(hanging)
+        let made = Task { await rig.run(tokyoTwoDays) }
+        while hanging.calls.withLock({ $0.isEmpty }) || rig.clock.pendingSleepers == 0 { await Task.yield() }
+        rig.clock.advance(by: .seconds(30))
+        let r = await made.value
+        #expect(r.ok)
+        // The written names are searched as they are (this map knows only the english ones): kept unplaced.
+        let sights = await rig.planner.currentPlan.allStops.map(\.stop).filter { $0.role == .sight }
+        #expect(sights.map(\.asked) == ["浅草寺", "东京塔"] && sights.allSatisfy { !$0.placed })
+        #expect(rig.line("trip ground vendor=qwen places=2 hotels=0 kept3=2 added=0 ok=fallback reason=timeout ms=").count == 1,
+                "\(rig.lines.withLock { $0 })")
+        // At home Qwen is not asked.
+        let home = FakeGrounder(groundAnswer)
+        let homeRig = await ModelPlanRig(search: CityLimitSearch(inCity: ["上海": shTable]), grounder: home)
+        _ = await homeRig.run(plan([[named("外滩")]]))
+        #expect(home.calls.withLock { $0 }.isEmpty)
+    }
+
+    @Test("T-040zh F-15b §55 item 8 (old row 133): a day that is mostly driving gets the driving issue, its line unchanged")
+    func driving() async {
+        let mostlyDriving = TripChecks.Day(minutes: 510, drivingMinutes: 240, onlyMustSee: true, area: nil, sights: 3, longestSightMinutes: 90)
+        #expect(TripChecks.run(days: [mostlyDriving], budgetMinutes: 480).map(\.line) == ["第1天大半时间在开车，考虑把这天换到一个区域"])
+        let (rig, _) = await timesRig({ a, b in a == b ? 0 : 7_200 })
+        let r = await rig.run(planCall(["places": names(["古文化街", "五大道", "天津之眼"])]))
+        #expect(strings(r.data["issues"]).contains("第1天大半时间在开车，考虑把这天换到一个区域"), "\(r)")
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip check round=0 not_found=0 over=0 driving=1 ") })
+    }
+
+    @Test("T-040zh F-15b §36 item 3 (old row 85): a written plan abroad: a CN result for a name is never used; a name with only CN results is kept unplaced with not_found")
+    func countryGuard() async {
+        var table = tokyo
+        table["迪士尼"] = [jp("上海迪士尼", lat: 31.14, lng: 121.66, country: "CN"), jp("东京迪士尼", lat: 35.63)]
+        table["只在中国"] = [jp("某地", lat: 31.2, lng: 121.4, country: "CN")]
+        let (rig, _) = await timesRig(here: GeoCoordinate(latitude: 35.7, longitude: 139.8, datum: .gcj02), abroad: FakeApple(table),
+                                      area: { _ in TripArea(center: GeoCoordinate(latitude: 35.68, longitude: 139.76, datum: .gcj02), countryCode: "JP") })
+        let r = await rig.run(planCall(["places": names(["迪士尼", "浅草寺", "只在中国"]), "abroad": true]))
+        let stops = await rig.planner.current.stops
+        #expect(stops.contains { $0.place.name == "东京迪士尼" } && !stops.contains { $0.place.name == "上海迪士尼" || $0.place.name == "某地" })
+        #expect(stops.first { $0.asked == "只在中国" }?.placed == false)
+        #expect(strings(r.data["issues"]).contains("只在中国在Tokyo没找到，换一个或者去掉"), "\(r)")
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip lookup index=3 ok=no reason=") && ($0.hasSuffix("country") || $0.hasSuffix("area")) })
+    }
+
+    @Test("T-040zh F-15b §55 item 2 (review): a city whose country is known (上海, CN) never switches the trip abroad: no worldwide probe even when 高德 finds little")
+    func knownCountryNoProbe() async {
+        let photon = CityLimitSearch(inCity: ["any": ["外滩": [jpPlace("Gaitan", lat: 35.7, lng: 139.7)], "豫园": [jpPlace("Yoen", lat: 35.7, lng: 139.7)]]])
+        let rig = await ModelPlanRig(search: CityLimitSearch(inCity: ["上海": [:]]), abroad: photon,
+                                     area: { _ in TripArea(center: GeoCoordinate(latitude: 31.23, longitude: 121.47, datum: .gcj02), countryCode: "CN") })
+        _ = await rig.run(plan([[named("外滩"), named("豫园")]]))
+        #expect(photon.requests.withLock { $0 }.isEmpty)
+        #expect(await !rig.planner.currentPlan.abroad)
+        #expect(rig.line("trip search vendor=amap abroad=no switched=no ").count == 1)
+    }
 }

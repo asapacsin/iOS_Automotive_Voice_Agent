@@ -165,7 +165,7 @@ struct TripPlanTests {
         #expect(await rig.run("trip_plans", ["action": "open", "name": "天津"]).code == .ambiguous)
     }
 
-    @Test("F-15b §11 item 5: a day tab is edit_trip_list read day; open from 我的行程 sends the open note; while moving both are refused")
+    @Test("F-15b §11 item 5: a day tab shows that day; open from 我的行程 sends the open note; while moving both are refused")
     func taps() async {
         let rig = await PlanRig()
         _ = await rig.run(planCall(["places": names(["古文化街"]), "day": 1]))

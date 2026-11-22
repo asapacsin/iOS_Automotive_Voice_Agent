@@ -36,6 +36,9 @@ public enum ClaimLexicon {
                          "已经为您", "已经为你", "已经把", "已把", "改好了", "排好了", "加好了", "已经改", "已经加",
                          // F-15b §55 item 10 (T-040zh): a plan said done (「我为您规划好了」).
                          "规划好了"]
+    /// F-15b §55 item 10 (T-040zh): a reply that says the trip plan is done.
+    static let planDone = ["规划好了", "安排好了", "排好了", "规划完了", "安排完了", "行程做好了", "行程好了"]
+    public static func plansDone(_ text: String) -> Bool { planDone.contains { text.contains($0) } }
     /// A driver utterance asking for an action, so a tool call should follow.
     static let request = ["打开", "关闭", "关上", "关掉", "开一下", "开个", "调高", "调低", "调到", "调成", "设置", "升高",
                           "降低", "放首", "放一首", "播放", "放歌", "导航", "打电话", "打给", "拨打", "开窗", "关窗", "凉一点",

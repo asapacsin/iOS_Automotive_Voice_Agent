@@ -11,7 +11,7 @@ public enum TripTap: Sendable, Hashable {
     case next
     /// 「加入清单」 on a row of an open destination list: that already-found place, no new lookup.
     case add(Place)
-    /// §11 item 5, §15: a day tab (`edit_trip_list action=read day`).
+    /// §11 item 5, §15, §52 item 9: a day tab (shows that day; not a plan change).
     case day(Int)
     /// §16 item 6: 「我的行程」: a tap opens a saved plan; a swipe, confirmed on screen, deletes one.
     case openPlan(String)
@@ -31,7 +31,7 @@ public enum TripTap: Sendable, Hashable {
 }
 
 public struct TripTuning: Sendable, Hashable {
-    /// §4 item 4: lookups at once, and the limit of a whole `make_trip_list`.
+    /// §4 item 4: lookups at once, and the limit of a whole `set_trip_plan` lookup batch.
     /// Device 2026-11-17: 2 of 5 lookups failed with 4 at once (高德's per-second limit); now 2 at once, and a busy,
     /// timed-out or failed lookup is tried up to twice more (`retryDelay`, then twice that).
     public var parallelLookups = 2
@@ -263,7 +263,7 @@ public actor TripPlanner: ToolExecutor {
                 files.moveAside(Self.plansFile)
             }
         }
-        // §51 item 3 (T-040y): a restored trip starts hidden; 「打开行程」 shows it. Nothing is deleted.
+        // §51 item 3 (T-040y): a restored trip starts hidden; a new plan or 我的行程 (trip_plans open) shows it (§55 item 11 removed 「打开行程」). Nothing is deleted.
         if plan.stopCount > 0 { setHidden(true) }
         onLine("trip load ok=\(ok ? "yes" : "no") days=\(plan.dayCount) stops=\(plan.stopCount) hidden=\(cardsHidden ? "yes" : "no")")
         publish()
@@ -355,7 +355,7 @@ public actor TripPlanner: ToolExecutor {
 
     /// §51 item 2, F-09b §13 item 4 (T-031m): a trip command refused while the cards are hidden; nothing ran.
     public static let tripHiddenResult = ToolReply.notDone(
-        .tripHidden, facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开行程"],
+        .tripHidden, facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开我的行程"],
         may: [.nameCommand]).result
     /// The `next` of that refusal.
     public static var tripHiddenNext: String { tripHiddenResult.data["next"]?.stringValue ?? "" }
@@ -420,7 +420,44 @@ public actor TripPlanner: ToolExecutor {
         }
     }
 
-    // MARK: Hotels near a place (§50 item 2, §55 item 7)
+    // MARK: §50 grounding and hotels near a place (§55 items 4, 7)
+
+    /// §50 items 1 and 9: one `ground` request within `groundTimeout`; nil (the model's places) on a timeout, an
+    /// error, an answer without search results or with wrong fields. `trip ground vendor=qwen …` either way.
+    private func ground(_ request: TripGroundRequest, with grounder: any TripGrounder) async -> TripGroundAnswer? {
+        let started = clock.now
+        let (stream, feed) = AsyncStream.makeStream(of: Result<TripGroundAnswer, TripGroundError>.self)
+        let work = Task {
+            do { feed.yield(.success(try await grounder.ground(request))) } catch let e as TripGroundError {
+                feed.yield(.failure(e))
+            } catch { feed.yield(.failure(.failed)) }
+        }
+        let clock = clock, limit = tuning.groundTimeout
+        let timer = Task {
+            try? await clock.sleep(until: started + limit)
+            if !Task.isCancelled { feed.yield(.failure(.timeout)) }
+        }
+        var answer: Result<TripGroundAnswer, TripGroundError> = .failure(.failed)
+        for await a in stream {
+            answer = a
+            break
+        }
+        work.cancel()
+        timer.cancel()
+        feed.finish()
+        let elapsed = ms(since: started)
+        switch answer {
+        case .success(let a):
+            let (places, added) = TripGround.keepMustSee(model: request.places, answer: a.places)
+            let kept3 = places.filter { $0.importance == 3 }.count
+            onLine("trip ground vendor=qwen places=\(places.count) hotels=\(a.hotels.count) kept3=\(kept3) added=\(added) ok=yes ms=\(elapsed)")
+            return TripGroundAnswer(places: places, hotels: a.hotels, area: a.area)
+        case .failure(let e):
+            let kept3 = request.places.filter { $0.importance == 3 }.count
+            onLine("trip ground vendor=qwen places=\(request.places.count) hotels=0 kept3=\(kept3) added=0 ok=fallback reason=\(e.rawValue) ms=\(elapsed)")
+            return nil
+        }
+    }
 
     /// §50 item 2: the named place first (inside the trip area abroad), then hotels within 1 km of it, else 3 km, at
     /// most 5, nearest first, each with its distance to that place. The grounded hotel names are tried first; only one
@@ -618,19 +655,43 @@ public actor TripPlanner: ToolExecutor {
             if s.name == nil, let n = s.near, !nears.contains(n) { nears.append(n) }
         }
         var lookups: [Lookup] = []
+        var groundHotels: [TripGroundHotel] = []
         if newPlan {
             // §55 item 2: `abroad` comes from where the city is (§36): the city's country when it is known.
             var asked = false
+            var countryKnown = false
             area = nil
             if abroadSearch != nil, let abroadArea, let city, let found = await abroadArea(city) {
                 asked = !TripRegion.isChina(found.countryCode)
+                countryKnown = found.countryCode != nil
             }
             if newNames.isEmpty {
                 abroad = asked
                 if asked, let abroadArea, let city { area = await abroadArea(city) }
             } else {
+                // §55 item 4 with §50 item 1: abroad, the written names go to Qwen with web search first; a name it
+                // matches (on `name` or `english`) is searched as 「中文名 (English)」. The model's days stay as written:
+                // places Qwen adds are not put in the plan (only the model writes it).
+                var asks = newNames
+                if asked, let grounder, let city {
+                    let model = written.joined().filter { $0.id == nil && $0.name != nil && $0.role != .hotel }
+                        .map { TripGroundPlace(name: $0.name!, minutes: $0.minutes, importance: $0.importance ?? 3) }
+                    let start = written.first?.first.flatMap { $0.role == .start ? $0.name : nil }
+                    let end = written.last?.last.flatMap { $0.role == .end ? $0.name : nil }
+                    let request = TripGroundRequest(city: city, days: written.count, places: model, start: start, end: end,
+                                                    hotelNear: nears.first)
+                    work?.step(WorkProgress.tripFind)
+                    if let answer = await ground(request, with: grounder) {
+                        groundHotels = answer.hotels
+                        asks = newNames.map { n in
+                            answer.places.first { TripGround.matches($0.name, n) || ($0.english.map { TripGround.matches($0, n) } ?? false) }
+                                .map { TranscriptText.normalize(TripGround.written($0)) } ?? n
+                        }
+                    }
+                    guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
+                }
                 // §55 item 4: at home 高德 with `city` and `citylimit=true`; abroad the box around the city's centre.
-                (lookups, abroad) = await resolveTrip(newNames, city: city, abroad: asked)
+                (lookups, abroad) = await resolveTrip(asks, city: city, abroad: asked, countryKnown: countryKnown)
             }
         } else {
             if plan.abroad, area == nil, let abroadArea, let city = plan.city { area = await abroadArea(city) }
@@ -660,7 +721,7 @@ public actor TripPlanner: ToolExecutor {
         // §55 item 7: `{role: hotel, near}`: the hotel closest to that place (§50 item 2), one for every night it is written.
         var nearHotel: [String: Place] = [:]
         for n in nears {
-            if let first = await hotelsNear(n, city: city, abroad: abroad, grounded: [])?.first { nearHotel[n] = first.place }
+            if let first = await hotelsNear(n, city: city, abroad: abroad, grounded: groundHotels)?.first { nearHotel[n] = first.place }
         }
         guard !Task.isCancelled, plan.revision == generation else { return .failure(.optionsStale) }
         let here = await origin()
@@ -891,7 +952,7 @@ public actor TripPlanner: ToolExecutor {
     static let placeRetries = 3
     private var retryTask: Task<Void, Never>?
     private var planCheckRounds = 0
-    /// §52 item 4 (review 2026-11-21): `set_trip_plan`, `make_trip_list` or an `edit_trip_list` replace running. The background retry places
+    /// §52 item 4 (review 2026-11-21): a `set_trip_plan` running. The background retry places
     /// nothing meanwhile (placing raises the revision, which made the running write return OPTIONS_STALE).
     private var planWrites = 0
 
@@ -1475,7 +1536,10 @@ public actor TripPlanner: ToolExecutor {
     /// §36 items 2–4 (T-040o): a trip's names on 高德, or on Apple when `abroad`; with `abroad=false` and fewer than
     /// half found on 高德, the missing names are tried on Apple, and when most of what Apple finds is outside China the
     /// trip becomes `abroad` and every name is searched again there. `trip search …` after the lookups.
-    private func resolveTrip(_ names: [String], city: String?, abroad asked: Bool) async -> (lookups: [Lookup], abroad: Bool) {
+    /// `countryKnown`: the city's country is known (§55 item 2), so §36 item 4's wrong-flag probe is not made (a city in
+    /// China never switches the trip abroad).
+    private func resolveTrip(_ names: [String], city: String?, abroad asked: Bool,
+                             countryKnown: Bool = false) async -> (lookups: [Lookup], abroad: Bool) {
         let started = clock.now
         work?.step(WorkProgress.tripCheck)
         var abroad = asked && abroadSearch != nil
@@ -1500,7 +1564,7 @@ public actor TripPlanner: ToolExecutor {
         } else {
             lookups = await resolve(names, city: city)
             let keyMissing = lookups.contains { if case .keyMissing = $0 { true } else { false } }
-            if abroadSearch != nil, !keyMissing, !names.isEmpty, found(lookups) * 2 < names.count, !Task.isCancelled {
+            if abroadSearch != nil, !countryKnown, !keyMissing, !names.isEmpty, found(lookups) * 2 < names.count, !Task.isCancelled {
                 let missed = names.indices.filter { if case .found = lookups[$0] { false } else { true } }
                 let (probe, _) = await resolveCounting(missed.map { names[$0] }, city: nil, abroad: true, guardCountry: false,
                                                        near: center)
@@ -2018,9 +2082,9 @@ public actor TripPlanner: ToolExecutor {
                 result = await execute(ToolCall(id: CallID("ui-trip")!, name: "trip_plans",
                                                 arguments: ["action": "delete", "name": .string(name)]))
             case .add(let place):
-                // §51 item 2: an add while the cards are hidden is refused as edit_trip_list add is.
+                // §51 item 2: an add while the cards are hidden is refused (the screen's 加入清单).
                 if cardsHidden {
-                    onLine("trip blocked tool=edit_trip_list reason=hidden")
+                    onLine("trip blocked tool=tap_add reason=hidden")
                     result = Self.tripHiddenResult
                 } else {
                     result = add(place)

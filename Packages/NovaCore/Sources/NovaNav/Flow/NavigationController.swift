@@ -1360,10 +1360,10 @@ public actor NavigationController: ToolExecutor {
 
     /// F-09b §13 item 5 (T-031n): the cards were put away; the plan stays.
     public static let cardsHiddenNext = ToolReply.success(
-        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开行程"], may: [.nameCommand])
+        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开我的行程"], may: [.nameCommand])
         .result.data["next"]?.stringValue ?? ""
     static let cardsHidden = ToolReply.success(
-        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开行程"], may: [.nameCommand]).result.data
+        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开我的行程"], may: [.nameCommand]).result.data
 
     private func exit() async -> ToolResult {
         if snapshot.alongRouteList {

@@ -381,7 +381,7 @@ struct TripSetPlanReviewTests {
         search.release()
     }
 
-    @Test("T-040zd F-15b row 204 (review): make_trip_list with a lookup out of time says search_slow, not not_found")
+    @Test("T-040zd F-15b row 204 (review): a new plan with a lookup out of time says search_slow, not not_found")
     func makeSlow() async {
         let clock = ManualClock()
         let search = TripSearch(sapporoTable, slow: ["慢地方"])

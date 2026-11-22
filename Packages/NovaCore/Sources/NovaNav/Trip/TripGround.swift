@@ -5,7 +5,7 @@ import NovaTools
 
 /// F-15b §50 (T-040v): the pure parts of grounding a trip abroad. No I/O.
 public enum TripGround {
-    /// §50 item 5: the one line she says while `make_trip_list` / `revise_trip_list` run in the background.
+    /// §50 item 5: the one line she says while `set_trip_plan` runs in the background.
     public static var workingLine: String { ToolCatalog.tripWorkingLine }
 
     /// §50 item 1: the grounded places, with every importance-3 name of the model kept: a must-see the answer left out

@@ -145,8 +145,9 @@ public struct DriverTurnPipeline: Sendable {
     /// playback or NAVIGATING state stale until a fresh report arrives after it (review 6).
     private var musicFresh = true
     private var navigationFresh = true
-    /// F-15b §55 item 10 (T-040zh): the last trip result was `trip_needs_fix` (each such result leaves a fix round:
-    /// round 2's fix is answered by `trip_list`), so the plan is not done.
+    /// F-15b §55 item 10 (T-040zh): the last trip result of this driver request was `trip_needs_fix` (each such result
+    /// leaves a fix round: round 2's fix is answered by `trip_list`), so the plan is not done. Cleared by the next trip
+    /// result and by the next driver utterance.
     private var tripNeedsFix = false
     private var musicConfirmed: Bool { musicPlaying && musicFresh }
     private var navigationConfirmed: Bool { navigation == .navigating && navigationFresh }
@@ -188,6 +189,8 @@ public struct DriverTurnPipeline: Sendable {
         switch input {
         case .driverUtterance(let text):
             lastUtterance = text
+            // F-15b §55 item 10 (review): the flag belongs to one driver request; a new utterance ends it.
+            tripNeedsFix = false
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
             wrongLanguageAsked = false
             awaitingReaskReply = false
@@ -373,7 +376,8 @@ public struct DriverTurnPipeline: Sendable {
         // F-15b §52 item 12 (T-040ze): "done" before a trip tool's result is drift, whatever else proved.
         if !t.claims.isEmpty, !t.tripPending.isEmpty { return .disproven(.tripResultPending) }
         // §55 item 10 (T-040zh): "done" while the plan still has issues to fix is drift too.
-        if !t.claims.isEmpty, tripNeedsFix { return .disproven(.tripNeedsFix) }
+        // Only a plan-done claim counts (「规划好了」「安排好了」); 「空调已打开」 after it is judged as usual.
+        if tripNeedsFix, ClaimLexicon.plansDone(t.text) { return .disproven(.tripNeedsFix) }
         if !t.claims.isEmpty, acting.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
             return .disproven(.partialScenario)
         }

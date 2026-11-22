@@ -47,7 +47,8 @@ private func osrmRig(_ osrm: FakeOsrm) async -> (TripRig, FakeDrivingTimes) {
     let amap = FakeDrivingTimes(byLine)
     let rig = await TripRig(search: TripSearch(tokyo), times: TripTimes(service: amap, clock: ManualClock(), retryDelay: .milliseconds(1)),
                             here: tokyoHere, abroad: FakeApple(tokyo),
-                            abroadTimes: TripTimes(service: osrm, clock: ManualClock()))
+                            abroadTimes: TripTimes(service: osrm, clock: ManualClock()),
+                            area: { _ in TripArea(center: tokyoHere, countryCode: "JP") })
     return (rig, amap)
 }
 
@@ -161,5 +162,31 @@ struct TripPhase4bTests {
         let r = await nav.execute(navigate(["destination": "浅草寺 (Senso-ji)", "near": "place", "near_country": "JP"]))
         #expect(!r.ok && r.code == .invalidFields)
         #expect(photon.asked.withLock { $0 }.isEmpty && amap.calls.withLock { $0 }.isEmpty && cities.withLock { $0 }.isEmpty)
+    }
+}
+
+@Suite("T-040zh F-15b §36 item 2c on a written plan (old rows 84b, 84c)")
+struct TripWrittenPlanTimesTests {
+    @Test("T-040zh F-15b §55 with §36 item 2c (old row 84b): a written Tokyo day is timed by one OSRM table, no 高德; the written order kept; vendor=osrm")
+    func osrm() async {
+        let osrm = FakeOsrm()
+        let (rig, amap) = await osrmRig(osrm)
+        let r = await rig.run(planCall(["places": names(fourSights), "abroad": true]))
+        #expect(r.ok && r.data["times"] == nil, "\(r)")
+        #expect(osrm.tables.withLock { $0 } == [4] && amap.requests.withLock { $0 } == 0)
+        #expect(await rig.order() == fourSights)
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip times vendor=osrm ") })
+    }
+
+    @Test("T-040zh F-15b §55 with §36 item 2c (old row 84c): OSRM fails: straight-line estimate, times=estimated, vendor=estimate, no retry")
+    func estimate() async {
+        let osrm = FakeOsrm(fail: true)
+        let (rig, amap) = await osrmRig(osrm)
+        let r = await rig.run(planCall(["places": names(fourSights), "abroad": true]))
+        #expect(r.data["facts"]?["times"] == "estimated" || r.data["times"] == "estimated", "\(r)")
+        #expect(osrm.tables.withLock { $0 } == [4] && amap.requests.withLock { $0 } == 0)
+        #expect(await rig.order() == fourSights)
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip times vendor=estimate ") })
+        #expect(await rig.planner.current.stops.dropFirst().allSatisfy { ($0.legSeconds ?? 0) > 0 })
     }
 }

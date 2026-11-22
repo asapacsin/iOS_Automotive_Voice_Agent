@@ -69,3 +69,37 @@ struct TripNeedsFixClaimTests {
         #expect(!fixed.corrections.contains(.tripNeedsFix), "\(fixed.out)")
     }
 }
+
+@Suite("T-040zh F-15b §55 item 10 review: only a plan-done claim, only within the driver request")
+struct TripNeedsFixScopeTests {
+    @Test("T-040zh F-15b row 228 (review): after trip_needs_fix, 「空调已打开。」 with control_climate ok is not TRIP_NEEDS_FIX")
+    func otherClaim() {
+        var h = PipelineHarness()
+        h.driver("规划上海五天")
+        let id = h.call("t1", "set_trip_plan")
+        h.result(id, "set_trip_plan", .success(["status": "trip_needs_fix", "round": 1]))
+        h.close()
+        h.driver("打开空调")
+        let c = h.call("c1", "control_climate")
+        h.result(c, "control_climate", .success(["status": "on"]))
+        h.say("空调已打开。")
+        h.close()
+        h.advance(by: .seconds(30))
+        #expect(!h.corrections.contains(.tripNeedsFix), "\(h.out)")
+        #expect(!ClaimLexicon.plansDone("空调已打开。") && ClaimLexicon.plansDone("我为您安排好了"))
+    }
+
+    @Test("T-040zh F-15b row 228 (review): a fix the model never sent does not outlive the driver request; the next request's 「规划好了」 is judged as usual")
+    func staleFlag() {
+        var h = PipelineHarness()
+        h.driver("规划上海五天")
+        let id = h.call("t1", "set_trip_plan")
+        h.result(id, "set_trip_plan", .success(["status": "trip_needs_fix", "round": 2]))
+        h.close()
+        h.driver("好的，规划好了就行")
+        h.say("好的，规划好了。")
+        h.close()
+        h.advance(by: .seconds(30))
+        #expect(!h.corrections.contains(.tripNeedsFix), "\(h.out)")
+    }
+}

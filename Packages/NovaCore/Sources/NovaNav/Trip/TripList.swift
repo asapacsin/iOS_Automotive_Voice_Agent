@@ -121,7 +121,7 @@ public struct TripList: Sendable, Hashable {
     public var count: Int { stops.count }
     public var isEmpty: Bool { stops.isEmpty }
 
-    /// `make_trip_list`: the whole list replaced.
+    /// The whole list replaced.
     public mutating func replace(_ entries: [(asked: String, place: Place, distanceMeters: Int?)]) {
         stops = entries.prefix(Self.maxStops).map { TripStop(index: 0, asked: $0.asked, place: $0.place,
                                                              distanceMeters: $0.distanceMeters) }

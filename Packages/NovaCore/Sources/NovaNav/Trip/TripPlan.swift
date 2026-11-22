@@ -135,7 +135,7 @@ public struct TripPlan: Sendable, Hashable {
         currentDay = min(max(day, 1), days.count)
     }
 
-    /// §15 item 2: `make_trip_list day=d` replaces day d (d ≤ dayCount + 1, at most 5 days); false when out of range.
+    /// §15 item 2: replaces day d (d ≤ dayCount + 1, at most 5 days); false when out of range.
     public mutating func replaceDay(_ day: Int, with list: TripList) -> Bool {
         guard day >= 1, day <= min(days.count + 1, Self.maxDays) else { return false }
         if day == days.count + 1 {
@@ -148,7 +148,7 @@ public struct TripPlan: Sendable, Hashable {
         return true
     }
 
-    /// §15 item 6: `make_trip_list days=[[…],[…]]`: a new plan of those days (at most 5), the first day with stops current; the name goes
+    /// §15 item 6, §55 item 3: a new plan of those days (at most 5), the first day with stops current; the name goes
     /// with the old plan.
     public mutating func replaceAll(withDays lists: [TripList]) {
         days = lists.isEmpty ? [TripList()] : Array(lists.prefix(Self.maxDays))
@@ -161,7 +161,7 @@ public struct TripPlan: Sendable, Hashable {
         revision += 1
     }
 
-    /// `make_trip_list` without `day`: the whole plan becomes one day (phase 1); the name goes with the old plan.
+    /// The whole plan becomes one day (phase 1); the name goes with the old plan.
     public mutating func replaceAll(with list: TripList) {
         days = [list]
         currentDay = 1
