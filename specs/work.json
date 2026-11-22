@@ -1547,14 +1547,16 @@
     {
       "id": "T-040zh",
       "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-040zg"
       ],
       "action": "F-15b §55 items 1-15: set_trip_plan makes and changes every plan (new plan = no kept id, needs city, replaces the old one); city-limited lookups (高德 citylimit at home, city box abroad), not found = placed=false + not_found issue; code never moves stops between days, no day_count fill, no NO_START; hotel stop by name or near; checks empty/over (1.25 x budget)/under/driving/not_found/hotel -> trip_needs_fix, 2 rounds; no done-claim while issues remain (reply check), facts.ready false with an empty or over day; make_trip_list and edit_trip_list removed, §54 items 1-3 removed; agent 6.0.0; record trip set new_plan/issues/round; rows 225-236.",
       "notes": "Owner phone test 2026-11-22 (bdc1e2a, record 20261122-211727): 规划上海五天 -> make_trip_list pool of 14 with day_count 5, no start -> order NO_START, all 14 on day 1, days 2-5 empty, ok=true, she said 规划好了; no city -> 北京新天地. Cause: new trips bypassed the data structure (§53 pool, §54 'never set_trip_plan for a new place').",
-      "evidence": []
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on b44f84a in a clean clone (NovaCore 1043 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; agent 6.0.0). Review: spec-reviewer high effort FAIL (done-claim rule caught every claim and never cleared; §50 item 1 Qwen grounding not called for new abroad plans) -> fixed b44f84a -> medium re-check PASS. Rows 225-234 unit PASS (TripModelPlanTests, TripNeedsFixClaimTests.row228, TripCatalogVersionTests.row234); 235 eval and 236 device NOT_VERIFIED. Owner questions: voice 打开行程/已经去过了/跳过这个 and rental auto-pick gone with edit_trip_list/make_trip_list (§55 item 11)."
+      ]
     }
   ]
 }
