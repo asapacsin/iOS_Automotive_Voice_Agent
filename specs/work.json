@@ -2851,7 +2851,7 @@
     {
       "id": "T-046v",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 1,
       "depends_on": [
         "T-046u"
@@ -2863,7 +2863,7 @@
     {
       "id": "T-040zi",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 1,
       "depends_on": [
         "T-040zh"
@@ -2875,7 +2875,7 @@
     {
       "id": "T-040zj",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 1,
       "depends_on": [
         "T-040zh"
@@ -2887,7 +2887,7 @@
     {
       "id": "T-046w",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 1,
       "depends_on": [
         "T-046f"
@@ -2899,7 +2899,7 @@
     {
       "id": "T-040zk",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 1,
       "depends_on": [
         "T-040zi"
