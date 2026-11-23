@@ -2482,3 +2482,46 @@ action's own result (the claim rules of F-06 and F-12 §14 item 12, extended to 
 | Task | Scope | Status |
 |---|---|---|
 | T-040zk | §58 items 1–7 (trip claims need an ok set_trip_plan, refusals over the driver request, no invented background work, "doing it" sentence, work-panel steps for edits and failures, record); rows 252–258 | NOT_RUN |
+
+## 59. The picker runs on `qwen3.8-flash`; `qwen3.7-flash` answers "none" for every place (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 7442737, record 20261123-130852).** 「带爸妈去厦门玩三天」, then 海南 and 深圳:
+`make_trip_list` returned `NO_CANDIDATES` three times (`trip pick names=8 none=8 ok=yes`, then Photon found nothing),
+and she said she could not get the places. Only 三亚 (6 names) went through.
+
+**Cause, found on the PC the same day (real 高德 `v3/place/text` results, `citylimit=true`, then the picker question
+of §4 item 6 byte for byte, `QwenPlacePicker.question`).** 22 names in 厦门, 深圳 and 三亚; 高德's first result was the
+asked place for every name:
+
+| Model | 厦门 (8) | 深圳 (8) | 三亚 (6) |
+|---|---|---|---|
+| `qwen3.7-flash-2026-07-15` (picker today, §50 item 9) | `0` for all 8 | `0` for all 8 | `0` for all 6 |
+| `qwen3.8-flash` (its backup today) | 8 correct (鼓浪屿 → 鼓浪屿, 南普陀寺 → 南普陀寺 …) | 8 correct | 6 correct |
+
+`0` is "None of the above", so every name became `missing("none")`. The 三亚 success on the phone was most likely
+answered by the backup after a 429 cooldown (§50 item 10); the record does not say which model answered. Row 160
+(2026-11-19) checked only that `qwen3.8-flash` answers the picker with HTTP 200, not that either model picks right.
+
+1. **Picker model.** `QwenRoute.picker` uses `qwen3.8-flash` (search off, thinking off, not streamed, 2.5 s budget
+   unchanged). The prompt (§4 item 6, EntGPT form) is unchanged.
+2. **No backup model for the picker.** On a 429 or quota 403 the picker does not try `qwen3.7-flash`; the pick fails
+   (`reason=failed`) and every open name takes 高德's first result (§4 item 6, row 45). `live` and `ground` keep their
+   backups.
+3. **Record.** `trip pick … model=<model id>` on every pick line, so a record shows which model answered.
+4. **Code.** `QwenRoute.picker` (model, no backup); `QwenFallback` skips the backup for a route without one;
+   the `trip pick` line; §50 item 9's table and row 47/154 expectations updated to `qwen3.8-flash`.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 259 | `QwenRoute.picker` and its request body (fake send) | `model` `qwen3.8-flash`, `enable_search=false`, `enable_thinking=false`, not streamed; no backup route | unit |
+| 260 | Picker gets HTTP 429 (fake send) | One call only; every open name takes 高德's first result; `trip pick … ok=no reason=failed model=qwen3.8-flash` | unit |
+| 261 | PC: the 2026-11-23 replay (22 names, real 高德 results) on `qwen3.8-flash` | Every name picks the asked place (done 2026-11-23, table above) | PC |
+| 262 | Device: 「带爸妈去厦门玩三天，别太累」 | The plan shows the asked places; `trip pick … none=0 model=qwen3.8-flash` in the record | D |
+
+**Trace gate.** Add `T-040zl: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zl | §59 items 1–4 (picker on `qwen3.8-flash`, no picker backup, model on the pick line); rows 259–262 | NOT_RUN |

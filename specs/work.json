@@ -2917,6 +2917,18 @@
       "evidence": [
         "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort FAIL (tripVerdict before TRIP_NEEDS_FIX broke row 228; tripWrites leaked on cancel/reconnect) -> fixed b2e7b28 -> medium re-check FAIL (clearing on utterance voided a running write) -> fixed 278241b (callsEnded on cancel and drop) -> medium re-check PASS. Rows 252-257 unit PASS (TripChangeClaimTests, TripChangeClaimReviewTests, TripEditProgressTests); 256 via catalog text (NON_BLOCKING calls have no immediate result); build part of 257 NOT_VERIFIED; 258 device NOT_VERIFIED; cancel/drop wiring in AgentState checked by reading only."
       ]
+    },
+    {
+      "id": "T-040zl",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 1,
+      "depends_on": [
+        "T-040zb"
+      ],
+      "action": "F-15b §59 items 1-4: QwenRoute.picker model qwen3.8-flash (search off, thinking off, 2.5 s); no backup route for the picker (429/quota 403 -> pick fails, 高德 first result); QwenFallback skips a route without backup; trip pick line gets model=<id>; §50 item 9 table and rows 47/154 expectations updated; rows 259-262.",
+      "notes": "Owner phone test 2026-11-23 (7442737, record 20261123-130852): 厦门/海南/深圳 make_trip_list NO_CANDIDATES, trip pick none=8. PC replay same day with real 高德 results: qwen3.7-flash-2026-07-15 answered 0 (none) for all 22 names, qwen3.8-flash picked all 22 correctly. Owner: switch to qwen3.8-flash.",
+      "evidence": []
     }
   ]
 }
