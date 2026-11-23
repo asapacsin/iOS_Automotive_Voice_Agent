@@ -15,6 +15,8 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case tripResultPending = "TRIP_RESULT_PENDING"
     /// F-15b §55 item 10 (T-040zh): a "done" claim while the last trip result is `trip_needs_fix` with a round left.
     case tripNeedsFix = "TRIP_NEEDS_FIX"
+    /// F-18 §33 item 7 (T-046v): after `LIVE_INFO_UNAVAILABLE` the reply blames the network, which is false.
+    case networkBlamed = "NETWORK_BLAMED"
 
     /// Sent to the model as a text turn. Code decides when; the sentence only explains (I-11).
     public var instruction: String {
@@ -30,6 +32,7 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         case .wrongLanguage: "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
         case .tripResultPending: "[系统] TRIP_RESULT_PENDING：\(AsyncTool.tripPendingNext)。"
         case .tripNeedsFix: "[系统] TRIP_NEEDS_FIX：行程还有问题没改好，不要说已经规划好。按 issues 改好整份行程，再调用 set_trip_plan。"
+        case .networkBlamed: "[系统] NETWORK_BLAMED：网络没有问题，只是现在查不了网上的信息。请如实这样说，不要说网络有问题或连不上网。"
         }
     }
 
@@ -340,6 +343,10 @@ public struct DriverTurnPipeline: Sendable {
     /// Tools whose ok result is not yet evidence: navigation is proven by the phase, music by playback.
     static let evidenceTools: Set<String> = ["navigate_to", "choose_navigation_option", "control_music", "play_music"]
 
+    /// F-18 §33 item 7: network wording a reply must not use after `LIVE_INFO_UNAVAILABLE`.
+    static let networkWords = ["网络", "连不上网", "联网", "断网", "上不了网", "没有网", "没网"]
+    static func blamesNetwork(_ text: String) -> Bool { networkWords.contains(where: text.contains) }
+
     static let questionWords = ["吗", "多久", "多远", "什么", "哪", "几", "?", "？", "怎么样"]
     static let navigationRequest = ["导航", "带我去", "带我到", "回家", "去公司", "开过去"]
     static let musicRequest = ["放首", "放歌", "播放", "音乐", "听歌", "来首", "放一首"]
@@ -372,6 +379,11 @@ public struct DriverTurnPipeline: Sendable {
             // An honest clarification question is heard; a claim on top of the ambiguity is not.
             if t.claims.isEmpty { return final ? .clean : .pending }
             return .disproven(.clarifyReferent)
+        }
+        // F-18 §33 item 7 (T-046v): blaming the network after LIVE_INFO_UNAVAILABLE is drift.
+        if Self.blamesNetwork(t.text),
+           (t.results + utteranceResults).contains(where: { !$0.result.ok && $0.result.code == .liveInfoUnavailable }) {
+            return .disproven(.networkBlamed)
         }
         // F-15b §52 item 12 (T-040ze): "done" before a trip tool's result is drift, whatever else proved.
         if !t.claims.isEmpty, !t.tripPending.isEmpty { return .disproven(.tripResultPending) }

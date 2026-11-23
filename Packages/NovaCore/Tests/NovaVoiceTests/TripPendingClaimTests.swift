@@ -103,3 +103,29 @@ struct TripNeedsFixScopeTests {
         #expect(!h.corrections.contains(.tripNeedsFix), "\(h.out)")
     }
 }
+
+@Suite("T-046v F-18 §33 item 7 blaming the network after LIVE_INFO_UNAVAILABLE")
+struct NetworkBlameTests {
+    @Test("T-046v F-18 §33 row 16 (reply side): 「网络有问题」 after LIVE_INFO_UNAVAILABLE reason=quota is drift (NETWORK_BLAMED)")
+    func row16() {
+        var h = PipelineHarness()
+        h.driver("厦门中山路附近有什么景点")
+        let id = h.call("s1", "web_search")
+        h.result(id, "web_search", .failure(.liveInfoUnavailable, data: ["reason": "quota"]))
+        h.say("抱歉，网络有问题，现在查不了。")
+        h.close()
+        h.advance(by: .seconds(30))
+        #expect(h.corrections == [.networkBlamed], "\(h.out)")
+        #expect(!h.spoken.contains("网络"))
+        #expect(CorrectionReason.networkBlamed.instruction.hasPrefix("[系统] NETWORK_BLAMED："))
+
+        var ok = PipelineHarness()
+        ok.driver("厦门中山路附近有什么景点")
+        let s = ok.call("s1", "web_search")
+        ok.result(s, "web_search", .failure(.liveInfoUnavailable, data: ["reason": "quota"]))
+        ok.say("现在查不了网上的信息。")
+        ok.close()
+        ok.advance(by: .seconds(30))
+        #expect(!ok.corrections.contains(.networkBlamed), "\(ok.out)")
+    }
+}

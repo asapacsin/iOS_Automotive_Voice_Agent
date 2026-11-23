@@ -23,6 +23,6 @@ struct TripCatalogVersionTests {
         #expect(schema?["properties"]?["day_count"] == nil)
         // trip_next's text is unchanged (§55 item 12).
         #expect(ToolCatalog.tripNextDescription.hasPrefix("行程按站导航："))
-        #expect(AgentSetup.version == "6.0.0")
+        #expect(AgentSetup.version.hasPrefix("6."))  // major 6 (T-046v adds minor 6.1.0)
     }
 }
