@@ -409,7 +409,7 @@ public actor TripPlanner: ToolExecutor {
 
     private func run(_ call: ToolCall) async -> ToolResult {
         // The dispatcher validated the call (ToolCatalog.validate); this is the backstop for direct callers.
-        if let code = ToolCatalog.validate(call) { return .failure(code) }
+        if let code = ToolCatalog.validate(call) { return ToolDispatcher.refusal(call, code) }
         // §52 item 13: a waiting whole-trip clear is answered only by the next clear; any other trip call forgets it.
         if !Self.clearsWhole(call) { clearAsked = nil }
         switch call.name {
@@ -601,8 +601,8 @@ public actor TripPlanner: ToolExecutor {
     public static let fixNext = "先不要跟司机说话，按 issues 改好整份行程，再调用 set_trip_plan。"
     /// §55 item 9: the `next` part that names the issues still failing after the last round.
     public static func leftoverNext(_ lines: [String]) -> String { "跟司机说还有这些问题：" + lines.joined(separator: "；") }
-    /// §55 item 2: the `PLAN_CHECK` line of a new plan without `city`.
-    public static let cityMissing = "新行程要写 city（城市，跨城市就写省或地区）"
+    /// §55 item 2: the line of a new plan without `city` (§56 item 2: now an `INVALID_FIELDS` problem).
+    public static let cityMissing = ToolCatalog.tripCityMissing
 
     /// §52 items 3–8 with §55 (T-040zh): `set_trip_plan` makes and changes every plan. A call that keeps no `id` is a
     /// new plan: `city` is required and the plan in hand is replaced (no `CONFIRM_CLEAR`). New names are looked up
@@ -618,18 +618,20 @@ public actor TripPlanner: ToolExecutor {
         let stopTotal = written.reduce(0) { $0 + $1.count }
         let newPlan = !written.joined().contains { $0.id != nil }
         let cityArg = args["city"]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
+        // §56 item 1 (T-040zi): keys ignored, listed once in facts and counted in the record.
+        let ignored: [String] = if case .object(let o) = args { ToolCatalog.tripIgnoredFields(o) } else { [] }
         var counts = (kept: 0, new: 0, removed: 0, notPlaced: 0)
         var issueCount = 0
         var round = 0
         func log(_ ok: Bool) {
-            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) new_plan=\(newPlan ? "yes" : "no") check=\(ok ? "ok" : "fail") issues=\(issueCount) round=\(round) ms=\(ms(since: started))")
+            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) new_plan=\(newPlan ? "yes" : "no") check=\(ok ? "ok" : "fail") issues=\(issueCount) round=\(round) ms=\(ms(since: started)) ignored=\(ignored.count)")
         }
         // §50 item 6: a new plan's first step is the place check; a change is 调整行程.
         work?.step(newPlan ? WorkProgress.tripCheck : WorkProgress.tripRevise)
         // §52 item 13 (T-040ze): a plan with no stops is a clear of the whole trip.
         if stopTotal == 0 { return await clearWhole(viaPlan: true) }
-        var problems = Self.planProblems(written, old: newPlan ? TripPlan() : plan)
-        if newPlan, cityArg == nil { problems.insert(Self.cityMissing, at: 0) }
+        // §56 item 2 (T-040zi): a new plan without city is refused before this (`INVALID_FIELDS`, `ToolCatalog`).
+        let problems = Self.planProblems(written, old: newPlan ? TripPlan() : plan)
         guard problems.isEmpty else {
             log(false)
             planCheckRounds += 1
@@ -791,6 +793,7 @@ public actor TripPlanner: ToolExecutor {
         retryUnplaced()
         var facts: [String: JSONValue] = ["kept": .int(Int64(counts.kept)), "new": .int(Int64(counts.new))]
         if newPlan { facts["new_plan"] = true }
+        if !ignored.isEmpty { facts["ignored_fields"] = .array(ignored.map(JSONValue.string)) }
         if !removedNames.isEmpty { facts["removed"] = .array(removedNames.map(JSONValue.string)) }
         if !notPlaced.isEmpty { facts["not_placed"] = .array(notPlaced.map(JSONValue.string)) }
         if !slow.isEmpty { facts["search_slow"] = .array(slow.map(JSONValue.string)) }

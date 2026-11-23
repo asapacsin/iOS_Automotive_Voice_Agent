@@ -28,14 +28,59 @@ public struct NotYetExecutor: ToolExecutor {
 public struct ToolDispatcher: Sendable {
     /// Identical repeat-sensitive calls already dispatched, per driver turn (speech-onset epoch).
     private var dispatched: (epoch: Int, calls: Set<String>) = (0, [])
+    /// F-15b §56 item 4 (T-040zi): `set_trip_plan` calls refused in the current driver request (speech-onset epoch),
+    /// by canonical arguments, with their refusal; and the request each running `set_trip_plan` call was made in.
+    private var refusedPlans: (epoch: Int, results: [String: ToolResult]) = (0, [:])
+    private var planEpochs: [CallID: Int] = [:]
 
     public init() {}
 
     public mutating func decide(_ call: ToolCall, context: GuardContext) -> DispatchDecision {
-        if let code = ToolCatalog.validate(call) { return .refuse(Self.failure(code)) }
+        if call.name == "set_trip_plan" {
+            // §56 item 4: the same refused plan is not run twice in one driver request; a changed call runs normally.
+            if refusedPlans.epoch != context.turn { refusedPlans = (context.turn, [:]) }
+            if let earlier = refusedPlans.results[Self.canonical(call.arguments)] { return .refuse(Self.repeated(earlier)) }
+        }
+        if let code = ToolCatalog.validate(call) {
+            let refusal = Self.refusal(call, code)
+            if call.name == "set_trip_plan", code == .invalidFields { refusedPlans.results[Self.canonical(call.arguments)] = refusal }
+            return .refuse(refusal)
+        }
         if repeatedInTurn(call, context) { return .refuse(Self.failure(.duplicateInTurn)) }
         if let code = ToolCallGuards.savedPlaceMissing(call, context) { return .refuse(Self.failure(code)) }
+        if call.name == "set_trip_plan" { planEpochs[call.id] = context.turn }
         return .execute(call)
+    }
+
+    /// §56 item 4: a `set_trip_plan` result as it comes back. A `PLAN_CHECK` or `INVALID_FIELDS` refusal is kept for the
+    /// driver request the call was made in (a result arriving after the driver spoke again starts nothing).
+    public mutating func noteResult(_ call: ToolCall, _ result: ToolResult) {
+        guard call.name == "set_trip_plan", let epoch = planEpochs.removeValue(forKey: call.id),
+              result.code == .planCheck || result.code == .invalidFields, epoch == refusedPlans.epoch else { return }
+        refusedPlans.results[Self.canonical(call.arguments)] = result
+    }
+
+    /// §56 item 4: `REPEATED_FAILURE` with the earlier refusal's `problems` (top level, or `facts.problems` of
+    /// `PLAN_CHECK`) and §56's `next`; `refused_code` is the earlier code (the record's `trip repeat-blocked`).
+    public static func repeated(_ earlier: ToolResult) -> ToolResult {
+        let problems = earlier.data["problems"] ?? earlier.data["facts"]?["problems"] ?? .array([])
+        let code = earlier.code ?? .invalidFields
+        return ToolResult(ok: false, code: .repeatedFailure,
+                          data: ["problems": problems, "refused_code": .string(code.rawValue), "changed": false,
+                                 "next": .string(repeatedNext)], advice: nil)
+    }
+
+    /// §56 item 4: the `next` of `REPEATED_FAILURE`, exactly as §56 gives it.
+    public static let repeatedNext = "这份行程刚才已经被拒绝了，原因在 problems 里。按它改，改不了就告诉司机行程没改成和原因，不要再传同样的内容。"
+
+    /// The refusal of a call `ToolCatalog.validate` stopped. F-15b §56 item 3 (T-040zi): `INVALID_FIELDS` of
+    /// `set_trip_plan` carries `problems` (one line each) and §56's `next`; it is never an empty `{}`.
+    public static func refusal(_ call: ToolCall, _ code: ToolErrorCode) -> ToolResult {
+        guard code == .invalidFields, call.name == "set_trip_plan", case .object(let a) = call.arguments else { return failure(code) }
+        let lines = ToolCatalog.tripPlanProblems(a)
+        return ToolResult(ok: false, code: .invalidFields,
+                          data: ["problems": .array(lines.map(JSONValue.string)), "changed": false,
+                                 "next": .string(ToolCatalog.tripProblemsNext)], advice: nil)
     }
 
     /// `repeatedInTurn`: the same repeat-sensitive call with the same arguments twice in one driver

@@ -217,7 +217,16 @@ public struct ConversationRecorder: Sendable {
         case .toolDropped(let tool): return [line("tool-result", "\(tool.rawValue) dropped reason=reconnect")]
         case .toolResult(let name, let ok, let code, let data, let elapsed):
             let timing = elapsed.map { " scheduling=\(AsyncTool.scheduling) ms=\($0)" } ?? ""
-            return [line("tool-result", "\(name)\(timing) ok=\(ok) code=\(code ?? "none") \(Self.json(data))")]
+            // F-15b §56 item 6 (T-040zi): a refusal's `problems` lines are written as their count, never the lines;
+            // a `REPEATED_FAILURE` adds `trip repeat-blocked code=<the earlier code>`.
+            guard case .object(var fields) = data, case .array(let problems)? = fields.removeValue(forKey: "problems") else {
+                return [line("tool-result", "\(name)\(timing) ok=\(ok) code=\(code ?? "none") \(Self.json(data))")]
+            }
+            var out = [line("tool-result", "\(name)\(timing) ok=\(ok) code=\(code ?? "none") problems=\(problems.count) \(Self.json(.object(fields)))")]
+            if code == ToolErrorCode.repeatedFailure.rawValue {
+                out.append(line("trip", "repeat-blocked code=\(fields["refused_code"]?.stringValue ?? "none")"))
+            }
+            return out
         case .correction(let reason): return settle(ms, reason: reason) + [line("correction", reason)]
         case .languageLine(let l):
             // The re-ask settles the voided reply like any correction.

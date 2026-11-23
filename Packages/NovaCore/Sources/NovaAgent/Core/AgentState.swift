@@ -658,6 +658,8 @@ public struct AgentState: Sendable {
             // can take longer than the 10 s window after the utterance).
             arbiter.driverSpoke(at: now)
             context.record(call, ok: result.ok, at: now)
+            // F-15b §56 item 4 (T-040zi): a refused `set_trip_plan` is not run again with the same arguments.
+            dispatcher.noteResult(call, result)
             var finished = dispatcher.finish(call, result)
             // F-15b §52 item 12 (T-040ze): while a trip tool's result has not come back, any other result's `next`
             // says so: she must not say the trip change is done.

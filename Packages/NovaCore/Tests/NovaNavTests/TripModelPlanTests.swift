@@ -211,17 +211,16 @@ struct TripModelPlanTests {
         #expect(!"\(r2.data)".contains("北京新天地"))
     }
 
-    @Test("T-040zh F-15b row 231: a new plan without city is PLAN_CHECK (city missing); nothing saved")
+    @Test("T-040zh F-15b row 231: a new plan without city is refused (city missing; §56 row 241: INVALID_FIELDS); nothing saved")
     func row231() async {
         let rig = await ModelPlanRig(search: CityLimitSearch(inCity: ["上海": shTable]))
         _ = await rig.run(plan([[named("外滩")]]))
         let before = await rig.planner.currentPlan
         let r = await rig.run(plan([[named("豫园"), named("南京路")]], city: nil))
-        #expect(!r.ok && r.code == .planCheck && strings(r.data["facts"]?["problems"]).contains(TripPlanner.cityMissing), "\(r)")
+        #expect(!r.ok && r.code == .invalidFields && strings(r.data["problems"]).contains(TripPlanner.cityMissing), "\(r)")
         #expect(TripPlanner.cityMissing == "新行程要写 city（城市，跨城市就写省或地区）")
         let after = await rig.planner.currentPlan
         #expect(after.revision == before.revision && after.allStops.map(\.stop.asked) == ["外滩"])
-        #expect(rig.line("trip set days=1 stops=2 kept=0 new=0 removed=0 not_placed=0 new_plan=yes check=fail issues=0 round=0 ms=").count == 1)
         // The schema takes city; a kept plan needs none (its city is kept).
         #expect(ToolCatalog.validate(plan([[named("豫园")]], city: "")) == .invalidFields)
     }
@@ -255,9 +254,9 @@ struct TripModelPlanTests {
                                      [named("明治神宫")]], city: "Tokyo, Japan"))
         #expect(issues(r2).contains("第2晚还没有酒店，写一个酒店或者 near"), "\(r2)")
         #expect(await rig.planner.currentPlan.days[1].stops.last?.role == .sight)
-        // near is only for a hotel, and only one of id, name and near.
+        // near is only for a hotel; §56 item 1 (T-040zi): beside a name, name wins and near is ignored.
         #expect(ToolCatalog.validate(plan([[["near": "新宿站"]]])) == .invalidFields)
-        #expect(ToolCatalog.validate(plan([[["name": "X", "role": "hotel", "near": "新宿站"]]])) == .invalidFields)
+        #expect(ToolCatalog.validate(plan([[["name": "X", "role": "hotel", "near": "新宿站"]]])) == nil)
         #expect(ToolCatalog.validate(plan([[named("A"), near], [near, named("B")]])) == nil)
     }
 
