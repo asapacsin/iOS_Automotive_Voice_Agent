@@ -825,3 +825,62 @@ her with what 高德 found.
 | Task | Scope | Status |
 |---|---|---|
 | T-031zc | §18 items 1–8 (show_place takes city; exact lookup; sure in code, unsure back to her with found; record; PC check); rows 1–8 | NOT_RUN |
+
+## 19. show_on_map: she puts a place on the map without starting a route (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 6082b0e, record 20261123-162956).** The driver asked where 九龙湖度假区 is on
+the map, three times: 「那个九龙湖它在地图上面是怎么样」, 「不需要导航啊，我就是看一下那个九龙湖在哪就可以了」,
+「这不就是只有介绍吗？我再看一下它地图在哪里」. She had no tool that shows a place on the map: `open_app maps` showed
+nothing he could see, `show_place` gave a card with an introduction and no map, so she called `navigate_to`. The
+destination list opened, and one tap later a 168-minute route started that he never wanted.
+
+**Owner rule (2026-11-23).** Add a tool that shows a place on the map. Looking is not going: it never plans or starts a
+route. She finds the place as in §18 (the model decides, code only fetches).
+
+1. **Declaration.** `show_on_map(name, city)`, the same two fields as `show_place` (§18 item 1). Description:
+   「在地图上标出一个地方给司机看，不导航、不算路线。司机问在哪里、在地图上看看、离这里多远时用；司机要去那里才用
+   navigate_to。city 填这个地方所在的城市；不确定在哪个城市时先用 web_search 查。」 The `navigate_to` description adds:
+   「司机只是想看在哪里，用 show_on_map。」 Declared always (not tied to the search setting). Agent version: minor bump
+   (a new tool, F-09b §15 bump rules).
+2. **The same lookup as `show_place`.** §18 items 2–5 unchanged and shared in code (one function, not a copy): a place on
+   screen with that name, else 高德 text search in `city` (car's city when empty), exact name+city match is sure; anything
+   else is `PLACE_UNSURE` with `facts.asked` and `facts.found` and the §18 item 4 `next`, with 「卡片」 read as 「地图」:
+   「地图上没有标出来。看 found：…」. No pin while unsure.
+3. **Sure → one pin on the main map.** A green pin labelled with the place's name at its 高德 coordinate (GCJ-02 like
+   the routes), drawn by `DriveView`'s map next to the existing markers. One pin at a time: a new `show_on_map` replaces
+   it. A small card at the bottom shows the name, 「<district>，距离 N 公里」 (straight-line distance from the car,
+   rounded; no distance when the car position is unknown) and a 「×」 button. No 导航 button, no route line, no route
+   request of any kind (I-6: the 「×」 goes through the same executor path as the voice close).
+4. **Camera.** Not navigating: the camera frames the car and the pin together (both in view, the existing `fitContent`
+   margin); with no car position, or the pin over 300 km away, the pin alone at a 5 km span. Following the car stops
+   while the pin is shown (as a driver pan, F-16b C7) and the 15 s auto-recenter does not run; 「回到我的位置」 still
+   works. Navigating: the pin is drawn and the camera does not move (the route view stays).
+5. **Panel.** New screen-state key `mapPin` (F-09b §16), layer 1, `opens: ["show_on_map"]`, close
+   `exit_navigation_mode`, acts `["navigate_to"]` (§17 registry). On while the pin is drawn, from the view's own report.
+   Opening it closes the layer-3 sheets over the map (`tripDetail`, `tripPlans`) so the map is seen. It goes off on: the
+   「×」, 「关掉」/`exit_navigation_mode` with `mapPin` on top (§17), a `navigate_to` that opens the destination list,
+   and session end.
+6. **Result.** Sure: `ok=true`, `facts` {name, city, district, address, distance_km (absent when unknown)}, `next`:
+   「地图上已经标出这个地方，没有开始导航。用一两句话说它在哪、离这里多远；司机说要去，再用 navigate_to。」 `must_not`:
+   `claim_started`. A later `navigate_to` for the same place runs as today (destination list, his pick); nothing about a
+   route is offered or started by `show_on_map`.
+7. **Record.** `show map ok=<yes|no> via=<screen|city|near> sure=<yes|no> found=<n> km=<n|none> ms=` (counts only, I-8)
+   and the usual `panel mapPin on|off` lines.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 1 | `show_on_map(name: "中旅·阿那亚·九龙湖度假区", city: "广州")`, 高德 returns that name in 广州 | `ok=true` with name, city, district, distance_km; pin state set; no route request made (fake route port gets no call) | unit |
+| 2 | 高德 returns only other names | No pin; `PLACE_UNSURE` with found and the item 2 `next` | unit |
+| 3 | Second `show_on_map` for another place | One pin, the new one | unit |
+| 4 | `mapPin` on, then `exit_navigation_mode`; and separately `navigate_to` that lists places | `mapPin` off both times; nothing else closed by the first | unit |
+| 5 | `tripDetail` on, then a sure `show_on_map` | `tripDetail` off, `mapPin` on | unit |
+| 6 | Declaration and registry | `show_on_map` with `name`, `city` and the item 1 text; `navigate_to` has the added sentence; `mapPin` entry as item 5; agent version bumped and its parts file regenerated | unit, gate |
+| 7 | Camera policy: car known 150 km away; car unknown; pin 400 km away; navigating | frames both; pin at 5 km; pin at 5 km; no camera command | unit |
+| 8 | Eval: replay 20261123-162956 to 「不需要导航啊，我就是看一下那个九龙湖在哪就可以了」 | She calls `show_on_map`, not `navigate_to`; she says where it is and how far, and does not say navigation started | eval |
+| 9 | Device: 「九龙湖度假区在地图上哪里」, then 「关掉」, then 「带我去那里」 | Pin and card with distance, no route, nothing starts; 「关掉」 removes it; only the third line starts the destination list | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-031zd | §19 items 1–7 (show_on_map declaration, shared §18 lookup, one pin and small card, camera, `mapPin` panel, result, record); rows 1–9 | NOT_RUN |
