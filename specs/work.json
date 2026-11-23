@@ -2681,6 +2681,18 @@
       "evidence": [
         "Gates: scripts/gates/run_all.sh PASS on 959f2ff in a clean clone (Linux Swift 6.1.2; NovaCore 1092 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; check_agent_version 9.0.0, check_record_format 9, check_panel_tools, spec-trace OK). The first clean-clone run on dca046c failed 4 stale tests -> fixed 959f2ff. Review: spec-reviewer high effort PASS on 94882ba..959f2ff (FAIL on dca046c alone for those 4 tests). Non-blocking review fix: clearAll forgets asked (test added). Rows 268-272, 275, 277 unit PASS (TripReviewTests); rows 273, 274, 276, 278 eval/device NOT_VERIFIED; App files read, not compiled. Open notes for the owner: plan_text cannot come before plan on the wire (sorted keys); row 268's fixture leaves out the spec-given texts containing 改好/安排好; dispatcher REPEATED_FAILURE carries no saved=false; TripChecks issue texts remain (unreachable in production)."
       ]
+    },
+    {
+      "id": "T-040zo",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-040zn"
+      ],
+      "action": "F-15b §62 items 1-13: the voice model's trip tool plan_trip carries asked (new plan) or change (the driver's words), never days; set_trip_plan leaves the catalog, check_trip_plan stays; a qwen3.8-flash planner (DashScope intl compatible-mode, json_object, no thinking; client in NovaRealtime next to QwenPlacePicker, loop/shape/prompt in NovaCore) writes {days:[{sights:[{name,city,minutes}],stay}],done,note} with item 3's system text; a stay may be a sight of the same day (one place, no other hotel); code looks up each stop with its own city and sends per-day counts (sights, sight/driving/total minutes, budget B, found name/city/district, not found with range) every round, no verdict or advice words; the planner revises; a done in round 1 still gets one counts round; stop at done from round 2 or after round 3 and save; result saved/asked/plan_text/note/not_placed/removed/rounds and item 6's next (she tells the driver, does not revise); PLANNER_FAILED on http/timeout 30 s/non-JSON twice, cards unchanged, no fallback planner; trip claims judged only by §58's trip verdict (refused writes before an ok one and not_placed never give CLAIM_AFTER_FAILURE); the handoff line is said by the app (guidance voice + subtitle) at every plan_trip dispatch and a spinner with one line of text naming the current backend step (豆包 style, owner sketch: turning circle left, text right) shows on top of any screen until the result (search tools: the row only, no spoken line); record trip planner round/failed, handoff said; record format bump; major agent version; rows 279-291.",
+      "notes": "Owner phone test 2026-11-23 (791335a, record 20261123-213534): 广东四天游 with 九龙湖旅游度假村; her plan had one sight a day and a separate hotel next to the resort; city 广东 made the lookup pick 韶关/肇庆/惠州 places; a saved plan with 陈家祠 not found was retracted by a false CLAIM_AFTER_FAILURE. PoC on the PC: gemini live 9 runs, most with empty days; qwen3.8-flash planner with 高德 counts 6/6 sensible. Owner: the voice model only hands the request on; a stronger model plans; code counts; the planner reviews. Owner: handing work over must always be said and shown as a turning circle with text that follows the backend progress, as 豆包 does.",
+      "evidence": []
     }
   ]
 }

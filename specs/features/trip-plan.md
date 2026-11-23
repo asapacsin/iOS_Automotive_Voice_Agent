@@ -2693,3 +2693,153 @@ failing.
 | Task | Scope | Status |
 |---|---|---|
 | T-040zn | §61 items 1–9 (set_trip_plan saves without checks; check_trip_plan counting tool the model calls; the driver's request saved with the plan as `asked` (in results, saved plans and the 现在 note); she reviews her plan against `asked` and revises before speaking (plan_text, review next, bound from the 3rd save); removed over the request; panel and record words; catalog texts and major agent version); rows 268–278 | NOT_RUN |
+
+## 62. The voice model hands the request to a planner model; the planner writes and reviews the plan from code's counts (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 791335a, record 20261123-213534).** 「搞一个广东四天游，然后把这个（九龙湖旅游度假村）放进去」:
+- 60518–75245: she wrote four `set_trip_plan` calls; two were refused (`INVALID_FIELDS`, `PLAN_CHECK` hotel order). Her
+  plan had one sight a day (广州塔 / 九龙湖旅游度假村 480 min / 从化温泉景区 / 沙面岛), day 1 used 244 of 480 minutes,
+  and a separate hotel 「near 广州花都区」 next to the resort, which itself has rooms.
+- `city` was 「广东」 (the province). The lookup turned 广州塔 into 广州塔-韶关分塔 (韶关, 300 km), 九龙湖旅游度假村 into
+  肇庆九龙湖度假山庄, 沙面岛 into 十里银滩, and the hotel into 蜗艾蜗家艾公馆 for every night; 陈家祠 was not found three
+  times. `show_on_map` had found the right 九龙湖旅游度假村 (广州市花都区) at 35452 in the same session.
+- 82261: the plan saved (`ok=true`, `not_placed: [陈家祠]`). She began 「行程已经帮您做好了…陈家祠没有找到，您想换一个…」;
+  84364 the reply checker sent `CLAIM_AFTER_FAILURE` and she said 「由于无法找到陈家祠，未能帮您成功创建行程」, which was
+  false. Cause: 「做好了」 is not in `ClaimLexicon.tripChangeVerbs`, so the reply fell to the generic action verdict,
+  which counted the refused write of 74404 that §58's trip verdict already ignores after an ok one.
+- §61 item 3a's self-review did not happen: `plan_text` showed 韶关分塔 and 肇庆 and she called it done; she never
+  called `check_trip_plan`.
+
+**PoC on the PC (2026-11-23, scratchpad scripts `plan_poc.py`, `planner_loop.py`).**
+- The live model with the app's 9.0.0 setup, the two requests above as text, 9 runs: 4 had empty days, 1 had 5 days
+  for 4 asked, 1 had nameless stops; the usable ones had 1–2 sights a day. The plan is bad before any app code runs.
+- `qwen3.8-flash` as planner, with item 3's prompt and code counting by 高德 (place search, driving times), 6 runs:
+  6 sensible plans (right day count, no empty day, every place in 广州, the named place in, whole days for 长隆 and
+  the resort, 4.5–9.5 h days), 8 s per round, done in 1–3 rounds. Weak: the review rounds seldom changed anything
+  (one 585-minute day was left), and two names matched the wrong place (陈家祠 → 陈家祠(地铁站), 「九龙湖度假区」 →
+  中旅·阿那亚·九龙湖度假区).
+
+**Owner rule (2026-11-23).** The voice model only takes the driver's request and hands it on, then tells the driver
+the result. A stronger text model writes the plan. Code counts time and driving and gives the numbers back; the
+planner model reviews them and revises. §61's rule stands: code counts, never judges; success is the model's call.
+
+**Published practice this copies.** A conversational agent hands a task to a worker model and reports its result
+(Anthropic, "Building effective agents", 2024-12, *orchestrator-workers*); a planner LLM revises its plan from
+external verifiers' feedback in a bounded loop (Kambhampati et al., "LLMs Can't Plan, But Can Help Planning in
+LLM-Modulo Frameworks", ICML 2024; Gundawar et al., "Robust Planning with LLM-Modulo Framework: Case Study in Travel
+Planning", 2024, on TravelPlanner); the generator and the evaluator loop until the evaluator accepts (Anthropic,
+same article, *evaluator-optimizer*), here the counts come from code and the acceptance from the planner.
+
+1. **The voice model's trip tool is `plan_trip`; it carries the request, not the plan.** Arguments: `asked` (§61
+   item 3's shape: `text`, `must`, `days`, `city`, `notes`; required for a new plan) and `change` (the driver's words
+   for a change to the plan on the cards, 「第二天去掉沙面」, 「再加个咖啡馆」, as said; with `change` an `asked` sent
+   replaces the saved one, else it is kept). Exactly one of: a new plan (`asked`, no plan open or the driver asks for
+   a new one, §54), or a change (`change`, a plan open). `NON_BLOCKING`, result `WHEN_IDLE`, her working lines
+   unchanged (「好，我规划一下，大概半分钟。」 / 「好，我在改行程，好了告诉你。」). `set_trip_plan` leaves the catalog;
+   `check_trip_plan` (§61 item 2) stays for her questions (「第二天会不会太赶」). Screen edits (§46) are unchanged.
+2. **The planner writes the plan in its own shape, which is also the shape it reads back.**
+   `{"days": [{"sights": [{"name", "city", "minutes"}], "stay": {"name", "city"} | null}], "done": bool, "note": "<one
+   sentence for the driver: what was not done and why>"}`. `city` is the real city of that place (never a province).
+   `stay` is that night's place; the last day's is `null`. **A stay may be a sight of the same day** (a resort, a
+   hotel with grounds): code makes it one place, visited that day and slept in, with no other hotel that night
+   (owner 2026-11-23). On a change the planner gets the current plan in this shape (with each stop's lookup facts,
+   item 4), the saved `asked` and the `change` words.
+3. **The planner's system text, as used in the PoC:**
+   「你是行程规划师。司机的要求由语音助手转给你，你只输出 JSON，不要其他文字。JSON 格式：{"days": [ {"sights": [{"name": "地点全名", "city": "所在城市", "minutes": 停留分钟}], "stay": {"name": "当晚住的地方全名", "city": "城市"} 或 null } ], "done": true/false, "note": "给司机的一句话：没做到的要说"}
+   要求：
+   - 天数按司机说的；司机点名的地点必须放进去。
+   - 每天一般 3 到 4 个景点，景点时间加开车时间一天 6 到 8 小时；整天的地方（主题乐园、度假村玩一整天）可以单独一天。
+   - 每晚写 stay；度假村、酒店式景区本身能住，就直接住那里，不要再加别的酒店。最后一天 stay 写 null。
+   - 地点写能在地图上搜到的全名，city 写它真正所在的城市。
+   - 每次你会收到程序核对的数字（地图找到的地点、开车时间、每天总时间）。按这些数字自己判断合不合理，不合理就改好整份再输出，done=false；都合理了输出最终行程，done=true。」
+   plus one line added for §61 item 3a's rule: 「司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。」
+   The user message is 「司机说：「<asked.text>」」 with `asked` as JSON (new plan), or the current plan, `asked` and
+   「司机要改：「<change>」」 (change).
+4. **Code counts and returns numbers, every round, with no verdict.** For each stop: look it up with the planner's
+   `name` and `city` (高德 inside China, the §50 vendor rule abroad; the city, not the province, is the search
+   range); the picker (§59) as today. The counts message is one line per day:
+   「第<n>天：<k>个景点；景点<s>分＋开车<d>分（各段[…]）＝<t>分，预算<B>分。<name>=地图:<found name>·<city><district>，停<m>分；…；住<name>=地图:…」,
+   「=地图没找到（在<range>找）」 for a miss, then 「（只有数字，怎么改你决定。）」. Driving from §48's `TripTimes`,
+   B from §48 item 3. No thresholds applied, no advice words (换, 去掉, 加, 挪, 太满, 考虑), as §61 item 2.
+5. **The loop is bounded, not judged.** Round 1: the planner writes; code counts; the counts go back. The planner
+   returns a revised plan (`done=false`) or the final one (`done=true`). A `done=true` in round 1 still gets one
+   counts round (the PoC planner marked done before seeing numbers). Code stops at `done=true` from round 2 on, or
+   after round 3, and saves the last plan. Code never decides whether a revision was needed.
+6. **What `plan_trip` returns to the voice model.** `saved`, `asked`, `plan_text` (§61 item 3a, from the saved plan,
+   「（没找到）」 on unplaced stops), the planner's `note`, `not_placed` with the range, `removed` over the driver
+   request (§61 item 4), `rounds`, and `next`:
+   「行程已经存上了。照 plan_text 跟司机说，一两句：每天去哪、住哪。note 里没做到的要说，问司机怎么办。plan 里没有的不要说有。」
+   She does not revise; a new request from the driver is a new `plan_trip` call. §61 item 3a's review `next` and its
+   save count go (the planner reviews, item 5).
+7. **Failures are said, not hidden; no fallback planner.** The planner call fails (HTTP error, timeout 30 s, or not
+   JSON twice in a round): `saved=false`, `code=PLANNER_FAILED`, the plan on the cards unchanged, `next`
+   「规划没做成，跟司机说现在规划不了，等一下再试。不要说网络有问题。」 No other model writes the plan instead (as §59
+   item 3, no picker backup).
+8. **A saved trip result is never a failure claim's evidence.** The reply checker judges trip claims only by §58's
+   trip verdict over the latest trip result: refused or failed trip writes before an ok one never reach the generic
+   `CLAIM_AFTER_FAILURE`, whatever words she uses (「做好了」 included); `not_placed` stops never make a saved result
+   a failure. Fixes the 84364 false retraction.
+9. **Panel and record.** Panel (§60) while `plan_trip` runs: 「正在规划行程」, then 「正在核对路线（第<n>轮）」 during
+   each counts round; result lines as §61 item 5. Record: `trip planner round=<n> ms=<ms> done=yes|no days=<n>
+   stops=<n> model=qwen3.8-flash`, `trip planner failed reason=http|timeout|json`, the counts message and planner
+   JSON in the local record only (names, as stop names today); record format bump with its fixture and
+   record-format.md row.
+10. **Model, endpoint and code layout.** `qwen3.8-flash`, DashScope international compatible-mode chat endpoint (as
+    the picker), `response_format: json_object`, `enable_thinking: false`, the saved search key. The HTTP client in
+    `Packages/NovaRealtime` next to `QwenPlacePicker` (vendor adapters, ios-architecture §3.2); the loop, the shape
+    conversion (item 2's shape ↔ `TripPlan`, stay-as-sight), the counts text, the prompt texts and `plan_trip` in
+    `Packages/NovaCore` (no network). Catalog change: major agent version bump per F-09b §15, its agent-versions.md
+    row, regenerated parts and hash; `plan_trip` replaces `set_trip_plan` in `AsyncTool`, the panel registry and
+    `check_panel_tools.py`.
+12. **Handing work over is said and shown by code, every time (owner 2026-11-23).** Owner: when she says she is
+    working or the work runs in the background, nothing shows on the screen, and sometimes she never says she handed
+    it over. The record had `panel backgroundWork on` (8875, 28073, …) and `panel working on` (60590, 64999) while the
+    owner saw nothing, and in record 20261123-211725 she said nothing for every `web_search`.
+    - **Spoken by code.** When `plan_trip` is dispatched, the app says the handoff line itself through the
+      guidance voice (the path of F-05a §15 item 5's fallback line, with its subtitle): new plan
+      「好，我交给规划助手了，大概半分钟，好了告诉你。」, change 「好，我交给规划助手改行程，好了告诉你。」. Her catalog text
+      no longer asks her to say a working line; it says 「调用后不用说话，系统会告诉司机已经交给规划助手，等结果。」 (no
+      double line). The line is not cut by her audio; a driver's barge-in stops it as any guidance line.
+    - **Shown on screen: a spinner with one line of text that follows the backend (owner 2026-11-23, as the 豆包 app
+      shows its thinking and search).** A small row: a turning circle and, next to it, one line naming the step the
+      backend is on now; the text changes when the step changes. Steps for `plan_trip`: 「已交给规划助手」 →
+      「正在规划行程」 → 「正在核对路线（第<n>轮）」 (item 9) → 「正在修改行程（第<n>轮）」 when the planner revises; on the
+      result the circle stops and the line shows the result line for its keep time (§60 item 2), then the row goes.
+      It sits on top of whatever is showing (map, trip cards, pin, nothing) and is not covered by the trip cards or
+      the map sheet; it does not close when the trip screen closes (the work still runs). It replaces §60's trip work
+      panel for `plan_trip`; `working` in the screen state is on exactly while the row shows. No published
+      description of 豆包's progress row was found (reviews 2026-11-23 describe only its 思考→搜索 rounds); the source is
+      the owner's description and sketch (2026-11-23): the turning circle on the left, the progress text to its right.
+    - **Other background tools.** `web_search`, `query_live_info` and `show_place` show the same row with
+      「正在查：<query or name>」 while they run; no spoken line (they return in 2–4 s).
+    - Record: `handoff said tool=plan_trip ms=<from dispatch>`, and `panel working on|off` as today.
+13. **Removed.** The voice model writing `days` (`set_trip_plan`, §52 items 1–3 as her tool, §55 items 1–2 as her
+    write path); §61 item 3a's review `next`, save count and stop-revising text. Kept: `TripPlan`, lookups, placing,
+    `TripTimes`, budget B, `asked`, `check_trip_plan`, saved plans, screen edits, §58.
+
+**Not in this section** (same record; separate sections when the owner asks): the place pick choosing a metro
+station or a namesake (陈家祠(地铁站), 中旅·阿那亚) when the planner gave the right name and city; reusing a place
+`show_on_map` found this session; the search prompt answering its own example (`web_search` 「陈家祠」 at 97268 sent
+「question: 什么叫激情?」 and the answer was about 激情, F-18).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 279 | `plan_trip` new plan, fake planner: round 1 `done=false`, round 2 `done=true` | Each stop looked up with its own `city`; one counts message per round in item 4's form; round 2's plan saved; result has `saved`, `asked`, `plan_text`, `note`, `rounds=2` and item 6's `next` | unit |
+| 280 | Fake planner never says done; and one that says done in round 1 | Never done: stops after round 3 and saves round 3's plan. Done in round 1: one counts round is still sent; no verdict or advice word in any counts message | unit |
+| 281 | Day 2 has sight 九龙湖旅游度假村 and stay 九龙湖旅游度假村 | One place, looked up once; that night's hotel is it; day 3 starts there; no other hotel that night; `plan_text` 「…九龙湖旅游度假村、住九龙湖旅游度假村」 | unit |
+| 282 | Planner HTTP error; timeout; not JSON twice | `saved=false`, `PLANNER_FAILED`, cards unchanged, item 7's `next`; no other planner called; record `trip planner failed reason=` | unit |
+| 283 | `plan_trip` with `change` 「第二天去掉沙面」 on an open plan | The planner gets the plan in item 2's shape with lookup facts, the saved `asked` and the change words; saved; `removed` lists 沙面; `asked` kept | unit |
+| 284 | Replay of 74404–84364: refused write, then a saved one with `not_placed`, reply 「行程已经帮您做好了…陈家祠没有找到」 | No correction sent; no `CLAIM_AFTER_FAILURE` | unit |
+| 285 | Catalog | `plan_trip` declared `NON_BLOCKING`; `set_trip_plan` absent; `check_trip_plan` kept; major agent version row; `check_panel_tools.py` passes | unit |
+| 286 | PC eval, `qwen3.8-flash` with item 3's text and 高德 counts: 「帮我安排一个广东四天游，把九龙湖旅游度假村放进去」, 「帮我安排广东三天，要包含九龙湖公主酒店」, 「帮我安排上海两天」, 「帮我安排大阪三天，要去环球影城」, 5 runs each | ≥ 18 of 20: day count as asked, no empty day, every `must` in the plan or named in `note`, every found stop in the asked city or region, ≥ 2 sights on each day that is not one whole-day place | eval |
+| 287 | Device: 「帮我安排一个广东四天游，把九龙湖旅游度假村放进去」 | Cards: 4 days, all stops in 广州 or nearby, the resort day slept at the resort; she speaks within 45 s of the request, in ≤ 2 sentences, saying what was not found | D |
+| 288 | Record of rows 279–282 | `trip planner round=… model=qwen3.8-flash` per round; `failed reason=`; record format fixture passes | unit |
+| 289 | `plan_trip` dispatched (new, change); she says nothing | The app says item 12's line within 1 s of dispatch with its subtitle; the spinner row is on with 「已交给规划助手」, its text changing with each step; `working` on; record `handoff said`; her catalog text has no working line | unit |
+| 290 | Trip screen closed while `plan_trip` runs; a `web_search` runs | The row stays on until the result; `web_search` shows the spinner with 「正在查：…」 and no spoken line | unit |
+| 291 | Device: a trip request on the map screen, then a search question | The driver hears the handoff line every time and sees the turning circle with the step text changing (已交给规划助手 → 正在规划行程 → 正在核对路线…) until the result, readable from the seat; for the search the row shows while it runs | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zo | §62 items 1–13 (`plan_trip` carries the request; `qwen3.8-flash` planner writes and reviews in its own shape, stay may be a sight; code counts every round, no verdict; bounded 3 rounds; result and `next` for the voice model; `PLANNER_FAILED`, no fallback; trip claims judged only by §58's verdict; panel and record; catalog and major agent version; the handoff line said by code and a spinner with step text shown); rows 279–291 | NOT_RUN |
