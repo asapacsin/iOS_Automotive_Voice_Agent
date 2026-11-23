@@ -204,7 +204,7 @@ private struct DriveContent: View {
         .onChange(of: model.nav) { _, flow in
             position.navigation(flow, geometry: model.geometry)
             // F-09b §19 item 5 (T-031zd): a navigate_to that lists places takes the pin away.
-            if model.mapPin != nil, MapPin.kept(model.mapPin, after: flow) == nil { model.mapPin = nil }
+            if model.mapPin != nil, NovaNav.MapPin.kept(model.mapPin, after: flow) == nil { model.mapPin = nil }
         }
         .onChange(of: model.mapPin) { _, pin in position.mapPin(pin?.coordinate) }
         .onChange(of: position.command) { _, command in if let command { apply(command.command) } }
@@ -316,7 +316,7 @@ private struct DriveContent: View {
     }
 
     /// F-09b §19 item 3: name, 「<district>，距离 N 公里」 and a 「×」 through the same close as 「关掉」 (I-6).
-    private func mapPinCard(_ pin: MapPin) -> some View {
+    private func mapPinCard(_ pin: NovaNav.MapPin) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "mappin.circle.fill").foregroundStyle(.green).font(.title3)
             VStack(alignment: .leading, spacing: 2) {

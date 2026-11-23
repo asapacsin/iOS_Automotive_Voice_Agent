@@ -35,7 +35,7 @@ final class DriveModel: ObservableObject {
     @Published var tripPlans: TripPlansSummary?
     @Published var tripPlansOpen = false
     /// F-09b §19 item 3 (T-031zd): the one pin `show_on_map` drew, nil when none.
-    @Published var mapPin: MapPin?
+    @Published var mapPin: NovaNav.MapPin?
     @Published var climate = ClimateState.default
     @Published var cabin = CabinState.default
     @Published var driverLine = ""
@@ -706,8 +706,8 @@ final class AgentRuntime {
 
     /// F-09b §19 items 3, 5 (T-031zd): draws the one pin (replacing any earlier one); the layer-3 sheets over the map
     /// close so it is seen. Done when the pin's view reports `mapPin` on.
-    func showMapPin(_ pin: MapPin) async -> Bool {
-        for sheet in MapPin.sheetsClosedOnShow { closePanel(sheet) }
+    func showMapPin(_ pin: NovaNav.MapPin) async -> Bool {
+        for sheet in NovaNav.MapPin.sheetsClosedOnShow { closePanel(sheet) }
         model.mapPin = pin
         let onScreen = await ScreenReporter.shared.store.wait(until: { $0.isOn(.mapPin) },
                                                              timeout: ScreenTuning().screenConfirm, clock: SystemClock())
