@@ -46,13 +46,19 @@ public struct BudgetLimits: Sendable, Hashable {
     /// §32 item 2: a key already sent `repeatMax` times within `repeatWindow` is refused.
     public var repeatMax: Int
     public var repeatWindow: NovaDuration
+    /// F-18 §33 item 1 (T-046v): off, `ask` checks no limit (the numbers are not read); calls are still counted.
+    public var enforce: Bool
 
     // Tuning
     public static let standard = BudgetLimits(perTurn: 3, perRoutePerTurn: 2, perSession: 40, perDayCalls: 300,
-                                              perDayTokens: 300_000, repeatMax: 2, repeatWindow: .minutes(10))
+                                              perDayTokens: 300_000, repeatMax: 2, repeatWindow: .minutes(10), enforce: true)
+    /// §33 item 3: the app's limits. Normal use has no call limit; only the quota breaker (§32 item 3) refuses.
+    public static let unlimited = BudgetLimits(perTurn: 0, perRoutePerTurn: 0, perSession: 0, perDayCalls: 0,
+                                               perDayTokens: 0, repeatMax: 0, repeatWindow: .minutes(10), enforce: false)
 
     public init(perTurn: Int, perRoutePerTurn: Int, perSession: Int, perDayCalls: Int, perDayTokens: Int,
-                repeatMax: Int, repeatWindow: NovaDuration) {
+                repeatMax: Int, repeatWindow: NovaDuration, enforce: Bool = true) {
+        self.enforce = enforce
         self.perTurn = perTurn
         self.perRoutePerTurn = perRoutePerTurn
         self.perSession = perSession
@@ -94,8 +100,8 @@ public final class MemoryBudgetStore: BudgetStore {
 }
 
 public final class CallBudget: Sendable {
-    /// The app's one budget; the app sets its store and log at start.
-    public static let shared = CallBudget()
+    /// The app's one budget; the app sets its store and log at start. F-18 §33 item 3: not capped (`.unlimited`).
+    public static let shared = CallBudget(limits: .unlimited)
 
     private struct State {
         var store: any BudgetStore
@@ -165,7 +171,7 @@ public final class CallBudget: Sendable {
                 return (.refuse(r), "paid route=\(route.rawValue) model=\(model) refused=\(r.rawValue)")
             }
             if day.quotaModels.contains(model) { return refuse(.quota) }
-            if route.capped {
+            if route.capped, limits.enforce {
                 if s.turnClosed || s.turnCalls >= limits.perTurn || s.turnByRoute[route, default: 0] >= limits.perRoutePerTurn
                     || s.sessionCalls >= limits.perSession || day.calls >= limits.perDayCalls
                     || day.tokens >= limits.perDayTokens {

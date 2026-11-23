@@ -18,6 +18,7 @@
     "note.correction.CLARIFY_REFERENT" : "[系统] 指代不明确。请用一句简短的话问司机具体指哪一项。",
     "note.correction.MUSIC_NOT_CONFIRMED" : "[系统] MUSIC_NOT_CONFIRMED：没有确认音乐正在播放，不要说正在播放。",
     "note.correction.NAVIGATION_NOT_STARTED" : "[系统] NAVIGATION_NOT_STARTED：导航还没有开始，不要说导航已开始。",
+    "note.correction.NETWORK_BLAMED" : "[系统] NETWORK_BLAMED：网络没有问题，只是现在查不了网上的信息。请如实这样说，不要说网络有问题或连不上网。",
     "note.correction.PARTIAL_SCENARIO" : "[系统] 场景只完成了一部分。请只说已完成的部分，并说明未完成的部分。",
     "note.correction.TRIP_NEEDS_FIX" : "[系统] TRIP_NEEDS_FIX：行程还有问题没改好，不要说已经规划好。按 issues 改好整份行程，再调用 set_trip_plan。",
     "note.correction.TRIP_RESULT_PENDING" : "[系统] TRIP_RESULT_PENDING：结果还没回来，不要说已经做好。",
@@ -140,17 +141,17 @@
     "tool.search.web_search.schema" : "{\"additionalProperties\":false,\"properties\":{\"query\":{\"maxLength\":200,\"minLength\":1,\"type\":\"string\"}},\"required\":[\"query\"],\"type\":\"object\"}"
   },
   "sessions" : {
-    "default.nosearch" : "f6f9ca55c543",
-    "default.search" : "4005c8775970",
-    "gentle.nosearch" : "b81786a0af6d",
-    "gentle.search" : "f1a2f1f2554e",
-    "lively.nosearch" : "7ce276ed8d4c",
-    "lively.search" : "a22de1eb80a7",
-    "sweet.nosearch" : "d4d9ae271729",
-    "sweet.search" : "46d6ca6ca40e",
-    "tsundere.nosearch" : "d213df2dfeb7",
-    "tsundere.search" : "fd9a212f72d1"
+    "default.nosearch" : "b17c5a10ca4f",
+    "default.search" : "d1040d709a57",
+    "gentle.nosearch" : "aa1e8e33ed43",
+    "gentle.search" : "59f01d180090",
+    "lively.nosearch" : "473e59438044",
+    "lively.search" : "c1d2d76ca661",
+    "sweet.nosearch" : "a8180261b648",
+    "sweet.search" : "ed2b81013565",
+    "tsundere.nosearch" : "ff50dabe688a",
+    "tsundere.search" : "43da3cc9310b"
   },
-  "setupHash" : "dac9a7922890",
+  "setupHash" : "327fab322a68",
   "version" : "6.2.0"
 }
