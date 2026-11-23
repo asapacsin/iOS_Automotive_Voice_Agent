@@ -1231,3 +1231,108 @@ Commit 9059a11 moved the routes to the dated snapshot `qwen3.7-flash-2026-07-15`
 | Task | Scope | Verify |
 |---|---|---|
 | T-046u | Items 1–8; rows 1–12 | unit, gate, build, D |
+
+## 33. The paid-call limits apply to tests and PC scripts only; the app is not capped (iOS, owner rule 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, record 20261123-094001).** 「我安排一下行程」 started one driver turn.
+In it `set_trip_plan` placed the stops (the Qwen picker, `qwen.picker`), then the model fixed the plan twice by itself
+(§55 of F-15b). The picker was allowed twice; the third pick was refused after 7 ms (`trip pick … ok=no reason=failed
+ms=7`, §32 item 1: 2 calls per route per turn). §32 item 4 then closed the turn to every paid call, so her
+`web_search` 「厦门中山路步行街附近推荐景点」 was refused unsent (`LIVE_INFO_UNAVAILABLE`, `reason: budget`). She told the
+driver 「由于网络限制」 and 「现在系统暂时无法连接网络」, which was false.
+
+**Cause.** §32 put the limits in the app: the app's budget (`CallBudget.shared = CallBudget()`) takes the default
+`BudgetLimits.standard`, the same numbers the unit tests check. The limits were sized when one driver turn meant one
+or two searches; a trip request now makes its own paid calls and fix rounds inside one turn, so normal use reads as a
+runaway loop.
+
+**Owner rule (2026-11-23).** The limits are for tests and PC scripts. Normal use of the app has no call limit.
+
+1. **An on/off switch in the limits.** `BudgetLimits` gains `enforce: Bool`.
+   - `BudgetLimits.standard` keeps every number of §32 item 1 and the repeat rule of item 2, with `enforce: true`.
+   - New `BudgetLimits.unlimited`: `enforce: false` (its numbers are not read).
+2. **`CallBudget.ask` checks limits only when `enforce` is on.** With it off, `ask` returns `.allow` for every
+   capped route: no turn, route, session, day or token limit, no repeat refusal, and the turn is never closed. It
+   still counts the call (turn, session and day counters, the day store) and `done` still writes the record line of
+   §32 item 5, so a record shows what each conversation cost.
+3. **The app's budget is unlimited.** `CallBudget.shared` is built with `.unlimited`. Every app call site keeps
+   asking the shared budget as today; none is changed.
+4. **Tests keep the limits.** `CallBudget()` and `CallBudget(limits:)` default to `.standard`, so the §32 tests and
+   every other test that builds its own budget are unchanged.
+5. **PC scripts keep their limits.** §32 item 6 (`--yes`, `--max-calls`, stop at the first quota error) is unchanged.
+6. **The quota breaker stays in the app.** §32 item 3 is not a limit of ours: it acts only when the vendor answers
+   "quota used up", and then tries the route's backup model for the rest of the day. `quota` refusals are unchanged.
+7. **What she says on a refusal.** The only refusal left in the app is `quota`. Its `next` says the online lookup is
+   not available now; she must not say the network or the internet is down (§32 item 4's sentence: 「现在查不了网上的信息」,
+   never 「网络」 or 「连不上网」). A reply that blames the network after a `LIVE_INFO_UNAVAILABLE` result is drift for the
+   reply check (F-05a §4 item 4).
+8. **Backstop.** DashScope Stop-on-Exhaust stays on (§32 item 7): with no app limit, it is what stops a runaway loop
+   from spending past the free quota.
+9. **Replaces.** §32 item 1's limits and item 2's repeat rule now apply only where `enforce` is on (tests); §32
+   rows 1–4 and 7 test `.standard`. §32 row 12 (device: nothing over the limits) is void.
+10. **Code.** `BudgetLimits` (`enforce`, `.unlimited`); `CallBudget.ask` (the `enforce` check); `CallBudget.shared`;
+    the `LIVE_INFO_UNAVAILABLE` `next` text for `quota`; the reply-check drift rule.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 13 | `CallBudget.shared`: 50 calls on `qwen.picker` and `qwen.live` in one turn, 10 of them the same query | All allowed; no `refused=` line; `paid … turnN=50` in the last record line | unit |
+| 14 | `CallBudget(limits: .standard)`: §32 rows 1–4 and 7 | Same results as today (refused at 3 per turn, 2 per route, 41st in a session, 300 a day, 3rd repeat) | unit |
+| 15 | `CallBudget.shared` after a fake DashScope 403 quota code | That model refused `quota` for the day; backup tried once (as §32 row 5) | unit |
+| 16 | `LIVE_INFO_UNAVAILABLE reason=quota` reaches her; she replies 「网络有问题」 | `next` has no network wording; the reply counts as drift | unit |
+| 17 | Device: 「规划厦门三天」, then she adds places with `web_search` in the same turn | No `refused=budget` or `refused=repeat` in the record; the search runs | D |
+
+**Trace gate.** Add `T-046v: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046v.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046v | §33 items 1–10; rows 13–17 | unit, D |
+
+## 34. Every record entry is one line: search bodies are escaped (iOS, owner request 2026-11-23)
+
+**Why (record 20261123-101517, build d0a0797).** Qwen's search reply is a server-sent-event stream: blocks of
+`id:`, `event:`, `:HTTP_STATUS/200` and `data:{…}` lines separated by blank lines. §18 item 2 writes that body raw, so
+one `search-response … body=id:1` entry runs on over about 140 more lines with no time in front (22 of them `data:`
+lines). Every other entry is one line that starts with its time (F-12 §17). A reader that goes line by line
+(`scripts/records/read.py`, grep, the TTFT sheet script) takes those lines for entries of their own or drops them.
+
+**What stays.** §18 is unchanged in what it records: the exact request body and the raw reply body, cut at 32,000
+characters as §18 item 2, local record only (§18 item 8, I-8's exemption for the owner-enabled record). Only the way
+the body is written changes, and it can be turned back into the exact bytes.
+
+1. **Escaping.** In `search-request … body=` and `search-response … body=`, the body is written with `\` as `\\`,
+   line feed as `\n`, carriage return as `\r` and tab as `\t`, in that order. Nothing else changes; the entry is one
+   line. The 32,000-character cut (§18 item 2) applies to the body before escaping.
+2. **No other entry may hold a line break.** The record encoder replaces any line feed or carriage return left in any
+   other entry's text with a space (as `reply turn=` already does), so no event kind can break a line again.
+3. **Record format 5.** `ConversationRecord.formatVersion` goes from 4 to 5 with a new fixture
+   `record-format-5.txt` whose session includes a search reply with line breaks, tabs and backslashes; a row in
+   `specs/contracts/record-format.md` (F-12 §21 items 3–4).
+4. **Reader.** `scripts/records/read.py` gets a format-5 reader that unescapes the two `body=` fields back to the exact
+   text, with a test on the fixture. The format-4 reader treats a line with no leading time after a
+   `search-response` or `search-request` line as part of that entry's body (best effort, rows marked `legacy=true`), so
+   the records already pulled stay readable.
+5. **Code.** `ConversationRecord.searchLines` (escaping), the line encoder (item 2), `formatVersion`, the fixture,
+   `record-format.md`, `scripts/records/read.py`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 18 | A search reply body with blank lines, `data:` lines, a tab and a backslash | One `search-response` line; unescaping its `body=` gives the exact body | unit |
+| 19 | A search request body with a line break in the system text | One `search-request` line; round-trips exactly | unit |
+| 20 | Any other event with a line break in its text | Written as one line, the break as a space | unit |
+| 21 | The fixed session encoded | Equals `record-format-5.txt`; header `recordFormat 5`; `check_record_format.py` passes | unit, gate |
+| 22 | `read.py` on the format-5 fixture and on record 20261123-101517 (format 4) | Format 5: the body unescaped exactly. Format 4: one search-response row holding the whole body, `legacy=true` | gate |
+| 23 | Device: one search, then pull the record | Every line after the header starts with a time | D |
+
+**Trace gate.** Add `T-046w: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046w.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046w | §34 items 1–5; rows 18–23 | unit, gate, D |

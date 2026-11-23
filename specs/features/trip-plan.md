@@ -2278,3 +2278,207 @@ decision and not part of this section.
 | Task | Scope | Status |
 |---|---|---|
 | T-040zh | §55 items 1–15 (set_trip_plan makes and changes plans; city; new plan replaces; city-limited lookups; no day moves; no NO_START; hotel near; checks empty/over/under/driving/not_found/hotel; trip_needs_fix rounds; no done-claim with issues; make_trip_list and edit_trip_list removed; agent 6.0.0; record); rows 225–236 | NOT_RUN |
+
+## 56. What a trip result shows, set_trip_plan accepts; a refusal says what is wrong (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, record 20261123-095148).** 「想带爸妈去厦门玩三天，别太累」:
+- Her first plan came back `PLAN_CHECK` (a hotel not written as the next day's first stop). She fixed it by sending the
+  plan back as the result shows it: every stop `{"id","name","minutes","role"}`.
+- `set_trip_plan` refused it with `INVALID_FIELDS {}` three times in 3 s. The validator (`ToolCatalog`, §55 item 7)
+  accepts a stop with exactly one of `id`, `name` and `near`; a stop with `id` and `name` is refused, and the refusal
+  carries no reason.
+- She gave up on the plan, tried `web_search`, and the trip was never fixed. The conversation then drifted (a misheard
+  「感冒」) and her next trip words were taken as climate requests.
+
+**Cause.** The plan she reads (§52 item 2: `{"id","name","role","placed","picked_by","minutes"}` per stop) is not a plan
+she may write (§52 item 3, §55 item 7). Copying the result, the obvious move, always fails, and the empty refusal gives
+her nothing to fix. Owner (2026-11-23): delete the over-strict check rather than teach the model around it.
+
+**Published practice this copies.** Be liberal in what you accept from others (robustness principle, RFC 1122 §1.2.2;
+RFC 9413 on its limits: accept what is unambiguous, refuse what is not). Tool errors should say what was wrong and how
+to fix it, in words the model can act on (Anthropic, "Writing effective tools for agents",
+anthropic.com/engineering/writing-tools-for-agents: "prompt-engineer your error responses to clearly communicate
+specific and actionable improvements"). A repeated identical failing call is stopped (OpenRouter loop guide, as F-18
+§32 item 2).
+
+1. **Read shape is write shape.** A stop may carry any field a trip result shows, plus `near` and `importance`:
+   `id`, `name`, `role`, `minutes`, `importance`, `placed`, `picked_by`, `near`.
+   - **With `id`:** the stop keeps its place, photo, times and mark (§52 item 4). `role` and `minutes` are applied when
+     they differ (a change). `name`, `placed`, `picked_by` and `near` are ignored: an id stop is never searched again,
+     whatever name it carries.
+   - **Without `id`:** `name` (a new stop, §52 item 4) or, for a hotel, `near` (§55 item 7). With both, `name` wins and
+     `near` is ignored. `placed` and `picked_by` are ignored.
+   - **Other keys** in a stop are ignored, not refused, and listed once in facts (`ignored_fields`).
+   - Replaces §55 item 7's "exactly one of `id`, `name` and `near`" and the stop forms of §52 item 3.
+2. **Checks that still refuse.** Only these, each with its line (item 3):
+   - `days` missing, not 1–5 days, or a day with more than `maxTripStops + 4` stops;
+   - a stop with none of `id`, `name`, `near` (for `near`, `role` must be `hotel`);
+   - `id` or `name` empty or longer than its limit; `role` not one of start, sight, hotel, end, rental_pickup,
+     rental_return; `minutes` not a whole number from 0 to 720;
+   - a new plan (no kept `id`) without `city` (§55 item 2); `pace` not one of relaxed, normal, packed.
+   The plan rules of §52 item 5 (`PLAN_CHECK`) are unchanged.
+3. **A refusal says what is wrong.** `INVALID_FIELDS` from `set_trip_plan` carries `problems`, one line per problem,
+   with the day and the stop's place in it and the field: 「第2天第3个地点：role 只能是 start、sight、hotel、end」,
+   「第1天第4个地点：要写 id、name 或者 near」, 「新行程要写 city」. `next`: 「先不要跟司机说话，按 problems 改好整份行程，再调用 set_trip_plan。」
+   An empty `INVALID_FIELDS {}` is never returned by this tool.
+4. **The same failed call is not run twice.** Within one driver request, a `set_trip_plan` call whose arguments equal
+   (after JSON normalisation) a previous call that was refused (`INVALID_FIELDS` or `PLAN_CHECK`) is not run again. The
+   result is `REPEATED_FAILURE` with the earlier `problems` and `next`: 「这份行程刚才已经被拒绝了，原因在 problems 里。按它改，
+   改不了就告诉司机行程没改成和原因，不要再传同样的内容。」 A changed call runs normally.
+5. **Catalog text.** §55 item 12's 「改行程：已有的地点只写 id，新地点写 name。」 becomes 「改行程：把结果里的行程照着改，已有的地点保留 id
+   （其他字段可以照抄），新地点写 name。」 A tool text change: minor agent-version bump with a row in agent-versions.md.
+6. **Record.** `tool-result … code=INVALID_FIELDS problems=<n>` (the count, never the lines); `trip set … ignored=<n>`
+   (keys ignored); `trip repeat-blocked code=<code>`. Numbers and codes only (I-8).
+7. **Code.** `ToolCatalog` (the `set_trip_plan` validation of items 1–2 and the `problems` lines); the result builder for
+   `INVALID_FIELDS` with `problems`; `TripPlanner.setPlan` (id stops ignore name/placed/picked_by/near, `ignored_fields`,
+   the repeat check per driver request); the catalog text; `AgentSetup.version`.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 237 | The plan of a trip result sent back unchanged (every stop with all its shown fields) | Saved; `kept` = every stop; no lookup; no `INVALID_FIELDS` | unit |
+| 238 | The record's call (20261123-095148, t=19612: id stops with name, minutes, role; `pace: relaxed`) | Accepted; places kept by id; the hotel stops' role applied | unit |
+| 239 | Stop `{"id":"s5","name":"另一个名字","role":"hotel"}` | Place of s5 kept, not searched; role set to hotel; name ignored | unit |
+| 240 | Stop `{"id":"s5","minutes":150}` and a stop with an unknown key `"note"` | Minutes applied; `note` ignored and listed in `ignored_fields` | unit |
+| 241 | A stop with role `museum`; a stop with none of id, name, near; a new plan without city | `INVALID_FIELDS` with one `problems` line each, naming day, stop and field; never `{}` | unit |
+| 242 | The same refused call twice in one driver request; then a changed call | Second: `REPEATED_FAILURE` with the earlier problems, not run; the changed call runs | unit |
+| 243 | Catalog | `set_trip_plan` text has the item 5 sentence; agent version bumped | unit |
+| 244 | Device: 「想带爸妈去厦门玩三天，别太累」, then 「第二天好像有点赶」 | The plan is saved and shown; the day-2 change is made in one call; no `INVALID_FIELDS` in the record | D |
+
+**Trace gate.** Add `T-040zi: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zi | §56 items 1–7 (read shape is write shape, the checks that still refuse, `problems` on every refusal, no repeat of a refused call, catalog text, record); rows 237–244 | NOT_RUN |
+
+## 57. A stop-navigation button wherever navigation can start; both buttons in the screen state (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, records 20261123-101517, -101941; device 2026-11-21, a367539).**
+- The trip screen has one navigation button, 「去下一站：<名字>」 (§29 item 4, `trip_next`), right under the cards. On
+  2026-11-21 a tap meant for the cards started navigation (`trip tap action=next`).
+- The app has no button that stops navigation. `exit_navigation_mode` is voice only, and on 2026-11-23 「停止导航」
+  was heard as 「新手导航」: she called `trip_next` and navigation started again instead of stopping. The driver
+  could not stop it with a tap.
+- She cannot tell which buttons the driver sees: F-09b §16's screen state lists panels, not buttons, so a tap on the
+  start button and the button itself are invisible to her.
+
+**Owner (2026-11-23).** A button that starts navigation needs a button that stops it; and the navigation buttons go
+into the state. F-09b §16's rule stands: each key is only `on` / `off`, from what the display really shows.
+
+**Published practice this copies.** In-car and phone navigation apps always show an end control on the guidance
+screen (Google Maps: "Exit" on the navigation screen, support.google.com/maps/answer/3273406; Apple Maps: "End
+Route", support.apple.com/guide/iphone/get-driving-directions-iph8b72eadf). Distraction guidelines ask for few,
+large, clearly separated touch targets while driving (NHTSA Visual-Manual Driver Distraction Guidelines, 2013).
+
+1. **Stop button.** While `navigation`, `routePicking` or `routeCalculating` is `on`, the screen shows 「结束导航」 (a
+   red bordered button, at least 44 × 44 pt, in the guidance panel's top row). A tap does what `exit_navigation_mode`
+   does (the guidance stops, the route panels close, a trip in progress keeps its plan and marks). It works while
+   moving, needs no confirmation, and is never hidden behind another panel.
+2. **The start button cannot be mistaken for a card.** 「去下一站：<名字>」 gets a navigation icon, sits at least 12 pt below
+   the card row, and while navigation runs its place shows 「结束导航」 instead (the same spot toggles). A card tap only
+   opens the card (§21), unchanged.
+3. **No restart of what is already running.** `trip_next` (voice or tap) while `navigation` is `on` toward that same
+   stop does not plan a new route: the result is `ALREADY_NAVIGATING` with `next`: 「已经在去<名字>的路上了。司机要是想停，调用
+   exit_navigation_mode。」. Toward a different stop it runs as today.
+4. **Both buttons in the screen state (amends F-09b §16 item 1).** Two keys, reported by the button views'
+   `onAppear` / `onDisappear` like every panel (F-09b §16 item 2):
+
+   | Key | On when the display shows |
+   |---|---|
+   | `tripNextButton` | 「去下一站：<名字>」 |
+   | `stopNavigationButton` | 「结束导航」 |
+
+   The keys go in the screen line after `navigation`, in that order. No name or count is added (F-09b §16 rule).
+5. **A tap on either button reaches her.** One line, queued like the screen line (F-09b §16 item 4: never during her
+   reply): 「[系统] 司机点了「去下一站」。这句不用回答。」 or 「[系统] 司机点了「结束导航」。这句不用回答。」.
+6. **Record.** `nav tap action=next|stop` per tap; `trip next … code=ALREADY_NAVIGATING`; the screen line gains the two
+   keys. Codes only (I-8).
+7. **Code.** `TripCardsView` (start button: icon, spacing, toggle); the guidance panel in `DriveView` (stop button);
+   `AgentRuntime` (stop tap → the `exit_navigation_mode` path; the tap lines); `ScreenState` and the screen line (two
+   keys); `TripPlanner.next` (`ALREADY_NAVIGATING`).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 245 | Navigation on (guidance, route picking or calculating) | 「结束导航」 shown; `stopNavigationButton on` in the screen line | unit, build |
+| 246 | Tap 「结束导航」 while moving | Guidance stops; `navigation`, `routePicking`, `routeCalculating` off; trip plan and marks kept; `nav tap action=stop`; her tap line queued | unit |
+| 247 | Trip screen, not navigating | 「去下一站」 shown with its icon, `tripNextButton on`; navigation on → the same spot shows 「结束导航」, `tripNextButton off` | unit, build |
+| 248 | `trip_next` while guiding to that same stop | No new route; `ALREADY_NAVIGATING`; `next` names exit_navigation_mode | unit |
+| 249 | `trip_next` while guiding to another stop | Runs as today | unit |
+| 250 | Screen line | Has `tripNextButton` and `stopNavigationButton` after `navigation`; only on/off | unit |
+| 251 | Device: start a trip stop with 「去下一站」, then tap 「结束导航」; tap a card | Navigation starts and stops by tap; the card tap only opens the card; the record has both `nav tap` lines | D |
+
+**Trace gate.** Add `T-040zj: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zj | §57 items 1–7 (stop button, start button apart from the cards, no restart of the same stop, two screen-state keys, tap lines, record); rows 245–251 | NOT_RUN |
+
+## 58. She says a trip change is done only after it is on the plan; while it runs she says she is doing it and the screen shows it (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, record 20261123-102422).** 「给我安排一个咖啡的行程，我第二天想喝点咖啡」:
+- `set_trip_plan` was refused `INVALID_FIELDS {}` at once (the §56 bug), so nothing was added. She then called
+  `web_search` (「厦门沙坡尾附近最好的咖啡馆」 → 「BAMN Coffee」, ok) and said 「我已经在您第二天游玩沙坡尾时加入了BAMN Coffee」.
+- 「没看到」 → `set_trip_plan` refused again, another `web_search`, then 「抱歉，我已经在后台更新了行程，可能稍后就会同步到您的屏幕上」.
+  There is no such background work. The café never appeared on the trip cards.
+- The screen showed nothing while she worked and nothing when the change failed.
+
+**Causes, from the code at d0a0797.**
+1. The reply check (`DriverTurnPipeline.verdict`, `.action`) counts any ok result of an acting tool as proof of an
+   action claim, and asks for a tool's own ok only for windows, climate, fan and music (F-12 §14 item 12). A trip
+   claim is "proven" by the ok `web_search`.
+2. A failure disproves a claim only when it is in the same model turn. The refused `set_trip_plan` was in an earlier
+   model turn of the same driver request, so 「加入了」 was not counted as a claim after a failure.
+3. Nothing stops a claim that work is running in the background when no trip write is running.
+4. The work panel (§50 item 6) has steps for a new plan, not for an edit, and shows nothing for a refused one.
+
+**Published practice this copies.** Tell the user what the system is doing, and confirm only what happened
+(Nielsen, "Visibility of system status", nngroup.com/articles/visibility-system-status; Google Material, progress
+indicators, m3.material.io/components/progress-indicators). A voice reply about an action is checked against that
+action's own result (the claim rules of F-06 and F-12 §14 item 12, extended to the trip here).
+
+1. **A trip claim needs the trip's own result.** A reply that says the plan was changed (`ClaimLexicon.tripChanged`:
+   加入了, 加上了, 加了, 放进, 安排好, 安排在, 改好, 换成, 删掉了, 去掉了, 更新了 with 行程, 第N天 or a stop name; the list lives
+   in code with a fixture of the record's sentences) is proven only by an ok `set_trip_plan` result (status
+   `trip_list` or `trip_needs_fix`) since the driver's last words. Another tool's ok result never proves it.
+2. **A refused trip write disproves it for the whole driver request.** A `set_trip_plan` refused (`INVALID_FIELDS`,
+   `PLAN_CHECK`, `REPEATED_FAILURE` of §56) in any model turn since the driver's last words, with no ok
+   `set_trip_plan` after it, makes a trip claim drift: `CLAIM_AFTER_FAILURE` with the correction 「行程没有改成，原因在上一个工具结果的
+   problems 里。如实告诉司机没改成和原因，不要说已经加了。」.
+3. **No invented background work.** A reply that says the trip is being updated in the background or will show later
+   (后台, 稍后, 等一下就会, 会同步, 马上显示, with 行程 or a stop name) is drift unless a `set_trip_plan` call is running
+   right now; with none running it is `CLAIM_AFTER_FAILURE` (item 2's correction) or `UNVERIFIED_CLAIM`.
+4. **While a trip write runs, she says she is doing it.** The immediate result of an async `set_trip_plan` (§4 item 9)
+   carries `next`: 「先只说一句：好，我在改行程，好了告诉你。然后不要说话，等结果。」 (for a new plan, §50 item 5's sentence stays).
+   §52 item 12 (no "done" before the result) is unchanged.
+5. **Progress on screen for every trip write.** The work panel (§50 item 6) gets steps for an edit:
+   - 「正在改行程」 while `set_trip_plan` runs; 「正在找<名字>」 for each new name being looked up;
+   - on an ok result the cards update and the panel shows 「已加入<名字>」 / 「已改好」 for 3 s;
+   - on a refusal the cards stay as they were and the panel shows 「没改成：<first problems line>」 until the next step or 5 s,
+     so the driver sees it failed even when she says nothing.
+   Place names in steps follow §50 item 6's rule (names that are or will be on the trip cards only).
+6. **Record.** `correction CLAIM_AFTER_FAILURE tool=set_trip_plan` / `correction UNVERIFIED_CLAIM tool=set_trip_plan`;
+   `work step=trip_edit state=running|done|failed`. Codes only (I-8).
+7. **Code.** `ClaimLexicon` (`tripChanged`, the background phrases); `DriverTurnPipeline` (trip claims need an ok
+   `set_trip_plan`; refusals counted over the driver request; background claims); the async `next` of
+   `set_trip_plan`; `WorkProgress` trip-edit steps and the failure line; `TripPlanner` feeding the steps.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 252 | Record replay (20261123-102422): `set_trip_plan` refused, `web_search` ok, reply 「我已经…加入了BAMN Coffee」 | Drift `CLAIM_AFTER_FAILURE`; the correction is sent; the claim is not spoken as done | unit |
+| 253 | Reply 「我已经在后台更新了行程，可能稍后就会同步」 with no `set_trip_plan` running | Drift; correction sent | unit |
+| 254 | Same words while a `set_trip_plan` is running | Not drift | unit |
+| 255 | `set_trip_plan` ok with the café on day 2, reply 「已经加在第二天了」 | Proven; spoken | unit |
+| 256 | Async `set_trip_plan` started | Immediate result's `next` has 「我在改行程」; no done claim allowed until the result | unit |
+| 257 | Work panel during an edit; then an ok result; then a refused one | 「正在改行程」 / 「正在找<名字>」; 「已加入<名字>」 3 s with the card shown; 「没改成：<line>」 with the cards unchanged | unit, build |
+| 258 | Device: 「第二天想喝点咖啡，加个咖啡馆」 | She says she is adding it; the panel shows the steps; the café card appears on day 2, then she says it is added | D |
+
+**Trace gate.** Add `T-040zk: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zk | §58 items 1–7 (trip claims need an ok set_trip_plan, refusals over the driver request, no invented background work, "doing it" sentence, work-panel steps for edits and failures, record); rows 252–258 | NOT_RUN |
