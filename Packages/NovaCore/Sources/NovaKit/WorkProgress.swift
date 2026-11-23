@@ -26,7 +26,8 @@ public struct WorkProgress: Sendable, Equatable {
     public static let showAfter = NovaDuration.seconds(1)
     /// A failure line stays this long after the end.
     public static let failureKeep = NovaDuration.seconds(3)
-    /// A work never ended (a trip round the model never revised) is hidden after this.
+    /// A search work never ended is hidden after this. F-15b §60 item 5 (T-040zm): not for trip work (a running
+    /// `set_trip_plan` call always returns, §52 item 11 limits it).
     public static let maxOpen = NovaDuration.seconds(120)
 
     public static let tripFind = "查找景点和酒店"
@@ -65,12 +66,6 @@ public struct WorkProgress: Sendable, Equatable {
         self = WorkProgress()
         self.kind = kind
         started = now
-    }
-
-    /// An open work older than `maxOpen`.
-    public func stale(at now: NovaInstant) -> Bool {
-        guard let started else { return false }
-        return now - started >= Self.maxOpen
     }
 
     /// True while a work is open (started, not ended or cleared).
@@ -126,7 +121,7 @@ public struct WorkProgress: Sendable, Equatable {
     public func panel(at now: NovaInstant) -> Panel? {
         guard let kind, let started, !steps.isEmpty else { return nil }
         if let noticeUntil { return now < noticeUntil ? Panel(kind: kind, steps: steps, failure: nil) : nil }
-        guard now - started >= Self.showAfter, now - started < Self.maxOpen else { return nil }
+        guard now - started >= Self.showAfter, kind == .trip || now - started < Self.maxOpen else { return nil }
         let failure = failureAt.map { steps[$0].line } ?? nil
         if let ended {
             guard ended - started >= Self.showAfter, failure != nil, now - ended < Self.failureKeep else { return nil }
@@ -160,13 +155,9 @@ public final class WorkProgressBoard: Sendable {
         }
     }
 
-    /// Starts a trip work only when none is open (a `revise_trip_list` round continues the make's panel).
-    public func continueTrip() {
-        let now = clock.now
-        // An open trip work older than `maxOpen` (a round never revised) is stale: start a fresh one.
-        state.withLock {
-            if !($0.open && $0.kind == .trip && !$0.stale(at: now)) { $0.start(.trip, at: now) }
-        }
+    /// F-15b §60 item 3 (T-040zm): the trip screen reported off: a trip work panel goes off at once.
+    public func tripScreen(on: Bool) {
+        if !on { clear(.trip) }
     }
 
     public func step(_ title: String) {

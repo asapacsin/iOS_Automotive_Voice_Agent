@@ -4,7 +4,10 @@ public enum ScreenPanel: String, Sendable, Hashable, CaseIterable {
     /// F-15b §57 item 4 (T-040zj, amends §16 item 1): the 「去下一站：<名字>」 and 「结束导航」 buttons, after `navigation`.
     case tripNextButton, stopNavigationButton
     case tripScreen, tripDetail, tripPlans, musicCard
-    case camera, working, settings
+    case camera, working
+    /// F-04 §15 item 4 (T-004k): the background-work caption (a tool call running), after `working`.
+    case backgroundWork
+    case settings
 
     /// §16 item 6: the keys that together mean 「在导航」 (all off: 「没有在导航」).
     public static let navigationKeys: [ScreenPanel] = [.destinationList, .routePicking, .routeCalculating, .navigation]
@@ -133,6 +136,7 @@ public enum PanelRegistry {
         .musicCard: PanelEntry(layer: 1, opens: ["play_music"], close: "exit_navigation_mode", acts: ["control_music"]),
         .navigation: PanelEntry(layer: 0, opens: ["choose_navigation_option", "trip_next"], close: "exit_navigation_mode", acts: ["choose_navigation_option", "navigate_to"]),
         .working: PanelEntry(layer: nil, opens: [], close: nil, acts: []),
+        .backgroundWork: PanelEntry(layer: nil, opens: [], close: nil, acts: []),
         // F-15b §57 item 4 (T-040zj): buttons, not panels: no layer, never closed by her.
         .tripNextButton: PanelEntry(layer: nil, opens: [], close: nil, acts: ["trip_next"]),
         .stopNavigationButton: PanelEntry(layer: nil, opens: [], close: nil, acts: ["exit_navigation_mode"]),

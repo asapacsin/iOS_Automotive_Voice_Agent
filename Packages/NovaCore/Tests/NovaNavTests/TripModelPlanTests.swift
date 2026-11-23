@@ -382,3 +382,101 @@ struct TripModelPlanAbroadTests {
         #expect(rig.line("trip search vendor=amap abroad=no switched=no ").count == 1)
     }
 }
+
+/// F-15b §60 (T-040zm): a search that runs `probe` before each name lookup (to look at the work panel mid-call).
+private final class ProbeSearch: PlaceSearch, @unchecked Sendable {
+    let base: CityLimitSearch
+    let probe: @Sendable () -> Void
+    init(_ base: CityLimitSearch, probe: @escaping @Sendable () -> Void) {
+        self.base = base
+        self.probe = probe
+    }
+    func text(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place] {
+        probe()
+        return try await base.text(keywords, city: city, cityLimit: cityLimit)
+    }
+    func text(_ keywords: String, city: String?) async throws -> [Place] { try await text(keywords, city: city, cityLimit: false) }
+    func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {
+        try await base.around(keywords, center: center, radiusMeters: radiusMeters, sort: sort)
+    }
+    func polygon(_ keywords: String, vertices: [GeoCoordinate]) async throws -> [Place] { [] }
+    func detail(id: String) async throws -> Place? { nil }
+}
+
+@Suite("T-040zm F-15b §60 the trip work panel is on only while a set_trip_plan call runs")
+struct TripWorkPanelTests {
+    @Test("T-040zm F-15b rows 263-264: trip_needs_fix turns the panel off at the return (no carry-over); a fix call shows it again while it runs and off at its return")
+    func rows263and264() async {
+        let workClock = ManualClock()
+        let board = WorkProgressBoard(clock: workClock)
+        let seen = Mutex<[Bool]>([])
+        // Mid-call: past the 1 s quick-work rule, the panel is on.
+        let search = ProbeSearch(CityLimitSearch(inCity: ["上海": shTable])) {
+            workClock.advance(by: .milliseconds(1_100))
+            seen.withLock { $0.append(board.panel != nil) }
+        }
+        let rig = await ModelPlanRig(search: search)
+        await rig.planner.setWork(board)
+        let r1 = await rig.run(crammed)
+        #expect(r1.data["status"] == "trip_needs_fix", "\(r1)")
+        #expect(seen.withLock { $0 }.contains(true))
+        // Row 263: off at the return, and it stays off (no 120 s timer, no carry-over).
+        #expect(board.panel == nil)
+        workClock.advance(by: .seconds(30))
+        #expect(board.panel == nil)
+        // Row 264: the fix round is a new call: on again while it runs (a new name is looked up), off at its return.
+        seen.withLock { $0 = [] }
+        var fix = await sameCall(rig.planner)
+        if case .object(var a) = fix.arguments, case .array(var days)? = a["days"], case .array(var d2) = days[1] {
+            d2.append(["name": "上海大酒店"])
+            days[1] = .array(d2)
+            a["days"] = .array(days)
+            fix = trip("set_trip_plan", a)
+        }
+        let r2 = await rig.run(fix)
+        #expect(r2.data["status"] == "trip_needs_fix" || r2.data["status"] == "trip_list", "\(r2)")
+        #expect(seen.withLock { $0 }.contains(true), "the fix call showed no panel while it ran")
+        #expect(board.panel == nil)
+    }
+
+    @Test("T-040zm F-15b row 265: the trip screen going off turns a showing trip panel off at once; a search panel stays")
+    func row265() {
+        let clock = ManualClock()
+        let board = WorkProgressBoard(clock: clock)
+        board.start(.trip, step: WorkProgress.tripEdit)
+        clock.advance(by: .milliseconds(1_500))
+        #expect(board.panel != nil)
+        board.tripScreen(on: true)
+        #expect(board.panel != nil)
+        board.tripScreen(on: false)
+        #expect(board.panel == nil)
+        board.start(.search, step: WorkProgress.searchTitle(tool: "web_search", kind: nil))
+        clock.advance(by: .milliseconds(1_500))
+        board.tripScreen(on: false)
+        #expect(board.panel?.kind == .search)
+    }
+
+    @Test("T-040zm F-15b row 266 (§60 items 2, 5): 已改好 3 s, 没改成 5 s, then off; a long trip write is never hidden by the 120 s limit")
+    func row266() {
+        let clock = ManualClock()
+        let board = WorkProgressBoard(clock: clock)
+        board.start(.trip, step: WorkProgress.tripEdit)
+        board.finish(WorkProgress.tripEdited, failed: false)
+        clock.advance(by: .milliseconds(2_900))
+        #expect(board.panel?.steps.last?.title == "已改好")
+        clock.advance(by: .milliseconds(200))
+        #expect(board.panel == nil)
+        board.start(.trip, step: WorkProgress.tripEdit)
+        board.finish(WorkProgress.tripNotChanged("x"), failed: true)
+        clock.advance(by: .milliseconds(4_900))
+        #expect(board.panel?.steps.last?.title == "没改成：x")
+        clock.advance(by: .milliseconds(200))
+        #expect(board.panel == nil)
+        board.start(.trip, step: WorkProgress.tripEdit)
+        clock.advance(by: .seconds(130))
+        #expect(board.panel != nil)
+        board.start(.search, step: "正在搜索…")
+        clock.advance(by: .seconds(130))
+        #expect(board.panel == nil)
+    }
+}

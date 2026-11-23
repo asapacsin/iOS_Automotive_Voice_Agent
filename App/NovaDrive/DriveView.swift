@@ -417,6 +417,7 @@ private struct DriveContent: View {
                         .accessibilityIdentifier("wake-hint")
                 }
             }
+            backgroundWorkCaption
         }
         .padding(.horizontal, 9).padding(.vertical, 4)
         .background(color.opacity(0.15), in: Capsule())
@@ -578,6 +579,21 @@ private struct DriveContent: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// F-04 §15 items 1-4 (T-004k): next to the status caption while any tool call runs, whoever talks; the list is
+    /// read every 0.25 s (on/off follow the calls only, no keep time).
+    private var backgroundWorkCaption: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            if let caption = runtime.background.current.caption {
+                Text(caption)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(.thinMaterial, in: Capsule())
+                    .accessibilityIdentifier("background-work")
+                    .screenPanel(.backgroundWork)
+            }
+        }
     }
 
     /// F-15b §50 item 6 (T-040w): `WorkProgress` read every 0.25 s; it shows nothing for the first second.

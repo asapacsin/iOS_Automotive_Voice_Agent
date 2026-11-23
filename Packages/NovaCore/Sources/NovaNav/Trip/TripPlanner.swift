@@ -400,13 +400,18 @@ public actor TripPlanner: ToolExecutor {
         changes[id] = task
         // F-15b §58 item 5 (T-040zk): an edit (the plan's ids kept) shows 正在改行程 from the start.
         let edit = call.name == "set_trip_plan" && !Self.makesNewPlan(call) && !Self.clearsWhole(call)
-        // §50 item 6: the first write of a request opens the steps; a fix round continues them.
-        fixRound == 0 ? work?.start(.trip, step: edit ? WorkProgress.tripEdit : nil) : work?.continueTrip()
+        // F-15b §60 item 1 (T-040zm): every `set_trip_plan` call opens its own panel (a fix round is a new call).
+        work?.start(.trip, step: edit ? WorkProgress.tripEdit : nil)
         if edit { onLine("work step=trip_edit state=running") }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         changes[id] = nil
-        // A `trip_needs_fix` round keeps the steps for the fix.
-        guard result.data["status"]?.stringValue != "trip_needs_fix" else { return result }
+        // §60 items 1-2: the panel goes off at the return with any result; `trip_needs_fix` shows no line (the cards
+        // show the plan), no carry-over to a fix round.
+        if result.data["status"]?.stringValue == "trip_needs_fix" {
+            work?.clear(.trip)
+            if edit { onLine("work step=trip_edit state=needs_fix") }
+            return result
+        }
         if !result.ok, result.code == .invalidFields || result.code == .planCheck {
             // §58 item 5: a refused write: the cards stay, the panel says it failed (the first problem) for 5 s.
             work?.finish(WorkProgress.tripNotChanged(Self.firstProblem(result)), failed: true)

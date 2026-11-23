@@ -494,6 +494,8 @@ final class AgentRuntime {
     let model = DriveModel()
     /// F-15b §50 item 6 (T-040w): the steps shown while a trip is planned or a live-info search runs (DriveView).
     let work = WorkProgressBoard(clock: SystemClock(), onLog: { line in RuntimeLog.agent.notice("\(line, privacy: .public)") })
+    /// F-04 §15 (T-004k): the running tool calls; `DriveView` shows the background-work caption from it.
+    let background = BackgroundWorkBoard()
 
     /// F-05a §12 item 7: the bundled speech models start loading when the app starts, off the main actor.
     init() { LocalSpeechModels.shared.load() }
@@ -1197,7 +1199,7 @@ final class AgentRuntime {
         let resume = keptResumption.take(at: navigationClock.now)
         // F-09b §6 item 2 (T-016p): a session without a handle gets the last exchanges, within 30 minutes.
         let summary = resume == nil ? exchanges.summary(at: navigationClock.now) : nil
-        let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors),
+        let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors, background: background),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
                                                resume: resume, revoicing: decision.revoicing,
@@ -1220,7 +1222,11 @@ final class AgentRuntime {
         let screenChanges = AsyncStream.makeStream(of: ScreenState.self, bufferingPolicy: .bufferingNewest(1))
         await screen.onChange { screenChanges.continuation.yield($0) }
         // F-09b §17 item 7 (T-031zb): every view report, at that moment, as a `panel` record line (codes only, I-8).
-        await screen.onReport { [record] panel, on, after in record?.submit(.panel(panel, on: on, after: after)) }
+        // F-15b §60 item 3 (T-040zm): the trip screen going off takes the trip work panel with it.
+        await screen.onReport { [record, work] panel, on, after in
+            record?.submit(.panel(panel, on: on, after: after))
+            if panel == .tripScreen { work.tripScreen(on: on) }
+        }
         await core.send(.screen(await screen.current))
         tasks.append(Task {
             for await _ in screenChanges.stream {
@@ -1860,6 +1866,8 @@ final class AgentRuntime {
         tasks = []
         self.core = nil
         self.audio = nil
+        // F-04 §15 item 2 (T-004k): a session end empties the background-work caption.
+        background.clear()
         model.running = false
         model.view = AgentViewState()
     }
