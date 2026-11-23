@@ -2929,6 +2929,42 @@
       "action": "F-15b §59 items 1-4: QwenRoute.picker model qwen3.8-flash (search off, thinking off, 2.5 s); no backup route for the picker (429/quota 403 -> pick fails, 高德 first result); QwenFallback skips a route without backup; trip pick line gets model=<id>; §50 item 9 table and rows 47/154 expectations updated; rows 259-262.",
       "notes": "Owner phone test 2026-11-23 (7442737, record 20261123-130852): 厦门/海南/深圳 make_trip_list NO_CANDIDATES, trip pick none=8. PC replay same day with real 高德 results: qwen3.7-flash-2026-07-15 answered 0 (none) for all 22 names, qwen3.8-flash picked all 22 correctly. Owner: switch to qwen3.8-flash.",
       "evidence": []
+    },
+    {
+      "id": "T-040zm",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-040zk"
+      ],
+      "action": "F-15b §60 items 1-5: the trip work panel shows only while a set_trip_plan call runs and goes off when it returns with any result (trip_needs_fix included; remove the early return and continueTrip carry-over); §58 result line then off; off at once when tripScreen goes off; working in the screen state matches the panel; panel working on/off always recorded; no maxOpen for trip work; rows 263-267.",
+      "notes": "Owner phone test 2026-11-23 (6e72c92, record 20261123-141523): 中山 plan ended trip_needs_fix twice, the panel went on at 428929 and never off while the cards showed the plan. Owner: the panel belongs to the screen state; when the trip work or card closes, it closes.",
+      "evidence": []
+    },
+    {
+      "id": "T-004k",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-004i"
+      ],
+      "action": "F-04 §15 items 1-5: the dispatcher keeps the running tool calls; a caption next to the status caption shows while any runs (正在搜索…/正在查天气…/正在查…/正在改行程…/正在处理…, newest with 等 N 项), on at the call and off at its result, no timers, regardless of who talks; session end empties it; backgroundWork on/off in the screen state and panel lines in the record; rows 10-14.",
+      "notes": "Owner phone test 2026-11-23 (6e72c92): searches and trip writes run async while the caption says 待命/请说; nothing shows background work. Owner: work running in the back must be visible.",
+      "evidence": []
+    },
+    {
+      "id": "T-031zc",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031za"
+      ],
+      "action": "F-09b §18 items 1-8: show_place(name, city); screen match unchanged, else 高德 text search in her city (car city only when city empty), no nationwide fallback, no first result; one exact name+city match -> card; else PLACE_UNSURE ok=false with asked/found (5) and next (check with web_search, call again, no apology-only); ok result names card name and city; record line with sure/found; scripts/show_place_check.py real-data PC check with --max-calls; rows 1-8.",
+      "notes": "Owner phone test 2026-11-23 (6e72c92, records 20261123-142445, -143104): 清远悦天下生态度假区 (really in 云浮) showed 清泉湾, a different resort; 清远新世界酒店 showed a 珠海 door shop; she apologised and never re-searched. Owner: the model finds the place, code only fetches; unsure goes back to the model.",
+      "evidence": []
     }
   ]
 }

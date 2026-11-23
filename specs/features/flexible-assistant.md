@@ -773,3 +773,55 @@ Audit of the §16 keys on 3d84411 (closed by voice):
 |---|---|---|
 | T-031zb | Items 1–8; rows 1–10 | unit, gate, build, D |
 
+
+## 18. show_place: she finds the place, 高德 only looks it up; anything unsure goes back to her (owner request 2026-11-23)
+
+Replaces §16 item 8 step 1 (find the place). Steps 2–4 (content, card, result) are unchanged.
+
+**Why (owner phone test 2026-11-23, build 6e72c92, records 20261123-142445 and -143104).**
+- `web_search` named 「清远悦天下生态度假区」 (wrong city: 悦天下 is in 云浮新兴县). `show_place(name)` searched the car's city
+  (珠海), found nothing, searched nationwide and took the first result: 清远清泉湾生态旅游度假区, a different resort, shown
+  as if it were the one asked. She then apologised six times (「功能异常」) and never searched again.
+- `show_place("清远新世界酒店")` searched 珠海 first and took the first result: 新世界门业(梅花豪庭店), a door shop in 珠海.
+- Cause: code made the decisions she should make (which city, which result) and she never saw them. §16 item 8 gave
+  her only `name`.
+
+**Owner rule (2026-11-23).** The model finds the place itself (from the conversation, with `web_search` when unsure).
+Code fetches what she named from 高德 and decides nothing: the sure case is taken in code, anything else goes back to
+her with what 高德 found.
+
+1. **Declaration.** `show_place(name, city)`: `name` (1–40 characters) and `city` (the city she believes the place is
+   in, e.g. 「云浮」; empty only for a place near the car, 「附近的…」). Description adds: 「city 填这个地方所在的城市；
+   不确定在哪个城市时先用 web_search 查。」
+2. **Look up exactly that.** A place on screen whose name matches (§16 item 8, unchanged). Else 高德 text search
+   `PlaceSearch.text(name, city: <city>, cityLimit: true)`; with `city` empty, the car's city (`cityLimit: true`).
+   No nationwide fallback, no "first result".
+3. **Sure → code shows it.** Exactly one 高德 result whose name equals `name` (ignoring spaces, case and a trailing
+   bracket branch such as 「(大元路店)」) and whose city is `city`: that place goes to steps 2–4.
+4. **Not sure → back to her, no card.** No result, several equal names, or only other names: no card opens; the
+   result is `ok=false`, code `PLACE_UNSURE`, with `facts.asked` {name, city} and `facts.found` (up to 5: name, city,
+   district, address) and `next`: 「卡片没有打开。看 found：有司机要的那个就用它的名字和城市再调用 show_place；没有就先用
+   web_search 查这个地方在哪个城市、正式名字是什么，再调用。不要道歉了事，不要说功能异常。」 `must_not`: `claim_done`.
+5. **A search failure** stays as F-09b §13 item 3 (`search_failed`, the cause), with the same `next` to try again.
+6. **The shown card names itself.** An ok result has `facts.name` and `facts.city` of the card, so she can see a
+   mismatch with what the driver wanted and call again.
+7. **Record.** `show place ok=<yes|no> via=<screen|city|near> sure=<yes|no> found=<n> ms=` (codes and counts only, I-8).
+8. **PC check before the build (real data).** `scripts/show_place_check.py`: real 高德 `v3/place/text` with the
+   §18 rules for the cases below; prints sure/unsure and the found list. Paid-script rules apply (F-18 §32: `--max-calls`).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 1 | `show_place(name: "清远新世界酒店", city: "清远")`, 高德 returns that name in 清远 | Card for it; `facts.city` 清远 | unit |
+| 2 | `show_place(name: "清远悦天下生态度假区", city: "清远")`, 高德 returns only 清泉湾 | No card; `PLACE_UNSURE` with found [清泉湾…] and the `next` | unit |
+| 3 | Two results with the asked name in the city | No card; `PLACE_UNSURE`, both in found | unit |
+| 4 | `city` empty, 「附近的星巴克」 | Searched in the car's city only; sure/unsure as items 3–4 | unit |
+| 5 | Declaration | `name` and `city`; description has the city sentence | unit |
+| 6 | PC: item 8 with 清远新世界酒店/清远, 悦天下生态度假区/云浮, 悦天下生态度假区/清远, 鼓浪屿/厦门 | sure, sure (or unsure with 悦天下 in found), unsure, sure | PC |
+| 7 | Eval: replay 20261123-142445 to the card request; tool answers `PLACE_UNSURE` | She calls `web_search` for where it is, then `show_place` with city 云浮; no 「功能异常」 | eval |
+| 8 | Device: 「推荐个有温泉的度假村」, then 「给我看看卡片」 | The card shows the place she named, in its real city; if unsure she checks and shows it, never a different place | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-031zc | §18 items 1–8 (show_place takes city; exact lookup; sure in code, unsure back to her with found; record; PC check); rows 1–8 | NOT_RUN |
