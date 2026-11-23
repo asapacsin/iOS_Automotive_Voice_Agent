@@ -82,17 +82,35 @@ struct TripCardsView: View {
                     .padding(.horizontal, 2)
                 }
                 HStack(spacing: 8) {
-                    // F-15b §29 item 4: one button to the next stop not visited or skipped (`trip_next`).
-                    if let next = model.tripList.stops.first(where: { $0.mark == nil }) {
-                        Button("去下一站：\(next.place.name)") { Task { await runtime.tripTap(.next) } }
-                            .buttonStyle(.borderedProminent)
-                            .lineLimit(1)
-                            .accessibilityIdentifier("trip-next")
+                    // F-15b §29 item 4: one button to the next stop not visited or skipped (`trip_next`); §57 item 2
+                    // (T-040zj): with its icon, apart from the cards, and 「结束导航」 in the same spot while navigating.
+                    switch TripScreen.navButton(nextStop: model.tripList.stops.first(where: { $0.mark == nil })?.place.name,
+                                                navigating: model.nav.navigating) {
+                    case .some(.next(let name)):
+                        Button { Task { await runtime.tripTap(.next) } } label: {
+                            Label("去下一站：\(name)", systemImage: "location.north.line.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .lineLimit(1)
+                        .accessibilityIdentifier("trip-next")
+                        .screenPanel(.tripNextButton)
+                    case .some(.stop):
+                        Button { Task { await runtime.stopNavigationTap() } } label: {
+                            Label("结束导航", systemImage: "xmark.circle").frame(minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .accessibilityIdentifier("trip-stop")
+                        .screenPanel(.stopNavigationButton)
+                    case .none:
+                        EmptyView()
                     }
                     Spacer()
                     plansButton
                 }
                 .font(.subheadline)
+                // §57 item 2: at least 12 pt below the card row.
+                .padding(.top, 12)
             }
             // F-09b §16 item 1 (T-031z): the trip cards on screen.
             .screenPanel(.tripScreen)

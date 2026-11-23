@@ -398,18 +398,44 @@ public actor TripPlanner: ToolExecutor {
         nextChange += 1
         let task = Task { await self.run(call) }
         changes[id] = task
+        // F-15b §58 item 5 (T-040zk): an edit (the plan's ids kept) shows 正在改行程 from the start.
+        let edit = call.name == "set_trip_plan" && !Self.makesNewPlan(call) && !Self.clearsWhole(call)
         // §50 item 6: the first write of a request opens the steps; a fix round continues them.
-        fixRound == 0 ? work?.start(.trip) : work?.continueTrip()
+        fixRound == 0 ? work?.start(.trip, step: edit ? WorkProgress.tripEdit : nil) : work?.continueTrip()
+        if edit { onLine("work step=trip_edit state=running") }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         changes[id] = nil
-        // The cards replace the steps; a `trip_needs_fix` round keeps them for the fix; a failure keeps its line.
-        if result.data["status"]?.stringValue != "trip_needs_fix" { result.ok ? work?.clear(.trip) : work?.end() }
+        // A `trip_needs_fix` round keeps the steps for the fix.
+        guard result.data["status"]?.stringValue != "trip_needs_fix" else { return result }
+        if !result.ok, result.code == .invalidFields || result.code == .planCheck {
+            // §58 item 5: a refused write: the cards stay, the panel says it failed (the first problem) for 5 s.
+            work?.finish(WorkProgress.tripNotChanged(Self.firstProblem(result)), failed: true)
+            onLine("work step=trip_edit state=failed")
+        } else if edit, result.ok {
+            // §58 item 5: the cards update; 「已加入<名字>」 (the new names) or 「已改好」 for 3 s.
+            let added = Self.writtenDays(call.arguments).joined().filter { $0.id == nil }.compactMap { $0.name ?? $0.near }
+            var names: [String] = []
+            for n in added where !names.contains(n) { names.append(n) }
+            work?.finish(names.isEmpty ? WorkProgress.tripEdited : WorkProgress.tripAdded(names), failed: false)
+            onLine("work step=trip_edit state=done")
+        } else {
+            // The cards replace the steps of a new plan; any other failure keeps its line.
+            result.ok ? work?.clear(.trip) : work?.end()
+            if edit { onLine("work step=trip_edit state=failed") }
+        }
         return result
+    }
+
+    /// §58 item 5: the first `problems` line of a refused write (top level, or `facts.problems` of `PLAN_CHECK`).
+    static func firstProblem(_ result: ToolResult) -> String {
+        let lines = result.data["problems"] ?? result.data["facts"]?["problems"]
+        if case .array(let a)? = lines, let first = a.first?.stringValue { return first }
+        return result.code?.rawValue ?? "失败"
     }
 
     private func run(_ call: ToolCall) async -> ToolResult {
         // The dispatcher validated the call (ToolCatalog.validate); this is the backstop for direct callers.
-        if let code = ToolCatalog.validate(call) { return .failure(code) }
+        if let code = ToolCatalog.validate(call) { return ToolDispatcher.refusal(call, code) }
         // §52 item 13: a waiting whole-trip clear is answered only by the next clear; any other trip call forgets it.
         if !Self.clearsWhole(call) { clearAsked = nil }
         switch call.name {
@@ -601,8 +627,8 @@ public actor TripPlanner: ToolExecutor {
     public static let fixNext = "先不要跟司机说话，按 issues 改好整份行程，再调用 set_trip_plan。"
     /// §55 item 9: the `next` part that names the issues still failing after the last round.
     public static func leftoverNext(_ lines: [String]) -> String { "跟司机说还有这些问题：" + lines.joined(separator: "；") }
-    /// §55 item 2: the `PLAN_CHECK` line of a new plan without `city`.
-    public static let cityMissing = "新行程要写 city（城市，跨城市就写省或地区）"
+    /// §55 item 2: the line of a new plan without `city` (§56 item 2: now an `INVALID_FIELDS` problem).
+    public static let cityMissing = ToolCatalog.tripCityMissing
 
     /// §52 items 3–8 with §55 (T-040zh): `set_trip_plan` makes and changes every plan. A call that keeps no `id` is a
     /// new plan: `city` is required and the plan in hand is replaced (no `CONFIRM_CLEAR`). New names are looked up
@@ -618,18 +644,20 @@ public actor TripPlanner: ToolExecutor {
         let stopTotal = written.reduce(0) { $0 + $1.count }
         let newPlan = !written.joined().contains { $0.id != nil }
         let cityArg = args["city"]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
+        // §56 item 1 (T-040zi): keys ignored, listed once in facts and counted in the record.
+        let ignored: [String] = if case .object(let o) = args { ToolCatalog.tripIgnoredFields(o) } else { [] }
         var counts = (kept: 0, new: 0, removed: 0, notPlaced: 0)
         var issueCount = 0
         var round = 0
         func log(_ ok: Bool) {
-            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) new_plan=\(newPlan ? "yes" : "no") check=\(ok ? "ok" : "fail") issues=\(issueCount) round=\(round) ms=\(ms(since: started))")
+            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) new_plan=\(newPlan ? "yes" : "no") check=\(ok ? "ok" : "fail") issues=\(issueCount) round=\(round) ms=\(ms(since: started)) ignored=\(ignored.count)")
         }
-        // §50 item 6: a new plan's first step is the place check; a change is 调整行程.
-        work?.step(newPlan ? WorkProgress.tripCheck : WorkProgress.tripRevise)
+        // §50 item 6: a new plan's first step is the place check; a change is 正在改行程 (§58 item 5).
+        work?.step(newPlan ? WorkProgress.tripCheck : WorkProgress.tripEdit)
         // §52 item 13 (T-040ze): a plan with no stops is a clear of the whole trip.
         if stopTotal == 0 { return await clearWhole(viaPlan: true) }
-        var problems = Self.planProblems(written, old: newPlan ? TripPlan() : plan)
-        if newPlan, cityArg == nil { problems.insert(Self.cityMissing, at: 0) }
+        // §56 item 2 (T-040zi): a new plan without city is refused before this (`INVALID_FIELDS`, `ToolCatalog`).
+        let problems = Self.planProblems(written, old: newPlan ? TripPlan() : plan)
         guard problems.isEmpty else {
             log(false)
             planCheckRounds += 1
@@ -696,6 +724,8 @@ public actor TripPlanner: ToolExecutor {
         } else {
             if plan.abroad, area == nil, let abroadArea, let city = plan.city { area = await abroadArea(city) }
             if !newNames.isEmpty {
+                // §58 item 5: 「正在找<名字>」 for each new name (names that will be on the cards).
+                for n in newNames { work?.step(WorkProgress.tripFinding(n)) }
                 lookups = await resolve(newNames, city: plan.abroad ? nil : plan.city, abroad: plan.abroad, near: regionHint())
             }
         }
@@ -791,6 +821,7 @@ public actor TripPlanner: ToolExecutor {
         retryUnplaced()
         var facts: [String: JSONValue] = ["kept": .int(Int64(counts.kept)), "new": .int(Int64(counts.new))]
         if newPlan { facts["new_plan"] = true }
+        if !ignored.isEmpty { facts["ignored_fields"] = .array(ignored.map(JSONValue.string)) }
         if !removedNames.isEmpty { facts["removed"] = .array(removedNames.map(JSONValue.string)) }
         if !notPlaced.isEmpty { facts["not_placed"] = .array(notPlaced.map(JSONValue.string)) }
         if !slow.isEmpty { facts["search_slow"] = .array(slow.map(JSONValue.string)) }
@@ -1428,6 +1459,12 @@ public actor TripPlanner: ToolExecutor {
         }
         // §52 item 4: a stop not on the map yet has no route.
         guard target.placed else { return failure(.notFound, facts: ["name": .string(target.place.name), "placed": false]) }
+        // F-15b §57 item 3 (T-040zj): already guiding to this stop: no new route (a misheard 「停止导航」 restarted it).
+        let running = await navigation.current
+        if running.navigating, running.destination?.id == target.place.id {
+            onLine("trip next index=\(target.index) day=\(plan.currentDay) ok=no code=ALREADY_NAVIGATING")
+            return Self.alreadyNavigating(target.place.name)
+        }
         // §47 item 1 (T-040s): an `abroad` trip's stop is routed by OSRM inside the app.
         let result = await navigation.tripNext(target.place, abroad: plan.abroad)
         onLine("trip next index=\(target.index) day=\(plan.currentDay) ok=\(result.ok ? "yes" : "no") code=\(result.code?.rawValue ?? "none")")
@@ -2092,6 +2129,11 @@ public actor TripPlanner: ToolExecutor {
             }
         }
         onLine("trip tap action=\(tap.action) ok=\(result.ok ? "yes" : "no")")
+        // F-15b §57 items 5–6 (T-040zj): a tap on 「去下一站」 reaches her as one line, whatever its result.
+        if case .next = tap {
+            onLine("nav tap action=next")
+            return (result, Self.nextTapLine)
+        }
         guard result.ok else { return (result, nil) }
         let what: String
         switch tap {
@@ -2101,7 +2143,7 @@ public actor TripPlanner: ToolExecutor {
         case .openPlan(let name): what = Self.editOpened(result.data["name"]?.stringValue ?? name)
         case .remove(let index): what = Self.editRemoved("\(index)", Self.removedName(result) ?? "")
         case .move(let from, let to): what = Self.editMoved("\(from)", "\(to)")
-        case .next: what = Self.editNext(result.data["name"]?.stringValue ?? "下一站")
+        case .next: return (result, Self.nextTapLine)
         case .add(let place):
             // An already listed place changed nothing: no note.
             if result.data["changed"] == "none" { return (result, nil) }
@@ -2124,7 +2166,17 @@ public actor TripPlanner: ToolExecutor {
     public static func editOpened(_ name: String) -> String { "打开了行程「\(name)」" }
     public static func editRemoved(_ index: String, _ name: String) -> String { "去掉了第\(index)个：\(name)" }
     public static func editMoved(_ from: String, _ to: String) -> String { "把第\(from)个移到了第\(to)个" }
-    public static func editNext(_ name: String) -> String { "开始了去\(name)的导航" }
+    /// F-15b §57 item 5 (T-040zj): the line she gets for a tap on 「去下一站」 (queued like the screen line).
+    public static let nextTapLine = "[系统] 司机点了「去下一站」。这句不用回答。"
+    /// §57 item 3: the `next` of `ALREADY_NAVIGATING`, exactly as §57 gives it.
+    public static func alreadyNavigatingNext(_ name: String) -> String {
+        "已经在去\(name)的路上了。司机要是想停，调用 exit_navigation_mode。"
+    }
+    static func alreadyNavigating(_ name: String) -> ToolResult {
+        var data = ToolFailureAdvice.reply(.alreadyNavigating, facts: ["name": .string(name), "navigating": true]).data
+        data["next"] = .string(alreadyNavigatingNext(name))
+        return ToolResult(ok: false, code: .alreadyNavigating, data: data, advice: nil)
+    }
     public static func editAdded(_ name: String) -> String { "加入了\(name)" }
     public static func screenEditNote(what: String, count: String) -> String {
         "[系统] 司机在屏幕上\(what)，现在清单有\(count)个地点。这句不用回答。"

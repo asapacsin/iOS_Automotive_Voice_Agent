@@ -147,6 +147,12 @@ def read_format_5(session: str, lines: list[str]) -> list[dict]:
     return rows
 
 
+def read_format_6(session: str, lines: list[str]) -> list[dict]:
+    """F-15b §57 item 6, §56 item 6 (T-040zj, T-040zi): as format 5; the `screen` line has two more keys and a
+    refused `set_trip_plan` writes `problems=<n>`, which the generic event reader already keeps as fields."""
+    return read_format_5(session, lines)
+
+
 def body(row: dict) -> str | None:
     """The `body=` text of a search row (everything after the first ` body=`), or None."""
     _, sep, rest = row["fields"].partition(" body=")
@@ -154,7 +160,7 @@ def body(row: dict) -> str | None:
 
 
 READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2, 3: read_format_3, 4: read_format_4,
-           5: read_format_5}
+           5: read_format_5, 6: read_format_6}
 
 
 def read(path: pathlib.Path) -> list[dict]:

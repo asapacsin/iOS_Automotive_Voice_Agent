@@ -17,6 +17,8 @@ ALLOW: list[tuple[str, str]] = [
     # The catalog's working line follows F-15b §50 item 5. It is an owner-facing deviation from F-09b §13 item 8
     # (not in the item 7 allow-list), to be recorded in STATUS (T-031n).
     ("Packages/NovaCore/Sources/NovaTools/Dispatch/ToolCatalog.swift", "public static let tripWorkingLine = "),
+    # F-15b §58 item 4 (T-040zk): the edit's working line, exactly as §58 gives it (same deviation as above).
+    ("Packages/NovaCore/Sources/NovaTools/Dispatch/ToolCatalog.swift", "public static let tripEditWorkingLine = "),
 ]
 
 

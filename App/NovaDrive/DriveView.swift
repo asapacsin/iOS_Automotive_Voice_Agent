@@ -439,6 +439,9 @@ private struct DriveContent: View {
                 // F-15a §2.3: a simulation is never mistaken for guidance; §5: rerouting keeps navigating.
                 if model.nav.mode == .emulator { badge("模拟导航", .yellow).accessibilityIdentifier("hud-simulated") }
                 if model.nav.rerouting { badge("重新规划中", .orange).accessibilityIdentifier("hud-rerouting") }
+                Spacer()
+                // F-15b §57 item 1 (T-040zj): the stop button in the guidance panel's top row.
+                stopNavigationButton
             }
             if let status = panel.statusText {
                 Text(status).font(.subheadline)
@@ -483,6 +486,19 @@ private struct DriveContent: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
     }
 
+    /// F-15b §57 item 1 (T-040zj): 「结束导航」, a red bordered button of at least 44 × 44 pt; a tap is
+    /// `exit_navigation_mode`, while moving too, with no confirmation.
+    private var stopNavigationButton: some View {
+        Button { Task { await runtime.stopNavigationTap() } } label: {
+            Label("结束导航", systemImage: "xmark.circle").font(.subheadline.weight(.semibold))
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .tint(.red)
+        .accessibilityIdentifier("nav-stop")
+        .screenPanel(.stopNavigationButton)
+    }
+
     static func distance(_ meters: Int) -> String {
         meters >= 1000 ? String(format: "%.1f 公里", Double(meters) / 1000) : "\(meters) 米"
     }
@@ -491,6 +507,10 @@ private struct DriveContent: View {
 
     @ViewBuilder private var choices: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // F-15b §57 item 1 (T-040zj): while the route is searched, calculated or picked (no guidance panel yet).
+            if model.nav.stopButtonShown && !model.nav.navigating {
+                HStack { Spacer(); stopNavigationButton }
+            }
             switch model.nav.phase {
             // A place list: the destination list, or the along-route list over the running guidance.
             case _ where presentation.list == .places:

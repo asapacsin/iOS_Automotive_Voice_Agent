@@ -175,25 +175,108 @@ public enum ToolCatalog {
     /// F-15b §50 item 5 (T-040v): the one line she says while a trip is made or revised in the background; nothing
     /// between rounds (§49 item 9), one summary at the end.
     public static let tripWorkingLine = "先只说一句：好，我规划一下，大概半分钟。然后不要说话，等结果。"
+    /// F-15b §58 item 4 (T-040zk): the one line she says while a trip edit runs, exactly as §58 gives it (a new plan
+    /// keeps `tripWorkingLine`). There is no immediate tool result for a NON_BLOCKING call here, so it is in the text.
+    public static let tripEditWorkingLine = "先只说一句：好，我在改行程，好了告诉你。然后不要说话，等结果。"
     /// F-15b §55 item 12 (T-040zh, replaces §52's): the catalog text of `set_trip_plan`, exactly as §55 gives it.
-    public static let setTripPlanDescription = "做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，跨城市就写省或地区）。改行程：已有的地点只写 id，新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},{name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},{name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。结果稍后回来：\(tripWorkingLine)"
+    public static let setTripPlanDescription = "做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，跨城市就写省或地区）。改行程：把结果里的行程照着改，已有的地点保留 id（其他字段可以照抄），新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},{name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},{name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。结果稍后回来。新行程：\(tripWorkingLine)改行程：\(tripEditWorkingLine)"
     public static let tripRoles = ["start", "sight", "hotel", "end", "rental_pickup", "rental_return"]
     public static let maxTripStopID = 12
-    /// §52 item 3: a stop of `set_trip_plan`: `{id}` (kept), `{id, role|minutes}` (kept, field changed) or
-    /// `{name, role?, minutes?, importance?}` (new).
+    /// §52 item 3 with F-15b §56 item 1 (T-040zi): a stop of `set_trip_plan`. A stop may carry any field a trip result
+    /// shows (`placed`, `picked_by` too, ignored); other keys are ignored, so the schema does not refuse them.
     public static let tripPlanStop: JSONValue = [
         "type": "object",
         "properties": [
             "id": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripStopID))],
             "name": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
             "role": ["type": "string", "enum": .array(tripRoles.map { .string($0) })],
-            "minutes": ["type": "integer", "minimum": 15, "maximum": 600],
+            "minutes": ["type": "integer", "minimum": 0, "maximum": .int(Int64(maxTripMinutes))],
             "importance": ["type": "integer", "minimum": 1, "maximum": 3],
             // F-15b §55 item 7 (T-040zh): `{role: hotel, near}`.
             "near": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
         ],
-        "additionalProperties": false,
     ]
+    /// §56 item 2: `minutes` is a whole number from 0 to this.
+    public static let maxTripMinutes = 720
+    /// §56 item 2: a plan has 1 to this many days.
+    public static let maxTripDays = 5
+    /// §56 item 1: the stop fields `set_trip_plan` reads; any other key of a stop is ignored and listed (`ignored_fields`).
+    public static let tripStopFields: Set<String> = ["id", "name", "role", "minutes", "importance", "placed", "picked_by", "near"]
+    /// §56 item 1: the plan fields; any other key is ignored and listed.
+    public static let tripPlanFields: Set<String> = ["days", "pace", "optimise", "city"]
+    /// §55 item 2, §56 item 2: the line of a new plan without `city`.
+    public static let tripCityMissing = "新行程要写 city（城市，跨城市就写省或地区）"
+    /// §56 item 3: the `next` of an `INVALID_FIELDS` refusal of `set_trip_plan`, exactly as §56 gives it.
+    public static let tripProblemsNext = "先不要跟司机说话，按 problems 改好整份行程，再调用 set_trip_plan。"
+
+    /// F-15b §56 items 1–3 (T-040zi): what keeps a `set_trip_plan` call from running, one line per problem with the
+    /// day, the stop's place in it and the field; empty when it may run. Only item 2's checks: an `id` stop's `name`,
+    /// `placed`, `picked_by` and `near` are ignored (never checked), so is `near` beside a `name`; `importance` and
+    /// `optimise` are read when valid and otherwise ignored; unknown keys are ignored.
+    public static func tripPlanProblems(_ a: [String: JSONValue]) -> [String] {
+        func text(_ v: JSONValue, max: Int) -> Bool {
+            guard let s = v.stringValue else { return false }
+            return !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && s.utf16.count <= max
+        }
+        guard case .array(let days)? = a["days"], (1...maxTripDays).contains(days.count) else {
+            return ["days 要写1到\(maxTripDays)天，每天是一组地点"]
+        }
+        var lines: [String] = []
+        var stopCount = 0
+        var keepsID = false
+        for (d, day) in days.enumerated() {
+            guard case .array(let stops) = day else {
+                lines.append("第\(d + 1)天：要写成一组地点")
+                continue
+            }
+            if stops.count > maxTripStops + 4 { lines.append("第\(d + 1)天：最多\(maxTripStops + 4)个地点") }
+            for (i, stop) in stops.enumerated() {
+                stopCount += 1
+                let at = "第\(d + 1)天第\(i + 1)个地点："
+                guard case .object(let o) = stop else {
+                    lines.append(at + "要写 id、name 或者 near")
+                    continue
+                }
+                if let r = o["role"], !(r.stringValue.map(tripRoles.contains) ?? false) {
+                    lines.append(at + "role 只能是 " + tripRoles.joined(separator: "、"))
+                }
+                if let m = o["minutes"], !(m.intValue.map { (0...Int64(maxTripMinutes)).contains($0) } ?? false) {
+                    lines.append(at + "minutes 要是0到\(maxTripMinutes)的整数")
+                }
+                if let id = o["id"] {
+                    keepsID = true
+                    if !text(id, max: maxTripStopID) { lines.append(at + "id 要是1到\(maxTripStopID)个字") }
+                } else if let name = o["name"] {
+                    if !text(name, max: maxTripName) { lines.append(at + "name 要是1到\(maxTripName)个字") }
+                } else if let near = o["near"] {
+                    if o["role"]?.stringValue != "hotel" {
+                        lines.append(at + "near 只能用在酒店（role 写 hotel）")
+                    } else if !text(near, max: maxTripName) {
+                        lines.append(at + "near 要是1到\(maxTripName)个字")
+                    }
+                } else {
+                    lines.append(at + "要写 id、name 或者 near")
+                }
+            }
+        }
+        // §55 item 2: a new plan (stops, none kept by id) needs its city; a kept plan keeps its own.
+        if stopCount > 0, !keepsID, !(a["city"].map { text($0, max: Int.max) } ?? false) { lines.append(tripCityMissing) }
+        if let pace = a["pace"], !(pace.stringValue.map(tripPaces.contains) ?? false) {
+            lines.append("pace 只能是 " + tripPaces.joined(separator: "、"))
+        }
+        return lines
+    }
+
+    /// §56 item 1: the keys `set_trip_plan` ignores (unknown plan keys and unknown stop keys), each once, sorted.
+    public static func tripIgnoredFields(_ a: [String: JSONValue]) -> [String] {
+        var keys = Set(a.keys).subtracting(tripPlanFields)
+        if case .array(let days)? = a["days"] {
+            for case .array(let stops) in days {
+                for case .object(let o) in stops { keys.formUnion(Set(o.keys).subtracting(tripStopFields)) }
+            }
+        }
+        return keys.sorted()
+    }
     /// F-15b §29 item 1, §31 (T-040n): one stop at a time.
     public static let tripNextDescription = "行程按站导航：「开始第一天」「去下一站」「先去长隆」→trip_next（day、stop 可选）。一次只导航到一个地点。按 next 说一句；DAY_DONE=问要不要开始下一天。已在苹果地图打开=告诉司机，到了说「已经到了」。"
     public static let tripPlansDescription = "保存、打开、列出、删除、改名行程：「把这个行程存成天津一日游」→save name=天津一日游；「打开天津一日游」→open；「我存了哪些行程」→list；「删掉天津那个行程」→delete；「改名叫周末出游」→rename。打开后要导航就调用 trip_next。按结果答：一句话说做了什么；list 只说有几个和名字；ok=false 按 error：NO_TRIP_LIST=还没有清单，PLAN_NOT_FOUND=没有这个行程，PLANS_FULL=最多存20个，AMBIGUOUS=有多个请说全名。"
@@ -403,39 +486,9 @@ public enum ToolCatalog {
                 guard let n = str("name"), !trimmed(n).isEmpty, n.utf16.count <= 40 else { return .invalidName }
             }
         case "set_trip_plan":
-            // F-15b §52 item 3 (T-040zb): 1–5 days of stops; each stop `{id}`, `{id, role|minutes}` or
-            // `{name, role?, minutes?, importance?}`. The plan's own rules are §52 item 5's `PLAN_CHECK`, not these.
-            guard keys.contains("days"), keys.isSubset(of: ["days", "pace", "optimise", "city"]) else { return .invalidFields }
-            // §55 item 2 (T-040zh): city 1–20 characters (its presence for a new plan is `PLAN_CHECK`).
-            if keys.contains("city") {
-                guard let c = str("city"), !trimmed(c).isEmpty, c.utf16.count <= 20 else { return .invalidFields }
-            }
-            if keys.contains("pace"), !(str("pace").map(tripPaces.contains) ?? false) { return .invalidFields }
-            if keys.contains("optimise"), a["optimise"]?.boolValue == nil { return .invalidFields }
-            guard case .array(let days)? = a["days"], (1...5).contains(days.count) else { return .invalidFields }
-            for day in days {
-                guard case .array(let stops) = day, stops.count <= maxTripStops + 4 else { return .invalidFields }
-                for stop in stops {
-                    // §55 item 7: exactly one of id, name and near; near only on a hotel.
-                    guard case .object(let o) = stop,
-                          Set(o.keys).isSubset(of: ["id", "name", "role", "minutes", "importance", "near"]),
-                          [o["id"], o["name"], o["near"]].compactMap({ $0 }).count == 1 else { return .invalidFields }
-                    if let n = o["near"] {
-                        guard o["role"]?.stringValue == "hotel", let v = n.stringValue, !trimmed(v).isEmpty,
-                              v.utf16.count <= maxTripName, o["minutes"] == nil, o["importance"] == nil else { return .invalidFields }
-                    }
-                    if let id = o["id"] {
-                        guard let v = id.stringValue, !trimmed(v).isEmpty, v.count <= maxTripStopID,
-                              o["importance"] == nil else { return .invalidFields }
-                    }
-                    if let n = o["name"] {
-                        guard let v = n.stringValue, !trimmed(v).isEmpty, v.utf16.count <= maxTripName else { return .invalidFields }
-                    }
-                    if let r = o["role"], !(r.stringValue.map(tripRoles.contains) ?? false) { return .invalidFields }
-                    if let m = o["minutes"], m.intValue == nil { return .invalidFields }
-                    if let i = o["importance"], !(i.intValue.map { (1...3).contains($0) } ?? false) { return .invalidFields }
-                }
-            }
+            // F-15b §56 items 1–2 (T-040zi, replaces §52 item 3's stop forms and §55 item 7's "exactly one of id, name
+            // and near"): only the item 2 checks refuse; the lines go back as `problems` (`ToolDispatcher.refusal`).
+            if !tripPlanProblems(a).isEmpty { return .invalidFields }
         case "trip_next":
             // §29 item 1: optional day 1–5 and stop (a name in the plan or its number in the day).
             guard keys.isSubset(of: ["day", "stop"]) else { return .invalidFields }
@@ -695,6 +748,10 @@ public enum ToolFailureAdvice {
         .noRevision: Rules([.offerMake], [.claimDone]),
         // F-15b §52 items 5 and 13 (T-040zb, T-040ze).
         .planCheck: Rules([], [.claimDone]),
+        // F-15b §56 item 4 (T-040zi).
+        .repeatedFailure: Rules([], [.claimDone]),
+        // F-15b §57 item 3 (T-040zj).
+        .alreadyNavigating: Rules([], [.claimStarted]),
         .confirmClear: Rules([.askConfirm], [.claimDone]),
         .styleNotAllowed: Rules([.nameStyles], [.claimDone]),
     ]

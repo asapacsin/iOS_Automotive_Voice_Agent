@@ -113,15 +113,15 @@ enum RecordFormatSession {
 
 @Suite("T-031u F-12 §21 record format")
 struct RecordFormatTests {
-    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat <n> (5 since T-046w), then the app line with the commit")
+    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat <n> (6 since T-040zj), then the app line with the commit")
     func row1() {
         let record = ConversationRecord.make(enabled: true, header: RecordHeader(
             appVersion: "0.1.0(1) abcdef0", comfortMode: "model", interruptible: false, speakingStyle: "default"))!
         let w = MemoryWriter()
         record.drain(to: w)
         let lines = w.lines.withLock { $0 }
-        #expect(ConversationRecord.formatVersion == 5)
-        #expect(Array(lines.prefix(2)) == ["recordFormat 5", "app 0.1.0(1) abcdef0"])
+        #expect(ConversationRecord.formatVersion == 6)
+        #expect(Array(lines.prefix(2)) == ["recordFormat 6", "app 0.1.0(1) abcdef0"])
     }
 
     @Test("T-031u F-12 §21 rows 2-3: the fixed session encodes exactly to record-format-<formatVersion>.txt")
@@ -210,7 +210,7 @@ struct RecordOneLineTests {
         #expect(r.add(.toolResult(name: "web_search", ok: true, code: nil, data: ["answer": "x"], elapsedMs: nil), atMs: 4)
                     .allSatisfy { !$0.contains("\n") })
         let all = RecordFormatSession.encoded().split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-        let header = Set(["recordFormat 5", "app 0.1.0(1) abcdef0"])
+        let header = Set(["recordFormat 6", "app 0.1.0(1) abcdef0"])
         #expect(all.allSatisfy { !$0.contains("\r") })
         // Every line after the header starts with its time (row 23's check, on the fixed session).
         let events = all.drop { !($0.first?.isNumber ?? false) || header.contains(String($0)) }
@@ -219,10 +219,12 @@ struct RecordOneLineTests {
 
     @Test("T-046w F-18 §34 row 21: the fixed session equals record-format-5.txt with header recordFormat 5")
     func row21() throws {
-        #expect(ConversationRecord.formatVersion == 5)
+        // Format 6 (T-040zj, F-15b §57) only added screen keys; the format 5 fixture keeps T-046w's escaped bodies.
+        #expect(ConversationRecord.formatVersion >= 5)
         let fixture = try String(contentsOf: RecordFormatSession.fixture(5), encoding: .utf8)
         #expect(fixture.hasPrefix("recordFormat 5\n"))
-        #expect(RecordFormatSession.encoded() == fixture)
+        let now = RecordFormatSession.encoded()
+        #expect(now.contains("search-response attempt=1 status=200") && now.contains("\\tC:\\\\\\\\path"))
         #expect(fixture.contains("search-response attempt=1 status=200") && fixture.contains("\\tC:\\\\\\\\path"))
     }
 }

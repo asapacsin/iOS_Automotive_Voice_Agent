@@ -646,6 +646,16 @@ final class AgentRuntime {
         if let note, let core { await core.send(.screenNote(note)) }
     }
 
+    /// F-15b §57 items 1, 5 (T-040zj): a tap on 「结束导航」 does what `exit_navigation_mode` does (the app-owned flow's
+    /// exit: guidance stops, route panels close, the trip keeps its plan), while moving too; she gets the tap line,
+    /// queued like the screen line.
+    func stopNavigationTap() async {
+        // The app-owned flow, with or without a session (the trip's flow is the same object a session attaches to).
+        guard let flow = navigation ?? trip?.navigation else { return }
+        let line = await flow.stopTap()
+        if let core { await core.send(.screenNote(line)) }
+    }
+
     /// F-15b §14 item 1: the trip (and the plan saved on the phone) is ready when the drive screen appears, so the
     /// cards are there after a restart before any voice session.
     func prepareTrip() async {

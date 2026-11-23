@@ -96,6 +96,18 @@ public enum TripScreen: Sendable, Hashable {
 
     public static let emptyDayText = "这一天还没有安排"
 
+    /// F-15b §57 item 2 (T-040zj): the one navigation button under the cards. 「去下一站：<名字>」 (with its icon) to the
+    /// next open stop; while navigation runs the same spot shows 「结束导航」. nil: no button.
+    public enum NavButton: Sendable, Hashable {
+        case next(String)
+        case stop
+    }
+
+    public static func navButton(nextStop: String?, navigating: Bool) -> NavButton? {
+        if navigating { return .stop }
+        return nextStop.map { .next($0) }
+    }
+
     /// §52 item 9: the screen from the whole plan. Nothing only when the plan has no stop; the day in front decides
     /// the cards, and an empty day is still the trip screen.
     public static func of(plan: TripPlan, moving: Bool) -> TripScreen {

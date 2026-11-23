@@ -15,6 +15,12 @@ public struct AlternativeRoute: Sendable, Hashable {
 
 /// What the screen and the guards see of the flow. A snapshot, not the flow's own state.
 public struct NavigationFlowState: Sendable, Hashable {
+    /// F-15b §57 item 1 (T-040zj): 「结束导航」 is shown while the guidance (`navigation`), the route choice
+    /// (`routePicking`) or the search and route calculation (`routeCalculating`) is on screen.
+    public var stopButtonShown: Bool {
+        [.navigating, .awaitingRouteSelection, .resolvingDestination, .calculatingRoute].contains(phase)
+    }
+
     public var phase: NavigationPhase = .idle
     public var generation: Generation = .initial
     public var places: [Place] = []
@@ -1357,6 +1363,18 @@ public actor NavigationController: ToolExecutor {
     }
 
     // MARK: exit_navigation_mode
+
+    /// F-15b §57 item 5 (T-040zj): the line she gets for a tap on 「结束导航」 (queued like the screen line).
+    public static let stopTapLine = "[系统] 司机点了「结束导航」。这句不用回答。"
+
+    /// F-15b §57 items 1, 6 (T-040zj): a tap on 「结束导航」 does what `exit_navigation_mode` does (guidance stops, the
+    /// route panels close; the trip keeps its plan and marks), while moving too and without a confirmation.
+    /// `nav tap action=stop`; returns the line for her.
+    public func stopTap() async -> String {
+        _ = await exit()
+        onTripLine("nav tap action=stop")
+        return Self.stopTapLine
+    }
 
     /// F-09b §13 item 5 (T-031n): the cards were put away; the plan stays.
     public static let cardsHiddenNext = ToolReply.success(

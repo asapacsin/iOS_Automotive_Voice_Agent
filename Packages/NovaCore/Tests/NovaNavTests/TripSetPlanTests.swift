@@ -189,9 +189,10 @@ struct TripSetPlanTests {
     func catalog() {
         #expect(AsyncTool(name: "set_trip_plan") != nil && TripPlanner.tools.contains("set_trip_plan"))
         // §55 item 12 (T-040zh) replaces §52's text; row 234 checks it in full.
-        #expect(ToolCatalog.setTripPlanDescription.hasSuffix("结果稍后回来：" + ToolCatalog.tripWorkingLine))
+        #expect(ToolCatalog.setTripPlanDescription.hasSuffix("结果稍后回来。新行程：" + ToolCatalog.tripWorkingLine + "改行程：" + ToolCatalog.tripEditWorkingLine))
         #expect(ToolCatalog.validate(setPlan([[stop("s1"), stop(name: "X", role: "hotel")]], ["optimise": true, "pace": "relaxed"])) == nil)
-        #expect(ToolCatalog.validate(setPlan([[stop("s1", name: "X")]])) == .invalidFields)
+        // §56 item 1 (T-040zi): an id stop may carry its name (ignored).
+        #expect(ToolCatalog.validate(setPlan([[stop("s1", name: "X")]])) == nil)
         #expect(ToolCatalog.validate(setPlan([[stop(name: "X", role: "museum")]])) == .invalidFields)
         #expect(ToolCatalog.validate(trip("set_trip_plan", [:])) == .invalidFields)
         #expect(!TripPlanner.tools.contains("edit_trip_list") && ToolCatalog.spec("edit_trip_list") == nil)

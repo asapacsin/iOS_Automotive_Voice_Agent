@@ -342,7 +342,7 @@ public actor ComfortEvalRunner {
     /// The session's own rules: a tool it did not declare is unknown; arguments are validated as in a drive.
     private func execute(_ call: ToolCall) async -> ToolResult {
         guard declared.contains(call.name) else { return ToolDispatcher.failure(.unknownTool) }
-        if let code = ToolCatalog.validate(call) { return ToolDispatcher.failure(code) }
+        if let code = ToolCatalog.validate(call) { return ToolDispatcher.refusal(call, code) }
         let result = await (harness.tools[call.name] ?? NotYetExecutor()).execute(call)
         return ToolDispatcher().finish(call, result)
     }
