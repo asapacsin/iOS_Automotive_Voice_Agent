@@ -1032,7 +1032,7 @@ final class AgentRuntime {
         for name in TripPlanner.tools { executors[name] = trip.planner }
         executors["query_live_info"] = ObservedLiveInfoExecutor(inner: liveInfo, work: work)
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
-        // F-09b §16 item 8 (T-031za): show_place(name); code finds the place (on screen, the car's city, nationwide),
+        // F-09b §16 item 8 (T-031za), §18 (T-031zc): show_place(name, city); code looks up exactly that (on screen, her city),
         // fills and shows the card; done only when the sheet holds that place. `show place` line: codes only (I-8).
         executors[ShowPlaceTool.tool] = ShowPlaceTool(
             onScreen: { [model] in
