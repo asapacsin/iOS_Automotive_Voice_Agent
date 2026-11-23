@@ -33,7 +33,7 @@ public struct WebSearchExecutor: ToolExecutor {
     static let advice = "这次没有查到可靠的结果。请用一句话如实说现在查不到，不要猜测或编造。"
     /// F-18 §32 item 4, §33 item 7: the budget refused the call (in the app only `quota`); one honest sentence, no
     /// retry, and no network wording: the network is fine.
-    static let budgetAdvice = "现在查不了网上的信息。请用一句话如实说现在查不了网上的信息，不要说网络有问题，不要再查，也不要猜测或编造。"
+    static let budgetAdvice = "现在查不了网上的信息。请用一句话如实说现在查不了网上的信息，不要再查，也不要猜测或编造。"
 
     /// §21 item 4: what she is told when the place may have been misheard.
     public static func placeNext(_ destination: String) -> String {

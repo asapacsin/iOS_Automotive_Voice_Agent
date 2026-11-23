@@ -211,6 +211,9 @@ public struct DriverTurnPipeline: Sendable {
             tripNeedsFix = false
             tripLatestOk = nil
             tripNames = []
+            // §58 item 3 (review): writes belong to one driver request; a cancelled or dropped write never sends a
+            // result, so the set is cleared here instead of leaking for the session.
+            tripWrites = []
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
             wrongLanguageAsked = false
             awaitingReaskReply = false
@@ -422,10 +425,10 @@ public struct DriverTurnPipeline: Sendable {
         if !t.claims.isEmpty, !t.tripPending.isEmpty { return .disproven(.tripResultPending) }
         // F-15b §58 items 1–3 (T-040zk): a trip change is proven only by an ok `set_trip_plan` since the driver's last
         // words; a refused one with no ok after it disproves it; background work is claimed only while one runs.
-        if let trip = tripVerdict(t, final: final) { return trip }
         // §55 item 10 (T-040zh): "done" while the plan still has issues to fix is drift too.
         // Only a plan-done claim counts (「规划好了」「安排好了」); 「空调已打开」 after it is judged as usual.
         if tripNeedsFix, ClaimLexicon.plansDone(t.text) { return .disproven(.tripNeedsFix) }
+        if let trip = tripVerdict(t, final: final) { return trip }
         if !t.claims.isEmpty, acting.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
             return .disproven(.partialScenario)
         }

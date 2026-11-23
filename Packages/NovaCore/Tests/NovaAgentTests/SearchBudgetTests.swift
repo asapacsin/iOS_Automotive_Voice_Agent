@@ -31,6 +31,6 @@ struct QuotaWordingTests {
         let advice = r.advice ?? ""
         #expect(advice.hasPrefix("现在查不了网上的信息"))
         #expect(!advice.contains("联网") && !advice.contains("连不上网"))
-        #expect(!advice.replacingOccurrences(of: "不要说网络有问题", with: "").contains("网络"))
+        #expect(!advice.contains("网络"))
     }
 }

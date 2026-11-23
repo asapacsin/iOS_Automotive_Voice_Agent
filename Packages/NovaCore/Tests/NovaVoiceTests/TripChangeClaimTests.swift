@@ -123,3 +123,32 @@ struct TripChangeClaimTests {
         #expect(done.corrections == [.tripResultPending], "\(done.out)")
     }
 }
+
+@Suite("T-040zk F-15b §58 review fixes")
+struct TripChangeClaimReviewTests {
+    @Test("T-040zk F-15b row 228 (review): after trip_needs_fix, 「我为您安排好了上海五天的行程」 is TRIP_NEEDS_FIX, not proven by the ok set_trip_plan")
+    func needsFixBeforeTripVerdict() {
+        var h = PipelineHarness()
+        h.driver("帮我规划一下上海五天的行程")
+        let id = h.call("t1", "set_trip_plan")
+        h.result(id, "set_trip_plan", .success(["status": "trip_needs_fix", "round": 1]))
+        h.say("我为您安排好了上海五天的行程。")
+        h.close()
+        h.advance(by: .seconds(30))
+        #expect(h.corrections == [.tripNeedsFix], "\(h.out)")
+    }
+
+    @Test("T-040zk F-15b row 253 (review): a set_trip_plan that never returns a result (cancelled, dropped at reconnect) does not allow a background claim in the next driver request")
+    func runningWriteScopedToRequest() {
+        var h = PipelineHarness()
+        h.driver("第二天加个咖啡馆")
+        _ = h.call("t1", "set_trip_plan")
+        h.close()
+        h.advance(by: .seconds(30))
+        h.driver("好了吗")
+        h.say("我已经在后台更新了行程，可能稍后就会同步。")
+        h.close()
+        h.advance(by: .seconds(30))
+        #expect(h.corrections.contains(.tripUnverifiedClaim), "\(h.out)")
+    }
+}
