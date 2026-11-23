@@ -2667,6 +2667,18 @@
       "evidence": [
         "Gates: scripts/gates/run_all.sh PASS on 2d263fe in a clean clone (NovaCore 1095, 1 known NoiseCorpus issue; spec-trace 175/0; agent 8.0.0 — the §15 gate counts a new tool as major, spec said minor, noted in §19; record format 8). Review: spec-reviewer high effort FAIL (8.0.0 parts stale; pin stopped the auto-recenter while navigating) -> fixed df47803, 2d263fe -> medium re-check PASS (new test fails without the fix). Rows 1-7 unit PASS (ShowOnMapToolTests, MapPinCameraTests); row 8 eval (no replay case) and row 9 device NOT_VERIFIED; App files read, not compiled. Notes: × calls closePanel directly, not through the executor; rows 3/5 App halves checked by reading only."
       ]
+    },
+    {
+      "id": "T-040zn",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-040zm"
+      ],
+      "action": "F-15b §61 items 1-9: set_trip_plan saves and reports only (saved true/false, ok == saved, whole plan, not_placed with the searched range, removed over the driver request); no critics in the write, no issues, no trip_needs_fix, no rounds (§55 items 8-10, §49 items 5-6 removed); new read-only check_trip_plan (no args = plan in hand, or a draft days in set_trip_plan shape, nothing saved): per-day sight/driving/total/budget minutes, stops placed, hotel, not_found with range, unknown_driving; numbers only, no advice words; new set_trip_plan field asked {text, must, days, city, notes} written by the model, required for a new plan, kept when not sent, part of TripPlan (saved plans, every trip result, 现在 note), never compared by code; saved-result next asks her to review her own plan against asked (driver's places/days/city/hotel present, no empty day, each day reasonable, check_trip_plan when needed) and revise with set_trip_plan before speaking; plan_text one line per day ahead of the JSON; from the 3rd save in a driver request next says stop revising and tell the driver; panel 行程已更新 / 没保存 / 正在核对行程; record trip_edit state=saved|refused, trip set saved=, trip check-call; catalog texts; major agent version; rows 268-278.",
+      "notes": "Owner phone test 2026-11-23 (416bff7, record 20261123-181633): 广东几天游 including 九龙湖公主酒店; lookup searched 中山 only, issue line said 换一个或者去掉, she replaced it twice, the last result read ok=true / state=done, and she said the plan included 九龙湖. Owner: the LLM plans; counting is a tool the LLM calls to verify its plan; success is approved by the LLM, never by code. Owner follow-up: the LLM can see an empty day and a wrong split itself, so it reviews and revises its own plan; root cause per owner: the driver's request was never saved with the plan (context lost), so it is now saved as asked.",
+      "evidence": []
     }
   ]
 }

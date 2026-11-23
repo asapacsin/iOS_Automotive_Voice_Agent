@@ -50,6 +50,9 @@ missing, fix this file in the same session (commit it) so the next session does 
 - Phone plugged in, unlocked, trusted.
 - Elevated `pymobiledevice3 remote tunneld` running (UAC prompt once per boot): phone_check reports
   "WebDriverAgent did not answer" when it is not.
+- Developer disk image mounted (once per phone reboot): `pymobiledevice3 mounter list --tunnel <udid>` prints `[]`
+  when it is not, and `developer dvt xcuitest` then fails with "Failed to start service". Fix:
+  `pymobiledevice3 mounter auto-mount --tunnel <udid>` (run from `C:\`; takes ~6 min, found 2026-11-23).
 - WebDriverAgentRunner installed on the phone (`XTL-Y6YT9YM42U.com.facebook.WebDriverAgentRunner.xctrunner`).
 - Taps go by screen position for iPhone 17 (WDA element lookup returns HTTP 500); positions are in phone_check.py.
 
