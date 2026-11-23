@@ -41,6 +41,10 @@ def same_name(s: str) -> str:
     return m.group(1) if m else t
 
 
+def whole_name(s: str) -> str:
+    return re.sub(r"\s+", "", s.lower()).replace("（", "(").replace("）", ")")
+
+
 def same_city(s: str) -> str:
     t = re.sub(r"\s+", "", s)
     return t[:-1] if t.endswith("市") and len(t) > 1 else t
@@ -53,14 +57,17 @@ def judge(name: str, city: str, pois: list) -> tuple:
     found = [{"name": text(p.get("name")), "city": text(p.get("cityname")), "district": text(p.get("adname")),
               "address": text(p.get("address"))} for p in pois]
     asked = same_name(name)
-    hits = [f for f in found if asked and same_name(f["name"]) == asked
+    whole = whole_name(name)
+    # A name with its branch (called again with a name from found) is compared whole, as the app does.
+    key = (lambda n: whole_name(n) == whole) if whole != asked else (lambda n: same_name(n) == asked)
+    hits = [f for f in found if asked and key(f["name"])
             and (not city or same_city(f["city"]) == same_city(city))]
     return (hits[0] if len(hits) == 1 else None), found[:MAX_FOUND]
 
 
 def fetch(key: str, name: str, city: str) -> dict:
     q = urllib.parse.urlencode({"key": key, "keywords": name, "city": city, "citylimit": "true",
-                                "offset": 20, "page": 1, "extensions": "base"})
+                                "offset": 10, "page": 1, "extensions": "base"})
     with urllib.request.urlopen(URL + "?" + q, timeout=10) as r:
         return json.load(r)
 

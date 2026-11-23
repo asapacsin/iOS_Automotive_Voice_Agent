@@ -18,6 +18,7 @@ class ShowPlaceCheckTests(unittest.TestCase):
         self.assertIsNotNone(spc.judge("清远新世界酒店", "清远", [poi("清远新世界酒店", "清远市")])[0])
         self.assertIsNotNone(spc.judge("星巴克", "清远", [poi("星巴克(大元路店)", "清远市")])[0])
         self.assertIsNone(spc.judge("星巴克", "清远", [poi("星巴克(A店)", "清远市"), poi("星巴克(B店)", "清远市")])[0])
+        self.assertEqual(spc.judge("星巴克(A店)", "清远", [poi("星巴克(A店)", "清远市"), poi("星巴克(B店)", "清远市")])[0]["name"], "星巴克(A店)")
         self.assertIsNone(spc.judge("悦天下生态度假区", "清远", [poi("清远清泉湾生态旅游度假区", "清远市")])[0])
         self.assertIsNone(spc.judge("悦天下生态度假区", "清远", [poi("悦天下生态度假区", "云浮市")])[0])
         self.assertEqual(len(spc.judge("x", "清远", [poi(f"p{i}", "清远市") for i in range(8)])[1]), 5)

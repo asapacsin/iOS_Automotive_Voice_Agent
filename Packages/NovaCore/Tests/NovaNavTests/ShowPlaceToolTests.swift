@@ -168,6 +168,16 @@ struct ShowPlaceToolTests {
         #expect(presented.cards.withLock { $0.isEmpty })
     }
 
+    @Test("T-031zc row 3 then item 4: called again with a branch name from found, that branch alone is sure (full-width brackets too)")
+    func againWithBranch() async {
+        let places = [Self.place("A", "星巴克(大元路店)", city: "清远市"), Self.place("B", "星巴克(万达店)", city: "清远市")]
+        let presented = Presented()
+        let result = await run("星巴克（大元路店）", city: "清远", search: CitySearch(local: places), presented: presented)
+        #expect(result.ok, "\(result)")
+        #expect(presented.cards.withLock { $0.map(\.placeID) } == ["A"])
+        #expect(ShowPlaceTool.sureMatch(places, name: "星巴克(东城店)", city: "清远") == nil)
+    }
+
     @Test("T-031zc row 4: city empty searches the car's city only; sure or unsure as rows 1-3; no fix is honest")
     func nearCar() async {
         let one = CitySearch(local: [Self.place("S", "星巴克(拱北店)", city: "珠海市")],

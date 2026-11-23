@@ -130,12 +130,21 @@ public struct ShowPlaceTool: ToolExecutor {
     static func sureMatch(_ results: [Place], name: String, city: String?) -> Place? {
         let asked = sameName(name)
         guard !asked.isEmpty else { return nil }
+        // A name with its branch (she calls again with a name from `found`) is compared whole: 「星巴克(大元路店)」
+        // matches only that branch, never 「星巴克(万达店)」.
+        let whole = wholeName(name)
+        let branched = whole != asked
         let hits = results.filter { place in
-            guard sameName(place.name) == asked else { return false }
+            guard branched ? wholeName(place.name) == whole : sameName(place.name) == asked else { return false }
             guard let city else { return true }
             return place.city.map { sameCity($0) == sameCity(city) } ?? false
         }
         return hits.count == 1 ? hits[0] : nil
+    }
+
+    /// Name compared whole: lowercased, no spaces, full-width brackets as ASCII.
+    static func wholeName(_ s: String) -> String {
+        String(s.lowercased().filter { !$0.isWhitespace }.map { $0 == "（" ? "(" : $0 == "）" ? ")" : $0 })
     }
 
     /// Name compared: lowercased, no spaces, a trailing 「(…)」 or 「（…）」 branch removed.
