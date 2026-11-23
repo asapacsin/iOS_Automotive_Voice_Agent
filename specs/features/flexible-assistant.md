@@ -841,7 +841,7 @@ route. She finds the place as in §18 (the model decides, code only fetches).
    「在地图上标出一个地方给司机看，不导航、不算路线。司机问在哪里、在地图上看看、离这里多远时用；司机要去那里才用
    navigate_to。city 填这个地方所在的城市；不确定在哪个城市时先用 web_search 查。」 The `navigate_to` description adds:
    「司机只是想看在哪里，用 show_on_map。」 Declared always (not tied to the search setting). Agent version: minor bump
-   (a new tool, F-09b §15 bump rules).
+   (a new tool, F-09b §15 bump rules). Implemented as 8.0.0: the §15 gate counts a new tool as a major bump.
 2. **The same lookup as `show_place`.** §18 items 2–5 unchanged and shared in code (one function, not a copy): a place on
    screen with that name, else 高德 text search in `city` (car's city when empty), exact name+city match is sure; anything
    else is `PLACE_UNSURE` with `facts.asked` and `facts.found` and the §18 item 4 `next`, with 「卡片」 read as 「地图」:

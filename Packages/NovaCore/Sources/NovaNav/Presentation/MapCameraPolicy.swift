@@ -85,7 +85,7 @@ public struct MapCameraPolicy: Sendable {
             return nil
         case .tick(let now):
             // C8: the in-car return after no touch.
-            guard pin == nil, case .free(let lastTouch) = mode, now - lastTouch >= tuning.autoRecenterAfter,
+            guard pin == nil || framing == .navigating, case .free(let lastTouch) = mode, now - lastTouch >= tuning.autoRecenterAfter,
                   framing != .lists, let point = marker else { return nil }
             mode = .following
             return center(point, at: now)

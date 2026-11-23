@@ -248,6 +248,12 @@ struct MapPinCameraTests {
         _ = nav.handle(.position(position(fix()), at: t0))
         _ = nav.handle(.framing(.navigating, at: t0))
         #expect(nav.handle(.mapPin(near, at: t0 + .seconds(1))) == nil)
+        // A pin shown before guidance started does not stop the in-car recenter while navigating.
+        var later = MapCameraPolicy()
+        _ = later.handle(.position(position(fix()), at: t0))
+        _ = later.handle(.mapPin(near, at: t0 + .seconds(1)))
+        _ = later.handle(.framing(.navigating, at: t0 + .seconds(2)))
+        #expect(later.handle(.tick(at: t0 + .seconds(30))) != nil)
         // The pin going away lets the auto-recenter run again.
         _ = p.handle(.userGesture(at: t0 + .seconds(70)))
         _ = p.handle(.mapPin(nil, at: t0 + .seconds(71)))
