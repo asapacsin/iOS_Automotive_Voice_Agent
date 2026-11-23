@@ -2657,14 +2657,16 @@
     {
       "id": "T-031zd",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-031zc"
       ],
       "action": "F-09b §19 items 1-7: show_on_map(name, city) declared always; the §18 show_place lookup shared in one function (screen match, 高德 in her city, exact name+city sure, else PLACE_UNSURE with found, no pin); sure -> one green pin (replaces any earlier) and a small card with name, district, straight-line distance and ×, no route request of any kind; camera frames car+pin (pin alone at 5 km when car unknown or >300 km; no move while navigating), following paused, recenter off; mapPin screen key layer 1 in the §17 registry, opening closes tripDetail/tripPlans, off on ×, 关掉, a navigate_to list, session end; ok facts name/city/district/address/distance_km with next 没有开始导航 and must_not claim_started; navigate_to description sentence; agent minor bump; record line; rows 1-9.",
       "notes": "Owner phone test 2026-11-23 (6082b0e, record 20261123-162956): asked three times where 九龙湖度假区 is on the map; open_app maps showed nothing, show_place gave only an intro card, so she called navigate_to and a tap started a 168-minute route. Owner: add a show-map tool.",
-      "evidence": []
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 2d263fe in a clean clone (NovaCore 1095, 1 known NoiseCorpus issue; spec-trace 175/0; agent 8.0.0 — the §15 gate counts a new tool as major, spec said minor, noted in §19; record format 8). Review: spec-reviewer high effort FAIL (8.0.0 parts stale; pin stopped the auto-recenter while navigating) -> fixed df47803, 2d263fe -> medium re-check PASS (new test fails without the fix). Rows 1-7 unit PASS (ShowOnMapToolTests, MapPinCameraTests); row 8 eval (no replay case) and row 9 device NOT_VERIFIED; App files read, not compiled. Notes: × calls closePanel directly, not through the executor; rows 3/5 App halves checked by reading only."
+      ]
     }
   ]
 }
