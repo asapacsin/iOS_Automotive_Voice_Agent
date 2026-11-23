@@ -485,8 +485,9 @@ struct ObservedLiveInfoExecutor: ToolExecutor {
         let kind = call.arguments["kind"]?.stringValue.flatMap { ToolCatalog.liveInfoKinds.contains($0) ? $0 : nil } ?? "other"
         RuntimeLog.agent.notice("toolCall name=query_live_info kind=\(kind, privacy: .public)")
         // F-15b §62 item 12 (T-040zo): the spinner row 「正在查：<query>」 at once while it runs; no spoken line.
-        let what = call.arguments["query"]?.stringValue ?? WorkProgress.searchTitle(tool: "query_live_info", kind: kind)
-        work?.start(.search, step: WorkProgress.lookingUp(what), immediate: true)
+        let step = call.arguments["query"]?.stringValue.map(WorkProgress.lookingUp)
+            ?? WorkProgress.searchTitle(tool: "query_live_info", kind: kind)
+        work?.start(.search, step: step, immediate: true)
         let result = await inner.execute(call)
         work?.clear(.search)
         RuntimeLog.agent.notice("toolResult name=query_live_info ok=\(result.ok, privacy: .public) code=\(result.code?.rawValue ?? "none", privacy: .public)")

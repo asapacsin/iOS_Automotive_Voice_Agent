@@ -171,6 +171,9 @@ public final class WorkProgressBoard: Sendable {
     public func start(_ kind: WorkProgress.Kind, step title: String? = nil, immediate: Bool = false) {
         let now = clock.now
         state.withLock {
+            // F-15b §62 item 12 (T-040zo, review): a search while `plan_trip` runs never replaces its row; the row
+            // stays on until the planner's result.
+            if kind == .search, $0.kind == .handoff, $0.open { return }
             $0.start(kind, at: now, immediate: immediate)
             if let title { $0.step(title, at: now) }
         }

@@ -551,6 +551,7 @@ public actor TripPlanner: ToolExecutor {
             work?.step(round == 1 ? WorkProgress.tripPlanning : WorkProgress.tripRevising(round))
             let asking = clock.now
             let answer = await askPlanner(messages)
+            guard !Task.isCancelled else { return .failure(.optionsStale) }
             guard case .success(let (text, written)) = answer else {
                 if case .failure(let why) = answer {
                     onLine("trip planner failed reason=\(why.rawValue) round=\(round) ms=\(ms(since: asking)) model=\(model)")

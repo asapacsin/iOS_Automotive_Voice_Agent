@@ -317,7 +317,15 @@ struct TripPlanTripTests {
         #expect(board.panel?.line == "已交给规划助手")
         board.step(WorkProgress.tripCounting(1))
         #expect(board.panel?.line == "正在核对路线（第1轮）")
-        // A search shows the same row with 正在查：<query>.
+        // Review: a search that starts and ends while plan_trip runs leaves its row; the next step and the result show.
+        board.start(.search, step: WorkProgress.lookingUp("广州天气"), immediate: true)
+        #expect(board.panel?.line == "正在核对路线（第1轮）")
+        board.clear(.search)
+        board.step(WorkProgress.tripRevising(2))
+        #expect(board.panel?.line == "正在修改行程（第2轮）" && board.panel?.kind == .handoff)
+        board.finish(WorkProgress.tripUpdated, failed: false)
+        #expect(board.panel?.line == WorkProgress.tripUpdated)
+        // With no plan_trip running, a search shows the same row with 正在查：<query>.
         board.start(.search, step: WorkProgress.lookingUp("广州天气"), immediate: true)
         #expect(board.panel?.line == "正在查：广州天气" && board.panel?.spinning == true)
         // The handoff lines the app says (item 12).
