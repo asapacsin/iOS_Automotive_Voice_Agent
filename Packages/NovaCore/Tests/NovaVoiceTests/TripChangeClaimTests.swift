@@ -138,17 +138,31 @@ struct TripChangeClaimReviewTests {
         #expect(h.corrections == [.tripNeedsFix], "\(h.out)")
     }
 
-    @Test("T-040zk F-15b row 253 (review): a set_trip_plan that never returns a result (cancelled, dropped at reconnect) does not allow a background claim in the next driver request")
-    func runningWriteScopedToRequest() {
+    @Test("T-040zk F-15b row 253 (review): a set_trip_plan cancelled or dropped at a reconnect (no result) no longer allows a background claim")
+    func endedWriteNoLongerRunning() {
         var h = PipelineHarness()
         h.driver("第二天加个咖啡馆")
-        _ = h.call("t1", "set_trip_plan")
+        let id = h.call("t1", "set_trip_plan")
         h.close()
-        h.advance(by: .seconds(30))
+        h.pipeline.callsEnded([id])
         h.driver("好了吗")
         h.say("我已经在后台更新了行程，可能稍后就会同步。")
         h.close()
         h.advance(by: .seconds(30))
         #expect(h.corrections.contains(.tripUnverifiedClaim), "\(h.out)")
+    }
+
+    @Test("T-040zk F-15b row 254 (review): a set_trip_plan still running across 「好了吗」: 「还在后台更新行程」 is not drift")
+    func runningWriteAcrossUtterance() {
+        var h = PipelineHarness()
+        h.driver("第二天加个咖啡馆")
+        _ = h.call("t1", "set_trip_plan")
+        h.say("好，我在改行程，好了告诉你。")
+        h.close()
+        h.driver("好了吗")
+        h.say("还在后台更新行程，稍后会同步到屏幕上。")
+        h.close()
+        h.advance(by: .seconds(30))
+        #expect(!h.corrections.contains(.tripUnverifiedClaim) && !h.corrections.contains(.tripClaimAfterFailure), "\(h.out)")
     }
 }

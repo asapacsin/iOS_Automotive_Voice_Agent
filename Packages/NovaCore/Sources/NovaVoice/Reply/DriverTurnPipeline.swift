@@ -203,6 +203,12 @@ public struct DriverTurnPipeline: Sendable {
         self.detector = detector
     }
 
+    /// §58 item 3 (review): a call cancelled or dropped at a reconnect never sends a result; it is no longer running,
+    /// so it stops allowing a background claim (a write still running across a new utterance still does).
+    public mutating func callsEnded(_ ids: some Sequence<CallID>) {
+        tripWrites.subtract(ids)
+    }
+
     public mutating func handle(_ input: PipelineInput, at now: NovaInstant) -> [PipelineOutput] {
         switch input {
         case .driverUtterance(let text):
@@ -211,9 +217,6 @@ public struct DriverTurnPipeline: Sendable {
             tripNeedsFix = false
             tripLatestOk = nil
             tripNames = []
-            // §58 item 3 (review): writes belong to one driver request; a cancelled or dropped write never sends a
-            // result, so the set is cleared here instead of leaking for the session.
-            tripWrites = []
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
             wrongLanguageAsked = false
             awaitingReaskReply = false

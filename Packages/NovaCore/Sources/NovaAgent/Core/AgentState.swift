@@ -1078,6 +1078,7 @@ public struct AgentState: Sendable {
             runningTools = max(runningTools - 1, 0)
             effects += [.cancelTool(id), .diagnostic(.asyncToolDropped(tool: call.tool))]
         }
+        pipeline.callsEnded(asyncCalls.keys)
         asyncCalls = [:]
         return effects
     }
@@ -1290,6 +1291,7 @@ public struct AgentState: Sendable {
             }
             return effects
         case .toolCallCancellation(let ids):
+            pipeline.callsEnded(ids)
             for id in ids {
                 let search = searchCalls.removeValue(forKey: id) != nil
                 let background = asyncCalls.removeValue(forKey: id) != nil
