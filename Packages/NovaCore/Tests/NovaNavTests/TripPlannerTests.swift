@@ -58,6 +58,15 @@ func spot(_ name: String, id: String? = nil, lat: Double, lng: Double) -> Place 
 }
 
 func trip(_ name: String, _ args: [String: JSONValue] = [:]) -> ToolCall {
+    // F-15b §61 item 3 (T-040zn): a new plan needs `asked`; tests of earlier sections that write a new plan (with
+    // `city`) get a neutral one. Tests of `asked` itself build their call with `rawTrip`.
+    var a = args
+    if name == "set_trip_plan", a["city"] != nil, a["asked"] == nil { a["asked"] = ["text": "测试行程"] }
+    return rawTrip(name, a)
+}
+
+/// The call exactly as given (no `asked` added).
+func rawTrip(_ name: String, _ args: [String: JSONValue] = [:]) -> ToolCall {
     ToolCall(id: CallID("t1")!, name: name, arguments: .object(args))
 }
 

@@ -75,14 +75,17 @@ public struct TripTuning: Sendable, Hashable {
 /// the model's names through 高德 (§4, never taken as places), and routes the list through `NavigationController`
 /// one stop at a time (§29). Record lines are codes and numbers only (§7, I-8).
 public actor TripPlanner: ToolExecutor {
-    public static let tools: Set<String> = ["set_trip_plan", "trip_next", "trip_plans"]
-    /// §49 item 6, §55 item 9 (T-040zh): at most this many `trip_needs_fix` results per driver request.
+    public static let tools: Set<String> = ["set_trip_plan", "check_trip_plan", "trip_next", "trip_plans"]
+    /// §56 item 4 with §49 item 6: at most this many `PLAN_CHECK` refusals carry the fix-and-resend `next`.
     public static let maxFixRounds = 2
+    /// F-15b §61 item 3a (T-040zn): from this saved write in one driver request on, `next` says stop revising.
+    public static let stopRevisingFrom = 3
 
-    /// §55 item 9 (T-040zh): the `trip_needs_fix` rounds given for the current driver request, and that request's
-    /// driver turn (nil without a turn count: the rounds then end with the next `trip_list`).
-    private var fixRound = 0
-    private var fixTurn: Int?
+    /// F-15b §61 items 3a-4 (T-040zn): the current driver request (its turn; nil without a turn count, then every
+    /// call is a new request), the saved writes in it, and the stop names of the plan at the driver's last words.
+    private var requestTurn: Int??
+    private var requestSaves = 0
+    private var requestStartNames: [String] = []
     /// §50 item 1: Qwen with web search; nil keeps the model's own names.
     private let grounder: (any TripGrounder)?
     /// §50 item 3: the centre and country of an abroad trip's city; nil keeps §36's China-only check.
@@ -338,7 +341,19 @@ public actor TripPlanner: ToolExecutor {
         case "set_trip_plan":
             // §4 item 9: a write waits for the writes already running.
             await waitFor()
-            return withPlan(await tracked(call))
+            let result = await tracked(call)
+            // F-15b §61 item 1 (T-040zn): `saved` is the generic `ok` and means only that the plan was stored.
+            var data = result.data
+            data["saved"] = .bool(result.ok)
+            return withPlan(ToolResult(ok: result.ok, code: result.code, data: data, advice: result.advice))
+        case "check_trip_plan":
+            // §61 item 2: read-only; it counts the finished plan (or a draft), so it waits for running writes.
+            await waitFor()
+            work?.start(.trip, step: WorkProgress.tripChecking)
+            onLine("work step=trip_check state=running")
+            let result = await run(call)
+            work?.clear(.trip)
+            return withPlan(result)
         default:
             // §4 item 9: trip_next and trip_plans use the finished list: they wait until no change is running.
             await waitFor()
@@ -350,6 +365,8 @@ public actor TripPlanner: ToolExecutor {
     private func withPlan(_ result: ToolResult) -> ToolResult {
         var data = result.data
         data["plan"] = TripPlanJSON.value(plan)
+        // F-15b §61 item 3 (T-040zn): the driver's request at the top of every trip result.
+        if let asked = plan.asked { data["asked"] = asked.json }
         return ToolResult(ok: result.ok, code: result.code, data: data, advice: result.advice)
     }
 
@@ -405,28 +422,21 @@ public actor TripPlanner: ToolExecutor {
         if edit { onLine("work step=trip_edit state=running") }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         changes[id] = nil
-        // §60 items 1-2: the panel goes off at the return with any result; `trip_needs_fix` shows no line (the cards
-        // show the plan), no carry-over to a fix round.
-        if result.data["status"]?.stringValue == "trip_needs_fix" {
-            work?.clear(.trip)
-            if edit { onLine("work step=trip_edit state=needs_fix") }
-            return result
-        }
         if !result.ok, result.code == .invalidFields || result.code == .planCheck {
-            // §58 item 5: a refused write: the cards stay, the panel says it failed (the first problem) for 5 s.
-            work?.finish(WorkProgress.tripNotChanged(Self.firstProblem(result)), failed: true)
-            onLine("work step=trip_edit state=failed")
+            // §58 item 5, §61 item 5 (T-040zn): a refused write: the cards stay, 「没保存：<first problems line>」 for 5 s.
+            work?.finish(WorkProgress.tripNotSaved(Self.firstProblem(result)), failed: true)
+            onLine("work step=trip_edit state=refused")
         } else if edit, result.ok {
-            // §58 item 5: the cards update; 「已加入<名字>」 (the new names) or 「已改好」 for 3 s.
+            // §58 item 5, §61 item 5: the cards update; 「已加入<名字>」 (the new names) or 「行程已更新」 for 3 s.
             let added = Self.writtenDays(call.arguments).joined().filter { $0.id == nil }.compactMap { $0.name ?? $0.near }
             var names: [String] = []
             for n in added where !names.contains(n) { names.append(n) }
-            work?.finish(names.isEmpty ? WorkProgress.tripEdited : WorkProgress.tripAdded(names), failed: false)
-            onLine("work step=trip_edit state=done")
+            work?.finish(names.isEmpty ? WorkProgress.tripUpdated : WorkProgress.tripAdded(names), failed: false)
+            onLine("work step=trip_edit state=saved")
         } else {
             // The cards replace the steps of a new plan; any other failure keeps its line.
             result.ok ? work?.clear(.trip) : work?.end()
-            if edit { onLine("work step=trip_edit state=failed") }
+            if edit { onLine("work step=trip_edit state=refused") }
         }
         return result
     }
@@ -445,6 +455,7 @@ public actor TripPlanner: ToolExecutor {
         if !Self.clearsWhole(call) { clearAsked = nil }
         switch call.name {
         case "set_trip_plan": return await setPlan(call.arguments)
+        case "check_trip_plan": return await checkPlan(call.arguments)
         case "trip_next": return await next(call.arguments)
         case "trip_plans": return await plans(call.arguments)
         default: return .failure(.unknownTool)
@@ -628,10 +639,12 @@ public actor TripPlanner: ToolExecutor {
               coordinate: GeoCoordinate(latitude: 0, longitude: 0, datum: .gcj02), distanceMeters: nil)
     }
 
-    /// §55 item 9 (T-040zh): the `next` of a `trip_needs_fix` result, exactly as §55 gives it.
-    public static let fixNext = "先不要跟司机说话，按 issues 改好整份行程，再调用 set_trip_plan。"
-    /// §55 item 9: the `next` part that names the issues still failing after the last round.
-    public static func leftoverNext(_ lines: [String]) -> String { "跟司机说还有这些问题：" + lines.joined(separator: "；") }
+    /// F-15b §61 item 3a (T-040zn): every saved `set_trip_plan` result's `next`, exactly as §61 gives it.
+    public static let reviewNext = "行程已存上，先别跟司机说话，对照 asked 自己检查一遍 plan：1. must 里的地点、天数、城市、notes 都做到没有；2. 有没有空的一天；3. 每天的安排合不合理（时间、路程要核对就调用 check_trip_plan）。有问题就自己改好，再调用 set_trip_plan。都没问题了再跟司机说：简短说安排了什么；没做到的说哪个、为什么，问司机怎么办。must 里的地点没找到，不要自己换掉或去掉，问司机。plan 里没有的不要说有。"
+    /// §61 item 3a: the `next` from the third saved write in one driver request on.
+    public static let stopRevisingNext = "已经改了几次了，别再改，照 plan 跟司机说：安排了什么，还有哪些没做到、为什么。"
+    /// §61 item 3: the `PLAN_CHECK` line of a new plan without `asked`.
+    public static let askedMissing = "新行程要写 asked（司机要什么：text、must、days、city、notes）"
     /// §55 item 2: the line of a new plan without `city` (§56 item 2: now an `INVALID_FIELDS` problem).
     public static let cityMissing = ToolCatalog.tripCityMissing
 
@@ -639,8 +652,8 @@ public actor TripPlanner: ToolExecutor {
     /// new plan: `city` is required and the plan in hand is replaced (no `CONFIRM_CLEAR`). New names are looked up
     /// inside the plan's city (a name not found there is kept with `placed=false`, never a nationwide guess); a
     /// `{role: hotel, near}` stop is the hotel closest to that place, picked by the app. Code never moves a stop to
-    /// another day and never asks for a start. The saved plan is then checked (§55 item 8); while a check fails and a
-    /// round is left, the result is `trip_needs_fix`.
+    /// another day and never asks for a start. F-15b §61 (T-040zn): it saves and reports, it does not check: no critics,
+    /// no `trip_needs_fix`, no rounds; the driver's request (`asked`) is kept with the plan and she reviews it herself.
     private func setPlan(_ args: JSONValue) async -> ToolResult {
         planWrites += 1
         defer { planWrites -= 1 }
@@ -652,17 +665,28 @@ public actor TripPlanner: ToolExecutor {
         // §56 item 1 (T-040zi): keys ignored, listed once in facts and counted in the record.
         let ignored: [String] = if case .object(let o) = args { ToolCatalog.tripIgnoredFields(o) } else { [] }
         var counts = (kept: 0, new: 0, removed: 0, notPlaced: 0)
-        var issueCount = 0
-        var round = 0
-        func log(_ ok: Bool) {
-            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) new_plan=\(newPlan ? "yes" : "no") check=\(ok ? "ok" : "fail") issues=\(issueCount) round=\(round) ms=\(ms(since: started)) ignored=\(ignored.count)")
+        let askedArg = TripAsked(args["asked"])
+        // §61 items 3a-4 (T-040zn): new driver words start a new request: its save count and the plan it started from.
+        let turn = await driverTurns?()
+        if turn == nil || requestTurn != .some(turn) {
+            requestTurn = .some(turn)
+            requestSaves = 0
+            var names: [String] = []
+            for r in plan.allStops where !names.contains(r.stop.place.name) { names.append(r.stop.place.name) }
+            requestStartNames = names
+        }
+        // §61 item 5: `saved=yes|no` (the `check=`, `issues=` and `round=` fields are gone).
+        func log(_ saved: Bool) {
+            onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) new_plan=\(newPlan ? "yes" : "no") saved=\(saved ? "yes" : "no") ms=\(ms(since: started)) ignored=\(ignored.count)")
         }
         // §50 item 6: a new plan's first step is the place check; a change is 正在改行程 (§58 item 5).
         work?.step(newPlan ? WorkProgress.tripCheck : WorkProgress.tripEdit)
         // §52 item 13 (T-040ze): a plan with no stops is a clear of the whole trip.
         if stopTotal == 0 { return await clearWhole(viaPlan: true) }
         // §56 item 2 (T-040zi): a new plan without city is refused before this (`INVALID_FIELDS`, `ToolCatalog`).
-        let problems = Self.planProblems(written, old: newPlan ? TripPlan() : plan)
+        var problems = Self.planProblems(written, old: newPlan ? TripPlan() : plan)
+        // §61 item 3: a new plan needs `asked`, like `city`; a change keeps the saved one when it is not sent.
+        if newPlan, askedArg == nil { problems.append(Self.askedMissing) }
         guard problems.isEmpty else {
             log(false)
             planCheckRounds += 1
@@ -821,6 +845,11 @@ public actor TripPlanner: ToolExecutor {
             plan.budgetMinutes = pace?.budgetMinutes ?? plan.budgetMinutes ?? TripFitter.Pace.normal.budgetMinutes
         }
         plan.spare.removeAll { s in plan.allStops.contains { $0.stop.place.id == s.place.id } }
+        // §61 item 3: `asked` replaced when sent, kept when not (a new plan always sends it).
+        if let askedArg {
+            plan.asked = askedArg
+            onLine("trip asked must=\(askedArg.must.count) days=\(askedArg.days.map(String.init) ?? "-") notes=\(askedArg.notes.count)")
+        }
         changed()
         // §52 item 4: names not on the map are searched again in the background.
         retryUnplaced()
@@ -831,62 +860,105 @@ public actor TripPlanner: ToolExecutor {
         if !notPlaced.isEmpty { facts["not_placed"] = .array(notPlaced.map(JSONValue.string)) }
         if !slow.isEmpty { facts["search_slow"] = .array(slow.map(JSONValue.string)) }
         if timed.estimated { facts["times"] = "estimated" }
-        // §55 item 9: at most 2 rounds per driver request (one driver turn; without a turn count, until the next
-        // `trip_list`).
-        let turn = await driverTurns?()
-        if let turn, fixTurn != turn { fixRound = 0 }
-        // §55 item 8: the critics over the saved plan. A slow name stays in `search_slow`, never `not_found`.
-        let issues = planIssues(notFound: notPlaced.filter { !slow.contains($0) })
-        issueCount = issues.count
-        // §55 item 10: a plan with an empty or over day is not ready.
-        if issues.contains(where: { $0.kind == .empty || $0.kind == .over }) { facts["ready"] = false }
+        // §61 item 3a: no critics; she reviews the plan against `asked`. From the 3rd save in a request: stop revising.
+        requestSaves += 1
         // §55 item 6: no start is not an error; she may ask for one after the plan is saved.
         let hasStart = plan.days.first?.stops.first?.role == .start
         let may: [ReplyMay] = newPlan && !hasStart ? [.askStart] : []
+        // §61 item 4: `removed` over the driver request: the plan at the driver's last words, less the plan now.
+        let now = Set(plan.allStops.map(\.stop.place.name))
+        let removedOverRequest = requestStartNames.filter { !now.contains($0) }
+        facts["removed"] = removedOverRequest.isEmpty ? nil : .array(removedOverRequest.map(JSONValue.string))
+        if !notPlaced.isEmpty { facts["not_placed_range"] = .string(searchedRange()) }
         var data = listResult(changed: "set", facts: facts, may: may, mustNot: [.readList, .readDistances]).data
-        if !issues.isEmpty, fixRound < Self.maxFixRounds {
-            fixRound += 1
-            fixTurn = turn
-            round = fixRound
-            log(false)
-            data["status"] = "trip_needs_fix"
-            data["round"] = .int(Int64(round))
-            data["issues"] = .array(issues.map { .string($0.line) })
-            data["next"] = .string(Self.fixNext)
-            return .success(data)
-        }
-        // All checks pass, or the rounds are used up: the plan as it is, with any issue still failing in `next`.
-        if issues.isEmpty || turn == nil { fixRound = 0 }
-        fixTurn = turn
-        log(issues.isEmpty)
-        if !issues.isEmpty {
-            data["issues"] = .array(issues.map { .string($0.line) })
-            let said = data["next"]?.stringValue ?? ""
-            let left = Self.leftoverNext(issues.map(\.line))
-            data["next"] = .string(said.isEmpty || said.hasSuffix("。") ? said + left : said + "；" + left)
-        }
+        // §61 item 3a: the plan as she wrote it, one line per day, ahead of the JSON.
+        data["plan_text"] = .string(TripPlanJSON.planText(plan))
+        data["next"] = .string(requestSaves >= Self.stopRevisingFrom ? Self.stopRevisingNext : Self.reviewNext)
+        log(true)
         return .success(data)
     }
 
-    /// §55 item 8 (T-040zh): the checks over the plan in hand, in §55's order.
-    private func planIssues(notFound: [String]) -> [TripChecks.Issue] {
+    /// F-15b §61 item 2 (T-040zn): `check_trip_plan`, the counting assistant. No arguments: the plan in hand. `days` in
+    /// `set_trip_plan`'s shape: a draft (kept ids as they are, new names looked up as `set_trip_plan` does), nothing
+    /// saved, the cards unchanged. Numbers and facts only: no verdict, no advice, no thresholds.
+    private func checkPlan(_ args: JSONValue) async -> ToolResult {
         let started = clock.now
-        let budget = plan.budgetMinutes ?? TripFitter.Pace.normal.budgetMinutes
-        let days = plan.days.map { day -> TripChecks.Day in
-            let sights = day.stops.filter { $0.role == .sight }
-            let driving = Int((Double(day.stops.reduce(0) { $0 + ($1.legSeconds ?? 0) }) / 60).rounded())
-            let area = sights.last.map { $0.place.district ?? $0.place.name }
-            return TripChecks.Day(minutes: Self.dayMinutes(day), drivingMinutes: driving,
-                                  onlyMustSee: !sights.isEmpty && sights.allSatisfy { $0.importance == 3 }, area: area,
-                                  sights: sights.count, longestSightMinutes: sights.map(\.visitMinutes).max() ?? 0)
+        let written = Self.writtenDays(args)
+        let draft = !written.isEmpty
+        var days: [[TripStop]] = plan.days.map(\.stops)
+        var notFound: [String] = []
+        if draft {
+            let known = Dictionary(plan.allStops.map { ($0.stop.id, $0.stop) }, uniquingKeysWith: { a, _ in a })
+            var newNames: [String] = []
+            for s in written.joined() where s.id == nil { if let n = s.name, !newNames.contains(n) { newNames.append(n) } }
+            let lookups = newNames.isEmpty ? [] : await resolve(newNames, city: plan.abroad ? nil : plan.city,
+                                                                abroad: plan.abroad, near: regionHint())
+            var placeOf: [String: Place] = [:]
+            for (i, n) in newNames.enumerated() { if case .found(let p) = lookups[i] { placeOf[n] = p } }
+            var nearOf: [String: Place] = [:]
+            for s in written.joined() where s.id == nil && s.name == nil {
+                guard let near = s.near, nearOf[near] == nil else { continue }
+                if let h = await hotelsNear(near, city: plan.city, abroad: plan.abroad, grounded: [])?.first { nearOf[near] = h.place }
+            }
+            days = written.map { day in
+                day.compactMap { w -> TripStop? in
+                    if let id = w.id {
+                        guard var stop = known[id] else { return nil }
+                        if let r = w.role { stop.role = r }
+                        if let m = w.minutes { stop.minutes = m }
+                        return stop
+                    }
+                    let name = w.name ?? w.near.map { "\($0)附近的酒店" } ?? ""
+                    let place = w.name.flatMap { placeOf[$0] } ?? w.near.flatMap { nearOf[$0] }
+                    return TripStop(index: 0, asked: name, place: place ?? Self.unplacedPlace(name, key: "draft|\(name)"),
+                                    distanceMeters: nil, role: w.role ?? (w.near != nil ? .hotel : .sight), minutes: w.minutes,
+                                    importance: w.importance, placed: place != nil, pickedBy: .model)
+                }
+            }
+            days = await timedDays(days, abroad: plan.abroad, keepFirstLegs: false).days
+            guard !Task.isCancelled else { return .failure(.optionsStale) }
         }
-        // A night k (1…days−1) has its hotel when day k ends with one.
-        let nights = plan.dayCount < 2 ? [] : (1..<plan.dayCount).filter { plan.days[$0 - 1].stops.last?.role != .hotel }
-        let issues = TripChecks.run(days: days, budgetMinutes: budget, spareEmpty: plan.spare.isEmpty, notFound: notFound,
-                                    nightsWithoutHotel: nights, city: TripGround.cityName(plan.city))
-        let count = { (k: TripChecks.Kind) in issues.filter { $0.kind == k }.count }
-        onLine("trip check round=\(fixRound) not_found=\(count(.notFound)) over=\(count(.over)) driving=\(count(.driving)) under=\(count(.under)) hotel=\(count(.hotel)) empty=\(count(.empty)) ms=\(ms(since: started))")
-        return issues
+        let budget = plan.budgetMinutes ?? TripFitter.Pace.normal.budgetMinutes
+        let range = searchedRange()
+        var unknown: [JSONValue] = []
+        var dayValues: [JSONValue] = []
+        for (d, stops) in days.enumerated() {
+            var list = TripList()
+            list.arrange(stops)
+            let sight = list.stops.reduce(0) { $0 + $1.visitMinutes }
+            let driving = Int((Double(list.stops.reduce(0) { $0 + ($1.legSeconds ?? 0) }) / 60).rounded())
+            for s in list.stops where !s.placed && !notFound.contains(s.place.name) { notFound.append(s.place.name) }
+            for (a, b) in zip(list.stops, list.stops.dropFirst()) where !a.placed || !b.placed {
+                unknown.append(.string("第\(d + 1)天：\(a.place.name)→\(b.place.name)"))
+            }
+            // The night after day d+1 has its hotel when the day ends with one (the last day has no night).
+            let hotel: JSONValue = d == days.count - 1 ? .null
+                : list.stops.last.flatMap { $0.role == .hotel ? JSONValue.string($0.place.name) : nil } ?? .null
+            dayValues.append(.object([
+                "day": .int(Int64(d + 1)),
+                "sight_minutes": .int(Int64(sight)),
+                "driving_minutes": .int(Int64(driving)),
+                "total_minutes": .int(Int64(Self.dayMinutes(list))),
+                "budget_minutes": .int(Int64(budget)),
+                "stops": .array(list.stops.map { .object(["name": .string($0.place.name), "placed": .bool($0.placed)]) }),
+                "hotel": hotel,
+            ]))
+        }
+        onLine("trip check-call draft=\(draft ? "yes" : "no") days=\(days.count) not_found=\(notFound.count) unknown_driving=\(unknown.count) ms=\(ms(since: started))")
+        let data: [String: JSONValue] = [
+            "status": "trip_check",
+            "draft": .bool(draft),
+            "days": .array(dayValues),
+            "not_found": .array(notFound.map { .object(["name": .string($0), "searched": .string(range)]) }),
+            "unknown_driving": .array(unknown),
+        ]
+        return .success(data)
+    }
+
+    /// §61 items 1-2 (T-040zn): where new names are looked up: the trip's city at home, the box around it abroad.
+    private func searchedRange() -> String {
+        let city = plan.city ?? "当前位置附近"
+        return plan.abroad ? "\(city)周围\(Int(tuning.areaKm))公里" : city
     }
 
     /// `clear` without `day`, or `set_trip_plan` with no stops: the whole plan is cleared.

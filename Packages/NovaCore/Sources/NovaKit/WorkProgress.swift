@@ -38,8 +38,11 @@ public struct WorkProgress: Sendable, Equatable {
     public static let tripEdit = "正在改行程"
     public static func tripFinding(_ name: String) -> String { "正在找\(name)" }
     public static func tripAdded(_ names: [String]) -> String { "已加入" + names.joined(separator: "、") }
-    public static let tripEdited = "已改好"
-    public static func tripNotChanged(_ line: String) -> String { "没改成：\(line)" }
+    /// F-15b §61 item 5 (T-040zn): a saved edit (was 「已改好」), a refused write (was 「没改成：…」), and the panel while
+    /// `check_trip_plan` runs. The words say what happened (stored, not stored), never that the trip is done.
+    public static let tripUpdated = "行程已更新"
+    public static func tripNotSaved(_ line: String) -> String { "没保存：\(line)" }
+    public static let tripChecking = "正在核对行程"
     /// §58 item 5: an edit's ok line stays 3 s; its refusal line until the next step or 5 s.
     public static let editDoneKeep = NovaDuration.seconds(3)
     public static let editFailedKeep = NovaDuration.seconds(5)

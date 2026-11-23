@@ -16,7 +16,7 @@ FIX = ROOT / "scripts" / "fixtures" / "records"
 
 class RecordScriptsTests(unittest.TestCase):
     def test_t031u_row6_collect_archives_indexes_skips_and_reports(self):
-        """T-031u F-12 §21 row 6: 3 files archived under their commits, copy skipped, format 9 reader=none."""
+        """T-031u F-12 §21 row 6: 3 files archived under their commits, copy skipped, format 99 reader=none."""
         with tempfile.TemporaryDirectory() as tmp:
             src, arc = pathlib.Path(tmp) / "src", pathlib.Path(tmp) / "arc"
             src.mkdir()
@@ -25,11 +25,11 @@ class RecordScriptsTests(unittest.TestCase):
                                                      encoding="utf-8")
             (src / "20261120-090000.txt").write_text(one, encoding="utf-8")
             (src / "20261120-090500.txt").write_text(one, encoding="utf-8")  # a copy
-            (src / "20261120-100000.txt").write_text("recordFormat 9\napp 0.1.0(1) 1234567\n0 x y\n", encoding="utf-8")
+            (src / "20261120-100000.txt").write_text("recordFormat 99\napp 0.1.0(1) 1234567\n0 x y\n", encoding="utf-8")
             with contextlib.redirect_stdout(io.StringIO()) as out:
                 code = collect.main(["--from", str(src), "--archive", str(arc)])
             self.assertEqual(code, 1)
-            self.assertIn("unknown recordFormat 9 in 1234567", out.getvalue())
+            self.assertIn("unknown recordFormat 99 in 1234567", out.getvalue())
             with (arc / "index.csv").open(encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
             self.assertEqual(len(rows), 3)
@@ -55,7 +55,7 @@ class RecordScriptsTests(unittest.TestCase):
         self.assertEqual(set(one[0].keys()), set(read.FIELDS))
         with tempfile.TemporaryDirectory() as tmp:
             bad = pathlib.Path(tmp) / "x.txt"
-            bad.write_text("recordFormat 9\n", encoding="utf-8")
+            bad.write_text("recordFormat 99\n", encoding="utf-8")
             with self.assertRaises(read.UnknownFormat):
                 read.read(bad)
 

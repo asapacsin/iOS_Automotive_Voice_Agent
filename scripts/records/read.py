@@ -165,6 +165,13 @@ def read_format_8(session: str, lines: list[str]) -> list[dict]:
     return read_format_7(session, lines)
 
 
+def read_format_9(session: str, lines: list[str]) -> list[dict]:
+    """F-15b §61 item 5 (T-040zn): as format 8; `trip set … saved=yes|no` (no check=, issues=, round=),
+    `work step=trip_edit state=running|saved|refused`, `work step=trip_check`, `trip check-call …` and
+    `trip asked …` lines, all kept as fields by the generic event reader."""
+    return read_format_8(session, lines)
+
+
 def body(row: dict) -> str | None:
     """The `body=` text of a search row (everything after the first ` body=`), or None."""
     _, sep, rest = row["fields"].partition(" body=")
@@ -172,7 +179,7 @@ def body(row: dict) -> str | None:
 
 
 READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2, 3: read_format_3, 4: read_format_4,
-           5: read_format_5, 6: read_format_6, 7: read_format_7, 8: read_format_8}
+           5: read_format_5, 6: read_format_6, 7: read_format_7, 8: read_format_8, 9: read_format_9}
 
 
 def read(path: pathlib.Path) -> list[dict]:

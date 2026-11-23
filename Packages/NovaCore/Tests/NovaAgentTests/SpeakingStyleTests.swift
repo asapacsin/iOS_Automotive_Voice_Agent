@@ -151,6 +151,8 @@ enum ToolPromptCoverage: Sendable {
         // F-15b §49 (T-040u); §55 item 11 (T-040zh) removed make_trip_list and edit_trip_list.
         "set_trip_plan": .phrase("要去的地方"),
         "trip_next": .phrase("导航"),
+        // F-15b §61 item 2 (T-040zn): she checks the plan she made for the driver.
+        "check_trip_plan": .phrase("要去的地方"),
         // F-15b §16 (T-040l): saved trips are 要去的地方 too.
         "trip_plans": .phrase("要去的地方"),
         // F-09b §16 item 8 (T-031za).

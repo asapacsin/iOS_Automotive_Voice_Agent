@@ -179,7 +179,23 @@ public enum ToolCatalog {
     /// keeps `tripWorkingLine`). There is no immediate tool result for a NON_BLOCKING call here, so it is in the text.
     public static let tripEditWorkingLine = "先只说一句：好，我在改行程，好了告诉你。然后不要说话，等结果。"
     /// F-15b §55 item 12 (T-040zh, replaces §52's): the catalog text of `set_trip_plan`, exactly as §55 gives it.
-    public static let setTripPlanDescription = "做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，跨城市就写省或地区）。改行程：把结果里的行程照着改，已有的地点保留 id（其他字段可以照抄），新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},{name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},{name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。结果稍后回来。新行程：\(tripWorkingLine)改行程：\(tripEditWorkingLine)"
+    public static let setTripPlanDescription = "做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，跨城市就写省或地区）。改行程：把结果里的行程照着改，已有的地点保留 id（其他字段可以照抄），新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},{name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},{name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果稍后回来。新行程：\(tripWorkingLine)改行程：\(tripEditWorkingLine)" + setTripPlanReview
+    /// F-15b §61 item 8 (T-040zn): the sentence added to `set_trip_plan`, exactly as §61 gives it.
+    public static let setTripPlanReview = "结果里的 ok 只表示行程存上了，不表示做到了司机要的。新行程要写 asked（司机要什么：text、must 点名的地点、days、city、notes），司机加了要求就更新 asked。存上后先对照 asked 自己检查 plan（must 在不在、有没有空的一天、每天合不合理，需要时用 check_trip_plan 核对），有问题自己改好再传，然后才跟司机说。"
+    /// §61 item 8: the catalog text of `check_trip_plan`, exactly as §61 gives it.
+    public static let checkTripPlanDescription = "核对行程：算每天景点时间、开车时间、合计和预算，列出没找到的地点和没有酒店的晚上。不传参数就核对当前行程；传 days（和 set_trip_plan 一样的写法）就核对草稿，不保存。只给数字，不给建议，怎么改你自己决定。"
+    /// §61 item 3: `asked`, the driver's request in his terms.
+    public static let tripAsked: JSONValue = [
+        "type": "object",
+        "properties": [
+            "text": ["type": "string", "minLength": 1, "maxLength": 120],
+            "must": ["type": "array", "maxItems": 10, "items": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))]],
+            "days": ["type": "integer", "minimum": 1, "maximum": 5],
+            "city": ["type": "string", "maxLength": 20],
+            "notes": ["type": "array", "maxItems": 10, "items": ["type": "string", "minLength": 1, "maxLength": 60]],
+        ],
+        "required": ["text"],
+    ]
     public static let tripRoles = ["start", "sight", "hotel", "end", "rental_pickup", "rental_return"]
     public static let maxTripStopID = 12
     /// §52 item 3 with F-15b §56 item 1 (T-040zi): a stop of `set_trip_plan`. A stop may carry any field a trip result
@@ -203,7 +219,7 @@ public enum ToolCatalog {
     /// §56 item 1: the stop fields `set_trip_plan` reads; any other key of a stop is ignored and listed (`ignored_fields`).
     public static let tripStopFields: Set<String> = ["id", "name", "role", "minutes", "importance", "placed", "picked_by", "near"]
     /// §56 item 1: the plan fields; any other key is ignored and listed.
-    public static let tripPlanFields: Set<String> = ["days", "pace", "optimise", "city"]
+    public static let tripPlanFields: Set<String> = ["days", "pace", "optimise", "city", "asked"]
     /// §55 item 2, §56 item 2: the line of a new plan without `city`.
     public static let tripCityMissing = "新行程要写 city（城市，跨城市就写省或地区）"
     /// §56 item 3: the `next` of an `INVALID_FIELDS` refusal of `set_trip_plan`, exactly as §56 gives it.
@@ -261,6 +277,11 @@ public enum ToolCatalog {
         }
         // §55 item 2: a new plan (stops, none kept by id) needs its city; a kept plan keeps its own.
         if stopCount > 0, !keepsID, !(a["city"].map { text($0, max: Int.max) } ?? false) { lines.append(tripCityMissing) }
+        // §61 item 3 (T-040zn): `asked`, when sent, is an object with a non-empty `text`.
+        if let asked = a["asked"] {
+            let t = asked["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if t.isEmpty || t.utf16.count > 120 { lines.append("asked 要是 {text, must, days, city, notes}，text 写司机要什么（1到120个字）") }
+        }
         if let pace = a["pace"], !(pace.stringValue.map(tripPaces.contains) ?? false) {
             lines.append("pace 只能是 " + tripPaces.joined(separator: "、"))
         }
@@ -296,6 +317,8 @@ public enum ToolCatalog {
                     "optimise": ["type": "boolean"],
                     // F-15b §55 item 2 (T-040zh): the trip's city (or province/region); required for a new plan.
                     "city": ["type": "string", "minLength": 1, "maxLength": 20],
+                    // F-15b §61 item 3 (T-040zn): the driver's request; required for a new plan (`PLAN_CHECK`).
+                    "asked": tripAsked,
                 ],
                 "required": ["days"],
                 "additionalProperties": false,
@@ -309,6 +332,16 @@ public enum ToolCatalog {
                     "stop": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
                 ],
                 "additionalProperties": false,
+            ])),
+        // F-15b §61 item 2 (T-040zn): the counting assistant; read-only, numbers only.
+        ToolSpec(domain: "navigation", repeatSensitive: false, declaration: ToolDeclaration(
+            name: "check_trip_plan", description: checkTripPlanDescription,
+            parametersJSONSchema: [
+                "type": "object",
+                "properties": [
+                    "days": ["type": "array", "minItems": 1, "maxItems": 5,
+                             "items": ["type": "array", "maxItems": .int(Int64(maxTripStops + 4)), "items": tripPlanStop]],
+                ],
             ])),
         ToolSpec(domain: "navigation", repeatSensitive: true, declaration: ToolDeclaration(
             name: "trip_plans", description: tripPlansDescription,
@@ -507,6 +540,12 @@ public enum ToolCatalog {
             // F-15b §56 items 1–2 (T-040zi, replaces §52 item 3's stop forms and §55 item 7's "exactly one of id, name
             // and near"): only the item 2 checks refuse; the lines go back as `problems` (`ToolDispatcher.refusal`).
             if !tripPlanProblems(a).isEmpty { return .invalidFields }
+        case "check_trip_plan":
+            // §61 item 2: no arguments, or a draft `days` in `set_trip_plan`'s shape (the same stop checks).
+            guard keys.isSubset(of: ["days"]) else { return .invalidFields }
+            if keys.contains("days"), !tripPlanProblems(["days": a["days"]!, "asked": ["text": "draft"], "city": "draft"]).isEmpty {
+                return .invalidFields
+            }
         case "trip_next":
             // §29 item 1: optional day 1–5 and stop (a name in the plan or its number in the day).
             guard keys.isSubset(of: ["day", "stop"]) else { return .invalidFields }

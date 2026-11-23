@@ -30,6 +30,9 @@ public struct TripPlan: Sendable, Hashable {
     /// §49 item 2 (T-040u): what the driver said about the trip that code cannot measure (≤ 60 characters); echoed to
     /// the model with the hotel choices, never read by code.
     public var wishes: String?
+    /// F-15b §61 item 3 (T-040zn): what the driver asked for, written by the model (`set_trip_plan` `asked`); stored,
+    /// saved and shown, never compared with the stops by code.
+    public var asked: TripAsked?
 
     public init() {}
 
@@ -231,6 +234,7 @@ public struct TripPlan: Sendable, Hashable {
         spare = other.spare
         budgetMinutes = other.budgetMinutes
         wishes = other.wishes
+        asked = other.asked
         revision += 1
     }
 }
@@ -284,6 +288,8 @@ public enum TripPlanFile {
         var budget: Int?
         /// T-040u §49 item 2 (optional): the driver's wishes.
         var wishes: String?
+        /// T-040zn §61 item 3 (optional): the driver's request.
+        var asked: TripAsked?
     }
 
     struct Current: Codable { var version: Int; var plan: Plan }
@@ -308,7 +314,8 @@ public enum TripPlanFile {
         Plan(name: plan.name, currentDay: plan.currentDay,
              days: plan.days.map { day in day.stops.map(encode) },
              savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.city,
-             spare: plan.spare.isEmpty ? nil : plan.spare.map(encode), budget: plan.budgetMinutes, wishes: plan.wishes)
+             spare: plan.spare.isEmpty ? nil : plan.spare.map(encode), budget: plan.budgetMinutes, wishes: plan.wishes,
+             asked: plan.asked)
     }
 
     static func decode(_ s: Stop) -> TripStop {
@@ -334,6 +341,7 @@ public enum TripPlanFile {
         out.spare = (plan.spare ?? []).prefix(TripFitter.maxCandidates).map(decode)
         out.budgetMinutes = plan.budget
         out.wishes = plan.wishes
+        out.asked = plan.asked
         return out
     }
 
@@ -448,4 +456,43 @@ public protocol TripFiles: Sendable {
     func write(_ name: String, _ data: Data)
     /// §14 item 4: an unreadable file is moved aside as `<name without .json>.bad.json`, not deleted.
     func moveAside(_ name: String)
+}
+
+/// F-15b §61 item 3 (T-040zn): the driver's request saved with the plan, in the shape the model writes it (read shape
+/// = write shape): `{text, must, days, city, notes}`. Code stores and shows it; it never compares it with the stops.
+public struct TripAsked: Sendable, Hashable, Codable {
+    public var text: String
+    public var must: [String]
+    public var days: Int?
+    public var city: String?
+    public var notes: [String]
+
+    public init(text: String, must: [String] = [], days: Int? = nil, city: String? = nil, notes: [String] = []) {
+        self.text = text
+        self.must = must
+        self.days = days
+        self.city = city
+        self.notes = notes
+    }
+
+    /// The model's `asked` argument; nil without a non-empty `text`.
+    public init?(_ value: JSONValue?) {
+        guard let value, let t = value["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty
+        else { return nil }
+        func list(_ k: String) -> [String] {
+            guard case .array(let a)? = value[k] else { return [] }
+            return a.compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        }
+        self.init(text: t, must: list("must"), days: value["days"]?.intValue.map { Int($0) },
+                  city: value["city"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, notes: list("notes"))
+    }
+
+    /// The same shape as written.
+    public var json: JSONValue {
+        var o: [String: JSONValue] = ["text": .string(text), "must": .array(must.map(JSONValue.string)),
+                                      "notes": .array(notes.map(JSONValue.string))]
+        if let days { o["days"] = .int(Int64(days)) }
+        if let city { o["city"] = .string(city) }
+        return .object(o)
+    }
 }

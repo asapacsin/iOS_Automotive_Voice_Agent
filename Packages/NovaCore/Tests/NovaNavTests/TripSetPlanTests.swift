@@ -63,8 +63,8 @@ struct TripSetPlanTests {
             [hotel, stop(ids["C"]), stop(ids["D"]), hotel],
             [hotel, stop(ids["E"]), stop(ids["F"]), stop(name: "新千岁机场", role: "end")],
         ]))
-        // §55 item 8 (T-040zh): two sights a day are thin (`under`), so the saved plan comes back to be fixed.
-        #expect(r.ok && r.data["status"] == "trip_needs_fix", "\(r)")
+        // F-15b §61 item 1 (T-040zn): saved and reported; no critics (two sights a day is hers to judge).
+        #expect(r.ok && r.data["status"] == "trip_list" && r.data["saved"] == true && r.data["issues"] == nil, "\(r)")
         // Only the two new names were searched.
         #expect(rig.search.asked.withLock { Array($0.dropFirst(asked)) }.sorted() == ["新千岁机场", "桥本酒店"])
         let plan = await rig.planner.currentPlan
@@ -77,7 +77,7 @@ struct TripSetPlanTests {
         // The kept sights keep their ids.
         #expect(plan.days[1].stops[1].id == ids["C"])
         #expect(r.data["facts"]?["kept"] == .int(6) && r.data["facts"]?["new"] == .int(2) && r.data["facts"]?["app_picked_hotels"] == nil)
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=3 stops=12 kept=6 new=2 removed=0 not_placed=0 new_plan=no check=fail issues=3 round=1 ms=") })
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=3 stops=12 kept=6 new=2 removed=0 not_placed=0 new_plan=no saved=yes ms=") })
         // The same plan written back by id: still valid (one hotel id on both nights), no search at all.
         let again = rig.search.asked.withLock { $0 }.count
         let back = await rig.run(await sameCall(rig))
@@ -104,7 +104,7 @@ struct TripSetPlanTests {
         #expect(strings(unknown.data["facts"]?["problems"]) == ["没有这个 id：s99", "id 重复：\(ids["A"]!)"])
         // Nothing changed, and nothing was searched for a refused plan.
         #expect(await rig.planner.currentPlan == before)
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=2 stops=4 kept=0 new=0 removed=0 not_placed=0 new_plan=no check=fail ") })
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=2 stops=4 kept=0 new=0 removed=0 not_placed=0 new_plan=no saved=no ") })
         // §49's round limit: after 2 refusals in a row, the third is said to the driver.
         #expect(unknown.data["next"]?.stringValue?.contains("再调用 set_trip_plan") != true)
         // Pure: a visited stop keeps its day.
@@ -130,7 +130,7 @@ struct TripSetPlanTests {
         let slowStop = await rig.planner.currentPlan.allStops.first { $0.stop.asked == "慢地方" }?.stop
         #expect(slowStop?.placed == false)
         #expect(stopsOf(r.data["plan"]).first?.last?["placed"] == .bool(false))
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=1 stops=2 kept=1 new=1 removed=5 not_placed=1 new_plan=no check=ok ") })
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip set days=1 stops=2 kept=1 new=1 removed=5 not_placed=1 new_plan=no saved=yes ") })
         // The held search is released; the retry 10 s later asks again and is answered.
         search.release()
         for _ in 0..<200 where search.waiting == 0 {
@@ -189,7 +189,7 @@ struct TripSetPlanTests {
     func catalog() {
         #expect(AsyncTool(name: "set_trip_plan") != nil && TripPlanner.tools.contains("set_trip_plan"))
         // §55 item 12 (T-040zh) replaces §52's text; row 234 checks it in full.
-        #expect(ToolCatalog.setTripPlanDescription.hasSuffix("结果稍后回来。新行程：" + ToolCatalog.tripWorkingLine + "改行程：" + ToolCatalog.tripEditWorkingLine))
+        #expect(ToolCatalog.setTripPlanDescription.hasSuffix("结果稍后回来。新行程：" + ToolCatalog.tripWorkingLine + "改行程：" + ToolCatalog.tripEditWorkingLine + ToolCatalog.setTripPlanReview))
         #expect(ToolCatalog.validate(setPlan([[stop("s1"), stop(name: "X", role: "hotel")]], ["optimise": true, "pace": "relaxed"])) == nil)
         // §56 item 1 (T-040zi): an id stop may carry its name (ignored).
         #expect(ToolCatalog.validate(setPlan([[stop("s1", name: "X")]])) == nil)

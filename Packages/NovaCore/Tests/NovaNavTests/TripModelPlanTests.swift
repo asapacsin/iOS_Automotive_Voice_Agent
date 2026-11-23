@@ -102,80 +102,6 @@ private let crammed = plan([shanghaiSights.map(named), [], [], [], []])
 
 @Suite("T-040zh F-15b §55 the model writes every plan; code places and checks, never splits")
 struct TripModelPlanTests {
-    @Test("T-040zh F-15b row 225: 上海, 5 days, 14 sights on day 1, no start: saved as written, trip_needs_fix round 1, over day 1, empty days 2–5, ready false, no NO_START")
-    func row225() async {
-        let rig = await ModelPlanRig(search: CityLimitSearch(inCity: ["上海": shTable]))
-        let r = await rig.run(crammed)
-        #expect(r.ok && r.data["status"] == "trip_needs_fix" && r.data["round"] == .int(1), "\(r)")
-        // No day moves: day 1 keeps all 14 in the written order, days 2–5 stay empty.
-        let p = await rig.planner.currentPlan
-        #expect(p.dayCount == 5 && p.days.map(\.count) == [14, 0, 0, 0, 0])
-        #expect(p.days[0].stops.map(\.asked) == shanghaiSights)
-        #expect(p.city == "上海" && !p.abroad)
-        let lines = issues(r)
-        #expect(lines.contains("第1天大约21小时，太满了，挪一部分到第2天"), "\(lines)")
-        for d in 2...5 { #expect(lines.contains("第\(d)天没有安排，把第1天的一部分挪过来或者加几个地方"), "\(lines)") }
-        for n in 1...4 { #expect(lines.contains("第\(n)晚还没有酒店，写一个酒店或者 near")) }
-        #expect(r.data["next"] == .string("先不要跟司机说话，按 issues 改好整份行程，再调用 set_trip_plan。"))
-        #expect(r.data["facts"]?["ready"] == .bool(false))
-        // §55 item 6: no start is not an error.
-        #expect(r.code != .noStart && r.data["order"] == nil && !"\(r.data)".contains("NO_START"))
-        #expect(stopsOfPlan(r).map(\.count) == [14, 0, 0, 0, 0])
-        #expect(rig.line("trip check round=0 not_found=0 over=1 driving=0 under=0 hotel=4 empty=4 ms=").count == 1, "\(rig.lines.withLock { $0 })")
-        #expect(rig.line("trip set days=5 stops=14 kept=0 new=14 removed=0 not_placed=0 new_plan=yes check=fail issues=9 round=1 ms=").count == 1)
-    }
-
-    @Test("T-040zh F-15b row 226: the same, then a fixed plan (3–4 sights a day, a hotel each night): all checks pass, trip_list, new_plan=no issues=0")
-    func row226() async {
-        // 七宝古镇 is new (found in the city); the 14 sights are kept by id with 120 minutes each.
-        let rig = await ModelPlanRig(search: CityLimitSearch(inCity: ["上海": shTable.merging(["七宝古镇": [sh("七宝古镇", 20)]]) { $1 }]))
-        _ = await rig.run(crammed)
-        let ids = Dictionary(uniqueKeysWithValues: await rig.planner.currentPlan.allStops.map { ($0.stop.asked, $0.stop.id) })
-        let hotel: JSONValue = ["name": "上海大酒店", "role": "hotel"]
-        let groups = [Array(shanghaiSights[0..<3]), Array(shanghaiSights[3..<6]), Array(shanghaiSights[6..<9]),
-                      Array(shanghaiSights[9..<11]) + [shanghaiSights[13]], Array(shanghaiSights[11..<13]) + ["七宝古镇"]]
-        let days: [[JSONValue]] = groups.enumerated().map { d, names in
-            var day: [JSONValue] = names.map { n in ids[n].map { ["id": .string($0), "minutes": 120] } ?? ["name": .string(n), "minutes": 120] }
-            if d > 0 { day.insert(hotel, at: 0) }
-            if d < 4 { day.append(hotel) }
-            return day
-        }
-        let fixedRig = rig
-        let r = await fixedRig.run(plan(days, city: nil))
-        #expect(r.ok && r.data["status"] == "trip_list", "\(r)")
-        #expect(issues(r).isEmpty && r.data["round"] == nil && r.data["facts"]?["ready"] == nil)
-        let p = await fixedRig.planner.currentPlan
-        #expect(p.days.map { $0.stops.filter { $0.role == .sight }.count } == [3, 3, 3, 3, 3])
-        #expect((1..<5).allSatisfy { p.days[$0 - 1].stops.last?.role == .hotel && p.days[$0].stops.first?.role == .hotel })
-        #expect(fixedRig.line("trip set days=5 stops=23 kept=14 new=2 removed=0 not_placed=0 new_plan=no check=ok issues=0 round=0 ms=").count == 1,
-                "\(fixedRig.lines.withLock { $0 })")
-    }
-
-    @Test("T-040zh F-15b row 227: checks still failing after round 2: no round 3, trip_list with the remaining issues in next; a new driver turn starts again at round 1")
-    func row227() async {
-        // Without a turn count the rounds end with the trip_list.
-        let rig = await ModelPlanRig(search: CityLimitSearch(inCity: ["上海": shTable]))
-        let r1 = await rig.run(crammed)
-        let r2 = await rig.run(await sameCall(rig.planner))
-        let r3 = await rig.run(await sameCall(rig.planner))
-        #expect(r1.data["round"] == .int(1) && r2.data["round"] == .int(2) && r2.data["status"] == "trip_needs_fix")
-        #expect(r3.ok && r3.data["status"] == "trip_list" && r3.data["round"] == nil, "\(r3)")
-        let next = r3.data["next"]?.stringValue ?? ""
-        #expect(next.hasSuffix("。跟司机说还有这些问题：" + issues(r3).joined(separator: "；")), "\(next)")
-        #expect(issues(r3).first == "第2天没有安排，把第1天的一部分挪过来或者加几个地方" && issues(r3)[4] == "第1天大约21小时，太满了，挪一部分到第2天")
-        #expect(issues(r3).count == 9 && r3.data["facts"]?["ready"] == .bool(false))
-        #expect(rig.line("trip set ").last?.contains("check=fail issues=9 round=0 ") == true)
-        // With a turn count: a third and a fourth call in the same driver turn are trip_list; the next turn is round 1.
-        let turn = Mutex(1)
-        let counted = await ModelPlanRig(search: CityLimitSearch(inCity: ["上海": shTable]), turns: { turn.withLock { $0 } })
-        var rounds: [JSONValue?] = []
-        _ = await counted.run(crammed)
-        for _ in 0..<3 { rounds.append((await counted.run(await sameCall(counted.planner))).data["round"]) }
-        #expect(rounds == [.int(2), nil, nil])
-        turn.withLock { $0 = 2 }
-        #expect(await counted.run(await sameCall(counted.planner)).data["round"] == .int(1))
-    }
-
     @Test("T-040zh F-15b row 229: a new plan (no ids) for 上海 while a Sapporo plan is saved replaces it; no PLAN_CHECK new_trip, no CONFIRM_CLEAR")
     func row229() async {
         var sapporo: [String: [Place]] = [:]
@@ -199,13 +125,13 @@ struct TripModelPlanTests {
         #expect(r.ok, "\(r)")
         #expect(search.requests.withLock { $0 } == ["新天地|city=上海&citylimit=true"])
         #expect(await rig.planner.currentPlan.allStops.map(\.stop.place.name) == ["上海新天地"])
-        // Not in the city: kept unplaced, a not_found issue, no nationwide request.
+        // Not in the city: kept unplaced, named in not_placed with the range searched (§61: no issue lines), no nationwide request.
         let other = CityLimitSearch(inCity: ["杭州": [:]], nationwide: ["新天地": [beijingXintiandi]])
         let rig2 = await ModelPlanRig(search: other)
         let r2 = await rig2.run(plan([[named("新天地"), named("西湖")]], city: "杭州"))
         let stops = await rig2.planner.currentPlan.allStops.map(\.stop)
         #expect(stops.map(\.place.name) == ["新天地", "西湖"] && stops.allSatisfy { !$0.placed })
-        #expect(issues(r2).contains("新天地在杭州没找到，换一个或者去掉"), "\(r2)")
+        #expect(issues(r2).isEmpty && r2.data["facts"]?["not_placed_range"] == "杭州", "\(r2)")
         #expect(strings(r2.data["facts"]?["not_placed"]) == ["新天地", "西湖"])
         #expect(other.requests.withLock { $0 }.allSatisfy { $0.hasSuffix("|city=杭州&citylimit=true") })
         #expect(!"\(r2.data)".contains("北京新天地"))
@@ -247,12 +173,12 @@ struct TripModelPlanTests {
         #expect(p.abroad, "\(rig.lines.withLock { $0 })")
         let hotels = p.allStops.map(\.stop).filter { $0.role == .hotel }
         #expect(hotels.count == 4 && Set(hotels.map(\.id)).count == 1 && hotels.allSatisfy { $0.pickedBy == .app && $0.place.name == "新宿王子酒店" }, "\(rig.lines.withLock { $0 }) \(photon.requests.withLock { $0 })")
-        #expect(!issues(r).contains { $0.contains("晚还没有酒店") }, "\(issues(r))")
+        #expect(issues(r).isEmpty, "\(issues(r))")
         #expect(stopsOfPlan(r).joined().contains { $0["picked_by"] == "app" && $0["role"] == "hotel" })
-        // Night 2 without a hotel stop: a hotel issue; the app does not fill it.
+        // Night 2 without a hotel stop: saved as written (§61: no hotel issue; check_trip_plan shows it); the app does not fill it.
         let r2 = await rig.run(plan([[named("浅草寺"), near], [near, named("东京塔")],
                                      [named("明治神宫")]], city: "Tokyo, Japan"))
-        #expect(issues(r2).contains("第2晚还没有酒店，写一个酒店或者 near"), "\(r2)")
+        #expect(r2.ok && issues(r2).isEmpty, "\(r2)")
         #expect(await rig.planner.currentPlan.days[1].stops.last?.role == .sight)
         // near is only for a hotel; §56 item 1 (T-040zi): beside a name, name wins and near is ignored.
         #expect(ToolCatalog.validate(plan([[["near": "新宿站"]]])) == .invalidFields)
@@ -260,25 +186,6 @@ struct TripModelPlanTests {
         #expect(ToolCatalog.validate(plan([[named("A"), near], [near, named("B")]])) == nil)
     }
 
-    @Test("T-040zh F-15b row 233: a day with one 480-min sight and nothing else: no over, no under")
-    func row233() async {
-        let park = TripChecks.Day(minutes: 480, drivingMinutes: 0, onlyMustSee: true, area: nil, sights: 1, longestSightMinutes: 480)
-        let normal = TripChecks.Day(minutes: 420, drivingMinutes: 60, onlyMustSee: true, area: nil, sights: 4, longestSightMinutes: 90)
-        #expect(TripChecks.run(days: [normal, park], budgetMinutes: 480).isEmpty)
-        // 360 minutes or more: over only when the rest of the day adds more than B on top.
-        let parkPlus = TripChecks.Day(minutes: 480 + 500, drivingMinutes: 0, onlyMustSee: true, area: nil, sights: 3, longestSightMinutes: 480)
-        #expect(TripChecks.run(days: [normal, parkPlus], budgetMinutes: 480).map(\.kind) == [.over])
-        #expect(!TripChecks.isOver(TripChecks.Day(minutes: 600, drivingMinutes: 0, onlyMustSee: true, area: nil, sights: 4,
-                                                  longestSightMinutes: 90), budgetMinutes: 480))
-        #expect(TripChecks.isOver(TripChecks.Day(minutes: 601, drivingMinutes: 0, onlyMustSee: true, area: nil, sights: 4,
-                                                 longestSightMinutes: 90), budgetMinutes: 480))
-        // Through the planner: the catalog's 广州 example shape (day 2 is a theme park alone).
-        let rig = await ModelPlanRig(search: CityLimitSearch(inCity: ["上海": shTable.merging(["迪士尼": [sh("上海迪士尼乐园", 30)]]) { $1 }]))
-        let hotel: JSONValue = ["name": "上海大酒店", "role": "hotel"]
-        let r = await rig.run(plan([["外滩", "豫园", "南京路", "东方明珠"].map(named) + [hotel],
-                                    [hotel, ["name": "迪士尼", "minutes": 480], hotel], [hotel] + ["静安寺", "武康路", "田子坊", "徐家汇"].map(named)]))
-        #expect(!issues(r).contains { $0.hasPrefix("第2天") }, "\(issues(r))")
-    }
 }
 
 private func stopsOfPlan(_ r: ToolResult) -> [[JSONValue]] {
@@ -346,16 +253,6 @@ struct TripModelPlanAbroadTests {
         #expect(home.calls.withLock { $0 }.isEmpty)
     }
 
-    @Test("T-040zh F-15b §55 item 8 (old row 133): a day that is mostly driving gets the driving issue, its line unchanged")
-    func driving() async {
-        let mostlyDriving = TripChecks.Day(minutes: 510, drivingMinutes: 240, onlyMustSee: true, area: nil, sights: 3, longestSightMinutes: 90)
-        #expect(TripChecks.run(days: [mostlyDriving], budgetMinutes: 480).map(\.line) == ["第1天大半时间在开车，考虑把这天换到一个区域"])
-        let (rig, _) = await timesRig({ a, b in a == b ? 0 : 7_200 })
-        let r = await rig.run(planCall(["places": names(["古文化街", "五大道", "天津之眼"])]))
-        #expect(strings(r.data["issues"]).contains("第1天大半时间在开车，考虑把这天换到一个区域"), "\(r)")
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip check round=0 not_found=0 over=0 driving=1 ") })
-    }
-
     @Test("T-040zh F-15b §36 item 3 (old row 85): a written plan abroad: a CN result for a name is never used; a name with only CN results is kept unplaced with not_found")
     func countryGuard() async {
         var table = tokyo
@@ -367,7 +264,7 @@ struct TripModelPlanAbroadTests {
         let stops = await rig.planner.current.stops
         #expect(stops.contains { $0.place.name == "东京迪士尼" } && !stops.contains { $0.place.name == "上海迪士尼" || $0.place.name == "某地" })
         #expect(stops.first { $0.asked == "只在中国" }?.placed == false)
-        #expect(strings(r.data["issues"]).contains("只在中国在Tokyo没找到，换一个或者去掉"), "\(r)")
+        #expect(r.data["issues"] == nil && strings(r.data["facts"]?["not_placed"]).contains("只在中国"), "\(r)")
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip lookup index=3 ok=no reason=") && ($0.hasSuffix("country") || $0.hasSuffix("area")) })
     }
 
@@ -405,40 +302,6 @@ private final class ProbeSearch: PlaceSearch, @unchecked Sendable {
 
 @Suite("T-040zm F-15b §60 the trip work panel is on only while a set_trip_plan call runs")
 struct TripWorkPanelTests {
-    @Test("T-040zm F-15b rows 263-264: trip_needs_fix turns the panel off at the return (no carry-over); a fix call shows it again while it runs and off at its return")
-    func rows263and264() async {
-        let workClock = ManualClock()
-        let board = WorkProgressBoard(clock: workClock)
-        let seen = Mutex<[Bool]>([])
-        // Mid-call: past the 1 s quick-work rule, the panel is on.
-        let search = ProbeSearch(CityLimitSearch(inCity: ["上海": shTable])) {
-            workClock.advance(by: .milliseconds(1_100))
-            seen.withLock { $0.append(board.panel != nil) }
-        }
-        let rig = await ModelPlanRig(search: search)
-        await rig.planner.setWork(board)
-        let r1 = await rig.run(crammed)
-        #expect(r1.data["status"] == "trip_needs_fix", "\(r1)")
-        #expect(seen.withLock { $0 }.contains(true))
-        // Row 263: off at the return, and it stays off (no 120 s timer, no carry-over).
-        #expect(board.panel == nil)
-        workClock.advance(by: .seconds(30))
-        #expect(board.panel == nil)
-        // Row 264: the fix round is a new call: on again while it runs (a new name is looked up), off at its return.
-        seen.withLock { $0 = [] }
-        var fix = await sameCall(rig.planner)
-        if case .object(var a) = fix.arguments, case .array(var days)? = a["days"], case .array(var d2) = days[1] {
-            d2.append(["name": "上海大酒店"])
-            days[1] = .array(d2)
-            a["days"] = .array(days)
-            fix = trip("set_trip_plan", a)
-        }
-        let r2 = await rig.run(fix)
-        #expect(r2.data["status"] == "trip_needs_fix" || r2.data["status"] == "trip_list", "\(r2)")
-        #expect(seen.withLock { $0 }.contains(true), "the fix call showed no panel while it ran")
-        #expect(board.panel == nil)
-    }
-
     @Test("T-040zm F-15b row 265: the trip screen going off turns a showing trip panel off at once; a search panel stays")
     func row265() {
         let clock = ManualClock()
@@ -456,20 +319,20 @@ struct TripWorkPanelTests {
         #expect(board.panel?.kind == .search)
     }
 
-    @Test("T-040zm F-15b row 266 (§60 items 2, 5): 已改好 3 s, 没改成 5 s, then off; a long trip write is never hidden by the 120 s limit")
+    @Test("T-040zm F-15b row 266 (§60 items 2, 5; §61 item 5 words): 行程已更新 3 s, 没保存 5 s, then off; a long trip write is never hidden by the 120 s limit")
     func row266() {
         let clock = ManualClock()
         let board = WorkProgressBoard(clock: clock)
         board.start(.trip, step: WorkProgress.tripEdit)
-        board.finish(WorkProgress.tripEdited, failed: false)
+        board.finish(WorkProgress.tripUpdated, failed: false)
         clock.advance(by: .milliseconds(2_900))
-        #expect(board.panel?.steps.last?.title == "已改好")
+        #expect(board.panel?.steps.last?.title == "行程已更新")
         clock.advance(by: .milliseconds(200))
         #expect(board.panel == nil)
         board.start(.trip, step: WorkProgress.tripEdit)
-        board.finish(WorkProgress.tripNotChanged("x"), failed: true)
+        board.finish(WorkProgress.tripNotSaved("x"), failed: true)
         clock.advance(by: .milliseconds(4_900))
-        #expect(board.panel?.steps.last?.title == "没改成：x")
+        #expect(board.panel?.steps.last?.title == "没保存：x")
         clock.advance(by: .milliseconds(200))
         #expect(board.panel == nil)
         board.start(.trip, step: WorkProgress.tripEdit)

@@ -13,8 +13,6 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case wrongLanguage = "WRONG_LANGUAGE"
     /// F-15b §52 item 12 (T-040ze): a "done" claim while a trip tool's result has not come back.
     case tripResultPending = "TRIP_RESULT_PENDING"
-    /// F-15b §55 item 10 (T-040zh): a "done" claim while the last trip result is `trip_needs_fix` with a round left.
-    case tripNeedsFix = "TRIP_NEEDS_FIX"
     /// F-18 §33 item 7 (T-046v): after `LIVE_INFO_UNAVAILABLE` the reply blames the network, which is false.
     case networkBlamed = "NETWORK_BLAMED"
     /// F-15b §58 items 2–3 (T-040zk): a trip change claimed after a refused `set_trip_plan` (no ok one after it), or
@@ -36,7 +34,6 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         // F-05a §15 item 4 as changed by §16 item 5 (T-016n): never with the driver's words.
         case .wrongLanguage: "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
         case .tripResultPending: "[系统] TRIP_RESULT_PENDING：\(AsyncTool.tripPendingNext)。"
-        case .tripNeedsFix: "[系统] TRIP_NEEDS_FIX：行程还有问题没改好，不要说已经规划好。按 issues 改好整份行程，再调用 set_trip_plan。"
         case .networkBlamed: "[系统] NETWORK_BLAMED：网络没有问题，只是现在查不了网上的信息。请如实这样说，不要说网络有问题或连不上网。"
         // §58 item 2's correction, exactly as §58 gives it.
         case .tripClaimAfterFailure: "[系统] 行程没有改成，原因在上一个工具结果的 problems 里。如实告诉司机没改成和原因，不要说已经加了。"
@@ -156,10 +153,6 @@ public struct DriverTurnPipeline: Sendable {
     /// playback or NAVIGATING state stale until a fresh report arrives after it (review 6).
     private var musicFresh = true
     private var navigationFresh = true
-    /// F-15b §55 item 10 (T-040zh): the last trip result of this driver request was `trip_needs_fix` (each such result
-    /// leaves a fix round: round 2's fix is answered by `trip_list`), so the plan is not done. Cleared by the next trip
-    /// result and by the next driver utterance.
-    private var tripNeedsFix = false
     /// F-15b §58 items 1–2 (T-040zk): the last `set_trip_plan` result since the driver's last words: true ok, false
     /// refused or failed, nil none. Reset by the next driver utterance.
     private var tripLatestOk: Bool?
@@ -213,8 +206,6 @@ public struct DriverTurnPipeline: Sendable {
         switch input {
         case .driverUtterance(let text):
             lastUtterance = text
-            // F-15b §55 item 10 (review): the flag belongs to one driver request; a new utterance ends it.
-            tripNeedsFix = false
             tripLatestOk = nil
             tripNames = []
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
@@ -313,9 +304,6 @@ public struct DriverTurnPipeline: Sendable {
         case .toolResult(let id, let response):
             let ofUtterance = utterancePending.remove(response.id) != nil
             if ofUtterance { utteranceResults.append(response) }
-            if AsyncTool(name: response.name)?.isTrip == true {
-                tripNeedsFix = response.result.data["status"]?.stringValue == "trip_needs_fix"
-            }
             if response.name == "set_trip_plan" {
                 tripWrites.remove(response.id)
                 tripLatestOk = response.result.ok
@@ -428,9 +416,7 @@ public struct DriverTurnPipeline: Sendable {
         if !t.claims.isEmpty, !t.tripPending.isEmpty { return .disproven(.tripResultPending) }
         // F-15b §58 items 1–3 (T-040zk): a trip change is proven only by an ok `set_trip_plan` since the driver's last
         // words; a refused one with no ok after it disproves it; background work is claimed only while one runs.
-        // §55 item 10 (T-040zh): "done" while the plan still has issues to fix is drift too.
-        // Only a plan-done claim counts (「规划好了」「安排好了」); 「空调已打开」 after it is judged as usual.
-        if tripNeedsFix, ClaimLexicon.plansDone(t.text) { return .disproven(.tripNeedsFix) }
+        // F-15b §61 item 6 (T-040zn): §55 item 10's drift while issues are open is removed (no critics, no rounds).
         if let trip = tripVerdict(t, final: final) { return trip }
         if !t.claims.isEmpty, acting.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
             return .disproven(.partialScenario)

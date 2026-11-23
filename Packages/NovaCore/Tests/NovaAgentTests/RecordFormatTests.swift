@@ -113,15 +113,15 @@ enum RecordFormatSession {
 
 @Suite("T-031u F-12 §21 record format")
 struct RecordFormatTests {
-    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat <n> (8 since T-031zd), then the app line with the commit")
+    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat <n> (9 since T-040zn), then the app line with the commit")
     func row1() {
         let record = ConversationRecord.make(enabled: true, header: RecordHeader(
             appVersion: "0.1.0(1) abcdef0", comfortMode: "model", interruptible: false, speakingStyle: "default"))!
         let w = MemoryWriter()
         record.drain(to: w)
         let lines = w.lines.withLock { $0 }
-        #expect(ConversationRecord.formatVersion == 8)
-        #expect(Array(lines.prefix(2)) == ["recordFormat 8", "app 0.1.0(1) abcdef0"])
+        #expect(ConversationRecord.formatVersion == 9)
+        #expect(Array(lines.prefix(2)) == ["recordFormat 9", "app 0.1.0(1) abcdef0"])
     }
 
     @Test("T-031u F-12 §21 rows 2-3: the fixed session encodes exactly to record-format-<formatVersion>.txt")
@@ -210,7 +210,7 @@ struct RecordOneLineTests {
         #expect(r.add(.toolResult(name: "web_search", ok: true, code: nil, data: ["answer": "x"], elapsedMs: nil), atMs: 4)
                     .allSatisfy { !$0.contains("\n") })
         let all = RecordFormatSession.encoded().split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-        let header = Set(["recordFormat 8", "app 0.1.0(1) abcdef0"])
+        let header = Set(["recordFormat 9", "app 0.1.0(1) abcdef0"])
         #expect(all.allSatisfy { !$0.contains("\r") })
         // Every line after the header starts with its time (row 23's check, on the fixed session).
         let events = all.drop { !($0.first?.isNumber ?? false) || header.contains(String($0)) }

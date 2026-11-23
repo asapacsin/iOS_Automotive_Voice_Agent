@@ -54,15 +54,8 @@ final class FakeAreaSearch: AreaPlaceSearch, @unchecked Sendable {
 /// §49 (T-040u) with §52 (T-040zb): a `trip_needs_fix` answered as a model that changes nothing would (the same plan
 /// written back by id with `set_trip_plan`), until the normal `trip_list` comes back (at most 2 rounds). For tests of
 /// earlier sections whose plans now fail a check.
-func settle(_ rig: TripRig, _ first: ToolResult) async -> ToolResult {
-    var r = first
-    var n = 0
-    while r.data["status"] == "trip_needs_fix", n < TripPlanner.maxFixRounds + 1 {
-        r = await rig.run(await sameCall(rig))
-        n += 1
-    }
-    return r
-}
+/// F-15b §61 (T-040zn): there are no rounds any more; the first result is the result.
+func settle(_ rig: TripRig, _ first: ToolResult) async -> ToolResult { first }
 
 /// The current plan written back unchanged, every stop by id.
 func sameCall(_ rig: TripRig) async -> ToolCall { await sameCall(rig.planner) }

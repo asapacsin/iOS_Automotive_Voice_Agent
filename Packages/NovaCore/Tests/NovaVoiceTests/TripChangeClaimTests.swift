@@ -126,18 +126,6 @@ struct TripChangeClaimTests {
 
 @Suite("T-040zk F-15b §58 review fixes")
 struct TripChangeClaimReviewTests {
-    @Test("T-040zk F-15b row 228 (review): after trip_needs_fix, 「我为您安排好了上海五天的行程」 is TRIP_NEEDS_FIX, not proven by the ok set_trip_plan")
-    func needsFixBeforeTripVerdict() {
-        var h = PipelineHarness()
-        h.driver("帮我规划一下上海五天的行程")
-        let id = h.call("t1", "set_trip_plan")
-        h.result(id, "set_trip_plan", .success(["status": "trip_needs_fix", "round": 1]))
-        h.say("我为您安排好了上海五天的行程。")
-        h.close()
-        h.advance(by: .seconds(30))
-        #expect(h.corrections == [.tripNeedsFix], "\(h.out)")
-    }
-
     @Test("T-040zk F-15b row 253 (review): a set_trip_plan cancelled or dropped at a reconnect (no result) no longer allows a background claim")
     func endedWriteNoLongerRunning() {
         var h = PipelineHarness()

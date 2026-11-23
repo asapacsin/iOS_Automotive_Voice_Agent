@@ -26,7 +26,10 @@ public enum TripPlanJSON {
     }
 
     private static func build(_ plan: TripPlan, minutes: Bool) -> JSONValue {
-        .object(["days": .array(plan.days.map { day in
+        // F-15b §61 item 3 (T-040zn): the driver's request at the top of the plan, as she wrote it.
+        var top: [String: JSONValue] = [:]
+        if let asked = plan.asked { top["asked"] = asked.json }
+        return .object(top.merging(["days": .array(plan.days.map { day in
             .array(day.stops.map { s in
                 var o: [String: JSONValue] = [
                     "id": .string(s.id), "name": .string(s.place.name), "role": .string(s.role.rawValue),
@@ -36,6 +39,17 @@ public enum TripPlanJSON {
                 if let mark = s.mark { o["mark"] = .string(mark.rawValue) }
                 return .object(o)
             })
-        })])
+        })]) { a, _ in a })
+    }
+
+    /// F-15b §61 item 3a (T-040zn): the plan as she wrote it, one line per day, the stop names in order, 「（没找到）」 on
+    /// a stop not placed: 「第1天：A、B、住C（没找到）」. A day with no stop says 「（空）」.
+    public static func planText(_ plan: TripPlan) -> String {
+        plan.days.enumerated().map { d, day in
+            let names = day.stops.map { s in
+                (s.role == .hotel ? "住" : "") + s.place.name + (s.placed ? "" : "（没找到）")
+            }
+            return "第\(d + 1)天：" + (names.isEmpty ? "（空）" : names.joined(separator: "、"))
+        }.joined(separator: "\n")
     }
 }
