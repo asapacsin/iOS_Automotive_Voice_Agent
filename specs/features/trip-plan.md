@@ -2567,3 +2567,103 @@ closes, the panel closes too. Nothing more complicated.
 | Task | Scope | Status |
 |---|---|---|
 | T-040zm | §60 items 1–5 (panel only while a set_trip_plan call runs; off on any result and when the trip screen closes; screen state and record); rows 263–267 | NOT_RUN |
+
+## 61. The model checks its own plan with a counting tool and judges success itself; code counts, never judges (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 416bff7, record 20261123-181633).** 「…来个什么广东几天游，然后包含这个景点」,
+the place being 九龙湖公主酒店, which `show_on_map` had found in 广州花都区 at 84370:
+- 333563: a new plan, `city` 「广州与中山」, refused `PLAN_CHECK` (hotel order). The refusal carried the old 中山 plan,
+  and the next calls edited that plan.
+- 339308, round 1: the lookup searched 中山 only (`trip lookup index=1 ok=no reason=nomatch`); issue
+  「广州九龙湖公主酒店在中山没找到，换一个或者去掉」.
+- 342067, round 2: she put 中山温泉宾馆 in its place; `removed: [广州九龙湖公主酒店]`.
+- 344967, round 3: she put 「中山市的酒店」 in its place. Result `ok=true`, `removed: [中山温泉宾馆]` only,
+  `work step=trip_edit state=done`, `next` 「用自己的话简短地说。…跟司机说还有这些问题：…」.
+- 345557: she said 「我为您规划了包含九龙湖公主酒店的广东多日游行程」. The plan had no 九龙湖. Driver: 「好像没有包含这个九龙湖吧」.
+
+**Causes (code at 416bff7).**
+1. **The checks run inside the write and push orders back.** Every `set_trip_plan` runs the critics (§55 item 8) and
+   returns `trip_needs_fix` with 「先不要跟司机说话，按 issues 改好…」 (§55 item 9). The model does not ask for a check; it
+   is driven through rounds by code-written lines.
+2. **The issue lines decide for her.** 「换一个或者去掉」 and 「在<区名>附近加1到2个」 are choices about a plan the model owns
+   (§55). The first one dropped the place the driver had named.
+3. **Code declares success.** `ok=true`, `state=done` and the panel's 「已改好」 (§58 item 5, §60 item 2) mean only that a
+   write was saved, yet each reads as "done". Nothing asks her to compare the plan with what the driver asked.
+4. **`removed` covers one write.** The driver's place was removed one write before the last, so the result she spoke
+   from did not name it.
+
+**Owner rule (2026-11-23).** The LLM plans. Counting (minutes, driving, budget, which names were found) is a tool the
+LLM calls to verify that its plan works; it is not code running inside the write and sending orders back. Whether the
+result is what the driver asked for (the "success") is judged and approved by the LLM, never by code.
+
+**Published practice this copies.** The planning agent calls its own information and counting tools and decides
+when the plan is done (TravelPlanner, Xie et al., ICML 2024: the agent calls `DistanceMatrix`, `CitySearch` and the
+other tools itself; ReAct, Yao et al., ICLR 2023). A tool reports what it did; an error flag means the call itself
+failed, and the model reads the result to decide what follows (Model Context Protocol, Tools, "Error Handling",
+`isError`, modelcontextprotocol.io/specification/2025-06-18/server/tools; Anthropic tool use, `is_error`). This
+replaces the code-pushed critic rounds of §49 items 5–6 and §55 items 8–10.
+
+1. **`set_trip_plan` saves and reports; it does not check.** It keeps its input, lookups and placing (§52, §55 items
+   1–7) and returns `saved` (`true`: the cards show the written plan; `false`: refused for shape, `INVALID_FIELDS`,
+   `PLAN_CHECK`, `REPEATED_FAILURE`, nothing saved, §56), the whole plan, `not_placed` with the range searched, and
+   `removed` (item 4). For this tool the generic `ok` equals `saved` and means only that. No critics run in it: no
+   `issues`, no `trip_needs_fix`, no rounds.
+2. **New read-only tool `check_trip_plan`: the counting assistant.** Arguments: none (the plan in hand), or `days` in
+   `set_trip_plan`'s shape (a draft: new names looked up as `set_trip_plan` does, nothing saved, cards unchanged).
+   Result, numbers and facts only:
+   - per day: `sight_minutes`, `driving_minutes` (高德 driving times between placed stops, §48), `total_minutes`,
+     `budget_minutes` (B from `pace`, §48 item 3), `stops` (name, `placed`), `hotel` (the night's hotel name or none);
+   - `not_found`: each name not found, with the range searched (the city, or the box abroad);
+   - `unknown_driving`: legs not counted because a stop is not placed.
+   No verdict, no advice, no thresholds applied: no 「太满」, 「换」, 「去掉」, 「加」 lines. She compares the numbers with B
+   and with what the driver said. She may call it any time: after a write, before one with a draft, or when the
+   driver asks 「第二天会不会太赶」.
+3. **She judges against the driver's words.** Every saved `set_trip_plan` result's `next`:
+   「行程已存上。对照司机这次要的（地点、天数、城市、酒店）看 plan；要核对时间、路程或地点找没找到，就调用 check_trip_plan。都做到了：简短说安排了什么。有没做到的：说哪个没做到、为什么，问司机怎么办。司机点名要的地点没找到，不要自己换掉或去掉。plan 里没有的不要说有。」
+   Code never forces a `check_trip_plan` call and never blocks a reply for not calling it.
+4. **`removed` over the driver request.** `removed` (§52 item 7) lists every stop of the plan as it stood at the
+   driver's last words that is not in the plan now, on every saved result, not only the stops this write dropped. New
+   driver words start a new count.
+5. **Panel and record say what happened.** The §58 item 5 / §60 item 2 lines become 「行程已更新」 (was 「已改好」),
+   「已加入<名字>」 (unchanged: the name is on the cards), 「没保存：<first problems line>」 (was 「没改成：…」). While
+   `check_trip_plan` runs the panel shows 「正在核对行程」 (on/off as §60). Record: `work step=trip_edit
+   state=running|saved|refused`; `trip set … saved=yes|no` (the `check=`, `issues=` and `round=` fields go);
+   `trip check-call draft=yes|no days=N not_found=n unknown_driving=n ms=…`. Record format bump with its fixture and
+   record-format.md row.
+6. **Removed.** §55 items 8–10 (critics in the write, `trip_needs_fix`, the code done-claim drift while issues are
+   open, `facts.ready`), §49 items 5–6 (rounds), and the issue-line texts of §49 item 4, §53 item 3 and §55 item 8.
+   The counting code (`TripChecks`, `TripTimes`, the budget B) stays and serves `check_trip_plan`.
+7. **§58 stays; no code reads her words against the plan.** §58 item 1 still needs a saved write behind a change
+   claim (no write, no change). No check compares what she says with the plan's contents (owner 2026-11-23, as the
+   no-word-gate rule of F-09b §7); that judgement is hers (item 3).
+8. **Catalog text.** `set_trip_plan`: drop 「结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。」; add
+   「结果里的 ok 只表示行程存上了，不表示做到了司机要的；做没做到你自己判断，需要时用 check_trip_plan 核对。」
+   `check_trip_plan`: 「核对行程：算每天景点时间、开车时间、合计和预算，列出没找到的地点和没有酒店的晚上。不传参数就核对当前行程；传 days（和 set_trip_plan 一样的写法）就核对草稿，不保存。只给数字，不给建议，怎么改你自己决定。」
+   A new tool: major agent version bump per F-09b §15, with its agent-versions.md row and regenerated parts and hash.
+   `check_trip_plan` goes into the tool and panel registries the gates read (`check_panel_tools.py`).
+9. **Code.** `TripPlanner.setPlan` (no checks, `saved`, `removed` over the request, `next`); the `check_trip_plan`
+   declaration and handler over `TripChecks` / `TripTimes` (numbers only); `WorkProgress` lines; record lines;
+   catalog texts.
+
+**Not in this section** (same record; separate sections when the owner asks): the lookup for a trip across cities
+(「广州与中山」 searched 中山 only); reusing a place `show_on_map` / `show_place` found this session; a refused new plan
+that hands back the old plan as the one to edit; every stop of the old 中山 plan `placed=false`, every place-retry
+failing.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 268 | Saved `set_trip_plan` whose plan would fail every old check (empty, over, under, driving, not_found, hotel) | `saved=true`; no `issues`, no `trip_needs_fix`; `next` is item 3's text; no trip text holds 改好, 规划好, 安排好, 完成 or 成功 (fixture over every trip text) | unit |
+| 269 | Refused `set_trip_plan` (`PLAN_CHECK`) | `saved=false`, `ok=false`; panel 「没保存：<line>」 | unit |
+| 270 | `check_trip_plan` with no arguments on a 2-day plan; then with a draft `days` | Per-day numbers equal `TripTimes` and B; `not_found` with the range; the draft is not saved and the cards are unchanged; no advice words (换, 去掉, 加, 挪, 太满, 考虑) | unit |
+| 271 | One driver request, three writes; place X dropped in write 2 | Write 3's `removed` lists X; after new driver words, `removed` starts empty | unit |
+| 272 | Record of rows 268–270 | `trip_edit state=saved` / `refused`; `trip set … saved=`; `trip check-call …`; record format fixture passes | unit |
+| 273 | Eval: replay 20261123-181633 from 333563, the 九龙湖 lookup failing as recorded | She does not say 九龙湖 is in the plan; she says it was not found and asks the driver; she does not replace it on her own | eval |
+| 274 | Device: 「帮我安排广东三天，要包含九龙湖公主酒店」, then 「第二天会不会太赶」 | She says what is and is not on the cards; for the second line she calls `check_trip_plan` and answers from its numbers | D |
+
+**Trace gate.** Add `T-040zn: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zn | §61 items 1–9 (set_trip_plan saves without checks; check_trip_plan counting tool the model calls; she judges success against the request; removed over the request; panel and record words; catalog texts and major agent version); rows 268–274 | NOT_RUN |
