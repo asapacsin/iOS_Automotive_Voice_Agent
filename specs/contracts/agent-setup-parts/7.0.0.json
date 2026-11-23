@@ -34,7 +34,7 @@
     "note.now" : "[系统] 现在：位置：<city><district>；在高速上；当地时间 <time>。这句不用回答。",
     "note.nowOther" : "[系统] 现在：位置：不知道；不在高速上；当地时间 <time>。这句不用回答。",
     "note.nowTrip" : "[系统] 现在：位置：行程位置（<trip>）；当地时间 <time>。这句不用回答。",
-    "note.screen" : "[系统] 屏幕：destinationList off；routePicking off；routeCalculating off；navigation off；tripNextButton off；stopNavigationButton off；tripScreen off；tripDetail off；tripPlans off；musicCard off；music off；musicVolume 0；camera off；working off；settings off；top none。这句不用回答。",
+    "note.screen" : "[系统] 屏幕：destinationList off；routePicking off；routeCalculating off；navigation off；tripNextButton off；stopNavigationButton off；tripScreen off；tripDetail off；tripPlans off；musicCard off；music off；musicVolume 0；camera off；working off；backgroundWork off；settings off；top none。这句不用回答。",
     "note.screenPick" : "[系统] 用户在屏幕上点选了 <tool> index=<index>，结果：<result>。只按这个结果用一句话告诉用户，不要再调用工具。",
     "note.summary" : "[系统] 接着之前的对话。最近几句：司机「<driver>」→ 你「<reply>」（<tool>，<tool>）。这句不用回答。",
     "note.summaryNoTools" : "司机「<driver>」→ 你「<reply>」",
@@ -143,17 +143,17 @@
     "tool.search.web_search.schema" : "{\"additionalProperties\":false,\"properties\":{\"query\":{\"maxLength\":200,\"minLength\":1,\"type\":\"string\"}},\"required\":[\"query\"],\"type\":\"object\"}"
   },
   "sessions" : {
-    "default.nosearch" : "a9672530f811",
-    "default.search" : "afe41756305f",
-    "gentle.nosearch" : "2d57350f2363",
-    "gentle.search" : "e964d4389bb5",
-    "lively.nosearch" : "736c821ad51a",
-    "lively.search" : "5c4a3e49d5e4",
-    "sweet.nosearch" : "54e6c35449fd",
-    "sweet.search" : "ae538035be91",
-    "tsundere.nosearch" : "753a4615a6b3",
-    "tsundere.search" : "5ce6c0639c19"
+    "default.nosearch" : "4e2d843829ac",
+    "default.search" : "f31b4d4edc18",
+    "gentle.nosearch" : "f6ddefd50d8b",
+    "gentle.search" : "092b904b265c",
+    "lively.nosearch" : "8a97a2271176",
+    "lively.search" : "3f2b4ec8ab8c",
+    "sweet.nosearch" : "ec630dffc749",
+    "sweet.search" : "7391e15d3dd2",
+    "tsundere.nosearch" : "f8dd78c4a646",
+    "tsundere.search" : "710c97b185ad"
   },
-  "setupHash" : "c98f38776c6f",
+  "setupHash" : "1142703f8837",
   "version" : "7.0.0"
 }
