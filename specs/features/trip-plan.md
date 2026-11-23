@@ -2415,3 +2415,70 @@ large, clearly separated touch targets while driving (NHTSA Visual-Manual Driver
 | Task | Scope | Status |
 |---|---|---|
 | T-040zj | §57 items 1–7 (stop button, start button apart from the cards, no restart of the same stop, two screen-state keys, tap lines, record); rows 245–251 | NOT_RUN |
+
+## 58. She says a trip change is done only after it is on the plan; while it runs she says she is doing it and the screen shows it (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, record 20261123-102422).** 「给我安排一个咖啡的行程，我第二天想喝点咖啡」:
+- `set_trip_plan` was refused `INVALID_FIELDS {}` at once (the §56 bug), so nothing was added. She then called
+  `web_search` (「厦门沙坡尾附近最好的咖啡馆」 → 「BAMN Coffee」, ok) and said 「我已经在您第二天游玩沙坡尾时加入了BAMN Coffee」.
+- 「没看到」 → `set_trip_plan` refused again, another `web_search`, then 「抱歉，我已经在后台更新了行程，可能稍后就会同步到您的屏幕上」.
+  There is no such background work. The café never appeared on the trip cards.
+- The screen showed nothing while she worked and nothing when the change failed.
+
+**Causes, from the code at d0a0797.**
+1. The reply check (`DriverTurnPipeline.verdict`, `.action`) counts any ok result of an acting tool as proof of an
+   action claim, and asks for a tool's own ok only for windows, climate, fan and music (F-12 §14 item 12). A trip
+   claim is "proven" by the ok `web_search`.
+2. A failure disproves a claim only when it is in the same model turn. The refused `set_trip_plan` was in an earlier
+   model turn of the same driver request, so 「加入了」 was not counted as a claim after a failure.
+3. Nothing stops a claim that work is running in the background when no trip write is running.
+4. The work panel (§50 item 6) has steps for a new plan, not for an edit, and shows nothing for a refused one.
+
+**Published practice this copies.** Tell the user what the system is doing, and confirm only what happened
+(Nielsen, "Visibility of system status", nngroup.com/articles/visibility-system-status; Google Material, progress
+indicators, m3.material.io/components/progress-indicators). A voice reply about an action is checked against that
+action's own result (the claim rules of F-06 and F-12 §14 item 12, extended to the trip here).
+
+1. **A trip claim needs the trip's own result.** A reply that says the plan was changed (`ClaimLexicon.tripChanged`:
+   加入了, 加上了, 加了, 放进, 安排好, 安排在, 改好, 换成, 删掉了, 去掉了, 更新了 with 行程, 第N天 or a stop name; the list lives
+   in code with a fixture of the record's sentences) is proven only by an ok `set_trip_plan` result (status
+   `trip_list` or `trip_needs_fix`) since the driver's last words. Another tool's ok result never proves it.
+2. **A refused trip write disproves it for the whole driver request.** A `set_trip_plan` refused (`INVALID_FIELDS`,
+   `PLAN_CHECK`, `REPEATED_FAILURE` of §56) in any model turn since the driver's last words, with no ok
+   `set_trip_plan` after it, makes a trip claim drift: `CLAIM_AFTER_FAILURE` with the correction 「行程没有改成，原因在上一个工具结果的
+   problems 里。如实告诉司机没改成和原因，不要说已经加了。」.
+3. **No invented background work.** A reply that says the trip is being updated in the background or will show later
+   (后台, 稍后, 等一下就会, 会同步, 马上显示, with 行程 or a stop name) is drift unless a `set_trip_plan` call is running
+   right now; with none running it is `CLAIM_AFTER_FAILURE` (item 2's correction) or `UNVERIFIED_CLAIM`.
+4. **While a trip write runs, she says she is doing it.** The immediate result of an async `set_trip_plan` (§4 item 9)
+   carries `next`: 「先只说一句：好，我在改行程，好了告诉你。然后不要说话，等结果。」 (for a new plan, §50 item 5's sentence stays).
+   §52 item 12 (no "done" before the result) is unchanged.
+5. **Progress on screen for every trip write.** The work panel (§50 item 6) gets steps for an edit:
+   - 「正在改行程」 while `set_trip_plan` runs; 「正在找<名字>」 for each new name being looked up;
+   - on an ok result the cards update and the panel shows 「已加入<名字>」 / 「已改好」 for 3 s;
+   - on a refusal the cards stay as they were and the panel shows 「没改成：<first problems line>」 until the next step or 5 s,
+     so the driver sees it failed even when she says nothing.
+   Place names in steps follow §50 item 6's rule (names that are or will be on the trip cards only).
+6. **Record.** `correction CLAIM_AFTER_FAILURE tool=set_trip_plan` / `correction UNVERIFIED_CLAIM tool=set_trip_plan`;
+   `work step=trip_edit state=running|done|failed`. Codes only (I-8).
+7. **Code.** `ClaimLexicon` (`tripChanged`, the background phrases); `DriverTurnPipeline` (trip claims need an ok
+   `set_trip_plan`; refusals counted over the driver request; background claims); the async `next` of
+   `set_trip_plan`; `WorkProgress` trip-edit steps and the failure line; `TripPlanner` feeding the steps.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 252 | Record replay (20261123-102422): `set_trip_plan` refused, `web_search` ok, reply 「我已经…加入了BAMN Coffee」 | Drift `CLAIM_AFTER_FAILURE`; the correction is sent; the claim is not spoken as done | unit |
+| 253 | Reply 「我已经在后台更新了行程，可能稍后就会同步」 with no `set_trip_plan` running | Drift; correction sent | unit |
+| 254 | Same words while a `set_trip_plan` is running | Not drift | unit |
+| 255 | `set_trip_plan` ok with the café on day 2, reply 「已经加在第二天了」 | Proven; spoken | unit |
+| 256 | Async `set_trip_plan` started | Immediate result's `next` has 「我在改行程」; no done claim allowed until the result | unit |
+| 257 | Work panel during an edit; then an ok result; then a refused one | 「正在改行程」 / 「正在找<名字>」; 「已加入<名字>」 3 s with the card shown; 「没改成：<line>」 with the cards unchanged | unit, build |
+| 258 | Device: 「第二天想喝点咖啡，加个咖啡馆」 | She says she is adding it; the panel shows the steps; the café card appears on day 2, then she says it is added | D |
+
+**Trace gate.** Add `T-040zk: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zk | §58 items 1–7 (trip claims need an ok set_trip_plan, refusals over the driver request, no invented background work, "doing it" sentence, work-panel steps for edits and failures, record); rows 252–258 | NOT_RUN |
