@@ -1,4 +1,4 @@
-recordFormat 7
+recordFormat 8
 app 0.1.0(1) abcdef0
 agentVersion 1.0.0
 agentHash 0123456789ab

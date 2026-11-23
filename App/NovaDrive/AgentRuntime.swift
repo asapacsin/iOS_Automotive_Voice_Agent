@@ -34,6 +34,8 @@ final class DriveModel: ObservableObject {
     /// F-15b §11 item 5, §16 item 6 (T-040l): the plan's days and the saved plans; the 「我的行程」 sheet.
     @Published var tripPlans: TripPlansSummary?
     @Published var tripPlansOpen = false
+    /// F-09b §19 item 3 (T-031zd): the one pin `show_on_map` drew, nil when none.
+    @Published var mapPin: MapPin?
     @Published var climate = ClimateState.default
     @Published var cabin = CabinState.default
     @Published var driverLine = ""
@@ -596,6 +598,7 @@ final class AgentRuntime {
         case .tripPlans: model.tripPlansOpen = false
         case .camera: closeCamera()
         case .musicCard: model.previewCard = nil
+        case .mapPin: model.mapPin = nil
         default: break
         }
     }
@@ -699,6 +702,16 @@ final class AgentRuntime {
         guard onScreen, model.tripDetail?.placeID == card.placeID else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
         let intro: String? = if case .text(let text)? = model.tripIntro { text } else { nil }
         return ShowPlaceTool.Shown(shown: true, intro: intro, address: model.tripDetailPlace?.address)
+    }
+
+    /// F-09b §19 items 3, 5 (T-031zd): draws the one pin (replacing any earlier one); the layer-3 sheets over the map
+    /// close so it is seen. Done when the pin's view reports `mapPin` on.
+    func showMapPin(_ pin: MapPin) async -> Bool {
+        for sheet in MapPin.sheetsClosedOnShow { closePanel(sheet) }
+        model.mapPin = pin
+        let onScreen = await ScreenReporter.shared.store.wait(until: { $0.isOn(.mapPin) },
+                                                             timeout: ScreenTuning().screenConfirm, clock: SystemClock())
+        return onScreen && model.mapPin == pin
     }
 
     /// F-25 §10 row 2 / I-6: a row tap enters AgentCore as `UIIntent.choose`, so it runs through the
@@ -1036,8 +1049,7 @@ final class AgentRuntime {
         executors[SavePlaceExecutor.tool] = SavePlaceExecutor(places: savedPlaces, search: web)
         // F-09b §16 item 8 (T-031za), §18 (T-031zc): show_place(name, city); code looks up exactly that (on screen, her city),
         // fills and shows the card; done only when the sheet holds that place. `show place` line: codes only (I-8).
-        executors[ShowPlaceTool.tool] = ShowPlaceTool(
-            onScreen: { [model] in
+        let placesOnScreen: @Sendable () async -> [Place] = { [model] in
                 let nav = await navigation.current
                 // F-16 §15 item 2: a listed name 高德 could not find is not a place to show a card for.
                 var places = nav.phase == .awaitingDestinationSelection || nav.alongRouteList
@@ -1050,16 +1062,31 @@ final class AgentRuntime {
                     model.tripCardsHidden || model.tripList.isEmpty ? [] : model.tripList.stops.filter(\.placed).map(\.place)
                 }
                 return places + stops
-            },
+            }
+        let carCityCode: @Sendable () async -> String? = { [location, web] in
+            guard let fix = await location.latestFix() else { return nil }
+            return try? await web.adcode(at: fix.coordinate)
+        }
+        executors[ShowPlaceTool.tool] = ShowPlaceTool(
+            onScreen: placesOnScreen,
             search: web,
-            cityCode: { [location, web] in
-                guard let fix = await location.latestFix() else { return nil }
-                return try? await web.adcode(at: fix.coordinate)
-            },
+            cityCode: carCityCode,
             present: { [weak self] card in
                 guard let self else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
                 return await self.showPlaceCard(card)
             },
+            clock: SystemClock(),
+            onLine: { line in
+                RuntimeLog.agent.notice("\(line, privacy: .public)")
+                voiceLines.record?.submit(.trip(line))
+            })
+        // F-09b §19 (T-031zd): show_on_map(name, city); the same lookup, one pin and a small card, never a route.
+        executors[ShowOnMapTool.tool] = ShowOnMapTool(
+            onScreen: placesOnScreen,
+            search: web,
+            cityCode: carCityCode,
+            car: { [location] in await location.latestFix()?.coordinate },
+            pin: { [weak self] pin in await self?.showMapPin(pin) ?? false },
             clock: SystemClock(),
             onLine: { line in
                 RuntimeLog.agent.notice("\(line, privacy: .public)")
@@ -1840,6 +1867,8 @@ final class AgentRuntime {
         if model.cameraOpen { closeCamera() }
         // F-13 §14 items 4, 7 (T-032b): the engine stops the preview with the session; its card goes too.
         model.previewCard = nil
+        // F-09b §19 item 5 (T-031zd): the map pin goes with the session.
+        model.mapPin = nil
         speakLine = nil
         sessionRecord = nil
         AppVolume.shared.records.record = nil

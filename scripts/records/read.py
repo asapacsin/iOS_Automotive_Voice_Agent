@@ -159,6 +159,12 @@ def read_format_7(session: str, lines: list[str]) -> list[dict]:
     return read_format_6(session, lines)
 
 
+def read_format_8(session: str, lines: list[str]) -> list[dict]:
+    """F-09b §19 items 5, 7 (T-031zd): as format 7; the `screen` line has `mapPin` and `show map` lines are added,
+    both kept as fields by the generic event reader."""
+    return read_format_7(session, lines)
+
+
 def body(row: dict) -> str | None:
     """The `body=` text of a search row (everything after the first ` body=`), or None."""
     _, sep, rest = row["fields"].partition(" body=")
@@ -166,7 +172,7 @@ def body(row: dict) -> str | None:
 
 
 READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2, 3: read_format_3, 4: read_format_4,
-           5: read_format_5, 6: read_format_6, 7: read_format_7}
+           5: read_format_5, 6: read_format_6, 7: read_format_7, 8: read_format_8}
 
 
 def read(path: pathlib.Path) -> list[dict]:

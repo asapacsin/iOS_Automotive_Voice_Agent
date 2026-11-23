@@ -29,11 +29,9 @@ public struct ShowPlaceTool: ToolExecutor {
         }
     }
 
-    enum Via: String { case screen, city, near }
+    public enum Via: String, Sendable { case screen, city, near }
 
-    private let onScreen: @Sendable () async -> [Place]
-    private let search: any PlaceSearch
-    private let cityCode: @Sendable () async -> String?
+    private let finder: PlaceFinder
     private let present: @Sendable (TripCard) async -> Shown
     private let clock: any NovaClock
     private let onLine: @Sendable (String) -> Void
@@ -45,9 +43,7 @@ public struct ShowPlaceTool: ToolExecutor {
                 cityCode: @escaping @Sendable () async -> String? = { nil },
                 present: @escaping @Sendable (TripCard) async -> Shown, clock: any NovaClock,
                 onLine: @escaping @Sendable (String) -> Void = { _ in }) {
-        self.onScreen = onScreen
-        self.search = search
-        self.cityCode = cityCode
+        finder = PlaceFinder(onScreen: onScreen, search: search, cityCode: cityCode)
         self.present = present
         self.clock = clock
         self.onLine = onLine
@@ -63,44 +59,16 @@ public struct ShowPlaceTool: ToolExecutor {
             return ToolReply.failure(.invalidFieldValue, facts: ["shown": false], may: [.askPlace],
                                      mustNot: [.claimDone, .invent]).result
         }
-        // Step 1: find the place.
+        // Step 1: find the place (F-09b §19 item 2: the one lookup `show_on_map` shares).
         let place: Place
         let via: Via
-        var foundCount = 0
-        if let match = await onScreen().first(where: { Self.matches($0.name, name) }) {
-            place = match
-            via = .screen
-        } else {
-            via = searchVia
-            var searchCity = city
-            if city.isEmpty {
-                guard let car = await cityCode(), !car.isEmpty else {
-                    log(ok: false, via: via, sure: false, found: 0, since: started)
-                    return Self.withNext(LookupReply.failed(.noLocation, what: "place", cause: .noLocation,
-                                                            facts: ["shown": false], mustNot: [.claimDone]))
-                }
-                searchCity = car
-            }
-            let results: [Place]
-            do {
-                results = try await search.text(name, city: searchCity, cityLimit: true)
-            } catch let error as AmapWebError {
-                log(ok: false, via: via, sure: false, found: 0, since: started)
-                let cause = LookupReply.cause(of: error)
-                return Self.withNext(LookupReply.failed(LookupReply.code(for: cause), what: "place", cause: cause,
-                                                        facts: ["shown": false], mustNot: [.claimDone]))
-            } catch {
-                log(ok: false, via: via, sure: false, found: 0, since: started)
-                return Self.withNext(LookupReply.failed(.liveInfoUnavailable, what: "place", cause: .network,
-                                                        facts: ["shown": false], mustNot: [.claimDone]))
-            }
-            foundCount = results.count
-            // §18 items 3–4: sure only for exactly one exact name in her city (the car's city search: any city).
-            guard let sure = Self.sureMatch(results, name: name, city: city.isEmpty ? nil : city) else {
-                log(ok: false, via: via, sure: false, found: foundCount, since: started)
-                return Self.unsure(name: name, city: city, found: results)
-            }
-            place = sure
+        let foundCount: Int
+        switch await finder.find(name: name, city: city, next: Self.unsureNext) {
+        case .notSure(let result, let v, let found):
+            log(ok: false, via: v, sure: false, found: found, since: started)
+            return result
+        case .sure(let p, let v, let found):
+            (place, via, foundCount) = (p, v, found)
         }
         // Steps 2 and 3: the App fills and opens the card.
         let shown = await present(Self.card(for: place))
@@ -165,7 +133,7 @@ public struct ShowPlaceTool: ToolExecutor {
     }
 
     /// §18 item 4: no card; `asked`, up to five `found` and the fixed `next`.
-    static func unsure(name: String, city: String, found: [Place]) -> ToolResult {
+    static func unsure(name: String, city: String, found: [Place], next: String = unsureNext) -> ToolResult {
         let list: [JSONValue] = found.prefix(maxFound).map { p in
             .object(["name": .string(p.name), "city": p.city.map { .string($0) } ?? .null,
                      "district": p.district.map { .string($0) } ?? .null,
@@ -174,13 +142,13 @@ public struct ShowPlaceTool: ToolExecutor {
         let facts: [String: JSONValue] = ["shown": false,
                                           "asked": .object(["name": .string(name), "city": .string(city)]),
                                           "found": .array(list)]
-        return withNext(ToolReply.failure(.placeUnsure, facts: facts, mustNot: [.claimDone]).result)
+        return withNext(ToolReply.failure(.placeUnsure, facts: facts, mustNot: [.claimDone]).result, next)
     }
 
     /// §18 items 4–5: the `next` she reads is the fixed sentence (call again, or check with web_search first).
-    static func withNext(_ result: ToolResult) -> ToolResult {
+    static func withNext(_ result: ToolResult, _ next: String = unsureNext) -> ToolResult {
         var data = result.data
-        data["next"] = .string(unsureNext)
+        data["next"] = .string(next)
         return ToolResult(ok: result.ok, code: result.code, data: data, advice: result.advice)
     }
 
@@ -197,5 +165,60 @@ public struct ShowPlaceTool: ToolExecutor {
         TripCard(index: 1, placeID: place.id, name: place.name, district: place.district,
                  km: place.distanceMeters.map { (Double($0) / 100).rounded() / 10 }, photoURL: place.photoURL,
                  initial: String(place.name.prefix(1)), passed: false, city: place.city, kind: place.kind ?? .other)
+    }
+}
+
+/// F-09b §18 items 2–5, §19 item 2 (T-031zd): the one lookup `show_place` and `show_on_map` share. A place on screen
+/// with that name; else 高德 text search limited to `city` (the car's city when empty), no nationwide fallback, no
+/// first-result pick; exactly one exact name+city match is sure. Anything else is the `notSure` result she gets back
+/// (`PLACE_UNSURE` with `asked` and `found`, or the failed search's cause), with the tool's own `next`.
+public struct PlaceFinder: Sendable {
+    public enum Outcome: Sendable {
+        case sure(Place, ShowPlaceTool.Via, found: Int)
+        case notSure(ToolResult, ShowPlaceTool.Via, found: Int)
+    }
+
+    private let onScreen: @Sendable () async -> [Place]
+    private let search: any PlaceSearch
+    private let cityCode: @Sendable () async -> String?
+
+    public init(onScreen: @escaping @Sendable () async -> [Place], search: any PlaceSearch,
+                cityCode: @escaping @Sendable () async -> String?) {
+        self.onScreen = onScreen
+        self.search = search
+        self.cityCode = cityCode
+    }
+
+    public func find(name: String, city: String, next: String) async -> Outcome {
+        if let match = await onScreen().first(where: { ShowPlaceTool.matches($0.name, name) }) {
+            return .sure(match, .screen, found: 0)
+        }
+        let via: ShowPlaceTool.Via = city.isEmpty ? .near : .city
+        var searchCity = city
+        if city.isEmpty {
+            guard let car = await cityCode(), !car.isEmpty else {
+                return .notSure(ShowPlaceTool.withNext(LookupReply.failed(.noLocation, what: "place", cause: .noLocation,
+                                                                          facts: ["shown": false], mustNot: [.claimDone]), next),
+                                via, found: 0)
+            }
+            searchCity = car
+        }
+        let results: [Place]
+        do {
+            results = try await search.text(name, city: searchCity, cityLimit: true)
+        } catch let error as AmapWebError {
+            let cause = LookupReply.cause(of: error)
+            return .notSure(ShowPlaceTool.withNext(LookupReply.failed(LookupReply.code(for: cause), what: "place", cause: cause,
+                                                                      facts: ["shown": false], mustNot: [.claimDone]), next),
+                            via, found: 0)
+        } catch {
+            return .notSure(ShowPlaceTool.withNext(LookupReply.failed(.liveInfoUnavailable, what: "place", cause: .network,
+                                                                      facts: ["shown": false], mustNot: [.claimDone]), next),
+                            via, found: 0)
+        }
+        guard let sure = ShowPlaceTool.sureMatch(results, name: name, city: city.isEmpty ? nil : city) else {
+            return .notSure(ShowPlaceTool.unsure(name: name, city: city, found: results, next: next), via, found: results.count)
+        }
+        return .sure(sure, via, found: results.count)
     }
 }

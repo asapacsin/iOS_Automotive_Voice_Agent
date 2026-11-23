@@ -186,6 +186,8 @@ private struct DriveContent: View {
                 // F-15b §11 (T-040j): the trip list's cards, or the strip while moving.
                 TripCardsView(model: model, runtime: runtime)
                 if let card = model.previewCard { PreviewCardView(card: card).screenPanel(.musicCard) }
+                // F-09b §19 item 3 (T-031zd): the pin's small card; no 导航 button, no route.
+                if let pin = model.mapPin { mapPinCard(pin) }
                 conversation
                 locateRow
                 carCard
@@ -199,7 +201,12 @@ private struct DriveContent: View {
         .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading, intro: model.tripIntro).screenPanel(.tripDetail) }
         // T-044c: 我的位置 and the camera follow the policy (F-16b); the view only applies its commands.
         .onChange(of: model.geometry) { _, geometry in position.navigation(model.nav, geometry: geometry) }
-        .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }
+        .onChange(of: model.nav) { _, flow in
+            position.navigation(flow, geometry: model.geometry)
+            // F-09b §19 item 5 (T-031zd): a navigate_to that lists places takes the pin away.
+            if model.mapPin != nil, MapPin.kept(model.mapPin, after: flow) == nil { model.mapPin = nil }
+        }
+        .onChange(of: model.mapPin) { _, pin in position.mapPin(pin?.coordinate) }
         .onChange(of: position.command) { _, command in if let command { apply(command.command) } }
         .onChange(of: useDeviceLocation) { _, _ in position.sourceChanged() }
         .onChange(of: wakeWord) { _, _ in Task { await runtime.refreshWake() } }
@@ -262,6 +269,10 @@ private struct DriveContent: View {
                     SelfMarker(marker: marker).accessibilityIdentifier("self-position")
                 }
             }
+            // F-09b §19 item 3 (T-031zd): the one green pin show_on_map drew.
+            if let pin = model.mapPin {
+                Marker(pin.name, coordinate: CLLocationCoordinate2D(pin.coordinate)).tint(.green)
+            }
             if let destination = presentation.destination {
                 Marker(destination.name, coordinate: CLLocationCoordinate2D(destination.coordinate)).tint(.red)
             }
@@ -304,6 +315,27 @@ private struct DriveContent: View {
         }
     }
 
+    /// F-09b §19 item 3: name, 「<district>，距离 N 公里」 and a 「×」 through the same close as 「关掉」 (I-6).
+    private func mapPinCard(_ pin: MapPin) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "mappin.circle.fill").foregroundStyle(.green).font(.title3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pin.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+                if !pin.detail.isEmpty { Text(pin.detail).font(.caption).foregroundStyle(.secondary) }
+            }
+            Spacer()
+            Button { runtime.closePanel(.mapPin) } label: {
+                Image(systemName: "xmark").font(.subheadline.weight(.bold)).padding(6)
+            }
+            .accessibilityLabel("关掉地图标记")
+            .accessibilityIdentifier("map-pin-close")
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityIdentifier("map-pin-card")
+        .screenPanel(.mapPin)
+    }
+
     /// Applies a `MapCameraPolicy` command; the resulting camera change is not a driver gesture.
     private func apply(_ command: MapCameraPolicy.Command) {
         switch command {
@@ -318,6 +350,15 @@ private struct DriveContent: View {
             if points.isEmpty {
                 points = model.geometry.routes.filter { presentation.routes.contains($0.summary.id) }.flatMap(\.points)
             }
+            guard !points.isEmpty else { return }
+            let lats = points.map(\.latitude), lngs = points.map(\.longitude)
+            let center = CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2,
+                                                longitude: (lngs.min()! + lngs.max()!) / 2)
+            let span = MKCoordinateSpan(latitudeDelta: (lats.max()! - lats.min()!) * 1.6 + 0.01,
+                                        longitudeDelta: (lngs.max()! - lngs.min()!) * 1.6 + 0.01)
+            withAnimation { camera = .region(MKCoordinateRegion(center: center, span: span)) }
+        case .frame(let points):
+            // F-09b §19 item 4 (T-031zd): the car and the pin together, the `fitContent` margin.
             guard !points.isEmpty else { return }
             let lats = points.map(\.latitude), lngs = points.map(\.longitude)
             let center = CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2,

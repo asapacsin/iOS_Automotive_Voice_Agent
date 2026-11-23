@@ -49,7 +49,7 @@ public enum ToolCatalog {
         return ToolSpec(domain: spec.domain, repeatSensitive: spec.repeatSensitive,
                         declaration: ToolDeclaration(name: spec.name, description: description,
                                                      parametersJSONSchema: schema))
-    } + [volumeSpec, vehicleStateSpec, undoSpec] + tripSpecs + [showPlaceSpec]
+    } + [volumeSpec, vehicleStateSpec, undoSpec] + tripSpecs + [showPlaceSpec, showOnMapSpec]
 
     // MARK: navigate_to near (F-15b §51 item 8, T-040z; replaces §36 item 2d's abroad/city)
 
@@ -136,7 +136,7 @@ public enum ToolCatalog {
     public static let playMusicDescription = "按歌名、歌手、作品或模糊描述放歌（播放 iTunes 30 秒试听），如「梶浦由记的、空之境界里很燃的那首片头曲」「来点开车提神的」。先用你的知识确定是哪首，填 title/artist/album_or_work；先用你的知识确定一首具体的歌：title 填发行时的歌名原文（如 oblivious），artist 填演唱者（如 Kalafina）；不要把用户的原话填进 query。实在确定不了才只填 query 或 mood。只按返回的 now_playing 说在放什么；ok=false 如实说没放成。「不是这首」时再调用并填 exclude_title。无描述的「放首歌」用 control_music。"
     static let iosDescriptions: [String: String] = [
         "play_music": playMusicDescription,
-        "navigate_to": "导航到地点：「导航去X」「带我去X」。只有一个地点时直接开始导航（推荐路线）；有多个时屏幕会列出候选，不要念列表，按返回的 next 只说一句，选择用 choose_navigation_option。按结果答：navigation_started 按 next 说已开始导航和大约几分钟，alternatives 只按 next 提一句，不要念所有路线；ok=false 按 next 说原因，不要说已开始。换目的地（「不是这个」「换成X」）时用新目的地再调用。没有路线时找附近的地点（「附近有加油站吗」「最近的充电站」）也用它：destination=附近的加油站。" + navigateNearDescription,
+        "navigate_to": "导航到地点：「导航去X」「带我去X」。只有一个地点时直接开始导航（推荐路线）；有多个时屏幕会列出候选，不要念列表，按返回的 next 只说一句，选择用 choose_navigation_option。按结果答：navigation_started 按 next 说已开始导航和大约几分钟，alternatives 只按 next 提一句，不要念所有路线；ok=false 按 next 说原因，不要说已开始。换目的地（「不是这个」「换成X」）时用新目的地再调用。没有路线时找附近的地点（「附近有加油站吗」「最近的充电站」）也用它：destination=附近的加油站。" + navigateLookOnly + navigateNearDescription,
         "choose_navigation_option": "选屏幕上的候选地点（等同点选），或导航中换路线，三个参数只填一个。地点列表时：「第一个」「第二个」→index；「最近的那个」→nearest；「选万达广场那个」→name；选好地点后直接开始导航。导航中：「换最快的」→preference=fastest；「最短的」→shortest；「不走高速」「不要收费」→no_toll；「红绿灯少的」→fewest_lights；「推荐的」→recommended；「换第二条」→index；她问「要换吗？」后司机说「好」「换」→preference=上次结果的 offer_preference。按结果答：navigation_started 说已开始导航；route_changed 按 next 说已换成哪条路线和大约几分钟；route_unchanged 说现在走的就是这条；ok=false 按 error：OUT_OF_RANGE=没有这一项，NO_OPTIONS_ON_SCREEN=没有可选列表或没有别的路线，OPTIONS_NOT_READY=还在计算，AMBIGUOUS=多个匹配请说第几个，OPTIONS_STALE=列表过期请重新说，CONFIRM_CANDIDATE=问是不是 candidate_position 那项。",
     ]
     public static let declarations: [ToolDeclaration] = specs.map(\.declaration)
@@ -337,6 +337,21 @@ public enum ToolCatalog {
             "required": ["name", "city"],
             "additionalProperties": false,
         ]))
+    /// F-09b §19 item 1 (T-031zd): one place put on the map, never a route; the same two fields as `show_place`.
+    public static let showOnMapDescription = "在地图上标出一个地方给司机看，不导航、不算路线。司机问在哪里、在地图上看看、离这里多远时用；司机要去那里才用 navigate_to。city 填这个地方所在的城市；不确定在哪个城市时先用 web_search 查。"
+    public static let showOnMapSpec = ToolSpec(domain: "navigation", repeatSensitive: false, declaration: ToolDeclaration(
+        name: "show_on_map", description: showOnMapDescription,
+        parametersJSONSchema: [
+            "type": "object",
+            "properties": [
+                "name": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripName))],
+                "city": ["type": "string", "maxLength": .int(Int64(maxShowPlaceCity))],
+            ],
+            "required": ["name", "city"],
+            "additionalProperties": false,
+        ]))
+    /// §19 item 1: the sentence `navigate_to`'s description adds.
+    public static let navigateLookOnly = "司机只是想看在哪里，用 show_on_map。"
     /// F-09b §18 item 1 (T-031zc): the city she believes the place is in; empty only for a place near the car.
     public static let maxShowPlaceCity = 20
 
@@ -391,7 +406,7 @@ public enum ToolCatalog {
     /// F-15b §22 item 4 (T-040m): 「把页面关掉」 also calls it and hides the trip cards; a checked replace of the
     /// Android text.
     /// F-09b §17 item 4 (T-031zb): a named panel closes that panel; without `panel` the top one closes.
-    public static let exitPanels = ["navigation", "destinationList", "tripScreen", "tripDetail", "tripPlans", "camera", "musicCard"]
+    public static let exitPanels = ["navigation", "destinationList", "tripScreen", "tripDetail", "tripPlans", "camera", "musicCard", "mapPin"]
     static let exitPanelArguments: JSONValue = [
         "type": "object",
         "properties": ["panel": ["type": "string", "enum": .array(exitPanels.map { .string($0) })]],
@@ -604,7 +619,7 @@ public enum ToolCatalog {
                 }
             }
             if action == "set" && !keys.contains("value") { return .missingValue }
-        case "show_place":
+        case "show_place", "show_on_map":
             // F-09b §18 item 1 (T-031zc): a name, 1–40 characters, and a city (empty: near the car).
             guard keys.contains("name"), keys.isSubset(of: ["name", "city"]) else { return .invalidFields }
             guard let n = str("name") else { return .invalidFieldType }

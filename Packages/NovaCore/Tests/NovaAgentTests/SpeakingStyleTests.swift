@@ -155,6 +155,7 @@ enum ToolPromptCoverage: Sendable {
         "trip_plans": .phrase("要去的地方"),
         // F-09b §16 item 8 (T-031za).
         "show_place": .phrase("地方卡片"),
+        "show_on_map": .phrase("地图"),
     ]
 
     /// Failure messages for `tools` against `base`; empty when every tool is covered.

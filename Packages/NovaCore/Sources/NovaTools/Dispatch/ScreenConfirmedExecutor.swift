@@ -27,6 +27,7 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
     /// (the navigation panels and `tripScreen` go through the navigation flow, as before), with the name her `next` uses.
     public static let ownClose: [ScreenPanel: String] = [
         .tripDetail: "地方卡片", .tripPlans: "我的行程", .camera: "摄像头画面", .musicCard: "音乐卡片",
+        .mapPin: "地图标记",
     ]
 
     private let inner: any ToolExecutor

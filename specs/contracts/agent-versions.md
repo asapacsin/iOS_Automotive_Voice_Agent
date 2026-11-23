@@ -15,6 +15,7 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
+| 7.1.0 | 3035998f8bb2 | 2026-11-23 | (T-031zd) | minor: tool `show_on_map` added; `navigate_to` adds 「司机只是想看在哪里，用 show_on_map。」; `exit_navigation_mode` panel enum and the 屏幕 line gain `mapPin` | F-09b §19 items 1, 5 |
 | 7.0.0 | 1142703f8837 | 2026-11-23 | 3caebbb | major: tool parameter added (`show_place.city`, required, empty for near the car); `show_place` description adds 「city 填这个地方所在的城市；不确定在哪个城市时先用 web_search 查。」 | F-09b §18 item 1 |
 | 6.4.0 | fbd9b3bed999 | 2026-11-23 | f2e344c | minor: the 屏幕 line gains `backgroundWork` after `working` | F-04 §15 item 4 |
 | 6.3.0 | 4f2a41928ff2 | 2026-11-23 | 1b20209 | minor: corrections `CLAIM_AFTER_FAILURE tool=set_trip_plan` (「[系统] 行程没有改成，原因在上一个工具结果的 problems 里。…」) and `UNVERIFIED_CLAIM tool=set_trip_plan` added; `set_trip_plan` text ends 「结果稍后回来。新行程：…改行程：先只说一句：好，我在改行程，好了告诉你。然后不要说话，等结果。」 | F-15b §58 items 2–4 |

@@ -4,6 +4,8 @@ public enum ScreenPanel: String, Sendable, Hashable, CaseIterable {
     /// F-15b §57 item 4 (T-040zj, amends §16 item 1): the 「去下一站：<名字>」 and 「结束导航」 buttons, after `navigation`.
     case tripNextButton, stopNavigationButton
     case tripScreen, tripDetail, tripPlans, musicCard
+    /// F-09b §19 item 5 (T-031zd): the pin `show_on_map` drew and its small card, after `musicCard`'s music fields.
+    case mapPin
     case camera, working
     /// F-04 §15 item 4 (T-004k): the background-work caption (a tool call running), after `working`.
     case backgroundWork
@@ -133,6 +135,7 @@ public enum PanelRegistry {
         .routeCalculating: PanelEntry(layer: 2, opens: ["navigate_to", "choose_navigation_option", "trip_next"], close: "exit_navigation_mode", acts: []),
         .tripScreen: PanelEntry(layer: 2, opens: ["set_trip_plan", "trip_plans"], close: "exit_navigation_mode", acts: ["set_trip_plan", "trip_next", "show_place"]),
         .camera: PanelEntry(layer: 2, opens: [], close: "exit_navigation_mode", acts: ["describe_camera_view"]),
+        .mapPin: PanelEntry(layer: 1, opens: ["show_on_map"], close: "exit_navigation_mode", acts: ["navigate_to"]),
         .musicCard: PanelEntry(layer: 1, opens: ["play_music"], close: "exit_navigation_mode", acts: ["control_music"]),
         .navigation: PanelEntry(layer: 0, opens: ["choose_navigation_option", "trip_next"], close: "exit_navigation_mode", acts: ["choose_navigation_option", "navigate_to"]),
         .working: PanelEntry(layer: nil, opens: [], close: nil, acts: []),

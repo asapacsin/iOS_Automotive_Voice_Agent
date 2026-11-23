@@ -35,8 +35,8 @@ struct ScreenStateTests {
     func row2() {
         var s = ScreenState(musicVolume: 6)
         s.report(.routePicking, on: true)
-        #expect(s.line == "[系统] 屏幕：destinationList off；routePicking on；routeCalculating off；navigation off；tripNextButton off；stopNavigationButton off；tripScreen off；tripDetail off；tripPlans off；musicCard off；music off；musicVolume 6；camera off；working off；backgroundWork off；settings off；top routePicking。这句不用回答。")
-        #expect(s.recordLine == "screen destinationList=off routePicking=on routeCalculating=off navigation=off tripNextButton=off stopNavigationButton=off tripScreen=off tripDetail=off tripPlans=off musicCard=off music=off musicVolume=6 camera=off working=off backgroundWork=off settings=off")
+        #expect(s.line == "[系统] 屏幕：destinationList off；routePicking on；routeCalculating off；navigation off；tripNextButton off；stopNavigationButton off；tripScreen off；tripDetail off；tripPlans off；musicCard off；music off；musicVolume 6；mapPin off；camera off；working off；backgroundWork off；settings off；top routePicking。这句不用回答。")
+        #expect(s.recordLine == "screen destinationList=off routePicking=on routeCalculating=off navigation=off tripNextButton=off stopNavigationButton=off tripScreen=off tripDetail=off tripPlans=off musicCard=off music=off musicVolume=6 mapPin=off camera=off working=off backgroundWork=off settings=off")
         #expect(DiagnosticEvent.screenLine(s).logLine == s.recordLine)
     }
 
