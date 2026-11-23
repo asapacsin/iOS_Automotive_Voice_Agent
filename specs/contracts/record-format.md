@@ -15,3 +15,4 @@ To change a line: raise `formatVersion` by one, add the new fixture (old ones st
 | 2 | 0c685e2 (T-031y) | Header gains `agentVersion <v>`, `agentHash <h>`, `model <requested>` right after the `app` line (F-09b §15 item 6); event lines unchanged. |
 | 3 | bff0cfb (T-031z) | Adds the `screen <key>=<on\|off> … musicVolume=<n>` event line, one per `屏幕` line sent (F-09b §16 item 9); every other line unchanged. |
 | 4 | ee866b2 (T-031zb) | Adds the `panel <key> <on\|off> top=<panel\|none>` event line, one per view report at that moment (F-09b §17 item 7); every other line unchanged. |
+| 5 | (T-040zj) | The `screen …` line gains `tripNextButton=<on\|off> stopNavigationButton=<on\|off>` after `navigation=` (F-15b §57 item 4); a `tool-result` whose data has `problems` writes `problems=<n>` instead of the lines and a `REPEATED_FAILURE` adds `trip repeat-blocked code=<code>` (F-15b §56 item 6); every other line unchanged. |

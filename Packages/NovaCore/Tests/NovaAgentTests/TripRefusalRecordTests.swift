@@ -21,6 +21,7 @@ struct TripRefusalRecordTests {
 
     @Test("T-040zi F-15b row 243: agent version bumped (minor) for the §56 item 5 catalog text")
     func row243Version() {
-        #expect(AgentSetup.version == "6.1.0")
+        let v = AgentSetup.version.split(separator: ".").compactMap { Int($0) }
+        #expect(v.count == 3 && v[0] == 6 && v[1] >= 1, "6.1.0 or later")
     }
 }

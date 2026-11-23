@@ -1431,6 +1431,12 @@ public actor TripPlanner: ToolExecutor {
         }
         // §52 item 4: a stop not on the map yet has no route.
         guard target.placed else { return failure(.notFound, facts: ["name": .string(target.place.name), "placed": false]) }
+        // F-15b §57 item 3 (T-040zj): already guiding to this stop: no new route (a misheard 「停止导航」 restarted it).
+        let running = await navigation.current
+        if running.navigating, running.destination?.id == target.place.id {
+            onLine("trip next index=\(target.index) day=\(plan.currentDay) ok=no code=ALREADY_NAVIGATING")
+            return Self.alreadyNavigating(target.place.name)
+        }
         // §47 item 1 (T-040s): an `abroad` trip's stop is routed by OSRM inside the app.
         let result = await navigation.tripNext(target.place, abroad: plan.abroad)
         onLine("trip next index=\(target.index) day=\(plan.currentDay) ok=\(result.ok ? "yes" : "no") code=\(result.code?.rawValue ?? "none")")
@@ -2095,6 +2101,11 @@ public actor TripPlanner: ToolExecutor {
             }
         }
         onLine("trip tap action=\(tap.action) ok=\(result.ok ? "yes" : "no")")
+        // F-15b §57 items 5–6 (T-040zj): a tap on 「去下一站」 reaches her as one line, whatever its result.
+        if case .next = tap {
+            onLine("nav tap action=next")
+            return (result, Self.nextTapLine)
+        }
         guard result.ok else { return (result, nil) }
         let what: String
         switch tap {
@@ -2104,7 +2115,7 @@ public actor TripPlanner: ToolExecutor {
         case .openPlan(let name): what = Self.editOpened(result.data["name"]?.stringValue ?? name)
         case .remove(let index): what = Self.editRemoved("\(index)", Self.removedName(result) ?? "")
         case .move(let from, let to): what = Self.editMoved("\(from)", "\(to)")
-        case .next: what = Self.editNext(result.data["name"]?.stringValue ?? "下一站")
+        case .next: return (result, Self.nextTapLine)
         case .add(let place):
             // An already listed place changed nothing: no note.
             if result.data["changed"] == "none" { return (result, nil) }
@@ -2127,7 +2138,17 @@ public actor TripPlanner: ToolExecutor {
     public static func editOpened(_ name: String) -> String { "打开了行程「\(name)」" }
     public static func editRemoved(_ index: String, _ name: String) -> String { "去掉了第\(index)个：\(name)" }
     public static func editMoved(_ from: String, _ to: String) -> String { "把第\(from)个移到了第\(to)个" }
-    public static func editNext(_ name: String) -> String { "开始了去\(name)的导航" }
+    /// F-15b §57 item 5 (T-040zj): the line she gets for a tap on 「去下一站」 (queued like the screen line).
+    public static let nextTapLine = "[系统] 司机点了「去下一站」。这句不用回答。"
+    /// §57 item 3: the `next` of `ALREADY_NAVIGATING`, exactly as §57 gives it.
+    public static func alreadyNavigatingNext(_ name: String) -> String {
+        "已经在去\(name)的路上了。司机要是想停，调用 exit_navigation_mode。"
+    }
+    static func alreadyNavigating(_ name: String) -> ToolResult {
+        var data = ToolFailureAdvice.reply(.alreadyNavigating, facts: ["name": .string(name), "navigating": true]).data
+        data["next"] = .string(alreadyNavigatingNext(name))
+        return ToolResult(ok: false, code: .alreadyNavigating, data: data, advice: nil)
+    }
     public static func editAdded(_ name: String) -> String { "加入了\(name)" }
     public static func screenEditNote(what: String, count: String) -> String {
         "[系统] 司机在屏幕上\(what)，现在清单有\(count)个地点。这句不用回答。"

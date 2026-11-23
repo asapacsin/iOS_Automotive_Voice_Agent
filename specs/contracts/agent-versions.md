@@ -15,6 +15,7 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
+| 6.2.0 | dac9a7922890 | 2026-11-23 | (this commit) | minor: the 屏幕 line gains `tripNextButton` and `stopNavigationButton` after `navigation`; notes 「[系统] 司机点了「去下一站」。这句不用回答。」 and 「[系统] 司机点了「结束导航」。这句不用回答。」 added, the 去下一站 screen-edit note removed | F-15b §57 items 4–5 |
 | 6.1.0 | 44b50915edc3 | 2026-11-23 | 19d8874 | minor: `set_trip_plan` 改行程 sentence becomes 「改行程：把结果里的行程照着改，已有的地点保留 id（其他字段可以照抄），新地点写 name。」; stop schema `minutes` 0–720 and other stop keys no longer refused | F-15b §56 items 1, 5 |
 | 6.0.0 | ecb264516eb6 | 2026-11-22 | 4fb5041 | major: tools removed (`make_trip_list`, `edit_trip_list`); `set_trip_plan` parameters added (`city`, stop `near`) and its description replaced by §55 item 12 (makes and changes every plan); correction `TRIP_NEEDS_FIX` added | F-15b §55 items 11–13 |
 | 5.3.0 | 1a35a7e234a1 | 2026-11-21 | 3568631 | minor: `make_trip_list` adds 「司机说去一个新地方、规划新的行程…就用这个，不要用 set_trip_plan 改旧行程。」; `set_trip_plan` adds 「只用来改屏幕上这份行程…用 make_trip_list。」 | F-15b §54 items 1-2 |

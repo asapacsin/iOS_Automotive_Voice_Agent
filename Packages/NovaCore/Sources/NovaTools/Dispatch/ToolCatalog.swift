@@ -747,6 +747,8 @@ public enum ToolFailureAdvice {
         .planCheck: Rules([], [.claimDone]),
         // F-15b §56 item 4 (T-040zi).
         .repeatedFailure: Rules([], [.claimDone]),
+        // F-15b §57 item 3 (T-040zj).
+        .alreadyNavigating: Rules([], [.claimStarted]),
         .confirmClear: Rules([.askConfirm], [.claimDone]),
         .styleNotAllowed: Rules([.nameStyles], [.claimDone]),
     ]
