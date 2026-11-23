@@ -45,9 +45,9 @@ struct TripEditProgressTests {
         let lines = rig.lines.withLock { $0 }
         #expect(lines.contains("work step=trip_edit state=running") && lines.contains("work step=trip_edit state=saved")
                 && lines.contains("work step=trip_edit state=refused"))
-        // The dispatcher lets such a call through to its executor (which refuses it the same way, above).
+        // F-15b §62 item 13 (T-040zo): `set_trip_plan` is no longer her tool: the dispatcher refuses it as undeclared.
         var d = ToolDispatcher()
         let call = trip("set_trip_plan", ["days": .array([.array([["id": "s1", "role": "museum"]])])])
-        guard case .execute = d.decide(call, context: GuardContext(turn: 1)) else { Issue.record("refused"); return }
+        guard case .refuse(let r) = d.decide(call, context: GuardContext(turn: 1)), r.code == .unknownTool else { Issue.record("ran"); return }
     }
 }

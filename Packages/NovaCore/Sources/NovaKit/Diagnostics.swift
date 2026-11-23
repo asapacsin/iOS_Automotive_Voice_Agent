@@ -51,6 +51,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case bargeInStopped
     /// F-18 §15 item 8: `google_search` came as an ordinary function call; it is refused, not executed.
     case webSearchAsFunction
+    /// F-15b §62 item 12 (T-040zo): the app said the handoff line itself when `tool` was dispatched; `ms` from dispatch.
+    case handoffSaid(tool: AsyncTool, ms: Int)
     /// F-18 §21 item 7 (T-046i): a destination note went to the model. No name (I-8).
     case destinationNote
     /// F-05a §13 item 5 (T-016i): conversation text failed the screen check and was not shown. No words (I-8).
@@ -91,8 +93,9 @@ public enum StateNoteReason: String, Sendable, Hashable, CaseIterable {
 public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     case webSearch = "web_search"
     case queryLiveInfo = "query_live_info"
-    /// F-15b §52 item 3 (T-040zb): the whole plan written, looked up and timed in the background.
-    case setTripPlan = "set_trip_plan"
+    /// F-15b §62 item 1 (T-040zo, replaces `set_trip_plan`): the driver's request handed to the planner model; the
+    /// plan is written, counted, reviewed and saved in the background.
+    case planTrip = "plan_trip"
     /// F-09b §16 item 8 (T-031za): the card answers after the introduction arrives.
     case showPlace = "show_place"
 
@@ -100,7 +103,8 @@ public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
 
     /// F-15b §52 item 12 (T-040ze): the trip tools; while one runs no reply may say the change is done.
     /// F-15b §55 item 11 (T-040zh): `make_trip_list` and `edit_trip_list` are removed; `set_trip_plan` makes every plan.
-    public var isTrip: Bool { self == .setTripPlan }
+    /// F-15b §62 item 1 (T-040zo): `plan_trip` replaces `set_trip_plan`.
+    public var isTrip: Bool { self == .planTrip }
     /// §52 item 12: the `next` of a turn while a trip tool's result has not come back.
     public static let tripPendingNext = "结果还没回来，不要说已经做好"
     /// The `scheduling` their response carries (F-18 §27 item 3).
@@ -153,6 +157,7 @@ extension DiagnosticEvent {
         case postStopTurnDropped
         case bargeInStopped
         case webSearchAsFunction
+        case handoffSaid
         case destinationNote
         case screenHidden
         case wakeDetected
@@ -201,6 +206,7 @@ extension DiagnosticEvent {
         case .postStopTurnDropped: .postStopTurnDropped
         case .bargeInStopped: .bargeInStopped
         case .webSearchAsFunction: .webSearchAsFunction
+        case .handoffSaid: .handoffSaid
         case .destinationNote: .destinationNote
         case .screenHidden: .screenHidden
         case .wakeDetected: .wakeDetected
@@ -233,6 +239,7 @@ extension DiagnosticEvent {
         case .stopSyncInterrupted(let ms): "stopSync interrupted ms=\(ms)"
         case .stopSyncNoInterrupt: "stopSyncNoInterrupt"
         case .destinationNote: "destinationNote"
+        case .handoffSaid(let tool, let ms): "handoff said tool=\(tool.rawValue) ms=\(ms)"
         case .screenHidden(let kind): "screenHidden kind=\(kind.rawValue)"
         case .reaskSuppressed: "reaskSuppressed reason=stop"
         case .abandonCleared: "abandonCleared reason=newUtterance"

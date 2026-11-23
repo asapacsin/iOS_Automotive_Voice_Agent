@@ -24,7 +24,7 @@ private func sightsRig() async -> (TripRig, [String: String]) {
 
 /// The refusal the call gets (from its executor since §58 item 5; the same `ToolDispatcher.refusal`), nil when it may run.
 private func refusal(_ call: ToolCall) -> ToolResult? {
-    ToolCatalog.validate(call).map { ToolDispatcher.refusal(call, $0) }
+    TripPlanner.validateWrite(call).map { ToolDispatcher.refusal(call, $0) }
 }
 
 @Suite("T-040zi F-15b §56 what a trip result shows, set_trip_plan accepts; a refusal says what is wrong")
@@ -38,7 +38,7 @@ struct TripReadShapeTests {
         #expect(plan.keys.contains("days"))
         let asked = rig.search.asked.withLock { $0 }.count
         let call = ToolCall(id: CallID("t1")!, name: "set_trip_plan", arguments: .object(plan))
-        #expect(ToolCatalog.validate(call) == nil)
+        #expect(TripPlanner.validateWrite(call) == nil)
         let r = await rig.run(call)
         #expect(r.ok && r.code != .invalidFields, "\(r)")
         #expect(r.data["facts"]?["kept"] == .int(6) && r.data["facts"]?["new"] == .int(0))
@@ -105,7 +105,7 @@ struct TripReadShapeTests {
             (noCity, "新行程要写 city（城市，跨城市就写省或地区）"),
         ]
         for (call, line) in cases {
-            #expect(ToolCatalog.validate(call) == .invalidFields)
+            #expect(TripPlanner.validateWrite(call) == .invalidFields)
             let r = refusal(call)
             #expect(r?.code == .invalidFields && strings(r?.data["problems"]) == [line], "\(String(describing: r))")
             #expect(r?.data["next"]?.stringValue == "先不要跟司机说话，按 problems 改好整份行程，再调用 set_trip_plan。")
@@ -122,29 +122,19 @@ struct TripReadShapeTests {
         #expect(strings(refusal(trip("set_trip_plan", ["days": .array([])]))?.data["problems"]) == ["days 要写1到5天，每天是一组地点"])
     }
 
-    @Test("T-040zi F-15b row 242: the same refused call twice in one driver request: REPEATED_FAILURE with the earlier problems, not run; a changed call runs")
+    @Test("T-040zi F-15b row 242 with §62 item 13 (T-040zo): set_trip_plan is no longer her tool: the dispatcher refuses it UNKNOWN_TOOL and runs nothing, refused or not")
     func row242() {
         var d = ToolDispatcher()
         let bad = days([[["id": "s1", "role": "museum"]]])
-        // §58 item 5 (T-040zk): the call runs into its executor, which refuses it; the refusal is noted.
-        guard case .execute = d.decide(bad, context: GuardContext(turn: 3)) else { Issue.record("refused"); return }
-        let first = refusal(bad)!
-        #expect(first.code == .invalidFields)
-        d.noteResult(bad, first)
-        guard case .refuse(let second) = d.decide(bad, context: GuardContext(turn: 3)) else { Issue.record("ran"); return }
-        #expect(second.code == .repeatedFailure && second.data["problems"] == first.data["problems"])
-        #expect(second.data["next"]?.stringValue == "这份行程刚才已经被拒绝了，原因在 problems 里。按它改，改不了就告诉司机行程没改成和原因，不要再传同样的内容。")
-        #expect(second.data["refused_code"] == "INVALID_FIELDS")
-        // A changed call runs normally.
+        guard case .refuse(let first) = d.decide(bad, context: GuardContext(turn: 3)) else { Issue.record("ran"); return }
+        #expect(first.code == .unknownTool)
         let fixed = days([[["id": "s1", "role": "sight"]]])
-        guard case .execute = d.decide(fixed, context: GuardContext(turn: 3)) else { Issue.record("refused"); return }
-        // A PLAN_CHECK result is remembered too; the same plan again is blocked, in the next request it runs again.
-        let check = ToolResult(ok: false, code: .planCheck, data: ["facts": ["problems": ["没有这个 id：s1"]]], advice: nil)
-        d.noteResult(fixed, check)
-        guard case .refuse(let again) = d.decide(fixed, context: GuardContext(turn: 3)) else { Issue.record("ran"); return }
-        #expect(again.code == .repeatedFailure && strings(again.data["problems"]) == ["没有这个 id：s1"] && again.data["refused_code"] == "PLAN_CHECK")
-        guard case .execute = d.decide(fixed, context: GuardContext(turn: 4)) else { Issue.record("refused next turn"); return }
-        guard case .execute = d.decide(bad, context: GuardContext(turn: 4)) else { Issue.record("blocked next turn"); return }
+        guard case .refuse(let other) = d.decide(fixed, context: GuardContext(turn: 3)) else { Issue.record("ran"); return }
+        #expect(other.code == .unknownTool)
+        // Her trip write is plan_trip; it runs.
+        guard case .execute = d.decide(trip("plan_trip", ["change": "第二天去掉沙面"]), context: GuardContext(turn: 3)) else {
+            Issue.record("plan_trip refused"); return
+        }
     }
 
     @Test("T-040zi F-15b row 243: catalog: set_trip_plan text has the §56 item 5 sentence; agent version bumped")

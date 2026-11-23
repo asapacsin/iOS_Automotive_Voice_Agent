@@ -216,7 +216,7 @@ struct TripPlannerTests {
         _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         let many = await rig.run(planCall(["places": names((1...25).map { "地点\($0)" })]))
         #expect(many.code == .invalidFields)
-        #expect(ToolCatalog.validate(planCall(["places": names(["古文化街", "  "])])) == .invalidFields)
+        #expect(TripPlanner.validateWrite(planCall(["places": names(["古文化街", "  "])])) == .invalidFields)
         let blank = await rig.run(planCall(["places": names(["古文化街", "  "])]))
         #expect(blank.code == .invalidFields)
         #expect(await rig.order() == ["古文化街", "五大道"])

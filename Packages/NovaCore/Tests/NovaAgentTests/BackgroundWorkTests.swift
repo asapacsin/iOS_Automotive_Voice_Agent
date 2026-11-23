@@ -50,25 +50,25 @@ struct BackgroundWorkTests {
         #expect(changes.withLock { $0 } == [true, false])
     }
 
-    @Test("T-004k F-04 §15 row 11: set_trip_plan refused at once: on at the call, off at the refusal")
+    @Test("T-004k F-04 §15 row 11 (§62: plan_trip): a trip write refused at once: on at the call, off at the refusal")
     func row11() async {
-        let runner = ToolRunner(executors: ["set_trip_plan": Instant()])
+        let runner = ToolRunner(executors: ["plan_trip": Instant()])
         let seen = Mutex<[String?]>([])
         runner.background.onChange { w in seen.withLock { $0.append(w.caption) } }
         let done = Mutex(false)
-        runner.start(call("c1", "set_trip_plan")) { _ in done.withLock { $0 = true } }
+        runner.start(call("c1", "plan_trip")) { _ in done.withLock { $0 = true } }
         await waitFor { done.withLock { $0 } }
-        #expect(seen.withLock { $0 } == ["正在改行程…", nil])
+        #expect(seen.withLock { $0 } == ["正在规划行程…", nil])
     }
 
-    @Test("T-004k F-04 §15 row 12: search and trip write together: 正在改行程… 等 2 项, then the remaining one's text, then off")
+    @Test("T-004k F-04 §15 row 12 (§62: plan_trip): search and trip write together: 正在规划行程… 等 2 项, then the remaining one's text, then off")
     func row12() async {
         let search = HeldExecutor()
         let trip = HeldExecutor()
-        let runner = ToolRunner(executors: ["web_search": search, "set_trip_plan": trip])
+        let runner = ToolRunner(executors: ["web_search": search, "plan_trip": trip])
         runner.start(call("s", "web_search")) { _ in }
-        runner.start(call("t", "set_trip_plan")) { _ in }
-        #expect(runner.background.current.caption == "正在改行程… 等 2 项")
+        runner.start(call("t", "plan_trip")) { _ in }
+        #expect(runner.background.current.caption == "正在规划行程… 等 2 项")
         await waitFor { trip.held == 1 && search.held == 1 }
         trip.release()
         await waitFor { runner.background.current.calls.count == 1 }

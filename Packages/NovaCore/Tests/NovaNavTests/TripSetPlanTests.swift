@@ -185,16 +185,14 @@ struct TripSetPlanTests {
         #expect(back?.allStops.map(\.stop.id) == (await rig.planner.currentPlan).allStops.map(\.stop.id))
     }
 
-    @Test("T-040zb F-15b §52 items 3, 14: set_trip_plan declared async with the §52 text; validation; old actions gone")
+    @Test("T-040zb F-15b §52 items 3, 14 with §62 item 13 (T-040zo): set_trip_plan is internal (not declared, not async); its validation; old actions gone")
     func catalog() {
-        #expect(AsyncTool(name: "set_trip_plan") != nil && TripPlanner.tools.contains("set_trip_plan"))
-        // §55 item 12 (T-040zh) replaces §52's text; row 234 checks it in full.
-        #expect(ToolCatalog.setTripPlanDescription.hasSuffix("结果稍后回来。新行程：" + ToolCatalog.tripWorkingLine + "改行程：" + ToolCatalog.tripEditWorkingLine + ToolCatalog.setTripPlanReview))
-        #expect(ToolCatalog.validate(setPlan([[stop("s1"), stop(name: "X", role: "hotel")]], ["optimise": true, "pace": "relaxed"])) == nil)
+        #expect(AsyncTool(name: "set_trip_plan") == nil && !TripPlanner.tools.contains("set_trip_plan") && ToolCatalog.spec("set_trip_plan") == nil)
+        #expect(TripPlanner.validateWrite(setPlan([[stop("s1"), stop(name: "X", role: "hotel")]], ["optimise": true, "pace": "relaxed"])) == nil)
         // §56 item 1 (T-040zi): an id stop may carry its name (ignored).
-        #expect(ToolCatalog.validate(setPlan([[stop("s1", name: "X")]])) == nil)
-        #expect(ToolCatalog.validate(setPlan([[stop(name: "X", role: "museum")]])) == .invalidFields)
-        #expect(ToolCatalog.validate(trip("set_trip_plan", [:])) == .invalidFields)
+        #expect(TripPlanner.validateWrite(setPlan([[stop("s1", name: "X")]])) == nil)
+        #expect(TripPlanner.validateWrite(setPlan([[stop(name: "X", role: "museum")]])) == .invalidFields)
+        #expect(TripPlanner.validateWrite(trip("set_trip_plan", [:])) == .invalidFields)
         #expect(!TripPlanner.tools.contains("edit_trip_list") && ToolCatalog.spec("edit_trip_list") == nil)
     }
 }

@@ -866,6 +866,21 @@ public struct AgentState: Sendable {
     private var subtitleGuidance: String?
     private var subtitleHidden = false
 
+    /// F-15b §62 item 12 (T-040zo): handing work over is said and shown by code, every time: the app says the handoff
+    /// line itself in the guidance voice (the path of F-05a §15 item 5's fallback line, with its subtitle) at the
+    /// dispatch. Her catalog text asks her to say nothing, so there is no double line; a barge-in stops it as any
+    /// guidance line.
+    private mutating func handoff(_ call: ToolCall) -> [AgentEffect] {
+        let line = ToolCatalog.planTripHandoffLine(call)
+        fallbackLines += 1
+        resetSubtitle()
+        var effects = subtitle(adding: line, .reply)
+        effects.append(.publish(view))
+        effects.append(.speakGuidance(line, GuidanceID(UInt64.max - fallbackLines)))
+        effects.append(.diagnostic(.handoffSaid(tool: .planTrip, ms: 0)))
+        return effects
+    }
+
     private mutating func resetSubtitle() {
         view.subtitle = ""
         subtitleRaw = ""
@@ -1285,6 +1300,7 @@ public struct AgentState: Sendable {
                     if running.name == "web_search" { searchCalls[running.id] = turn }
                     if let tool = AsyncTool(name: running.name) { asyncCalls[running.id] = (tool, now) }
                     effects.append(.startTool(turn, running))
+                    if running.name == AsyncTool.planTrip.rawValue { effects += handoff(running) }
                 case .refuse(let result):
                     effects += refuse(turn, call, result, at: now)
                 }

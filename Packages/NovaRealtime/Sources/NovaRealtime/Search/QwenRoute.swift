@@ -9,6 +9,10 @@ import NovaKit
 /// | `live` | qwen3.7-flash | turbo, forced, sources | off | as today | qwen3.8-flash |
 /// | `picker` | qwen3.8-flash (§59, T-040zl) | off | off | 2.5 s (TripTuning.pickLimit) | none (§59 item 2) |
 /// | `ground` | qwen3.7-plus | turbo (row 160), forced, sources | off | 30 s (TripTuning.groundTimeout) | qwen3.7-flash + turbo |
+///
+/// F-15b §62 item 10 (T-040zo): the trip planner is not a route of this table's native endpoint: it is
+/// `qwen3.8-flash` on the compatible-mode chat endpoint (`plannerModel`, `plannerEndpoint`), `json_object`, thinking
+/// off, 30 s (TripTuning.plannerTimeout), no backup (§62 item 7).
 public struct QwenRoute: Sendable, Hashable {
     public enum Job: String, Sendable, Hashable, CaseIterable {
         case live, picker, ground
@@ -82,6 +86,11 @@ public struct QwenRoute: Sendable, Hashable {
                                          budget: .seconds(30))
 
     public static let all: [QwenRoute] = [live, picker, ground]
+
+    /// F-15b §62 item 10 (T-040zo): the trip planner's model and endpoint (Model Studio, Singapore, OpenAI-compatible
+    /// chat completions; the same key as the routes above).
+    public static let plannerModel = "qwen3.8-flash"
+    public static let plannerEndpoint = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
 
     public static func route(_ job: Job) -> QwenRoute {
         switch job {

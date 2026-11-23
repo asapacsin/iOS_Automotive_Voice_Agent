@@ -21,8 +21,8 @@ struct TripChangeClaimTests {
     func row252() {
         var h = PipelineHarness()
         h.driver("给我安排一个咖啡的行程，我第二天想喝点咖啡")
-        let plan = h.call("t1", "set_trip_plan")
-        h.result(plan, "set_trip_plan", refused)
+        let plan = h.call("t1", "plan_trip")
+        h.result(plan, "plan_trip", refused)
         h.close()
         h.nextTurn()
         let search = h.call("s1", "web_search")
@@ -36,7 +36,7 @@ struct TripChangeClaimTests {
         #expect(!h.spoken.contains("加入了"))
         #expect(CorrectionReason.tripClaimAfterFailure.instruction
                 == "[系统] 行程没有改成，原因在上一个工具结果的 problems 里。如实告诉司机没改成和原因，不要说已经加了。")
-        #expect(CorrectionReason.tripClaimAfterFailure.rawValue == "CLAIM_AFTER_FAILURE tool=set_trip_plan")
+        #expect(CorrectionReason.tripClaimAfterFailure.rawValue == "CLAIM_AFTER_FAILURE tool=plan_trip")
         #expect(ClaimLexicon.tripChanged("我已经在您第二天游玩沙坡尾时加入了BAMN Coffee。"))
         #expect(!ClaimLexicon.tripChanged("我没有加入BAMN Coffee，第二天的行程没改。"))
     }
@@ -45,8 +45,8 @@ struct TripChangeClaimTests {
     func row253() {
         var h = PipelineHarness()
         h.driver("没看到")
-        let plan = h.call("t1", "set_trip_plan")
-        h.result(plan, "set_trip_plan", refused)
+        let plan = h.call("t1", "plan_trip")
+        h.result(plan, "plan_trip", refused)
         h.close()
         h.nextTurn()
         h.say("抱歉，我已经在后台更新了行程，可能稍后就会同步到您的屏幕上。")
@@ -67,7 +67,7 @@ struct TripChangeClaimTests {
     func row254() {
         var h = PipelineHarness()
         h.driver("第二天加个咖啡馆")
-        _ = h.call("t1", "set_trip_plan")
+        _ = h.call("t1", "plan_trip")
         h.close()
         h.nextTurn()
         h.say("我在后台更新行程，稍后会同步到屏幕上。")
@@ -80,12 +80,12 @@ struct TripChangeClaimTests {
     func row255() {
         var h = PipelineHarness()
         h.driver("第二天加个咖啡馆")
-        let first = h.call("t1", "set_trip_plan")
-        h.result(first, "set_trip_plan", refused)
+        let first = h.call("t1", "plan_trip")
+        h.result(first, "plan_trip", refused)
         h.close()
         h.nextTurn()
-        let second = h.call("t2", "set_trip_plan")
-        h.result(second, "set_trip_plan", .success(["status": "trip_list"]))
+        let second = h.call("t2", "plan_trip")
+        h.result(second, "plan_trip", .success(["status": "trip_list"]))
         h.say("BAMN Coffee已经加在第二天了。")
         h.close()
         h.advance(by: .seconds(30))
@@ -109,14 +109,14 @@ struct TripChangeClaimTests {
         #expect(ToolCatalog.setTripPlanDescription.contains("新行程：" + ToolCatalog.tripWorkingLine))
         var h = PipelineHarness()
         h.driver("第二天加个咖啡馆")
-        _ = h.call("t1", "set_trip_plan")
+        _ = h.call("t1", "plan_trip")
         h.say("好，我在改行程，好了告诉你。")
         h.close()
         h.advance(by: .seconds(30))
         #expect(h.corrections.isEmpty && h.spoken.contains("我在改行程"), "\(h.out)")
         var done = PipelineHarness()
         done.driver("第二天加个咖啡馆")
-        _ = done.call("t1", "set_trip_plan")
+        _ = done.call("t1", "plan_trip")
         done.say("好的，咖啡馆已经加到第二天的行程了。")
         done.close()
         done.advance(by: .seconds(30))
@@ -130,7 +130,7 @@ struct TripChangeClaimReviewTests {
     func endedWriteNoLongerRunning() {
         var h = PipelineHarness()
         h.driver("第二天加个咖啡馆")
-        let id = h.call("t1", "set_trip_plan")
+        let id = h.call("t1", "plan_trip")
         h.close()
         h.pipeline.callsEnded([id])
         h.driver("好了吗")
@@ -144,7 +144,7 @@ struct TripChangeClaimReviewTests {
     func runningWriteAcrossUtterance() {
         var h = PipelineHarness()
         h.driver("第二天加个咖啡馆")
-        _ = h.call("t1", "set_trip_plan")
+        _ = h.call("t1", "plan_trip")
         h.say("好，我在改行程，好了告诉你。")
         h.close()
         h.driver("好了吗")
@@ -152,5 +152,39 @@ struct TripChangeClaimReviewTests {
         h.close()
         h.advance(by: .seconds(30))
         #expect(!h.corrections.contains(.tripUnverifiedClaim) && !h.corrections.contains(.tripClaimAfterFailure), "\(h.out)")
+    }
+}
+
+@Suite("T-040zo F-15b §62 item 8 a saved trip result is never a failure claim's evidence")
+struct TripSavedClaimTests {
+    @Test("T-040zo F-15b row 284: replay 74404-84364: a refused write, then a saved one with not_placed; 「行程已经帮您做好了…陈家祠没有找到」: no correction, no CLAIM_AFTER_FAILURE")
+    func row284() {
+        var h = PipelineHarness()
+        h.driver("搞一个广东四天游，然后把这个放进去")
+        let first = h.call("t1", "plan_trip")
+        h.result(first, "plan_trip", refused)
+        h.close()
+        h.nextTurn()
+        let second = h.call("t2", "plan_trip")
+        h.result(second, "plan_trip", .success(["saved": true, "not_placed": [["name": "陈家祠", "searched": "广州"]],
+                                                "plan_text": "第1天：广州塔、陈家祠（没找到）"]))
+        h.close()
+        h.nextTurn()
+        h.say("行程已经帮您做好了，四天都安排上了。陈家祠没有找到，您想换一个吗？")
+        h.close()
+        h.advance(by: .seconds(30))
+        #expect(h.corrections.isEmpty, "\(h.out)")
+        #expect(h.spoken.contains("行程已经帮您做好了"))
+        // A failed latest write still disproves a trip claim (§58 stays).
+        var f = PipelineHarness()
+        f.driver("搞一个广东四天游")
+        let only = f.call("t1", "plan_trip")
+        f.result(only, "plan_trip", .failure(.plannerFailed))
+        f.close()
+        f.nextTurn()
+        f.say("行程已经改好了。")
+        f.close()
+        f.advance(by: .seconds(30))
+        #expect(f.corrections == [.tripClaimAfterFailure], "\(f.out)")
     }
 }

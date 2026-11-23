@@ -148,7 +148,7 @@ struct TripModelPlanTests {
         let after = await rig.planner.currentPlan
         #expect(after.revision == before.revision && after.allStops.map(\.stop.asked) == ["外滩"])
         // The schema takes city; a kept plan needs none (its city is kept).
-        #expect(ToolCatalog.validate(plan([[named("豫园")]], city: "")) == .invalidFields)
+        #expect(TripPlanner.validateWrite(plan([[named("豫园")]], city: "")) == .invalidFields)
     }
 
     @Test("T-040zh F-15b row 232: {role: hotel, near: 新宿站} on nights 1–2: one hotel near 新宿站 picked by the app for both nights; a night with no hotel gets a hotel issue")
@@ -181,9 +181,9 @@ struct TripModelPlanTests {
         #expect(r2.ok && issues(r2).isEmpty, "\(r2)")
         #expect(await rig.planner.currentPlan.days[1].stops.last?.role == .sight)
         // near is only for a hotel; §56 item 1 (T-040zi): beside a name, name wins and near is ignored.
-        #expect(ToolCatalog.validate(plan([[["near": "新宿站"]]])) == .invalidFields)
-        #expect(ToolCatalog.validate(plan([[["name": "X", "role": "hotel", "near": "新宿站"]]])) == nil)
-        #expect(ToolCatalog.validate(plan([[named("A"), near], [near, named("B")]])) == nil)
+        #expect(TripPlanner.validateWrite(plan([[["near": "新宿站"]]])) == .invalidFields)
+        #expect(TripPlanner.validateWrite(plan([[["name": "X", "role": "hotel", "near": "新宿站"]]])) == nil)
+        #expect(TripPlanner.validateWrite(plan([[named("A"), near], [near, named("B")]])) == nil)
     }
 
 }

@@ -352,6 +352,8 @@ struct RuntimeSink: AgentEffectSink {
         case .screenLine(let screen): record?.submit(.screen(screen))  // F-09b §16 item 9
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
+        // F-15b §62 item 12 (T-040zo): `handoff said tool=plan_trip ms=<from dispatch>`.
+        case .handoffSaid: record?.submit(.trip(event.logLine))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
         case .sessionGaveUp(let ms, let attempts, let code): record?.submit(.sessionGaveUp(ms: ms, attempts: attempts, code: code))
         case .sessionResume(let handle, let result): record?.submit(.sessionResume(handle: handle, result: result))
@@ -482,10 +484,27 @@ struct ObservedLiveInfoExecutor: ToolExecutor {
     func execute(_ call: ToolCall) async -> ToolResult {
         let kind = call.arguments["kind"]?.stringValue.flatMap { ToolCatalog.liveInfoKinds.contains($0) ? $0 : nil } ?? "other"
         RuntimeLog.agent.notice("toolCall name=query_live_info kind=\(kind, privacy: .public)")
-        work?.start(.search, step: WorkProgress.searchTitle(tool: "query_live_info", kind: kind))
+        // F-15b §62 item 12 (T-040zo): the spinner row 「正在查：<query>」 at once while it runs; no spoken line.
+        let what = call.arguments["query"]?.stringValue ?? WorkProgress.searchTitle(tool: "query_live_info", kind: kind)
+        work?.start(.search, step: WorkProgress.lookingUp(what), immediate: true)
         let result = await inner.execute(call)
         work?.clear(.search)
         RuntimeLog.agent.notice("toolResult name=query_live_info ok=\(result.ok, privacy: .public) code=\(result.code?.rawValue ?? "none", privacy: .public)")
+        return result
+    }
+}
+
+/// F-15b §62 item 12 (T-040zo): `web_search` and `show_place` show the spinner row 「正在查：<query or name>」 while they
+/// run (they return in 2–4 s); no spoken line. The row's text is shown on screen only, never logged (I-8).
+struct LookingUpExecutor: ToolExecutor {
+    let inner: any ToolExecutor
+    let work: WorkProgressBoard
+
+    func execute(_ call: ToolCall) async -> ToolResult {
+        let what = call.arguments["query"]?.stringValue ?? call.arguments["name"]?.stringValue ?? ""
+        work.start(.search, step: WorkProgress.lookingUp(what), immediate: true)
+        let result = await inner.execute(call)
+        work.clear(.search)
         return result
     }
 }
@@ -1195,6 +1214,10 @@ final class AgentRuntime {
             executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
         }
         // F-09b §16 item 6 (T-031z): closing a panel and playing music answer from the screen state, not from intent.
+        // F-15b §62 item 12 (T-040zo): the spinner row while a search or a place card is looked up.
+        for name in [WebSearchExecutor.tool, ShowPlaceTool.tool] where !(name == WebSearchExecutor.tool && !webSearch) {
+            if let inner = executors[name] { executors[name] = LookingUpExecutor(inner: inner, work: work) }
+        }
         let screen = ScreenReporter.shared.store
         let screenTuning = ScreenTuning()
         for name in ["exit_navigation_mode", "control_music", "play_music"] {
@@ -1668,7 +1691,9 @@ final class AgentRuntime {
         let savedPlaces = SavedPlaces(settings: DefaultsSettingsStore())
         // F-15b §7 (T-040i): the trip lines, codes and numbers only (I-8), to the log and the running record.
         let tripLine: @Sendable (String) -> Void = { line in
-            RuntimeLog.agent.notice("\(line, privacy: .public)")
+            // F-15b §62 item 9 (T-040zo): the planner's JSON and the counts message hold place names: the local record
+            // only, never the log (as stop names today, I-8).
+            if !line.hasPrefix("trip planner text ") { RuntimeLog.agent.notice("\(line, privacy: .public)") }
             tripSession.record()?.submit(.trip(line))
         }
         // The screen follows the trip with or without a session, in snapshot order.
@@ -1739,7 +1764,9 @@ final class AgentRuntime {
                                   // §50 item 3: the city's centre and country; trip lookups stay inside its box.
                                   abroadArea: { city in await photon.area(city) },
                                   // F-15b §52 item 13 (T-040ze): clearing the whole trip waits for the driver's next turn.
-                                  driverTurns: { await tripSession.driverTurns() })
+                                  driverTurns: { await tripSession.driverTurns() },
+                                  // F-15b §62 item 10 (T-040zo): plan_trip's planner model, the search model's key.
+                                  plannerModel: QwenTripPlannerClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }))
         await planner.restore()
         // §50 item 6 (T-040w): trip steps on screen.
         await planner.setWork(work)

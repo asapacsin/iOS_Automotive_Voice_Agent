@@ -182,6 +182,20 @@ public enum ToolCatalog {
     public static let setTripPlanDescription = "做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，跨城市就写省或地区）。改行程：把结果里的行程照着改，已有的地点保留 id（其他字段可以照抄），新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},{name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},{name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果稍后回来。新行程：\(tripWorkingLine)改行程：\(tripEditWorkingLine)" + setTripPlanReview
     /// F-15b §61 item 8 (T-040zn): the sentence added to `set_trip_plan`, exactly as §61 gives it.
     public static let setTripPlanReview = "结果里的 ok 只表示行程存上了，不表示做到了司机要的。新行程要写 asked（司机要什么：text、must 点名的地点、days、city、notes），司机加了要求就更新 asked。存上后先对照 asked 自己检查 plan（must 在不在、有没有空的一天、每天合不合理，需要时用 check_trip_plan 核对），有问题自己改好再传，然后才跟司机说。"
+    /// F-15b §62 items 1, 12 (T-040zo): the catalog text of `plan_trip`. She hands the driver's request on (a new
+    /// plan's `asked`, or a change's words) and says nothing: the app says the handoff line (item 12).
+    public static let planTripDescription = "做行程或改行程，都用这个：你只把司机的要求转给规划助手，行程由规划助手写。新行程（还没有行程，或司机要一个新的行程）：写 asked（text 司机的原话，must 司机点名的地点，days 天数，city 城市，notes 其他要求）。改屏幕上这份行程：change 照司机的原话写（比如「第二天去掉沙面」「再加个咖啡馆」）；司机加了要求，同时写新的 asked。" + planTripHandoff + "结果回来后照 next 跟司机说。"
+    /// §62 item 12: the sentence that replaces her working lines (no double line).
+    public static let planTripHandoff = "调用后不用说话，系统会告诉司机已经交给规划助手，等结果。"
+    /// §62 item 12: the line the app says itself (guidance voice, with its subtitle) when `plan_trip` is dispatched.
+    public static let planTripHandoffNew = "好，我交给规划助手了，大概半分钟，好了告诉你。"
+    public static let planTripHandoffChange = "好，我交给规划助手改行程，好了告诉你。"
+    public static func planTripHandoffLine(_ call: ToolCall) -> String {
+        let change = call.arguments["change"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return change.isEmpty ? planTripHandoffNew : planTripHandoffChange
+    }
+    /// §62 item 1: `change`, the driver's words for a change, as said.
+    public static let maxTripChange = 120
     /// §61 item 8: the catalog text of `check_trip_plan`, exactly as §61 gives it.
     public static let checkTripPlanDescription = "核对行程：算每天景点时间、开车时间、合计和预算，列出没找到的地点和没有酒店的晚上。不传参数就核对当前行程；传 days（和 set_trip_plan 一样的写法）就核对草稿，不保存。只给数字，不给建议，怎么改你自己决定。"
     /// §61 item 3: `asked`, the driver's request in his terms.
@@ -305,22 +319,15 @@ public enum ToolCatalog {
     public static let tripDay: JSONValue = ["type": "integer", "minimum": 1, "maximum": 5]
 
     public static let tripSpecs: [ToolSpec] = [
-        // F-15b §52 item 3 (T-040zb): the whole plan written back.
+        // F-15b §62 item 1 (T-040zo, replaces `set_trip_plan`): the driver's request handed to the planner model.
         ToolSpec(domain: "navigation", repeatSensitive: false, declaration: ToolDeclaration(
-            name: "set_trip_plan", description: setTripPlanDescription,
+            name: "plan_trip", description: planTripDescription,
             parametersJSONSchema: [
                 "type": "object",
                 "properties": [
-                    "days": ["type": "array", "minItems": 1, "maxItems": 5,
-                             "items": ["type": "array", "maxItems": .int(Int64(maxTripStops + 4)), "items": tripPlanStop]],
-                    "pace": ["type": "string", "enum": .array(tripPaces.map { .string($0) })],
-                    "optimise": ["type": "boolean"],
-                    // F-15b §55 item 2 (T-040zh): the trip's city (or province/region); required for a new plan.
-                    "city": ["type": "string", "minLength": 1, "maxLength": 20],
-                    // F-15b §61 item 3 (T-040zn): the driver's request; required for a new plan (`PLAN_CHECK`).
                     "asked": tripAsked,
+                    "change": ["type": "string", "minLength": 1, "maxLength": .int(Int64(maxTripChange))],
                 ],
-                "required": ["days"],
                 "additionalProperties": false,
             ])),
         ToolSpec(domain: "navigation", repeatSensitive: true, declaration: ToolDeclaration(
@@ -540,6 +547,16 @@ public enum ToolCatalog {
             // F-15b §56 items 1–2 (T-040zi, replaces §52 item 3's stop forms and §55 item 7's "exactly one of id, name
             // and near"): only the item 2 checks refuse; the lines go back as `problems` (`ToolDispatcher.refusal`).
             if !tripPlanProblems(a).isEmpty { return .invalidFields }
+        case "plan_trip":
+            // F-15b §62 item 1 (T-040zo): a new plan (`asked`) or a change (`change`, with `asked` when it is replaced).
+            guard keys.isSubset(of: ["asked", "change"]), !keys.isEmpty else { return .invalidFields }
+            if let asked = a["asked"] {
+                let t = asked["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if t.isEmpty || t.utf16.count > 120 { return .invalidFields }
+            }
+            if keys.contains("change") {
+                guard let c = str("change"), !trimmed(c).isEmpty, c.utf16.count <= maxTripChange else { return .invalidFields }
+            }
         case "check_trip_plan":
             // §61 item 2: no arguments, or a draft `days` in `set_trip_plan`'s shape (the same stop checks).
             guard keys.isSubset(of: ["days"]) else { return .invalidFields }

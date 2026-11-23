@@ -65,6 +65,10 @@ enum RecordFormatSession {
         .volume("up"),
         .undo("navigation"),
         .trip("shown days=1"),
+        // F-15b §62 items 9, 12 (T-040zo): the planner round, failure and handoff lines (format 10).
+        .trip("trip planner round=1 ms=8000 done=no days=4 stops=12 model=qwen3.8-flash"),
+        .trip("trip planner failed reason=timeout round=2 ms=30000 model=qwen3.8-flash"),
+        .trip("handoff said tool=plan_trip ms=0"),
         .weather("ok"),
         .turnEnded(.needMoreInput),
         .sessionResume(handle: true, result: SessionResumeResult.allCases[0]),
@@ -113,15 +117,15 @@ enum RecordFormatSession {
 
 @Suite("T-031u F-12 §21 record format")
 struct RecordFormatTests {
-    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat <n> (9 since T-040zn), then the app line with the commit")
+    @Test("T-031u F-12 §21 row 1: a new record starts with recordFormat <n> (10 since T-040zo), then the app line with the commit")
     func row1() {
         let record = ConversationRecord.make(enabled: true, header: RecordHeader(
             appVersion: "0.1.0(1) abcdef0", comfortMode: "model", interruptible: false, speakingStyle: "default"))!
         let w = MemoryWriter()
         record.drain(to: w)
         let lines = w.lines.withLock { $0 }
-        #expect(ConversationRecord.formatVersion == 9)
-        #expect(Array(lines.prefix(2)) == ["recordFormat 9", "app 0.1.0(1) abcdef0"])
+        #expect(ConversationRecord.formatVersion == 10)
+        #expect(Array(lines.prefix(2)) == ["recordFormat 10", "app 0.1.0(1) abcdef0"])
     }
 
     @Test("T-031u F-12 §21 rows 2-3: the fixed session encodes exactly to record-format-<formatVersion>.txt")
@@ -210,7 +214,7 @@ struct RecordOneLineTests {
         #expect(r.add(.toolResult(name: "web_search", ok: true, code: nil, data: ["answer": "x"], elapsedMs: nil), atMs: 4)
                     .allSatisfy { !$0.contains("\n") })
         let all = RecordFormatSession.encoded().split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-        let header = Set(["recordFormat 9", "app 0.1.0(1) abcdef0"])
+        let header = Set(["recordFormat 10", "app 0.1.0(1) abcdef0"])
         #expect(all.allSatisfy { !$0.contains("\r") })
         // Every line after the header starts with its time (row 23's check, on the fixed session).
         let events = all.drop { !($0.first?.isNumber ?? false) || header.contains(String($0)) }

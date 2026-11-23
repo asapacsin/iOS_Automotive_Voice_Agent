@@ -43,6 +43,9 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case tripHidden = "TRIP_HIDDEN"
     /// F-15b §52 item 5 (T-040zb): `set_trip_plan` wrote a plan that breaks the plan's rules; the problems are facts.
     case planCheck = "PLAN_CHECK"
+    /// F-15b §62 item 7 (T-040zo): the planner model failed (HTTP error, 30 s timeout, or not JSON twice in a round);
+    /// nothing saved, the cards unchanged, no other planner.
+    case plannerFailed = "PLANNER_FAILED"
     /// F-15b §56 item 4 (T-040zi): the same refused `set_trip_plan` call again in one driver request; not run.
     case repeatedFailure = "REPEATED_FAILURE"
     /// F-15b §57 item 3 (T-040zj): `trip_next` toward the stop already guided to; no new route.

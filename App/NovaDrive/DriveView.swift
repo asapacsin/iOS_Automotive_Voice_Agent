@@ -196,6 +196,9 @@ private struct DriveContent: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
             if model.cameraOpen { CameraWindow(model: model, runtime: runtime).screenPanel(.camera) }
+            // F-15b §62 item 12 (T-040zo): the spinner row sits on top of whatever is showing (map, trip cards, pin,
+            // nothing), below the header, and is not covered by the trip cards or the map sheet.
+            spinnerRow
         }
         // F-15b §11 item 6: a card's details, not moving only.
         .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading, intro: model.tripIntro).screenPanel(.tripDetail) }
@@ -637,10 +640,36 @@ private struct DriveContent: View {
         }
     }
 
-    /// F-15b §50 item 6 (T-040w): `WorkProgress` read every 0.25 s; it shows nothing for the first second.
+    /// F-15b §62 item 12 (T-040zo, owner sketch 2026-11-23, as the 豆包 app shows its thinking and search): a turning
+    /// circle on the left and, to its right, one line naming the step the backend is on now; the circle stops and the
+    /// line shows the result for its keep time. For `plan_trip` (`handoff`) and the search tools (`search`).
+    private var spinnerRow: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            if let panel = runtime.work.panel, panel.kind == .handoff || panel.kind == .search {
+                HStack(spacing: 8) {
+                    if panel.spinning {
+                        ProgressView().progressViewStyle(.circular)
+                    } else {
+                        Image(systemName: panel.steps.last?.state == .failed ? "exclamationmark.circle" : "checkmark.circle")
+                            .foregroundStyle(panel.steps.last?.state == .failed ? Color.orange : Color.green)
+                    }
+                    Text(panel.line).font(.headline).lineLimit(1)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.top, 56)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("spinner-row")
+                .screenPanel(.working)
+            }
+        }
+    }
+
+    /// F-15b §50 item 6 (T-040w): `WorkProgress` read every 0.25 s; it shows nothing for the first second. §62 item 12:
+    /// `plan_trip` and the search tools show `spinnerRow` instead.
     private var workSteps: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-            if let panel = runtime.work.panel {
+            if let panel = runtime.work.panel, panel.kind == .trip {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(panel.steps.enumerated()), id: \.offset) { _, step in
                         Label(step.title, systemImage: Self.stepIcon(step.state))

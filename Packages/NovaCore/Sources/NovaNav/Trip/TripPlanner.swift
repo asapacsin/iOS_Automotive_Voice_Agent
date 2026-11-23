@@ -68,6 +68,8 @@ public struct TripTuning: Sendable, Hashable {
     public var hotelNearMax = 5
     /// F-15b §52 item 4 (T-040zb): the wait between background tries for a stop not on the map yet.
     public var placeRetryGap: NovaDuration = .seconds(10)
+    /// F-15b §62 item 7 (T-040zo): one planner call may take this long; then the plan is `PLANNER_FAILED` (timeout).
+    public var plannerTimeout = NovaDuration.seconds(30)
     public init() {}
 }
 
@@ -75,7 +77,9 @@ public struct TripTuning: Sendable, Hashable {
 /// the model's names through 高德 (§4, never taken as places), and routes the list through `NavigationController`
 /// one stop at a time (§29). Record lines are codes and numbers only (§7, I-8).
 public actor TripPlanner: ToolExecutor {
-    public static let tools: Set<String> = ["set_trip_plan", "check_trip_plan", "trip_next", "trip_plans"]
+    /// F-15b §62 item 1 (T-040zo): `plan_trip` replaces `set_trip_plan` in the catalog. `set_trip_plan` stays an
+    /// internal call of this actor (the old write path, used by tests to lay out a plan); it is never declared.
+    public static let tools: Set<String> = ["plan_trip", "check_trip_plan", "trip_next", "trip_plans"]
     /// §56 item 4 with §49 item 6: at most this many `PLAN_CHECK` refusals carry the fix-and-resend `next`.
     public static let maxFixRounds = 2
     /// F-15b §61 item 3a (T-040zn): from this saved write in one driver request on, `next` says stop revising.
@@ -88,6 +92,10 @@ public actor TripPlanner: ToolExecutor {
     private var requestStartNames: [String] = []
     /// §50 item 1: Qwen with web search; nil keeps the model's own names.
     private let grounder: (any TripGrounder)?
+    /// F-15b §62 (T-040zo): the planner model `plan_trip` hands the request to; nil fails every `plan_trip`
+    /// (`PLANNER_FAILED`, no fallback planner).
+    private var plannerModel: (any TripPlannerModel)?
+    public func setPlannerModel(_ model: (any TripPlannerModel)?) { plannerModel = model }
     /// §50 item 3: the centre and country of an abroad trip's city; nil keeps §36's China-only check.
     private let abroadArea: (@Sendable (String) async -> TripArea?)?
     /// §50 item 3: the area of the trip being made or revised (nil at home or without `abroadArea`).
@@ -198,7 +206,9 @@ public actor TripPlanner: ToolExecutor {
                 abroadPhotos: (any PlacePhotoSource)? = nil,
                 grounder: (any TripGrounder)? = nil,
                 abroadArea: (@Sendable (String) async -> TripArea?)? = nil,
-                driverTurns: (@Sendable () async -> Int)? = nil) {
+                driverTurns: (@Sendable () async -> Int)? = nil,
+                plannerModel: (any TripPlannerModel)? = nil) {
+        self.plannerModel = plannerModel
         self.driverTurns = driverTurns
         self.grounder = grounder
         self.abroadArea = abroadArea
@@ -338,6 +348,10 @@ public actor TripPlanner: ToolExecutor {
         // Shows the cards: a new plan (§55 item 1), trip_plans open.
         if Self.showsCards(call) { setHidden(false) }
         switch call.name {
+        case "plan_trip":
+            // F-15b §62 (T-040zo): a write; it waits for the writes already running and `trip_next` waits for it.
+            await waitFor()
+            return withPlan(await trackedPlanTrip(call))
         case "set_trip_plan":
             // §4 item 9: a write waits for the writes already running.
             await waitFor()
@@ -381,6 +395,22 @@ public actor TripPlanner: ToolExecutor {
     /// plan (§55 item 1: stops written, none kept by id) is what `make_trip_list` was: it runs and shows the cards.
     static func blockedWhileHidden(_ call: ToolCall) -> Bool {
         call.name == "trip_next" || (call.name == "set_trip_plan" && !makesNewPlan(call))
+            || (call.name == "plan_trip" && planTripChange(call) != nil)
+    }
+
+    /// F-15b §62 item 1 (T-040zo): `ToolCatalog.validate`, except for `set_trip_plan`, which is internal now (not in
+    /// the catalog) and keeps its own field checks (§56 item 2).
+    static func validateWrite(_ call: ToolCall) -> ToolErrorCode? {
+        guard call.name == "set_trip_plan" else { return ToolCatalog.validate(call) }
+        guard case .object(let a) = call.arguments else { return .malformedJson }
+        return ToolCatalog.tripPlanProblems(a).isEmpty ? nil : .invalidFields
+    }
+
+    /// F-15b §62 item 1 (T-040zo): the driver's words of a `plan_trip` change; nil for a new plan.
+    static func planTripChange(_ call: ToolCall) -> String? {
+        guard call.name == "plan_trip", let c = call.arguments["change"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !c.isEmpty else { return nil }
+        return c
     }
 
     /// §55 item 1 (T-040zh): a `set_trip_plan` with stops, none of them kept by `id`.
@@ -398,6 +428,7 @@ public actor TripPlanner: ToolExecutor {
     /// §51 item 2: the calls that show the cards; `trip_plans` list/save/delete/rename leave them as they are.
     static func showsCards(_ call: ToolCall) -> Bool {
         makesNewPlan(call) || (call.name == "trip_plans" && call.arguments["action"]?.stringValue == "open")
+            || (call.name == "plan_trip" && planTripChange(call) == nil)
     }
 
     private func waitFor() async {
@@ -450,16 +481,306 @@ public actor TripPlanner: ToolExecutor {
 
     private func run(_ call: ToolCall) async -> ToolResult {
         // The dispatcher validated the call (ToolCatalog.validate); this is the backstop for direct callers.
-        if let code = ToolCatalog.validate(call) { return ToolDispatcher.refusal(call, code) }
+        if let code = Self.validateWrite(call) { return ToolDispatcher.refusal(call, code) }
         // §52 item 13: a waiting whole-trip clear is answered only by the next clear; any other trip call forgets it.
         if !Self.clearsWhole(call) { clearAsked = nil }
         switch call.name {
         case "set_trip_plan": return await setPlan(call.arguments)
+        case "plan_trip": return await planTrip(call.arguments)
         case "check_trip_plan": return await checkPlan(call.arguments)
         case "trip_next": return await next(call.arguments)
         case "trip_plans": return await plans(call.arguments)
         default: return .failure(.unknownTool)
         }
+    }
+
+    // MARK: plan_trip (F-15b §62, T-040zo)
+
+    /// §62 item 7: why a planner call gave no plan.
+    enum PlannerFailure: String, Error, Sendable { case http, timeout, json }
+
+    /// §62 item 1: `plan_trip` is a write: registered like `set_trip_plan` so `trip_next` waits for it. The spinner row
+    /// (`handoff`) starts at once with 「已交给规划助手」 and ends with the result line (§62 item 12, §60 item 2).
+    private func trackedPlanTrip(_ call: ToolCall) async -> ToolResult {
+        let id = nextChange
+        nextChange += 1
+        work?.start(.handoff, step: WorkProgress.handedOver, immediate: true)
+        onLine("work step=plan_trip state=running")
+        let task = Task { await self.run(call) }
+        changes[id] = task
+        let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        changes[id] = nil
+        if result.ok {
+            work?.finish(WorkProgress.tripUpdated, failed: false)
+            onLine("work step=plan_trip state=saved")
+        } else {
+            work?.finish(WorkProgress.tripNotSaved(result.code == .plannerFailed ? "规划没做成" : Self.firstProblem(result)), failed: true)
+            onLine("work step=plan_trip state=failed")
+        }
+        return result
+    }
+
+    /// §62 items 1-8: the voice model hands the request on; the planner writes the plan in its own shape; code looks
+    /// every stop up with its own city, counts, and sends the numbers back every round (no verdict); the planner
+    /// revises. Code stops at `done=true` from round 2 on, or after round 3, and saves the last plan. No fallback
+    /// planner: a failed call is `PLANNER_FAILED` with the cards unchanged.
+    private func planTrip(_ args: JSONValue) async -> ToolResult {
+        planWrites += 1
+        defer { planWrites -= 1 }
+        let started = clock.now
+        let change = Self.planTripChange(ToolCall(id: CallID("plan")!, name: "plan_trip", arguments: args))
+        let askedArg = TripAsked(args["asked"])
+        if change != nil, plan.isEmpty { return failure(.noTripList) }
+        guard let asked = askedArg ?? (change != nil ? plan.asked : nil) ?? change.map({ TripAsked(text: $0) }) else {
+            return failure(.invalidFields)
+        }
+        let before = plan.allStops.map(\.stop.place.name)
+        let first: String = if let change {
+            TripPlannerShape.changeRequest(plan: TripPlannerShape.shape(plan), asked: askedArg ?? plan.asked, change: change)
+        } else {
+            TripPlannerShape.newRequest(asked)
+        }
+        var messages = [TripPlannerMessage(role: .user, content: first)]
+        let model = plannerModel?.model ?? "none"
+        var lookups: [String: Lookup] = [:]
+        var areas: [String: TripArea?] = [:]
+        var last: (plan: TripPlannerShape.Plan, built: PlannerBuilt)?
+        var rounds = 0
+        for round in 1...TripPlannerShape.maxRounds {
+            rounds = round
+            work?.step(round == 1 ? WorkProgress.tripPlanning : WorkProgress.tripRevising(round))
+            let asking = clock.now
+            let answer = await askPlanner(messages)
+            guard case .success(let (text, written)) = answer else {
+                if case .failure(let why) = answer {
+                    onLine("trip planner failed reason=\(why.rawValue) round=\(round) ms=\(ms(since: asking)) model=\(model)")
+                }
+                return Self.plannerFailed()
+            }
+            guard !Task.isCancelled else { return .failure(.optionsStale) }
+            work?.step(WorkProgress.tripCounting(round))
+            let built = await buildPlanner(written, asked: asked, lookups: &lookups, areas: &areas)
+            guard !Task.isCancelled else { return .failure(.optionsStale) }
+            if built.keyMissing {
+                return LookupReply.failed(.amapWebKeyMissing, what: "trip", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
+            }
+            let counts = TripPlannerShape.countsText(built.counts)
+            onLine("trip planner round=\(round) ms=\(ms(since: asking)) done=\(written.done ? "yes" : "no") days=\(written.days.count) stops=\(written.stopCount) model=\(model)")
+            // §62 item 9: the planner's JSON and the counts message, in the local record only (names, as stop names).
+            onLine("trip planner text plan=" + TripPlanJSON.text(written.json))
+            onLine("trip planner text counts=" + counts.replacingOccurrences(of: "\n", with: " | "))
+            last = (written, built)
+            // §62 item 5: a done in round 1 still gets one counts round; then done or round 3 ends it.
+            if (written.done && round >= 2) || round == TripPlannerShape.maxRounds { break }
+            messages.append(TripPlannerMessage(role: .assistant, content: text))
+            messages.append(TripPlannerMessage(role: .user, content: counts))
+        }
+        guard let (written, built) = last else { return Self.plannerFailed() }
+        // Save (§62 item 5): the last plan as the planner wrote it, every stop placed or kept `placed=false`.
+        let lists = built.days.map { stops in
+            var list = TripList()
+            list.arrange(stops)
+            return list
+        }
+        if change != nil {
+            plan.write(days: lists)
+            plan.budgetMinutes = plan.budgetMinutes ?? TripFitter.Pace.normal.budgetMinutes
+            if plan.city == nil { plan.city = asked.city ?? built.city }
+        } else {
+            plan.replaceAll(withDays: lists)
+            plan.city = asked.city ?? built.city
+            plan.abroad = built.abroad
+            plan.budgetMinutes = TripFitter.Pace.normal.budgetMinutes
+            area = nil
+        }
+        if let askedArg { plan.asked = askedArg } else if change == nil { plan.asked = asked }
+        onLine("trip asked must=\(asked.must.count) days=\(asked.days.map(String.init) ?? "-") notes=\(asked.notes.count)")
+        changed()
+        retryUnplaced()
+        let now = Set(plan.allStops.map(\.stop.place.name))
+        var removed: [String] = []
+        for n in before where !now.contains(n) && !removed.contains(n) { removed.append(n) }
+        var data: [String: JSONValue] = [
+            "status": "trip_plan",
+            "saved": true,
+            "asked": asked.json,
+            "plan_text": .string(TripPlanJSON.planText(plan)),
+            "note": .string(written.note),
+            "rounds": .int(Int64(rounds)),
+            "next": .string(TripPlannerShape.savedNext),
+        ]
+        if !built.notPlaced.isEmpty {
+            data["not_placed"] = .array(built.notPlaced.map { n in
+                .object(["name": .string(n.name), "searched": .string(n.range)])
+            })
+        }
+        if change != nil, !removed.isEmpty { data["removed"] = .array(removed.map(JSONValue.string)) }
+        onLine("trip planner saved rounds=\(rounds) days=\(plan.dayCount) stops=\(plan.stopCount) not_placed=\(built.notPlaced.count) new_plan=\(change == nil ? "yes" : "no") ms=\(ms(since: started))")
+        return .success(data)
+    }
+
+    /// §62 item 7: one planner round: the call within `plannerTimeout`; an answer that is not the plan JSON is asked
+    /// once more in the same round (not JSON twice fails).
+    private func askPlanner(_ messages: [TripPlannerMessage]) async -> Result<(String, TripPlannerShape.Plan), PlannerFailure> {
+        guard let plannerModel else { return .failure(.http) }
+        for _ in 1...2 {
+            switch await Self.complete(plannerModel, messages, clock: clock, limit: tuning.plannerTimeout) {
+            case .failure(let why): return .failure(why)
+            case .success(let text):
+                if let written = TripPlannerShape.parse(text), written.stopCount > 0 { return .success((text, written)) }
+                onLine("trip planner unreadable chars=\(text.count)")
+            }
+        }
+        return .failure(.json)
+    }
+
+    /// §62 item 7: `saved=false`, `PLANNER_FAILED`, the cards unchanged, item 7's `next`.
+    static func plannerFailed() -> ToolResult {
+        var data = ToolReply.notDone(.plannerFailed, facts: ["plan_kept": true]).result.data
+        data["saved"] = false
+        data["next"] = .string(TripPlannerShape.failedNext)
+        return ToolResult(ok: false, code: .plannerFailed, data: data, advice: nil)
+    }
+
+    /// The model's answer, or `http` (any error it throws) or `timeout` (no answer within `limit`).
+    private static func complete(_ model: any TripPlannerModel, _ messages: [TripPlannerMessage], clock: any NovaClock,
+                                 limit: NovaDuration) async -> Result<String, PlannerFailure> {
+        let deadline = clock.now + limit
+        return await withTaskGroup(of: Result<String, PlannerFailure>?.self) { group in
+            group.addTask {
+                do { return .success(try await model.complete(system: TripPlannerShape.system, messages: messages)) } catch {
+                    return Task.isCancelled ? nil : .failure(.http)
+                }
+            }
+            group.addTask {
+                do { try await clock.sleep(until: deadline) } catch { return nil }
+                return .failure(.timeout)
+            }
+            var out: Result<String, PlannerFailure> = .failure(.timeout)
+            for await r in group {
+                guard let r else { continue }
+                out = r
+                break
+            }
+            group.cancelAll()
+            return out
+        }
+    }
+
+    /// One unplaced stop and where it was looked for.
+    struct PlannerMiss: Sendable, Hashable {
+        let name: String
+        let range: String
+    }
+
+    /// A planner plan as code laid it out: the days as stops (timed), the counts, the misses.
+    struct PlannerBuilt: Sendable {
+        var days: [[TripStop]]
+        var counts: [TripPlannerShape.DayCount]
+        var notPlaced: [PlannerMiss]
+        var abroad: Bool
+        var city: String?
+        var keyMissing: Bool
+    }
+
+    /// §62 items 2, 4: each stop looked up with its own `city` (the asked city when the planner gave none; a lookup
+    /// already made in this call is not made again). A stay that is a sight of the same day is that place: one lookup,
+    /// visited that day and slept in, and the next day starts there. Then the day is timed (§48 `TripTimes`) and
+    /// counted.
+    private func buildPlanner(_ written: TripPlannerShape.Plan, asked: TripAsked,
+                              lookups: inout [String: Lookup], areas: inout [String: TripArea?]) async -> PlannerBuilt {
+        let fallbackCity = asked.city ?? plan.city
+        func cityOf(_ c: String?) -> String? { c ?? fallbackCity }
+        func key(_ name: String, _ city: String?) -> String { (city ?? "") + "|" + name }
+        // The stay of a day that is also one of its sights takes that sight's city (one place).
+        var days = written.days
+        for d in days.indices {
+            guard let stay = days[d].stay, let sight = days[d].sights.first(where: { $0.name == stay.name }) else { continue }
+            days[d].stay = TripPlannerShape.Stay(name: stay.name, city: sight.city ?? stay.city)
+        }
+        // The names to look up, grouped by city, in first-seen order.
+        var byCity: [(city: String?, names: [String])] = []
+        for day in days {
+            for (name, city) in day.sights.map({ ($0.name, cityOf($0.city)) }) + (day.stay.map { [($0.name, cityOf($0.city))] } ?? []) {
+                guard lookups[key(name, city)] == nil else { continue }
+                if let i = byCity.firstIndex(where: { $0.city == city }) {
+                    if !byCity[i].names.contains(name) { byCity[i].names.append(name) }
+                } else {
+                    byCity.append((city, [name]))
+                }
+            }
+        }
+        var anyAbroad = false
+        func isAbroad(_ a: TripArea??) -> Bool {
+            if case .some(.some(let found)) = a { return !TripRegion.isChina(found.countryCode) }
+            return false
+        }
+        for group in byCity {
+            // §50 vendor rule: a city outside China searches abroad, around its centre; else 高德 inside the city.
+            if let city = group.city, areas[city] == nil {
+                if abroadSearch != nil, let abroadArea { areas[city] = .some(await abroadArea(city)) } else { areas[city] = .some(nil) }
+            }
+            let cityArea = group.city.flatMap { areas[$0] } ?? nil
+            let abroad = isAbroad(group.city.map { areas[$0] } ?? nil)
+            let found: [Lookup] = abroad
+                ? await resolveCounting(group.names, city: nil, abroad: true, near: cityArea?.center).0
+                : await resolve(group.names, city: group.city)
+            for (i, name) in group.names.enumerated() where i < found.count { lookups[key(name, group.city)] = found[i] }
+        }
+        var keyMissing = false
+        func range(_ city: String?) -> String {
+            guard let city else { return "当前位置附近" }
+            return isAbroad(areas[city]) ? "\(city)周围\(Int(tuning.areaKm))公里" : city
+        }
+        // The stops: sights in order, the night's place last; the next day starts at it.
+        var stopOf: [String: TripStop] = [:]
+        var misses: [PlannerMiss] = []
+        func stop(_ name: String, _ city: String?, role: TripRole, minutes: Int?) -> TripStop {
+            let k = key(name, city) + "|" + role.rawValue
+            if role == .hotel, let made = stopOf[k] { return made }
+            var place: Place?
+            switch lookups[key(name, city)] {
+            case .found(let p)?:
+                place = p
+                if city.map({ isAbroad(areas[$0]) }) == true { anyAbroad = true }
+            case .keyMissing?: keyMissing = true
+            default: break
+            }
+            if place == nil, !misses.contains(where: { $0.name == name }) { misses.append(PlannerMiss(name: name, range: range(city))) }
+            let made = TripStop(index: 0, asked: name,
+                                place: place ?? Self.unplacedPlace(name, key: "\(revisionKey)|plan|\(name)"),
+                                distanceMeters: nil, role: role, minutes: minutes, placed: place != nil, pickedBy: .model)
+            stopOf[k] = made
+            return made
+        }
+        var stops: [[TripStop]] = []
+        var morning: TripStop?
+        for (d, day) in days.enumerated() {
+            var list: [TripStop] = morning.map { [$0] } ?? []
+            for s in day.sights { list.append(stop(s.name, cityOf(s.city), role: .sight, minutes: s.minutes)) }
+            morning = nil
+            if d < days.count - 1, let stay = day.stay {
+                let hotel = stop(stay.name, cityOf(stay.city), role: .hotel, minutes: nil)
+                list.append(hotel)
+                morning = hotel
+            }
+            stops.append(list)
+        }
+        let timed = await timedDays(stops, abroad: anyAbroad, keepFirstLegs: false, showStep: false).days
+        let budget = plan.budgetMinutes ?? TripFitter.Pace.normal.budgetMinutes
+        let counts: [TripPlannerShape.DayCount] = timed.enumerated().map { d, list in
+            let ownStops = list.enumerated().filter { i, s in !(d > 0 && i == 0 && s.role == .hotel) }.map(\.element)
+            let legs: [Int?] = list.dropFirst().map { s in s.legSeconds.map { Int((Double($0) / 60).rounded()) } }
+            return TripPlannerShape.DayCount(
+                stops: ownStops.map { s in
+                    TripPlannerShape.StopCount(name: s.asked, found: s.placed ? s.place : nil, minutes: s.visitMinutes,
+                                               isStay: s.role == .hotel,
+                                               range: misses.first { $0.name == s.asked }?.range ?? range(fallbackCity))
+                },
+                legs: legs, budget: budget)
+        }
+        let city = days.lazy.flatMap(\.sights).compactMap(\.city).first ?? fallbackCity
+        return PlannerBuilt(days: timed, counts: counts, notPlaced: misses, abroad: anyAbroad, city: city, keyMissing: keyMissing)
     }
 
     // MARK: §50 grounding and hotels near a place (§55 items 4, 7)
@@ -1015,7 +1336,9 @@ public actor TripPlanner: ToolExecutor {
 
     /// §52 item 8 with §36 item 6: driving seconds between the placed stops of each day, in the written order (one
     /// table per day; abroad the estimate when OSRM fails). A day whose table fails keeps no times.
-    private func timedDays(_ days: [[TripStop]], abroad: Bool, keepFirstLegs: Bool) async -> (days: [[TripStop]], estimated: Bool) {
+    /// `showStep`: false keeps 「计算开车时间」 off the panel (§62 item 12: `plan_trip`'s row shows only its own steps).
+    private func timedDays(_ days: [[TripStop]], abroad: Bool, keepFirstLegs: Bool,
+                           showStep: Bool = true) async -> (days: [[TripStop]], estimated: Bool) {
         let tableTimes = abroad ? (abroadTimes ?? times) : times
         var estimated = false
         var out = days
@@ -1031,7 +1354,7 @@ public actor TripPlanner: ToolExecutor {
             let nodes = placed.map { TripTimes.Node(key: out[d][$0].place.id, coordinate: out[d][$0].place.coordinate) }
             guard !Set(nodes.map(\.key)).isEmpty, tableTimes != nil || abroad else { continue }
             let asked = clock.now
-            work?.step(WorkProgress.tripTimes)
+            if showStep { work?.step(WorkProgress.tripTimes) }
             var table = await tableTimes?.table(start: nil, stops: nodes)
             if table == nil, abroad { table = TripTimes.estimate(start: nil, stops: nodes) }
             let vendor = table?.estimated == true ? "estimate" : abroad && abroadTimes != nil ? "osrm" : "amap"

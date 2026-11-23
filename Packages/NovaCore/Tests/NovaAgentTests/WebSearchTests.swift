@@ -314,3 +314,27 @@ struct WebSearchCancelTests {
         #expect(!WebSearchExecutor.next.contains("只按") && !WebSearchExecutor.dateNext.contains("只按"))
     }
 }
+
+@Suite("T-040zo F-15b §62 item 12 the handoff line is said by the app")
+struct PlanTripHandoffTests {
+    @Test("T-040zo F-15b row 289 (core): plan_trip dispatched (new, change): the app says item 12's line at the dispatch with its subtitle; handoff said is recorded; her catalog text has no working line")
+    func row289() {
+        for (args, line) in [(["asked": ["text": "广州两天"]] as JSONValue, "好，我交给规划助手了，大概半分钟，好了告诉你。"),
+                             (["change": "第二天去掉沙面"], "好，我交给规划助手改行程，好了告诉你。")] {
+            var d = Drive()
+            d.connect()
+            d.send(.speechStarted(recentSpeech: true))
+            d.send(.speechStopped)
+            d.realtime(.userTranscript("帮我安排广州两天", isFinal: true))
+            d.realtime(.responseStarted(TurnID(1)))
+            let call = ToolCall(id: CallID("p1")!, name: "plan_trip", arguments: args)
+            let out = d.realtime(.toolCalls(TurnID(1), [call]))
+            #expect(out.contains { if case .startTool(_, let c) = $0 { c.id == call.id } else { false } })
+            #expect(out.contains { if case .speakGuidance(let text, _) = $0 { text == line } else { false } }, "\(out)")
+            #expect(out.contains(.diagnostic(.handoffSaid(tool: .planTrip, ms: 0))))
+            #expect(out.contains { if case .publish(let v) = $0 { v.subtitle.contains(line) } else { false } }, "\(out)")
+        }
+        #expect(DiagnosticEvent.handoffSaid(tool: .planTrip, ms: 0).logLine == "handoff said tool=plan_trip ms=0")
+        #expect(!ToolCatalog.planTripDescription.contains("先只说一句") && ToolCatalog.planTripDescription.contains("调用后不用说话"))
+    }
+}

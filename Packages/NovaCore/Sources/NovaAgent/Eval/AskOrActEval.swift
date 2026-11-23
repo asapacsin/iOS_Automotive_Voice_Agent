@@ -140,17 +140,17 @@ public enum AskOrActEval {
         Case("sleepy-yes", .askOrAct, [Turn("有點困了", .offer), Turn("好", .act(["navigate_to"]))]),
         Case("sleepy-no", .askOrAct, [Turn("有點困了", .offer), Turn("不用", .answer)]),
         Case("family-3days", .askOrAct, [Turn("想带家人玩三天，不知道去哪", .offer), Turn("太近了", .offer),
-                                         Turn("好", .act(["set_trip_plan"]))]),
+                                         Turn("好", .act(["plan_trip"]))]),
         Case("weekend-any", .askOrAct, [Turn("周末带孩子去哪玩", .offer), Turn("随便", .goes)]),
     ]
 
     /// Item 5's complaint set: every phrase an earlier rule was written for, with what the driver expected then.
     public static let complaint: [Case] = [
         Case("hot", .complaint, [Turn("有点热", .act(["control_climate"]))]),
-        Case("guangdong-3days", .complaint, [Turn("准备一个广东三天的旅游行程", .act(["set_trip_plan"]))]),
+        Case("guangdong-3days", .complaint, [Turn("准备一个广东三天的旅游行程", .act(["plan_trip"]))]),
         Case("checklist-after-tip", .complaint,
              history: [driver("天津有什么好玩的"), her("天津可以去五大道、古文化街、天津之眼和瓷房子。")],
-             [Turn("做个打卡清单", .act(["set_trip_plan"]))]),
+             [Turn("做个打卡清单", .act(["plan_trip"]))]),
         Case("lower-again", .complaint,
              history: [driver("温度调低一点"), her("已经调到23度了。")],
              [Turn("再低一点", .act(["control_climate"]))]),

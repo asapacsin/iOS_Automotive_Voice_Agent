@@ -4,7 +4,9 @@ import Synchronization
 /// call takes the time. The code doing the work feeds it; the screen asks `panel(at:)`. Step lines are fixed texts or
 /// counts (no conversation words, I-8).
 public struct WorkProgress: Sendable, Equatable {
-    public enum Kind: String, Sendable, Equatable { case trip, search }
+    /// F-15b §62 item 12 (T-040zo): `handoff` is `plan_trip`'s spinner row (it replaces §60's trip panel for it and
+    /// does not close with the trip screen).
+    public enum Kind: String, Sendable, Equatable { case trip, search, handoff }
     public enum State: String, Sendable, Equatable { case pending, running, done, failed }
 
     public struct Step: Sendable, Equatable {
@@ -20,6 +22,10 @@ public struct WorkProgress: Sendable, Equatable {
         public let steps: [Step]
         /// The last failure line, while it is kept (until the next step, or 3 s after the end).
         public let failure: String?
+        /// F-15b §62 item 12 (T-040zo): the spinner row's one line, the step the backend is on now (the result line
+        /// once it ended), and whether the circle turns (false once the result is in).
+        public var line: String { steps.last?.title ?? "" }
+        public var spinning: Bool { steps.last?.state == .running }
     }
 
     /// Quick work shows nothing.
@@ -43,6 +49,13 @@ public struct WorkProgress: Sendable, Equatable {
     public static let tripUpdated = "行程已更新"
     public static func tripNotSaved(_ line: String) -> String { "没保存：\(line)" }
     public static let tripChecking = "正在核对行程"
+    /// F-15b §62 items 9, 12 (T-040zo): `plan_trip`'s steps on the spinner row, exactly as §62 gives them.
+    public static let handedOver = "已交给规划助手"
+    public static let tripPlanning = "正在规划行程"
+    public static func tripCounting(_ round: Int) -> String { "正在核对路线（第\(round)轮）" }
+    public static func tripRevising(_ round: Int) -> String { "正在修改行程（第\(round)轮）" }
+    /// §62 item 12: `web_search`, `query_live_info` and `show_place` on the same row while they run.
+    public static func lookingUp(_ what: String) -> String { "正在查：\(what)" }
     /// §58 item 5: an edit's ok line stays 3 s; its refusal line until the next step or 5 s.
     public static let editDoneKeep = NovaDuration.seconds(3)
     public static let editFailedKeep = NovaDuration.seconds(5)
@@ -64,10 +77,14 @@ public struct WorkProgress: Sendable, Equatable {
 
     public init() {}
 
-    /// Starts a new work, replacing any other.
-    public mutating func start(_ kind: Kind, at now: NovaInstant) {
+    /// F-15b §62 item 12 (T-040zo): the spinner row shows from the first moment (no `showAfter`).
+    private var immediate = false
+
+    /// Starts a new work, replacing any other. `immediate`: shown at once (the §62 spinner row).
+    public mutating func start(_ kind: Kind, at now: NovaInstant, immediate: Bool = false) {
         self = WorkProgress()
         self.kind = kind
+        self.immediate = immediate
         started = now
     }
 
@@ -124,16 +141,17 @@ public struct WorkProgress: Sendable, Equatable {
     public func panel(at now: NovaInstant) -> Panel? {
         guard let kind, let started, !steps.isEmpty else { return nil }
         if let noticeUntil { return now < noticeUntil ? Panel(kind: kind, steps: steps, failure: nil) : nil }
-        guard now - started >= Self.showAfter, kind == .trip || now - started < Self.maxOpen else { return nil }
+        let shown = immediate || now - started >= Self.showAfter
+        guard shown, kind != .search || now - started < Self.maxOpen else { return nil }
         let failure = failureAt.map { steps[$0].line } ?? nil
         if let ended {
-            guard ended - started >= Self.showAfter, failure != nil, now - ended < Self.failureKeep else { return nil }
+            guard immediate || ended - started >= Self.showAfter, failure != nil, now - ended < Self.failureKeep else { return nil }
         }
         return Panel(kind: kind, steps: steps, failure: failure)
     }
 
     private func logLine(at now: NovaInstant, since started: NovaInstant) -> String? {
-        guard let kind, now - started >= Self.showAfter else { return nil }
+        guard let kind, immediate || now - started >= Self.showAfter else { return nil }
         let failed = steps.filter { $0.state == .failed }.count
         return "work show=\(kind.rawValue) steps=\(steps.count) failed=\(failed) ms=\((now - started).milliseconds)"
     }
@@ -150,15 +168,16 @@ public final class WorkProgressBoard: Sendable {
         self.onLog = onLog
     }
 
-    public func start(_ kind: WorkProgress.Kind, step title: String? = nil) {
+    public func start(_ kind: WorkProgress.Kind, step title: String? = nil, immediate: Bool = false) {
         let now = clock.now
         state.withLock {
-            $0.start(kind, at: now)
+            $0.start(kind, at: now, immediate: immediate)
             if let title { $0.step(title, at: now) }
         }
     }
 
-    /// F-15b §60 item 3 (T-040zm): the trip screen reported off: a trip work panel goes off at once.
+    /// F-15b §60 item 3 (T-040zm): the trip screen reported off: a trip work panel goes off at once. §62 item 12
+    /// (T-040zo): `plan_trip`'s spinner row (`handoff`) stays: the work still runs.
     public func tripScreen(on: Bool) {
         if !on { clear(.trip) }
     }

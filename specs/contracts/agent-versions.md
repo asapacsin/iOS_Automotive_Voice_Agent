@@ -15,6 +15,7 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
+| 10.0.0 | b3b1c9bbbe6b | 2026-11-23 | (T-040zo) | major: tool `plan_trip` added (`asked`, `change`; the request handed to the planner model; 「调用后不用说话，系统会告诉司机已经交给规划助手，等结果。」), tool `set_trip_plan` removed; corrections `CLAIM_AFTER_FAILURE tool=plan_trip` and `UNVERIFIED_CLAIM tool=plan_trip` (were `set_trip_plan`) | F-15b §62 items 1, 8, 12, 13 |
 | 9.0.0 | 458ba93f124e | 2026-11-23 | (T-040zn) | major: tool `check_trip_plan` added; `set_trip_plan` gains parameter `asked`, drops 「结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。」 and adds the §61 item 8 sentence (ok means saved only; write asked; review the plan against asked before speaking) | F-15b §61 items 2, 3, 8 |
 | 8.0.0 | 3035998f8bb2 | 2026-11-23 | 2ca52e9 | major: tool `show_on_map` added (spec said minor; the §15 gate counts a new tool as major); `navigate_to` adds 「司机只是想看在哪里，用 show_on_map。」; `exit_navigation_mode` panel enum and the 屏幕 line gain `mapPin` | F-09b §19 items 1, 5 |
 | 7.0.0 | 1142703f8837 | 2026-11-23 | 3caebbb | major: tool parameter added (`show_place.city`, required, empty for near the car); `show_place` description adds 「city 填这个地方所在的城市；不确定在哪个城市时先用 web_search 查。」 | F-09b §18 item 1 |

@@ -15,11 +15,11 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case tripResultPending = "TRIP_RESULT_PENDING"
     /// F-18 §33 item 7 (T-046v): after `LIVE_INFO_UNAVAILABLE` the reply blames the network, which is false.
     case networkBlamed = "NETWORK_BLAMED"
-    /// F-15b §58 items 2–3 (T-040zk): a trip change claimed after a refused `set_trip_plan` (no ok one after it), or
-    /// background work claimed with none running. The record line is `correction CLAIM_AFTER_FAILURE tool=set_trip_plan`.
-    case tripClaimAfterFailure = "CLAIM_AFTER_FAILURE tool=set_trip_plan"
-    /// §58 items 1, 3: a trip change claimed with no ok `set_trip_plan` since the driver's last words.
-    case tripUnverifiedClaim = "UNVERIFIED_CLAIM tool=set_trip_plan"
+    /// F-15b §58 items 2–3 (T-040zk): a trip change claimed after a refused or failed trip write (no ok one after it),
+    /// or background work claimed with none running. F-15b §62 (T-040zo): the trip write is `plan_trip`.
+    case tripClaimAfterFailure = "CLAIM_AFTER_FAILURE tool=plan_trip"
+    /// §58 items 1, 3: a trip change claimed with no ok `plan_trip` since the driver's last words.
+    case tripUnverifiedClaim = "UNVERIFIED_CLAIM tool=plan_trip"
 
     /// Sent to the model as a text turn. Code decides when; the sentence only explains (I-11).
     public var instruction: String {
@@ -37,7 +37,7 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         case .networkBlamed: "[系统] NETWORK_BLAMED：网络没有问题，只是现在查不了网上的信息。请如实这样说，不要说网络有问题或连不上网。"
         // §58 item 2's correction, exactly as §58 gives it.
         case .tripClaimAfterFailure: "[系统] 行程没有改成，原因在上一个工具结果的 problems 里。如实告诉司机没改成和原因，不要说已经加了。"
-        case .tripUnverifiedClaim: "[系统] 行程还没有改：没有成功的 set_trip_plan 结果。先调用 set_trip_plan，或如实告诉司机还没改。"
+        case .tripUnverifiedClaim: "[系统] 行程还没有改：没有成功的 plan_trip 结果。先调用 plan_trip，或如实告诉司机还没改。"
         }
     }
 
@@ -283,12 +283,16 @@ public struct DriverTurnPipeline: Sendable {
             utterancePending.formUnion(calls.map(\.id))
             utteranceBackground.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
             utteranceTrip.formUnion(calls.filter { AsyncTool(name: $0.name)?.isTrip == true }.map(\.id))
-            for call in calls where call.name == "set_trip_plan" {
+            for call in calls where Self.tripWriteTools.contains(call.name) {
                 tripWrites.insert(call.id)
                 if case .array(let days)? = call.arguments["days"] {
                     for case .array(let stops) in days {
                         for stop in stops { if let n = stop["name"]?.stringValue, !tripNames.contains(n) { tripNames.append(n) } }
                     }
+                }
+                // F-15b §62 item 1 (T-040zo): `plan_trip` names the places the driver asked for in `asked.must`.
+                if case .array(let must)? = call.arguments["asked"]?["must"] {
+                    for n in must.compactMap(\.stringValue) where !tripNames.contains(n) { tripNames.append(n) }
                 }
             }
             guard var t = current(id) else { return [] }
@@ -304,7 +308,7 @@ public struct DriverTurnPipeline: Sendable {
         case .toolResult(let id, let response):
             let ofUtterance = utterancePending.remove(response.id) != nil
             if ofUtterance { utteranceResults.append(response) }
-            if response.name == "set_trip_plan" {
+            if Self.tripWriteTools.contains(response.name) {
                 tripWrites.remove(response.id)
                 tripLatestOk = response.result.ok
             }
@@ -399,8 +403,16 @@ public struct DriverTurnPipeline: Sendable {
         }
     }
 
+    /// F-15b §62 item 1 (T-040zo): the trip writes: `plan_trip` (and the internal `set_trip_plan`).
+    static let tripWriteTools: Set<String> = ["plan_trip", "set_trip_plan"]
+
     private func verdict(_ t: Turn, final: Bool) -> Verdict {
-        let acting = t.results.filter(acts)
+        // F-15b §62 item 8 (T-040zo): trip claims are judged only by §58's trip verdict over the latest trip result:
+        // with an ok one latest, the refused or failed trip writes before it never reach the generic
+        // CLAIM_AFTER_FAILURE, whatever words she uses (「做好了」 included); `not_placed` never makes it a failure.
+        let acting = t.results.filter(acts).filter {
+            !(tripLatestOk == true && Self.tripWriteTools.contains($0.name) && !$0.result.ok)
+        }
         let failed = acting.filter { !$0.result.ok }
         if t.results.contains(where: { !$0.result.ok && $0.result.code == .ambiguousReferent }) {
             // An honest clarification question is heard; a claim on top of the ambiguity is not.

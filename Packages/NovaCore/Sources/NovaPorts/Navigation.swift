@@ -613,3 +613,27 @@ public enum AmapWebError: Error, Sendable, Hashable {
     /// F-15b §52 item 11 (T-040zd): the lookup ran out of tries (`search_slow`); never "the place does not exist".
     case slow
 }
+
+/// F-15b §62 items 2, 10 (T-040zo): the planner model that writes and reviews a trip plan (`qwen3.8-flash`, its client
+/// in NovaRealtime). One chat completion per round: the system text, then the conversation so far; the answer is the
+/// model's text (JSON asked for). Throws `TripPlannerModelError` on an HTTP error; no fallback model (§62 item 7).
+public protocol TripPlannerModel: Sendable {
+    func complete(system: String, messages: [TripPlannerMessage]) async throws -> String
+    /// The model id written on every `trip planner round=` line.
+    var model: String { get }
+}
+
+public struct TripPlannerMessage: Sendable, Hashable {
+    public enum Role: String, Sendable, Hashable { case user, assistant }
+    public let role: Role
+    public let content: String
+    public init(role: Role, content: String) {
+        self.role = role
+        self.content = content
+    }
+}
+
+public enum TripPlannerModelError: Error, Equatable {
+    case http(Int)
+    case notConfigured
+}

@@ -9,7 +9,7 @@ struct TripPendingClaimTests {
     func row206() {
         var h = PipelineHarness()
         h.driver("先千岁机场吧")
-        _ = h.call("t1", "set_trip_plan")
+        _ = h.call("t1", "plan_trip")
         h.say("好的，我已经为您将行程起点设为新千岁机场。")
         h.close()
         #expect(h.out.contains(.voided(h.turn)))
@@ -21,7 +21,7 @@ struct TripPendingClaimTests {
 
         var honest = PipelineHarness()
         honest.driver("先千岁机场吧")
-        _ = honest.call("t1", "set_trip_plan")
+        _ = honest.call("t1", "plan_trip")
         honest.say("好，我规划一下，大概半分钟。")
         honest.close()
         honest.advance(by: .seconds(30))
@@ -30,13 +30,13 @@ struct TripPendingClaimTests {
         // Once the result is back, a done claim is proven by it.
         var after = PipelineHarness()
         after.driver("先千岁机场吧")
-        let id = after.call("t1", "set_trip_plan")
-        after.result(id, "set_trip_plan", .success(["status": "trip_list"]))
+        let id = after.call("t1", "plan_trip")
+        after.result(id, "plan_trip", .success(["status": "trip_list"]))
         after.say("改好了，起点是新千岁机场。")
         after.close()
         after.advance(by: .seconds(30))
         #expect(!after.corrections.contains(.tripResultPending))
-        #expect(AsyncTool.setTripPlan.isTrip && !AsyncTool.webSearch.isTrip && AsyncTool(name: "make_trip_list") == nil)
+        #expect(AsyncTool.planTrip.isTrip && !AsyncTool.webSearch.isTrip && AsyncTool(name: "make_trip_list") == nil)
     }
 }
 

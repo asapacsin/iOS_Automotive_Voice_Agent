@@ -229,7 +229,8 @@ struct TripReviewTests {
         other.clearAll()
         #expect(other.asked == nil)
         // Validation: asked without text is a shape problem; the schema declares it.
-        #expect(ToolCatalog.validate(rawTrip("set_trip_plan", ["days": days([[named("x")]]), "city": "天津", "asked": ["must": ["x"]]])) == .invalidFields)
-        #expect(ToolCatalog.spec("set_trip_plan")?.declaration.parametersJSONSchema["properties"]?["asked"]?["type"] == "object")
+        #expect(TripPlanner.validateWrite(rawTrip("set_trip_plan", ["days": days([[named("x")]]), "city": "天津", "asked": ["must": ["x"]]])) == .invalidFields)
+        // §62 item 1 (T-040zo): `asked` is declared on `plan_trip` now.
+        #expect(ToolCatalog.spec("plan_trip")?.declaration.parametersJSONSchema["properties"]?["asked"]?["type"] == "object")
     }
 }
