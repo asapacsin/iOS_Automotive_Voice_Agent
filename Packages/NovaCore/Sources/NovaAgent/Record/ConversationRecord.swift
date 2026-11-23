@@ -187,7 +187,17 @@ public struct ConversationRecorder: Sendable {
 
     public init() {}
 
+    /// F-18 §34 item 2 (T-046w): every entry is one line; a line feed or carriage return left in any text is a space.
     public mutating func add(_ event: RecordEvent, atMs ms: Int64) -> [String] {
+        lines(event, atMs: ms).map(Self.oneLine)
+    }
+
+    static func oneLine(_ s: String) -> String {
+        guard s.contains(where: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" }) else { return s }
+        return String(s.map { $0 == "\n" || $0 == "\r" || $0 == "\r\n" ? " " : $0 })
+    }
+
+    private mutating func lines(_ event: RecordEvent, atMs ms: Int64) -> [String] {
         func line(_ kind: String, _ content: String) -> String { "\(ms) \(kind) \(content)" }
         switch event {
         case .heardLocal(let words):
@@ -255,11 +265,11 @@ public struct ConversationRecorder: Sendable {
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]
-        case .sessionClosed(let c): return add(.session("closed \(c.fields)"), atMs: ms)
+        case .sessionClosed(let c): return lines(.session("closed \(c.fields)"), atMs: ms)
         case .sessionGaveUp(let since, let attempts, let code):
-            return add(.session("gave-up ms=\(since) attempts=\(attempts) code=\(code.rawValue)"), atMs: ms)
+            return lines(.session("gave-up ms=\(since) attempts=\(attempts) code=\(code.rawValue)"), atMs: ms)
         case .sessionResume(let handle, let result):
-            return add(.session("resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"), atMs: ms)
+            return lines(.session("resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"), atMs: ms)
         case .session(let what):
             // A session event ends every open turn: her words are never lost from the file.
             var out: [String] = []
@@ -272,7 +282,7 @@ public struct ConversationRecorder: Sendable {
     public mutating func finish(atMs ms: Int64) -> [String] {
         var out: [String] = []
         for id in open.keys.sorted(by: { open[$0]!.firstMs < open[$1]!.firstMs }) { out += end(id, ms) }
-        return out + settle(ms, reason: nil)
+        return (out + settle(ms, reason: nil)).map(Self.oneLine)
     }
 
     private mutating func begin(_ t: TurnID, _ ms: Int64) {
@@ -324,14 +334,31 @@ public struct ConversationRecorder: Sendable {
         return String(body.prefix(8_000)) + "…" + String(body.suffix(24_000))
     }
 
+    /// F-18 §34 item 1 (T-046w): `\` as `\\`, line feed `\n`, carriage return `\r`, tab `\t`, in that order, so the
+    /// body stays on one line and `scripts/records/read.py` (format 5) turns it back into the exact text.
+    public static func escapeBody(_ body: String) -> String {
+        var out = ""
+        out.reserveCapacity(body.utf8.count)
+        for u in body.unicodeScalars {
+            switch u {
+            case "\\": out += "\\\\"
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\t": out += "\\t"
+            default: out.unicodeScalars.append(u)
+            }
+        }
+        return out
+    }
+
     static func searchLines(_ x: WebSearchExchange) -> [(kind: String, content: String)] {
-        var out = [("search-request", "attempt=\(x.attempt) body=\(x.requestBody)")]
+        var out = [("search-request", "attempt=\(x.attempt) body=\(escapeBody(x.requestBody))")]
         if let error = x.error {
             out.append(("search-response", "attempt=\(x.attempt) error=\(error) ms=\(x.ms) urlError=\(x.urlError.map(String.init) ?? "none")"))
         } else {
             out.append(("search-response", "attempt=\(x.attempt) status=\(x.status.map(String.init) ?? "none") ms=\(x.ms) bytes=\(x.bytes) "
                         + "chunks=\(x.chunks) answerChars=\(x.answerChars) sources=\(x.sources) "
-                        + "searchCount=\(x.searchCount.map(String.init) ?? "none") body=\(cut(x.responseBody ?? ""))"))
+                        + "searchCount=\(x.searchCount.map(String.init) ?? "none") body=\(escapeBody(cut(x.responseBody ?? "")))"))
         }
         return out
     }
@@ -396,7 +423,7 @@ public final class ConversationRecord: Sendable {
     public static let capacity = 2000
     /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
     /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
-    public static let formatVersion = 4
+    public static let formatVersion = 5
     /// §21 item 1: the first line of every new file. A file without it is format 0.
     public static var formatLine: String { "recordFormat \(formatVersion)" }
 

@@ -15,3 +15,4 @@ To change a line: raise `formatVersion` by one, add the new fixture (old ones st
 | 2 | 0c685e2 (T-031y) | Header gains `agentVersion <v>`, `agentHash <h>`, `model <requested>` right after the `app` line (F-09b §15 item 6); event lines unchanged. |
 | 3 | bff0cfb (T-031z) | Adds the `screen <key>=<on\|off> … musicVolume=<n>` event line, one per `屏幕` line sent (F-09b §16 item 9); every other line unchanged. |
 | 4 | ee866b2 (T-031zb) | Adds the `panel <key> <on\|off> top=<panel\|none>` event line, one per view report at that moment (F-09b §17 item 7); every other line unchanged. |
+| 5 | (T-046w) | `search-request … body=` and `search-response … body=` are escaped (`\` `\\`, line feed `\n`, carriage return `\r`, tab `\t`) so each is one line; any line break left in another entry's text is a space (F-18 §34 items 1–3). The format-4 reader joins a raw multi-line search body back into its row (`legacy=true`). |
