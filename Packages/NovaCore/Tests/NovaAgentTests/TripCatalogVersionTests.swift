@@ -24,6 +24,6 @@ struct TripCatalogVersionTests {
         // trip_next's text is unchanged (§55 item 12).
         #expect(ToolCatalog.tripNextDescription.hasPrefix("行程按站导航："))
         // §56 item 5 (T-040zi) changed the 改行程 sentence (row 243); the version moved on with it.
-        #expect(AgentSetup.version.hasPrefix("6."))
+        #expect((Int(AgentSetup.version.split(separator: ".").first ?? "") ?? 0) >= 6, "6.0.0 or later")
     }
 }

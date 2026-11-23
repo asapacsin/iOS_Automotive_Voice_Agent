@@ -35,12 +35,15 @@ final class CitySearch: PlaceSearch {
 }
 
 /// F-09b §16 item 8 (T-031za), row 12: `show_place(name)` finds the place, the App fills and shows the card, and it is
-/// done only when shown.
-@Suite("F-09b §16 show_place")
+/// done only when shown. F-09b §18 (T-031zc), rows 1–5: `show_place(name, city)` looks up exactly that name in that
+/// city; one exact match opens the card, anything else is `PLACE_UNSURE` back to her.
+@Suite("F-09b §16 §18 show_place")
 struct ShowPlaceToolTests {
-    static func place(_ id: String, _ name: String, address: String? = nil) -> Place {
+    static func place(_ id: String, _ name: String, address: String? = nil, city: String? = nil,
+                      district: String? = nil) -> Place {
         Place(id: id, name: name, address: address,
-              coordinate: GeoCoordinate(latitude: 22.2, longitude: 113.5, datum: .gcj02), distanceMeters: 1_500)
+              coordinate: GeoCoordinate(latitude: 22.2, longitude: 113.5, datum: .gcj02), distanceMeters: 1_500,
+              city: city, district: district)
     }
 
     let list = [place("B1", "华发商都(新香洲店)"), place("B2", "华发商都(横琴店)"), place("B3", "富华里")]
@@ -55,16 +58,22 @@ struct ShowPlaceToolTests {
         var last: String? { all.withLock { $0.last } }
     }
 
-    func run(_ name: String, screen: [Place] = [], search: CitySearch = CitySearch(), city: String? = "440400",
-             shown: Bool = true, intro: String? = "大型综合商场", lines: Lines = Lines(),
+    func run(_ name: String, city: String = "珠海", screen: [Place] = [], search: CitySearch = CitySearch(),
+             carCity: String? = "440400", shown: Bool = true, intro: String? = "大型综合商场", lines: Lines = Lines(),
              presented: Presented = Presented()) async -> ToolResult {
-        let tool = ShowPlaceTool(onScreen: { screen }, search: search, cityCode: { city },
+        let tool = ShowPlaceTool(onScreen: { screen }, search: search, cityCode: { carCity },
                                  present: { card in
                                      presented.cards.withLock { $0.append(card) }
                                      return ShowPlaceTool.Shown(shown: shown, intro: intro, address: "香洲区")
                                  },
                                  clock: ManualClock(), onLine: { line in lines.all.withLock { $0.append(line) } })
-        return await tool.execute(ToolCall(id: CallID("c1")!, name: "show_place", arguments: ["name": .string(name)]))
+        return await tool.execute(ToolCall(id: CallID("c1")!, name: "show_place",
+                                           arguments: ["name": .string(name), "city": .string(city)]))
+    }
+
+    static func found(_ result: ToolResult) -> [String] {
+        guard case .array(let items)? = result.data["facts"]?["found"] else { return [] }
+        return items.compactMap { $0["name"]?.stringValue }
     }
 
     @Test("T-031za: a name on screen opens that place without a search; facts carry the intro; log has no name")
@@ -81,55 +90,121 @@ struct ShowPlaceToolTests {
         #expect(result.data["facts"]?["address"] == .string("香洲区"))
         #expect(search.queries.withLock { $0.isEmpty })
         let line = lines.first ?? ""
-        #expect(line.hasPrefix("show place ok=yes via=screen intro=yes ms="))
+        #expect(line.hasPrefix("show place ok=yes via=screen sure=yes found=0 ms="))
         #expect(!line.contains("富华里"))
-        // Several on screen match: the first is used.
+        // Several on screen match: the first is used (screen match unchanged by §18).
         let first = await run("华发商都", screen: list, presented: presented)
         #expect(first.ok && first.data["facts"]?["name"] == .string("华发商都(新香洲店)"))
-        // The asked name is longer than the name on screen: still that place, no search.
         let longer = await run("富华里商场", screen: list, search: search)
         #expect(longer.ok && longer.data["facts"]?["name"] == .string("富华里"))
         #expect(search.queries.withLock { $0.isEmpty })
     }
 
-    @Test("T-031za: not on screen searches the car's city first, nationwide only when the city finds nothing")
-    func searched() async {
-        let search = CitySearch(local: [Self.place("Z1", "珠海渔女")], country: [Self.place("Q", "别处渔女")])
+    @Test("T-031zc row 1: one exact name in her city opens its card; facts name and city; searched in her city only")
+    func sureInCity() async {
+        let search = CitySearch(local: [Self.place("Q1", "清远新世界酒店", city: "清远市", district: "清城区"),
+                                        Self.place("Q2", "清远新世界酒店停车场", city: "清远市")],
+                                country: [Self.place("Z", "新世界门业(梅花豪庭店)", city: "珠海市")])
         let lines = Lines()
-        let local = await run("珠海渔女", search: search, lines: lines)
-        #expect(local.ok && local.data["facts"]?["name"] == .string("珠海渔女"))
-        #expect(search.queries.withLock { $0 } == [.init(keywords: "珠海渔女", city: "440400", cityLimit: true)])
-        #expect(lines.first?.contains("via=city") == true)
-
-        let wide = CitySearch(local: [], country: [Self.place("Q", "故宫")])
-        let country = await run("故宫", search: wide, lines: lines)
-        #expect(country.ok && country.data["facts"]?["name"] == .string("故宫"))
-        #expect(wide.queries.withLock { $0.map(\.cityLimit) } == [true, false])
-        #expect(lines.last?.contains("via=country") == true)
-
-        let noCity = CitySearch(country: [Self.place("Q", "故宫")])
-        _ = await run("故宫", search: noCity, city: nil)
-        #expect(noCity.queries.withLock { $0 } == [.init(keywords: "故宫", city: nil, cityLimit: false)])
+        let presented = Presented()
+        let result = await run("清远新世界酒店", city: "清远", search: search, lines: lines, presented: presented)
+        #expect(result.ok)
+        #expect(presented.cards.withLock { $0.map(\.placeID) } == ["Q1"])
+        #expect(result.data["facts"]?["name"] == .string("清远新世界酒店"))
+        #expect(result.data["facts"]?["city"] == .string("清远市"))
+        #expect(search.queries.withLock { $0 } == [.init(keywords: "清远新世界酒店", city: "清远", cityLimit: true)])
+        let line = lines.first ?? ""
+        #expect(line.hasPrefix("show place ok=yes via=city sure=yes found=2 ms="))
+        #expect(!line.contains("清远"))
+        // A trailing bracket branch, spaces and case are ignored.
+        let branch = CitySearch(local: [Self.place("S", "Starbucks 星巴克(大元路店)", city: "清远市")])
+        let b = await run("starbucks星巴克", city: "清远", search: branch)
+        #expect(b.ok && b.data["facts"]?["name"] == .string("Starbucks 星巴克(大元路店)"))
     }
 
-    @Test("T-031za: nothing found is NO_CANDIDATES; a failed search is honest; nothing opens")
-    func notFound() async {
+    @Test("T-031zc row 2: only another name in the city: no card, PLACE_UNSURE with asked, found and the next")
+    func unsureOtherName() async {
+        let search = CitySearch(local: [Self.place("C", "清远清泉湾生态旅游度假区", address: "佛冈县", city: "清远市",
+                                                   district: "佛冈县")],
+                                country: [Self.place("Y", "悦天下生态度假区", city: "云浮市")])
         let presented = Presented()
         let lines = Lines()
-        let none = await run("不存在的地方", lines: lines, presented: presented)
-        #expect(lines.first?.hasPrefix("show place ok=no via=none intro=no ms=") == true)
-        #expect(lines.first?.contains("不存在") == false)
-        #expect(!none.ok && none.code == .noCandidates)
-        let failed = await run("珠海渔女", search: CitySearch(error: .keyMissing), presented: presented)
-        #expect(!failed.ok && failed.code == .amapWebKeyMissing)
+        let result = await run("清远悦天下生态度假区", city: "清远", search: search, lines: lines, presented: presented)
+        #expect(!result.ok && result.code == .placeUnsure)
         #expect(presented.cards.withLock { $0.isEmpty })
+        #expect(search.queries.withLock { $0.map(\.cityLimit) } == [true])
+        #expect(result.data["facts"]?["asked"]?["name"] == .string("清远悦天下生态度假区"))
+        #expect(result.data["facts"]?["asked"]?["city"] == .string("清远"))
+        #expect(Self.found(result) == ["清远清泉湾生态旅游度假区"])
+        if case .array(let items)? = result.data["facts"]?["found"] {
+            #expect(items.first?["city"] == .string("清远市"))
+            #expect(items.first?["district"] == .string("佛冈县"))
+            #expect(items.first?["address"] == .string("佛冈县"))
+        }
+        #expect(result.data["next"] == .string(ShowPlaceTool.unsureNext))
+        #expect(ShowPlaceTool.unsureNext.contains("web_search") && ShowPlaceTool.unsureNext.contains("不要说功能异常"))
+        #expect(result.data["must_not"] == .array([.string("claim_done")]))
+        #expect(lines.first?.hasPrefix("show place ok=no via=city sure=no found=1 ms=") == true)
+        // Nothing found: also unsure, found empty; the name in another city is not sure either.
+        let none = await run("清远悦天下生态度假区", city: "清远", search: CitySearch())
+        #expect(none.code == .placeUnsure && Self.found(none).isEmpty)
+        let otherCity = await run("悦天下生态度假区", city: "清远",
+                                  search: CitySearch(local: [Self.place("Y", "悦天下生态度假区", city: "云浮市")]))
+        #expect(otherCity.code == .placeUnsure && Self.found(otherCity) == ["悦天下生态度假区"])
+        // found holds at most five.
+        let many = CitySearch(local: (1...7).map { Self.place("M\($0)", "度假村\($0)", city: "清远市") })
+        let capped = await run("温泉", city: "清远", search: many)
+        #expect(Self.found(capped).count == 5)
+    }
+
+    @Test("T-031zc row 3: two results with the asked name in the city: no card, both in found")
+    func unsureTwoSame() async {
+        let search = CitySearch(local: [Self.place("A", "星巴克(大元路店)", city: "清远市"),
+                                        Self.place("B", "星巴克(万达店)", city: "清远市")])
+        let presented = Presented()
+        let result = await run("星巴克", city: "清远", search: search, presented: presented)
+        #expect(!result.ok && result.code == .placeUnsure)
+        #expect(Self.found(result) == ["星巴克(大元路店)", "星巴克(万达店)"])
+        #expect(presented.cards.withLock { $0.isEmpty })
+    }
+
+    @Test("T-031zc row 4: city empty searches the car's city only; sure or unsure as rows 1-3; no fix is honest")
+    func nearCar() async {
+        let one = CitySearch(local: [Self.place("S", "星巴克(拱北店)", city: "珠海市")],
+                             country: [Self.place("X", "星巴克", city: "北京市")])
+        let lines = Lines()
+        let result = await run("星巴克", city: "", search: one, lines: lines)
+        #expect(result.ok && result.data["facts"]?["city"] == .string("珠海市"))
+        #expect(one.queries.withLock { $0 } == [.init(keywords: "星巴克", city: "440400", cityLimit: true)])
+        #expect(lines.first?.hasPrefix("show place ok=yes via=near sure=yes found=1 ms=") == true)
+        let two = CitySearch(local: [Self.place("A", "星巴克(拱北店)", city: "珠海市"),
+                                     Self.place("B", "星巴克(香洲店)", city: "珠海市")])
+        let unsure = await run("星巴克", city: "", search: two)
+        #expect(unsure.code == .placeUnsure && Self.found(unsure).count == 2)
+        #expect(two.queries.withLock { $0.map(\.cityLimit) } == [true])
+        let noFix = CitySearch(country: [Self.place("X", "星巴克")])
+        let none = await run("星巴克", city: "", search: noFix, carCity: nil)
+        #expect(!none.ok && none.code == .noLocation)
+        #expect(noFix.queries.withLock { $0.isEmpty })
+    }
+
+    @Test("T-031za T-031zc: a failed search is honest (search_failed cause) with the same next; nothing opens")
+    func searchFailed() async {
+        let presented = Presented()
+        let lines = Lines()
+        let failed = await run("珠海渔女", search: CitySearch(error: .keyMissing), lines: lines, presented: presented)
+        #expect(!failed.ok && failed.code == .amapWebKeyMissing)
+        #expect(failed.data["facts"]?["cause"] == .string("key_missing"))
+        #expect(failed.data["next"] == .string(ShowPlaceTool.unsureNext))
+        #expect(presented.cards.withLock { $0.isEmpty })
+        #expect(lines.first?.hasPrefix("show place ok=no via=city sure=no found=0 ms=") == true)
     }
 
     @Test("T-031za: not shown is not done (PLACE_NOT_SHOWN, shown=false); no intro gives intro null")
     func notShown() async {
         let lines = Lines()
         let result = await run("富华里", screen: list, shown: false, lines: lines)
-        #expect(lines.first?.hasPrefix("show place ok=no via=screen intro=yes ms=") == true)
+        #expect(lines.first?.hasPrefix("show place ok=no via=screen sure=yes found=0 ms=") == true)
         #expect(lines.first?.contains("富华里") == false)
         #expect(!result.ok && result.code == .placeNotShown)
         #expect(result.data["facts"]?["shown"] == .bool(false))
@@ -137,17 +212,23 @@ struct ShowPlaceToolTests {
         #expect(noIntro.ok && noIntro.data["facts"]?["intro"] == .null)
     }
 
-    @Test("T-031za: declared NON_BLOCKING with one name of 1-40 characters")
+    @Test("T-031za T-031zc row 5: declared with name and city; the description has the city sentence")
     func declaration() {
         #expect(ToolCatalog.spec("show_place") != nil)
         #expect(AsyncTool(name: "show_place") == .showPlace)
-        let schema = ToolCatalog.spec("show_place")?.declaration.parametersJSONSchema
-        if case .object(let properties)? = schema?["properties"] { #expect(properties.keys.sorted() == ["name"]) } else { Issue.record("no properties") }
-        #expect(schema?["required"] == .array([.string("name")]))
-        #expect(ToolCatalog.validate("show_place", ["name": "珠海渔女"]) == nil)
+        let spec = ToolCatalog.spec("show_place")
+        let schema = spec?.declaration.parametersJSONSchema
+        if case .object(let properties)? = schema?["properties"] {
+            #expect(properties.keys.sorted() == ["city", "name"])
+        } else { Issue.record("no properties") }
+        #expect(schema?["required"] == .array([.string("name"), .string("city")]))
+        #expect(spec?.declaration.description.contains("city 填这个地方所在的城市；不确定在哪个城市时先用 web_search 查。") == true)
+        #expect(ToolCatalog.validate("show_place", ["name": "珠海渔女", "city": "珠海"]) == nil)
+        #expect(ToolCatalog.validate("show_place", ["name": "星巴克", "city": ""]) == nil)
         #expect(ToolCatalog.validate("show_place", [:]) == .invalidFields)
         #expect(ToolCatalog.validate("show_place", ["index": 1]) == .invalidFields)
-        #expect(ToolCatalog.validate("show_place", ["name": "  "]) == .invalidFieldValue)
+        #expect(ToolCatalog.validate("show_place", ["name": "  ", "city": "珠海"]) == .invalidFieldValue)
+        #expect(ToolCatalog.validate("show_place", ["name": "珠海渔女", "city": 3]) == .invalidFieldType)
         #expect(ToolCatalog.validate("show_place", ["name": .string(String(repeating: "长", count: 41))]) == .invalidFieldValue)
     }
 }

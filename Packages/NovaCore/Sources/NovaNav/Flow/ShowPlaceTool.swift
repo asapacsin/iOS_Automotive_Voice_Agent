@@ -3,12 +3,19 @@ import NovaKit
 import NovaPorts
 import NovaTools
 
-/// F-09b §16 item 8 (T-031za): `show_place(name)`. She only names the place; code fills and shows the card the same
-/// way every time: 1 find the place, 2 get the content, 3 show the card, 4 return the result. Done only when the App
-/// says the card holds that place (I-1). The log gets codes only (I-8):
-/// `show place ok=<yes|no> via=<screen|city|country> intro=<yes|no> ms=`.
+/// F-09b §16 item 8 (T-031za), §18 (T-031zc): `show_place(name, city)`. She finds the place (which name, which city);
+/// code only looks up exactly that: 1 find the place, 2 get the content, 3 show the card, 4 return the result. A place
+/// on screen is used as before; else 高德 text search limited to her city (the car's city when `city` is empty), no
+/// nationwide fallback, no first-result pick. Exactly one result with that name in that city opens the card; anything
+/// else goes back to her as `PLACE_UNSURE` with what 高德 found. Done only when the App says the card holds that place
+/// (I-1). The log gets codes and counts only (I-8):
+/// `show place ok=<yes|no> via=<screen|city|near> sure=<yes|no> found=<n> ms=`.
 public struct ShowPlaceTool: ToolExecutor {
     public static let tool = "show_place"
+    /// §18 item 4: at most this many 高德 results go back to her in `found`.
+    public static let maxFound = 5
+    /// §18 item 4: the `next` of `PLACE_UNSURE` (and item 5: of a failed search).
+    public static let unsureNext = "卡片没有打开。看 found：有司机要的那个就用它的名字和城市再调用 show_place；没有就先用 web_search 查这个地方在哪个城市、正式名字是什么，再调用。不要道歉了事，不要说功能异常。"
 
     /// What the App reports after opening the card (steps 2 and 3).
     public struct Shown: Sendable, Hashable {
@@ -22,7 +29,7 @@ public struct ShowPlaceTool: ToolExecutor {
         }
     }
 
-    enum Via: String { case screen, city, country, none }
+    enum Via: String { case screen, city, near }
 
     private let onScreen: @Sendable () async -> [Place]
     private let search: any PlaceSearch
@@ -32,7 +39,8 @@ public struct ShowPlaceTool: ToolExecutor {
     private let onLine: @Sendable (String) -> Void
 
     /// `onScreen`: the places on screen (candidate list, chosen or guided destination, trip stops). `cityCode`: the
-    /// car's city adcode, nil when unknown. `present`: opens the card and answers after the intro arrived or failed.
+    /// car's city adcode, nil when unknown (used only when `city` is empty). `present`: opens the card and answers
+    /// after the intro arrived or failed.
     public init(onScreen: @escaping @Sendable () async -> [Place], search: any PlaceSearch,
                 cityCode: @escaping @Sendable () async -> String? = { nil },
                 present: @escaping @Sendable (TripCard) async -> Shown, clock: any NovaClock,
@@ -48,65 +56,123 @@ public struct ShowPlaceTool: ToolExecutor {
     public func execute(_ call: ToolCall) async -> ToolResult {
         let started = clock.now
         let name = (call.arguments["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let city = (call.arguments["city"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let searchVia: Via = city.isEmpty ? .near : .city
         guard !name.isEmpty else {
-            log(ok: false, via: .none, intro: false, since: started)
+            log(ok: false, via: searchVia, sure: false, found: 0, since: started)
             return ToolReply.failure(.invalidFieldValue, facts: ["shown": false], may: [.askPlace],
                                      mustNot: [.claimDone, .invent]).result
         }
         // Step 1: find the place.
         let place: Place
         let via: Via
+        var foundCount = 0
         if let match = await onScreen().first(where: { Self.matches($0.name, name) }) {
             place = match
             via = .screen
         } else {
-            let found: (Place, Via)?
+            via = searchVia
+            var searchCity = city
+            if city.isEmpty {
+                guard let car = await cityCode(), !car.isEmpty else {
+                    log(ok: false, via: via, sure: false, found: 0, since: started)
+                    return Self.withNext(LookupReply.failed(.noLocation, what: "place", cause: .noLocation,
+                                                            facts: ["shown": false], mustNot: [.claimDone]))
+                }
+                searchCity = car
+            }
+            let results: [Place]
             do {
-                found = try await searchNear(name)
+                results = try await search.text(name, city: searchCity, cityLimit: true)
             } catch let error as AmapWebError {
-                log(ok: false, via: .none, intro: false, since: started)
+                log(ok: false, via: via, sure: false, found: 0, since: started)
                 let cause = LookupReply.cause(of: error)
-                return LookupReply.failed(LookupReply.code(for: cause), what: "place", cause: cause,
-                                          facts: ["shown": false], mustNot: [.claimDone])
+                return Self.withNext(LookupReply.failed(LookupReply.code(for: cause), what: "place", cause: cause,
+                                                        facts: ["shown": false], mustNot: [.claimDone]))
             } catch {
-                log(ok: false, via: .none, intro: false, since: started)
-                return LookupReply.failed(.liveInfoUnavailable, what: "place", cause: .network,
-                                          facts: ["shown": false], mustNot: [.claimDone])
+                log(ok: false, via: via, sure: false, found: 0, since: started)
+                return Self.withNext(LookupReply.failed(.liveInfoUnavailable, what: "place", cause: .network,
+                                                        facts: ["shown": false], mustNot: [.claimDone]))
             }
-            guard let found else {
-                log(ok: false, via: .none, intro: false, since: started)
-                return LookupReply.notFound(.noCandidates, what: name, facts: ["shown": false], may: [.askPlace],
-                                            mustNot: [.claimDone])
+            foundCount = results.count
+            // §18 items 3–4: sure only for exactly one exact name in her city (the car's city search: any city).
+            guard let sure = Self.sureMatch(results, name: name, city: city.isEmpty ? nil : city) else {
+                log(ok: false, via: via, sure: false, found: foundCount, since: started)
+                return Self.unsure(name: name, city: city, found: results)
             }
-            (place, via) = found
+            place = sure
         }
         // Steps 2 and 3: the App fills and opens the card.
         let shown = await present(Self.card(for: place))
-        log(ok: shown.shown, via: via, intro: shown.intro != nil, since: started)
+        log(ok: shown.shown, via: via, sure: true, found: foundCount, since: started)
+        // §18 item 6: the result names the card's place and city.
+        let cardCity: JSONValue = (place.city ?? (city.isEmpty ? nil : city)).map { .string($0) } ?? .null
         // Step 4: return the result.
         guard shown.shown else {
-            return ToolReply.notDone(.placeNotShown, facts: ["shown": false, "name": .string(place.name)],
+            return ToolReply.notDone(.placeNotShown, facts: ["shown": false, "name": .string(place.name),
+                                                             "city": cardCity],
                                      may: [.tryLater], mustNot: [.invent]).result
         }
-        var facts: [String: JSONValue] = ["shown": true, "name": .string(place.name),
+        var facts: [String: JSONValue] = ["shown": true, "name": .string(place.name), "city": cardCity,
                                           "intro": shown.intro.map { .string($0) } ?? .null]
         if let address = shown.address ?? place.address { facts["address"] = .string(address) }
         return ToolReply.success(facts: facts, mustNot: [.invent]).result
     }
 
-    /// Every outcome writes one line, codes only (I-8); `via=none` when no place was found.
-    private func log(ok: Bool, via: Via, intro: Bool, since started: NovaInstant) {
+    /// Every outcome writes one line, codes and counts only (I-8).
+    private func log(ok: Bool, via: Via, sure: Bool, found: Int, since started: NovaInstant) {
         let ms = max(0, Int((clock.now - started).milliseconds))
-        onLine("show place ok=\(ok ? "yes" : "no") via=\(via.rawValue) intro=\(intro ? "yes" : "no") ms=\(ms)")
+        onLine("show place ok=\(ok ? "yes" : "no") via=\(via.rawValue) sure=\(sure ? "yes" : "no") found=\(found) ms=\(ms)")
     }
 
-    /// The car's city first (`citylimit=true`); nationwide when that finds nothing or the city is unknown.
-    private func searchNear(_ name: String) async throws -> (Place, Via)? {
-        if let city = await cityCode(), !city.isEmpty,
-           let local = try await search.text(name, city: city, cityLimit: true).first {
-            return (local, .city)
+    /// §18 item 3: the one result whose name equals `name` (spaces, case, a trailing bracket branch ignored) and
+    /// whose city is `city` (nil: the car's city search, any city). Nil when none or several.
+    static func sureMatch(_ results: [Place], name: String, city: String?) -> Place? {
+        let asked = sameName(name)
+        guard !asked.isEmpty else { return nil }
+        let hits = results.filter { place in
+            guard sameName(place.name) == asked else { return false }
+            guard let city else { return true }
+            return place.city.map { sameCity($0) == sameCity(city) } ?? false
         }
-        return try await search.text(name, city: nil).first.map { ($0, .country) }
+        return hits.count == 1 ? hits[0] : nil
+    }
+
+    /// Name compared: lowercased, no spaces, a trailing 「(…)」 or 「（…）」 branch removed.
+    static func sameName(_ s: String) -> String {
+        var t = s.lowercased().filter { !$0.isWhitespace }
+        if t.hasSuffix(")") || t.hasSuffix("）"),
+           let open = t.lastIndex(where: { $0 == "(" || $0 == "（" }), open != t.startIndex {
+            t = String(t[..<open])
+        }
+        return t
+    }
+
+    /// City compared: no spaces, a trailing 「市」 removed (高德 `cityname` 清远市 is her 清远).
+    static func sameCity(_ s: String) -> String {
+        var t = s.filter { !$0.isWhitespace }
+        if t.hasSuffix("市"), t.count > 1 { t.removeLast() }
+        return t
+    }
+
+    /// §18 item 4: no card; `asked`, up to five `found` and the fixed `next`.
+    static func unsure(name: String, city: String, found: [Place]) -> ToolResult {
+        let list: [JSONValue] = found.prefix(maxFound).map { p in
+            .object(["name": .string(p.name), "city": p.city.map { .string($0) } ?? .null,
+                     "district": p.district.map { .string($0) } ?? .null,
+                     "address": p.address.map { .string($0) } ?? .null])
+        }
+        let facts: [String: JSONValue] = ["shown": false,
+                                          "asked": .object(["name": .string(name), "city": .string(city)]),
+                                          "found": .array(list)]
+        return withNext(ToolReply.failure(.placeUnsure, facts: facts, mustNot: [.claimDone]).result)
+    }
+
+    /// §18 items 4–5: the `next` she reads is the fixed sentence (call again, or check with web_search first).
+    static func withNext(_ result: ToolResult) -> ToolResult {
+        var data = result.data
+        data["next"] = .string(unsureNext)
+        return ToolResult(ok: result.ok, code: result.code, data: data, advice: result.advice)
     }
 
     /// One name contains the other, ignoring spaces and case.
