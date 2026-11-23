@@ -2525,3 +2525,45 @@ answered by the backup after a 429 cooldown (§50 item 10); the record does not 
 | Task | Scope | Status |
 |---|---|---|
 | T-040zl | §59 items 1–4 (picker on `qwen3.8-flash`, no picker backup, model on the pick line); rows 259–262 | NOT_RUN |
+
+## 60. The trip work panel is on only while a trip write runs (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 6e72c92, record 20261123-141523).** The 中山 plan: `set_trip_plan` returned
+`trip_needs_fix` twice (443879, 461536) and the model sent no further fix. The work panel went on at 428929 and was
+never turned off (no `panel working off` after it); the cards already showed the plan. Earlier in the same record,
+every `trip_needs_fix` (21094, 54173, 311113, …) left the panel spinning while the cards were updated and she talked.
+
+**Cause (`TripPlanner.tracked`, T-040zk).** A `trip_needs_fix` result returns before the panel is finished or
+cleared ("a fix round keeps the steps"); with no fix round the panel stays until `WorkProgress.maxOpen` (120 s) or
+until the trip screen closes. The panel follows its own timers, not the screen state.
+
+**Owner rule (2026-11-23).** The panel belongs to the trip screen state: when the trip work ends or the trip card
+closes, the panel closes too. Nothing more complicated.
+
+1. **On only while a write runs.** The trip work panel shows while a `set_trip_plan` call is running, and goes off
+   when that call returns, with any result (`trip_list`, `trip_needs_fix`, a refusal). A fix round is a new call: it
+   shows the panel again while it runs. No carry-over between calls (`continueTrip` and the `trip_needs_fix` early
+   return are removed).
+2. **The result line.** On return the panel may show the §58 item 5 line (「已改好」/「已加入…」/「没改成：…」) for its keep time,
+   then goes off. `trip_needs_fix` shows no line (the cards show the plan).
+3. **Closes with the trip screen.** When `tripScreen` goes off, the trip work panel goes off at once.
+4. **In the screen state.** `working` in the screen state (F-09b §16, on/off) is on exactly while the panel shows;
+   the record gets `panel working on` and `panel working off` every time.
+5. **No timers for this.** `WorkProgress.maxOpen` is not used for trip work (a running call always returns, §52 item 11
+   limits it).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 263 | `set_trip_plan` returns `trip_needs_fix`, no further call | Panel off at the return; `panel working off` in the record | unit |
+| 264 | `trip_needs_fix`, then a fix call | Panel off at the first return, on again while the fix runs, off at its return | unit |
+| 265 | Trip screen closed while the panel shows | Panel off at once; `working=off` in the screen state | unit, build |
+| 266 | Ok edit; refused edit | 「已改好」 3 s / 「没改成：…」 5 s, then off | unit |
+| 267 | Device: 「规划中山两天」 and wait | The panel is gone once the cards show the plan | D |
+
+**Trace gate.** Add `T-040zm: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zm | §60 items 1–5 (panel only while a set_trip_plan call runs; off on any result and when the trip screen closes; screen state and record); rows 263–267 | NOT_RUN |
