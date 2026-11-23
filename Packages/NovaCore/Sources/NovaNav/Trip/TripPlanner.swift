@@ -1687,7 +1687,7 @@ public actor TripPlanner: ToolExecutor {
         guard !open.isEmpty, !Task.isCancelled else { return (out, sure) }
         let started = clock.now
         guard let picker else {
-            onLine("trip pick names=\(open.count) none=0 ok=no reason=nokey ms=0")
+            onLine("trip pick names=\(open.count) none=0 ok=no reason=nokey ms=0 model=none")
             return (out, sure)
         }
         pickerNames += open.count
@@ -1716,7 +1716,7 @@ public actor TripPlanner: ToolExecutor {
             let reason = switch answer {
             case .timeout: "timeout"; case .nokey: "nokey"; case .cancelled: "cancelled"; default: "failed"
             }
-            onLine("trip pick names=\(open.count) none=0 ok=no reason=\(reason) ms=\(elapsed)")
+            onLine("trip pick names=\(open.count) none=0 ok=no reason=\(reason) ms=\(elapsed) model=\(picker.model)")
             return (out, sure)
         }
         var none = 0
@@ -1731,7 +1731,7 @@ public actor TripPlanner: ToolExecutor {
                 none += 1
             }
         }
-        onLine("trip pick names=\(open.count) none=\(none) ok=yes ms=\(elapsed)")
+        onLine("trip pick names=\(open.count) none=\(none) ok=yes ms=\(elapsed) model=\(picker.model)")
         return (out, sure)
     }
 

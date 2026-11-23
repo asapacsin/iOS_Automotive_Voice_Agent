@@ -327,6 +327,12 @@ public protocol PlacePicker: Sendable {
     /// One answer per choice, in order: the 0-based candidate index, or nil for none of them. Throws when there is
     /// no usable answer.
     func pick(_ choices: [PlaceChoice]) async throws -> [Int?]
+    /// F-15b §59 item 3 (T-040zl): the model id written on every `trip pick` line.
+    var model: String { get }
+}
+
+public extension PlacePicker {
+    var model: String { "unknown" }
 }
 
 /// F-15b §36 (T-040o): which place search a trip uses. China here is the mainland, Hong Kong, Macau and Taiwan

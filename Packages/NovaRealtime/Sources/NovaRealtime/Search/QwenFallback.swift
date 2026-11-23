@@ -99,6 +99,8 @@ public final class QwenFallback: Sendable {
         let first = try await counted(route, nil, attempt)
         guard let why = Self.reason(status: first.status, body: first.body) else { return first }
         let now = clock.now
+        // §59 item 2: a route with no backup just fails; no cooldown, so the next request tries the model again.
+        guard route.backup != nil else { return first }
         state.withLock { s in
             switch why {
             case .rateLimit: s.skippedUntil[route.job] = now + QwenRoute.cooldown
@@ -132,19 +134,25 @@ public final class QwenFallback: Sendable {
     /// primary was skipped), so the route's existing failure path runs.
     private func backup(_ route: QwenRoute, reason: Reason, started: NovaInstant, primary: (status: Int, body: Data)?,
                         request: String, _ attempt: Attempt) async throws -> (status: Int, body: Data) {
+        guard let backupRoute = route.backup else {
+            // §59 item 2: no backup model (picker): the primary's failure stands.
+            if let primary { return primary }
+            if reason == .quota { throw BudgetRefused(.quota) }
+            throw URLError(.timedOut)
+        }
         let remaining = route.budget.map { $0 - (clock.now - started) }
         if let remaining, remaining <= .zero {
             line(route, reason, ok: false, started: started)
             if let primary { return primary }
             throw URLError(.timedOut)
         }
-        if case .refuse(let r) = ask(route.backup, request) {
+        if case .refuse(let r) = ask(backupRoute, request) {
             line(route, reason, ok: false, started: started)
             if let primary { return primary }
             throw BudgetRefused(r)
         }
         do {
-            let r = try await counted(route.backup, remaining, attempt)
+            let r = try await counted(backupRoute, remaining, attempt)
             line(route, reason, ok: r.status == 200 && QwenWebSearchClient.errorCode(r.body) == nil, started: started)
             return r
         } catch {
@@ -155,7 +163,7 @@ public final class QwenFallback: Sendable {
 
     private func line(_ route: QwenRoute, _ reason: Reason, ok: Bool, started: NovaInstant) {
         let ms = (clock.now - started).milliseconds
-        let text = "qwen fallback route=\(route.job.rawValue) from=\(route.model) to=\(route.backupModel) "
+        let text = "qwen fallback route=\(route.job.rawValue) from=\(route.model) to=\(route.backupModel ?? "none") "
             + "reason=\(reason.rawValue) ok=\(ok ? "yes" : "no") ms=\(ms)"
         state.withLock { $0.log }?(text)
     }

@@ -21,12 +21,13 @@ struct PlacePickerTests {
         PlaceChoice(asked: "路环那家葡挞", city: nil, candidates: [place("不是葡挞", nil), place("路环岛", nil)]),
     ]
 
-    @Test("Request: qwen3.7-flash, search and thinking off, EntGPT instruction, numbered candidates with None; key in the header only")
+    @Test("T-040zl F-15b row 259: request: qwen3.8-flash, search and thinking off, EntGPT instruction, numbered candidates with None; key in the header only")
     func request() throws {
         let r = QwenPlacePicker(key: { "k" }).request(choices, key: "k")
         #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer k")
         let body = try JSONDecoder().decode(JSONValue.self, from: r.httpBody ?? Data())
-        #expect(body["model"] == "qwen3.7-flash-2026-07-15")
+        #expect(body["model"] == "qwen3.8-flash" && body["parameters"]?["incremental_output"] == nil)
+        #expect(QwenRoute.picker.backupModel == nil && QwenRoute.picker.backup == nil)
         #expect(body["parameters"]?["enable_search"] == false && body["parameters"]?["enable_thinking"] == false)
         let text = String(decoding: r.httpBody ?? Data(), as: UTF8.self)
         #expect(!text.contains("\"k\""))

@@ -104,29 +104,23 @@ struct QwenFallbackTests {
         #expect(fake.models.last == "qwen3.7-flash-2026-07-15")
     }
 
-    @Test("T-040x F-15b row 157: picker quota 403 switches and skips the primary until restart; InvalidApiKey 403, 401, 500, timeout never switch")
-    func row157() async throws {
-        let (fake, fallback, clock, lines) = rig([(10, .http(403, quota403)), (10, .http(200, pickAnswer))])
-        let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
-        #expect(try await picker.pick(choices) == [1])
-        #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
-        #expect(lines.all == ["qwen fallback route=picker from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=quota ok=yes ms=20"])
-        clock.advance(by: .minutes(10))
-        #expect(fallback.skipped(.picker) == .quota)
-        #expect(try await picker.pick(choices) == [1])
-        #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash", "qwen3.8-flash"])
-        // A new process (restart) starts with the primary again.
-        #expect(QwenFallback(clock: clock).skipped(.picker) == nil)
-
-        for reply in [FakeQwen.Reply.http(403, #"{"code":"InvalidApiKey","message":"m"}"#), .http(401, "{}"), .http(500, "{}"),
-                      .fail(.timedOut)] {
+    @Test("T-040zl F-15b §59 item 2 (replaces row 157's picker switch): picker quota 403 or 429: one call on qwen3.8-flash, no backup, no switch line, no skip; InvalidApiKey 403, 401, 500, timeout one call too")
+    func pickerNoBackup() async throws {
+        for reply in [FakeQwen.Reply.http(403, quota403), .http(429, throttled), .http(403, #"{"code":"InvalidApiKey","message":"m"}"#),
+                      .http(401, "{}"), .http(500, "{}"), .fail(.timedOut)] {
             let (fake, fallback, _, lines) = rig([(10, reply), (10, .http(200, pickAnswer))])
             let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
             await #expect(throws: (any Error).self) { try await picker.pick(choices) }
-            #expect(fake.models == ["qwen3.7-flash-2026-07-15"])
+            #expect(fake.models == ["qwen3.8-flash"])
             #expect(lines.all.isEmpty)
             #expect(fallback.skipped(.picker) == nil)
         }
+        // The next pick after a 429 tries the model again (no cooldown without a backup).
+        let (fake, fallback, _, _) = rig([(10, .http(429, throttled)), (10, .http(200, pickAnswer))])
+        let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
+        await #expect(throws: (any Error).self) { try await picker.pick(choices) }
+        #expect(try await picker.pick(choices) == [1])
+        #expect(fake.models == ["qwen3.8-flash", "qwen3.8-flash"])
     }
 
     @Test("T-040x F-15b row 158: an error after the answer started never switches; a backup that also 429s gets no second switch")
@@ -155,22 +149,14 @@ struct QwenFallbackTests {
         #expect(lines3.all == ["qwen fallback route=ground from=qwen3.7-plus to=qwen3.7-flash-2026-07-15 reason=429 ok=no ms=20"])
     }
 
-    @Test("T-040x F-15b row 159: picker primary 429 at 2.0 s: the backup gets 0.5 s; at 2.5 s the failure path (高德's first result)")
-    func row159() async throws {
-        let (fake, fallback, _, lines) = rig([(2000, .http(429, throttled)), (500, .fail(.timedOut))])
+    @Test("T-040zl F-15b row 260 (replaces row 159's picker backup): picker 429 at 2.0 s: one call, PickError.http(429), no backup call")
+    func row260Transport() async throws {
+        let (fake, fallback, _, lines) = rig([(2000, .http(429, throttled)), (500, .http(200, pickAnswer))])
         let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
-        await #expect(throws: (any Error).self) { try await picker.pick(choices) }
-        let sent = fake.sent.withLock { $0 }
-        #expect(sent.map(\.model) == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
-        #expect(sent[1].timeout == 0.5)
-        #expect(lines.all == ["qwen fallback route=picker from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=429 ok=no ms=2500"])
-
-        // A 429 that arrives with no budget left: no backup call.
-        let (late, fallback2, _, lines2) = rig([(2500, .http(429, throttled))])
-        let p2 = QwenPlacePicker(key: { "k" }, send: late.send, fallback: fallback2)
-        await #expect(throws: QwenPlacePicker.PickError.http(429)) { try await p2.pick(choices) }
-        #expect(late.models == ["qwen3.7-flash-2026-07-15"])
-        #expect(lines2.all == ["qwen fallback route=picker from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=429 ok=no ms=2500"])
+        await #expect(throws: QwenPlacePicker.PickError.http(429)) { try await picker.pick(choices) }
+        #expect(fake.models == ["qwen3.8-flash"])
+        #expect(lines.all.isEmpty)
+        #expect(picker.model == "qwen3.8-flash")
     }
 }
 

@@ -7,7 +7,7 @@ import NovaKit
 /// | Route | Model | Search | Thinking | Budget | Backup (§50 item 10, T-040x) |
 /// |---|---|---|---|---|---|
 /// | `live` | qwen3.7-flash | turbo, forced, sources | off | as today | qwen3.8-flash |
-/// | `picker` | qwen3.7-flash | off | off | 2.5 s (TripTuning.pickLimit) | qwen3.8-flash |
+/// | `picker` | qwen3.8-flash (§59, T-040zl) | off | off | 2.5 s (TripTuning.pickLimit) | none (§59 item 2) |
 /// | `ground` | qwen3.7-plus | turbo (row 160), forced, sources | off | 30 s (TripTuning.groundTimeout) | qwen3.7-flash + turbo |
 public struct QwenRoute: Sendable, Hashable {
     public enum Job: String, Sendable, Hashable, CaseIterable {
@@ -28,8 +28,8 @@ public struct QwenRoute: Sendable, Hashable {
     /// Streamed (`X-DashScope-SSE: enable`, `incremental_output`), read to the end before parsing.
     public let stream: Bool
     /// §50 item 10 (T-040x, `QwenFallback`): the model and search options of the backup route, used only on an HTTP
-    /// 429 or a quota 403 before any answer arrives.
-    public let backupModel: String
+    /// 429 or a quota 403 before any answer arrives. nil: no backup (the picker, F-15b §59 item 2): the call fails.
+    public let backupModel: String?
     public let backupSearch: Search?
     /// The route's time budget as the caller enforces it (picker `TripTuning.pickLimit`, ground
     /// `TripTuning.groundTimeout`; live: the executor's own, nil here). A backup call gets only what is left of it.
@@ -38,7 +38,7 @@ public struct QwenRoute: Sendable, Hashable {
     /// §50 item 10: after a 429 the primary is skipped this long (Alibaba: limits usually recover within a minute).
     public static let cooldown = NovaDuration.seconds(60)
 
-    public init(job: Job, model: String, search: Search?, thinking: Bool, stream: Bool, backupModel: String,
+    public init(job: Job, model: String, search: Search?, thinking: Bool, stream: Bool, backupModel: String?,
                 backupSearch: Search?, budget: NovaDuration? = nil) {
         self.job = job
         self.model = model
@@ -51,8 +51,9 @@ public struct QwenRoute: Sendable, Hashable {
     }
 
     /// The same route on its backup model and search options.
-    public var backup: QwenRoute {
-        QwenRoute(job: job, model: backupModel, search: backupSearch, thinking: thinking, stream: stream,
+    public var backup: QwenRoute? {
+        guard let backupModel else { return nil }
+        return QwenRoute(job: job, model: backupModel, search: backupSearch, thinking: thinking, stream: stream,
                   backupModel: backupModel, backupSearch: backupSearch, budget: budget)
     }
 
@@ -65,9 +66,10 @@ public struct QwenRoute: Sendable, Hashable {
                                        thinking: false, stream: true,
                                        backupModel: "qwen3.8-flash",
                                        backupSearch: Search(strategy: "turbo", forced: true, enableSource: true))
-    /// F-15b §4 item 6 picker (unchanged): search off, not streamed.
-    public static let picker = QwenRoute(job: .picker, model: "qwen3.7-flash-2026-07-15", search: nil, thinking: false, stream: false,
-                                         backupModel: "qwen3.8-flash", backupSearch: nil,
+    /// F-15b §4 item 6 picker: search off, not streamed. §59 (T-040zl, PC replay 2026-11-23): `qwen3.7-flash` answered
+    /// "none" for all 22 names, `qwen3.8-flash` picked every one right; no backup model.
+    public static let picker = QwenRoute(job: .picker, model: "qwen3.8-flash", search: nil, thinking: false, stream: false,
+                                         backupModel: nil, backupSearch: nil,
                                          budget: .milliseconds(2500))
     /// F-15b §50 item 1: `forced_search` so the search must run (the answer's `search_info` is checked); plus is the
     /// "balanced" model. Row 160 (PC, 2026-11-19): `agent` and `max` answered with an empty `search_results`, so the

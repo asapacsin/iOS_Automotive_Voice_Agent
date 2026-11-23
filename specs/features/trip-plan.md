@@ -641,7 +641,7 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
 | 44 | Device: 「帮我准备一个澳门两天游」, then 「加上路环的安德鲁」 | Every stop found; 安德鲁饼店 added | D |
 | 45 | Picker fails, has no key, or answers after 2.5 s (manual clock) | Every name takes 高德's first result; `trip pick ... ok=no` | unit |
 | 46 | A name with one result, and a cached name | No picker call for them | unit |
-| 47 | `QwenPlacePicker` request and parse (fake send) | Body: `qwen3.7-flash`, `enable_search=false`, the copied EntGPT prompt with the candidates; answer lines parsed, `0` → none, unreadable → error | unit |
+| 47 | `QwenPlacePicker` request and parse (fake send) | Body: `qwen3.8-flash` (§59), `enable_search=false`, the copied EntGPT prompt with the candidates; answer lines parsed, `0` → none, unreadable → error | unit |
 | 48 | `make_trip_list` and `edit_trip_list` declarations and responses | `NON_BLOCKING`; responses carry `WHEN_IDLE` | unit |
 | 49 | `route_trip` called while `make_trip_list` still waits on its lookups | The route runs after the list is made, on the new list; the list is not `OPTIONS_STALE` | unit |
 | 50 | Device: 「规划北京一日游，去故宫和陈家祠…」 style request, then 「串成路线」 | She says one line, keeps talking, explains the list when quiet; 故宫博物院 listed; the route uses the finished list | D |
@@ -1623,7 +1623,7 @@ practice.
      | Route | Model | Search | Thinking | Time budget | Backup (item 10) |
      |---|---|---|---|---|---|
      | `live` | `qwen3.7-flash` (unchanged) | on, `turbo`, `forced_search`, `enable_source` (unchanged) | off | as today | `qwen3.8-flash`, same options |
-     | `picker` | `qwen3.7-flash` (unchanged) | off | off | 2.5 s (unchanged) | `qwen3.8-flash`, same options |
+     | `picker` | `qwen3.8-flash` (§59, T-040zl) | off | off | 2.5 s (unchanged) | none (§59 item 2) |
      | `ground` | **`qwen3.7-plus`** | on, **`agent`**, `forced_search`, `enable_source` | off | **30 s** (`TripTuning.groundTimeout`, was 20 s) | `qwen3.7-flash` with `turbo` |
 
    - **Why these.**
@@ -1663,7 +1663,7 @@ practice.
 | 151 | Device: 「东京三天自驾，成田机场进出，一定要去浅草寺，酒店要靠近新宿站」 | Within ~60 s: 3 days, 浅草寺 on one, a real hotel within 1 km of 新宿站 (real name), day 1 成田 → 租 → … → 住; no place outside Japan; she said one line first and one summary at the end; steps were on screen | D |
 | 152 | Device: then 「第二天太赶了」 | Day 2 lighter; steps shown; she says what changed | D |
 | 153 | Device: 「东京天气怎么样」 | 「正在查天气…」 while waiting, then the answer | D |
-| 154 | `QwenRoute` table and request bodies (fake send) | `live` and `picker` bodies unchanged from today's tests; `ground`: `qwen3.7-plus`, `agent`, `forced_search`, `enable_source`, thinking off, streamed, date turn; no model name outside `QwenRoute` | unit |
+| 154 | `QwenRoute` table and request bodies (fake send) | `live` body unchanged from today's tests, `picker` on `qwen3.8-flash` with no backup (§59); `ground`: `qwen3.7-plus`, `agent`, `forced_search`, `enable_source`, thinking off, streamed, date turn; no model name outside `QwenRoute` | unit |
 | 155 | `ground` answer with no search result; one with a missing `places` field | Model's places used; `ok=fallback reason=nosearch` / `reason=json` | unit |
 | 156 | `live`: first request 429 before any answer | One request to `qwen3.8-flash`, same body except `model`; its answer used; `qwen fallback … reason=429 ok=yes`; next call within 60 s goes to the backup first | unit |
 | 157 | `picker`: 403 with a `…Quota…` code; separately 403 `InvalidApiKey`, 401, 500, timeout | Quota: backup used, primary skipped until restart. Others: no switch, existing failure path | unit |
