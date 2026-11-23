@@ -2351,3 +2351,67 @@ specific and actionable improvements"). A repeated identical failing call is sto
 | Task | Scope | Status |
 |---|---|---|
 | T-040zi | §56 items 1–7 (read shape is write shape, the checks that still refuse, `problems` on every refusal, no repeat of a refused call, catalog text, record); rows 237–244 | NOT_RUN |
+
+## 57. A stop-navigation button wherever navigation can start; both buttons in the screen state (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, records 20261123-101517, -101941; device 2026-11-21, a367539).**
+- The trip screen has one navigation button, 「去下一站：<名字>」 (§29 item 4, `trip_next`), right under the cards. On
+  2026-11-21 a tap meant for the cards started navigation (`trip tap action=next`).
+- The app has no button that stops navigation. `exit_navigation_mode` is voice only, and on 2026-11-23 「停止导航」
+  was heard as 「新手导航」: she called `trip_next` and navigation started again instead of stopping. The driver
+  could not stop it with a tap.
+- She cannot tell which buttons the driver sees: F-09b §16's screen state lists panels, not buttons, so a tap on the
+  start button and the button itself are invisible to her.
+
+**Owner (2026-11-23).** A button that starts navigation needs a button that stops it; and the navigation buttons go
+into the state. F-09b §16's rule stands: each key is only `on` / `off`, from what the display really shows.
+
+**Published practice this copies.** In-car and phone navigation apps always show an end control on the guidance
+screen (Google Maps: "Exit" on the navigation screen, support.google.com/maps/answer/3273406; Apple Maps: "End
+Route", support.apple.com/guide/iphone/get-driving-directions-iph8b72eadf). Distraction guidelines ask for few,
+large, clearly separated touch targets while driving (NHTSA Visual-Manual Driver Distraction Guidelines, 2013).
+
+1. **Stop button.** While `navigation`, `routePicking` or `routeCalculating` is `on`, the screen shows 「结束导航」 (a
+   red bordered button, at least 44 × 44 pt, in the guidance panel's top row). A tap does what `exit_navigation_mode`
+   does (the guidance stops, the route panels close, a trip in progress keeps its plan and marks). It works while
+   moving, needs no confirmation, and is never hidden behind another panel.
+2. **The start button cannot be mistaken for a card.** 「去下一站：<名字>」 gets a navigation icon, sits at least 12 pt below
+   the card row, and while navigation runs its place shows 「结束导航」 instead (the same spot toggles). A card tap only
+   opens the card (§21), unchanged.
+3. **No restart of what is already running.** `trip_next` (voice or tap) while `navigation` is `on` toward that same
+   stop does not plan a new route: the result is `ALREADY_NAVIGATING` with `next`: 「已经在去<名字>的路上了。司机要是想停，调用
+   exit_navigation_mode。」. Toward a different stop it runs as today.
+4. **Both buttons in the screen state (amends F-09b §16 item 1).** Two keys, reported by the button views'
+   `onAppear` / `onDisappear` like every panel (F-09b §16 item 2):
+
+   | Key | On when the display shows |
+   |---|---|
+   | `tripNextButton` | 「去下一站：<名字>」 |
+   | `stopNavigationButton` | 「结束导航」 |
+
+   The keys go in the screen line after `navigation`, in that order. No name or count is added (F-09b §16 rule).
+5. **A tap on either button reaches her.** One line, queued like the screen line (F-09b §16 item 4: never during her
+   reply): 「[系统] 司机点了「去下一站」。这句不用回答。」 or 「[系统] 司机点了「结束导航」。这句不用回答。」.
+6. **Record.** `nav tap action=next|stop` per tap; `trip next … code=ALREADY_NAVIGATING`; the screen line gains the two
+   keys. Codes only (I-8).
+7. **Code.** `TripCardsView` (start button: icon, spacing, toggle); the guidance panel in `DriveView` (stop button);
+   `AgentRuntime` (stop tap → the `exit_navigation_mode` path; the tap lines); `ScreenState` and the screen line (two
+   keys); `TripPlanner.next` (`ALREADY_NAVIGATING`).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 245 | Navigation on (guidance, route picking or calculating) | 「结束导航」 shown; `stopNavigationButton on` in the screen line | unit, build |
+| 246 | Tap 「结束导航」 while moving | Guidance stops; `navigation`, `routePicking`, `routeCalculating` off; trip plan and marks kept; `nav tap action=stop`; her tap line queued | unit |
+| 247 | Trip screen, not navigating | 「去下一站」 shown with its icon, `tripNextButton on`; navigation on → the same spot shows 「结束导航」, `tripNextButton off` | unit, build |
+| 248 | `trip_next` while guiding to that same stop | No new route; `ALREADY_NAVIGATING`; `next` names exit_navigation_mode | unit |
+| 249 | `trip_next` while guiding to another stop | Runs as today | unit |
+| 250 | Screen line | Has `tripNextButton` and `stopNavigationButton` after `navigation`; only on/off | unit |
+| 251 | Device: start a trip stop with 「去下一站」, then tap 「结束导航」; tap a card | Navigation starts and stops by tap; the card tap only opens the card; the record has both `nav tap` lines | D |
+
+**Trace gate.** Add `T-040zj: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zj | §57 items 1–7 (stop button, start button apart from the cards, no restart of the same stop, two screen-state keys, tap lines, record); rows 245–251 | NOT_RUN |
