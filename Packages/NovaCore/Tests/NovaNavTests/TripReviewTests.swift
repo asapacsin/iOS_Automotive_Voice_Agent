@@ -225,6 +225,9 @@ struct TripReviewTests {
         var other = TripPlan()
         other.load(plan)
         #expect(other.asked == plan.asked)
+        // A whole-trip clear forgets the request with the stops (review 2026-11-23).
+        other.clearAll()
+        #expect(other.asked == nil)
         // Validation: asked without text is a shape problem; the schema declares it.
         #expect(ToolCatalog.validate(rawTrip("set_trip_plan", ["days": days([[named("x")]]), "city": "天津", "asked": ["must": ["x"]]])) == .invalidFields)
         #expect(ToolCatalog.spec("set_trip_plan")?.declaration.parametersJSONSchema["properties"]?["asked"]?["type"] == "object")

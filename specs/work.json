@@ -2671,14 +2671,16 @@
     {
       "id": "T-040zn",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-040zm"
       ],
       "action": "F-15b §61 items 1-9: set_trip_plan saves and reports only (saved true/false, ok == saved, whole plan, not_placed with the searched range, removed over the driver request); no critics in the write, no issues, no trip_needs_fix, no rounds (§55 items 8-10, §49 items 5-6 removed); new read-only check_trip_plan (no args = plan in hand, or a draft days in set_trip_plan shape, nothing saved): per-day sight/driving/total/budget minutes, stops placed, hotel, not_found with range, unknown_driving; numbers only, no advice words; new set_trip_plan field asked {text, must, days, city, notes} written by the model, required for a new plan, kept when not sent, part of TripPlan (saved plans, every trip result, 现在 note), never compared by code; saved-result next asks her to review her own plan against asked (driver's places/days/city/hotel present, no empty day, each day reasonable, check_trip_plan when needed) and revise with set_trip_plan before speaking; plan_text one line per day ahead of the JSON; from the 3rd save in a driver request next says stop revising and tell the driver; panel 行程已更新 / 没保存 / 正在核对行程; record trip_edit state=saved|refused, trip set saved=, trip check-call; catalog texts; major agent version; rows 268-278.",
       "notes": "Owner phone test 2026-11-23 (416bff7, record 20261123-181633): 广东几天游 including 九龙湖公主酒店; lookup searched 中山 only, issue line said 换一个或者去掉, she replaced it twice, the last result read ok=true / state=done, and she said the plan included 九龙湖. Owner: the LLM plans; counting is a tool the LLM calls to verify its plan; success is approved by the LLM, never by code. Owner follow-up: the LLM can see an empty day and a wrong split itself, so it reviews and revises its own plan; root cause per owner: the driver's request was never saved with the plan (context lost), so it is now saved as asked.",
-      "evidence": []
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 959f2ff in a clean clone (Linux Swift 6.1.2; NovaCore 1092 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; check_agent_version 9.0.0, check_record_format 9, check_panel_tools, spec-trace OK). The first clean-clone run on dca046c failed 4 stale tests -> fixed 959f2ff. Review: spec-reviewer high effort PASS on 94882ba..959f2ff (FAIL on dca046c alone for those 4 tests). Non-blocking review fix: clearAll forgets asked (test added). Rows 268-272, 275, 277 unit PASS (TripReviewTests); rows 273, 274, 276, 278 eval/device NOT_VERIFIED; App files read, not compiled. Open notes for the owner: plan_text cannot come before plan on the wire (sorted keys); row 268's fixture leaves out the spec-given texts containing 改好/安排好; dispatcher REPEATED_FAILURE carries no saved=false; TripChecks issue texts remain (unreachable in production)."
+      ]
     }
   ]
 }

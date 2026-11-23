@@ -193,6 +193,7 @@ public struct TripPlan: Sendable, Hashable {
         spare = []
         budgetMinutes = nil
         wishes = nil
+        asked = nil
         revision += 1
     }
 
