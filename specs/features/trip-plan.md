@@ -2278,3 +2278,76 @@ decision and not part of this section.
 | Task | Scope | Status |
 |---|---|---|
 | T-040zh | §55 items 1–15 (set_trip_plan makes and changes plans; city; new plan replaces; city-limited lookups; no day moves; no NO_START; hotel near; checks empty/over/under/driving/not_found/hotel; trip_needs_fix rounds; no done-claim with issues; make_trip_list and edit_trip_list removed; agent 6.0.0; record); rows 225–236 | NOT_RUN |
+
+## 56. What a trip result shows, set_trip_plan accepts; a refusal says what is wrong (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, record 20261123-095148).** 「想带爸妈去厦门玩三天，别太累」:
+- Her first plan came back `PLAN_CHECK` (a hotel not written as the next day's first stop). She fixed it by sending the
+  plan back as the result shows it: every stop `{"id","name","minutes","role"}`.
+- `set_trip_plan` refused it with `INVALID_FIELDS {}` three times in 3 s. The validator (`ToolCatalog`, §55 item 7)
+  accepts a stop with exactly one of `id`, `name` and `near`; a stop with `id` and `name` is refused, and the refusal
+  carries no reason.
+- She gave up on the plan, tried `web_search`, and the trip was never fixed. The conversation then drifted (a misheard
+  「感冒」) and her next trip words were taken as climate requests.
+
+**Cause.** The plan she reads (§52 item 2: `{"id","name","role","placed","picked_by","minutes"}` per stop) is not a plan
+she may write (§52 item 3, §55 item 7). Copying the result, the obvious move, always fails, and the empty refusal gives
+her nothing to fix. Owner (2026-11-23): delete the over-strict check rather than teach the model around it.
+
+**Published practice this copies.** Be liberal in what you accept from others (robustness principle, RFC 1122 §1.2.2;
+RFC 9413 on its limits: accept what is unambiguous, refuse what is not). Tool errors should say what was wrong and how
+to fix it, in words the model can act on (Anthropic, "Writing effective tools for agents",
+anthropic.com/engineering/writing-tools-for-agents: "prompt-engineer your error responses to clearly communicate
+specific and actionable improvements"). A repeated identical failing call is stopped (OpenRouter loop guide, as F-18
+§32 item 2).
+
+1. **Read shape is write shape.** A stop may carry any field a trip result shows, plus `near` and `importance`:
+   `id`, `name`, `role`, `minutes`, `importance`, `placed`, `picked_by`, `near`.
+   - **With `id`:** the stop keeps its place, photo, times and mark (§52 item 4). `role` and `minutes` are applied when
+     they differ (a change). `name`, `placed`, `picked_by` and `near` are ignored: an id stop is never searched again,
+     whatever name it carries.
+   - **Without `id`:** `name` (a new stop, §52 item 4) or, for a hotel, `near` (§55 item 7). With both, `name` wins and
+     `near` is ignored. `placed` and `picked_by` are ignored.
+   - **Other keys** in a stop are ignored, not refused, and listed once in facts (`ignored_fields`).
+   - Replaces §55 item 7's "exactly one of `id`, `name` and `near`" and the stop forms of §52 item 3.
+2. **Checks that still refuse.** Only these, each with its line (item 3):
+   - `days` missing, not 1–5 days, or a day with more than `maxTripStops + 4` stops;
+   - a stop with none of `id`, `name`, `near` (for `near`, `role` must be `hotel`);
+   - `id` or `name` empty or longer than its limit; `role` not one of start, sight, hotel, end, rental_pickup,
+     rental_return; `minutes` not a whole number from 0 to 720;
+   - a new plan (no kept `id`) without `city` (§55 item 2); `pace` not one of relaxed, normal, packed.
+   The plan rules of §52 item 5 (`PLAN_CHECK`) are unchanged.
+3. **A refusal says what is wrong.** `INVALID_FIELDS` from `set_trip_plan` carries `problems`, one line per problem,
+   with the day and the stop's place in it and the field: 「第2天第3个地点：role 只能是 start、sight、hotel、end」,
+   「第1天第4个地点：要写 id、name 或者 near」, 「新行程要写 city」. `next`: 「先不要跟司机说话，按 problems 改好整份行程，再调用 set_trip_plan。」
+   An empty `INVALID_FIELDS {}` is never returned by this tool.
+4. **The same failed call is not run twice.** Within one driver request, a `set_trip_plan` call whose arguments equal
+   (after JSON normalisation) a previous call that was refused (`INVALID_FIELDS` or `PLAN_CHECK`) is not run again. The
+   result is `REPEATED_FAILURE` with the earlier `problems` and `next`: 「这份行程刚才已经被拒绝了，原因在 problems 里。按它改，
+   改不了就告诉司机行程没改成和原因，不要再传同样的内容。」 A changed call runs normally.
+5. **Catalog text.** §55 item 12's 「改行程：已有的地点只写 id，新地点写 name。」 becomes 「改行程：把结果里的行程照着改，已有的地点保留 id
+   （其他字段可以照抄），新地点写 name。」 A tool text change: minor agent-version bump with a row in agent-versions.md.
+6. **Record.** `tool-result … code=INVALID_FIELDS problems=<n>` (the count, never the lines); `trip set … ignored=<n>`
+   (keys ignored); `trip repeat-blocked code=<code>`. Numbers and codes only (I-8).
+7. **Code.** `ToolCatalog` (the `set_trip_plan` validation of items 1–2 and the `problems` lines); the result builder for
+   `INVALID_FIELDS` with `problems`; `TripPlanner.setPlan` (id stops ignore name/placed/picked_by/near, `ignored_fields`,
+   the repeat check per driver request); the catalog text; `AgentSetup.version`.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 237 | The plan of a trip result sent back unchanged (every stop with all its shown fields) | Saved; `kept` = every stop; no lookup; no `INVALID_FIELDS` | unit |
+| 238 | The record's call (20261123-095148, t=19612: id stops with name, minutes, role; `pace: relaxed`) | Accepted; places kept by id; the hotel stops' role applied | unit |
+| 239 | Stop `{"id":"s5","name":"另一个名字","role":"hotel"}` | Place of s5 kept, not searched; role set to hotel; name ignored | unit |
+| 240 | Stop `{"id":"s5","minutes":150}` and a stop with an unknown key `"note"` | Minutes applied; `note` ignored and listed in `ignored_fields` | unit |
+| 241 | A stop with role `museum`; a stop with none of id, name, near; a new plan without city | `INVALID_FIELDS` with one `problems` line each, naming day, stop and field; never `{}` | unit |
+| 242 | The same refused call twice in one driver request; then a changed call | Second: `REPEATED_FAILURE` with the earlier problems, not run; the changed call runs | unit |
+| 243 | Catalog | `set_trip_plan` text has the item 5 sentence; agent version bumped | unit |
+| 244 | Device: 「想带爸妈去厦门玩三天，别太累」, then 「第二天好像有点赶」 | The plan is saved and shown; the day-2 change is made in one call; no `INVALID_FIELDS` in the record | D |
+
+**Trace gate.** Add `T-040zi: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zi | §56 items 1–7 (read shape is write shape, the checks that still refuse, `problems` on every refusal, no repeat of a refused call, catalog text, record); rows 237–244 | NOT_RUN |
