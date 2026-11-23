@@ -2963,14 +2963,16 @@
     {
       "id": "T-031zc",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-031za"
       ],
       "action": "F-09b §18 items 1-8: show_place(name, city); screen match unchanged, else 高德 text search in her city (car city only when city empty), no nationwide fallback, no first result; one exact name+city match -> card; else PLACE_UNSURE ok=false with asked/found (5) and next (check with web_search, call again, no apology-only); ok result names card name and city; record line with sure/found; scripts/show_place_check.py real-data PC check with --max-calls; rows 1-8.",
       "notes": "Owner phone test 2026-11-23 (6e72c92, records 20261123-142445, -143104): 清远悦天下生态度假区 (really in 云浮) showed 清泉湾, a different resort; 清远新世界酒店 showed a 珠海 door shop; she apologised and never re-searched. Owner: the model finds the place, code only fetches; unsure goes back to the model.",
-      "evidence": []
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on e2107e3 in a clean clone (NovaCore all green, 1 known NoiseCorpus issue; agent 7.0.0). Review: spec-reviewer high effort FAIL (asked branch name stripped, so calling again from found stayed PLACE_UNSURE) -> fixed e2107e3 -> medium re-check PASS. Rows 1-5 unit PASS (ShowPlaceToolTests, mutation-checked); row 6 PC needs AMAP_WEB_KEY (dry-run only), row 7 eval (no replay case yet) and row 8 device NOT_VERIFIED; App files read, not compiled."
+      ]
     }
   ]
 }

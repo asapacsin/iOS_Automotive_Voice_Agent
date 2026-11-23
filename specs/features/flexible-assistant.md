@@ -797,7 +797,7 @@ her with what 高德 found.
    `PlaceSearch.text(name, city: <city>, cityLimit: true)`; with `city` empty, the car's city (`cityLimit: true`).
    No nationwide fallback, no "first result".
 3. **Sure → code shows it.** Exactly one 高德 result whose name equals `name` (ignoring spaces, case and a trailing
-   bracket branch such as 「(大元路店)」) and whose city is `city`: that place goes to steps 2–4.
+   bracket branch such as 「(大元路店)」) and whose city is `city`: that place goes to steps 2–4. A name asked with its branch (called again with a name from `found`) is compared whole, branch included (review fix e2107e3).
 4. **Not sure → back to her, no card.** No result, several equal names, or only other names: no card opens; the
    result is `ok=false`, code `PLACE_UNSURE`, with `facts.asked` {name, city} and `facts.found` (up to 5: name, city,
    district, address) and `next`: 「卡片没有打开。看 found：有司机要的那个就用它的名字和城市再调用 show_place；没有就先用

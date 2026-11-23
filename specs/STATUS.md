@@ -132,3 +132,4 @@ Older rows: specs/STATUS-archive.md (`scripts/history.py find <id>`).
 | 2026-11-23 | T-040zl picker on qwen3.8-flash (F-15b §59) | PASS | Gates green on 9c377ab (NovaCore 1087, 1 known issue); review PASS; rows 259-260 (U) | Row 261 PC, 262 device NOT_VERIFIED |
 | 2026-11-23 | T-040zm trip work panel only while a write runs (F-15b §60) | PASS | Gates green on 9c377ab; review PASS; rows 263-266 (U) | Row 267 device NOT_VERIFIED; App not compiled |
 | 2026-11-23 | T-004k background-work caption (F-04 §15) | PASS | Gates green on 9c377ab; review PASS; rows 10-13 (U); agent 6.4.0, record format 7 | Row 14 device NOT_VERIFIED; App not compiled |
+| 2026-11-23 | T-031zc show_place with her city (F-09b §18) | PASS | Gates green on e2107e3; review FAIL then fix, re-check PASS; rows 1-5 (U); agent 7.0.0 | Row 6 PC (needs AMAP_WEB_KEY), 7 eval, 8 device NOT_VERIFIED |
