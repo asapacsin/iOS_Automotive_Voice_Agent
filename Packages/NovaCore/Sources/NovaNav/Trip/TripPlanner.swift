@@ -398,13 +398,39 @@ public actor TripPlanner: ToolExecutor {
         nextChange += 1
         let task = Task { await self.run(call) }
         changes[id] = task
+        // F-15b §58 item 5 (T-040zk): an edit (the plan's ids kept) shows 正在改行程 from the start.
+        let edit = call.name == "set_trip_plan" && !Self.makesNewPlan(call) && !Self.clearsWhole(call)
         // §50 item 6: the first write of a request opens the steps; a fix round continues them.
-        fixRound == 0 ? work?.start(.trip) : work?.continueTrip()
+        fixRound == 0 ? work?.start(.trip, step: edit ? WorkProgress.tripEdit : nil) : work?.continueTrip()
+        if edit { onLine("work step=trip_edit state=running") }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         changes[id] = nil
-        // The cards replace the steps; a `trip_needs_fix` round keeps them for the fix; a failure keeps its line.
-        if result.data["status"]?.stringValue != "trip_needs_fix" { result.ok ? work?.clear(.trip) : work?.end() }
+        // A `trip_needs_fix` round keeps the steps for the fix.
+        guard result.data["status"]?.stringValue != "trip_needs_fix" else { return result }
+        if !result.ok, result.code == .invalidFields || result.code == .planCheck {
+            // §58 item 5: a refused write: the cards stay, the panel says it failed (the first problem) for 5 s.
+            work?.finish(WorkProgress.tripNotChanged(Self.firstProblem(result)), failed: true)
+            onLine("work step=trip_edit state=failed")
+        } else if edit, result.ok {
+            // §58 item 5: the cards update; 「已加入<名字>」 (the new names) or 「已改好」 for 3 s.
+            let added = Self.writtenDays(call.arguments).joined().filter { $0.id == nil }.compactMap { $0.name ?? $0.near }
+            var names: [String] = []
+            for n in added where !names.contains(n) { names.append(n) }
+            work?.finish(names.isEmpty ? WorkProgress.tripEdited : WorkProgress.tripAdded(names), failed: false)
+            onLine("work step=trip_edit state=done")
+        } else {
+            // The cards replace the steps of a new plan; any other failure keeps its line.
+            result.ok ? work?.clear(.trip) : work?.end()
+            if edit { onLine("work step=trip_edit state=failed") }
+        }
         return result
+    }
+
+    /// §58 item 5: the first `problems` line of a refused write (top level, or `facts.problems` of `PLAN_CHECK`).
+    static func firstProblem(_ result: ToolResult) -> String {
+        let lines = result.data["problems"] ?? result.data["facts"]?["problems"]
+        if case .array(let a)? = lines, let first = a.first?.stringValue { return first }
+        return result.code?.rawValue ?? "失败"
     }
 
     private func run(_ call: ToolCall) async -> ToolResult {
@@ -626,8 +652,8 @@ public actor TripPlanner: ToolExecutor {
         func log(_ ok: Bool) {
             onLine("trip set days=\(written.count) stops=\(stopTotal) kept=\(counts.kept) new=\(counts.new) removed=\(counts.removed) not_placed=\(counts.notPlaced) new_plan=\(newPlan ? "yes" : "no") check=\(ok ? "ok" : "fail") issues=\(issueCount) round=\(round) ms=\(ms(since: started)) ignored=\(ignored.count)")
         }
-        // §50 item 6: a new plan's first step is the place check; a change is 调整行程.
-        work?.step(newPlan ? WorkProgress.tripCheck : WorkProgress.tripRevise)
+        // §50 item 6: a new plan's first step is the place check; a change is 正在改行程 (§58 item 5).
+        work?.step(newPlan ? WorkProgress.tripCheck : WorkProgress.tripEdit)
         // §52 item 13 (T-040ze): a plan with no stops is a clear of the whole trip.
         if stopTotal == 0 { return await clearWhole(viaPlan: true) }
         // §56 item 2 (T-040zi): a new plan without city is refused before this (`INVALID_FIELDS`, `ToolCatalog`).
@@ -698,6 +724,8 @@ public actor TripPlanner: ToolExecutor {
         } else {
             if plan.abroad, area == nil, let abroadArea, let city = plan.city { area = await abroadArea(city) }
             if !newNames.isEmpty {
+                // §58 item 5: 「正在找<名字>」 for each new name (names that will be on the cards).
+                for n in newNames { work?.step(WorkProgress.tripFinding(n)) }
                 lookups = await resolve(newNames, city: plan.abroad ? nil : plan.city, abroad: plan.abroad, near: regionHint())
             }
         }

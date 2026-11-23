@@ -22,10 +22,9 @@ private func sightsRig() async -> (TripRig, [String: String]) {
     return (rig, ids)
 }
 
+/// The refusal the call gets (from its executor since §58 item 5; the same `ToolDispatcher.refusal`), nil when it may run.
 private func refusal(_ call: ToolCall) -> ToolResult? {
-    var dispatcher = ToolDispatcher()
-    if case .refuse(let r) = dispatcher.decide(call, context: GuardContext(turn: 1)) { return r }
-    return nil
+    ToolCatalog.validate(call).map { ToolDispatcher.refusal(call, $0) }
 }
 
 @Suite("T-040zi F-15b §56 what a trip result shows, set_trip_plan accepts; a refusal says what is wrong")
@@ -127,8 +126,11 @@ struct TripReadShapeTests {
     func row242() {
         var d = ToolDispatcher()
         let bad = days([[["id": "s1", "role": "museum"]]])
-        guard case .refuse(let first) = d.decide(bad, context: GuardContext(turn: 3)) else { Issue.record("ran"); return }
+        // §58 item 5 (T-040zk): the call runs into its executor, which refuses it; the refusal is noted.
+        guard case .execute = d.decide(bad, context: GuardContext(turn: 3)) else { Issue.record("refused"); return }
+        let first = refusal(bad)!
         #expect(first.code == .invalidFields)
+        d.noteResult(bad, first)
         guard case .refuse(let second) = d.decide(bad, context: GuardContext(turn: 3)) else { Issue.record("ran"); return }
         #expect(second.code == .repeatedFailure && second.data["problems"] == first.data["problems"])
         #expect(second.data["next"]?.stringValue == "这份行程刚才已经被拒绝了，原因在 problems 里。按它改，改不了就告诉司机行程没改成和原因，不要再传同样的内容。")
@@ -142,8 +144,7 @@ struct TripReadShapeTests {
         guard case .refuse(let again) = d.decide(fixed, context: GuardContext(turn: 3)) else { Issue.record("ran"); return }
         #expect(again.code == .repeatedFailure && strings(again.data["problems"]) == ["没有这个 id：s1"] && again.data["refused_code"] == "PLAN_CHECK")
         guard case .execute = d.decide(fixed, context: GuardContext(turn: 4)) else { Issue.record("refused next turn"); return }
-        guard case .refuse(let newTurn) = d.decide(bad, context: GuardContext(turn: 4)) else { Issue.record("ran"); return }
-        #expect(newTurn.code == .invalidFields)
+        guard case .execute = d.decide(bad, context: GuardContext(turn: 4)) else { Issue.record("blocked next turn"); return }
     }
 
     @Test("T-040zi F-15b row 243: catalog: set_trip_plan text has the §56 item 5 sentence; agent version bumped")

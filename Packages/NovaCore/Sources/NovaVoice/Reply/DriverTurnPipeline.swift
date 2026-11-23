@@ -17,6 +17,11 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case tripNeedsFix = "TRIP_NEEDS_FIX"
     /// F-18 §33 item 7 (T-046v): after `LIVE_INFO_UNAVAILABLE` the reply blames the network, which is false.
     case networkBlamed = "NETWORK_BLAMED"
+    /// F-15b §58 items 2–3 (T-040zk): a trip change claimed after a refused `set_trip_plan` (no ok one after it), or
+    /// background work claimed with none running. The record line is `correction CLAIM_AFTER_FAILURE tool=set_trip_plan`.
+    case tripClaimAfterFailure = "CLAIM_AFTER_FAILURE tool=set_trip_plan"
+    /// §58 items 1, 3: a trip change claimed with no ok `set_trip_plan` since the driver's last words.
+    case tripUnverifiedClaim = "UNVERIFIED_CLAIM tool=set_trip_plan"
 
     /// Sent to the model as a text turn. Code decides when; the sentence only explains (I-11).
     public var instruction: String {
@@ -33,6 +38,9 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         case .tripResultPending: "[系统] TRIP_RESULT_PENDING：\(AsyncTool.tripPendingNext)。"
         case .tripNeedsFix: "[系统] TRIP_NEEDS_FIX：行程还有问题没改好，不要说已经规划好。按 issues 改好整份行程，再调用 set_trip_plan。"
         case .networkBlamed: "[系统] NETWORK_BLAMED：网络没有问题，只是现在查不了网上的信息。请如实这样说，不要说网络有问题或连不上网。"
+        // §58 item 2's correction, exactly as §58 gives it.
+        case .tripClaimAfterFailure: "[系统] 行程没有改成，原因在上一个工具结果的 problems 里。如实告诉司机没改成和原因，不要说已经加了。"
+        case .tripUnverifiedClaim: "[系统] 行程还没有改：没有成功的 set_trip_plan 结果。先调用 set_trip_plan，或如实告诉司机还没改。"
         }
     }
 
@@ -152,6 +160,13 @@ public struct DriverTurnPipeline: Sendable {
     /// leaves a fix round: round 2's fix is answered by `trip_list`), so the plan is not done. Cleared by the next trip
     /// result and by the next driver utterance.
     private var tripNeedsFix = false
+    /// F-15b §58 items 1–2 (T-040zk): the last `set_trip_plan` result since the driver's last words: true ok, false
+    /// refused or failed, nil none. Reset by the next driver utterance.
+    private var tripLatestOk: Bool?
+    /// §58 item 3: `set_trip_plan` calls running right now (any request).
+    private var tripWrites: Set<CallID> = []
+    /// §58 item 1: stop names the request's `set_trip_plan` calls wrote (a reply naming one is about the trip).
+    private var tripNames: [String] = []
     private var musicConfirmed: Bool { musicPlaying && musicFresh }
     private var navigationConfirmed: Bool { navigation == .navigating && navigationFresh }
     private var lastUtterance = ""
@@ -194,6 +209,8 @@ public struct DriverTurnPipeline: Sendable {
             lastUtterance = text
             // F-15b §55 item 10 (review): the flag belongs to one driver request; a new utterance ends it.
             tripNeedsFix = false
+            tripLatestOk = nil
+            tripNames = []
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
             wrongLanguageAsked = false
             awaitingReaskReply = false
@@ -236,6 +253,10 @@ public struct DriverTurnPipeline: Sendable {
             t.text += text
             // Re-judged on the whole text each time: a later sentence may make a stronger claim.
             t.claims.formUnion(ClaimLexicon.claims(in: t.text))
+            // F-15b §58 items 1, 3: a trip change or background trip work said is an action claim.
+            if ClaimLexicon.tripChanged(t.text, stops: tripNames) || ClaimLexicon.tripInBackground(t.text, stops: tripNames) {
+                t.claims.insert(.action)
+            }
             turn = t
             var out = modelResponded() + (t.voided ? [] : replyArrived())
             // F-05a §15 item 2: Chinese, English or Japanese only, checked in code before she says it.
@@ -265,6 +286,14 @@ public struct DriverTurnPipeline: Sendable {
             utterancePending.formUnion(calls.map(\.id))
             utteranceBackground.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
             utteranceTrip.formUnion(calls.filter { AsyncTool(name: $0.name)?.isTrip == true }.map(\.id))
+            for call in calls where call.name == "set_trip_plan" {
+                tripWrites.insert(call.id)
+                if case .array(let days)? = call.arguments["days"] {
+                    for case .array(let stops) in days {
+                        for stop in stops { if let n = stop["name"]?.stringValue, !tripNames.contains(n) { tripNames.append(n) } }
+                    }
+                }
+            }
             guard var t = current(id) else { return [] }
             t.pendingCalls.formUnion(calls.map(\.id))
             t.backgroundCalls.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
@@ -280,6 +309,10 @@ public struct DriverTurnPipeline: Sendable {
             if ofUtterance { utteranceResults.append(response) }
             if AsyncTool(name: response.name)?.isTrip == true {
                 tripNeedsFix = response.result.data["status"]?.stringValue == "trip_needs_fix"
+            }
+            if response.name == "set_trip_plan" {
+                tripWrites.remove(response.id)
+                tripLatestOk = response.result.ok
             }
             // The result may arrive after its own turn closed; it then proves the utterance's open turn.
             guard var t = turn, t.id == id || ofUtterance else { return [] }
@@ -387,6 +420,9 @@ public struct DriverTurnPipeline: Sendable {
         }
         // F-15b §52 item 12 (T-040ze): "done" before a trip tool's result is drift, whatever else proved.
         if !t.claims.isEmpty, !t.tripPending.isEmpty { return .disproven(.tripResultPending) }
+        // F-15b §58 items 1–3 (T-040zk): a trip change is proven only by an ok `set_trip_plan` since the driver's last
+        // words; a refused one with no ok after it disproves it; background work is claimed only while one runs.
+        if let trip = tripVerdict(t, final: final) { return trip }
         // §55 item 10 (T-040zh): "done" while the plan still has issues to fix is drift too.
         // Only a plan-done claim counts (「规划好了」「安排好了」); 「空调已打开」 after it is judged as usual.
         if tripNeedsFix, ClaimLexicon.plansDone(t.text) { return .disproven(.tripNeedsFix) }
@@ -412,6 +448,25 @@ public struct DriverTurnPipeline: Sendable {
             }
         }
         return pending ? .pending : .proven
+    }
+
+    /// §58 items 1–3: nil when the reply says nothing about a trip change (judged as usual).
+    private func tripVerdict(_ t: Turn, final: Bool) -> Verdict? {
+        if ClaimLexicon.tripInBackground(t.text, stops: tripNames), tripWrites.isEmpty {
+            return .disproven(tripLatestOk == false ? .tripClaimAfterFailure : .tripUnverifiedClaim)
+        }
+        guard ClaimLexicon.tripChanged(t.text, stops: tripNames) else { return nil }
+        switch tripLatestOk {
+        case false?: return .disproven(.tripClaimAfterFailure)
+        case nil:
+            // A write still running may prove it (§52 item 12 already holds a claim made while one runs).
+            return final && tripWrites.isEmpty ? .disproven(.tripUnverifiedClaim) : .pending
+        case true?:
+            // Proven by the trip's own result; any other claim in the reply is judged as usual (failed trip writes
+            // before the ok one no longer count).
+            if ClaimLexicon.claims(in: t.text).subtracting([.action]).isEmpty { return .proven }
+            return nil
+        }
     }
 
     private func verdict(of claim: ClaimKind, _ t: Turn, acting: [ToolResponse], failed: [ToolResponse],

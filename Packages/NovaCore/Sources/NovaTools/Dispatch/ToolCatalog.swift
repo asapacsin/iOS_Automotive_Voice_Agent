@@ -175,8 +175,11 @@ public enum ToolCatalog {
     /// F-15b §50 item 5 (T-040v): the one line she says while a trip is made or revised in the background; nothing
     /// between rounds (§49 item 9), one summary at the end.
     public static let tripWorkingLine = "先只说一句：好，我规划一下，大概半分钟。然后不要说话，等结果。"
+    /// F-15b §58 item 4 (T-040zk): the one line she says while a trip edit runs, exactly as §58 gives it (a new plan
+    /// keeps `tripWorkingLine`). There is no immediate tool result for a NON_BLOCKING call here, so it is in the text.
+    public static let tripEditWorkingLine = "先只说一句：好，我在改行程，好了告诉你。然后不要说话，等结果。"
     /// F-15b §55 item 12 (T-040zh, replaces §52's): the catalog text of `set_trip_plan`, exactly as §55 gives it.
-    public static let setTripPlanDescription = "做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，跨城市就写省或地区）。改行程：把结果里的行程照着改，已有的地点保留 id（其他字段可以照抄），新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},{name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},{name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。结果稍后回来：\(tripWorkingLine)"
+    public static let setTripPlanDescription = "做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，跨城市就写省或地区）。改行程：把结果里的行程照着改，已有的地点保留 id（其他字段可以照抄），新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},{name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},{name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。结果稍后回来。新行程：\(tripWorkingLine)改行程：\(tripEditWorkingLine)"
     public static let tripRoles = ["start", "sight", "hotel", "end", "rental_pickup", "rental_return"]
     public static let maxTripStopID = 12
     /// §52 item 3 with F-15b §56 item 1 (T-040zi): a stop of `set_trip_plan`. A stop may carry any field a trip result

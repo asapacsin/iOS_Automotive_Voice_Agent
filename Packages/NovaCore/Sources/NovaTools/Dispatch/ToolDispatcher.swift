@@ -41,10 +41,10 @@ public struct ToolDispatcher: Sendable {
             if refusedPlans.epoch != context.turn { refusedPlans = (context.turn, [:]) }
             if let earlier = refusedPlans.results[Self.canonical(call.arguments)] { return .refuse(Self.repeated(earlier)) }
         }
-        if let code = ToolCatalog.validate(call) {
-            let refusal = Self.refusal(call, code)
-            if call.name == "set_trip_plan", code == .invalidFields { refusedPlans.results[Self.canonical(call.arguments)] = refusal }
-            return .refuse(refusal)
+        // F-15b §58 item 5 (T-040zk): a `set_trip_plan` with invalid fields runs into its executor, which refuses it
+        // the same way (`refusal`) and shows the refusal on the work panel; the result is noted like PLAN_CHECK.
+        if let code = ToolCatalog.validate(call), !(call.name == "set_trip_plan" && code == .invalidFields) {
+            return .refuse(Self.refusal(call, code))
         }
         if repeatedInTurn(call, context) { return .refuse(Self.failure(.duplicateInTurn)) }
         if let code = ToolCallGuards.savedPlaceMissing(call, context) { return .refuse(Self.failure(code)) }

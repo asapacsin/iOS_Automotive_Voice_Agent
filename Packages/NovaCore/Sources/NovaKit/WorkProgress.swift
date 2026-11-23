@@ -32,8 +32,16 @@ public struct WorkProgress: Sendable, Equatable {
     public static let tripFind = "查找景点和酒店"
     public static let tripCheck = "检查地点位置"
     public static let tripTimes = "计算开车时间"
-    public static let tripRevise = "调整行程"
     public static func outOfArea(_ n: Int) -> String { "\(n) 个地方在范围外，正在换" }
+    /// F-15b §58 item 5 (T-040zk): the steps of a trip edit (a `set_trip_plan` that keeps the plan's ids).
+    public static let tripEdit = "正在改行程"
+    public static func tripFinding(_ name: String) -> String { "正在找\(name)" }
+    public static func tripAdded(_ names: [String]) -> String { "已加入" + names.joined(separator: "、") }
+    public static let tripEdited = "已改好"
+    public static func tripNotChanged(_ line: String) -> String { "没改成：\(line)" }
+    /// §58 item 5: an edit's ok line stays 3 s; its refusal line until the next step or 5 s.
+    public static let editDoneKeep = NovaDuration.seconds(3)
+    public static let editFailedKeep = NovaDuration.seconds(5)
 
     /// The step for a search tool: `web_search` or `query_live_info` with its `kind`.
     public static func searchTitle(tool: String, kind: String?) -> String {
@@ -47,6 +55,8 @@ public struct WorkProgress: Sendable, Equatable {
     private var ended: NovaInstant?
     /// The step index whose failure line is kept, nil when none.
     private var failureAt: Int?
+    /// §58 item 5: an edit's last line (`finish`) is shown until then, quick or not.
+    private var noticeUntil: NovaInstant?
 
     public init() {}
 
@@ -84,6 +94,17 @@ public struct WorkProgress: Sendable, Equatable {
         failureAt = i
     }
 
+    /// F-15b §58 item 5 (T-040zk): a trip edit ended with its line (「已加入…」/「已改好」 done, 「没改成：…」 failed), shown
+    /// at once for `editDoneKeep` / `editFailedKeep`, or until the next work starts.
+    public mutating func finish(_ line: String, failed: Bool, at now: NovaInstant) {
+        guard open else { return }
+        if let i = steps.indices.last, steps[i].state == .running { steps[i].state = .done }
+        steps.append(Step(title: line, state: failed ? .failed : .done, line: nil))
+        ended = now
+        failureAt = nil
+        noticeUntil = now + (failed ? Self.editFailedKeep : Self.editDoneKeep)
+    }
+
     /// The work ended. Returns the `work show=` log line when the panel was shown.
     public mutating func end(at now: NovaInstant) -> String? {
         guard open, let started else { return nil }
@@ -104,6 +125,7 @@ public struct WorkProgress: Sendable, Equatable {
 
     public func panel(at now: NovaInstant) -> Panel? {
         guard let kind, let started, !steps.isEmpty else { return nil }
+        if let noticeUntil { return now < noticeUntil ? Panel(kind: kind, steps: steps, failure: nil) : nil }
         guard now - started >= Self.showAfter, now - started < Self.maxOpen else { return nil }
         let failure = failureAt.map { steps[$0].line } ?? nil
         if let ended {
@@ -155,6 +177,12 @@ public final class WorkProgressBoard: Sendable {
     public func fail(_ line: String) {
         let now = clock.now
         state.withLock { $0.fail(line, at: now) }
+    }
+
+    /// §58 item 5: a trip edit's last line (`WorkProgress.finish`).
+    public func finish(_ line: String, failed: Bool) {
+        let now = clock.now
+        state.withLock { $0.finish(line, failed: failed, at: now) }
     }
 
     public func end() {
