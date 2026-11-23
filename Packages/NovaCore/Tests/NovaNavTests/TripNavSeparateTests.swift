@@ -112,7 +112,7 @@ struct TripNavSeparateTests {
         for call in calls {
             let r = await rig.run(call)
             // §52 item 2: the refusal carries the plan too; otherwise it is the fixed refusal.
-            #expect(r.code == .tripHidden && r.advice == nil && r.data.filter { $0.key != "plan" } == TripPlanner.tripHiddenResult.data,
+            #expect(r.code == .tripHidden && r.advice == nil && r.data.filter { !["plan", "saved", "asked"].contains($0.key) } == TripPlanner.tripHiddenResult.data,
                     "\(call.name)")
             #expect(rig.lines.withLock { $0 }.contains("trip blocked tool=\(call.name) reason=hidden"))
         }

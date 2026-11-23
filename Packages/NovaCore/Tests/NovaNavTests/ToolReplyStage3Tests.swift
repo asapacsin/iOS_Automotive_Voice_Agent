@@ -21,12 +21,13 @@ struct ToolReplyStage3Tests {
             var keep = order
             keep.remove(at: 1)
             let r = await rig.run(await planCall(rig, [keep]))
-            expectSuccess(r, "remove")
+            // §61 item 3a: the review next replaces the generic 「用自己的话简短地说。」 shape for a saved trip write.
+            #expect(r.ok && r.data["saved"] == true, "remove")
             #expect(r.data["facts"]?["removed"] == names([order[1]]) && r.data["facts"]?["count"] == .int(Int64(order.count - 1)))
             #expect(r.data["facts"]?["changed"] == "set")
             #expect(replyValues(r.data["must_not"]) == ["read_list", "read_distances"])
-            // The same rules each time; the words are hers (the facts differ by trip).
-            #expect(r.data["next"]?.stringValue?.hasPrefix("用自己的话简短地说。不要：不要念屏幕上的列表") == true)
+            // F-15b §61 item 3a (T-040zn): a saved write's next is the review text; the words are hers.
+            #expect(r.data["next"]?.stringValue == TripPlanner.reviewNext)
         }
     }
 

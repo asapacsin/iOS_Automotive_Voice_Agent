@@ -179,7 +179,7 @@ struct TripSetPlanTests {
         #expect(stopsOf(v).joined().allSatisfy { $0["minutes"] == nil && $0["id"] != nil && $0["name"] != nil && $0["role"] != nil })
         #expect(stopsOf(TripPlanJSON.value(await rig.planner.currentPlan)).joined().allSatisfy { $0["minutes"] != nil })
         #expect(TripPlanJSON.noteLine(TripPlan()) == nil)
-        #expect(TripPlanJSON.noteLine(await rig.planner.currentPlan)?.hasPrefix("行程：{\"days\":[[{") == true)
+        #expect(TripPlanJSON.noteLine(await rig.planner.currentPlan)?.hasPrefix("行程：{\"asked\":{\"must\":[],\"notes\":[],\"text\":\"测试行程\"},\"days\":[[{") == true)
         // The file keeps ids, placed and picked_by.
         let back = TripPlanFile.current(from: TripPlanFile.current(await rig.planner.currentPlan))
         #expect(back?.allStops.map(\.stop.id) == (await rig.planner.currentPlan).allStops.map(\.stop.id))
