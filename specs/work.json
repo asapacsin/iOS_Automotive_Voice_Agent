@@ -2727,14 +2727,16 @@
     {
       "id": "T-031zf",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-031ze"
       ],
       "action": "F-09b §21 items 1-3: code adds next 「answer 里有地点时，用 show_places 把它们列在屏幕上（每个是带照片的卡片），再简短说找到了哪些。」 to every ok web_search result when show_places is declared; failed results unchanged; code does not judge whether places are named; rows 1-3 (eval with scripts/eval/photo_live_poc.py).",
       "notes": "Owner phone test 2026-11-24 (da3afe8, record 20261124-131230): §20's texts did not help; she searched and said she cannot show pictures. Live PoC on gemini-3.8-live with the 10.1.0 setup: 0/5 as is, 5/5 with this next. Owner accepts cards also for time/price searches.",
-      "evidence": []
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on ca26bf8 in a clean worktree (NovaCore 1114 tests, 1 known NoiseCorpus issue). Code da6c4a1: placesNext appended to the ok result's next when show_places is declared (App passes showPlaces: true with search on). Review: spec-reviewer high FAIL (spec row 1 said 'exactly', PoC replaced next) -> f9d8190 spec item 1/row 1 say appended, photo_live_poc.py appends; re-check medium PASS. Row 1 unit PASS (SearchPlacesNextTests); row 2 eval NOT_RUN (no GEMINI_API_KEY in this environment; the spec's 5/5 was with a replaced next, rerun needed); row 3 device NOT_VERIFIED. No agent version bump (result text not in the §15 hash)."
+      ]
     },
     {
       "id": "T-031zg",
