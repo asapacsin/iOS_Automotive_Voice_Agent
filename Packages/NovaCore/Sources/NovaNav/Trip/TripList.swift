@@ -87,7 +87,9 @@ public struct TripStop: Sendable, Hashable {
     /// §48 item 2: the visit minutes the fit counts: the model's, else by kind (sights) or role (the frame).
     public var visitMinutes: Int {
         switch role {
-        case .start, .end, .hotel: return 0
+        case .start, .end: return 0
+        // F-15b §63 item 2 (T-040zp): a hotel merged with the sight of the same place keeps that sight's minutes.
+        case .hotel: return minutes ?? 0
         case .rentalPickup: return minutes ?? 30
         case .rentalReturn: return minutes ?? 20
         case .sight: return minutes ?? Self.defaultMinutes(place.kind)
@@ -184,6 +186,52 @@ public struct TripList: Sendable, Hashable {
     /// A hand edit changes which stop comes before which, so known driving times no longer hold.
     private mutating func dropLegs() {
         for i in stops.indices { stops[i].legSeconds = nil }
+    }
+
+    /// F-15b §63 items 1-3 (T-040zp): a stop that is the same place as the stop right before it is merged into it; a
+    /// change only when something merged.
+    mutating func mergeAdjacent() {
+        let merged = Self.mergedAdjacent(stops)
+        guard merged.count != stops.count else { return }
+        stops = merged
+        dropLegs()
+        changed()
+    }
+
+    /// §63 item 1: same `Place.id`, or the same found name (both placed).
+    static func samePlace(_ a: TripStop, _ b: TripStop) -> Bool {
+        if !a.place.id.isEmpty, a.place.id == b.place.id { return true }
+        guard a.placed, b.placed else { return false }
+        let x = TranscriptText.normalize(a.place.name)
+        return !x.isEmpty && x == TranscriptText.normalize(b.place.name)
+    }
+
+    /// §63 items 1-3: only a sight next to a sight or a hotel merges; a day's start hotel and its night hotel (two
+    /// hotels) are not merged. The hotel wins and keeps the sight's minutes; two sights keep the larger minutes. The
+    /// merged stop keeps the first stop's position.
+    public static func mergedAdjacent(_ stops: [TripStop]) -> [TripStop] {
+        var out: [TripStop] = []
+        for s in stops {
+            guard let last = out.last, last.role == .sight || last.role == .hotel, s.role == .sight || s.role == .hotel,
+                  !(last.role == .hotel && s.role == .hotel), samePlace(last, s) else {
+                out.append(s)
+                continue
+            }
+            let hotel = last.role == .hotel ? last : (s.role == .hotel ? s : nil)
+            var keep: TripStop
+            if let hotel {
+                let sight = hotel == last ? s : last
+                keep = hotel
+                keep.minutes = sight.visitMinutes
+                if keep.mark == nil { keep.mark = sight.mark }
+            } else {
+                keep = last
+                keep.minutes = max(last.visitMinutes, s.visitMinutes)
+                keep.importance = max(last.importance, s.importance)
+            }
+            out[out.count - 1] = keep.renumbered(last.index)
+        }
+        return out
     }
 
     /// §52 item 1 (T-040zb): the plan's stop ids, in order (not a change: the stops are the same).

@@ -154,7 +154,14 @@ public enum TripPlannerShape {
             let closing = d < count - 1 ? stops.last.flatMap { $0.role == .hotel ? $0 : nil } : nil
             var sights: [JSONValue] = []
             for (i, s) in stops.enumerated() {
-                if s.role == .hotel, i == 0 || (closing != nil && i == stops.count - 1) { continue }
+                if s.role == .hotel, i == 0 || (closing != nil && i == stops.count - 1) {
+                    // §63 (T-040zp): a hotel merged with its sight is shown to the planner in its own shape again.
+                    if s.visitMinutes > 0 {
+                        sights.append(.object(["name": .string(s.asked.isEmpty ? s.place.name : s.asked), "city": city(s),
+                                               "minutes": .int(Int64(s.visitMinutes)), "地图": fact(s)]))
+                    }
+                    continue
+                }
                 if s.role == .start || s.role == .end { continue }
                 sights.append(.object(["name": .string(s.asked.isEmpty ? s.place.name : s.asked), "city": city(s),
                                        "minutes": .int(Int64(s.visitMinutes)), "地图": fact(s)]))
@@ -195,8 +202,10 @@ public enum TripPlannerShape {
             self.legs = legs
             self.budget = budget
         }
-        public var sights: Int { stops.filter { !$0.isStay }.count }
-        public var sightMinutes: Int { stops.filter { !$0.isStay }.reduce(0) { $0 + $1.minutes } }
+        /// §63 item 2: a stay merged with its sight (minutes > 0) is also that sight.
+        public var sights: Int { stops.filter { !$0.isStay || $0.minutes > 0 }.count }
+        /// §63 item 2: a stay merged with its sight counts that sight's minutes once.
+        public var sightMinutes: Int { stops.reduce(0) { $0 + $1.minutes } }
         public var driving: Int { legs.reduce(0) { $0 + ($1 ?? 0) } }
         public var total: Int { sightMinutes + driving }
     }
@@ -215,7 +224,7 @@ public enum TripPlannerShape {
                 let head = (s.isStay ? "住" : "") + s.name
                 guard let p = s.found else { return head + "=地图没找到（在\(s.range)找）" }
                 let at = head + "=地图:" + p.name + "·" + (p.city ?? "") + (p.district ?? "")
-                return s.isStay ? at : at + "，停\(s.minutes)分"
+                return s.isStay && s.minutes == 0 ? at : at + "，停\(s.minutes)分"
             }.joined(separator: "；")
             lines.append(line)
         }

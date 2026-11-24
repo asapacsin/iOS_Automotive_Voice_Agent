@@ -153,7 +153,8 @@ struct TripPlanTripTests {
         let counts = rig.model.calls.withLock { $0 }[1][2].content
         // 广州塔 23.10 → 陈家祠 23.13 = 300 s = 5 min; 陈家祠 → 九龙湖 23.45 = 3200 s ≈ 53 min.
         #expect(counts.hasPrefix("第1天：2个景点；景点240分＋开车58分（各段[5,53]）＝298分，预算480分。"), "\(counts)")
-        #expect(counts.contains("第2天：1个景点；景点300分＋开车0分（各段[0]）＝300分"), "\(counts)")
+        // §63 (T-040zp): day 2's start hotel and the resort sight are one stop.
+        #expect(counts.contains("第2天：1个景点；景点300分＋开车0分（各段[]）＝300分"), "\(counts)")
         let titles: [String] = rig.board.panel?.steps.map(\.title) ?? []
         let timesShown = titles.contains(WorkProgress.tripTimes)
         #expect(!timesShown && titles.count == 6, "\(titles)")
@@ -200,7 +201,8 @@ struct TripPlanTripTests {
         #expect(r.ok, "\(r)")
         #expect(rig.search.asked.withLock { $0 }.filter { $0.hasSuffix("|九龙湖旅游度假村") }.count == 1)
         let text = r.data["plan_text"]?.stringValue ?? ""
-        #expect(text.contains("第2天：住花园酒店、九龙湖旅游度假村、住九龙湖旅游度假村"), "\(text)")
+        // §63 item 5 (T-040zp, row 295): the resort is one stop, written once.
+        #expect(text.contains("第2天：住花园酒店、九龙湖旅游度假村（玩约8小时，住这里）"), "\(text)")
         let plan = await rig.planner.currentPlan
         let day2 = plan.days[1].stops, day3 = plan.days[2].stops
         #expect(day2.last?.role == .hotel && day2.last?.place.id == "九龙湖旅游度假村")
@@ -208,7 +210,7 @@ struct TripPlanTripTests {
         #expect(day2.filter { $0.role == .hotel }.map(\.place.id) == ["花园酒店", "九龙湖旅游度假村"])
         // The counts give the resort its whole day: one sight of 480 minutes, slept in.
         let counts = rig.model.calls.withLock { $0 }[1][2].content
-        #expect(counts.contains("第2天：1个景点；景点480分") && counts.contains("住九龙湖旅游度假村=地图:九龙湖旅游度假村·广州市花都区"), "\(counts)")
+        #expect(counts.contains("第2天：1个景点；景点480分") && counts.contains("住九龙湖旅游度假村=地图:九龙湖旅游度假村·广州市花都区，停480分"), "\(counts)")
     }
 
     @Test("T-040zo F-15b row 282: planner HTTP error; timeout; not JSON twice: saved=false, PLANNER_FAILED, cards unchanged, item 7's next; no other planner; record failed reason=")
@@ -345,5 +347,115 @@ struct TripPlanTripTests {
         #expect(r.ok && r.data["not_placed"] == [["name": "九龙湖公主酒店", "searched": "广州"]], "\(r)")
         #expect(r.data["plan_text"]?.stringValue == "第1天：广州塔、九龙湖公主酒店（没找到）")
         #expect(rig.model.calls.withLock { $0 }[1][2].content.contains("九龙湖公主酒店=地图没找到（在广州找）"))
+    }
+}
+
+private let foshan: [String: Place] = guangzhou.merging([
+    "广州|长鹿旅游休博园": gz("长鹿旅游休博园", 22.80, district: "顺德区"),
+    "广州|佛山绿湖温泉度假酒店": gz("佛山绿湖温泉度假酒店", 22.90, district: "高明区"),
+    "广州|西樵山": gz("西樵山", 22.93, district: "南海区"),
+]) { a, _ in a }
+
+private func stop(_ id: String, _ role: TripRole = .sight, minutes: Int? = nil, name: String? = nil) -> TripStop {
+    TripStop(index: 0, asked: name ?? id, place: gz(name ?? id, 23.1).withID(id), distanceMeters: nil, role: role, minutes: minutes)
+}
+
+private extension Place {
+    func withID(_ id: String) -> Place {
+        Place(id: id, name: name, address: address, coordinate: coordinate, distanceMeters: distanceMeters, city: city,
+              district: district)
+    }
+}
+
+private func list(_ stops: [TripStop]) -> TripList {
+    var l = TripList()
+    l.arrange(stops)
+    return l
+}
+
+/// No day of `plan` has the same place twice in a row (§63 item 1).
+private func noAdjacentRepeat(_ plan: TripPlan) -> Bool {
+    plan.days.allSatisfy { day in
+        zip(day.stops, day.stops.dropFirst()).allSatisfy { a, b in
+            !(a.place.id == b.place.id && !(a.role == .hotel && b.role == .hotel))
+        }
+    }
+}
+
+@Suite("T-040zp F-15b §63 the same place twice in a row is one stop")
+struct TripMergeTests {
+    @Test("T-040zp F-15b row 292: replay of 326885's plan through the save: day 1 has 长鹿 then the resort as the hotel with 120 min, counted once; plan_text; day 2 starts and ends at the resort")
+    func row292() async {
+        let days = [["长鹿旅游休博园", "佛山绿湖温泉度假酒店"], ["西樵山"], ["广州塔"], ["陈家祠"]]
+        let stays: [String?] = ["佛山绿湖温泉度假酒店", "佛山绿湖温泉度假酒店", "花园酒店"]
+        let mins = ["长鹿旅游休博园": 240, "佛山绿湖温泉度假酒店": 120]
+        let rig = await PlanTripRig([answer(days, stays: stays, done: false, minutes: mins),
+                                     answer(days, stays: stays, done: true, minutes: mins)], table: foshan)
+        let r = await rig.run(rawTrip("plan_trip", ["asked": ["text": "广东四天游，其中大概两天住在佛山绿湖温泉度假酒店", "days": 4, "city": "广州"]]))
+        #expect(r.ok, "\(r)")
+        let plan = await rig.planner.currentPlan
+        let day1 = plan.days[0].stops, day2 = plan.days[1].stops
+        #expect(day1.map(\.place.name) == ["长鹿旅游休博园", "佛山绿湖温泉度假酒店"])
+        #expect(day1.last?.role == .hotel && day1.last?.visitMinutes == 120)
+        #expect(day1.reduce(0) { $0 + $1.visitMinutes } == 360)
+        #expect(day2.first?.place.name == "佛山绿湖温泉度假酒店" && day2.last?.place.name == "佛山绿湖温泉度假酒店" && day2.count == 3)
+        #expect(day2.first?.visitMinutes == 0)
+        let text = r.data["plan_text"]?.stringValue ?? ""
+        #expect(text.hasPrefix("第1天：长鹿旅游休博园、佛山绿湖温泉度假酒店（玩约2小时，住这里）\n"), "\(text)")
+        // The counts sent to the planner are of the merged day: 2 sights, 360 minutes, the resort counted once.
+        let counts = rig.model.calls.withLock { $0 }[1][2].content
+        #expect(counts.hasPrefix("第1天：2个景点；景点360分"), "\(counts)")
+        #expect(noAdjacentRepeat(plan))
+    }
+
+    @Test("T-040zp F-15b row 293: same Place.id next to each other; same found name with different ids; the same place on two days")
+    func row293() {
+        let plan = TripPlan(name: nil, days: [
+            list([stop("a", minutes: 60), stop("a", minutes: 90), stop("x", minutes: 30, name: "陈家祠"),
+                  stop("y", minutes: 45, name: "陈家祠"), stop("b")]),
+            list([stop("b", minutes: 30), stop("a")]),
+        ])
+        let d1 = plan.days[0].stops, d2 = plan.days[1].stops
+        #expect(d1.map(\.place.id) == ["a", "x", "b"])
+        #expect(d1[0].visitMinutes == 90 && d1[1].visitMinutes == 45)
+        #expect(d1.map(\.index) == [1, 2, 3])
+        #expect(d2.map(\.place.id) == ["b", "a"])
+        #expect(Set(d1.map(\.id) + d2.map(\.id)).count == 5)
+    }
+
+    @Test("T-040zp F-15b §63 items 2-3: the hotel wins (first or second) and keeps the sight's minutes; a day's start and night hotel stay; start/end are never merged")
+    func hotelRules() {
+        let plan = TripPlan(name: nil, days: [
+            list([stop("h", .hotel), stop("h", minutes: 150), stop("s"), stop("h", .hotel)]),
+            list([stop("h", .hotel), stop("h", .hotel)]),
+            list([stop("p", .start), stop("p", minutes: 60)]),
+        ])
+        let d1 = plan.days[0].stops
+        #expect(d1.map(\.place.id) == ["h", "s", "h"] && d1[0].role == .hotel && d1[0].visitMinutes == 150)
+        #expect(plan.days[1].stops.count == 2)
+        #expect(plan.days[2].stops.count == 2)
+        #expect(TripPlanJSON.planText(plan).hasPrefix("第1天：h（玩约2.5小时，住这里）、s、住h\n"), "\(TripPlanJSON.planText(plan))")
+        let short = TripPlan(name: nil, days: [list([stop("s", minutes: 45), stop("h", .hotel, name: "s")])])
+        #expect(TripPlanJSON.planText(short) == "第1天：s（玩约45分钟，住这里）")
+    }
+
+    @Test("T-040zp F-15b row 294: a screen edit moves a stop next to the same place; a saved plan with such a pair is reopened: merged on save in both")
+    func row294() {
+        var plan = TripPlan(name: nil, days: [list([stop("a", minutes: 60), stop("b"), stop("a", minutes: 120)])])
+        #expect(plan.days[0].count == 3)
+        var day = plan.current
+        day.move(from: 3, to: 2)
+        plan.current = day
+        #expect(plan.days[0].stops.map(\.place.id) == ["a", "b"] && plan.days[0].stops[0].visitMinutes == 120)
+        #expect(noAdjacentRepeat(plan))
+
+        // A pair made by an insert, then written and reopened: merged on both saves.
+        var old = TripPlan(name: nil, days: [list([stop("a"), stop("b", .hotel)])])
+        var d = old.current
+        d.insert(stop("b", minutes: 200), at: 2)
+        old.current = d
+        let reopened = TripPlanFile.current(from: TripPlanFile.current(old))
+        #expect(reopened?.days[0].stops.map(\.place.id) == ["a", "b"])
+        #expect(reopened?.days[0].stops.last?.role == .hotel && reopened?.days[0].stops.last?.visitMinutes == 200)
     }
 }

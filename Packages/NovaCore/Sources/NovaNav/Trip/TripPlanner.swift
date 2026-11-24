@@ -767,10 +767,12 @@ public actor TripPlanner: ToolExecutor {
             }
             stops.append(list)
         }
+        // F-15b §63 item 4 (T-040zp): the counts are of the merged plan, as saved.
+        stops = stops.map(TripList.mergedAdjacent)
         let timed = await timedDays(stops, abroad: anyAbroad, keepFirstLegs: false, showStep: false).days
         let budget = plan.budgetMinutes ?? TripFitter.Pace.normal.budgetMinutes
         let counts: [TripPlannerShape.DayCount] = timed.enumerated().map { d, list in
-            let ownStops = list.enumerated().filter { i, s in !(d > 0 && i == 0 && s.role == .hotel) }.map(\.element)
+            let ownStops = list.enumerated().filter { i, s in !(d > 0 && i == 0 && s.role == .hotel && s.visitMinutes == 0) }.map(\.element)
             let legs: [Int?] = list.dropFirst().map { s in s.legSeconds.map { Int((Double($0) / 60).rounded()) } }
             return TripPlannerShape.DayCount(
                 stops: ownStops.map { s in

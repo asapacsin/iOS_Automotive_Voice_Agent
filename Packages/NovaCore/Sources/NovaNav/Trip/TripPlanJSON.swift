@@ -44,10 +44,22 @@ public enum TripPlanJSON {
 
     /// F-15b §61 item 3a (T-040zn): the plan as she wrote it, one line per day, the stop names in order, 「（没找到）」 on
     /// a stop not placed: 「第1天：A、B、住C（没找到）」. A day with no stop says 「（空）」.
+    /// §63 item 4: 「<m>分钟」 under an hour, else hours (「2小时」, 「1.5小时」).
+    static func stayTime(_ m: Int) -> String {
+        guard m >= 60 else { return "\(m)分钟" }
+        let h = (Double(m) / 60 * 2).rounded() / 2
+        return h == h.rounded() ? "\(Int(h))小时" : "\(h)小时"
+    }
+
     public static func planText(_ plan: TripPlan) -> String {
         plan.days.enumerated().map { d, day in
             let names = day.stops.map { s in
-                (s.role == .hotel ? "住" : "") + s.place.name + (s.placed ? "" : "（没找到）")
+                let missing = s.placed ? "" : "（没找到）"
+                // §63 item 4: a hotel merged with its sight is written once, with the time there.
+                if s.role == .hotel, s.visitMinutes > 0 {
+                    return s.place.name + missing + "（玩约\(stayTime(s.visitMinutes))，住这里）"
+                }
+                return (s.role == .hotel ? "住" : "") + s.place.name + missing
             }
             return "第\(d + 1)天：" + (names.isEmpty ? "（空）" : names.joined(separator: "、"))
         }.joined(separator: "\n")

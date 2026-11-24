@@ -16,7 +16,7 @@ public struct TripPlan: Sendable, Hashable {
     /// §36 item 2d (T-040p): an `abroad` trip's city ("Tokyo, Japan"), the default of `navigate_to` while it runs.
     public var city: String?
     public private(set) var days: [TripList] = [TripList()] {
-        didSet { assignIDs() }
+        didSet { mergeAdjacent(); assignIDs() }
     }
     /// §52 item 1 (T-040zb): the number of the next stop id (`s<n>`); ids are never reused within a plan.
     private var nextStopID = 1
@@ -40,7 +40,17 @@ public struct TripPlan: Sendable, Hashable {
         self.name = name
         self.days = days.isEmpty ? [TripList()] : Array(days.prefix(Self.maxDays))
         self.currentDay = min(max(currentDay, 1), self.days.count)
+        mergeAdjacent()
         assignIDs()
+    }
+
+    /// F-15b §63 (T-040zp): every plan, however written (plan_trip, a screen edit, a reopened saved plan), never has
+    /// the same place twice in a row within a day.
+    private mutating func mergeAdjacent() {
+        guard days.contains(where: { TripList.mergedAdjacent($0.stops).count != $0.count }) else { return }
+        var out = days
+        for d in out.indices { out[d].mergeAdjacent() }
+        days = out
     }
 
     /// §52 item 1: every stop gets a stable id. A stop without one gets `s<n>`; the two copies of one night's hotel
