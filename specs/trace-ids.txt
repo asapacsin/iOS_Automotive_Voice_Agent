@@ -157,4 +157,6 @@ T-004k: F-04
 T-040zm: F-15b
 T-040zn: F-15b
 T-040zo: F-15b
+T-040zp: F-15b
 T-031zd: F-09b
+T-031ze: F-09b
