@@ -1336,3 +1336,176 @@ the body is written changes, and it can be turned back into the exact bytes.
 | Task | Scope | Verify |
 |---|---|---|
 | T-046w | §34 items 1–5; rows 18–23 | unit, gate, D |
+
+## 35. Time-limited events: a browse loop finds them, code checks their dates on the page, a local store keeps them (iOS, owner request 2026-11-24)
+
+**Why (owner phone test 2026-11-24, build 35ce0ff, record 20261124-145528).** The driver asked for exhibitions, 漫展,
+cosplay or AI events in 珠海/澳门 for the coming days. `web_search` (one `qwen3.7-flash` `turbo` call) gave wrong or no
+answers: 589489 returned three Macau events (one open until Nov 25) and she said 「未来这几天暂无」; 646936 timed out at
+10 s and she said 「查询不到」; 714678 listed events and she said 「近期的展览已结束」. The owner: the agent must plan trips
+around temporary events, not only fixed sights.
+
+**PoC on the PC (2026-11-24, the app's search request shape, question 「11月25日到29日珠海和澳门有什么展览、漫展、cosplay或AI活动」).**
+- One forced search per question, 40+ runs over `qwen3.7-flash` `turbo`, `qwen3.8-flash` / `qwen3.8-max` /
+  `qwen3.8-max-0902` / `qwen3.8-2.4t-a95b` `max`, thinking on and off: every strong setup answered 「没有」 for Nov 25–29.
+  Naming the sites in the question, or `search_options.assigned_site_list` on 11 event sites (B站会员购, 大麦, 猫眼,
+  聚展网, 51展, 本地宝, gov.mo, 澳门旅游局, 文化局, 珠海会展中心…), changed nothing: only macaotourism.gov.mo came back.
+  The search returns the same sites for the same query every run; it never opens a page.
+- **Browse loop** (`scripts/eval/event_browse_poc.py`: `qwen3.8-max` with two tools, `search` returning links and
+  `open_page` returning the page text, up to 12 steps, 3 runs): 2/3 found **2026横琴人工智能大赛AI嘉年华, 11月28日-29日,
+  珠海国际会展中心7-8号馆** on a 珠海本地宝 page (opened and read: 「活动时间：11月28日-29日 ➤活动地点：珠海国际会展中心7-8号馆」);
+  1/3 found 珠海·AS动漫游园会SP 11月28日 from an 抖音 summary it could not open. 115–149 s and about 100K tokens per
+  run. Pages built by script (B站会员购, 抖音, 大麦) return no text to a plain fetch.
+
+**Published practice this copies.** Browse with search and open actions and answer only from opened pages, with the
+source (Nakano et al., "WebGPT: Browser-assisted question-answering with human feedback", 2021; Yao et al., "ReAct:
+Synergizing Reasoning and Acting in Language Models", ICLR 2023). Keep event data in your own store and query it at
+decision time (PredictHQ docs, "Search Events"). Resolve date words to explicit dates and check returned items fall in
+the window (Mike Bifulco, "Your LLM doesn't know what day it is"; dev.to "Stop letting LLMs hallucinate dates").
+
+**Owner rule (2026-11-24).** Events are found by a browse loop in the background, kept on the phone, and only events
+whose dates code finds on the opened source page are used.
+
+1. **Tool `find_events`.** Arguments `cities` (1–3 real city names, never a province), `from`, `to` (`YYYY-MM-DD`),
+   `kinds` (the driver's words, 「漫展、cosplay、AI」). `NON_BLOCKING`, result `WHEN_IDLE` (§27). Code checks: `from` ≥
+   today, `to` ≥ `from`, `to` − today ≤ 60 days; else refused naming the field (read shape = write shape). Her catalog
+   text says to call it for exhibitions, shows, 漫展, festivals or any event on dates, and that she gives the dates
+   (「这周末」 is the coming Saturday and Sunday by the 现在 note's date). Declared only with search on.
+2. **Store first.** The event store (item 5) is read for each city and the window. When every city was browsed less
+   than 24 h ago for a window covering `from`…`to`, the result is built from the store at once (no network).
+3. **Browse loop on a miss.** Otherwise code runs the loop: model `qwen3.8-max` (backup chain §36) on the
+   compatible-mode chat endpoint with tools `search(query)` (the app's search route, `max`, `qwen3.8-flash`, returning
+   title, url and site of up to 10 results, not the answer text) and `open_page(url)` (code fetches the page, 20 s,
+   2 MB, desktop browser user agent, `zh-CN`; strips script and style; returns item 4's excerpt and up to 40 links). At
+   most 12 tool calls and 180 s; then code asks once for the final JSON. The system text is copied from a published
+   browsing-agent prompt (WebGPT's or ReAct's, cited in the code) with the date, the cities, the window and the JSON
+   shape `{"events": [{"name","start","end","dates_text","venue","city","source_url"}], "note"}` added; the PoC's own
+   text is not used (owner rule 2026-11-05: search prompts are copied, never written).
+4. **Fewer tokens per page.** `open_page` returns only the page's title and the lines that hold a date (item 6's
+   parser) with one line before and after, up to 2,500 characters; a page with no date returns its first 600
+   characters. A page already returned is replaced in the conversation by 「（已读：<url>）」 after the next model turn.
+   Target ≤ 30K tokens per loop (the response `usage`), recorded.
+5. **Event store (device).** `Application Support/events.json`: entries {name, start, end, dates_text, venue, city,
+   source_url, source_site, fetched_at}, plus per city the windows browsed and when. An entry is kept only when item 6
+   passes. Entries whose `end` is before today are dropped on load. A refresh replaces a city's entries for the window
+   it browsed. Filled by `find_events` misses and by `plan_trip` (F-15b §64); refreshed when the app opens if the car's
+   city (or the open trip's cities) was browsed more than 24 h ago, for today…today+30, in the background, at most one
+   loop at a time. Local only, never sent anywhere (I-8).
+6. **Code checks every event's dates on its page.** The text `open_page` fetched for `source_url` must contain dates
+   that parse to the event's `start` and `end`. The parser reads 「2026年11月28日」, 「11月28日」, 「11月28日-29日」,
+   「11月28日至12月12日」, 「11.28-29」, 「2026-11-28」, 「11/28」, with the year from the page's own date or the window. Not
+   opened, or dates not found: the event is dropped and counted in `dropped`. Code also drops events outside
+   `from`…`to`.
+7. **Result.** `ok=true`, `events` (from the store or the loop, sorted by start), `dropped` (count), `sites` (the
+   sites read), `source: store|browse`, and `next`: 「这些是页面上写着日期的活动。按日期跟司机说名字、日期、地点，一两句；
+   没有就说在<sites>上没找到这几天的，不要说一定没有。」 A loop that ends with no model answer or times out: `ok=false`,
+   `code=EVENTS_FAILED`, `next` 「活动没查完，跟司机说现在查不到，等一下再试；不要说没有活动。」
+8. **She is told it runs.** The spinner row (F-15b §62 item 12) shows 「正在查活动」, then 「已搜索<n>次，读了<m>个页面」 as
+   the loop goes. A handoff line is said by code as for `plan_trip`: 「好，我去查一下这几天的活动，要一两分钟，好了告诉你。」
+   On a store hit there is no line and no row.
+9. **Record.** `events store hit|miss cities=<n> window=<from>..<to>`, `events browse step=<n> kind=search|open
+   ms=<ms> ok=<yes|no>`, `events browse done steps=<n> ms=<ms> tokens=<n> found=<n> kept=<n> dropped=<n>`, `events
+   failed reason=timeout|http|json`.
+10. **Code layout.** Loop, parser, store and result in `Packages/NovaCore` (no network); the page fetch and the chat
+    client in `Packages/NovaRealtime` next to the Qwen clients. Catalog change: agent version bump per F-09b §15.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 24 | Fake loop returns the AI嘉年华 with the 本地宝 page text (11月28日-29日) and one event whose page lacks its dates | First kept (start 2026-11-28, end 2026-11-29); second dropped, `dropped=1` | unit |
+| 25 | Parser on each item 6 form, with and without a year on the page | Each gives the right start and end | unit |
+| 26 | Store holds 珠海 browsed 3 h ago for today…+30; `find_events` 珠海 for this weekend | Result from the store, `source: store`, no network call, no handoff line | unit |
+| 27 | Store browsed 30 h ago | Loop runs; spinner text changes per step; store updated | unit |
+| 28 | Loop hits 12 calls / 180 s; model never answers | `EVENTS_FAILED`, item 7's `next`; record `events failed reason=timeout` | unit |
+| 29 | `from` yesterday; `to` 90 days out; a province as city | Each refused naming the field | unit |
+| 30 | Page excerpt (item 4) on the 本地宝 page | The date line and its neighbours kept, ≤ 2,500 chars; a read page replaced by 「（已读：…）」 | unit |
+| 31 | PC eval: the loop with the cited system text, 珠海+澳门, 2026-11-25…29, 5 runs | ≥ 4/5 keep at least one event whose page states dates in the window; 0 kept events with dates not on their page; median ≤ 30K tokens and ≤ 180 s | eval |
+| 32 | Device: 「这周末珠海有什么展」, keep talking for a minute, then wait | She says the handoff line, answers other questions meanwhile, then names the events with dates; asked again, she answers at once from the store | D |
+
+**Trace gate.** Add `T-046x: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046x.
+
+## 36. Every Qwen job has a backup chain on a used-up quota (iOS, owner request 2026-11-24)
+
+**Why (owner 2026-11-24, DashScope console).** The free quotas go fast: `qwen3.8-max` 686K of 1M left and
+`qwen3.8-flash` 855K after one day of PoCs; Stop-on-Exhaust is on, so a used-up model answers 403. Today the place
+picker (F-15b §59 item 2) and the trip planner (F-15b §62 item 7) have no backup: when `qwen3.8-flash` runs out, place
+lookups and trip planning stop. On the key (all Enabled, 1M each, until 2027-01-08): `qwen3.8-flash`, `qwen3.8-max`,
+`qwen3.8-max-0902`, `qwen3.8-2.4t-a95b`, `qwen3.8-27b`; plus `qwen3.7-flash-2026-07-15` and `qwen3.7-plus` in use. PC
+check 2026-11-24: `qwen3.8-max` and `qwen3.8-flash` accept `search_strategy: max`, not `agent`; `qwen3.8-plus` does
+not exist; `qwen3.8-2.4t-a95b` refuses `enable_thinking: false`.
+
+**Owner rule (2026-11-24, amends F-15b §50 item 10, §59 item 2 and §62 item 7).** A used-up quota moves the job to the
+next model of the same family in a fixed list; a different kind of planner or picker is still never used.
+
+1. **One ordered list per job in `QwenRoute`**, replacing the single `backupModel`:
+   live search `qwen3.7-flash-2026-07-15` → `qwen3.8-flash` → `qwen3.8-max`;
+   ground `qwen3.7-plus` → `qwen3.7-flash-2026-07-15` → `qwen3.8-flash`;
+   picker `qwen3.8-flash` → `qwen3.8-max` → `qwen3.8-max-0902`;
+   planner `qwen3.8-flash` → `qwen3.8-max` → `qwen3.8-max-0902`;
+   events loop (§35) `qwen3.8-max` → `qwen3.8-max-0902` → `qwen3.8-2.4t-a95b` (thinking on, streamed);
+   events `search` tool `qwen3.8-flash` → `qwen3.8-max`.
+   Each entry carries its own search options and thinking flag. A model enters a list only after row 35 passes for it.
+2. **When to move.** HTTP 429, or 403 with a quota or exhausted code, before any answer arrives: the same request goes
+   to the next entry, each entry once per call, within the job's time limit (§50 item 10's rule, now over the list).
+   Any other error is the job's failure as today.
+3. **Remember a used-up model.** A 403 quota answer marks that model used up until the app restarts or 24 h pass; later
+   calls start at the first entry not marked. A 429 uses §50 item 10's 60 s cooldown.
+4. **Record.** `qwen fallback job=<job> from=<model> to=<model> reason=quota|rate`, and `qwen exhausted model=<model>`
+   once when marked. The 设置 page's diagnostics show which models are marked used up.
+5. **Nothing else changes.** Prompts, timeouts, search options per job, and §62 item 7's "no other planner" (the chain
+   is the same planner job on a sibling model).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 33 | Fake HTTP: planner first model 403 quota, second 200 | Plan made by the second; record `qwen fallback job=planner … reason=quota` and `qwen exhausted` | unit |
+| 34 | All three planner entries 403; then a later call | `PLANNER_FAILED` as §62 item 7; the later call fails at once with no request until 24 h pass or a restart | unit |
+| 35 | PC eval per new list entry: picker replay (F-15b §59, 22 names), planner eval (§62 row 286, 5 runs), live search (F-18 search eval, 10 questions), events loop (row 31) | Each entry meets its job's bar before it is listed | eval |
+| 36 | 429 on the live route | §50 item 10's cooldown; next entry used; no exhausted mark | unit |
+
+**Trace gate.** Add `T-046y: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046y.
+
+## 37. Background results that overlap or arrive late (iOS, owner request 2026-11-24)
+
+**Why (record 20261124-145528, build 35ce0ff).** Background tools already run while she talks, several at once: 526916
+and 529074 started two `web_search` calls 2 s apart about the hotel's breakfast; both answered (530390 「包含早餐」, 533322
+「不一定」) and she said both (turns 70, 71), contradicting herself. At 380649, while `plan_trip` ran, she said
+「抱歉，选项已过期」, which nothing had returned. §35's loop runs 1–3 minutes, so late and overlapping results become
+common, and a result may arrive after the Live session reconnected (F-05).
+
+1. **A newer `web_search` replaces an older one.** When a `web_search` starts while an earlier `web_search` of the
+   session is running, the earlier one's result, if it arrives after the newer one started, is held while the newer
+   one runs; when the newer one ends ok, the older one is dropped (record `tool-result web_search dropped
+   reason=superseded`); if the newer one fails, the older one is sent. Other tools are unchanged.
+2. **She knows what is still running.** The 现在 note (F-09b §16) carries 「后台在查：活动（已过<n>秒）」 or
+   「后台在查：行程」 for each running `find_events` / `plan_trip`. A reply that says there is no result, no event, or that
+   something expired, for a tool still running, gets the pending-result correction (F-15b §58 `TRIP_RESULT_PENDING`,
+   generalised to `RESULT_PENDING tool=<name>`): 「<工具>还在查，跟司机说还在查，好了告诉他。」
+3. **A late result survives a reconnect.** The app keeps every running async call and its result. If the session
+   reconnected after the call started (the call id is unknown to the new session), the result is sent as a text turn
+   instead of a tool response: 「（刚才<工具>的结果：<result JSON>）」 with the tool's `next`, `turnComplete` true, when she
+   is idle. Record `tool-result <name> via=text reason=reconnected`.
+4. **Results older than 10 minutes** are not spoken; they go to the store (§35) or the plan (F-15b §62) only. Record
+   `tool-result <name> dropped reason=stale`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 37 | Two `web_search` 2 s apart, the older answers last, the newer ok | Only the newer result reaches her; the older recorded `dropped reason=superseded` | unit |
+| 38 | Same, the newer fails | The older result is sent | unit |
+| 39 | `find_events` running 40 s; her reply 「没有找到活动」 | `RESULT_PENDING tool=find_events` correction; 现在 note has 「后台在查：活动（已过40秒）」 | unit |
+| 40 | Session reconnects while `find_events` runs; result arrives | Sent as item 3's text turn when idle; record `via=text reason=reconnected` | unit |
+| 41 | Device: ask for weekend events, then two quick questions, and force a reconnect (airplane mode 5 s) | The event answer still arrives and is spoken once; no contradiction from two searches | D |
+
+**Trace gate.** Add `T-046z: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046z.
+
+**Tasks (§35–§37).**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046x | §35 items 1–10 (`find_events`, store, browse loop with a cited system text, page excerpts, date check on the page, result, spinner, record); rows 24–32 | unit, eval, D |
+| T-046y | §36 items 1–5 (backup chain per Qwen job, used-up memory, record); rows 33–36 | unit, eval |
+| T-046z | §37 items 1–4 (superseded search, pending-result correction, late result after reconnect, stale results); rows 37–41 | unit, D |

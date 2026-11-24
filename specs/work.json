@@ -2751,6 +2751,56 @@
       "evidence": [
         "Gates: scripts/gates/run_all.sh PASS on 2003ff8 in a clean worktree (NovaCore 1115 tests, 1 known NoiseCorpus issue; NovaRealtime 57; NovaServices 118); record format 11 (fixtures, read.py, record-format.md). Review: spec-reviewer high FAIL on d230db0/ca26bf8 (trip 「×」 during guidance ended guidance; no-session 「×」 dead; 「×」 over per-stop ✕ and 「完成」; plan_trip result did not reshow tapped-away cards) -> fixed e181dbf/2003ff8 (NavigationController.exit(panel:) closes only the named panel, also fixing her named-panel voice close; trip 「×」 in its own row; no 「×」 on in-guidance route alternatives, spec line added) -> re-check medium PASS. Rows 1-2 unit PASS (PanelCloseTapTests, PanelCloseFlowTests real flow); row 3 by reading (no unit test); row 4 device NOT_VERIFIED; App files read, not compiled."
       ]
+    },
+    {
+      "id": "T-046x",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-046w",
+        "T-040zo"
+      ],
+      "action": "F-18 §35 items 1-10: find_events tool (cities, from, to, kinds; NON_BLOCKING; field checks); event store Application Support/events.json (per city windows, 24 h, today..+30, refresh on app open, local only); browse loop on a miss (qwen3.8-max compatible-mode chat with search(query) via the search route max qwen3.8-flash returning links, and open_page(url) fetched by code; <= 12 tool calls, 180 s; system text copied from a published browsing-agent prompt and cited); page excerpts <= 2,500 chars around date lines, read pages collapsed; code keeps only events whose start/end parse from the opened source page and fall in the window; result/next/EVENTS_FAILED; spinner steps and handoff line; record lines; agent version bump; rows 24-32.",
+      "notes": "Owner 2026-11-24 (35ce0ff, record 20261124-145528): event questions answered wrongly; PoCs on the PC: single forced searches on every qwen3.7/3.8 model and site filters found no events for Nov 25-29; a browse loop (qwen3.8-max, search + open_page) found 2026横琴人工智能大赛AI嘉年华 11月28日-29日 on an opened 本地宝 page in 2/3 runs, ~100K tokens and ~2.5 min per run.",
+      "evidence": []
+    },
+    {
+      "id": "T-046y",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-040zo"
+      ],
+      "action": "F-18 §36 items 1-5: QwenRoute gets an ordered model list per job (live, ground, picker, planner, events loop, events search) with per-entry search options and thinking; move on 429 or quota 403 before any answer, each entry once, within the job's time; a quota 403 marks the model used up for 24 h or until restart; record qwen fallback / qwen exhausted; diagnostics show marked models; an entry is listed only after its job's PC eval passes (row 35); rows 33-36. Amends F-15b §50 item 10, §59 item 2, §62 item 7.",
+      "notes": "Owner 2026-11-24: quotas run out fast (qwen3.8-max 686K/1M, qwen3.8-flash 855K/1M after one day); picker and planner have no backup today.",
+      "evidence": []
+    },
+    {
+      "id": "T-046z",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-046x"
+      ],
+      "action": "F-18 §37 items 1-4: a newer web_search supersedes an older running one (older result held, dropped if the newer is ok, sent if it fails); the 现在 note lists running find_events/plan_trip with seconds; RESULT_PENDING tool=<name> correction generalising TRIP_RESULT_PENDING; a result whose call predates a reconnect is sent as a text turn when idle; results older than 10 min not spoken; rows 37-41.",
+      "notes": "Record 20261124-145528: two overlapping breakfast searches gave contradicting turns 70/71; she said 「选项已过期」 while plan_trip ran.",
+      "evidence": []
+    },
+    {
+      "id": "T-040zq",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-040zp",
+        "T-046x"
+      ],
+      "action": "F-15b §64 items 1-6: asked.start and asked.stay_city; dated days on cards and plan_text; events from the F-18 §35 store (browse on a miss inside plan_trip, spinner 正在查活动 first); planner shape gains optional event {title,start,end} on a sight and one system-text line; code counts facts each round (event not in store, day outside open dates, night outside stay_city); unmatched events saved as plain sights and named in note; event cards show dates; rows 297-302.",
+      "notes": "PoC 2026-11-24: planner placed every event on an open day (3 runs) but once invented an end date and once moved a night to 深圳 despite 酒店住珠海.",
+      "evidence": []
     }
   ]
 }

@@ -2889,3 +2889,45 @@ the planner's prompt does not change.
 | Task | Scope | Status |
 |---|---|---|
 | T-040zp | §63 items 1–5 (adjacent same place merged by code on every save; hotel wins and keeps the sight minutes, counted once; start/end hotel of a day kept; cards, pins, `plan_text` and planner counts use the merged plan; §62 row 281 text replaced); rows 292–296 | NOT_RUN |
+
+## 64. Trips can include time-limited events on the days they are open; the trip's dates and the asked stay city are kept (owner request 2026-11-24)
+
+**Why (owner 2026-11-24).** The driver wants trips built around temporary events (展览, 漫展, cosplay, AI), not only fixed
+sights. PoC on the PC (2026-11-24, `qwen3.8-flash` planner with §62 item 3's text plus an event line, events from the
+search, trip 2026-11-25…28 珠海 with 长隆海洋王国, 3 runs): every event the planner placed was on a day inside the dates
+it stated; with no dated event it placed none and said so. Faults: run 1 wrote an end date (2026-12-31) the search
+never gave; run 3 moved a night's hotel to 深圳 although the driver said 「酒店住珠海」. Events come from F-18 §35.
+
+1. **`asked` gains `start` (`YYYY-MM-DD`, optional) and `stay_city` (optional).** With `start`, day n has date
+   start+n−1, shown on the cards (「第1天 · 11月25日 周三」) and in `plan_text`. Her catalog text: give `start` when the
+   driver names a date or 「这周末」 (resolved from the 现在 note's date), `stay_city` when he says where to sleep.
+2. **Events come from the event store (F-18 §35).** With `start` and an event wish in `asked` (`notes` or `text`),
+   `plan_trip` first reads the store for the trip's cities and dates; on a miss it runs §35's loop inside its own
+   background run (spinner 「正在查活动」 before 「正在规划行程」), within §35's limits.
+3. **The planner gets the events and may place them.** The user message adds 「这几天开放的活动（只能排在开放的日子）：」
+   with each stored event {name, venue, city, start, end}. The planner shape (§62 item 2) gains an optional `event`
+   on a sight: `{"title", "start", "end"}`, `name` being the venue. §62 item 3's system text gains one line:
+   「只在某几天开放的活动，name 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。」
+4. **Code checks, every round, with facts only (§61 rule).** An `event` whose title is not a store entry for that venue,
+   or a day date outside its `start`…`end`: the counts line gives 「<title>=活动表里没有」 or
+   「<title>开放<start>～<end>，这天是<date>」, no advice word. After the last round, such an event is saved as a plain
+   sight without `event` and named in `note` by code (「<title>的日期对不上，没排成活动」).
+5. **`stay_city` is counted.** The counts line per day adds 「住<city>」 from the lookup of that night's stay; a night
+   outside `stay_city` gives 「住<city>（要求住<stay_city>）」. Facts only; the planner revises.
+6. **Saved and shown.** An event stop keeps `event` in `TripPlan`; its card shows 「<title> · <start>～<end>」 under the
+   venue. Reopened plans keep `start`, `stay_city` and events. `plan_text` writes 「<venue>（<title>）」.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 297 | `plan_trip` with `start` 2026-11-25, store holding AI嘉年华 (11-28…11-29, 珠海国际会展中心); fake planner places it on day 3 (11-27), then day 4 | Round 1 counts 「…开放2026-11-28～2026-11-29，这天是2026-11-27」; round 2 saved on day 4 with `event`; card shows the dates | unit |
+| 298 | Fake planner writes an event not in the store | Counts 「=活动表里没有」; if kept to the end, saved as a plain sight and named in `note` | unit |
+| 299 | `stay_city` 珠海, one night planned in 深圳 | Counts 「住深圳（要求住珠海）」 that round | unit |
+| 300 | Store miss with an event wish | §35's loop runs first inside `plan_trip`; spinner 「正在查活动」 then 「正在规划行程」 | unit |
+| 301 | PC eval: 「11月25号开始珠海四天游，要去长隆海洋王国，酒店住珠海，这几天有展的话排进去」 with the store filled by F-18 §35's eval, 5 runs | ≥ 4/5: every event on an open day; all nights in 珠海; 长隆海洋王国 in | eval |
+| 302 | Device: the row 301 request | Cards show dates per day and the event card with its dates; she names the event in her answer | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zq | §64 items 1–6 (`asked.start` and `stay_city`, events from the F-18 §35 store, planner `event` field and line, code date/store checks in the counts, stay city counted, saved and shown); rows 297–302 | NOT_RUN |
