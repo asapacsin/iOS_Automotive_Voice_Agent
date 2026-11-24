@@ -309,13 +309,13 @@ public struct AgentState: Sendable {
     /// F-18 §37 item 1 (T-046z): an older running `web_search` → the newer one that started while it ran.
     private var supersededBy: [CallID: CallID] = [:]
     /// §37 item 1: an older search's result held while its newer search runs, keyed by the newer call.
-    private var heldSearch: [CallID: (turn: TurnID, call: ToolCall, result: ToolResult, elapsedMs: Int?)] = [:]
+    private var heldSearch: [CallID: [(turn: TurnID, call: ToolCall, result: ToolResult, elapsedMs: Int?)]] = [:]
     /// §37 item 1: newer searches that ended, and whether ok.
     private var searchEnded: [CallID: Bool] = [:]
     /// §37 item 3: background calls that were running when the socket was replaced; they keep running.
     private var carriedCalls: [CallID: (tool: AsyncTool, at: NovaInstant)] = [:]
     /// §37 item 3: their results, sent as a text turn when she is idle.
-    private var lateResults: [(tool: AsyncTool, call: ToolCall, result: ToolResult)] = []
+    private var lateResults: [(tool: AsyncTool, call: ToolCall, result: ToolResult, at: NovaInstant)] = []
     /// §37 item 4: a background result older than this is not spoken.
     public static let staleResultMs = 600_000
     /// The `now` of the event being handled (the 现在 note's 已过 seconds).
@@ -430,8 +430,14 @@ public struct AgentState: Sendable {
     private mutating func flushLate() -> [AgentEffect] {
         guard !lateResults.isEmpty, noteIdle else { return [] }
         let late = lateResults.removeFirst()
-        let next = late.result.data["next"]?.stringValue ?? late.result.advice ?? ""
-        let text = "（刚才\(late.call.name)的结果：\(Self.payloadJSON(late.result))）" + next
+        // Review fix (§37 item 4): a result that waited past 10 minutes is not spoken.
+        if handledAt.milliseconds - late.at.milliseconds > Int64(Self.staleResultMs) {
+            return [.diagnostic(.asyncResultDropped(tool: late.tool, reason: .stale))]
+        }
+        var data = late.result.data
+        let next = data.removeValue(forKey: "next")?.stringValue ?? late.result.advice ?? ""
+        let body = ToolResult(ok: late.result.ok, code: late.result.code, data: data, advice: late.result.advice)
+        let text = "（刚才\(late.call.name)的结果：\(Self.payloadJSON(body))）" + next
         answerOwed = true
         return [.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)),
                 .diagnostic(.asyncResultViaText(tool: late.tool))]
@@ -695,10 +701,12 @@ public struct AgentState: Sendable {
         case .toolFinished(let turn, let call, let result):
             // F-18 §37 item 3 (T-046z, amends §27 item 4): a call from before a reconnect is answered as a text turn.
             if let carried = carriedCalls.removeValue(forKey: call.id) {
+                // Review fix: the pipeline no longer counts it as running (RESULT_PENDING ends).
+                pipeline.callsEnded([call.id])
                 if now.milliseconds - carried.at.milliseconds > Int64(Self.staleResultMs) {
                     return [.diagnostic(.asyncResultDropped(tool: carried.tool, reason: .stale))]
                 }
-                lateResults.append((carried.tool, call, result))
+                lateResults.append((carried.tool, call, result, carried.at))
                 return []
             }
             if call.name == "web_search", searchCalls[call.id] == nil {
@@ -722,7 +730,7 @@ public struct AgentState: Sendable {
                 if let newer = supersededBy.removeValue(forKey: call.id) {
                     if searchCalls[newer] != nil {
                         searchCalls[call.id] = nil
-                        heldSearch[newer] = (turn, call, result, elapsedMs)
+                        heldSearch[newer, default: []].append((turn, call, result, elapsedMs))
                         return []
                     }
                     if searchEnded[newer] == true {
@@ -731,15 +739,20 @@ public struct AgentState: Sendable {
                     }
                 }
                 searchEnded[call.id] = result.ok
-                if let held = heldSearch.removeValue(forKey: call.id) {
+                if let held = heldSearch.removeValue(forKey: call.id), let newest = held.last {
                     if result.ok {
-                        endAsync(held.call.id)
-                        return [.diagnostic(.asyncResultDropped(tool: .webSearch, reason: .superseded))]
+                        for h in held { endAsync(h.call.id) }
+                        return held.map { _ in .diagnostic(.asyncResultDropped(tool: .webSearch, reason: .superseded)) }
                             + deliver(turn, call, result, elapsedMs: elapsedMs, at: now)
                     }
-                    // The newer one failed: the older answer is sent instead.
+                    // The newer one failed: the latest older answer is sent instead; earlier ones are superseded by it.
                     endAsync(call.id)
-                    return deliver(held.turn, held.call, held.result, elapsedMs: held.elapsedMs, at: now)
+                    var out: [AgentEffect] = []
+                    for h in held.dropLast() {
+                        endAsync(h.call.id)
+                        out.append(.diagnostic(.asyncResultDropped(tool: .webSearch, reason: .superseded)))
+                    }
+                    return out + deliver(newest.turn, newest.call, newest.result, elapsedMs: newest.elapsedMs, at: now)
                 }
             }
             return deliver(turn, call, result, elapsedMs: elapsedMs, at: now)
@@ -1213,7 +1226,8 @@ public struct AgentState: Sendable {
             runningTools = max(runningTools - 1, 0)
             carriedCalls[id] = call
         }
-        for held in heldSearch.values { lateResults.append((.webSearch, held.call, held.result)); carriedCalls[held.call.id] = nil }
+        // Held answers whose newer search is carried are dropped: the newer one answers (§37 item 1).
+        for held in heldSearch.values.joined() { carriedCalls[held.call.id] = nil; pipeline.callsEnded([held.call.id]) }
         heldSearch = [:]
         supersededBy = [:]
         searchEnded = [:]
@@ -1227,7 +1241,7 @@ public struct AgentState: Sendable {
         for id in ids { searchCalls[id] = nil; asyncCalls[id] = nil }
         runningTools = max(runningTools - ids.count, 0)
         // F-18 §37 item 1: an older answer held for a cancelled newer search is dropped with it.
-        for id in ids { if let held = heldSearch.removeValue(forKey: id) { endAsync(held.call.id) } }
+        for id in ids { for held in heldSearch.removeValue(forKey: id) ?? [] { endAsync(held.call.id) } }
         return ids.map { .cancelTool($0) }
     }
 
@@ -1424,7 +1438,11 @@ public struct AgentState: Sendable {
                     runningTools += 1
                     if running.name == "web_search" {
                         // F-18 §37 item 1 (T-046z): every running search is superseded by this newer one.
-                        for older in searchCalls.keys { supersededBy[older] = running.id }
+                        for older in searchCalls.keys {
+                            supersededBy[older] = running.id
+                            // Review fix: answers held for a now-superseded search wait for the newest one.
+                            if let held = heldSearch.removeValue(forKey: older) { heldSearch[running.id, default: []] += held }
+                        }
                         searchCalls[running.id] = turn
                     }
                     if let tool = AsyncTool(name: running.name) {

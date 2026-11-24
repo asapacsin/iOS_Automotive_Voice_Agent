@@ -44,8 +44,6 @@ public enum EventBrowseFailure: String, Error, Sendable, Hashable {
 public struct EventBrowseLoop: Sendable {
     public static let maxCalls = 12
     public static let limit = NovaDuration.seconds(180)
-    /// The final ask's own time after the loop's ran out.
-    public static let finalLimit = NovaDuration.seconds(30)
     /// Item 4: an opened page's tool message after the next model turn.
     public static func readMarker(_ url: String) -> String { "（已读：\(url)）" }
 
@@ -183,8 +181,9 @@ public struct EventBrowseLoop: Sendable {
             // Item 3: then code asks once for the final JSON.
             for u in unread { messages[u.index].content = Self.readMarker(u.url) }
             messages.append(EventChatMessage(role: .user, content: Self.finalAsk))
-            let budget = max(left(), Self.finalLimit)
-            if let reply = try? await model.turn(messages, tools: false, timeout: budget), reply.toolCalls.isEmpty,
+            // Review fix: the final ask stays inside item 3's 180 s.
+            let budget = left()
+            if budget > .zero, let reply = try? await model.turn(messages, tools: false, timeout: budget), reply.toolCalls.isEmpty,
                !reply.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 tokens += reply.tokens ?? 0
                 final = reply.content

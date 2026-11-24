@@ -125,4 +125,34 @@ struct LateResultTests {
         #expect(diagnostics(done).contains(.asyncResultDropped(tool: .findEvents, reason: .stale)))
         #expect(DiagnosticEvent.asyncResultDropped(tool: .findEvents, reason: .stale).logLine == "tool-result find_events dropped reason=stale")
     }
+
+    @Test("T-046z F-18 §37 review: after a late result the RESULT_PENDING check no longer fires")
+    func lateClearsPending() {
+        var d = AsyncToolTests.asking("这周末珠海有什么展")
+        let call = eventsCall()
+        d.realtime(.toolCalls(TurnID(1), [call]))
+        d.realtime(.failed(RealtimeError(.disconnect)))
+        let timer = d.effects.compactMap { if case .schedule(.session(let t), _) = $0, t.kind == .reconnectDelay { t } else { nil } }
+        d.send(.timer(.session(timer.last!)))
+        d.realtime(.setupComplete)
+        d.send(.toolFinished(TurnID(1), call, .success(["events": [], "next": "没有就说没找到"])))
+        d.realtime(.responseStarted(TurnID(2)))
+        let out = d.realtime(.replyText(TurnID(2), "在本地宝上没找到这几天的活动。"))
+            + d.realtime(.responseDone(TurnID(2), outcome: .completed)) + d.fire(.correction)
+        #expect(!texts(out).contains { $0.contains("RESULT_PENDING") })
+    }
+
+    @Test("T-046z F-18 §37 review: three overlapping searches leave nothing running")
+    func threeSearches() {
+        var d = AsyncToolTests.asking("酒店含早餐吗")
+        let a = searchCall("a", id: "call_a"), b = searchCall("b", id: "call_b"), c = searchCall("c", id: "call_c")
+        d.realtime(.toolCalls(TurnID(1), [a]))
+        d.realtime(.toolCalls(TurnID(1), [b]))
+        d.send(.toolFinished(TurnID(1), a, .success(["answer": "1"])))
+        d.realtime(.toolCalls(TurnID(1), [c]))
+        d.send(.toolFinished(TurnID(1), b, .success(["answer": "2"])))
+        let done = d.send(.toolFinished(TurnID(1), c, .success(["answer": "3"])))
+        #expect(AsyncToolTests.responses(done).map(\.id) == [c.id])
+        #expect(d.state.runningTools == 0)
+    }
 }

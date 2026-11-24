@@ -196,8 +196,11 @@ public enum TripPlannerShape {
                     continue
                 }
                 if s.role == .start || s.role == .end { continue }
-                sights.append(.object(["name": .string(s.asked.isEmpty ? s.place.name : s.asked), "city": city(s),
-                                       "minutes": .int(Int64(s.visitMinutes)), "地图": fact(s)]))
+                var o: [String: JSONValue] = ["name": .string(s.asked.isEmpty ? s.place.name : s.asked), "city": city(s),
+                                              "minutes": .int(Int64(s.visitMinutes)), "地图": fact(s)]
+                // Review fix (§64 items 3, 6): a change keeps the plan's events.
+                if let e = s.event { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
+                sights.append(.object(o))
             }
             let stay: JSONValue = closing.map {
                 .object(["name": .string($0.asked.isEmpty ? $0.place.name : $0.asked), "city": city($0), "地图": fact($0)])

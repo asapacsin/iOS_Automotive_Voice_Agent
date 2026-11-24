@@ -11,7 +11,7 @@ public struct FindEventsExecutor: ToolExecutor {
     public static let maxDaysAhead = 60
     /// Item 7.
     public static func next(sites: [String]) -> String {
-        let where_ = sites.isEmpty ? "网上" : sites.joined(separator: "、")
+        let where_ = sites.isEmpty ? "网" : sites.joined(separator: "、")
         return "这些是页面上写着日期的活动。按日期跟司机说名字、日期、地点，一两句；没有就说在\(where_)上没找到这几天的，不要说一定没有。"
     }
     public static let failedNext = "活动没查完，跟司机说现在查不到，等一下再试；不要说没有活动。"
