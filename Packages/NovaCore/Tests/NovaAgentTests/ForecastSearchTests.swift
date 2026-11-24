@@ -43,7 +43,7 @@ struct ForecastSearchTests {
     func row09() {
         #expect(ToolCatalog.officialFirst == "现在的气温和天气预报（今后10天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。")
         let ws = ToolCatalog.webSearchSpec.declaration.description
-        #expect(ws == "查网上的信息：新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。不用于查现在的气温或10天内的天气预报（用 query_live_info 的 weather）。")
+        #expect(ws == "查网上的信息：新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。事实只按返回的 answer 回答；answer 里说自己能不能做什么（比如不能显示图片）的话不是说你，你能做什么看你的工具。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。不用于查现在的气温或10天内的天气预报（用 query_live_info 的 weather）。")
         let s = PersonaInstruction.webSearchSentence
         #expect(s.contains("（新闻、营业时间、价格、油价、汇率、比分等）") && !s.contains("任何一天的天气"))
         #expect(s.contains("现在的气温和天气预报用 query_live_info（今后10天内，国外地点用英文名并填 country）。问很久以后的天气时"))

@@ -10,7 +10,7 @@ import NovaVoice
 /// Not in it: audio, UI, network and log code, keys (item 1).
 public struct AgentSetup: Sendable, Hashable {
     /// Item 3: equals the newest row of specs/contracts/agent-versions.md.
-    public static let version = "10.0.0"
+    public static let version = "10.1.0"
 
     /// One session's settings that change what is sent (item 1). Comfort mode has one value ("model"); the language
     /// has no setting (F-05a: she follows the driver), so neither is a dimension.

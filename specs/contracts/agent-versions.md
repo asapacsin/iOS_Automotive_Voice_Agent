@@ -15,6 +15,7 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
+| 10.1.0 | 8bb8c96405f1 | 2026-11-24 | (T-031ze) | minor: `show_places` says each place is a card with photos and is used when the driver asks to see pictures of places she named; `show_place` 「看图片」, several places → `show_places`; `web_search` answer is facts, what it says about its own abilities is not about her | F-09b §20 items 1-4 |
 | 10.0.0 | b3b1c9bbbe6b | 2026-11-23 | (T-040zo) | major: tool `plan_trip` added (`asked`, `change`; the request handed to the planner model; 「调用后不用说话，系统会告诉司机已经交给规划助手，等结果。」), tool `set_trip_plan` removed; corrections `CLAIM_AFTER_FAILURE tool=plan_trip` and `UNVERIFIED_CLAIM tool=plan_trip` (were `set_trip_plan`) | F-15b §62 items 1, 8, 12, 13 |
 | 9.0.0 | 458ba93f124e | 2026-11-23 | (T-040zn) | major: tool `check_trip_plan` added; `set_trip_plan` gains parameter `asked`, drops 「结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。」 and adds the §61 item 8 sentence (ok means saved only; write asked; review the plan against asked before speaking) | F-15b §61 items 2, 3, 8 |
 | 8.0.0 | 3035998f8bb2 | 2026-11-23 | 2ca52e9 | major: tool `show_on_map` added (spec said minor; the §15 gate counts a new tool as major); `navigate_to` adds 「司机只是想看在哪里，用 show_on_map。」; `exit_navigation_mode` panel enum and the 屏幕 line gain `mapPin` | F-09b §19 items 1, 5 |

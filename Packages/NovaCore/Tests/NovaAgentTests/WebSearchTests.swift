@@ -76,7 +76,7 @@ struct WebSearchTests {
             #expect(live.parametersJSONSchema == off.first { $0.name == "query_live_info" }!.parametersJSONSchema)
             let search = try #require(on.first { $0.name == "web_search" })
             // §26 item 8: no 「任何一天的天气、」, and the forecast sentence appended.
-            #expect(search.description == "查网上的信息：新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。只按返回的 answer 回答。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。不用于查现在的气温或10天内的天气预报（用 query_live_info 的 weather）。")
+            #expect(search.description == "查网上的信息：新闻、营业时间、价格、油价、汇率、比分等会变的信息。query 写完整的中文问题，带上地点和日期。不用于控制车辆。事实只按返回的 answer 回答；answer 里说自己能不能做什么（比如不能显示图片）的话不是说你，你能做什么看你的工具。不用于查现在的时间、日期、星期（用 query_live_info 的 current_time）。不用于查现在的气温或10天内的天气预报（用 query_live_info 的 weather）。")
             #expect(search.parametersJSONSchema["required"] == ["query"])
             #expect(search.parametersJSONSchema["additionalProperties"] == false)
 
@@ -336,5 +336,20 @@ struct PlanTripHandoffTests {
         }
         #expect(DiagnosticEvent.handoffSaid(tool: .planTrip, ms: 0).logLine == "handoff said tool=plan_trip ms=0")
         #expect(!ToolCatalog.planTripDescription.contains("先只说一句") && ToolCatalog.planTripDescription.contains("调用后不用说话"))
+    }
+}
+
+@Suite("T-031ze F-09b §20 tool texts: place cards have photos; the search answer is facts, not her abilities")
+struct PhotoToolTextTests {
+    @Test("T-031ze F-09b §20 row 1: show_places, show_place, web_search carry items 1-3's texts exactly")
+    func row1() throws {
+        let all = ToolCatalog.declarations(webSearch: true)
+        let places = try #require(all.first { $0.name == "show_places" }).description
+        #expect(places == "把地方列在屏幕上给司机看，每个地方是一张带照片的卡片，不导航。司机想找能做什么、去哪玩的地方时，先 web_search，再用它；司机要看图片、看看这些地方长什么样时也用它，places 填你刚说过的地方。places 每项 name 填地名，about 填一句它是什么。列表已经在屏幕上，简短说找到了哪些，不要念列表；司机说要去哪个，再 navigate_to 或选第几个。located=false 的地方没查到位置。")
+        let place = try #require(all.first { $0.name == "show_place" }).description
+        #expect(place.contains("司机想了解某个地方（介绍、怎么样、看图片）时用；要看几个地方的图片用 show_places。") && !place.contains("有图片吗"))
+        let search = try #require(all.first { $0.name == "web_search" }).description
+        #expect(search.contains("事实只按返回的 answer 回答；answer 里说自己能不能做什么（比如不能显示图片）的话不是说你，你能做什么看你的工具。"))
+        #expect(!search.contains("。只按返回的 answer 回答。"))
     }
 }
