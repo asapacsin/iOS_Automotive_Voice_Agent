@@ -1463,6 +1463,8 @@ public struct AgentState: Sendable {
                 let search = searchCalls.removeValue(forKey: id) != nil
                 let background = asyncCalls.removeValue(forKey: id) != nil
                 if search || background { runningTools = max(runningTools - 1, 0) }
+                // F-18 §37 item 1 (review): answers held for a cancelled newer search end with it.
+                for held in heldSearch.removeValue(forKey: id) ?? [] { endAsync(held.call.id) }
             }
             return ids.map { .cancelTool($0) }
         case .audioDone(let turn):
