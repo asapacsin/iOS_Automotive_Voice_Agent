@@ -68,6 +68,8 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     /// §52 item 9 (T-040zc): false for a stop not on the map yet; the card shows `unplacedText` instead of the place.
     public var placed = true
     public static let unplacedText = "位置待确认"
+    /// F-15b §64 item 6 (T-040zq): 「<title> · <start>～<end>」 under the venue of an event stop; nil otherwise.
+    public var event: String? = nil
 
     static func tag(_ stop: TripStop) -> String? {
         switch stop.role {
@@ -132,7 +134,8 @@ public enum TripScreen: Sendable, Hashable {
                      km: stop.placed ? stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 } : nil, photoURL: stop.place.photoURL,
                      initial: String(stop.place.name.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
                      minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
-                     tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed)
+                     tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed,
+                     event: stop.event?.cardText)
         })
     }
 }

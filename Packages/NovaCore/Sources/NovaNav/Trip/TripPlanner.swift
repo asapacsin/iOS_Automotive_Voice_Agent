@@ -160,6 +160,26 @@ public actor TripPlanner: ToolExecutor {
     /// §50 item 6 (T-040w): the steps shown while a trip is made or revised; nil shows none.
     private var work: WorkProgressBoard?
     public func setWork(_ board: WorkProgressBoard?) { work = board }
+    /// F-15b §64 item 2 (T-040zq): the F-18 §35 event store and loop (search on only).
+    private var events: EventBrowser?
+    public func setEvents(_ browser: EventBrowser?) { events = browser }
+    /// §64 step text, shown before 「正在规划行程」.
+    public static let eventsStep = "正在查活动"
+
+    /// §64 item 2: with `start` and an event wish, the events open in the trip's cities on its dates.
+    private func tripEvents(_ asked: TripAsked) async -> [EventEntry] {
+        guard let events, asked.wantsEvents, let first = asked.start.flatMap(EventDay.init) else { return [] }
+        var cities: [String] = []
+        for c in [asked.city, asked.stayCity, plan.city].compactMap({ $0 }) {
+            if let city = EventCity.from(address: c), !cities.contains(city) { cities.append(city) }
+        }
+        guard !cities.isEmpty else { return [] }
+        work?.step(Self.eventsStep)
+        let last = first.adding(days: max((asked.days ?? max(plan.dayCount, 1)) - 1, 0))
+        let today = await events.store.today
+        let r = EventBrowseRequest(cities: Array(cities.prefix(3)), from: max(first, today), to: max(last, today), kinds: asked.notes.joined(separator: "、"), today: today)
+        return await events.events(for: r) ?? []
+    }
     /// §15: the current plan; `list` is its current day.
     private var plan = TripPlan()
     /// §4 item 7: places already found this launch, by city and asked name (高德 quota and per-second limits:
@@ -537,10 +557,12 @@ public actor TripPlanner: ToolExecutor {
             return failure(.invalidFields)
         }
         let before = plan.allStops.map(\.stop.place.name)
+        let stored = await tripEvents(asked)
         let first: String = if let change {
             TripPlannerShape.changeRequest(plan: TripPlannerShape.shape(plan), asked: askedArg ?? plan.asked, change: change)
+                + TripPlannerShape.eventsLine(stored)
         } else {
-            TripPlannerShape.newRequest(asked)
+            TripPlannerShape.newRequest(asked, events: stored)
         }
         var messages = [TripPlannerMessage(role: .user, content: first)]
         let model = plannerModel?.model ?? "none"
@@ -562,7 +584,7 @@ public actor TripPlanner: ToolExecutor {
             }
             guard !Task.isCancelled else { return .failure(.optionsStale) }
             work?.step(WorkProgress.tripCounting(round))
-            let built = await buildPlanner(written, asked: asked, lookups: &lookups, areas: &areas)
+            let built = await buildPlanner(written, asked: asked, events: stored, lookups: &lookups, areas: &areas)
             guard !Task.isCancelled else { return .failure(.optionsStale) }
             if built.keyMissing {
                 return LookupReply.failed(.amapWebKeyMissing, what: "trip", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
@@ -608,7 +630,7 @@ public actor TripPlanner: ToolExecutor {
             "saved": true,
             "asked": asked.json,
             "plan_text": .string(TripPlanJSON.planText(plan)),
-            "note": .string(written.note),
+            "note": .string(([written.note] + built.badEvents.map(TripPlannerShape.eventNote)).filter { !$0.isEmpty }.joined(separator: "；")),
             "rounds": .int(Int64(rounds)),
             "next": .string(TripPlannerShape.savedNext),
         ]
@@ -684,13 +706,15 @@ public actor TripPlanner: ToolExecutor {
         var abroad: Bool
         var city: String?
         var keyMissing: Bool
+        /// F-15b §64 item 4: events whose title or dates did not match the store (saved as plain sights).
+        var badEvents: [String] = []
     }
 
     /// §62 items 2, 4: each stop looked up with its own `city` (the asked city when the planner gave none; a lookup
     /// already made in this call is not made again). A stay that is a sight of the same day is that place: one lookup,
     /// visited that day and slept in, and the next day starts there. Then the day is timed (§48 `TripTimes`) and
     /// counted.
-    private func buildPlanner(_ written: TripPlannerShape.Plan, asked: TripAsked,
+    private func buildPlanner(_ written: TripPlannerShape.Plan, asked: TripAsked, events: [EventEntry] = [],
                               lookups: inout [String: Lookup], areas: inout [String: TripArea?]) async -> PlannerBuilt {
         let fallbackCity = asked.city ?? plan.city
         func cityOf(_ c: String?) -> String? { c ?? fallbackCity }
@@ -758,12 +782,30 @@ public actor TripPlanner: ToolExecutor {
         }
         var stops: [[TripStop]] = []
         var morning: TripStop?
+        // F-15b §64 items 4, 5 (T-040zq): per day, the event and stay facts; facts only, no advice word.
+        var dayFacts: [[String]] = Array(repeating: [], count: days.count)
+        var badEvents: [String] = []
         for (d, day) in days.enumerated() {
             var list: [TripStop] = morning.map { [$0] } ?? []
-            for s in day.sights { list.append(stop(s.name, cityOf(s.city), role: .sight, minutes: s.minutes)) }
+            for s in day.sights {
+                var made = stop(s.name, cityOf(s.city), role: .sight, minutes: s.minutes)
+                if let e = s.event {
+                    if let fact = TripPlannerShape.eventFact(e, venue: s.name, date: asked.date(ofDay: d), store: events) {
+                        dayFacts[d].append(fact)
+                        if !badEvents.contains(e.title) { badEvents.append(e.title) }
+                    } else if let entry = events.first(where: { $0.name == e.title }) {
+                        made.event = TripEvent(title: entry.name, start: entry.start, end: entry.end)
+                    }
+                }
+                list.append(made)
+            }
             morning = nil
             if d < days.count - 1, let stay = day.stay {
                 let hotel = stop(stay.name, cityOf(stay.city), role: .hotel, minutes: nil)
+                if let want = asked.stayCity, hotel.placed, let c = hotel.place.city {
+                    let city = c.hasSuffix("市") ? String(c.dropLast()) : c
+                    dayFacts[d].append(c.contains(want) || want.contains(city) ? "住\(city)" : "住\(city)（要求住\(want)）")
+                }
                 list.append(hotel)
                 morning = hotel
             }
@@ -782,10 +824,11 @@ public actor TripPlanner: ToolExecutor {
                                                isStay: s.role == .hotel,
                                                range: misses.first { $0.name == s.asked }?.range ?? range(fallbackCity))
                 },
-                legs: legs, budget: budget)
+                legs: legs, budget: budget, facts: d < dayFacts.count ? dayFacts[d] : [])
         }
         let city = days.lazy.flatMap(\.sights).compactMap(\.city).first ?? fallbackCity
-        return PlannerBuilt(days: timed, counts: counts, notPlaced: misses, abroad: anyAbroad, city: city, keyMissing: keyMissing)
+        return PlannerBuilt(days: timed, counts: counts, notPlaced: misses, abroad: anyAbroad, city: city, keyMissing: keyMissing,
+                            badEvents: badEvents)
     }
 
     // MARK: §50 grounding and hotels near a place (§55 items 4, 7)

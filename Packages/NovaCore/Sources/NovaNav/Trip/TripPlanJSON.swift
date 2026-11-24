@@ -59,9 +59,12 @@ public enum TripPlanJSON {
                 if s.role == .hotel, s.visitMinutes > 0 {
                     return s.place.name + missing + "（玩约\(stayTime(s.visitMinutes))，住这里）"
                 }
-                return (s.role == .hotel ? "住" : "") + s.place.name + missing
+                // F-15b §64 item 6 (T-040zq): an event stop is 「<venue>（<title>）」.
+                let event = s.event.map { "（\($0.title)）" } ?? ""
+                return (s.role == .hotel ? "住" : "") + s.place.name + missing + event
             }
-            return "第\(d + 1)天：" + (names.isEmpty ? "（空）" : names.joined(separator: "、"))
+            // §64 item 1: with a start date, 「第1天 · 11月25日 周三」.
+            return TripDayLabel.text(day: d, asked: plan.asked) + "：" + (names.isEmpty ? "（空）" : names.joined(separator: "、"))
         }.joined(separator: "\n")
     }
 }

@@ -11,10 +11,13 @@ public enum TripPlannerShape {
         /// The real city of the place (never a province); nil when the planner left it out.
         public var city: String?
         public var minutes: Int?
-        public init(name: String, city: String? = nil, minutes: Int? = nil) {
+        /// F-15b §64 item 3 (T-040zq): a time-limited event at this venue (`name`).
+        public var event: TripEvent?
+        public init(name: String, city: String? = nil, minutes: Int? = nil, event: TripEvent? = nil) {
             self.name = name
             self.city = city
             self.minutes = minutes
+            self.event = event
         }
     }
 
@@ -59,6 +62,7 @@ public enum TripPlannerShape {
                             var o: [String: JSONValue] = ["name": .string(s.name)]
                             if let c = s.city { o["city"] = .string(c) }
                             if let m = s.minutes { o["minutes"] = .int(Int64(m)) }
+                            if let e = s.event { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
                             return .object(o)
                         }),
                         "stay": d.stay.map { s in
@@ -101,7 +105,11 @@ public enum TripPlannerShape {
                     case .double(let m)? where m.isFinite: TripStop.clampMinutes(Int(m.rounded()))
                     default: nil
                     }
-                    sights.append(Sight(name: name, city: string(s["city"]), minutes: minutes))
+                    var event: TripEvent?
+                    if let title = string(s["event"]?["title"]) {
+                        event = TripEvent(title: title, start: s["event"]?["start"]?.stringValue ?? "", end: s["event"]?["end"]?.stringValue ?? "")
+                    }
+                    sights.append(Sight(name: name, city: string(s["city"]), minutes: minutes, event: event))
                 }
             }
             let stay = string(day["stay"]?["name"]).map { Stay(name: $0, city: string(day["stay"]?["city"])) }
@@ -123,12 +131,37 @@ public enum TripPlannerShape {
     - 地点写能在地图上搜到的全名，city 写它真正所在的城市。
     - 每次你会收到程序核对的数字（地图找到的地点、开车时间、每天总时间）。按这些数字自己判断合不合理，不合理就改好整份再输出，done=false；都合理了输出最终行程，done=true。
     - 司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。
+    - 只在某几天开放的活动，name 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。
     """
 
     /// §62 item 3: a new plan's user message: 「司机说：「<asked.text>」」 with `asked` as JSON.
-    public static func newRequest(_ asked: TripAsked) -> String {
-        "司机说：「\(asked.text)」\nasked: " + TripPlanJSON.text(asked.json)
+    public static func newRequest(_ asked: TripAsked, events: [EventEntry] = []) -> String {
+        "司机说：「\(asked.text)」\nasked: " + TripPlanJSON.text(asked.json) + eventsLine(events)
     }
+
+    /// §64 item 3: 「这几天开放的活动（只能排在开放的日子）：」 with each stored event; empty without events.
+    public static let eventsHead = "这几天开放的活动（只能排在开放的日子）："
+    public static func eventsLine(_ events: [EventEntry]) -> String {
+        guard !events.isEmpty else { return "" }
+        let list: JSONValue = .array(events.map {
+            ["name": .string($0.name), "venue": .string($0.venue), "city": .string($0.city), "start": .string($0.start), "end": .string($0.end)]
+        })
+        return "\n" + eventsHead + TripPlanJSON.text(list)
+    }
+
+    /// §64 item 4: an event placed on a day, checked against the store; nil when it is right.
+    public static func eventFact(_ event: TripEvent, venue: String, date: EventDay?, store: [EventEntry]) -> String? {
+        guard let entry = store.first(where: { $0.name == event.title && (venue.contains($0.venue) || $0.venue.contains(venue) || $0.venue.isEmpty) })
+        else { return "\(event.title)=活动表里没有" }
+        guard let date else { return nil }
+        if date.description < entry.start || date.description > entry.end {
+            return "\(event.title)开放\(entry.start)～\(entry.end)，这天是\(date)"
+        }
+        return nil
+    }
+
+    /// §64 item 4: after the last round, a wrong event is a plain sight, named in `note` by code.
+    public static func eventNote(_ title: String) -> String { "\(title)的日期对不上，没排成活动" }
 
     /// §62 items 2-3: a change: the current plan in item 2's shape (with each stop's lookup facts), `asked` and
     /// 「司机要改：「<change>」」.
@@ -197,10 +230,13 @@ public enum TripPlannerShape {
         public var stops: [StopCount]
         public var legs: [Int?]
         public var budget: Int
-        public init(stops: [StopCount], legs: [Int?], budget: Int) {
+        /// F-15b §64 items 4, 5 (T-040zq): the day's event and stay facts (「住珠海」, 「…=活动表里没有」).
+        public var facts: [String]
+        public init(stops: [StopCount], legs: [Int?], budget: Int, facts: [String] = []) {
             self.stops = stops
             self.legs = legs
             self.budget = budget
+            self.facts = facts
         }
         /// §63 item 2: a stay merged with its sight (minutes > 0) is also that sight.
         public var sights: Int { stops.filter { !$0.isStay || $0.minutes > 0 }.count }
@@ -226,6 +262,7 @@ public enum TripPlannerShape {
                 let at = head + "=地图:" + p.name + "·" + (p.city ?? "") + (p.district ?? "")
                 return s.isStay && s.minutes == 0 ? at : at + "，停\(s.minutes)分"
             }.joined(separator: "；")
+            if !day.facts.isEmpty { line += "；" + day.facts.joined(separator: "；") }
             lines.append(line)
         }
         lines.append(countsClose)

@@ -184,7 +184,7 @@ public enum ToolCatalog {
     public static let setTripPlanReview = "结果里的 ok 只表示行程存上了，不表示做到了司机要的。新行程要写 asked（司机要什么：text、must 点名的地点、days、city、notes），司机加了要求就更新 asked。存上后先对照 asked 自己检查 plan（must 在不在、有没有空的一天、每天合不合理，需要时用 check_trip_plan 核对），有问题自己改好再传，然后才跟司机说。"
     /// F-15b §62 items 1, 12 (T-040zo): the catalog text of `plan_trip`. She hands the driver's request on (a new
     /// plan's `asked`, or a change's words) and says nothing: the app says the handoff line (item 12).
-    public static let planTripDescription = "做行程或改行程，都用这个：你只把司机的要求转给规划助手，行程由规划助手写。新行程（还没有行程，或司机要一个新的行程）：写 asked（text 司机的原话，must 司机点名的地点，days 天数，city 城市，notes 其他要求）。改屏幕上这份行程：change 照司机的原话写（比如「第二天去掉沙面」「再加个咖啡馆」）；司机加了要求，同时写新的 asked。" + planTripHandoff + "结果回来后照 next 跟司机说。"
+    public static let planTripDescription = "做行程或改行程，都用这个：你只把司机的要求转给规划助手，行程由规划助手写。新行程（还没有行程，或司机要一个新的行程）：写 asked（text 司机的原话，must 司机点名的地点，days 天数，city 城市，notes 其他要求；司机说了日期或「这周末」时写 start，第一天的日期 YYYY-MM-DD，按现在的日期算；司机说住哪里时写 stay_city）。改屏幕上这份行程：change 照司机的原话写（比如「第二天去掉沙面」「再加个咖啡馆」）；司机加了要求，同时写新的 asked。" + planTripHandoff + "结果回来后照 next 跟司机说。"
     /// §62 item 12: the sentence that replaces her working lines (no double line).
     public static let planTripHandoff = "调用后不用说话，系统会告诉司机已经交给规划助手，等结果。"
     /// §62 item 12: the line the app says itself (guidance voice, with its subtitle) when `plan_trip` is dispatched.
@@ -207,6 +207,9 @@ public enum ToolCatalog {
             "days": ["type": "integer", "minimum": 1, "maximum": 5],
             "city": ["type": "string", "maxLength": 20],
             "notes": ["type": "array", "maxItems": 10, "items": ["type": "string", "minLength": 1, "maxLength": 60]],
+            // F-15b §64 item 1 (T-040zq): the first day's date and where to sleep.
+            "start": ["type": "string", "minLength": 10, "maxLength": 10],
+            "stay_city": ["type": "string", "maxLength": 20],
         ],
         "required": ["text"],
     ]

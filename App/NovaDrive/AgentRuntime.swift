@@ -1833,6 +1833,8 @@ final class AgentRuntime {
         await planner.restore()
         // §50 item 6 (T-040w): trip steps on screen.
         await planner.setWork(work)
+        // F-15b §64 item 2 (T-040zq): events from the F-18 §35 store and loop, with search on only.
+        await planner.setEvents(DriveSettings.searchesWeb() ? events : nil)
         // §51 item 8 (T-040z): navigate_to searches Photon when the centre the model names (near=here|place|trip) is
         // outside China; `near=place` geocodes abroad here (area, then centre) and keeps to its country and 50 km.
         await navigation.setAbroad(search: photon, center: { city in

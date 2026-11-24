@@ -15,6 +15,7 @@ description or a note template; **patch** — a marked `Tuning` value changed. T
 
 | Version | agentSetupHash | Date | First commit | Note | Spec |
 |---|---|---|---|---|---|
+| 12.0.0 | 93eb76618c53 | 2026-11-24 | (T-040zq) | major: `plan_trip.asked` gains parameters `start` and `stay_city` (its text: 「司机说了日期或「这周末」时写 start，第一天的日期 YYYY-MM-DD，按现在的日期算；司机说住哪里时写 stay_city」); the planner system text (not part of the hash) adds the §64 item 3 event line | F-15b §64 items 1, 3 |
 | 11.1.0 | b2e90edc7297 | 2026-11-24 | (T-046z) | minor: note templates: the 现在 note gains 「后台在查：活动（已过<n>秒）」 / 「后台在查：行程」 per running `find_events` / `plan_trip`; correction `RESULT_PENDING tool=find_events` (「活动还在查，跟司机说还在查，好了告诉他。」); a late result after a reconnect goes as 「（刚才<工具>的结果：…）」 | F-18 §37 items 2, 3 |
 | 11.0.0 | 4e7bfb6f90b0 | 2026-11-24 | (T-046x) | major: tool `find_events` added with search on (`cities`, `from`, `to`, `kinds`; NON_BLOCKING; events with dates on their opened page, store first, browse loop on a miss; 「调用后不用说话，查好了结果会自己回来，按 next 回答。」) | F-18 §35 items 1, 8 |
 | 10.1.0 | 8bb8c96405f1 | 2026-11-24 | (T-031ze) | minor: `show_places` says each place is a card with photos and is used when the driver asks to see pictures of places she named; `show_place` 「看图片」, several places → `show_places`; `web_search` answer is facts, what it says about its own abilities is not about her | F-09b §20 items 1-4 |

@@ -135,7 +135,8 @@ extension TripCardsView {
         if model.tripPlan.dayCount > 1 {
             HStack(spacing: 6) {
                 ForEach(1...model.tripPlan.dayCount, id: \.self) { day in
-                    Button("第\(day)天") { Task { await runtime.tripTap(.day(day)) } }
+                    // F-15b §64 item 1 (T-040zq): 「第1天 · 11月25日 周三」 with a start date.
+                    Button(TripDayLabel.text(day: day - 1, asked: model.tripPlan.asked)) { Task { await runtime.tripTap(.day(day)) } }
                         .buttonStyle(.bordered)
                         .tint(day == model.tripPlan.currentDay ? .blue : .gray)
                         .accessibilityIdentifier("trip-day-\(day)")
@@ -257,6 +258,8 @@ private struct TripCardView: View {
             // F-15b §37 item 8 (T-040o): 住 / 机场, a small label under the poster.
             if let tag = card.tag { Text(tag).font(.caption2.bold()).foregroundStyle(.orange) }
             Text(card.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+            // F-15b §64 item 6 (T-040zq): the event at this venue and its open dates.
+            if let event = card.event { Text(event).font(.caption2).foregroundStyle(.purple).lineLimit(1) }
             HStack(spacing: 4) {
                 if let district = card.district { Text(district) }
                 if let km = card.km { Text(String(format: "%.1f 公里", km)) }

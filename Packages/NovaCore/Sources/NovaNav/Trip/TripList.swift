@@ -57,11 +57,14 @@ public struct TripStop: Sendable, Hashable {
     }
     /// §49 item 1: 3 = must-see (never dropped by code), 2 = worth it, 1 = extra.
     public var importance: Int
+    /// F-15b §64 item 6 (T-040zq): a time-limited event at this venue, as the planner placed it and code checked it.
+    public var event: TripEvent?
 
     public init(index: Int, asked: String, place: Place, distanceMeters: Int?, mark: TripMark? = nil,
                 legSeconds: Int? = nil, role: TripRole = .sight, picked: Bool = false,
                 minutes: Int? = nil, optional: Bool = false, importance: Int? = nil,
-                id: String = "", placed: Bool = true, pickedBy: TripPickedBy? = nil) {
+                id: String = "", placed: Bool = true, pickedBy: TripPickedBy? = nil, event: TripEvent? = nil) {
+        self.event = event
         self.id = id
         self.placed = placed
         self.pickedBy = pickedBy ?? (picked ? .app : .model)
@@ -78,7 +81,7 @@ public struct TripStop: Sendable, Hashable {
 
     func renumbered(_ index: Int) -> TripStop {
         TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds,
-                 role: role, minutes: minutes, importance: importance, id: id, placed: placed, pickedBy: pickedBy)
+                 role: role, minutes: minutes, importance: importance, id: id, placed: placed, pickedBy: pickedBy, event: event)
     }
 
     /// §49 item 1: importance is 1–3.
@@ -253,7 +256,8 @@ public struct TripList: Sendable, Hashable {
         stops = stops.map { $0.place.id == placeID
             ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters,
                        mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role,
-                       minutes: $0.minutes, importance: $0.importance, id: $0.id, placed: $0.placed, pickedBy: $0.pickedBy)
+                       minutes: $0.minutes, importance: $0.importance, id: $0.id, placed: $0.placed, pickedBy: $0.pickedBy,
+                       event: $0.event)
             : $0 }
     }
 

@@ -341,7 +341,8 @@ struct TripPlanTripTests {
         #expect(parsed == TripPlannerShape.Plan(days: [.init(sights: [.init(name: "广州塔", city: "广州", minutes: 90)])], done: true, note: "x"))
         #expect(TripPlannerShape.parse("{\"plan\":1}") == nil && TripPlannerShape.parse("不是") == nil)
         #expect(TripPlannerShape.system.hasPrefix("你是行程规划师。司机的要求由语音助手转给你，你只输出 JSON，不要其他文字。"))
-        #expect(TripPlannerShape.system.hasSuffix("- 司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。"))
+        // F-15b §64 item 3 (T-040zq): the event line follows the not-found line.
+        #expect(TripPlannerShape.system.hasSuffix("- 司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。\n- 只在某几天开放的活动，name 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。"))
         let rig = await PlanTripRig([answer([["广州塔", "九龙湖公主酒店"]], done: false), answer([["广州塔", "九龙湖公主酒店"]], done: true, note: "九龙湖公主酒店没找到")])
         let r = await rig.run(newPlan())
         #expect(r.ok && r.data["not_placed"] == [["name": "九龙湖公主酒店", "searched": "广州"]], "\(r)")
@@ -484,5 +485,155 @@ struct TripMergeTests {
         let merged = TripPlan(name: nil, days: [list([stop("h", minutes: 120), stop("h", .hotel)])])
         let back = try #require(TripPlanFile.current(from: TripPlanFile.current(merged)))
         #expect(back.days[0].stops.count == 1 && back.days[0].stops[0].visitMinutes == 120)
+    }
+}
+
+// MARK: F-15b §64 (T-040zq): events on the days they are open; the trip's dates and stay city
+
+private func zh(_ name: String, _ lat: Double, city: String = "珠海市", district: String = "横琴") -> Place {
+    Place(id: name, name: name, address: nil, coordinate: GeoCoordinate(latitude: lat, longitude: 113.5, datum: .gcj02),
+          distanceMeters: nil, city: city, district: district)
+}
+
+private let zhuhai: [String: Place] = [
+    "珠海|珠海国际会展中心": zh("珠海国际会展中心", 22.10),
+    "珠海|长隆海洋王国": zh("长隆海洋王国", 22.11),
+    "珠海|珠海长隆横琴湾酒店": zh("珠海长隆横琴湾酒店", 22.12),
+    "珠海|日月贝": zh("日月贝", 22.25, district: "香洲区"),
+    "珠海|深圳湾酒店": zh("深圳湾酒店", 22.52, city: "深圳市", district: "南山区"),
+]
+
+/// A 珠海 plan: `days` of (sight, optional event) and stays.
+private func zhAnswer(_ days: [[(String, TripEvent?)]], stays: [String?], done: Bool) -> FakePlannerModel.Answer {
+    let d: [JSONValue] = days.enumerated().map { i, sights in
+        let stay: JSONValue = (i < stays.count ? stays[i] : nil).map { .object(["name": .string($0), "city": "珠海"]) } ?? .null
+        return .object(["sights": .array(sights.map { n, e in
+            var o: [String: JSONValue] = ["name": .string(n), "city": "珠海", "minutes": 120]
+            if let e { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
+            return .object(o)
+        }), "stay": stay])
+    }
+    return .text(TripPlanJSON.text(.object(["days": .array(d), "done": .bool(done), "note": ""])))
+}
+
+private let shanghaiZone = TimeZone(identifier: "Asia/Shanghai")!
+private let nov24 = Date(timeIntervalSince1970: 1_795_492_800)  // 2026-11-24 12:00 Asia/Shanghai
+private let carnival = EventEntry(name: "AI嘉年华", start: "2026-11-28", end: "2026-11-29", datesText: "11月28日-29日",
+                                  venue: "珠海国际会展中心", city: "珠海", sourceURL: "https://zh.bendibao.com/a.shtm",
+                                  sourceSite: "zh.bendibao.com", fetchedAt: nov24)
+private let zhAsked: JSONValue = ["text": "11月25号开始珠海四天游，酒店住珠海，这几天有展的话排进去", "days": 4, "city": "珠海",
+                                  "start": "2026-11-25", "stay_city": "珠海", "notes": ["有展的话排进去"]]
+
+/// A loop that must not run (the store is fresh), or one scripted to return `finalJSON`.
+private final class Ran: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    func withLock<T>(_ f: (inout Int) -> T) -> T { lock.lock(); defer { lock.unlock() }; return f(&n) }
+}
+
+private struct NoChat: EventChatModel {
+    let ran: Ran
+    func turn(_ messages: [EventChatMessage], tools: Bool, timeout: NovaDuration) async throws -> EventChatReply {
+        ran.withLock { $0 += 1 }
+        return EventChatReply(content: #"{"events":[],"note":""}"#)
+    }
+}
+private struct NoSearch: EventSearcher { func search(_ query: String) async throws -> [EventSearchHit] { [] } }
+private struct NoPages: EventPageFetcher { func open(_ url: String) async throws -> String { throw URLError(.badURL) } }
+
+private func browser(fresh: Bool, ran: Ran) async -> EventBrowser {
+    let store = EventStore(storage: MemoryEventStorage(), now: { nov24 }, zone: { shanghaiZone })
+    if fresh { await store.replace(city: "珠海", from: "2026-11-24", to: "2026-12-24", with: [carnival]) }
+    return EventBrowser(store: store, work: nil) { _ in
+        EventBrowseLoop(model: NoChat(ran: ran), searcher: NoSearch(), fetcher: NoPages(), clock: ManualClock())
+    }
+}
+
+@Suite("T-040zq F-15b §64 events on open days; the trip's dates and stay city")
+struct TripEventPlanTests {
+    @Test("T-040zq F-15b row 297: the event on a closed day is counted with its dates; on an open day it is saved with event; cards show the dates")
+    func row297() async throws {
+        let ran = Ran()
+        let ev = TripEvent(title: "AI嘉年华", start: "2026-11-28", end: "2026-11-29")
+        let hotel = "珠海长隆横琴湾酒店"
+        let rig = await PlanTripRig([
+            zhAnswer([[("长隆海洋王国", nil)], [("日月贝", nil)], [("珠海国际会展中心", ev)], [("日月贝", nil)]], stays: [hotel, hotel, hotel], done: false),
+            zhAnswer([[("长隆海洋王国", nil)], [("日月贝", nil)], [("日月贝", nil)], [("珠海国际会展中心", ev)]], stays: [hotel, hotel, hotel], done: true),
+        ], table: zhuhai)
+        await rig.planner.setEvents(await browser(fresh: true, ran: ran))
+        let r = await rig.run(rawTrip("plan_trip", ["asked": zhAsked]))
+        #expect(r.ok && r.data["saved"] == true, "\(r)")
+        // The planner got the events list in its first message.
+        let first = rig.model.calls.withLock { $0 }.first?.first?.content ?? ""
+        #expect(first.contains(TripPlannerShape.eventsHead) && first.contains("AI嘉年华"))
+        #expect(rig.model.systems.withLock { $0 }.first?.contains("只在某几天开放的活动，name 写场馆全名，event 写活动名和开放日期") == true)
+        // Round 1's counts: the event's open dates and that day's date.
+        let counts = rig.model.calls.withLock { $0 }[1].last?.content ?? ""
+        #expect(counts.contains("AI嘉年华开放2026-11-28～2026-11-29，这天是2026-11-27"), "\(counts)")
+        #expect(!TripPlannerShape.adviceWords.contains(where: { counts.replacingOccurrences(of: "开车", with: "").contains($0) }))
+        // Round 2 saved on day 4 with the event; plan_text and the card show it.
+        let day4 = await rig.planner.currentPlan.days[3].stops
+        #expect(day4.contains { $0.event == TripEvent(title: "AI嘉年华", start: "2026-11-28", end: "2026-11-29") })
+        let text = r.data["plan_text"]?.stringValue ?? ""
+        #expect(text.contains("第4天 · 11月28日 周六：") && text.contains("珠海国际会展中心（AI嘉年华）"), "\(text)")
+        #expect(text.hasPrefix("第1天 · 11月25日 周三："))
+        #expect(ran.withLock { $0 } == 0)  // the store answered
+        // The saved plan keeps start, stay_city and the event (read shape = write shape).
+        let saved = TripPlanFile.decode(TripPlanFile.encode(await rig.planner.currentPlan))
+        #expect(saved.asked?.start == "2026-11-25" && saved.asked?.stayCity == "珠海")
+        #expect(saved.days[3].stops.contains { $0.event?.title == "AI嘉年华" })
+        #expect(TripEvent(title: "AI嘉年华", start: "2026-11-28", end: "2026-11-29").cardText == "AI嘉年华 · 2026-11-28～2026-11-29")
+    }
+
+    @Test("T-040zq F-15b row 298: an event not in the store: 「=活动表里没有」; kept to the end, saved as a plain sight and named in note")
+    func row298() async {
+        let ran = Ran()
+        let fake = TripEvent(title: "漫展SP", start: "2026-11-26", end: "2026-11-26")
+        let hotel = "珠海长隆横琴湾酒店"
+        let plan = zhAnswer([[("长隆海洋王国", nil)], [("日月贝", fake)], [("日月贝", nil)], [("长隆海洋王国", nil)]], stays: [hotel, hotel, hotel], done: true)
+        let rig = await PlanTripRig([plan, plan], table: zhuhai)
+        await rig.planner.setEvents(await browser(fresh: true, ran: ran))
+        let r = await rig.run(rawTrip("plan_trip", ["asked": zhAsked]))
+        let counts = rig.model.calls.withLock { $0 }[1].last?.content ?? ""
+        #expect(counts.contains("漫展SP=活动表里没有"), "\(counts)")
+        #expect(r.data["note"]?.stringValue?.contains("漫展SP的日期对不上，没排成活动") == true, "\(r)")
+        #expect(await rig.planner.currentPlan.allStops.allSatisfy { $0.stop.event == nil })
+    }
+
+    @Test("T-040zq F-15b row 299: stay_city 珠海, one night in 深圳: 「住深圳（要求住珠海）」 that round")
+    func row299() async {
+        let ran = Ran()
+        let rig = await PlanTripRig([
+            zhAnswer([[("长隆海洋王国", nil)], [("日月贝", nil)], [("日月贝", nil)], [("长隆海洋王国", nil)]],
+                     stays: ["珠海长隆横琴湾酒店", "深圳湾酒店", "珠海长隆横琴湾酒店"], done: false),
+            zhAnswer([[("长隆海洋王国", nil)], [("日月贝", nil)], [("日月贝", nil)], [("长隆海洋王国", nil)]],
+                     stays: ["珠海长隆横琴湾酒店", "珠海长隆横琴湾酒店", "珠海长隆横琴湾酒店"], done: true),
+        ], table: zhuhai)
+        await rig.planner.setEvents(await browser(fresh: true, ran: ran))
+        _ = await rig.run(rawTrip("plan_trip", ["asked": zhAsked]))
+        let counts = rig.model.calls.withLock { $0 }[1].last?.content ?? ""
+        #expect(counts.contains("住深圳（要求住珠海）") && counts.contains("住珠海"), "\(counts)")
+    }
+
+    @Test("T-040zq F-15b row 300: a store miss with an event wish runs the §35 loop first; 「正在查活动」 then 「正在规划行程」")
+    func row300() async {
+        let ran = Ran()
+        let hotel = "珠海长隆横琴湾酒店"
+        let plan = zhAnswer([[("长隆海洋王国", nil)], [("日月贝", nil)], [("日月贝", nil)], [("长隆海洋王国", nil)]], stays: [hotel, hotel, hotel], done: true)
+        let rig = await PlanTripRig([plan, plan], table: zhuhai)
+        await rig.planner.setEvents(await browser(fresh: false, ran: ran))
+        rig.board.start(.handoff, immediate: true)
+        let r = await rig.run(rawTrip("plan_trip", ["asked": zhAsked]))
+        let seen = rig.board.panel?.steps.map(\.title) ?? []
+        #expect(r.ok, "\(r)")
+        #expect(ran.withLock { $0 } >= 1)
+        let a = seen.firstIndex(of: TripPlanner.eventsStep), b = seen.firstIndex(of: WorkProgress.tripPlanning)
+        #expect(a != nil && b != nil && a! < b!, "\(seen)")
+        // Without an event wish nothing is read.
+        let plain = await PlanTripRig([plan, plan], table: zhuhai)
+        let ran2 = Ran()
+        await plain.planner.setEvents(await browser(fresh: false, ran: ran2))
+        _ = await plain.run(rawTrip("plan_trip", ["asked": ["text": "珠海四天游", "days": 4, "city": "珠海", "start": "2026-11-25"]]))
+        #expect(ran2.withLock { $0 } == 0)
     }
 }

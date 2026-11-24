@@ -103,7 +103,7 @@ public struct TripPlan: Sendable, Hashable {
                 let s = days[d].stops[i]
                 var stop = TripStop(index: 0, asked: s.asked, place: place, distanceMeters: s.distanceMeters, mark: s.mark,
                                     role: s.role, minutes: s.minutes, importance: s.importance, id: s.id, placed: true,
-                                    pickedBy: s.pickedBy)
+                                    pickedBy: s.pickedBy, event: s.event)
                 stop.legSeconds = nil
                 days[d].set(stop, at: i + 1)
                 found = true
@@ -287,6 +287,8 @@ public enum TripPlanFile {
         var by: TripPickedBy?
         /// T-040zp §63 item 2 (optional): a hotel's merged sight minutes. A hotel's `minutes` from before §63 is ignored.
         var stay: Int?
+        /// T-040zq §64 item 6 (optional): the event placed on this venue.
+        var event: TripEvent?
     }
 
     struct Plan: Codable, Hashable {
@@ -322,7 +324,7 @@ public enum TripPlanFile {
              role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode, kind: s.place.kind?.rawValue,
              minutes: s.role == .hotel ? nil : s.minutes, optional: s.optional ? true : nil, importance: s.importance == 3 || s.importance == 1 ? nil : s.importance,
              sid: s.id.isEmpty ? nil : s.id, unplaced: s.placed ? nil : true, by: s.pickedBy,
-             stay: s.role == .hotel ? s.minutes : nil)
+             stay: s.role == .hotel ? s.minutes : nil, event: s.event)
     }
 
     /// §55 item 2 (T-040zh): the city is kept at home too (new names are looked up inside it).
@@ -342,7 +344,8 @@ public enum TripPlanFile {
                               photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country, kind: s.kind.flatMap(PlaceKind.init(rawValue:))),
                  distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false,
                  minutes: s.role == .hotel ? s.stay : s.minutes, optional: s.optional ?? false, importance: s.importance,
-                 id: s.sid ?? "", placed: !(s.unplaced ?? false), pickedBy: s.by ?? ((s.picked ?? false) ? .app : .model))
+                 id: s.sid ?? "", placed: !(s.unplaced ?? false), pickedBy: s.by ?? ((s.picked ?? false) ? .app : .model),
+                 event: s.event)
     }
 
     static func decode(_ plan: Plan) -> TripPlan {
@@ -482,14 +485,29 @@ public struct TripAsked: Sendable, Hashable, Codable {
     public var days: Int?
     public var city: String?
     public var notes: [String]
+    /// F-15b §64 item 1 (T-040zq): the first day's date (`YYYY-MM-DD`); day n is start+n−1.
+    public var start: String?
+    /// §64 item 1: where the driver wants to sleep.
+    public var stayCity: String?
 
-    public init(text: String, must: [String] = [], days: Int? = nil, city: String? = nil, notes: [String] = []) {
+    enum CodingKeys: String, CodingKey {
+        case text, must, days, city, notes, start
+        case stayCity = "stay_city"
+    }
+
+    public init(text: String, must: [String] = [], days: Int? = nil, city: String? = nil, notes: [String] = [],
+                start: String? = nil, stayCity: String? = nil) {
         self.text = text
         self.must = must
         self.days = days
         self.city = city
         self.notes = notes
+        self.start = start.flatMap { EventDay($0)?.description }
+        self.stayCity = stayCity
     }
+
+    /// §64 item 1: day `d` (0-based) as a date, when `start` is known.
+    public func date(ofDay d: Int) -> EventDay? { start.flatMap(EventDay.init)?.adding(days: d) }
 
     /// The model's `asked` argument; nil without a non-empty `text`.
     public init?(_ value: JSONValue?) {
@@ -500,7 +518,8 @@ public struct TripAsked: Sendable, Hashable, Codable {
             return a.compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         }
         self.init(text: t, must: list("must"), days: value["days"]?.intValue.map { Int($0) },
-                  city: value["city"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, notes: list("notes"))
+                  city: value["city"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, notes: list("notes"),
+                  start: value["start"]?.stringValue, stayCity: value["stay_city"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     /// The same shape as written.
@@ -509,6 +528,46 @@ public struct TripAsked: Sendable, Hashable, Codable {
                                       "notes": .array(notes.map(JSONValue.string))]
         if let days { o["days"] = .int(Int64(days)) }
         if let city { o["city"] = .string(city) }
+        if let start { o["start"] = .string(start) }
+        if let stayCity { o["stay_city"] = .string(stayCity) }
         return .object(o)
+    }
+
+    /// §64 item 2: the driver asked for events (in `text` or `notes`).
+    public var wantsEvents: Bool {
+        let all = ([text] + notes).joined(separator: " ").lowercased()
+        return Self.eventWords.contains(where: all.contains)
+    }
+    static let eventWords = ["展", "活动", "漫展", "演出", "cosplay", "节", "嘉年华", "音乐会", "比赛"]
+}
+
+/// F-15b §64 item 3 (T-040zq): a time-limited event placed on a sight (the venue).
+public struct TripEvent: Sendable, Hashable, Codable {
+    public var title: String
+    public var start: String
+    public var end: String
+    public init(title: String, start: String, end: String) {
+        self.title = title
+        self.start = start
+        self.end = end
+    }
+    /// §64 item 6: 「<title> · <start>～<end>」 under the venue on its card.
+    public var cardText: String { "\(title) · \(start)～\(end)" }
+}
+
+/// §64 item 1: 「第1天 · 11月25日 周三」, or 「第1天」 without a start date.
+public enum TripDayLabel {
+    public static func text(day d: Int, asked: TripAsked?) -> String {
+        guard let date = asked?.date(ofDay: d) else { return "第\(d + 1)天" }
+        return "第\(d + 1)天 · \(date.month)月\(date.day)日 \(weekday(date))"
+    }
+
+    public static func weekday(_ day: EventDay) -> String {
+        var c = DateComponents()
+        c.year = day.year; c.month = day.month; c.day = day.day
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let w = cal.date(from: c).map { cal.component(.weekday, from: $0) } ?? 1
+        return "周" + ["日", "一", "二", "三", "四", "五", "六"][(w - 1) % 7]
     }
 }

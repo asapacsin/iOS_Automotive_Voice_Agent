@@ -117,6 +117,21 @@ public actor EventBrowser {
         return await browse(r, spinner: true)
     }
 
+    /// F-15b §64 item 2 (T-040zq): `plan_trip`'s read: the store, else the loop inside its own run (no handoff line,
+    /// no row of its own: the planner's row shows 「正在查活动」). nil when the loop failed.
+    public func events(for r: EventBrowseRequest) async -> [EventEntry]? {
+        let from = r.from.description, to = r.to.description
+        if await store.covers(cities: r.cities, from: from, to: to) {
+            onLine("events store hit cities=\(r.cities.count) window=\(from)..\(to)")
+            return await store.events(cities: r.cities, from: from, to: to)
+        }
+        onLine("events store miss cities=\(r.cities.count) window=\(from)..\(to)")
+        switch await browse(r, spinner: false) {
+        case .store(let e), .browsed(let e, _): return e
+        case .failed: return nil
+        }
+    }
+
     /// Item 5: the app-open refresh of the car's (or the open trip's) cities browsed more than 24 h ago, today…+30,
     /// in the background. No line, no spinner.
     public func refresh(_ cities: [String]) async {
