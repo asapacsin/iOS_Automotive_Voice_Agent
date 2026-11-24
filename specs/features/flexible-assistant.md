@@ -964,3 +964,40 @@ question are accepted (「关掉」 closes them).
 | Task | Scope | Status |
 |---|---|---|
 | T-031zf | §21 items 1–3 (`web_search` ok result carries item 1's `next` when `show_places` is declared); rows 1–3 | NOT_RUN |
+
+## 22. Every panel she can close has a 「×」 the driver can tap (owner request 2026-11-24)
+
+**Why (owner 2026-11-24).** The driver has to say 「关掉」 to close the trip screen, a place card or the route choices,
+and she is sometimes slow to answer, so a panel stays up for seconds after he wants it gone. Today only the camera
+window (`camera-close`) and the map pin card (§19 item 3, `map-pin-close`) have a 「×」; the trip cards' 「×」 removes a
+stop, not the panel.
+
+**Owner rule (2026-11-24).** Closing a panel never needs her: every panel she can close by voice has a 「×」 that closes
+it at once.
+
+1. **Which panels.** Every `ScreenPanel` with a layer (§17 item 1) that has a close in the §17 registry:
+   `destinationList` (the place list, including `show_places`' cards), `routePicking`, `tripScreen`, `tripDetail`,
+   `tripPlans`, `musicCard`; `camera` and `mapPin` keep theirs. Not: `navigation` (its 「结束导航」 button stays the way
+   to end guidance), `routeCalculating`, `working`, `backgroundWork`, `settings`.
+2. **One close path.** The 「×」 calls the same close as her `exit_navigation_mode` for that panel (§17 item 4; for
+   `destinationList` / `routePicking` the executor path that 「不去了」 uses, I-6), never a second copy. The view reports
+   `off` when it is gone (§16 item 2), so her next 屏幕 line no longer has it. No model call, no spoken line.
+3. **Look.** Top-right of the panel, `xmark.circle.fill`, tap area ≥ 44 pt, readable over the map and the trip photos
+   (white on a dark disc), not covering the trip cards' per-stop 「×」 (which keeps removing a stop). Accessibility
+   label 「关掉<panel name>」, identifier `<panel>-close`.
+4. **While she is talking or working.** A tap closes at once, even while she speaks or a tool runs; a `plan_trip` still
+   running keeps running and its spinner row stays (§62 item 12); its result opens the trip screen again as today.
+5. **Record.** `panel close tap <key>` on each tap, then the usual `panel <key> off`.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 1 | Each panel of item 1 on, then its 「×」 tapped (UI test or view model test) | That panel off, through the same close function `exit_navigation_mode` uses (one function, checked by a spy); other panels unchanged; no model call; record `panel close tap <key>` | unit |
+| 2 | `destinationList` and `routePicking` 「×」 | Same result as 「不去了」: list or route choice gone, no route started, nothing sent to the model | unit |
+| 3 | 「×」 on the trip screen while `plan_trip` runs | Trip screen off; the spinner row stays; the result opens the trip screen again | unit |
+| 4 | Device: open the trip screen, a place card list, route choices and a music card; tap each 「×」 | Each closes at once with no reply from her; the trip cards' per-stop 「×」 still removes a stop | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-031zg | §22 items 1–5 (a 「×」 on destinationList, routePicking, tripScreen, tripDetail, tripPlans, musicCard through §17's one close path; no model call; record); rows 1–4 | NOT_RUN |
