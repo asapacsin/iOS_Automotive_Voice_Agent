@@ -2709,6 +2709,18 @@
       "evidence": [
         "Gates: scripts/gates/run_all.sh PASS on f139a9e in a clean worktree (Linux Swift 6.1.2; NovaCore 1110 tests, 1 known NoiseCorpus issue). Review: spec-reviewer high effort FAIL on 27c9b8e (adjacent same-place hotels not merged; old hotel minutes would count; place(id:at:) index shift) -> fixed f139a9e; re-check medium PASS. Rows 292-295 unit PASS (TripMergeTests in TripPlanTripTests.swift; §62 rows 279/281 updated to the merged plan); row 296 device NOT_VERIFIED. Notes: a start and night hotel with nothing between merge too (owner rule: never twice in a row); hotel minutes persisted as optional `stay`; open non-blocking: check_trip_plan drafts are counted unmerged and a sight turned hotel keeps its minutes; a merge after timing drops that day's legs; a rest day's counts line loses its 住R fact."
       ]
+    },
+    {
+      "id": "T-031ze",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031zd"
+      ],
+      "action": "F-09b §20 items 1-4: tool descriptions only. show_places (F-16 §15) gets item 1's text: each place is a card with photos; used also when the driver asks to see pictures of places she just named. show_place (§18 item 1) pictures wording as item 2, pointing to show_places for several places. web_search (F-18 §16 item 3): 「只按返回的 answer 回答。」 becomes item 3's text (facts only from answer; the answer's words about its own abilities are not about her). Agent version bump per F-09b §15, agent-versions.md row, regenerated parts and hash; rows 1-4.",
+      "notes": "Owner phone test 2026-11-24 (857bf0f, record 20261124-110720): 「你给我看一下图片吧」 after she named Bali-style resorts; she called web_search, whose answer began 「抱歉，我无法直接显示图片」, and told the driver four times the system cannot show pictures. show_places never said its cards have photos. Owner: tell her the tool includes images.",
+      "evidence": []
     }
   ]
 }

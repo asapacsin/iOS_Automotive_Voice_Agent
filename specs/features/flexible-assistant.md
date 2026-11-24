@@ -884,3 +884,43 @@ route. She finds the place as in §18 (the model decides, code only fetches).
 | Task | Scope | Status |
 |---|---|---|
 | T-031zd | §19 items 1–7 (show_on_map declaration, shared §18 lookup, one pin and small card, camera, `mapPin` panel, result, record); rows 1–9 | NOT_RUN |
+
+## 20. Her tool texts say the place cards have photos; the search answer is facts, not her abilities (owner request 2026-11-24)
+
+**Why (owner phone test 2026-11-24, build 857bf0f, agent 10.0.0, record 20261124-110720).** After she named Guangdong
+resorts with a Bali style, the driver said 「你给我看一下图片吧」 (102577). She did not call `show_places` or
+`show_place`; she called `web_search` 「广东巴厘岛风格温泉度假村」, whose answer began 「抱歉，我无法直接显示图片」
+(106594). She then told him four times that the system cannot show pictures (107319, 121419, 152486, 154898).
+- `show_places` (F-16 §15) never says its cards have photos, and its use is only 「司机想找能做什么、去哪玩的地方」.
+- `show_place` (§18) names pictures only for one place she is asked about (「有图片吗」).
+- `web_search` (F-18 §16 item 3) says 「只按返回的 answer 回答。」, so the search model's sentence about itself became
+  her answer about herself.
+
+**Owner rule (2026-11-24).** Tell her in the tool texts that the place cards show photos; the search answer is about the
+world, never about what she can do. No other behaviour changes.
+
+1. **`show_places` description** (F-16 §15), new text:
+   「把地方列在屏幕上给司机看，每个地方是一张带照片的卡片，不导航。司机想找能做什么、去哪玩的地方时，先 web_search，再用它；
+   司机要看图片、看看这些地方长什么样时也用它，places 填你刚说过的地方。places 每项 name 填地名，about 填一句它是什么。
+   列表已经在屏幕上，简短说找到了哪些，不要念列表；司机说要去哪个，再 navigate_to 或选第几个。located=false 的地方没查到位置。」
+2. **`show_place` description** (§18 item 1): 「司机想了解某个地方（介绍、怎么样、有图片吗）时用。」 becomes
+   「司机想了解某个地方（介绍、怎么样、看图片）时用；要看几个地方的图片用 show_places。」 The rest unchanged.
+3. **`web_search` description** (F-18 §16 item 3): 「只按返回的 answer 回答。」 becomes
+   「事实只按返回的 answer 回答；answer 里说自己能不能做什么（比如不能显示图片）的话不是说你，你能做什么看你的工具。」
+   The rest unchanged. This is her tool text, not the search model's system text (the 2026-11-05 owner rule on the
+   search prompt does not apply).
+4. **Agent version and parts.** A description change: bump per F-09b §15's rules (the §15 gate decides minor or
+   major), its agent-versions.md row, regenerated parts file and hash.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 1 | Declarations | `show_places`, `show_place`, `web_search` carry items 1–3's texts exactly; agent version bumped, parts regenerated, §15 gate passes | unit, gate |
+| 2 | Eval: replay 20261124-110720 to 102577 「你给我看一下图片吧」, 5 runs | ≥ 4 of 5: she calls `show_places` (or `show_place`) with the resorts she named; in none does she say the app or system cannot show pictures | eval |
+| 3 | Eval: same replay with the 106594 search answer injected as her last tool result, then 「你这个为什么展示不了图片啊？你展示一下。」, 5 runs | ≥ 4 of 5: she calls `show_places` or `show_place`; in none does she say she cannot show pictures | eval |
+| 4 | Device: 「广东有什么温泉度假村」, then 「给我看看图片」 | Cards with photos for the places she named; she does not say pictures cannot be shown | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-031ze | §20 items 1–4 (`show_places` says its cards have photos and is used when the driver asks to see pictures of places she named; `show_place` pictures wording; `web_search` answer is facts, not her abilities; agent version and parts); rows 1–4 | NOT_RUN |
