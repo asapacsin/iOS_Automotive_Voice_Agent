@@ -2699,14 +2699,16 @@
     {
       "id": "T-040zp",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-040zo"
       ],
       "action": "F-15b §63 items 1-5: in the one function that saves a TripPlan (plan_trip, screen edits, reopened saved plans), a stop that is the same place as the stop right before it in the same day (same Place.id or same found name) is merged into it; if either is the night's hotel the merged stop is the hotel and keeps the sight's minutes, counted once in TripTimes and budget B; two sights keep the larger minutes; a day's start hotel and its night hotel are not merged; cards, map pins, plan_text and the planner counts use the merged plan; plan_text writes a merged hotel once as 「<name>（玩约<time>，住这里）」; §62 row 281's text replaced; rows 292-296.",
       "notes": "Owner phone test 2026-11-24 (6512033, record 20261124-100527): the planner listed 佛山绿湖温泉度假酒店 as a 120-minute sight and as that night's stay; the cards showed it twice in a row and she invented a reason (「为了记录住宿时间」). Owner: never show the same place twice in a row; code merges it, the planner prompt is unchanged.",
-      "evidence": []
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on f139a9e in a clean worktree (Linux Swift 6.1.2; NovaCore 1110 tests, 1 known NoiseCorpus issue). Review: spec-reviewer high effort FAIL on 27c9b8e (adjacent same-place hotels not merged; old hotel minutes would count; place(id:at:) index shift) -> fixed f139a9e; re-check medium PASS. Rows 292-295 unit PASS (TripMergeTests in TripPlanTripTests.swift; §62 rows 279/281 updated to the merged plan); row 296 device NOT_VERIFIED. Notes: a start and night hotel with nothing between merge too (owner rule: never twice in a row); hotel minutes persisted as optional `stay`; open non-blocking: check_trip_plan drafts are counted unmerged and a sight turned hotel keeps its minutes; a merge after timing drops that day's legs; a rest day's counts line loses its 住R fact."
+      ]
     }
   ]
 }
