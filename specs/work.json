@@ -1,2830 +1,2830 @@
 {
- "schema_version": 1,
- "work": [
-  {
-   "id": "H-hardware",
-   "owner": "HUMAN_PHYSICAL",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "Provide a Mac with Xcode (Swift 6) and a physical iPhone",
-   "depends_on": [],
-   "automation_blocker": "physical_hardware",
-   "procedure": "Make a Mac with Xcode and an iPhone available to the project",
-   "pass_criteria": "Mac can run xcodebuild; iPhone registered for development",
-   "expected_return": "Mac/Xcode version, iPhone model + iOS version"
-  },
-  {
-   "id": "H-ios-min",
-   "owner": "HUMAN_DECISION",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "H-keys",
-   "owner": "HUMAN_CREDENTIAL",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "Provide Gemini key + consent, Azure Speech key + voice, Amap SDK + Web keys",
-   "depends_on": [],
-   "automation_blocker": "credentials",
-   "procedure": "Enter keys only on the device / local Keychain, never in the repo",
-   "pass_criteria": "Keys work in the spikes",
-   "expected_return": "Confirmation keys are available (not the keys)"
-  },
-  {
-   "id": "T-000",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-000c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-000x",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-001",
-   "owner": "HUMAN_PHYSICAL",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "Audio spike on iPhone: VP AEC, AGC configs, capture latency (OQ-IOS-3, OQ-IOS-14)",
-   "depends_on": [
-    "T-000x",
-    "H-hardware"
-   ],
-   "automation_blocker": "physical_device_audio",
-   "procedure": "Run Spikes/AudioSpike: 10 silent trials with loud 24 kHz playback; measure capture buffer latency",
-   "pass_criteria": "≥9/10 trials gate stays closed, numbers recorded",
-   "expected_return": "Clips + numbers appended to open-questions.md",
-   "evidence": [
-    "Device run 2026-10-25 iPhone 17 iOS 26.6.1: gate closed 6/10 and 8/10 with voice processing (FAIL, need >=9/10); numbers in STATUS.md"
-   ]
-  },
-  {
-   "id": "T-002",
-   "owner": "HUMAN_PHYSICAL",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "Amap hello-route spike (OQ-IOS-2 remainder)",
-   "depends_on": [
-    "T-000x",
-    "H-keys",
-    "T-000g"
-   ],
-   "automation_blocker": "physical_device_and_credentials",
-   "procedure": "Run Spikes/AmapSpike with keys from Keychain; multi-route, route select, emulator navi",
-   "pass_criteria": "Route select call name and callback threads recorded",
-   "expected_return": "Notes appended to open-questions.md"
-  },
-  {
-   "id": "T-003",
-   "owner": "HUMAN_CREDENTIAL",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "Record sanitised Gemini Live fixtures",
-   "depends_on": [
-    "T-000",
-    "H-keys",
-    "T-000g"
-   ],
-   "automation_blocker": "credentials_and_live_service",
-   "procedure": "Run Spikes/GeminiRecorder against the live API",
-   "pass_criteria": "≥6 jsonl fixtures: plain, tool, interrupted, goAway, resumption, 1007 close; no keys/PII",
-   "expected_return": "Fixtures committed under Packages/NovaRealtime/Tests/fixtures/gemini/",
-   "evidence": [
-    "6 fixtures recorded on device 2026-10-25 (plain, tool, interrupted, resumption, close1008, close1007); goAway not captured"
-   ]
-  },
-  {
-   "id": "G0",
-   "owner": "HUMAN_DECISION",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "Go/no-go: Apple voice processing vs port WebRTC AEC3",
-   "depends_on": [
-    "T-001"
-   ],
-   "automation_blocker": "owner_decision",
-   "procedure": "Review T-001 results",
-   "pass_criteria": "Decision written in specs/STATUS.md",
-   "expected_return": "GO or AEC3",
-   "quantified": {
-    "threshold": "≥9/10 silent trials without the gate opening"
-   }
-  },
-  {
-   "id": "T-010",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-011",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-000g",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-012",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-014",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-019",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-017",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-018",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-020",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-020a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-020b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-020c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-032b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-032c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-090",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-032d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-032e",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-032f",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-032g",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-032h",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-032i",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-020d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-024",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-015",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-022",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-023",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-021",
-   "owner": "EXTERNAL_RESOURCE",
-   "status": "BLOCKED_EXTERNAL",
-   "priority": 42,
-   "action": "NovaAudio engine, capture, reply lane",
-   "depends_on": [
-    "T-011",
-    "G0",
-    "T-000x"
-   ],
-   "blocked_by": "needs Xcode + device (T-000x, G0)"
-  },
-  {
-   "id": "T-025",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-026",
-   "owner": "HUMAN_PHYSICAL",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "M1 device acceptance W1-W4 + V-LAT",
-   "depends_on": [
-    "T-025"
-   ],
-   "automation_blocker": "physical_device_audio",
-   "procedure": "Run W1-W4 on device; 20 turns latency",
-   "pass_criteria": "W1-W4 PASS; latency recorded",
-   "expected_return": "Device log + video, numbers in STATUS.md"
-  },
-  {
-   "id": "T-071a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-071c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-071b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-071d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-070",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-045",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-053a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-021p",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-030",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-043",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-050",
-   "owner": "EXTERNAL_RESOURCE",
-   "status": "BLOCKED_EXTERNAL",
-   "priority": 30,
-   "action": "F-14 fallback guidance voice: AVSpeechSynthesizer zh-CN to PCM on the guidance lane (OQ-IOS-10 still open on device)",
-   "depends_on": [
-    "T-021"
-   ],
-   "evidence": [
-    "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED",
-    "Fallback voice is build-only; OQ-IOS-10 needs a device run"
-   ],
-   "blocked_by": "off-device part done (logic PASS, Linux gates green 2026-10-26); remaining OQ-IOS-10 fallback voice needs a device run"
-  },
-  {
-   "id": "T-051",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-052",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-053",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-042",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-044",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-047",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-032",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-033",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-061",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-062",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-063",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-072",
-   "owner": "HUMAN_DECISION",
-   "status": "NOT_APPLICABLE",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-080",
-   "owner": "HUMAN_DECISION",
-   "status": "NOT_APPLICABLE",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-042b",
-   "owner": "EXTERNAL_RESOURCE",
-   "status": "RUNNING",
-   "priority": 40,
-   "action": "CoreLocationProvider (WGS-84 fix, When In Use on first need), behind use_device_location; GCJ-02 conversion for route origin and weather here",
-   "depends_on": [
-    "T-042"
-   ],
-   "evidence": [
-    "Build only (CI xcode); default stays DemoLocation for recordings (REC-003)",
-    "175f9fa on iPhone 17 (2026-10-27): 设置 shows 位置来源 (手机定位 selected), 定位权限 未询问; 演示位置 label code; D rows 1/4 permission + voice NOT_VERIFIED (needs a person to answer the iOS location prompt)"
-   ],
-   "blocked_by": "CoreLocationProvider built (CI xcode); WGS-84 fix and permission flow need a device"
-  },
-  {
-   "id": "T-031",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-034",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-041",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-071",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-048",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-060",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-035",
-   "owner": "HUMAN_PHYSICAL",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "M2 device run (W6)",
-   "depends_on": [
-    "T-031",
-    "T-034"
-   ],
-   "automation_blocker": "physical_device_audio",
-   "procedure": "Run W6 on a device",
-   "pass_criteria": "W6 PASS",
-   "expected_return": "Device log in STATUS.md"
-  },
-  {
-   "id": "T-054",
-   "owner": "HUMAN_PHYSICAL",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "M4 device run (W5, guidance spoken once)",
-   "depends_on": [
-    "T-050",
-    "T-053"
-   ],
-   "automation_blocker": "physical_device_audio",
-   "procedure": "Run W5 on a device",
-   "pass_criteria": "W5 PASS; guidance spoken exactly once",
-   "expected_return": "Device log in STATUS.md"
-  },
-  {
-   "id": "T-064",
-   "owner": "HUMAN_PHYSICAL",
-   "status": "HUMAN_REQUIRED",
-   "priority": 5,
-   "action": "M5 device run incl. screen lock during navigation",
-   "depends_on": [
-    "T-060",
-    "T-062",
-    "T-063"
-   ],
-   "automation_blocker": "physical_device",
-   "procedure": "Run F-01/F-23 device rows",
-   "pass_criteria": "F-01/F-23 device rows PASS",
-   "expected_return": "Device log in STATUS.md"
-  },
-  {
-   "id": "H-evidence",
-   "owner": "HUMAN_DECISION",
-   "status": "NOT_APPLICABLE",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-071e",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-071f",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-071g",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-042a",
-   "owner": "AUTONOMOUS",
-   "status": "BLOCKED_EXTERNAL",
-   "priority": 15,
-   "action": "F-16a CoreLocationProvider first-fix wait, authorization changes, denied state; SwitchableLocationProvider; unit, build",
-   "depends_on": [
-    "T-042"
-   ],
-   "evidence": [
-    "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa",
-    "Re-review FAIL (background start skipped permission; start/pause race); fixed in fix/firstfix-core (LocationFixState in NovaPorts + tests, core-linux green at 224b528); final CI blocked by Actions billing",
-    "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) (LocationFixState tests); D1 stale-stop fix and NovaDriveTests fake-manager adapter tests not yet compiled: iOS builds need a Mac/SDK and macOS CI is forbidden (owner rule 2026-10-27)",
-    "2026-10-29: LocationFixState suite 8 tests green on Linux Swift 6.0.3; independent read-only re-review at high effort: PASS (both prior failures fixed, T-044b fan-out no regression, unit rows 5-7 covered; 3 non-blocking notes)",
-    "Notes fixed 2026-10-29: grant before any need starts nothing, pause ends the first-fix wait, §8 sentence asserted; 2 new tests; NovaCore 373 tests green; independent high-effort review PASS",
-    "Codemagic 'NovaDrive iOS Build' (unsigned Release, iphoneos) green at aba6829 2026-10-29 (after fixing RouteGeometry import and NavigationPhase ambiguity found by the failed run at a96676e)"
-   ],
-   "blocked_by": "NovaDriveTests (fake-manager adapter tests) not run: the Codemagic workflow builds but runs no tests"
-  },
-  {
-   "id": "T-046a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "H-F16b",
-   "owner": "HUMAN_DECISION",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-044a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-044b",
-   "owner": "EXTERNAL_RESOURCE",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-044c",
-   "owner": "EXTERNAL_RESOURCE",
-   "status": "BLOCKED_EXTERNAL",
-   "priority": 25,
-   "action": "F-16b DriveView: 我的位置 dot, accuracy circle, locate-me, 定位未开启 pill, follow/free camera; S, D (needs Mac/SDK build and a phone run)",
-   "depends_on": [
-    "T-044a",
-    "T-044b"
-   ],
-   "evidence": [
-    "4654317 + review fixes: MapPositionModel (SelfPosition/MapCameraPolicy driver, permission refresh, 5 s re-evaluation, 15 s auto-recenter tick), DriveView 我的位置 marker, accuracy circle, locate-me, 定位未开启 pill, follow/free camera",
-    "Independent read-only review at high effort 2026-10-29: REWORK; blocking fixed (gesture now detected from touches, not camera-change callbacks: first fix recenters, pans stop following while the car moves); non-blocking applied: source resync on appear, publish only changes, rotation off, along-route list fits places, gray circle when provisional",
-    "Linux gates green; App code not compiled (needs Mac/SDK)",
-    "8985c36: background pause, resume only when visible, no real location under UITestDrive, C8 counted from touch end; independent re-review at high effort 2026-10-29: PASS (1 optional note: cancelled gesture may leave touch flag set)",
-    "Gesture flag now @GestureState (resets on cancel); C8 restarts at touch end or cancel; independent high-effort review PASS",
-    "Codemagic 'NovaDrive iOS Build' (unsigned Release, iphoneos) green at aba6829 2026-10-29 (after fixing RouteGeometry import and NavigationPhase ambiguity found by the failed run at a96676e)"
-   ],
-   "blocked_by": "Phone run only: F-16b rows 1, 2, 6-9 (S/D) NOT_VERIFIED"
-  },
-  {
-   "id": "H-F05a",
-   "owner": "HUMAN_DECISION",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016b",
-   "owner": "HUMAN_DECISION",
-   "status": "NOT_APPLICABLE",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016c",
-   "owner": "HUMAN_DECISION",
-   "status": "NOT_APPLICABLE",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "H-F15a",
-   "owner": "HUMAN_DECISION",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040d",
-   "owner": "EXTERNAL_RESOURCE",
-   "status": "NOT_RUN",
-   "priority": 40,
-   "action": "F-15a settings navigation mode, demo-origin lock, HUD simulation / rerouting labels, mode read at start; S, D rows 6-11",
-   "depends_on": [
-    "T-040a",
-    "T-040c"
-   ],
-   "notes": "From the T-040a/b review: pass the trip's NaviMode into SelfPosition.Input (default .emulator hides the marker between car updates); routeChoiceOpen reaches AgentState via the snapshot observer, so a very fast pick could precede it; check on device that a 第一条 said before any transcript arrives is not refused (row 10); App must pass location: deviceLocation (or Switchable) and the clock to AmapRouteEngine, and read NavigationModeSetting at start (NavigationController tuning.mode is fixed .emulator); signal timers use clock.now vs fix timestamps (same SystemClock base on device)"
-  },
-  {
-   "id": "T-016d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040e",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016e",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040f",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040g",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040h",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-004i",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-004j",
-   "owner": "AUTONOMOUS",
-   "status": "BLOCKED_EXTERNAL",
-   "priority": 20,
-   "action": "F-04 §14 late end of speech: from the T-004i per-utterance log of a device run, fix what keeps the gate open (AGC / noise-floor threshold, then max utterance length, then a trained VAD); no short command open > 3 s",
-   "depends_on": [
-    "T-004i"
-   ],
-   "notes": "Device run 7565bcf: 9/52 utterances open 7-13 s for short commands.",
-   "blocked_by": "needs the T-004i per-utterance log lines from a device run of 25a5cd9 or later"
-  },
-  {
-   "id": "T-016f",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-022a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-034a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016g",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016h",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-034b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-022b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-071h",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-022c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-001a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-022d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-022e",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031e",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031f",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031g",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031h",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031i",
-   "owner": "AUTONOMOUS",
-   "status": "NOT_APPLICABLE",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-017a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-034c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-034d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046e",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046f",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046g",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046h",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046i",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046j",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016i",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-060a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016j",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016o",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016l",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016m",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016n",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013e",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013f",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013g",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013h",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013i",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013j",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-042c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046k",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046l",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046m",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046n",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046o",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046q",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046r",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046s",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046t",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013k",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013l",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-013m",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-021q",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040i",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040j",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040l",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040m",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040n",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040o",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040p",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040q",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040r",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040s",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040t",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040u",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040v",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040w",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040x",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031j",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031k",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031l",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031m",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031n",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031o",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-016p",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-017c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040y",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040z",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040za",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-900a",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-900b",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-900c",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-900d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-900e",
-   "owner": "AUTONOMOUS",
-   "status": "RUNNING",
-   "priority": 40,
-   "action": "specs/token-budget.md item 5: environment setup script installs Swift 6.1.2 and pre-builds NovaCore, NovaServices, NovaRealtime; row 6 needs a fresh container.",
-   "depends_on": [],
-   "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
-   "evidence": []
-  },
-  {
-   "id": "T-900f",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031p",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-031o"
-   ],
-   "action": "F-09b §14 stage A (items 1, 5, 8): [系统] 现在 context note (city/district, highway, local time, navigating, trip shown); AskOrActEval and complaint set; baseline eval on Gemini; rows 1-4.",
-   "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
-   "evidence": [
-    "Gates green at f337210 on Linux Swift 6.1.2 (NovaCore 1027 tests, 1 pre-existing known issue; NovaRealtime 52; NovaServices 110; spec-trace 153 ids, 0 missing)",
-    "Independent high-effort review FAIL at cb052c1 (pick question scored askedWhenDecided) -> fixed in f337210 -> medium re-check PASS",
-    "Row 4 (PC baseline eval, live Gemini) NOT RUN: needs GEMINI_API_KEY and a PC harness; App files read, not compiled"
-   ]
-  },
-  {
-   "id": "T-031q",
-   "owner": "AUTONOMOUS",
-   "status": "BLOCKED_EXTERNAL",
-   "priority": 1,
-   "depends_on": [
-    "T-031p"
-   ],
-   "action": "F-09b §14 stage B (item 2): base instruction rewritten in four parts with no phrase scripts or 不要反问; eval against baseline; rows 5, 7, 8.",
-   "notes": "BLOCKED 2026-11-20: item 2 and row 5 built (base 994 chars, 4 parts; superseded tests updated; gates green at 0c685e2). Row 7 needs a PC eval harness that drives Gemini Live with the real instruction, notes and tools plus a baseline run, which spends the owner's Gemini quota: owner decision asked. Row 8 device. Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
-   "blocked_by": "Row 7 eval: no PC harness drives Gemini Live with the real instruction, notes and tools, and running one spends the owner's Gemini quota (owner decision asked 2026-11-20); row 8 needs the device",
-   "evidence": []
-  },
-  {
-   "id": "T-031r",
-   "owner": "AUTONOMOUS",
-   "status": "NOT_RUN",
-   "priority": 1,
-   "depends_on": [
-    "T-031q"
-   ],
-   "action": "F-09b §14 stage C (item 3): car tool descriptions as purpose / when / parameters / result, no phrase tables; eval against baseline; rows 6, 7, 10.",
-   "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
-   "evidence": []
-  },
-  {
-   "id": "T-031s",
-   "owner": "AUTONOMOUS",
-   "status": "NOT_RUN",
-   "priority": 1,
-   "depends_on": [
-    "T-031r"
-   ],
-   "action": "F-09b §14 stage D (items 3, 7): navigation, trip and live-info tool descriptions; make_trip_list loses 不要反问去哪里; rows 6, 7, 9, 10.",
-   "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
-   "evidence": []
-  },
-  {
-   "id": "T-031t",
-   "owner": "AUTONOMOUS",
-   "status": "NOT_RUN",
-   "priority": 1,
-   "depends_on": [
-    "T-031s"
-   ],
-   "action": "F-09b §14E stage E (items 1-6): offer_choices tool (cards, 120 s open offer, code maps 好/第N个/随便/不要 and runs the picked action; navigate_to and make_trip_list refused with OFFER_OPEN while open); suggest_destinations (fixed city table + real drive times); find_rest_stop (service areas ahead via AlongRouteCorridor, else nearby coffee); make_trip_list DESTINATION_MISSING; rows 11-22.",
-   "notes": "Owner 2026-11-20: 'you actually can build some deterministic code here that let llm decide to call'; sources Rasa CALM, Home Assistant, ask_user tools, LangGraph HITL, Anthropic.",
-   "evidence": []
-  },
-  {
-   "id": "T-031u",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031y",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-031u"
-   ],
-   "action": "F-09b §15 items 1-8: AgentSetup (model, base instruction, tool names/descriptions/schemas, note templates, marked Tuning values) -> agentHash; specs/contracts/agent-versions.md registry with major/minor/patch bump rules; gate test + check_agent_version.py; record header agentVersion/agentHash/model/model-served (recordFormat +1) and RuntimeLog line; PC reader columns; rows 1-8.",
-   "notes": "Owner 2026-11-20: her setup gets a version assigned by fixed rules and every record is labelled with it. Sources: Langfuse, MLflow Prompt Registry, OpenTelemetry GenAI conventions.",
-   "evidence": [
-    "scripts/gates/run_all.sh green on a clean clone of 88723be (Linux Swift 6.1.2; NovaCore 1044 tests; spec-trace 156 ids, 0 missing; check_agent_version OK); spec-reviewer high effort FAIL (note-template branches and fragments not hashed) -> fixed in 2034d5d -> medium re-check PASS; agent-versions 1.0.0 = 6dbbd9c5d47e; rows 1-7 unit/gate; row 8 device NOT_VERIFIED; model-served not written (no served-model name exposed) NOT_VERIFIED"
-   ]
-  },
-  {
-   "id": "T-046u",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031za",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031z",
-   "owner": "AUTONOMOUS",
-   "status": "BLOCKED_EXTERNAL",
-   "priority": 1,
-   "depends_on": [
-    "T-031p",
-    "T-031y"
-   ],
-   "action": "F-09b §16 items 1-10: ScreenState keys on/off reported by each DriveView panel on appear/disappear, music on only when heard (RMS), musicVolume 0-10; one [系统] 屏幕 line on connect and on change (after her reply); tools answer done only when the key changes; bundled song file; show_place opens TripDetailSheet; record screen line; one NavigationPhase enum; rows 1-11.",
-   "notes": "Owner phone test 2026-11-20 (e195ea4): fake 音乐放起来了 x3, 收起来 on the route page not understood, no place card. Owner: the state is not sent to the LLM. Owner rule: state from the display, keys on/off only, volume a number. Needs the bundled song file from the owner.",
-   "blocked_by": "Item 7 needs the bundled song file nova_drive_loop.m4a from the owner (royalty-free, owner approves it); rows 7-11 need a device run",
-   "evidence": [
-    "Off-device parts done: items 1-6, 9, 10. scripts/gates/run_all.sh PASS on 364b701 (Linux Swift 6.1.2; NovaCore 1058 tests, 1 known NoiseCorpus issue; spec-trace 158 ids; check_single_types, check_agent_version 2.2.0, check_record_format 3 OK); spec-reviewer high effort FAIL (exit waited on panels it did not close) -> fixed in 364b701 -> medium re-check PASS; rows 1-6 unit/gate; App and NovaAudio files read, not compiled; rows 7-11 device NOT_VERIFIED; item 7 not done"
-   ]
-  },
-  {
-   "id": "T-042d",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-031zb",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040zb",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040zc",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040zd",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040ze",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040zf",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040zg",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-040zh",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "action": "archived",
-   "depends_on": [],
-   "archived": true,
-   "evidence": [
-    "work-archive.json"
-   ]
-  },
-  {
-   "id": "T-046v",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-046u"
-   ],
-   "action": "F-18 §33 items 1-10: BudgetLimits.enforce; .standard keeps the §32 limits (enforce true), new .unlimited (enforce false); CallBudget.ask checks limits only when enforce is on, still counts and writes paid lines; CallBudget.shared uses .unlimited (the app is not capped); tests and PC scripts keep the limits; the quota breaker stays; a refusal never says the network is down (next text; reply-check drift); rows 13-17.",
-   "notes": "Owner phone test 2026-11-23 (d0a0797, record 20261123-094001): in one driver turn set_trip_plan used the picker twice, the 3rd pick and then web_search were refused reason=budget, and she said 网络限制/无法连接网络. Owner rule 2026-11-23: the limits are for tests only; normal use has no call limit.",
-   "evidence": [
-    "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort FAIL (quota next said 不要说网络有问题; test stripped it) -> fixed b2e7b28 -> medium re-check PASS. Rows 13-16 unit PASS (UnlimitedBudgetTests, QuotaWordingTests, NetworkBlameTests); row 15 budget side only; row 17 device NOT_VERIFIED."
-   ]
-  },
-  {
-   "id": "T-040zi",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zh"
-   ],
-   "action": "F-15b §56 items 1-7: set_trip_plan accepts every field a trip result shows (id wins: name/placed/picked_by/near ignored, role and minutes applied; unknown keys ignored and listed); only the item 2 checks refuse; INVALID_FIELDS always carries problems lines (day, stop, field) and next; the same refused call is not run twice in one driver request (REPEATED_FAILURE); catalog text; agent minor bump; record problems/ignored/repeat-blocked; rows 237-244.",
-   "notes": "Owner phone test 2026-11-23 (d0a0797, record 20261123-095148): plan fix sent back in the result's shape {id,name,minutes,role} was refused INVALID_FIELDS {} three times (validator: exactly one of id, name, near); she gave up, the trip was never fixed. Owner: delete the over-strict check.",
-   "evidence": [
-    "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort PASS (2af2200); accepted deviations: repeat check in ToolDispatcher, unknown stop keys allowed instead of schema fields, new plan without city is INVALID_FIELDS. Rows 237-243 unit PASS (TripReadShapeTests, TripRefusalRecordTests); 244 device NOT_VERIFIED."
-   ]
-  },
-  {
-   "id": "T-040zj",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zh"
-   ],
-   "action": "F-15b §57 items 1-7: 结束导航 button whenever navigation, routePicking or routeCalculating is on (same path as exit_navigation_mode, works while moving); 去下一站 button with icon, apart from the cards, toggles to 结束导航 while navigating; trip_next toward the stop already guided -> ALREADY_NAVIGATING; screen-state keys tripNextButton and stopNavigationButton (on/off, from the display); tap lines to her; record nav tap; rows 245-251.",
-   "notes": "Owner 2026-11-23 (d0a0797, records 20261123-101517, -101941): no button stops navigation; 停止导航 heard as 新手导航 restarted it via trip_next; 2026-11-21 a tap meant for the cards hit 去下一站. Owner: a start button needs a stop button, and the navigation buttons go in the state (F-09b §16 rule: on/off only).",
-   "evidence": [
-    "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort PASS (2af2200). Rows 245-250 unit PASS (TripNavButtonsTests); build part of 245, 247 NOT_VERIFIED (App not compiled on Linux); 251 device NOT_VERIFIED."
-   ]
-  },
-  {
-   "id": "T-046w",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-046f"
-   ],
-   "action": "F-18 §34 items 1-5: search-request/search-response body= escaped (backslash, \n, \r, \t) so every record entry is one line; any other entry's line break becomes a space; record format 5 with fixture and record-format.md row; read.py format-5 reader unescapes, format-4 reader joins body lines (legacy); rows 18-23.",
-   "notes": "Record 20261123-101517 (d0a0797): Qwen's SSE reply body written raw split one search-response entry into ~140 lines without times. Owner 2026-11-23: spec it. What is recorded is unchanged (F-18 §18, owner-enabled local record).",
-   "evidence": [
-    "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort PASS (2af2200); note fixed (format-5 row commit 735e757). Rows 18-21 unit PASS (RecordOneLineTests, check_record_format), row 22 Python tests PASS (format-4 case on a made-up file, real record 20261123-101517 not in the repo); row 23 device NOT_VERIFIED."
-   ]
-  },
-  {
-   "id": "T-040zk",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zi"
-   ],
-   "action": "F-15b §58 items 1-7: a trip-change claim is proven only by an ok set_trip_plan since the driver's last words (never by another tool's ok); a refused set_trip_plan anywhere in the driver request disproves it (CLAIM_AFTER_FAILURE); background/later-sync claims are drift unless a set_trip_plan is running; async start next says 我在改行程; work panel steps for edits (正在改行程, 正在找<名字>, 已加入<名字>, 没改成：<line>); record; rows 252-258.",
-   "notes": "Owner phone test 2026-11-23 (d0a0797, record 20261123-102422): add a cafe -> set_trip_plan INVALID_FIELDS {}, web_search ok, she said 已经加入了BAMN Coffee, then 已经在后台更新了行程，稍后同步; the cafe never appeared and the screen showed nothing. Owner: say she is doing it, show progress on screen.",
-   "evidence": [
-    "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort FAIL (tripVerdict before TRIP_NEEDS_FIX broke row 228; tripWrites leaked on cancel/reconnect) -> fixed b2e7b28 -> medium re-check FAIL (clearing on utterance voided a running write) -> fixed 278241b (callsEnded on cancel and drop) -> medium re-check PASS. Rows 252-257 unit PASS (TripChangeClaimTests, TripChangeClaimReviewTests, TripEditProgressTests); 256 via catalog text (NON_BLOCKING calls have no immediate result); build part of 257 NOT_VERIFIED; 258 device NOT_VERIFIED; cancel/drop wiring in AgentState checked by reading only."
-   ]
-  },
-  {
-   "id": "T-040zl",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zb"
-   ],
-   "action": "F-15b §59 items 1-4: QwenRoute.picker model qwen3.8-flash (search off, thinking off, 2.5 s); no backup route for the picker (429/quota 403 -> pick fails, 高德 first result); QwenFallback skips a route without backup; trip pick line gets model=<id>; §50 item 9 table and rows 47/154 expectations updated; rows 259-262.",
-   "notes": "Owner phone test 2026-11-23 (7442737, record 20261123-130852): 厦门/海南/深圳 make_trip_list NO_CANDIDATES, trip pick none=8. PC replay same day with real 高德 results: qwen3.7-flash-2026-07-15 answered 0 (none) for all 22 names, qwen3.8-flash picked all 22 correctly. Owner: switch to qwen3.8-flash.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on 9c377ab in a clean clone (NovaCore 1087, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 174/0). Review: spec-reviewer high effort PASS (3f78f4a); notes: rows 157/159 text still describes the picker backup, ground backup-budget path lost its test. Rows 259-260 unit PASS; 261 PC, 262 device NOT_VERIFIED."
-   ]
-  },
-  {
-   "id": "T-040zm",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zk"
-   ],
-   "action": "F-15b §60 items 1-5: the trip work panel shows only while a set_trip_plan call runs and goes off when it returns with any result (trip_needs_fix included; remove the early return and continueTrip carry-over); §58 result line then off; off at once when tripScreen goes off; working in the screen state matches the panel; panel working on/off always recorded; no maxOpen for trip work; rows 263-267.",
-   "notes": "Owner phone test 2026-11-23 (6e72c92, record 20261123-141523): 中山 plan ended trip_needs_fix twice, the panel went on at 428929 and never off while the cards showed the plan. Owner: the panel belongs to the screen state; when the trip work or card closes, it closes.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on 9c377ab in a clean clone (NovaCore 1087, 1 known issue; spec-trace 174/0). Review: spec-reviewer high effort PASS (f2e344c); notes: other failures still use end() (keeps a failed step line 3 s, pre-existing); row 264 test also accepts trip_list. Rows 263, 265, 266 unit PASS (TripWorkPanelTests); 264 unit PASS; App files read, not compiled; row 267 device NOT_VERIFIED."
-   ]
-  },
-  {
-   "id": "T-004k",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-004i"
-   ],
-   "action": "F-04 §15 items 1-5: the dispatcher keeps the running tool calls; a caption next to the status caption shows while any runs (正在搜索…/正在查天气…/正在查…/正在改行程…/正在处理…, newest with 等 N 项), on at the call and off at its result, no timers, regardless of who talks; session end empties it; backgroundWork on/off in the screen state and panel lines in the record; rows 10-14.",
-   "notes": "Owner phone test 2026-11-23 (6e72c92): searches and trip writes run async while the caption says 待命/请说; nothing shows background work. Owner: work running in the back must be visible.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on 9c377ab in a clean clone (NovaCore 1087, 1 known issue; agent 6.4.0 then 7.0.0 with T-031zc; record format 7). Review: spec-reviewer high effort PASS (f2e344c); notes: screen key and panel line come from the caption view polled every 0.25 s, so a call under ~0.25 s may not be recorded; reconnect clear not unit-tested in AgentCore. Rows 10-13 unit PASS (BackgroundWorkTests); App files read, not compiled; row 14 device NOT_VERIFIED."
-   ]
-  },
-  {
-   "id": "T-031zc",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-031za"
-   ],
-   "action": "F-09b §18 items 1-8: show_place(name, city); screen match unchanged, else 高德 text search in her city (car city only when city empty), no nationwide fallback, no first result; one exact name+city match -> card; else PLACE_UNSURE ok=false with asked/found (5) and next (check with web_search, call again, no apology-only); ok result names card name and city; record line with sure/found; scripts/show_place_check.py real-data PC check with --max-calls; rows 1-8.",
-   "notes": "Owner phone test 2026-11-23 (6e72c92, records 20261123-142445, -143104): 清远悦天下生态度假区 (really in 云浮) showed 清泉湾, a different resort; 清远新世界酒店 showed a 珠海 door shop; she apologised and never re-searched. Owner: the model finds the place, code only fetches; unsure goes back to the model.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on e2107e3 in a clean clone (NovaCore all green, 1 known NoiseCorpus issue; agent 7.0.0). Review: spec-reviewer high effort FAIL (asked branch name stripped, so calling again from found stayed PLACE_UNSURE) -> fixed e2107e3 -> medium re-check PASS. Rows 1-5 unit PASS (ShowPlaceToolTests, mutation-checked); row 6 PC needs AMAP_WEB_KEY (dry-run only), row 7 eval (no replay case yet) and row 8 device NOT_VERIFIED; App files read, not compiled."
-   ]
-  },
-  {
-   "id": "T-031zd",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-031zc"
-   ],
-   "action": "F-09b §19 items 1-7: show_on_map(name, city) declared always; the §18 show_place lookup shared in one function (screen match, 高德 in her city, exact name+city sure, else PLACE_UNSURE with found, no pin); sure -> one green pin (replaces any earlier) and a small card with name, district, straight-line distance and ×, no route request of any kind; camera frames car+pin (pin alone at 5 km when car unknown or >300 km; no move while navigating), following paused, recenter off; mapPin screen key layer 1 in the §17 registry, opening closes tripDetail/tripPlans, off on ×, 关掉, a navigate_to list, session end; ok facts name/city/district/address/distance_km with next 没有开始导航 and must_not claim_started; navigate_to description sentence; agent minor bump; record line; rows 1-9.",
-   "notes": "Owner phone test 2026-11-23 (6082b0e, record 20261123-162956): asked three times where 九龙湖度假区 is on the map; open_app maps showed nothing, show_place gave only an intro card, so she called navigate_to and a tap started a 168-minute route. Owner: add a show-map tool.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on 2d263fe in a clean clone (NovaCore 1095, 1 known NoiseCorpus issue; spec-trace 175/0; agent 8.0.0 — the §15 gate counts a new tool as major, spec said minor, noted in §19; record format 8). Review: spec-reviewer high effort FAIL (8.0.0 parts stale; pin stopped the auto-recenter while navigating) -> fixed df47803, 2d263fe -> medium re-check PASS (new test fails without the fix). Rows 1-7 unit PASS (ShowOnMapToolTests, MapPinCameraTests); row 8 eval (no replay case) and row 9 device NOT_VERIFIED; App files read, not compiled. Notes: × calls closePanel directly, not through the executor; rows 3/5 App halves checked by reading only."
-   ]
-  },
-  {
-   "id": "T-040zn",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zm"
-   ],
-   "action": "F-15b §61 items 1-9: set_trip_plan saves and reports only (saved true/false, ok == saved, whole plan, not_placed with the searched range, removed over the driver request); no critics in the write, no issues, no trip_needs_fix, no rounds (§55 items 8-10, §49 items 5-6 removed); new read-only check_trip_plan (no args = plan in hand, or a draft days in set_trip_plan shape, nothing saved): per-day sight/driving/total/budget minutes, stops placed, hotel, not_found with range, unknown_driving; numbers only, no advice words; new set_trip_plan field asked {text, must, days, city, notes} written by the model, required for a new plan, kept when not sent, part of TripPlan (saved plans, every trip result, 现在 note), never compared by code; saved-result next asks her to review her own plan against asked (driver's places/days/city/hotel present, no empty day, each day reasonable, check_trip_plan when needed) and revise with set_trip_plan before speaking; plan_text one line per day ahead of the JSON; from the 3rd save in a driver request next says stop revising and tell the driver; panel 行程已更新 / 没保存 / 正在核对行程; record trip_edit state=saved|refused, trip set saved=, trip check-call; catalog texts; major agent version; rows 268-278.",
-   "notes": "Owner phone test 2026-11-23 (416bff7, record 20261123-181633): 广东几天游 including 九龙湖公主酒店; lookup searched 中山 only, issue line said 换一个或者去掉, she replaced it twice, the last result read ok=true / state=done, and she said the plan included 九龙湖. Owner: the LLM plans; counting is a tool the LLM calls to verify its plan; success is approved by the LLM, never by code. Owner follow-up: the LLM can see an empty day and a wrong split itself, so it reviews and revises its own plan; root cause per owner: the driver's request was never saved with the plan (context lost), so it is now saved as asked.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on 959f2ff in a clean clone (Linux Swift 6.1.2; NovaCore 1092 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; check_agent_version 9.0.0, check_record_format 9, check_panel_tools, spec-trace OK). The first clean-clone run on dca046c failed 4 stale tests -> fixed 959f2ff. Review: spec-reviewer high effort PASS on 94882ba..959f2ff (FAIL on dca046c alone for those 4 tests). Non-blocking review fix: clearAll forgets asked (test added). Rows 268-272, 275, 277 unit PASS (TripReviewTests); rows 273, 274, 276, 278 eval/device NOT_VERIFIED; App files read, not compiled. Open notes for the owner: plan_text cannot come before plan on the wire (sorted keys); row 268's fixture leaves out the spec-given texts containing 改好/安排好; dispatcher REPEATED_FAILURE carries no saved=false; TripChecks issue texts remain (unreachable in production)."
-   ]
-  },
-  {
-   "id": "T-040zo",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zn"
-   ],
-   "action": "F-15b §62 items 1-13: the voice model's trip tool plan_trip carries asked (new plan) or change (the driver's words), never days; set_trip_plan leaves the catalog, check_trip_plan stays; a qwen3.8-flash planner (DashScope intl compatible-mode, json_object, no thinking; client in NovaRealtime next to QwenPlacePicker, loop/shape/prompt in NovaCore) writes {days:[{sights:[{name,city,minutes}],stay}],done,note} with item 3's system text; a stay may be a sight of the same day (one place, no other hotel); code looks up each stop with its own city and sends per-day counts (sights, sight/driving/total minutes, budget B, found name/city/district, not found with range) every round, no verdict or advice words; the planner revises; a done in round 1 still gets one counts round; stop at done from round 2 or after round 3 and save; result saved/asked/plan_text/note/not_placed/removed/rounds and item 6's next (she tells the driver, does not revise); PLANNER_FAILED on http/timeout 30 s/non-JSON twice, cards unchanged, no fallback planner; trip claims judged only by §58's trip verdict (refused writes before an ok one and not_placed never give CLAIM_AFTER_FAILURE); the handoff line is said by the app (guidance voice + subtitle) at every plan_trip dispatch and a spinner with one line of text naming the current backend step (豆包 style, owner sketch: turning circle left, text right) shows on top of any screen until the result (search tools: the row only, no spoken line); record trip planner round/failed, handoff said; record format bump; major agent version; rows 279-291.",
-   "notes": "Owner phone test 2026-11-23 (791335a, record 20261123-213534): 广东四天游 with 九龙湖旅游度假村; her plan had one sight a day and a separate hotel next to the resort; city 广东 made the lookup pick 韶关/肇庆/惠州 places; a saved plan with 陈家祠 not found was retracted by a false CLAIM_AFTER_FAILURE. PoC on the PC: gemini live 9 runs, most with empty days; qwen3.8-flash planner with 高德 counts 6/6 sensible. Owner: the voice model only hands the request on; a stronger model plans; code counts; the planner reviews. Owner: handing work over must always be said and shown as a turning circle with text that follows the backend progress, as 豆包 does.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on 17324b3 in a clean clone (Linux Swift 6.1; NovaCore 1104 tests, 1 known NoiseCorpus issue; NovaRealtime 57; NovaServices 118; check_agent_version 10.0.0, record format 10, check_panel_tools, spec-trace OK). Review: spec-reviewer high effort FAIL on 16da101 (a search during plan_trip removed the spinner row) -> fixed 17324b3; re-check medium PASS. Rows 279-285, 288, 289-290 (core) unit PASS (TripPlanTripTests, TripSavedClaimTests, PlanTripHandoffTests, TripPlannerClientTests); rows 286 eval, 287, 291 device NOT_VERIFIED; App files read, not compiled. Notes: during plan_trip a search keeps the planner's row (no 正在查 text); handoff said ms is 0 (said at dispatch); counts use the plan's B; removed only for a change; check_trip_plan text still names set_trip_plan (owner/spec note); planner calls bypass CallBudget."
-   ]
-  },
-  {
-   "id": "T-040zp",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zo"
-   ],
-   "action": "F-15b §63 items 1-5: in the one function that saves a TripPlan (plan_trip, screen edits, reopened saved plans), a stop that is the same place as the stop right before it in the same day (same Place.id or same found name) is merged into it; if either is the night's hotel the merged stop is the hotel and keeps the sight's minutes, counted once in TripTimes and budget B; two sights keep the larger minutes; a day's start hotel and its night hotel are not merged; cards, map pins, plan_text and the planner counts use the merged plan; plan_text writes a merged hotel once as 「<name>（玩约<time>，住这里）」; §62 row 281's text replaced; rows 292-296.",
-   "notes": "Owner phone test 2026-11-24 (6512033, record 20261124-100527): the planner listed 佛山绿湖温泉度假酒店 as a 120-minute sight and as that night's stay; the cards showed it twice in a row and she invented a reason (「为了记录住宿时间」). Owner: never show the same place twice in a row; code merges it, the planner prompt is unchanged.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on f139a9e in a clean worktree (Linux Swift 6.1.2; NovaCore 1110 tests, 1 known NoiseCorpus issue). Review: spec-reviewer high effort FAIL on 27c9b8e (adjacent same-place hotels not merged; old hotel minutes would count; place(id:at:) index shift) -> fixed f139a9e; re-check medium PASS. Rows 292-295 unit PASS (TripMergeTests in TripPlanTripTests.swift; §62 rows 279/281 updated to the merged plan); row 296 device NOT_VERIFIED. Notes: a start and night hotel with nothing between merge too (owner rule: never twice in a row); hotel minutes persisted as optional `stay`; open non-blocking: check_trip_plan drafts are counted unmerged and a sight turned hotel keeps its minutes; a merge after timing drops that day's legs; a rest day's counts line loses its 住R fact."
-   ]
-  },
-  {
-   "id": "T-031ze",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-031zd"
-   ],
-   "action": "F-09b §20 items 1-4: tool descriptions only. show_places (F-16 §15) gets item 1's text: each place is a card with photos; used also when the driver asks to see pictures of places she just named. show_place (§18 item 1) pictures wording as item 2, pointing to show_places for several places. web_search (F-18 §16 item 3): 「只按返回的 answer 回答。」 becomes item 3's text (facts only from answer; the answer's words about its own abilities are not about her). Agent version bump per F-09b §15, agent-versions.md row, regenerated parts and hash; rows 1-4.",
-   "notes": "Owner phone test 2026-11-24 (857bf0f, record 20261124-110720): 「你给我看一下图片吧」 after she named Bali-style resorts; she called web_search, whose answer began 「抱歉，我无法直接显示图片」, and told the driver four times the system cannot show pictures. show_places never said its cards have photos. Owner: tell her the tool includes images.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on 0be3b5d in a clean worktree (Linux Swift 6.1.2; check_agent_version OK, agent 10.1.0 minor, hash 8bb8c96405f1, parts 10.1.0.json regenerated). Review: spec-reviewer high effort PASS (texts byte-equal to items 1-3; parts diff shows only the three descriptions). Row 1 unit PASS (PhotoToolTextTests, WebSearchTests/ForecastSearchTests full texts); rows 2-3 eval NOT_RUN (no PC replay harness here); row 4 device NOT_VERIFIED. trace-ids.txt gained T-031ze and T-040zp."
-   ]
-  },
-  {
-   "id": "T-031zf",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-031ze"
-   ],
-   "action": "F-09b §21 items 1-3: code adds next 「answer 里有地点时，用 show_places 把它们列在屏幕上（每个是带照片的卡片），再简短说找到了哪些。」 to every ok web_search result when show_places is declared; failed results unchanged; code does not judge whether places are named; rows 1-3 (eval with scripts/eval/photo_live_poc.py).",
-   "notes": "Owner phone test 2026-11-24 (da3afe8, record 20261124-131230): §20's texts did not help; she searched and said she cannot show pictures. Live PoC on gemini-3.8-live with the 10.1.0 setup: 0/5 as is, 5/5 with this next. Owner accepts cards also for time/price searches.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on ca26bf8 in a clean worktree (NovaCore 1114 tests, 1 known NoiseCorpus issue). Code da6c4a1: placesNext appended to the ok result's next when show_places is declared (App passes showPlaces: true with search on). Review: spec-reviewer high FAIL (spec row 1 said 'exactly', PoC replaced next) -> f9d8190 spec item 1/row 1 say appended, photo_live_poc.py appends; re-check medium PASS. Row 1 unit PASS (SearchPlacesNextTests); row 2 eval NOT_RUN (no GEMINI_API_KEY in this environment; the spec's 5/5 was with a replaced next, rerun needed); row 3 device NOT_VERIFIED. No agent version bump (result text not in the §15 hash)."
-   ]
-  },
-  {
-   "id": "T-031zg",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-031zd"
-   ],
-   "action": "F-09b §22 items 1-5: a tap 「×」 (xmark.circle.fill, top-right, >= 44 pt, white on dark, identifier <panel>-close) on destinationList, routePicking, tripScreen, tripDetail, tripPlans and musicCard, calling the same close function exit_navigation_mode uses (destinationList/routePicking: the 「不去了」 executor path, I-6); no model call, no spoken line; a running plan_trip keeps running with its spinner; record `panel close tap <key>`; trip cards' per-stop 「×」 unchanged; rows 1-4.",
-   "notes": "Owner 2026-11-24: he has to say 「关掉」 every time to close the trip screen, cards or route choices, and she is sometimes slow. Only camera and mapPin have a 「×」 today.",
-   "evidence": [
-    "Gates: scripts/gates/run_all.sh PASS on 2003ff8 in a clean worktree (NovaCore 1115 tests, 1 known NoiseCorpus issue; NovaRealtime 57; NovaServices 118); record format 11 (fixtures, read.py, record-format.md). Review: spec-reviewer high FAIL on d230db0/ca26bf8 (trip 「×」 during guidance ended guidance; no-session 「×」 dead; 「×」 over per-stop ✕ and 「完成」; plan_trip result did not reshow tapped-away cards) -> fixed e181dbf/2003ff8 (NavigationController.exit(panel:) closes only the named panel, also fixing her named-panel voice close; trip 「×」 in its own row; no 「×」 on in-guidance route alternatives, spec line added) -> re-check medium PASS. Rows 1-2 unit PASS (PanelCloseTapTests, PanelCloseFlowTests real flow); row 3 by reading (no unit test); row 4 device NOT_VERIFIED; App files read, not compiled."
-   ]
-  },
-  {
-   "id": "T-046x",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-046w",
-    "T-040zo"
-   ],
-   "action": "F-18 §35 items 1-10: find_events tool (cities, from, to, kinds; NON_BLOCKING; field checks); event store Application Support/events.json (per city windows, 24 h, today..+30, refresh on app open, local only); browse loop on a miss (qwen3.8-max compatible-mode chat with search(query) via the search route max qwen3.8-flash returning links, and open_page(url) fetched by code; <= 12 tool calls, 180 s; system text copied from a published browsing-agent prompt and cited); page excerpts <= 2,500 chars around date lines, read pages collapsed; code keeps only events whose start/end parse from the opened source page and fall in the window; result/next/EVENTS_FAILED; spinner steps and handoff line; record lines; agent version bump; rows 24-32.",
-   "notes": "Owner 2026-11-24 (35ce0ff, record 20261124-145528): event questions answered wrongly; PoCs on the PC: single forced searches on every qwen3.7/3.8 model and site filters found no events for Nov 25-29; a browse loop (qwen3.8-max, search + open_page) found 2026横琴人工智能大赛AI嘉年华 11月28日-29日 on an opened 本地宝 page in 2/3 runs, ~100K tokens and ~2.5 min per run.",
-   "evidence": [
-    "c3e1f22..457a700: Linux gates green in a clean worktree (NovaCore 1135, NovaRealtime 65 tests; ios_spec_check, spec_trace PASS; secrets gate flags only ignored .claude/worktrees in the main checkout); spec-reviewer high effort PASS 2026-11-24; rows 24-30 unit; agent 11.0.0, record format 12",
-    "row 31 PC eval NOT_RUN (no DashScope key in cloud; scripts/eval/event_browse_poc.py still uses the PoC text, must switch to EventBrowseLoop.system before row 31); row 32 device NOT_VERIFIED; App not compiled"
-   ]
-  },
-  {
-   "id": "T-046y",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zo"
-   ],
-   "action": "F-18 §36 items 1-5: QwenRoute gets an ordered model list per job (live, ground, picker, planner, events loop, events search) with per-entry search options and thinking; move on 429 or quota 403 before any answer, each entry once, within the job's time; a quota 403 marks the model used up for 24 h or until restart; record qwen fallback / qwen exhausted; diagnostics show marked models; an entry is listed only after its job's PC eval passes (row 35); rows 33-36. Amends F-15b §50 item 10, §59 item 2, §62 item 7.",
-   "notes": "Owner 2026-11-24: quotas run out fast (qwen3.8-max 686K/1M, qwen3.8-flash 855K/1M after one day); picker and planner have no backup today.",
-   "evidence": [
-    "a16b7a9: Linux gates green (NovaCore 1115, NovaRealtime 62, NovaServices 118 tests; ios_spec_check, spec_trace PASS; secrets gate flags only untracked .claude/worktrees); spec-reviewer high effort PASS 2026-11-24",
-    "row 35 PC eval NOT_RUN (no DashScope key in cloud); unevaluated entries kept in QwenRoute.awaitingEval"
-   ]
-  },
-  {
-   "id": "T-046z",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-046x"
-   ],
-   "action": "F-18 §37 items 1-4: a newer web_search supersedes an older running one (older result held, dropped if the newer is ok, sent if it fails); the 现在 note lists running find_events/plan_trip with seconds; RESULT_PENDING tool=<name> correction generalising TRIP_RESULT_PENDING; a result whose call predates a reconnect is sent as a text turn when idle; results older than 10 min not spoken; rows 37-41.",
-   "notes": "Record 20261124-145528: two overlapping breakfast searches gave contradicting turns 70/71; she said 「选项已过期」 while plan_trip ran.",
-   "evidence": [
-    "41704d3: Linux gates green in a clean worktree (NovaCore 1135 tests; ios_spec_check, spec_trace PASS); spec-reviewer high effort FAIL (carried calls kept RESULT_PENDING; a third overlapping search leaked a held result) -> 457a700, 41704d3 -> medium re-check PASS 2026-11-24; rows 37-40 unit; agent 11.1.0, record format 12",
-    "row 41 device NOT_VERIFIED; App not compiled; noteIdle now lets notes go while only background calls run (F-09b §21 item 2 wording not yet amended)"
-   ]
-  },
-  {
-   "id": "T-046za",
-   "owner": "EXTERNAL_RESOURCE",
-   "status": "BLOCKED_EXTERNAL",
-   "priority": 1,
-   "action": "F-18 §38: the events loop as the PoC ran it: PoC system text, question and tool descriptions (owner exception); open_page returns page text ≤6000 chars + 40 links; qwen3.8-max thinking off, not streamed; last step with tool_choice none; failure reasons as they happened; rows 42-47, row 46 PC before the build.",
-   "depends_on": [
-    "T-046z"
-   ],
-   "quantified": {
-    "options": [
-     "Build as written (rows 42-47)",
-     "Change the spec first"
-    ]
-   },
-   "notes": "Owner 2026-11-24: every find_events failed on the phone (record 20261124-173419); §35 was built as a cut-down copy of the working PoC and row 31 never ran. Owner: build the PoC as it ran. Row 46 (PC, 3 runs) must pass before the app build.",
-   "evidence": [
-    "ffffe37+51fa392+74068b6: items 1-7 built; rows 42-45 unit PASS (NovaCore 1137 tests, 1 pre-existing known issue; NovaRealtime 66; NovaServices 118; ios_spec_check PASS; spec_trace 186/0; imports 0)",
-    "spec-reviewer high effort FAIL (item 1 city) -> fix 51fa392 -> medium re-check PASS 2026-11-24",
-    "row 46 NOT_RUN (no key in cloud; replica script scripts/eval/event_loop_replica.py); row 47 device NOT_VERIFIED; no app build until row 46 passes"
-   ],
-   "blocked_by": "Superseded by T-046zb (F-18 §39): row 46 PASS 2026-11-24 (9384bbf) but row 47 device FAIL on build 9384bbf (record 20261124-220730)"
-  },
-  {
-   "id": "T-046zb",
-   "owner": "EXTERNAL_RESOURCE",
-   "status": "BLOCKED_EXTERNAL",
-   "priority": 1,
-   "depends_on": [
-    "T-046za"
-   ],
-   "action": "F-18 §39 items 1-10: find_events runs city x kind keyword queries (max 12, 4 at once, 45 s each) on the qwen3.8-flash search route with no system text, keeps answer text + sources; one qwen3.8-flash extraction call (system 'Extract the event information.' + JSON shape); code checks dates, window, city, source url, duplicates; store marked per kind, empty results only 30 min; store answers carry searched_minutes_ago and next says how old; handoff/spinner/record lines; EventBrowseLoop and open_page removed; rows 48-56, row 55 PC recall eval before the build.",
-   "notes": "Owner phone test 2026-11-24 (build 9384bbf): the browse loop found 0 then 1 event; two later calls returned a cached empty result without searching. PC PoC: 4 short flash queries found 10+ real events for 5.7K tokens. Row 55 needs scripts/eval/events_reference_2026-11.json confirmed by hand first and the DashScope key on the owner PC.",
-   "evidence": [
-    "8a554cf..934d6bc: items 1-10 built; rows 48-54 unit PASS (NovaCore 1136+, NovaRealtime 64, NovaServices 118; 1 pre-existing known issue; spec-trace 187/0; record format 13); gates green on a clean clone of 934d6bc",
-    "spec-reviewer high effort PASS 2026-11-24 (non-blocking findings fixed: record format 13, fallback source needs sources, 1-char city, comments)",
-    "row 55 NOT_RUN: scripts/eval/event_search_replica.py ready; scripts/eval/events_reference_2026-11.json entries confirmed=false (confirm by hand) and needs DASHSCOPE_API_KEY on the owner PC; row 56 device NOT_VERIFIED; App not compiled"
-   ],
-   "blocked_by": "Row 55 PC recall eval before the build: confirm events_reference_2026-11.json by hand, then run event_search_replica.py with the DashScope key"
-  },
-  {
-   "id": "T-040zq",
-   "owner": "AUTONOMOUS",
-   "status": "PASS",
-   "priority": 1,
-   "depends_on": [
-    "T-040zp",
-    "T-046x"
-   ],
-   "action": "F-15b §64 items 1-6: asked.start and asked.stay_city; dated days on cards and plan_text; events from the F-18 §35 store (browse on a miss inside plan_trip, spinner 正在查活动 first); planner shape gains optional event {title,start,end} on a sight and one system-text line; code counts facts each round (event not in store, day outside open dates, night outside stay_city); unmatched events saved as plain sights and named in note; event cards show dates; rows 297-302.",
-   "notes": "PoC 2026-11-24: planner placed every event on an open day (3 runs) but once invented an end date and once moved a night to 深圳 despite 酒店住珠海.",
-   "evidence": [
-    "457a700: Linux gates green in a clean worktree (NovaCore 1135 tests); spec-reviewer high effort PASS 2026-11-24 (shape() dropping events fixed in 457a700); rows 297-300 unit; agent 12.0.0",
-    "row 301 PC eval NOT_RUN, row 302 device NOT_VERIFIED; App not compiled; stay fact added only with stay_city given"
-   ]
-  }
- ]
+  "schema_version": 1,
+  "work": [
+    {
+      "id": "H-hardware",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "Provide a Mac with Xcode (Swift 6) and a physical iPhone",
+      "depends_on": [],
+      "automation_blocker": "physical_hardware",
+      "procedure": "Make a Mac with Xcode and an iPhone available to the project",
+      "pass_criteria": "Mac can run xcodebuild; iPhone registered for development",
+      "expected_return": "Mac/Xcode version, iPhone model + iOS version"
+    },
+    {
+      "id": "H-ios-min",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "H-keys",
+      "owner": "HUMAN_CREDENTIAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "Provide Gemini key + consent, Azure Speech key + voice, Amap SDK + Web keys",
+      "depends_on": [],
+      "automation_blocker": "credentials",
+      "procedure": "Enter keys only on the device / local Keychain, never in the repo",
+      "pass_criteria": "Keys work in the spikes",
+      "expected_return": "Confirmation keys are available (not the keys)"
+    },
+    {
+      "id": "T-000",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-000c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-000x",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-001",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "Audio spike on iPhone: VP AEC, AGC configs, capture latency (OQ-IOS-3, OQ-IOS-14)",
+      "depends_on": [
+        "T-000x",
+        "H-hardware"
+      ],
+      "automation_blocker": "physical_device_audio",
+      "procedure": "Run Spikes/AudioSpike: 10 silent trials with loud 24 kHz playback; measure capture buffer latency",
+      "pass_criteria": "≥9/10 trials gate stays closed, numbers recorded",
+      "expected_return": "Clips + numbers appended to open-questions.md",
+      "evidence": [
+        "Device run 2026-10-25 iPhone 17 iOS 26.6.1: gate closed 6/10 and 8/10 with voice processing (FAIL, need >=9/10); numbers in STATUS.md"
+      ]
+    },
+    {
+      "id": "T-002",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "Amap hello-route spike (OQ-IOS-2 remainder)",
+      "depends_on": [
+        "T-000x",
+        "H-keys",
+        "T-000g"
+      ],
+      "automation_blocker": "physical_device_and_credentials",
+      "procedure": "Run Spikes/AmapSpike with keys from Keychain; multi-route, route select, emulator navi",
+      "pass_criteria": "Route select call name and callback threads recorded",
+      "expected_return": "Notes appended to open-questions.md"
+    },
+    {
+      "id": "T-003",
+      "owner": "HUMAN_CREDENTIAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "Record sanitised Gemini Live fixtures",
+      "depends_on": [
+        "T-000",
+        "H-keys",
+        "T-000g"
+      ],
+      "automation_blocker": "credentials_and_live_service",
+      "procedure": "Run Spikes/GeminiRecorder against the live API",
+      "pass_criteria": "≥6 jsonl fixtures: plain, tool, interrupted, goAway, resumption, 1007 close; no keys/PII",
+      "expected_return": "Fixtures committed under Packages/NovaRealtime/Tests/fixtures/gemini/",
+      "evidence": [
+        "6 fixtures recorded on device 2026-10-25 (plain, tool, interrupted, resumption, close1008, close1007); goAway not captured"
+      ]
+    },
+    {
+      "id": "G0",
+      "owner": "HUMAN_DECISION",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "Go/no-go: Apple voice processing vs port WebRTC AEC3",
+      "depends_on": [
+        "T-001"
+      ],
+      "automation_blocker": "owner_decision",
+      "procedure": "Review T-001 results",
+      "pass_criteria": "Decision written in specs/STATUS.md",
+      "expected_return": "GO or AEC3",
+      "quantified": {
+        "threshold": "≥9/10 silent trials without the gate opening"
+      }
+    },
+    {
+      "id": "T-010",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-011",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-000g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-012",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-014",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-019",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-017",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-018",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-020",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-020a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-020b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-020c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-032b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-032c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-090",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-032d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-032e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-032f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-032g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-032h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-032i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-020d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-024",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-015",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-022",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-023",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-021",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 42,
+      "action": "NovaAudio engine, capture, reply lane",
+      "depends_on": [
+        "T-011",
+        "G0",
+        "T-000x"
+      ],
+      "blocked_by": "needs Xcode + device (T-000x, G0)"
+    },
+    {
+      "id": "T-025",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-026",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M1 device acceptance W1-W4 + V-LAT",
+      "depends_on": [
+        "T-025"
+      ],
+      "automation_blocker": "physical_device_audio",
+      "procedure": "Run W1-W4 on device; 20 turns latency",
+      "pass_criteria": "W1-W4 PASS; latency recorded",
+      "expected_return": "Device log + video, numbers in STATUS.md"
+    },
+    {
+      "id": "T-071a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-071c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-071b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-071d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-070",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-045",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-053a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-021p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-030",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-043",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-050",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 30,
+      "action": "F-14 fallback guidance voice: AVSpeechSynthesizer zh-CN to PCM on the guidance lane (OQ-IOS-10 still open on device)",
+      "depends_on": [
+        "T-021"
+      ],
+      "evidence": [
+        "Linux gates green (NovaCore 298 tests, NovaServices 28); independent high-effort review: rounds 1-6 REWORK fixed, final verdict PASS for relay, nav, music, ui, wake, cache, permissions, background; device rows NOT_VERIFIED",
+        "Fallback voice is build-only; OQ-IOS-10 needs a device run"
+      ],
+      "blocked_by": "off-device part done (logic PASS, Linux gates green 2026-10-26); remaining OQ-IOS-10 fallback voice needs a device run"
+    },
+    {
+      "id": "T-051",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-052",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-053",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-042",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-044",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-047",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-032",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-033",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-061",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-062",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-063",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-072",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-080",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-042b",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "CoreLocationProvider (WGS-84 fix, When In Use on first need), behind use_device_location; GCJ-02 conversion for route origin and weather here",
+      "depends_on": [
+        "T-042"
+      ],
+      "evidence": [
+        "Build only (CI xcode); default stays DemoLocation for recordings (REC-003)",
+        "175f9fa on iPhone 17 (2026-10-27): 设置 shows 位置来源 (手机定位 selected), 定位权限 未询问; 演示位置 label code; D rows 1/4 permission + voice NOT_VERIFIED (needs a person to answer the iOS location prompt)"
+      ],
+      "blocked_by": "CoreLocationProvider built (CI xcode); WGS-84 fix and permission flow need a device"
+    },
+    {
+      "id": "T-031",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-034",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-041",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-071",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-048",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-060",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-035",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M2 device run (W6)",
+      "depends_on": [
+        "T-031",
+        "T-034"
+      ],
+      "automation_blocker": "physical_device_audio",
+      "procedure": "Run W6 on a device",
+      "pass_criteria": "W6 PASS",
+      "expected_return": "Device log in STATUS.md"
+    },
+    {
+      "id": "T-054",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M4 device run (W5, guidance spoken once)",
+      "depends_on": [
+        "T-050",
+        "T-053"
+      ],
+      "automation_blocker": "physical_device_audio",
+      "procedure": "Run W5 on a device",
+      "pass_criteria": "W5 PASS; guidance spoken exactly once",
+      "expected_return": "Device log in STATUS.md"
+    },
+    {
+      "id": "T-064",
+      "owner": "HUMAN_PHYSICAL",
+      "status": "HUMAN_REQUIRED",
+      "priority": 5,
+      "action": "M5 device run incl. screen lock during navigation",
+      "depends_on": [
+        "T-060",
+        "T-062",
+        "T-063"
+      ],
+      "automation_blocker": "physical_device",
+      "procedure": "Run F-01/F-23 device rows",
+      "pass_criteria": "F-01/F-23 device rows PASS",
+      "expected_return": "Device log in STATUS.md"
+    },
+    {
+      "id": "H-evidence",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-071e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-071f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-071g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-042a",
+      "owner": "AUTONOMOUS",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 15,
+      "action": "F-16a CoreLocationProvider first-fix wait, authorization changes, denied state; SwitchableLocationProvider; unit, build",
+      "depends_on": [
+        "T-042"
+      ],
+      "evidence": [
+        "c390f64+9d1671c: first-fix wait, authorization changes, denied state, SwitchableLocationProvider; unit tests; CI green at 175f9fa",
+        "Re-review FAIL (background start skipped permission; start/pause race); fixed in fix/firstfix-core (LocationFixState in NovaPorts + tests, core-linux green at 224b528); final CI blocked by Actions billing",
+        "Local gates PASS 2026-10-27 at 4924a63 (scripts/local_ci.ps1, WSL Swift 6.0.3: NovaCore 351 tests + 1 known issue, NovaRealtime 20, NovaServices 31, imports/secrets/runners/spec-trace) (LocationFixState tests); D1 stale-stop fix and NovaDriveTests fake-manager adapter tests not yet compiled: iOS builds need a Mac/SDK and macOS CI is forbidden (owner rule 2026-10-27)",
+        "2026-10-29: LocationFixState suite 8 tests green on Linux Swift 6.0.3; independent read-only re-review at high effort: PASS (both prior failures fixed, T-044b fan-out no regression, unit rows 5-7 covered; 3 non-blocking notes)",
+        "Notes fixed 2026-10-29: grant before any need starts nothing, pause ends the first-fix wait, §8 sentence asserted; 2 new tests; NovaCore 373 tests green; independent high-effort review PASS",
+        "Codemagic 'NovaDrive iOS Build' (unsigned Release, iphoneos) green at aba6829 2026-10-29 (after fixing RouteGeometry import and NavigationPhase ambiguity found by the failed run at a96676e)"
+      ],
+      "blocked_by": "NovaDriveTests (fake-manager adapter tests) not run: the Codemagic workflow builds but runs no tests"
+    },
+    {
+      "id": "T-046a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "H-F16b",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-044a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-044b",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-044c",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 25,
+      "action": "F-16b DriveView: 我的位置 dot, accuracy circle, locate-me, 定位未开启 pill, follow/free camera; S, D (needs Mac/SDK build and a phone run)",
+      "depends_on": [
+        "T-044a",
+        "T-044b"
+      ],
+      "evidence": [
+        "4654317 + review fixes: MapPositionModel (SelfPosition/MapCameraPolicy driver, permission refresh, 5 s re-evaluation, 15 s auto-recenter tick), DriveView 我的位置 marker, accuracy circle, locate-me, 定位未开启 pill, follow/free camera",
+        "Independent read-only review at high effort 2026-10-29: REWORK; blocking fixed (gesture now detected from touches, not camera-change callbacks: first fix recenters, pans stop following while the car moves); non-blocking applied: source resync on appear, publish only changes, rotation off, along-route list fits places, gray circle when provisional",
+        "Linux gates green; App code not compiled (needs Mac/SDK)",
+        "8985c36: background pause, resume only when visible, no real location under UITestDrive, C8 counted from touch end; independent re-review at high effort 2026-10-29: PASS (1 optional note: cancelled gesture may leave touch flag set)",
+        "Gesture flag now @GestureState (resets on cancel); C8 restarts at touch end or cancel; independent high-effort review PASS",
+        "Codemagic 'NovaDrive iOS Build' (unsigned Release, iphoneos) green at aba6829 2026-10-29 (after fixing RouteGeometry import and NavigationPhase ambiguity found by the failed run at a96676e)"
+      ],
+      "blocked_by": "Phone run only: F-16b rows 1, 2, 6-9 (S/D) NOT_VERIFIED"
+    },
+    {
+      "id": "H-F05a",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016b",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016c",
+      "owner": "HUMAN_DECISION",
+      "status": "NOT_APPLICABLE",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "H-F15a",
+      "owner": "HUMAN_DECISION",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040d",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "NOT_RUN",
+      "priority": 40,
+      "action": "F-15a settings navigation mode, demo-origin lock, HUD simulation / rerouting labels, mode read at start; S, D rows 6-11",
+      "depends_on": [
+        "T-040a",
+        "T-040c"
+      ],
+      "notes": "From the T-040a/b review: pass the trip's NaviMode into SelfPosition.Input (default .emulator hides the marker between car updates); routeChoiceOpen reaches AgentState via the snapshot observer, so a very fast pick could precede it; check on device that a 第一条 said before any transcript arrives is not refused (row 10); App must pass location: deviceLocation (or Switchable) and the clock to AmapRouteEngine, and read NavigationModeSetting at start (NavigationController tuning.mode is fixed .emulator); signal timers use clock.now vs fix timestamps (same SystemClock base on device)"
+    },
+    {
+      "id": "T-016d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-004i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-004j",
+      "owner": "AUTONOMOUS",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 20,
+      "action": "F-04 §14 late end of speech: from the T-004i per-utterance log of a device run, fix what keeps the gate open (AGC / noise-floor threshold, then max utterance length, then a trained VAD); no short command open > 3 s",
+      "depends_on": [
+        "T-004i"
+      ],
+      "notes": "Device run 7565bcf: 9/52 utterances open 7-13 s for short commands.",
+      "blocked_by": "needs the T-004i per-utterance log lines from a device run of 25a5cd9 or later"
+    },
+    {
+      "id": "T-016f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-022a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-034a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-034b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-022b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-071h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-022c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-001a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-022d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-022e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031i",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_APPLICABLE",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-017a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-034c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-034d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-060a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016o",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016n",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013e",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013g",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013h",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-042c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046n",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046o",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046q",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046r",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046s",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046t",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-013m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-021q",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040i",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040n",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040o",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040q",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040r",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040s",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040t",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040u",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040v",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040w",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040x",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031j",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031l",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031m",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031n",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031o",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-016p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-017c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040y",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040z",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040za",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-900a",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-900b",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-900c",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-900d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-900e",
+      "owner": "AUTONOMOUS",
+      "status": "RUNNING",
+      "priority": 40,
+      "action": "specs/token-budget.md item 5: environment setup script installs Swift 6.1.2 and pre-builds NovaCore, NovaServices, NovaRealtime; row 6 needs a fresh container.",
+      "depends_on": [],
+      "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
+      "evidence": []
+    },
+    {
+      "id": "T-900f",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031p",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031o"
+      ],
+      "action": "F-09b §14 stage A (items 1, 5, 8): [系统] 现在 context note (city/district, highway, local time, navigating, trip shown); AskOrActEval and complaint set; baseline eval on Gemini; rows 1-4.",
+      "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
+      "evidence": [
+        "Gates green at f337210 on Linux Swift 6.1.2 (NovaCore 1027 tests, 1 pre-existing known issue; NovaRealtime 52; NovaServices 110; spec-trace 153 ids, 0 missing)",
+        "Independent high-effort review FAIL at cb052c1 (pick question scored askedWhenDecided) -> fixed in f337210 -> medium re-check PASS",
+        "Row 4 (PC baseline eval, live Gemini) NOT RUN: needs GEMINI_API_KEY and a PC harness; App files read, not compiled"
+      ]
+    },
+    {
+      "id": "T-031q",
+      "owner": "AUTONOMOUS",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 1,
+      "depends_on": [
+        "T-031p"
+      ],
+      "action": "F-09b §14 stage B (item 2): base instruction rewritten in four parts with no phrase scripts or 不要反问; eval against baseline; rows 5, 7, 8.",
+      "notes": "BLOCKED 2026-11-20: item 2 and row 5 built (base 994 chars, 4 parts; superseded tests updated; gates green at 0c685e2). Row 7 needs a PC eval harness that drives Gemini Live with the real instruction, notes and tools plus a baseline run, which spends the owner's Gemini quota: owner decision asked. Row 8 device. Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
+      "blocked_by": "Row 7 eval: no PC harness drives Gemini Live with the real instruction, notes and tools, and running one spends the owner's Gemini quota (owner decision asked 2026-11-20); row 8 needs the device",
+      "evidence": []
+    },
+    {
+      "id": "T-031r",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031q"
+      ],
+      "action": "F-09b §14 stage C (item 3): car tool descriptions as purpose / when / parameters / result, no phrase tables; eval against baseline; rows 6, 7, 10.",
+      "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
+      "evidence": []
+    },
+    {
+      "id": "T-031s",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031r"
+      ],
+      "action": "F-09b §14 stage D (items 3, 7): navigation, trip and live-info tool descriptions; make_trip_list loses 不要反问去哪里; rows 6, 7, 9, 10.",
+      "notes": "Owner 2026-11-20, ipa b5c0933: 有點困了 got a tool or nonsense; 想带家人玩三天不知道去哪 got a plan with no question. Owner: 'the agent know the current state, the context, the available tools, let her able to decide and give response, not rule base'.",
+      "evidence": []
+    },
+    {
+      "id": "T-031t",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-031s"
+      ],
+      "action": "F-09b §14E stage E (items 1-6): offer_choices tool (cards, 120 s open offer, code maps 好/第N个/随便/不要 and runs the picked action; navigate_to and make_trip_list refused with OFFER_OPEN while open); suggest_destinations (fixed city table + real drive times); find_rest_stop (service areas ahead via AlongRouteCorridor, else nearby coffee); make_trip_list DESTINATION_MISSING; rows 11-22.",
+      "notes": "Owner 2026-11-20: 'you actually can build some deterministic code here that let llm decide to call'; sources Rasa CALM, Home Assistant, ask_user tools, LangGraph HITL, Anthropic.",
+      "evidence": []
+    },
+    {
+      "id": "T-031u",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031y",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031u"
+      ],
+      "action": "F-09b §15 items 1-8: AgentSetup (model, base instruction, tool names/descriptions/schemas, note templates, marked Tuning values) -> agentHash; specs/contracts/agent-versions.md registry with major/minor/patch bump rules; gate test + check_agent_version.py; record header agentVersion/agentHash/model/model-served (recordFormat +1) and RuntimeLog line; PC reader columns; rows 1-8.",
+      "notes": "Owner 2026-11-20: her setup gets a version assigned by fixed rules and every record is labelled with it. Sources: Langfuse, MLflow Prompt Registry, OpenTelemetry GenAI conventions.",
+      "evidence": [
+        "scripts/gates/run_all.sh green on a clean clone of 88723be (Linux Swift 6.1.2; NovaCore 1044 tests; spec-trace 156 ids, 0 missing; check_agent_version OK); spec-reviewer high effort FAIL (note-template branches and fragments not hashed) -> fixed in 2034d5d -> medium re-check PASS; agent-versions 1.0.0 = 6dbbd9c5d47e; rows 1-7 unit/gate; row 8 device NOT_VERIFIED; model-served not written (no served-model name exposed) NOT_VERIFIED"
+      ]
+    },
+    {
+      "id": "T-046u",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031za",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031z",
+      "owner": "AUTONOMOUS",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 1,
+      "depends_on": [
+        "T-031p",
+        "T-031y"
+      ],
+      "action": "F-09b §16 items 1-10: ScreenState keys on/off reported by each DriveView panel on appear/disappear, music on only when heard (RMS), musicVolume 0-10; one [系统] 屏幕 line on connect and on change (after her reply); tools answer done only when the key changes; bundled song file; show_place opens TripDetailSheet; record screen line; one NavigationPhase enum; rows 1-11.",
+      "notes": "Owner phone test 2026-11-20 (e195ea4): fake 音乐放起来了 x3, 收起来 on the route page not understood, no place card. Owner: the state is not sent to the LLM. Owner rule: state from the display, keys on/off only, volume a number. Needs the bundled song file from the owner.",
+      "blocked_by": "Item 7 needs the bundled song file nova_drive_loop.m4a from the owner (royalty-free, owner approves it); rows 7-11 need a device run",
+      "evidence": [
+        "Off-device parts done: items 1-6, 9, 10. scripts/gates/run_all.sh PASS on 364b701 (Linux Swift 6.1.2; NovaCore 1058 tests, 1 known NoiseCorpus issue; spec-trace 158 ids; check_single_types, check_agent_version 2.2.0, check_record_format 3 OK); spec-reviewer high effort FAIL (exit waited on panels it did not close) -> fixed in 364b701 -> medium re-check PASS; rows 1-6 unit/gate; App and NovaAudio files read, not compiled; rows 7-11 device NOT_VERIFIED; item 7 not done"
+      ]
+    },
+    {
+      "id": "T-042d",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-031zb",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040zb",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040zc",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040zd",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040ze",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040zf",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040zg",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-040zh",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "action": "archived",
+      "depends_on": [],
+      "archived": true,
+      "evidence": [
+        "work-archive.json"
+      ]
+    },
+    {
+      "id": "T-046v",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-046u"
+      ],
+      "action": "F-18 §33 items 1-10: BudgetLimits.enforce; .standard keeps the §32 limits (enforce true), new .unlimited (enforce false); CallBudget.ask checks limits only when enforce is on, still counts and writes paid lines; CallBudget.shared uses .unlimited (the app is not capped); tests and PC scripts keep the limits; the quota breaker stays; a refusal never says the network is down (next text; reply-check drift); rows 13-17.",
+      "notes": "Owner phone test 2026-11-23 (d0a0797, record 20261123-094001): in one driver turn set_trip_plan used the picker twice, the 3rd pick and then web_search were refused reason=budget, and she said 网络限制/无法连接网络. Owner rule 2026-11-23: the limits are for tests only; normal use has no call limit.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort FAIL (quota next said 不要说网络有问题; test stripped it) -> fixed b2e7b28 -> medium re-check PASS. Rows 13-16 unit PASS (UnlimitedBudgetTests, QuotaWordingTests, NetworkBlameTests); row 15 budget side only; row 17 device NOT_VERIFIED."
+      ]
+    },
+    {
+      "id": "T-040zi",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zh"
+      ],
+      "action": "F-15b §56 items 1-7: set_trip_plan accepts every field a trip result shows (id wins: name/placed/picked_by/near ignored, role and minutes applied; unknown keys ignored and listed); only the item 2 checks refuse; INVALID_FIELDS always carries problems lines (day, stop, field) and next; the same refused call is not run twice in one driver request (REPEATED_FAILURE); catalog text; agent minor bump; record problems/ignored/repeat-blocked; rows 237-244.",
+      "notes": "Owner phone test 2026-11-23 (d0a0797, record 20261123-095148): plan fix sent back in the result's shape {id,name,minutes,role} was refused INVALID_FIELDS {} three times (validator: exactly one of id, name, near); she gave up, the trip was never fixed. Owner: delete the over-strict check.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort PASS (2af2200); accepted deviations: repeat check in ToolDispatcher, unknown stop keys allowed instead of schema fields, new plan without city is INVALID_FIELDS. Rows 237-243 unit PASS (TripReadShapeTests, TripRefusalRecordTests); 244 device NOT_VERIFIED."
+      ]
+    },
+    {
+      "id": "T-040zj",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zh"
+      ],
+      "action": "F-15b §57 items 1-7: 结束导航 button whenever navigation, routePicking or routeCalculating is on (same path as exit_navigation_mode, works while moving); 去下一站 button with icon, apart from the cards, toggles to 结束导航 while navigating; trip_next toward the stop already guided -> ALREADY_NAVIGATING; screen-state keys tripNextButton and stopNavigationButton (on/off, from the display); tap lines to her; record nav tap; rows 245-251.",
+      "notes": "Owner 2026-11-23 (d0a0797, records 20261123-101517, -101941): no button stops navigation; 停止导航 heard as 新手导航 restarted it via trip_next; 2026-11-21 a tap meant for the cards hit 去下一站. Owner: a start button needs a stop button, and the navigation buttons go in the state (F-09b §16 rule: on/off only).",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort PASS (2af2200). Rows 245-250 unit PASS (TripNavButtonsTests); build part of 245, 247 NOT_VERIFIED (App not compiled on Linux); 251 device NOT_VERIFIED."
+      ]
+    },
+    {
+      "id": "T-046w",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-046f"
+      ],
+      "action": "F-18 §34 items 1-5: search-request/search-response body= escaped (backslash, \n, \r, \t) so every record entry is one line; any other entry's line break becomes a space; record format 5 with fixture and record-format.md row; read.py format-5 reader unescapes, format-4 reader joins body lines (legacy); rows 18-23.",
+      "notes": "Record 20261123-101517 (d0a0797): Qwen's SSE reply body written raw split one search-response entry into ~140 lines without times. Owner 2026-11-23: spec it. What is recorded is unchanged (F-18 §18, owner-enabled local record).",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort PASS (2af2200); note fixed (format-5 row commit 735e757). Rows 18-21 unit PASS (RecordOneLineTests, check_record_format), row 22 Python tests PASS (format-4 case on a made-up file, real record 20261123-101517 not in the repo); row 23 device NOT_VERIFIED."
+      ]
+    },
+    {
+      "id": "T-040zk",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zi"
+      ],
+      "action": "F-15b §58 items 1-7: a trip-change claim is proven only by an ok set_trip_plan since the driver's last words (never by another tool's ok); a refused set_trip_plan anywhere in the driver request disproves it (CLAIM_AFTER_FAILURE); background/later-sync claims are drift unless a set_trip_plan is running; async start next says 我在改行程; work panel steps for edits (正在改行程, 正在找<名字>, 已加入<名字>, 没改成：<line>); record; rows 252-258.",
+      "notes": "Owner phone test 2026-11-23 (d0a0797, record 20261123-102422): add a cafe -> set_trip_plan INVALID_FIELDS {}, web_search ok, she said 已经加入了BAMN Coffee, then 已经在后台更新了行程，稍后同步; the cafe never appeared and the screen showed nothing. Owner: say she is doing it, show progress on screen.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort FAIL (tripVerdict before TRIP_NEEDS_FIX broke row 228; tripWrites leaked on cancel/reconnect) -> fixed b2e7b28 -> medium re-check FAIL (clearing on utterance voided a running write) -> fixed 278241b (callsEnded on cancel and drop) -> medium re-check PASS. Rows 252-257 unit PASS (TripChangeClaimTests, TripChangeClaimReviewTests, TripEditProgressTests); 256 via catalog text (NON_BLOCKING calls have no immediate result); build part of 257 NOT_VERIFIED; 258 device NOT_VERIFIED; cancel/drop wiring in AgentState checked by reading only."
+      ]
+    },
+    {
+      "id": "T-040zl",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zb"
+      ],
+      "action": "F-15b §59 items 1-4: QwenRoute.picker model qwen3.8-flash (search off, thinking off, 2.5 s); no backup route for the picker (429/quota 403 -> pick fails, 高德 first result); QwenFallback skips a route without backup; trip pick line gets model=<id>; §50 item 9 table and rows 47/154 expectations updated; rows 259-262.",
+      "notes": "Owner phone test 2026-11-23 (7442737, record 20261123-130852): 厦门/海南/深圳 make_trip_list NO_CANDIDATES, trip pick none=8. PC replay same day with real 高德 results: qwen3.7-flash-2026-07-15 answered 0 (none) for all 22 names, qwen3.8-flash picked all 22 correctly. Owner: switch to qwen3.8-flash.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 9c377ab in a clean clone (NovaCore 1087, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 174/0). Review: spec-reviewer high effort PASS (3f78f4a); notes: rows 157/159 text still describes the picker backup, ground backup-budget path lost its test. Rows 259-260 unit PASS; 261 PC, 262 device NOT_VERIFIED."
+      ]
+    },
+    {
+      "id": "T-040zm",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zk"
+      ],
+      "action": "F-15b §60 items 1-5: the trip work panel shows only while a set_trip_plan call runs and goes off when it returns with any result (trip_needs_fix included; remove the early return and continueTrip carry-over); §58 result line then off; off at once when tripScreen goes off; working in the screen state matches the panel; panel working on/off always recorded; no maxOpen for trip work; rows 263-267.",
+      "notes": "Owner phone test 2026-11-23 (6e72c92, record 20261123-141523): 中山 plan ended trip_needs_fix twice, the panel went on at 428929 and never off while the cards showed the plan. Owner: the panel belongs to the screen state; when the trip work or card closes, it closes.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 9c377ab in a clean clone (NovaCore 1087, 1 known issue; spec-trace 174/0). Review: spec-reviewer high effort PASS (f2e344c); notes: other failures still use end() (keeps a failed step line 3 s, pre-existing); row 264 test also accepts trip_list. Rows 263, 265, 266 unit PASS (TripWorkPanelTests); 264 unit PASS; App files read, not compiled; row 267 device NOT_VERIFIED."
+      ]
+    },
+    {
+      "id": "T-004k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-004i"
+      ],
+      "action": "F-04 §15 items 1-5: the dispatcher keeps the running tool calls; a caption next to the status caption shows while any runs (正在搜索…/正在查天气…/正在查…/正在改行程…/正在处理…, newest with 等 N 项), on at the call and off at its result, no timers, regardless of who talks; session end empties it; backgroundWork on/off in the screen state and panel lines in the record; rows 10-14.",
+      "notes": "Owner phone test 2026-11-23 (6e72c92): searches and trip writes run async while the caption says 待命/请说; nothing shows background work. Owner: work running in the back must be visible.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 9c377ab in a clean clone (NovaCore 1087, 1 known issue; agent 6.4.0 then 7.0.0 with T-031zc; record format 7). Review: spec-reviewer high effort PASS (f2e344c); notes: screen key and panel line come from the caption view polled every 0.25 s, so a call under ~0.25 s may not be recorded; reconnect clear not unit-tested in AgentCore. Rows 10-13 unit PASS (BackgroundWorkTests); App files read, not compiled; row 14 device NOT_VERIFIED."
+      ]
+    },
+    {
+      "id": "T-031zc",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031za"
+      ],
+      "action": "F-09b §18 items 1-8: show_place(name, city); screen match unchanged, else 高德 text search in her city (car city only when city empty), no nationwide fallback, no first result; one exact name+city match -> card; else PLACE_UNSURE ok=false with asked/found (5) and next (check with web_search, call again, no apology-only); ok result names card name and city; record line with sure/found; scripts/show_place_check.py real-data PC check with --max-calls; rows 1-8.",
+      "notes": "Owner phone test 2026-11-23 (6e72c92, records 20261123-142445, -143104): 清远悦天下生态度假区 (really in 云浮) showed 清泉湾, a different resort; 清远新世界酒店 showed a 珠海 door shop; she apologised and never re-searched. Owner: the model finds the place, code only fetches; unsure goes back to the model.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on e2107e3 in a clean clone (NovaCore all green, 1 known NoiseCorpus issue; agent 7.0.0). Review: spec-reviewer high effort FAIL (asked branch name stripped, so calling again from found stayed PLACE_UNSURE) -> fixed e2107e3 -> medium re-check PASS. Rows 1-5 unit PASS (ShowPlaceToolTests, mutation-checked); row 6 PC needs AMAP_WEB_KEY (dry-run only), row 7 eval (no replay case yet) and row 8 device NOT_VERIFIED; App files read, not compiled."
+      ]
+    },
+    {
+      "id": "T-031zd",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031zc"
+      ],
+      "action": "F-09b §19 items 1-7: show_on_map(name, city) declared always; the §18 show_place lookup shared in one function (screen match, 高德 in her city, exact name+city sure, else PLACE_UNSURE with found, no pin); sure -> one green pin (replaces any earlier) and a small card with name, district, straight-line distance and ×, no route request of any kind; camera frames car+pin (pin alone at 5 km when car unknown or >300 km; no move while navigating), following paused, recenter off; mapPin screen key layer 1 in the §17 registry, opening closes tripDetail/tripPlans, off on ×, 关掉, a navigate_to list, session end; ok facts name/city/district/address/distance_km with next 没有开始导航 and must_not claim_started; navigate_to description sentence; agent minor bump; record line; rows 1-9.",
+      "notes": "Owner phone test 2026-11-23 (6082b0e, record 20261123-162956): asked three times where 九龙湖度假区 is on the map; open_app maps showed nothing, show_place gave only an intro card, so she called navigate_to and a tap started a 168-minute route. Owner: add a show-map tool.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 2d263fe in a clean clone (NovaCore 1095, 1 known NoiseCorpus issue; spec-trace 175/0; agent 8.0.0 — the §15 gate counts a new tool as major, spec said minor, noted in §19; record format 8). Review: spec-reviewer high effort FAIL (8.0.0 parts stale; pin stopped the auto-recenter while navigating) -> fixed df47803, 2d263fe -> medium re-check PASS (new test fails without the fix). Rows 1-7 unit PASS (ShowOnMapToolTests, MapPinCameraTests); row 8 eval (no replay case) and row 9 device NOT_VERIFIED; App files read, not compiled. Notes: × calls closePanel directly, not through the executor; rows 3/5 App halves checked by reading only."
+      ]
+    },
+    {
+      "id": "T-040zn",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zm"
+      ],
+      "action": "F-15b §61 items 1-9: set_trip_plan saves and reports only (saved true/false, ok == saved, whole plan, not_placed with the searched range, removed over the driver request); no critics in the write, no issues, no trip_needs_fix, no rounds (§55 items 8-10, §49 items 5-6 removed); new read-only check_trip_plan (no args = plan in hand, or a draft days in set_trip_plan shape, nothing saved): per-day sight/driving/total/budget minutes, stops placed, hotel, not_found with range, unknown_driving; numbers only, no advice words; new set_trip_plan field asked {text, must, days, city, notes} written by the model, required for a new plan, kept when not sent, part of TripPlan (saved plans, every trip result, 现在 note), never compared by code; saved-result next asks her to review her own plan against asked (driver's places/days/city/hotel present, no empty day, each day reasonable, check_trip_plan when needed) and revise with set_trip_plan before speaking; plan_text one line per day ahead of the JSON; from the 3rd save in a driver request next says stop revising and tell the driver; panel 行程已更新 / 没保存 / 正在核对行程; record trip_edit state=saved|refused, trip set saved=, trip check-call; catalog texts; major agent version; rows 268-278.",
+      "notes": "Owner phone test 2026-11-23 (416bff7, record 20261123-181633): 广东几天游 including 九龙湖公主酒店; lookup searched 中山 only, issue line said 换一个或者去掉, she replaced it twice, the last result read ok=true / state=done, and she said the plan included 九龙湖. Owner: the LLM plans; counting is a tool the LLM calls to verify its plan; success is approved by the LLM, never by code. Owner follow-up: the LLM can see an empty day and a wrong split itself, so it reviews and revises its own plan; root cause per owner: the driver's request was never saved with the plan (context lost), so it is now saved as asked.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 959f2ff in a clean clone (Linux Swift 6.1.2; NovaCore 1092 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; check_agent_version 9.0.0, check_record_format 9, check_panel_tools, spec-trace OK). The first clean-clone run on dca046c failed 4 stale tests -> fixed 959f2ff. Review: spec-reviewer high effort PASS on 94882ba..959f2ff (FAIL on dca046c alone for those 4 tests). Non-blocking review fix: clearAll forgets asked (test added). Rows 268-272, 275, 277 unit PASS (TripReviewTests); rows 273, 274, 276, 278 eval/device NOT_VERIFIED; App files read, not compiled. Open notes for the owner: plan_text cannot come before plan on the wire (sorted keys); row 268's fixture leaves out the spec-given texts containing 改好/安排好; dispatcher REPEATED_FAILURE carries no saved=false; TripChecks issue texts remain (unreachable in production)."
+      ]
+    },
+    {
+      "id": "T-040zo",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zn"
+      ],
+      "action": "F-15b §62 items 1-13: the voice model's trip tool plan_trip carries asked (new plan) or change (the driver's words), never days; set_trip_plan leaves the catalog, check_trip_plan stays; a qwen3.8-flash planner (DashScope intl compatible-mode, json_object, no thinking; client in NovaRealtime next to QwenPlacePicker, loop/shape/prompt in NovaCore) writes {days:[{sights:[{name,city,minutes}],stay}],done,note} with item 3's system text; a stay may be a sight of the same day (one place, no other hotel); code looks up each stop with its own city and sends per-day counts (sights, sight/driving/total minutes, budget B, found name/city/district, not found with range) every round, no verdict or advice words; the planner revises; a done in round 1 still gets one counts round; stop at done from round 2 or after round 3 and save; result saved/asked/plan_text/note/not_placed/removed/rounds and item 6's next (she tells the driver, does not revise); PLANNER_FAILED on http/timeout 30 s/non-JSON twice, cards unchanged, no fallback planner; trip claims judged only by §58's trip verdict (refused writes before an ok one and not_placed never give CLAIM_AFTER_FAILURE); the handoff line is said by the app (guidance voice + subtitle) at every plan_trip dispatch and a spinner with one line of text naming the current backend step (豆包 style, owner sketch: turning circle left, text right) shows on top of any screen until the result (search tools: the row only, no spoken line); record trip planner round/failed, handoff said; record format bump; major agent version; rows 279-291.",
+      "notes": "Owner phone test 2026-11-23 (791335a, record 20261123-213534): 广东四天游 with 九龙湖旅游度假村; her plan had one sight a day and a separate hotel next to the resort; city 广东 made the lookup pick 韶关/肇庆/惠州 places; a saved plan with 陈家祠 not found was retracted by a false CLAIM_AFTER_FAILURE. PoC on the PC: gemini live 9 runs, most with empty days; qwen3.8-flash planner with 高德 counts 6/6 sensible. Owner: the voice model only hands the request on; a stronger model plans; code counts; the planner reviews. Owner: handing work over must always be said and shown as a turning circle with text that follows the backend progress, as 豆包 does.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 17324b3 in a clean clone (Linux Swift 6.1; NovaCore 1104 tests, 1 known NoiseCorpus issue; NovaRealtime 57; NovaServices 118; check_agent_version 10.0.0, record format 10, check_panel_tools, spec-trace OK). Review: spec-reviewer high effort FAIL on 16da101 (a search during plan_trip removed the spinner row) -> fixed 17324b3; re-check medium PASS. Rows 279-285, 288, 289-290 (core) unit PASS (TripPlanTripTests, TripSavedClaimTests, PlanTripHandoffTests, TripPlannerClientTests); rows 286 eval, 287, 291 device NOT_VERIFIED; App files read, not compiled. Notes: during plan_trip a search keeps the planner's row (no 正在查 text); handoff said ms is 0 (said at dispatch); counts use the plan's B; removed only for a change; check_trip_plan text still names set_trip_plan (owner/spec note); planner calls bypass CallBudget."
+      ]
+    },
+    {
+      "id": "T-040zp",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zo"
+      ],
+      "action": "F-15b §63 items 1-5: in the one function that saves a TripPlan (plan_trip, screen edits, reopened saved plans), a stop that is the same place as the stop right before it in the same day (same Place.id or same found name) is merged into it; if either is the night's hotel the merged stop is the hotel and keeps the sight's minutes, counted once in TripTimes and budget B; two sights keep the larger minutes; a day's start hotel and its night hotel are not merged; cards, map pins, plan_text and the planner counts use the merged plan; plan_text writes a merged hotel once as 「<name>（玩约<time>，住这里）」; §62 row 281's text replaced; rows 292-296.",
+      "notes": "Owner phone test 2026-11-24 (6512033, record 20261124-100527): the planner listed 佛山绿湖温泉度假酒店 as a 120-minute sight and as that night's stay; the cards showed it twice in a row and she invented a reason (「为了记录住宿时间」). Owner: never show the same place twice in a row; code merges it, the planner prompt is unchanged.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on f139a9e in a clean worktree (Linux Swift 6.1.2; NovaCore 1110 tests, 1 known NoiseCorpus issue). Review: spec-reviewer high effort FAIL on 27c9b8e (adjacent same-place hotels not merged; old hotel minutes would count; place(id:at:) index shift) -> fixed f139a9e; re-check medium PASS. Rows 292-295 unit PASS (TripMergeTests in TripPlanTripTests.swift; §62 rows 279/281 updated to the merged plan); row 296 device NOT_VERIFIED. Notes: a start and night hotel with nothing between merge too (owner rule: never twice in a row); hotel minutes persisted as optional `stay`; open non-blocking: check_trip_plan drafts are counted unmerged and a sight turned hotel keeps its minutes; a merge after timing drops that day's legs; a rest day's counts line loses its 住R fact."
+      ]
+    },
+    {
+      "id": "T-031ze",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031zd"
+      ],
+      "action": "F-09b §20 items 1-4: tool descriptions only. show_places (F-16 §15) gets item 1's text: each place is a card with photos; used also when the driver asks to see pictures of places she just named. show_place (§18 item 1) pictures wording as item 2, pointing to show_places for several places. web_search (F-18 §16 item 3): 「只按返回的 answer 回答。」 becomes item 3's text (facts only from answer; the answer's words about its own abilities are not about her). Agent version bump per F-09b §15, agent-versions.md row, regenerated parts and hash; rows 1-4.",
+      "notes": "Owner phone test 2026-11-24 (857bf0f, record 20261124-110720): 「你给我看一下图片吧」 after she named Bali-style resorts; she called web_search, whose answer began 「抱歉，我无法直接显示图片」, and told the driver four times the system cannot show pictures. show_places never said its cards have photos. Owner: tell her the tool includes images.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 0be3b5d in a clean worktree (Linux Swift 6.1.2; check_agent_version OK, agent 10.1.0 minor, hash 8bb8c96405f1, parts 10.1.0.json regenerated). Review: spec-reviewer high effort PASS (texts byte-equal to items 1-3; parts diff shows only the three descriptions). Row 1 unit PASS (PhotoToolTextTests, WebSearchTests/ForecastSearchTests full texts); rows 2-3 eval NOT_RUN (no PC replay harness here); row 4 device NOT_VERIFIED. trace-ids.txt gained T-031ze and T-040zp."
+      ]
+    },
+    {
+      "id": "T-031zf",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031ze"
+      ],
+      "action": "F-09b §21 items 1-3: code adds next 「answer 里有地点时，用 show_places 把它们列在屏幕上（每个是带照片的卡片），再简短说找到了哪些。」 to every ok web_search result when show_places is declared; failed results unchanged; code does not judge whether places are named; rows 1-3 (eval with scripts/eval/photo_live_poc.py).",
+      "notes": "Owner phone test 2026-11-24 (da3afe8, record 20261124-131230): §20's texts did not help; she searched and said she cannot show pictures. Live PoC on gemini-3.8-live with the 10.1.0 setup: 0/5 as is, 5/5 with this next. Owner accepts cards also for time/price searches.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on ca26bf8 in a clean worktree (NovaCore 1114 tests, 1 known NoiseCorpus issue). Code da6c4a1: placesNext appended to the ok result's next when show_places is declared (App passes showPlaces: true with search on). Review: spec-reviewer high FAIL (spec row 1 said 'exactly', PoC replaced next) -> f9d8190 spec item 1/row 1 say appended, photo_live_poc.py appends; re-check medium PASS. Row 1 unit PASS (SearchPlacesNextTests); row 2 eval NOT_RUN (no GEMINI_API_KEY in this environment; the spec's 5/5 was with a replaced next, rerun needed); row 3 device NOT_VERIFIED. No agent version bump (result text not in the §15 hash)."
+      ]
+    },
+    {
+      "id": "T-031zg",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031zd"
+      ],
+      "action": "F-09b §22 items 1-5: a tap 「×」 (xmark.circle.fill, top-right, >= 44 pt, white on dark, identifier <panel>-close) on destinationList, routePicking, tripScreen, tripDetail, tripPlans and musicCard, calling the same close function exit_navigation_mode uses (destinationList/routePicking: the 「不去了」 executor path, I-6); no model call, no spoken line; a running plan_trip keeps running with its spinner; record `panel close tap <key>`; trip cards' per-stop 「×」 unchanged; rows 1-4.",
+      "notes": "Owner 2026-11-24: he has to say 「关掉」 every time to close the trip screen, cards or route choices, and she is sometimes slow. Only camera and mapPin have a 「×」 today.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 2003ff8 in a clean worktree (NovaCore 1115 tests, 1 known NoiseCorpus issue; NovaRealtime 57; NovaServices 118); record format 11 (fixtures, read.py, record-format.md). Review: spec-reviewer high FAIL on d230db0/ca26bf8 (trip 「×」 during guidance ended guidance; no-session 「×」 dead; 「×」 over per-stop ✕ and 「完成」; plan_trip result did not reshow tapped-away cards) -> fixed e181dbf/2003ff8 (NavigationController.exit(panel:) closes only the named panel, also fixing her named-panel voice close; trip 「×」 in its own row; no 「×」 on in-guidance route alternatives, spec line added) -> re-check medium PASS. Rows 1-2 unit PASS (PanelCloseTapTests, PanelCloseFlowTests real flow); row 3 by reading (no unit test); row 4 device NOT_VERIFIED; App files read, not compiled."
+      ]
+    },
+    {
+      "id": "T-046x",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-046w",
+        "T-040zo"
+      ],
+      "action": "F-18 §35 items 1-10: find_events tool (cities, from, to, kinds; NON_BLOCKING; field checks); event store Application Support/events.json (per city windows, 24 h, today..+30, refresh on app open, local only); browse loop on a miss (qwen3.8-max compatible-mode chat with search(query) via the search route max qwen3.8-flash returning links, and open_page(url) fetched by code; <= 12 tool calls, 180 s; system text copied from a published browsing-agent prompt and cited); page excerpts <= 2,500 chars around date lines, read pages collapsed; code keeps only events whose start/end parse from the opened source page and fall in the window; result/next/EVENTS_FAILED; spinner steps and handoff line; record lines; agent version bump; rows 24-32.",
+      "notes": "Owner 2026-11-24 (35ce0ff, record 20261124-145528): event questions answered wrongly; PoCs on the PC: single forced searches on every qwen3.7/3.8 model and site filters found no events for Nov 25-29; a browse loop (qwen3.8-max, search + open_page) found 2026横琴人工智能大赛AI嘉年华 11月28日-29日 on an opened 本地宝 page in 2/3 runs, ~100K tokens and ~2.5 min per run.",
+      "evidence": [
+        "c3e1f22..457a700: Linux gates green in a clean worktree (NovaCore 1135, NovaRealtime 65 tests; ios_spec_check, spec_trace PASS; secrets gate flags only ignored .claude/worktrees in the main checkout); spec-reviewer high effort PASS 2026-11-24; rows 24-30 unit; agent 11.0.0, record format 12",
+        "row 31 PC eval NOT_RUN (no DashScope key in cloud; scripts/eval/event_browse_poc.py still uses the PoC text, must switch to EventBrowseLoop.system before row 31); row 32 device NOT_VERIFIED; App not compiled"
+      ]
+    },
+    {
+      "id": "T-046y",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zo"
+      ],
+      "action": "F-18 §36 items 1-5: QwenRoute gets an ordered model list per job (live, ground, picker, planner, events loop, events search) with per-entry search options and thinking; move on 429 or quota 403 before any answer, each entry once, within the job's time; a quota 403 marks the model used up for 24 h or until restart; record qwen fallback / qwen exhausted; diagnostics show marked models; an entry is listed only after its job's PC eval passes (row 35); rows 33-36. Amends F-15b §50 item 10, §59 item 2, §62 item 7.",
+      "notes": "Owner 2026-11-24: quotas run out fast (qwen3.8-max 686K/1M, qwen3.8-flash 855K/1M after one day); picker and planner have no backup today.",
+      "evidence": [
+        "a16b7a9: Linux gates green (NovaCore 1115, NovaRealtime 62, NovaServices 118 tests; ios_spec_check, spec_trace PASS; secrets gate flags only untracked .claude/worktrees); spec-reviewer high effort PASS 2026-11-24",
+        "row 35 PC eval NOT_RUN (no DashScope key in cloud); unevaluated entries kept in QwenRoute.awaitingEval"
+      ]
+    },
+    {
+      "id": "T-046z",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-046x"
+      ],
+      "action": "F-18 §37 items 1-4: a newer web_search supersedes an older running one (older result held, dropped if the newer is ok, sent if it fails); the 现在 note lists running find_events/plan_trip with seconds; RESULT_PENDING tool=<name> correction generalising TRIP_RESULT_PENDING; a result whose call predates a reconnect is sent as a text turn when idle; results older than 10 min not spoken; rows 37-41.",
+      "notes": "Record 20261124-145528: two overlapping breakfast searches gave contradicting turns 70/71; she said 「选项已过期」 while plan_trip ran.",
+      "evidence": [
+        "41704d3: Linux gates green in a clean worktree (NovaCore 1135 tests; ios_spec_check, spec_trace PASS); spec-reviewer high effort FAIL (carried calls kept RESULT_PENDING; a third overlapping search leaked a held result) -> 457a700, 41704d3 -> medium re-check PASS 2026-11-24; rows 37-40 unit; agent 11.1.0, record format 12",
+        "row 41 device NOT_VERIFIED; App not compiled; noteIdle now lets notes go while only background calls run (F-09b §21 item 2 wording not yet amended)"
+      ]
+    },
+    {
+      "id": "T-046za",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 1,
+      "action": "F-18 §38: the events loop as the PoC ran it: PoC system text, question and tool descriptions (owner exception); open_page returns page text ≤6000 chars + 40 links; qwen3.8-max thinking off, not streamed; last step with tool_choice none; failure reasons as they happened; rows 42-47, row 46 PC before the build.",
+      "depends_on": [
+        "T-046z"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 42-47)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner 2026-11-24: every find_events failed on the phone (record 20261124-173419); §35 was built as a cut-down copy of the working PoC and row 31 never ran. Owner: build the PoC as it ran. Row 46 (PC, 3 runs) must pass before the app build.",
+      "evidence": [
+        "ffffe37+51fa392+74068b6: items 1-7 built; rows 42-45 unit PASS (NovaCore 1137 tests, 1 pre-existing known issue; NovaRealtime 66; NovaServices 118; ios_spec_check PASS; spec_trace 186/0; imports 0)",
+        "spec-reviewer high effort FAIL (item 1 city) -> fix 51fa392 -> medium re-check PASS 2026-11-24",
+        "row 46 NOT_RUN (no key in cloud; replica script scripts/eval/event_loop_replica.py); row 47 device NOT_VERIFIED; no app build until row 46 passes"
+      ],
+      "blocked_by": "Superseded by T-046zb (F-18 §39): row 46 PASS 2026-11-24 (9384bbf) but row 47 device FAIL on build 9384bbf (record 20261124-220730)"
+    },
+    {
+      "id": "T-046zb",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
+      "priority": 1,
+      "depends_on": [
+        "T-046za"
+      ],
+      "action": "F-18 §39 items 1-10: find_events runs city x kind keyword queries (max 12, 4 at once, 45 s each) on the qwen3.8-flash search route with no system text, keeps answer text + sources; one qwen3.8-flash extraction call (system 'Extract the event information.' + JSON shape); code checks dates, window, city, source url, duplicates; store marked per kind, empty results only 30 min; store answers carry searched_minutes_ago and next says how old; handoff/spinner/record lines; EventBrowseLoop and open_page removed; rows 48-56, row 55 PC recall eval before the build.",
+      "notes": "Owner phone test 2026-11-24 (build 9384bbf): the browse loop found 0 then 1 event; two later calls returned a cached empty result without searching. PC PoC: 4 short flash queries found 10+ real events for 5.7K tokens. Row 55 needs scripts/eval/events_reference_2026-11.json confirmed by hand first and the DashScope key on the owner PC.",
+      "evidence": [
+        "8a554cf..934d6bc: items 1-10 built; rows 48-54 unit PASS (NovaCore 1136+, NovaRealtime 64, NovaServices 118; 1 pre-existing known issue; spec-trace 187/0; record format 13); gates green on a clean clone of 934d6bc",
+        "spec-reviewer high effort PASS 2026-11-24 (non-blocking findings fixed: record format 13, fallback source needs sources, 1-char city, comments)",
+        "row 55 NOT_RUN: scripts/eval/event_search_replica.py ready; scripts/eval/events_reference_2026-11.json entries confirmed=false (confirm by hand) and needs DASHSCOPE_API_KEY on the owner PC; row 56 device NOT_VERIFIED; App not compiled"
+      ],
+      "blocked_by": "Row 55 PC recall eval before the build: confirm events_reference_2026-11.json by hand, then run event_search_replica.py with the DashScope key"
+    },
+    {
+      "id": "T-040zq",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zp",
+        "T-046x"
+      ],
+      "action": "F-15b §64 items 1-6: asked.start and asked.stay_city; dated days on cards and plan_text; events from the F-18 §35 store (browse on a miss inside plan_trip, spinner 正在查活动 first); planner shape gains optional event {title,start,end} on a sight and one system-text line; code counts facts each round (event not in store, day outside open dates, night outside stay_city); unmatched events saved as plain sights and named in note; event cards show dates; rows 297-302.",
+      "notes": "PoC 2026-11-24: planner placed every event on an open day (3 runs) but once invented an end date and once moved a night to 深圳 despite 酒店住珠海.",
+      "evidence": [
+        "457a700: Linux gates green in a clean worktree (NovaCore 1135 tests); spec-reviewer high effort PASS 2026-11-24 (shape() dropping events fixed in 457a700); rows 297-300 unit; agent 12.0.0",
+        "row 301 PC eval NOT_RUN, row 302 device NOT_VERIFIED; App not compiled; stay fact added only with stay_city given"
+      ]
+    }
+  ]
 }
