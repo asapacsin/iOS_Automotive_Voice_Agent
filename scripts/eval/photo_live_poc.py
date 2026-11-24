@@ -35,7 +35,8 @@ def result(ts):
     l = next(x for x in lines if x.startswith(f"{ts} tool-result"))
     return json.loads(l[l.index("{"):])
 SEARCH = result("75996")
-if WITH_NEXT: SEARCH["next"] = NEXT
+# F-09b §21 item 1 (T-031zf review): the app appends to the recorded next; it never replaces it.
+if WITH_NEXT: SEARCH["next"] = SEARCH.get("next", "") + NEXT
 
 def t(role, text): return {"role": role, "parts": [{"text": text}]}
 BASE = [t("user", "Hello,小诺。"), t("model", "您好！我是小诺，随时准备为您提供帮助，请问有什么需要吗？"),
