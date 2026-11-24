@@ -544,7 +544,11 @@ final class AgentRuntime {
         Task.detached {
             var cities: [String] = []
             if let fix = await location.latestFix(), let address = try? await web.address(at: CoordinateConverter.gcj02(fix.coordinate)),
-               let city = EventCity.from(address: address.formatted) { cities.append(city) }
+               let city = EventCity.from(address: address.formatted) {
+                cities.append(city)
+                // F-18 §38 item 1 (T-046za): the car's city for the events loop's 「在<城市>」.
+                await browser.setHere(city)
+            }
             if let tripCity, let city = EventCity.from(address: tripCity), !cities.contains(city) { cities.append(city) }
             if !cities.isEmpty { await browser.refresh(cities) }
         }

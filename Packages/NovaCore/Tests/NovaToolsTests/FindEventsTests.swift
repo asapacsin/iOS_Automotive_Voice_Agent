@@ -41,6 +41,12 @@ private final class Script: EventChatModel, @unchecked Sendable {
     }
 }
 
+private struct Broken: EventChatModel {
+    func turn(_ messages: [EventChatMessage], lastStep: Bool, timeout: NovaDuration) async throws -> EventChatReply {
+        throw URLError(.badServerResponse)
+    }
+}
+
 private struct Hits: EventSearcher {
     func search(_ query: String) async throws -> [EventSearchHit] {
         [EventSearchHit(title: "AI嘉年华", url: "https://zh.bendibao.com/a.shtm", site: "zh.bendibao.com")]
@@ -195,11 +201,12 @@ struct FindEventsTests {
     @Test("T-046za F-18 §38 row 43 (replaces §35 row 30): open_page returns the page text, names three lines above their dates kept, ≤ 6,000 chars, ≤ 40 links; no （已读） replacement")
     func row43() async throws {
         let list = "<html><head><title>珠海展会排期</title></head><body>"
-            + (1...60).map { "<p>展会\($0)：珠海动漫节\($0)</p><p>主办：某协会</p><p>地点：会展中心</p><p>时间：11月\($0 % 28 + 1)日</p>"
+            + (1...200).map { "<p>展会\($0)：珠海动漫节\($0)</p><p>主办：某协会</p><p>地点：会展中心</p><p>时间：11月\($0 % 28 + 1)日</p>"
                 + "<a href=\"https://www.jufair.com/e\($0).html\">展会\($0)</a>" }.joined() + "</body></html>"
         let r = EventBrowseLoop.pageResult(PageText(html: list))
         let text = r["text"]?.stringValue ?? ""
         #expect(text.contains("展会1：珠海动漫节1") && text.contains("时间：11月2日"))
+        #expect(PageText(html: list).flatText.count > EventBrowseLoop.pageChars && text.count == EventBrowseLoop.pageChars)
         #expect(text.count <= EventBrowseLoop.pageChars && !text.contains("\n"))
         guard case .array(let links)? = r["links"] else { Issue.record("links"); return }
         #expect(links.count == 40)
@@ -232,6 +239,8 @@ struct FindEventsTests {
            "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}}]
         """#.utf8))
         #expect(EventBrowseLoop.tools == tools)
+        // §38 item 1: the car's city when known.
+        #expect(EventBrowseLoop.system(r.with(here: "中山")).contains("（周二），在中山。"))
         #expect(EventBrowseLoop.weekday(day("2026-11-29")) == "日" && EventBrowseLoop.weekday(day("2026-11-30")) == "一")
     }
 
@@ -252,6 +261,9 @@ struct FindEventsTests {
                                  onLine: { l in lines.withLock { $0.append(l) } })
         await #expect(throws: EventBrowseFailure.json) { try await l2.run(request()) }
         #expect(lines.withLock { $0 }.last == "events failed reason=json")
+        let broken = Broken()
+        let l3 = EventBrowseLoop(model: broken, searcher: Hits(), fetcher: Pages([:]), clock: ManualClock(), now: { noon })
+        await #expect(throws: EventBrowseFailure.http) { try await l3.run(request()) }
     }
 
     @Test("T-046x F-18 §35 item 1: declared only with search on; NON_BLOCKING; the system text is the PoC's (§38)")

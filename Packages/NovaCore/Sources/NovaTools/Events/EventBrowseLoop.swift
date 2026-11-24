@@ -20,6 +20,11 @@ public struct EventBrowseRequest: Sendable, Hashable {
         self.kinds = kinds
         self.today = today
     }
+
+    /// The same request with the car's city.
+    public func with(here: String?) -> EventBrowseRequest {
+        EventBrowseRequest(cities: cities, from: from, to: to, kinds: kinds, today: today, here: here)
+    }
 }
 
 /// One event the model named, before the date check.

@@ -94,6 +94,10 @@ public actor EventBrowser {
     private let work: WorkProgressBoard?
     private let onLine: @Sendable (String) -> Void
     private var running = false
+    /// F-18 §38 item 1: the car's city (from the last fix's address), for the system text's 「在<城市>」.
+    private var here: String?
+
+    public func setHere(_ city: String?) { here = city }
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     /// `loop` builds the browse loop with the step callback the spinner reads; `work` is the spinner row (item 8).
@@ -143,6 +147,7 @@ public actor EventBrowser {
     }
 
     private func browse(_ r: EventBrowseRequest, spinner: Bool) async -> Found {
+        let r = r.here == nil ? r.with(here: here) : r
         while running { await withCheckedContinuation { waiters.append($0) } }
         running = true
         defer {

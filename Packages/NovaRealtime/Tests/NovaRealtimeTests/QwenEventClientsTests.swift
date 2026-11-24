@@ -6,6 +6,14 @@ import Testing
 
 @Suite("T-046x F-18 §35 item 3 events loop clients")
 struct QwenEventClientsTests {
+    @Test("T-046za F-18 §38 item 5: a whole (non-streamed) turn gives its tool calls and usage")
+    func wholeToolCalls() {
+        let body = #"{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_b","type":"function","function":{"name":"open_page","arguments":"{\"url\":\"https://a.example/x\"}"}}]}}],"usage":{"total_tokens":77}}"#
+        let r = QwenEventChatClient.parse(Data(body.utf8))
+        #expect(r.tokens == 77)
+        #expect(r.toolCalls == [EventToolCall(id: "call_b", name: "open_page", arguments: #"{"url":"https://a.example/x"}"#)])
+    }
+
     @Test("T-046x F-18 §35 item 3: a streamed turn assembles tool calls by index and reads usage")
     func streamedToolCalls() {
         let body = """
