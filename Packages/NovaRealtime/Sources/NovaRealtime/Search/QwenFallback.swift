@@ -6,31 +6,31 @@ import Synchronization
 import NovaKit
 import NovaPorts
 
-/// F-15b §50 item 10 (T-040x, owner 2026-11-19): the backup model of a `QwenRoute` when the primary's budget is used up.
-/// Model Studio counts free quota and rate limits per model for the whole account, so another model (not another key)
-/// gives more room; gateways do the same (LiteLLM fallbacks and cooldowns).
-/// - Switches only for an HTTP 429, a 403 whose error `code` contains `Quota`, or a published quota code (F-18 §32
-///   item 3, `QuotaError.dashScope`; a quota 429 skips the primary like a quota 403). Bodies are read whole and a non-200
-///   status carries no answer, so a switch never follows a streamed answer (a 200 with an error chunk never switches).
-/// - One switch per request, to the route's backup (same body except `model`, and `search_strategy` for `ground`).
-/// - The backup gets only what is left of the route's budget (`QwenRoute.budget`); none left: no backup call.
-/// - After a 429 the primary is skipped for `QwenRoute.cooldown` (60 s); after a quota 403 until the app restarts.
-///   While skipped, the backup is called first (and alone: still one switch per request).
-/// - Log: `qwen fallback route=<job> from=<model> to=<model> reason=<429|quota> ok=<yes|no> ms=<ms>` (I-8: numbers,
-///   enums and model names only).
+/// F-15b §50 item 10 (T-040x), F-18 §36 (T-046y, owner 2026-11-24): a job's ordered model list (`QwenRoute.chain`)
+/// when a model's budget is used up. Model Studio counts free quota and rate limits per model for the whole account,
+/// so another model (not another key) gives more room; gateways do the same (LiteLLM fallbacks and cooldowns).
+/// - Moves only for an HTTP 429, a 403 whose error `code` contains `Quota`, or a published quota code (F-18 §32
+///   item 3, `QuotaError.dashScope`). Bodies are read whole and a non-200 status carries no answer, so a move never
+///   follows a streamed answer (a 200 with an error chunk never moves). Any other error is the job's failure.
+/// - Each entry at most once per call, in list order; later entries get only what is left of `QwenRoute.budget`.
+/// - §36 item 3: a quota answer marks the model used up for 24 h (`QwenRoute.usedUpFor`) or until the app restarts;
+///   marked models are not called. A 429 skips the model for `QwenRoute.cooldown` (60 s): cooled entries go after the
+///   others, so a one-model job still tries again. Every entry marked: the call fails at once with no request.
+/// - Record: `qwen fallback job=<job> from=<model> to=<model> reason=quota|rate`, and `qwen exhausted model=<model>`
+///   once when a model is marked (I-8: enums and model names only).
 public final class QwenFallback: Sendable {
     public enum Reason: String, Sendable, Hashable {
-        case rateLimit = "429"
+        case rateLimit = "rate"
         case quota
     }
 
-    /// One process-wide state, so every client of a route sees the same skip (all keys share the model's limits).
+    /// One process-wide state, so every client sees the same marks (all keys share the model's limits).
     /// F-18 §32: the app attaches `CallBudget.shared` at start (`setBudget`); tests that use it get none.
     public static let shared = QwenFallback()
 
     private struct State {
-        var skippedUntil: [QwenRoute.Job: NovaInstant] = [:]
-        var quotaSkipped: Set<QwenRoute.Job> = []
+        var cooledUntil: [String: NovaInstant] = [:]
+        var usedUpUntil: [String: NovaInstant] = [:]
         var log: (@Sendable (String) -> Void)?
         var budget: CallBudget?
     }
@@ -47,7 +47,7 @@ public final class QwenFallback: Sendable {
 
     public func setBudget(_ budget: CallBudget) { state.withLock { $0.budget = budget } }
 
-    /// The app's log sink for the fallback line.
+    /// The app's log sink for the fallback lines.
     public func setLog(_ log: @escaping @Sendable (String) -> Void) {
         state.withLock { $0.log = log }
     }
@@ -61,14 +61,23 @@ public final class QwenFallback: Sendable {
         return nil
     }
 
-    /// Why the primary of `job` is skipped now, if it is.
-    public func skipped(_ job: QwenRoute.Job) -> Reason? {
+    /// Why `model` is skipped now, if it is.
+    public func skipped(model: String) -> Reason? {
         let now = clock.now
         return state.withLock { s in
-            if s.quotaSkipped.contains(job) { return .quota }
-            if let until = s.skippedUntil[job], now < until { return .rateLimit }
+            if let until = s.usedUpUntil[model], now < until { return .quota }
+            if let until = s.cooledUntil[model], now < until { return .rateLimit }
             return nil
         }
+    }
+
+    /// Why the first model of `job` is skipped now, if it is.
+    public func skipped(_ job: QwenRoute.Job) -> Reason? { skipped(model: QwenRoute.route(job).model) }
+
+    /// §36 item 4: the models marked used up now, for the 设置 page's diagnostics.
+    public func usedUpModels() -> [String] {
+        let now = clock.now
+        return state.withLock { s in s.usedUpUntil.filter { now < $0.value }.map(\.key).sorted() }
     }
 
     /// F-18 §32 item 3: a DashScope reply that says the quota is used up (`QuotaError.dashScope`).
@@ -81,33 +90,58 @@ public final class QwenFallback: Sendable {
 
     public typealias Attempt = (_ route: QwenRoute, _ timeout: NovaDuration?) async throws -> (status: Int, body: Data)
 
-    /// Runs one request on `route`, switching once to its backup per the rules above. `attempt` builds and sends the
-    /// body for the route it is given; `timeout` is the remaining budget for a backup call (nil: the caller's own).
-    /// `request` is the request's content for the §32 repeat key (query, choices, trip input); never logged.
+    /// Runs one request over `route.chain` per the rules above. `attempt` builds and sends the body for the route it
+    /// is given (`route.entry` is the model to send); `timeout` is the remaining budget for a later entry (nil: the
+    /// caller's own). `request` is the request's content for the §32 repeat key; never logged.
     public func run(_ route: QwenRoute, request: String = "", _ attempt: Attempt) async throws -> (status: Int, body: Data) {
         let started = clock.now
-        if let why = skipped(route.job) {
-            return try await backup(route, reason: why, started: started, primary: nil, request: request, attempt)
+        let open = route.chain.filter { skipped(model: $0.model) != .quota }
+        let order = open.filter { skipped(model: $0.model) == nil } + open.filter { skipped(model: $0.model) == .rateLimit }
+        guard !order.isEmpty else { throw BudgetRefused(.quota) }
+        var last: (status: Int, body: Data)?
+        var moved: (from: String, reason: Reason)?
+        for (n, entry) in order.enumerated() {
+            let r = route.on(entry)
+            var timeout: NovaDuration?
+            if n > 0, let total = route.budget {
+                let left = total - (clock.now - started)
+                if left <= .zero { break }
+                timeout = left
+            }
+            if let moved { line("qwen fallback job=\(route.job.rawValue) from=\(moved.from) to=\(entry.model) reason=\(moved.reason.rawValue)") }
+            switch ask(r, request) {
+            case .allow: break
+            case .refuse(.quota):
+                // §32 item 3: the budget's breaker says the model is used up today; the next entry is tried.
+                moved = (entry.model, .quota)
+                continue
+            case .refuse(let why): throw BudgetRefused(why)
+            }
+            let result = try await counted(r, timeout, attempt)
+            guard let why = Self.reason(status: result.status, body: result.body) else { return result }
+            mark(entry.model, why)
+            last = result
+            moved = (entry.model, why)
         }
-        switch ask(route, request) {
-        case .allow: break
-        case .refuse(.quota):
-            // §32 item 3: the model is used up today; its backup is tried once (its own breaker decides).
-            return try await backup(route, reason: .quota, started: started, primary: nil, request: request, attempt)
-        case .refuse(let r): throw BudgetRefused(r)
-        }
-        let first = try await counted(route, nil, attempt)
-        guard let why = Self.reason(status: first.status, body: first.body) else { return first }
+        if let last { return last }
+        if moved?.reason == .quota { throw BudgetRefused(.quota) }
+        throw URLError(.timedOut)
+    }
+
+    private func mark(_ model: String, _ why: Reason) {
         let now = clock.now
-        // §59 item 2: a route with no backup just fails; no cooldown, so the next request tries the model again.
-        guard route.backup != nil else { return first }
-        state.withLock { s in
+        let fresh: Bool = state.withLock { s in
             switch why {
-            case .rateLimit: s.skippedUntil[route.job] = now + QwenRoute.cooldown
-            case .quota: s.quotaSkipped.insert(route.job)
+            case .rateLimit:
+                s.cooledUntil[model] = now + QwenRoute.cooldown
+                return false
+            case .quota:
+                let was = s.usedUpUntil[model].map { now < $0 } ?? false
+                s.usedUpUntil[model] = now + QwenRoute.usedUpFor
+                return !was
             }
         }
-        return try await backup(route, reason: why, started: started, primary: first, request: request, attempt)
+        if fresh { line("qwen exhausted model=\(model)") }
     }
 
     private func ask(_ route: QwenRoute, _ request: String) -> BudgetDecision {
@@ -130,41 +164,7 @@ public final class QwenFallback: Sendable {
         }
     }
 
-    /// The backup call with what is left of the budget. No time left: the primary's reply (or a timeout when the
-    /// primary was skipped), so the route's existing failure path runs.
-    private func backup(_ route: QwenRoute, reason: Reason, started: NovaInstant, primary: (status: Int, body: Data)?,
-                        request: String, _ attempt: Attempt) async throws -> (status: Int, body: Data) {
-        guard let backupRoute = route.backup else {
-            // §59 item 2: no backup model (picker): the primary's failure stands.
-            if let primary { return primary }
-            if reason == .quota { throw BudgetRefused(.quota) }
-            throw URLError(.timedOut)
-        }
-        let remaining = route.budget.map { $0 - (clock.now - started) }
-        if let remaining, remaining <= .zero {
-            line(route, reason, ok: false, started: started)
-            if let primary { return primary }
-            throw URLError(.timedOut)
-        }
-        if case .refuse(let r) = ask(backupRoute, request) {
-            line(route, reason, ok: false, started: started)
-            if let primary { return primary }
-            throw BudgetRefused(r)
-        }
-        do {
-            let r = try await counted(backupRoute, remaining, attempt)
-            line(route, reason, ok: r.status == 200 && QwenWebSearchClient.errorCode(r.body) == nil, started: started)
-            return r
-        } catch {
-            line(route, reason, ok: false, started: started)
-            throw error
-        }
-    }
-
-    private func line(_ route: QwenRoute, _ reason: Reason, ok: Bool, started: NovaInstant) {
-        let ms = (clock.now - started).milliseconds
-        let text = "qwen fallback route=\(route.job.rawValue) from=\(route.model) to=\(route.backupModel ?? "none") "
-            + "reason=\(reason.rawValue) ok=\(ok ? "yes" : "no") ms=\(ms)"
+    private func line(_ text: String) {
         state.withLock { $0.log }?(text)
     }
 }
@@ -176,6 +176,8 @@ extension QwenRoute.Job {
         case .live: .qwenLive
         case .picker: .qwenPicker
         case .ground: .qwenGround
+        case .planner: .qwenPlanner
+        case .eventsLoop, .eventsSearch: .qwenEvents
         }
     }
 }

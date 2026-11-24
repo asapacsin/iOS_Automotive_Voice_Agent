@@ -27,7 +27,7 @@ struct PlacePickerTests {
         #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer k")
         let body = try JSONDecoder().decode(JSONValue.self, from: r.httpBody ?? Data())
         #expect(body["model"] == "qwen3.8-flash" && body["parameters"]?["incremental_output"] == nil)
-        #expect(QwenRoute.picker.backupModel == nil && QwenRoute.picker.backup == nil)
+        #expect(QwenRoute.picker.chain.count == 1)  // F-18 §36: one evaluated picker model until row 35
         #expect(body["parameters"]?["enable_search"] == false && body["parameters"]?["enable_thinking"] == false)
         let text = String(decoding: r.httpBody ?? Data(), as: UTF8.self)
         #expect(!text.contains("\"k\""))

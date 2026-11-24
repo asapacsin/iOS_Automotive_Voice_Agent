@@ -10,6 +10,9 @@ public enum PaidRoute: String, Sendable, Hashable, CaseIterable {
     case qwenLive = "qwen.live"
     case qwenPicker = "qwen.picker"
     case qwenGround = "qwen.ground"
+    /// F-18 §36 (T-046y): the trip planner and the §35 events loop, now through `QwenFallback`.
+    case qwenPlanner = "qwen.planner"
+    case qwenEvents = "qwen.events"
     case geminiVision = "gemini.vision"
     case glmVision = "glm.vision"
     case qwenTTS = "qwen.tts"

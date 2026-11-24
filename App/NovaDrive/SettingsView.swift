@@ -2,6 +2,7 @@ import NovaAgent
 import NovaNav
 import NovaPlatform
 import NovaPorts
+import NovaRealtime
 import NovaServices
 import NovaTools
 import NovaVoice
@@ -129,6 +130,10 @@ struct SettingsView: View {
                     Text("需要阿里云百炼 key。问题会发到阿里云新加坡。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("开：天气、新闻、营业时间这类信息由她联网查，答案可能不准。车辆操作不变，仍只通过车辆工具。关：和现在一样。下次开始对话时生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    // F-18 §36 item 4 (T-046y): Qwen models marked used up (quota 403) until 24 h pass or the app restarts.
+                    let usedUp = QwenFallback.shared.usedUpModels()
+                    Text(usedUp.isEmpty ? "千问额度：正常" : "千问额度用完：" + usedUp.joined(separator: "、"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 // F-07 §16 item 1 (T-020c).

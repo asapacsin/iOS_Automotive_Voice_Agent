@@ -92,7 +92,7 @@ struct QwenFallbackTests {
         #expect(fake.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
         let sent = fake.sent.withLock { $0 }
         #expect(dropModel(sent[0].body) == dropModel(sent[1].body))
-        #expect(lines.all == ["qwen fallback route=live from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=429 ok=yes ms=300"])
+        #expect(lines.all == ["qwen fallback job=live from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=rate"])
         #expect(fallback.skipped(.live) == .rateLimit)
 
         clock.advance(by: .seconds(59))
@@ -104,7 +104,7 @@ struct QwenFallbackTests {
         #expect(fake.models.last == "qwen3.7-flash-2026-07-15")
     }
 
-    @Test("T-040zl F-15b §59 item 2 (replaces row 157's picker switch): picker quota 403 or 429: one call on qwen3.8-flash, no backup, no switch line, no skip; InvalidApiKey 403, 401, 500, timeout one call too")
+    @Test("T-040zl F-15b §59 item 2 with F-18 §36 (T-046y): one-model picker list: quota 403 or 429 is one call, no move line; quota marks it used up; InvalidApiKey 403, 401, 500, timeout one call and no mark")
     func pickerNoBackup() async throws {
         for reply in [FakeQwen.Reply.http(403, quota403), .http(429, throttled), .http(403, #"{"code":"InvalidApiKey","message":"m"}"#),
                       .http(401, "{}"), .http(500, "{}"), .fail(.timedOut)] {
@@ -112,10 +112,16 @@ struct QwenFallbackTests {
             let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
             await #expect(throws: (any Error).self) { try await picker.pick(choices) }
             #expect(fake.models == ["qwen3.8-flash"])
-            #expect(lines.all.isEmpty)
-            #expect(fallback.skipped(.picker) == nil)
+            #expect(lines.all.filter { $0.hasPrefix("qwen fallback") }.isEmpty)
+            if case .http(403, quota403) = reply {
+                #expect(lines.all == ["qwen exhausted model=qwen3.8-flash"] && fallback.skipped(.picker) == .quota)
+            } else if case .http(429, _) = reply {
+                #expect(fallback.skipped(.picker) == .rateLimit)
+            } else {
+                #expect(fallback.skipped(.picker) == nil && lines.all.isEmpty)
+            }
         }
-        // The next pick after a 429 tries the model again (no cooldown without a backup).
+        // The next pick after a 429 tries the model again (a cooled entry still goes last, §36 item 3).
         let (fake, fallback, _, _) = rig([(10, .http(429, throttled)), (10, .http(200, pickAnswer))])
         let picker = QwenPlacePicker(key: { "k" }, send: fake.send, fallback: fallback)
         await #expect(throws: (any Error).self) { try await picker.pick(choices) }
@@ -136,7 +142,7 @@ struct QwenFallbackTests {
         let live = QwenWebSearchClient(key: { "k" }, send: twice.send, fallback: fallback2)
         await #expect(throws: WebSearchError.http(429, code: "Throttling.RateQuota")) { try await live.search("q", attempt: 1) }
         #expect(twice.models == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
-        #expect(lines2.all == ["qwen fallback route=live from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=429 ok=no ms=20"])
+        #expect(lines2.all == ["qwen fallback job=live from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=rate"])
 
         // ground: backup is qwen3.7-flash with turbo; its 429 falls back to the model's places (failed), one switch.
         let (g, fallback3, _, lines3) = rig([(10, .http(429, throttled))])
@@ -146,7 +152,7 @@ struct QwenFallbackTests {
         await #expect(throws: TripGroundError.failed) { try await grounder.ground(request) }
         #expect(g.models == ["qwen3.7-plus", "qwen3.7-flash-2026-07-15"])
         #expect(g.sent.withLock { $0.map(\.strategy) } == ["turbo", "turbo"])
-        #expect(lines3.all == ["qwen fallback route=ground from=qwen3.7-plus to=qwen3.7-flash-2026-07-15 reason=429 ok=no ms=20"])
+        #expect(lines3.all == ["qwen fallback job=ground from=qwen3.7-plus to=qwen3.7-flash-2026-07-15 reason=rate"])
     }
 
     @Test("T-040zl F-15b row 260 (replaces row 159's picker backup): picker 429 at 2.0 s: one call, PickError.http(429), no backup call")
