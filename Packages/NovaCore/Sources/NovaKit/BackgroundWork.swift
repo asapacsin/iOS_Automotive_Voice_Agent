@@ -29,6 +29,7 @@ public struct BackgroundWork: Sendable, Equatable {
         case "web_search": "正在搜索…"
         case "query_live_info": kind == "weather" ? "正在查天气…" : "正在查…"
         case "plan_trip": "正在规划行程…"
+        case "find_events": "正在查活动"
         default: "正在处理…"
         }
     }

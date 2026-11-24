@@ -155,3 +155,22 @@ public actor EventBrowser {
         }
     }
 }
+
+/// F-18 §35 item 5 (T-046x): the city of a regeo address (「广东省珠海市香洲区…」 → 珠海) or of a trip city, for the
+/// app-open refresh. Direct-administered cities and SARs come first; nil when no city is found.
+public enum EventCity {
+    static let whole = ["北京", "上海", "天津", "重庆", "澳门", "香港"]
+
+    public static func from(address: String) -> String? {
+        let text = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let w = whole.first(where: { text.hasPrefix($0) || text.hasPrefix("中国" + $0) }) { return w }
+        var rest = Substring(text)
+        if let p = rest.range(of: "省") ?? rest.range(of: "自治区") { rest = rest[p.upperBound...] }
+        if let c = rest.range(of: "市") {
+            let city = String(rest[..<c.lowerBound])
+            return city.isEmpty || city.count > 8 || FindEventsExecutor.isProvince(city) ? nil : city
+        }
+        // A bare city name (a trip's `city`, 「珠海」).
+        return (1...8).contains(text.count) && !text.contains(",") && !FindEventsExecutor.isProvince(text) ? text : nil
+    }
+}

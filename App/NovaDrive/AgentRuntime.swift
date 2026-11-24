@@ -518,6 +518,36 @@ final class AgentRuntime {
     let work = WorkProgressBoard(clock: SystemClock(), onLog: { line in RuntimeLog.agent.notice("\(line, privacy: .public)") })
     /// F-04 §15 (T-004k): the running tool calls; `DriveView` shows the background-work caption from it.
     let background = BackgroundWorkBoard()
+    /// F-18 §35 items 5, 9 (T-046x): the event store (Application Support/events.json, local only, I-8) and the browse
+    /// loop, one at a time. Lines (counts and dates only) go to the log and the running record.
+    private lazy var events: EventBrowser = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let store = EventStore(storage: FileEventStorage(url: dir.appendingPathComponent("events.json")))
+        let line: @Sendable (String) -> Void = { [weak self] text in
+            RuntimeLog.agent.notice("\(text, privacy: .public)")
+            Task { @MainActor in self?.sessionRecord?.submit(.events(text)) }
+        }
+        let key: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
+        return EventBrowser(store: store, work: work, onLine: line) { onStep in
+            EventBrowseLoop(model: QwenEventChatClient(key: key, tools: EventBrowseLoop.tools), searcher: QwenEventSearcher(key: key),
+                            fetcher: EventPageClient(), clock: SystemClock(), onStep: onStep, onLine: line)
+        }
+    }()
+
+    /// F-18 §35 item 5: on app open, the car's city and the open trip's city, when browsed more than 24 h ago (search
+    /// on only; in the background, no line, no spinner).
+    func refreshEvents(location: any LocationProvider, web: any ReverseGeocoder) {
+        guard DriveSettings.searchesWeb() else { return }
+        let tripCity = model.tripPlan.city
+        let browser = events
+        Task.detached {
+            var cities: [String] = []
+            if let fix = await location.latestFix(), let address = try? await web.address(at: CoordinateConverter.gcj02(fix.coordinate)),
+               let city = EventCity.from(address: address.formatted) { cities.append(city) }
+            if let tripCity, let city = EventCity.from(address: tripCity), !cities.contains(city) { cities.append(city) }
+            if !cities.isEmpty { await browser.refresh(cities) }
+        }
+    }
 
     /// F-05a §12 item 7: the bundled speech models start loading when the app starts, off the main actor.
     init() { LocalSpeechModels.shared.load() }
@@ -707,6 +737,8 @@ final class AgentRuntime {
         let location = SwitchableLocationProvider(device: deviceLocation, demo: DemoLocation(clock: navigationClock),
                                                   useDevice: { DriveSettings.usesDeviceLocation() })
         _ = await appTrip(location: location)
+        // F-18 §35 item 5 (T-046x): the app-open event refresh.
+        refreshEvents(location: location, web: AmapWebClient(key: { try? KeychainCredentialStore().value(for: .amapWebKey) }))
     }
 
     /// F-15b §11 item 6: the details sheet of a card (photo, address, opening hours, phone); nothing is spoken.
@@ -1233,6 +1265,14 @@ final class AgentRuntime {
         } else {
             // Setting off: an undeclared web_search call is UNKNOWN_TOOL, as before T-046c.
             executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
+        }
+        // F-18 §35 (T-046x): find_events, declared only with search on; the store and the loop outlive the session.
+        if webSearch {
+            executors[FindEventsExecutor.tool] = FindEventsExecutor(browser: events, onHandoff: { [weak self] line in
+                await MainActor.run { if let core = self?.core { Task { await core.send(.handoffLine(line, tool: .findEvents)) } } }
+            })
+        } else {
+            executors[FindEventsExecutor.tool] = UndeclaredToolExecutor()
         }
         // F-09b §16 item 6 (T-031z): closing a panel and playing music answer from the screen state, not from intent.
         // F-15b §62 item 12 (T-040zo): the spinner row while a search or a place card is looked up.

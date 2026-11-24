@@ -55,6 +55,9 @@ public enum AgentEvent: Sendable, Hashable {
     /// F-09b §16 item 4 (T-031z): what the display shows now (the App's `ScreenState`, already settled for
     /// `Tuning.screenSettleMs`). The core sends the `屏幕` line on (re)connect and after any key changes.
     case screen(ScreenState)
+    /// F-18 §35 item 8 (T-046x): a background tool's handoff line, said by code as for `plan_trip` (`find_events` on
+    /// a store miss: the executor knows only then).
+    case handoffLine(String, tool: AsyncTool)
 }
 
 /// F-09b §5 item 1 (T-031j): what the car-state note says. The same values as `get_vehicle_state`; never a location.
@@ -553,6 +556,9 @@ public struct AgentState: Sendable {
         switch event {
         case .destination, .vehicleState, .screenNote, .context, .screen:
             return []
+        case .handoffLine(let line, let tool):
+            guard ![.disconnected, .connecting, .reconnecting, .error].contains(session.state) else { return [] }
+            return handoff(line: line, tool: tool)
         case .start:
             return session(.start, at: now)
         case .stop:
@@ -871,13 +877,16 @@ public struct AgentState: Sendable {
     /// dispatch. Her catalog text asks her to say nothing, so there is no double line; a barge-in stops it as any
     /// guidance line.
     private mutating func handoff(_ call: ToolCall) -> [AgentEffect] {
-        let line = ToolCatalog.planTripHandoffLine(call)
+        handoff(line: ToolCatalog.planTripHandoffLine(call), tool: .planTrip)
+    }
+
+    private mutating func handoff(line: String, tool: AsyncTool) -> [AgentEffect] {
         fallbackLines += 1
         resetSubtitle()
         var effects = subtitle(adding: line, .reply)
         effects.append(.publish(view))
         effects.append(.speakGuidance(line, GuidanceID(UInt64.max - fallbackLines)))
-        effects.append(.diagnostic(.handoffSaid(tool: .planTrip, ms: 0)))
+        effects.append(.diagnostic(.handoffSaid(tool: tool, ms: 0)))
         return effects
     }
 

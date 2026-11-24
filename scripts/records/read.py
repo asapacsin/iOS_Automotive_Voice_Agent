@@ -181,6 +181,12 @@ def read_format_10(session: str, lines: list[str]) -> list[dict]:
 
 
 
+def read_format_12(session: str, lines: list[str]) -> list[dict]:
+    """F-18 §35 item 9 (T-046x): as format 11; new `events store hit|miss`, `events browse step=/done`, `events failed`
+    lines (counts, codes and dates only), kept as fields by the generic event reader."""
+    return read_format_11(session, lines)
+
+
 def read_format_11(session: str, lines: list[str]) -> list[dict]:
     """F-09b §22 item 5 (T-031zg): as format 10; new `panel close tap <key>` lines (the driver tapped a panel's
     「×」), kept as fields by the generic event reader."""
@@ -195,7 +201,7 @@ def body(row: dict) -> str | None:
 
 READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2, 3: read_format_3, 4: read_format_4,
            5: read_format_5, 6: read_format_6, 7: read_format_7, 8: read_format_8, 9: read_format_9,
-           10: read_format_10, 11: read_format_11}
+           10: read_format_10, 11: read_format_11, 12: read_format_12}
 
 
 def read(path: pathlib.Path) -> list[dict]:

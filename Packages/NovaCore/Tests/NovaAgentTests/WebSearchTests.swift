@@ -66,8 +66,9 @@ struct WebSearchTests {
             let off = ToolCatalog.declarations
             let on = ToolCatalog.declarations(webSearch: true)
             // F-16 §15 item 2 (T-042d): show_places comes with web_search.
-            #expect(on.map(\.name) == off.map(\.name) + ["web_search", "show_places"])
-            for d in on where d.name != "query_live_info" && d.name != "web_search" && d.name != "show_places" {
+            // F-18 §35 item 1 (T-046x): find_events too.
+            #expect(on.map(\.name) == off.map(\.name) + ["web_search", "show_places", "find_events"])
+            for d in on where !["query_live_info", "web_search", "show_places", "find_events"].contains(d.name) {
                 #expect(off.contains(d), "\(d.name) changed")
             }
             // §23 item 1 replaces §16 item 9's trim: weather and place details stay (T-046k, SearchOnLiveInfoTests).

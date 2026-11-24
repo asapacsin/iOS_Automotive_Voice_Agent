@@ -71,6 +71,7 @@ enum RecordFormatSession {
         .trip("trip planner failed reason=timeout round=2 ms=30000 model=qwen3.8-flash"),
         .trip("handoff said tool=plan_trip ms=0"),
         .weather("ok"),
+        .events("events store hit cities=1 window=2026-11-28..2026-11-29"),
         .turnEnded(.needMoreInput),
         .sessionResume(handle: true, result: SessionResumeResult.allCases[0]),
         .sessionGaveUp(ms: 3000, attempts: 3, code: RetryableErrorCode.allCases[0]),
@@ -125,8 +126,8 @@ struct RecordFormatTests {
         let w = MemoryWriter()
         record.drain(to: w)
         let lines = w.lines.withLock { $0 }
-        #expect(ConversationRecord.formatVersion == 11)
-        #expect(Array(lines.prefix(2)) == ["recordFormat 11", "app 0.1.0(1) abcdef0"])
+        #expect(ConversationRecord.formatVersion == 12)
+        #expect(Array(lines.prefix(2)) == ["recordFormat 12", "app 0.1.0(1) abcdef0"])
     }
 
     @Test("T-031u F-12 §21 rows 2-3: the fixed session encodes exactly to record-format-<formatVersion>.txt")
@@ -215,7 +216,7 @@ struct RecordOneLineTests {
         #expect(r.add(.toolResult(name: "web_search", ok: true, code: nil, data: ["answer": "x"], elapsedMs: nil), atMs: 4)
                     .allSatisfy { !$0.contains("\n") })
         let all = RecordFormatSession.encoded().split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-        let header = Set(["recordFormat 11", "app 0.1.0(1) abcdef0"])
+        let header = Set(["recordFormat 12", "app 0.1.0(1) abcdef0"])
         #expect(all.allSatisfy { !$0.contains("\r") })
         // Every line after the header starts with its time (row 23's check, on the fixed session).
         let events = all.drop { !($0.first?.isNumber ?? false) || header.contains(String($0)) }

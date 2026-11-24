@@ -98,6 +98,8 @@ public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     case planTrip = "plan_trip"
     /// F-09b §16 item 8 (T-031za): the card answers after the introduction arrives.
     case showPlace = "show_place"
+    /// F-18 §35 item 1 (T-046x): the events browse loop runs in the background; the result comes back when idle.
+    case findEvents = "find_events"
 
     public init?(name: String) { self.init(rawValue: name) }
 

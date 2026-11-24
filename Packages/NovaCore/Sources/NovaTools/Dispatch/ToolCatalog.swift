@@ -140,7 +140,7 @@ public enum ToolCatalog {
         "choose_navigation_option": "选屏幕上的候选地点（等同点选），或导航中换路线，三个参数只填一个。地点列表时：「第一个」「第二个」→index；「最近的那个」→nearest；「选万达广场那个」→name；选好地点后直接开始导航。导航中：「换最快的」→preference=fastest；「最短的」→shortest；「不走高速」「不要收费」→no_toll；「红绿灯少的」→fewest_lights；「推荐的」→recommended；「换第二条」→index；她问「要换吗？」后司机说「好」「换」→preference=上次结果的 offer_preference。按结果答：navigation_started 说已开始导航；route_changed 按 next 说已换成哪条路线和大约几分钟；route_unchanged 说现在走的就是这条；ok=false 按 error：OUT_OF_RANGE=没有这一项，NO_OPTIONS_ON_SCREEN=没有可选列表或没有别的路线，OPTIONS_NOT_READY=还在计算，AMBIGUOUS=多个匹配请说第几个，OPTIONS_STALE=列表过期请重新说，CONFIRM_CANDIDATE=问是不是 candidate_position 那项。",
     ]
     public static let declarations: [ToolDeclaration] = specs.map(\.declaration)
-    private static let byName: [String: ToolSpec] = Dictionary(uniqueKeysWithValues: (specs + [webSearchSpec, showPlacesSpec]).map { ($0.name, $0) })
+    private static let byName: [String: ToolSpec] = Dictionary(uniqueKeysWithValues: (specs + [webSearchSpec, showPlacesSpec, findEventsSpec]).map { ($0.name, $0) })
 
     /// A declared tool, or `web_search` / `show_places` (declared only with search on; F-16 §15 item 2).
     public static func spec(_ name: String) -> ToolSpec? { byName[name] }
@@ -440,6 +440,24 @@ public enum ToolCatalog {
             "additionalProperties": false,
         ]))
 
+    /// F-18 §35 item 1 (T-046x): time-limited events through the background browse loop; declared only with search on.
+    public static let findEventsDescription = "查某几天里的展览、演出、漫展、节庆等活动。司机问展览、演出、漫展、节日或某几天有什么活动时用它，不用 web_search。cities 填1到3个城市名，不填省；from、to 由你按现在的日期给出 YYYY-MM-DD（「这周末」是接下来的周六和周日）；kinds 填司机说的种类，比如「漫展、cosplay、AI」。调用后不用说话，查好了结果会自己回来，按 next 回答。"
+    public static let findEventsSpec = ToolSpec(domain: "live_info", repeatSensitive: true, declaration: ToolDeclaration(
+        name: "find_events",
+        description: findEventsDescription,
+        parametersJSONSchema: [
+            "type": "object",
+            "properties": [
+                "cities": ["type": "array", "items": ["type": "string", "minLength": .int(1), "maxLength": .int(20)],
+                           "minItems": .int(1), "maxItems": .int(3)],
+                "from": ["type": "string", "minLength": .int(10), "maxLength": .int(10)],
+                "to": ["type": "string", "minLength": .int(10), "maxLength": .int(10)],
+                "kinds": ["type": "string", "maxLength": .int(60)],
+            ],
+            "required": ["cities", "from", "to"],
+            "additionalProperties": false,
+        ]))
+
     /// F-18 §23 item 1, §26 item 8: the sentence her search-on `query_live_info` text adds (a tool description, not the search prompt).
     public static let officialFirst = "现在的气温和天气预报（今后10天内）只用 query_live_info，不用 web_search。地点营业时间先用 query_live_info；它没有数据时再用 web_search。"
 
@@ -476,7 +494,7 @@ public enum ToolCatalog {
         let base = declarations
         guard webSearch else { return base }
         let liveInfo = searchOnLiveInfo(spec("query_live_info")!).declaration
-        return base.map { $0.name == "query_live_info" ? liveInfo : $0 } + [webSearchSpec.declaration, showPlacesSpec.declaration]
+        return base.map { $0.name == "query_live_info" ? liveInfo : $0 } + [webSearchSpec.declaration, showPlacesSpec.declaration, findEventsSpec.declaration]
     }
 
     /// Rule-violation code, `UNKNOWN_TOOL`, `ARGUMENTS_TOO_LARGE`, or nil when the call may proceed.
@@ -651,6 +669,12 @@ public enum ToolCatalog {
             // F-18 §26 item 1: `where` up to 40; the day, date and country rules are LiveInfoExecutor's (with advice).
             if keys.contains(where: { !["time_zone", "where"].contains($0) && str($0)!.utf16.count > 20 }) { return .invalidArgument }
             if keys.contains("where") && str("where")!.utf16.count > maxWhereLength { return .invalidArgument }
+        case "find_events":
+            // F-18 §35 item 1: the shape here; the date and city rules are FindEventsExecutor's (refused by field name).
+            if !keys.isSuperset(of: ["cities", "from", "to"]) || !keys.isSubset(of: ["cities", "from", "to", "kinds"]) { return .invalidFields }
+            guard case .array? = a["cities"], isString("from"), isString("to"), !keys.contains("kinds") || isString("kinds") else {
+                return .invalidFieldType
+            }
         case "web_search":
             if keys != ["query"] { return .invalidFields }
             guard let q = str("query") else { return .invalidFieldType }
