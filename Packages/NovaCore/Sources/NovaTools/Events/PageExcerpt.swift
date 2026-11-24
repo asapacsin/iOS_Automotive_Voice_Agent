@@ -20,6 +20,8 @@ public struct PageText: Sendable, Hashable {
     public static let noDateChars = 600
 
     public var text: String { lines.joined(separator: "\n") }
+    /// F-18 §38 item 4: the text with all whitespace collapsed to one space, as the PoC sent it.
+    public var flatText: String { lines.joined(separator: " ") }
 
     /// Script, style and tags removed; block ends become line breaks; entities decoded.
     public init(html: String) {

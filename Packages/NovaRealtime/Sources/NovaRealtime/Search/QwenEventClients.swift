@@ -27,7 +27,7 @@ public struct QwenEventChatClient: EventChatModel {
         self.fallback = fallback
     }
 
-    public func request(_ messages: [EventChatMessage], tools withTools: Bool, key: String, route: QwenRoute? = nil,
+    public func request(_ messages: [EventChatMessage], lastStep: Bool, key: String, route: QwenRoute? = nil,
                         timeout: NovaDuration) -> URLRequest {
         let route = route ?? self.route
         var request = URLRequest(url: URL(string: QwenRoute.plannerEndpoint)!)
@@ -39,10 +39,15 @@ public struct QwenEventChatClient: EventChatModel {
             "model": .string(route.model),
             "messages": .array(messages.map(Self.json)),
             "enable_thinking": .bool(route.thinking),
-            "stream": .bool(route.stream),
+            "tools": tools,
         ]
-        if route.stream { body["stream_options"] = ["include_usage": true] }
-        if withTools { body["tools"] = tools }
+        // F-18 §38 item 5: the PoC's call is not streamed (no `stream` field); a streamed route still can be.
+        if route.stream {
+            body["stream"] = true
+            body["stream_options"] = ["include_usage": true]
+        }
+        // §38 item 6: the last step keeps the tools but the model must answer.
+        if lastStep { body["tool_choice"] = "none" }
         request.httpBody = try? JSONValue.canonicalEncoder().encode(JSONValue.object(body))
         return request
     }
@@ -58,11 +63,11 @@ public struct QwenEventChatClient: EventChatModel {
         return .object(o)
     }
 
-    public func turn(_ messages: [EventChatMessage], tools withTools: Bool, timeout: NovaDuration) async throws -> EventChatReply {
+    public func turn(_ messages: [EventChatMessage], lastStep: Bool, timeout: NovaDuration) async throws -> EventChatReply {
         guard let key = key(), !key.isEmpty else { throw WebSearchError.notConfigured }
         let text = messages.map(\.content).joined(separator: "\n")
         let (status, body) = try await fallback.run(route, request: text) { route, left in
-            try await send(request(messages, tools: withTools, key: key, route: route, timeout: left ?? timeout))
+            try await send(request(messages, lastStep: lastStep, key: key, route: route, timeout: left ?? timeout))
         }
         guard status == 200 else { throw URLError(.badServerResponse) }
         return Self.parse(body)

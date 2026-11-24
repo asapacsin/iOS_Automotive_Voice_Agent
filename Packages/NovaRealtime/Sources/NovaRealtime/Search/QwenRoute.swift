@@ -15,7 +15,7 @@ import NovaKit
 /// | `ground` | qwen3.7-plus → qwen3.7-flash | qwen3.8-flash | turbo (row 160), forced, sources | off | 30 s |
 /// | `picker` | qwen3.8-flash (§59) | qwen3.8-max, qwen3.8-max-0902 | off | off | 2.5 s |
 /// | `planner` | qwen3.8-flash (§62) | qwen3.8-max, qwen3.8-max-0902 | off | off | 30 s |
-/// | `eventsLoop` | qwen3.8-max (§35 PoC) | qwen3.8-max-0902, qwen3.8-2.4t-a95b | off (tools) | on | 180 s |
+/// | `eventsLoop` | qwen3.8-max (§35 PoC) | qwen3.8-max-0902, qwen3.8-2.4t-a95b | off (tools) | off, not streamed (§38) | 180 s |
 /// | `eventsSearch` | qwen3.8-flash | qwen3.8-max | max, forced, sources | off | as the loop's |
 ///
 /// `planner` and `eventsLoop` use the OpenAI-compatible chat endpoint (`plannerEndpoint`); the others the native one.
@@ -125,12 +125,13 @@ public struct QwenRoute: Sendable, Hashable {
                                           awaitingEval: [Entry(model: "qwen3.8-max", search: nil, thinking: false),
                                                          Entry(model: "qwen3.8-max-0902", search: nil, thinking: false)],
                                           stream: false, budget: .seconds(30))
-    /// F-18 §35 item 3 (T-046x): the events browse loop, compatible-mode chat with tools, thinking on, streamed.
+    /// F-18 §35 item 3 (T-046x), §38 item 5 (T-046za): the events browse loop, compatible-mode chat with tools, thinking
+    /// off, not streamed (the PoC's settings).
     public static let eventsLoop = QwenRoute(job: .eventsLoop,
-                                             chain: [Entry(model: "qwen3.8-max", search: nil, thinking: true)],
-                                             awaitingEval: [Entry(model: "qwen3.8-max-0902", search: nil, thinking: true),
-                                                            Entry(model: "qwen3.8-2.4t-a95b", search: nil, thinking: true)],
-                                             stream: true, budget: .seconds(180))
+                                             chain: [Entry(model: "qwen3.8-max", search: nil, thinking: false)],
+                                             awaitingEval: [Entry(model: "qwen3.8-max-0902", search: nil, thinking: false),
+                                                            Entry(model: "qwen3.8-2.4t-a95b", search: nil, thinking: false)],
+                                             stream: false, budget: .seconds(180))
     /// F-18 §35 item 3: the loop's `search(query)` tool, `max`, returning the links of `search_info`.
     public static let eventsSearch = QwenRoute(job: .eventsSearch,
                                                chain: [Entry(model: "qwen3.8-flash", search: maxSearch, thinking: false)],

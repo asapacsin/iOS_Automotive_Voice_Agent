@@ -29,9 +29,11 @@ private final class Script: EventChatModel, @unchecked Sendable {
     var turns = 0
     var lastMessages: [EventChatMessage] = []
     var history: [[EventChatMessage]] = []
+    var lastSteps: [Bool] = []
     init(_ replies: [EventChatReply]) { self.replies = replies }
-    func turn(_ messages: [EventChatMessage], tools: Bool, timeout: NovaDuration) async throws -> EventChatReply {
+    func turn(_ messages: [EventChatMessage], lastStep: Bool, timeout: NovaDuration) async throws -> EventChatReply {
         turns += 1
+        lastSteps.append(lastStep)
         lastMessages = messages
         history.append(messages)
         guard !replies.isEmpty else { return EventChatReply(content: "") }
@@ -161,7 +163,7 @@ struct FindEventsTests {
         #expect(await store.covers(cities: ["珠海"], from: "2026-11-28", to: "2026-11-29"))
     }
 
-    @Test("T-046x F-18 §35 row 28: 12 calls without an answer: EVENTS_FAILED, item 7's next, failed reason=timeout")
+    @Test("T-046x F-18 §35 row 28 with T-046za §38 row 44: 12 calls, the last step answered with tool calls: EVENTS_FAILED, item 7's next, failed reason=tools")
     func row28() async {
         let model = Script((0..<13).map { n in EventChatReply(content: "", toolCalls: [call("search", #"{"query":"q"}"#, id: "c\(n)")]) })
         let lines = Mutex<[String]>([])
@@ -174,9 +176,10 @@ struct FindEventsTests {
             arguments: ["cities": ["珠海"], "from": "2026-11-25", "to": "2026-11-29"]))
         #expect(!r.ok && r.code == .eventsFailed && r.data["next"] == .string(FindEventsExecutor.failedNext))
         #expect(lines.withLock { $0 }.filter { $0.hasPrefix("events browse step=") }.count == EventBrowseLoop.maxCalls)
-        #expect(lines.withLock { $0 }.last == "events failed reason=timeout")
-        // 12 tool turns, then the one final ask.
-        #expect(model.turns == 13)
+        #expect(lines.withLock { $0 }.last == "events failed reason=tools")
+        // 12 tool turns, then the one last step with tool_choice none.
+        #expect(model.turns == 13 && model.lastSteps == Array(repeating: false, count: 12) + [true])
+        #expect(model.lastMessages.last?.content == "步数用完了，现在按要求只输出 JSON。")
     }
 
     @Test("T-046x F-18 §35 row 29: from yesterday, to 90 days out, a province: each refused naming the field")
@@ -189,16 +192,18 @@ struct FindEventsTests {
         #expect(FindEventsExecutor.refusal(["cities": ["珠海", "澳门"], "from": "2026-11-25", "to": "2026-11-29"], today: today) == nil)
     }
 
-    @Test("T-046x F-18 §35 row 30: the excerpt keeps the date line and its neighbours; a read page becomes （已读：…）")
-    func row30() async throws {
-        let page = PageText(html: bendibao)
-        #expect(page.excerpt.contains("➤活动时间：11月28日-29日"))
-        #expect(page.excerpt.contains("导语：一起来玩") && page.excerpt.contains("门票：免费"))
-        #expect(!page.excerpt.contains("交通：公交") && !page.excerpt.contains("var x"))
-        #expect(page.excerpt.count <= PageText.maxExcerpt)
-        let long = PageText(title: "t", lines: (0..<400).map { "第\($0)行 11月\($0 % 28 + 1)日 " + String(repeating: "字", count: 20) })
-        #expect(long.excerpt.count <= PageText.maxExcerpt)
-        // Read pages collapse after the next model turn.
+    @Test("T-046za F-18 §38 row 43 (replaces §35 row 30): open_page returns the page text, names three lines above their dates kept, ≤ 6,000 chars, ≤ 40 links; no （已读） replacement")
+    func row43() async throws {
+        let list = "<html><head><title>珠海展会排期</title></head><body>"
+            + (1...60).map { "<p>展会\($0)：珠海动漫节\($0)</p><p>主办：某协会</p><p>地点：会展中心</p><p>时间：11月\($0 % 28 + 1)日</p>"
+                + "<a href=\"https://www.jufair.com/e\($0).html\">展会\($0)</a>" }.joined() + "</body></html>"
+        let r = EventBrowseLoop.pageResult(PageText(html: list))
+        let text = r["text"]?.stringValue ?? ""
+        #expect(text.contains("展会1：珠海动漫节1") && text.contains("时间：11月2日"))
+        #expect(text.count <= EventBrowseLoop.pageChars && !text.contains("\n"))
+        guard case .array(let links)? = r["links"] else { Issue.record("links"); return }
+        #expect(links.count == 40)
+        // The page stays in the conversation after the next model turn.
         let model = Script([
             EventChatReply(content: "", toolCalls: [call("open_page", #"{"url":"https://zh.bendibao.com/a.shtm"}"#)]),
             EventChatReply(content: "", toolCalls: [call("search", #"{"query":"澳门 活动"}"#, id: "c2")]),
@@ -207,19 +212,56 @@ struct FindEventsTests {
         let loop = EventBrowseLoop(model: model, searcher: Hits(), fetcher: Pages(["https://zh.bendibao.com/a.shtm": bendibao]),
                                    clock: ManualClock(), now: { noon })
         _ = try await loop.run(request())
-        #expect(model.history[1].last?.content.contains("11月28日-29日") == true)
-        #expect(model.history[2].contains { $0.role == .tool && $0.content == "（已读：https://zh.bendibao.com/a.shtm）" })
-        #expect(!model.history[2].contains { $0.content.contains("11月28日-29日") && $0.role == .tool })
+        #expect(model.history[2].contains { $0.role == .tool && $0.content.contains("11月28日-29日") && $0.content.contains("交通：公交") })
+        #expect(!model.history[2].contains { $0.content.contains("（已读") })
     }
 
-    @Test("T-046x F-18 §35 item 1: declared only with search on; NON_BLOCKING; the system text cites ReAct")
+    @Test("T-046za F-18 §38 row 42: system, question and tools equal the PoC's texts with the values filled in")
+    func row42() throws {
+        // Fixture copied from scripts/eval/event_browse_poc.py (SYSTEM, QUESTION, TOOLS), with §35 item 3's fields.
+        let poc = "你是会上网查资料的助手，今天是2026年11月24日（周二），在珠海。你有两个工具：search 搜网页（返回标题、链接、摘要），open_page 打开一个链接读全文。像人一样查：换不同说法多搜几次，打开活动列表页、主办方页、票务页读原文，顺着页面里的链接继续找。日期只认你打开的页面里写的。查够了就只输出 JSON：{\"events\": [{\"name\": \"\", \"start\": \"YYYY-MM-DD\", \"end\": \"YYYY-MM-DD\", \"dates_text\": \"页面里写的日期原文\", \"venue\": \"\", \"city\": \"\", \"source_url\": \"你打开过的、写着这个日期的页面\"}], \"note\": \"\"}。没找到就 events 为空。"
+        let r = EventBrowseRequest(cities: ["珠海", "澳门"], from: day("2026-11-25"), to: day("2026-11-29"), kinds: "会展", today: day("2026-11-24"))
+        #expect(EventBrowseLoop.system(r) == poc)
+        #expect(EventBrowseLoop.question(r) == "11月25日到29日（2026年）珠海和澳门有什么会展？只要这几天开放的。")
+        let poc2 = EventBrowseRequest(cities: ["珠海", "澳门"], from: day("2026-11-25"), to: day("2026-11-29"), kinds: "", today: day("2026-11-24"))
+        #expect(EventBrowseLoop.question(poc2) == "11月25日到29日（2026年）珠海和澳门有什么展览、漫展、cosplay或AI活动？只要这几天开放的。")
+        let tools = try JSONDecoder().decode(JSONValue.self, from: Data(#"""
+        [{"type": "function", "function": {"name": "search", "description": "搜索网页，返回最多10条结果（标题、链接、摘要）。",
+           "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+         {"type": "function", "function": {"name": "open_page", "description": "打开一个网页链接，返回页面正文文字（最多6000字）和页面里的链接。",
+           "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}}]
+        """#.utf8))
+        #expect(EventBrowseLoop.tools == tools)
+        #expect(EventBrowseLoop.weekday(day("2026-11-29")) == "日" && EventBrowseLoop.weekday(day("2026-11-30")) == "一")
+    }
+
+    @Test("T-046za F-18 §38 row 44: the last step answered with JSON: events checked as §35 item 6; no JSON is reason=json; a model error is http")
+    func row44() async throws {
+        let open = [call("open_page", #"{"url":"https://zh.bendibao.com/a.shtm"}"#)]
+        let model = Script([EventChatReply(content: "", toolCalls: open)] + (1..<12).map { n in
+            EventChatReply(content: "", toolCalls: [call("search", #"{"query":"q"}"#, id: "c\(n)")]) } + [EventChatReply(content: finalJSON)])
+        let loop = EventBrowseLoop(model: model, searcher: Hits(), fetcher: Pages(["https://zh.bendibao.com/a.shtm": bendibao]),
+                                   clock: ManualClock(), now: { noon })
+        let out = try await loop.run(request())
+        #expect(model.lastSteps.last == true && out.kept.map(\.name) == ["2026横琴人工智能大赛AI嘉年华"] && out.dropped == 1)
+
+        let lines = Mutex<[String]>([])
+        let prose = Script((0..<12).map { n in EventChatReply(content: "", toolCalls: [call("search", #"{"query":"q"}"#, id: "c\(n)")]) }
+                           + [EventChatReply(content: "没找到。")])
+        let l2 = EventBrowseLoop(model: prose, searcher: Hits(), fetcher: Pages([:]), clock: ManualClock(), now: { noon },
+                                 onLine: { l in lines.withLock { $0.append(l) } })
+        await #expect(throws: EventBrowseFailure.json) { try await l2.run(request()) }
+        #expect(lines.withLock { $0 }.last == "events failed reason=json")
+    }
+
+    @Test("T-046x F-18 §35 item 1: declared only with search on; NON_BLOCKING; the system text is the PoC's (§38)")
     func catalog() {
         #expect(!ToolCatalog.declarations(webSearch: false).contains { $0.name == "find_events" })
         let d = ToolCatalog.declarations(webSearch: true).first { $0.name == "find_events" }
         #expect(d?.parametersJSONSchema["required"] == ["cities", "from", "to"])
         #expect(AsyncTool(name: "find_events") == .findEvents)
         #expect(ToolCatalog.validate(ToolCall(id: CallID("v")!, name: "find_events", arguments: ["cities": ["珠海"]])) == .invalidFields)
-        #expect(EventBrowseLoop.system(request()).hasPrefix(EventBrowseLoop.reactInstruction))
+        #expect(EventBrowseLoop.system(request()).hasPrefix("你是会上网查资料的助手"))
         #expect(EventCity.from(address: "广东省珠海市香洲区情侣中路") == "珠海")
         #expect(EventCity.from(address: "澳门特别行政区") == "澳门")
         #expect(EventCity.from(address: "广东省") == nil)

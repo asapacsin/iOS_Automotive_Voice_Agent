@@ -43,10 +43,10 @@ public struct EventChatReply: Sendable, Hashable {
     }
 }
 
-/// The loop model (`QwenRoute.eventsLoop`). `tools` false: the final ask, no tools declared. `timeout` is what is
-/// left of the loop's time.
+/// The loop model (`QwenRoute.eventsLoop`). The tools are always declared; `lastStep` true sends
+/// `"tool_choice": "none"` so the model must answer (F-18 §38 item 6). `timeout` is what is left of the loop's time.
 public protocol EventChatModel: Sendable {
-    func turn(_ messages: [EventChatMessage], tools: Bool, timeout: NovaDuration) async throws -> EventChatReply
+    func turn(_ messages: [EventChatMessage], lastStep: Bool, timeout: NovaDuration) async throws -> EventChatReply
 }
 
 public struct EventSearchHit: Sendable, Hashable {

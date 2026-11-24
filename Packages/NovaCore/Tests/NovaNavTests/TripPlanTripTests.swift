@@ -533,7 +533,7 @@ private final class Ran: @unchecked Sendable {
 
 private struct NoChat: EventChatModel {
     let ran: Ran
-    func turn(_ messages: [EventChatMessage], tools: Bool, timeout: NovaDuration) async throws -> EventChatReply {
+    func turn(_ messages: [EventChatMessage], lastStep: Bool, timeout: NovaDuration) async throws -> EventChatReply {
         ran.withLock { $0 += 1 }
         return EventChatReply(content: #"{"events":[],"note":""}"#)
     }

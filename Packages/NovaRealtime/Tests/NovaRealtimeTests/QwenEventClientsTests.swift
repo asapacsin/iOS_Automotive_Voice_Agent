@@ -20,18 +20,19 @@ struct QwenEventClientsTests {
         #expect(r.toolCalls == [EventToolCall(id: "call_a", name: "search", arguments: #"{"query":"珠海 活动"}"#)])
     }
 
-    @Test("T-046x F-18 §35 item 3: the turn request carries the model, thinking, the tools and the tool messages")
+    @Test("T-046za F-18 §38 row 45 (replaces §35 item 3's request): qwen3.8-max, thinking off, no stream, the tools on every turn; the last step adds tool_choice none")
     func request() throws {
         let c = QwenEventChatClient(key: { "k" }, tools: ["x"])
         let msgs = [EventChatMessage(role: .assistant, content: "", toolCalls: [EventToolCall(id: "1", name: "open_page", arguments: "{}")]),
                     EventChatMessage(role: .tool, content: "page", toolCallID: "1")]
-        let req = c.request(msgs, tools: true, key: "k", timeout: .seconds(100))
+        let req = c.request(msgs, lastStep: false, key: "k", timeout: .seconds(100))
         let body = try JSONDecoder().decode(JSONValue.self, from: req.httpBody!)
-        #expect(body["model"] == "qwen3.8-max" && body["enable_thinking"] == true && body["tools"] == ["x"])
+        #expect(body["model"] == "qwen3.8-max" && body["enable_thinking"] == false && body["tools"] == ["x"])
+        #expect(body["stream"] == nil && body["stream_options"] == nil && body["tool_choice"] == nil)
         guard case .array(let m)? = body["messages"] else { Issue.record("no messages"); return }
         #expect(m[1]["tool_call_id"] == "1" && m[0]["tool_calls"] != nil)
-        let final = try JSONDecoder().decode(JSONValue.self, from: c.request(msgs, tools: false, key: "k", timeout: .seconds(5)).httpBody!)
-        #expect(final["tools"] == nil)
+        let last = try JSONDecoder().decode(JSONValue.self, from: c.request(msgs, lastStep: true, key: "k", timeout: .seconds(5)).httpBody!)
+        #expect(last["tools"] == ["x"] && last["tool_choice"] == "none")
     }
 
     @Test("T-046x F-18 §35 item 3: search returns links only; open_page asks zh-CN with a desktop agent, http(s) only")
