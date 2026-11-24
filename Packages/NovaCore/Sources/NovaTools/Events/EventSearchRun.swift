@@ -262,7 +262,7 @@ public struct EventSearchRun: Sendable {
         guard !t.isEmpty else { return nil }
         let aliases = ["Macau": "澳门", "Macao": "澳门", "澳門": "澳门", "Hong Kong": "香港"]
         let named = aliases.first { t.localizedCaseInsensitiveContains($0.key) }?.value ?? t
-        return cities.first { named.contains($0) || $0.contains(named) }
+        return cities.first { named.contains($0) || (named.count >= 2 && $0.contains(named)) }
     }
 
     /// Item 4: dates parse, `end` ≥ `start`, overlaps the window and `end` ≥ today; `city` one of the asked; the
@@ -282,7 +282,8 @@ public struct EventSearchRun: Sendable {
             }
             var url = c.sourceURL
             var query = answers.first { $0.1.sources.contains { $0.url == url } }?.0
-            if query == nil, let naming = answers.first(where: { $0.1.text.contains(c.name) }), let first = naming.1.sources.first {
+            if query == nil, let naming = answers.first(where: { $0.1.text.contains(c.name) && !$0.1.sources.isEmpty }),
+               let first = naming.1.sources.first {
                 url = first.url
                 query = naming.0
             }

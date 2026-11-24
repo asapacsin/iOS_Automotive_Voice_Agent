@@ -104,11 +104,11 @@ struct LateResultTests {
         let timer = d.effects.compactMap { if case .schedule(.session(let t), _) = $0, t.kind == .reconnectDelay { t } else { nil } }
         d.send(.timer(.session(timer.last!)))
         d.realtime(.setupComplete)
-        let result = ToolResult.success(["events": [], "source": "browse", "next": "这些是页面上写着日期的活动。"])
+        let result = ToolResult.success(["events": [], "source": "search", "next": "这些是网上查到的活动。"])
         let done = d.send(.toolFinished(TurnID(1), call, result))
         #expect(AsyncToolTests.responses(done).isEmpty)
         let late = texts(done)
-        #expect(late.contains { $0.hasPrefix("（刚才find_events的结果：{") && $0.hasSuffix("）这些是页面上写着日期的活动。") })
+        #expect(late.contains { $0.hasPrefix("（刚才find_events的结果：{") && $0.hasSuffix("）这些是网上查到的活动。") })
         #expect(diagnostics(done).contains(.asyncResultViaText(tool: .findEvents)))
         #expect(DiagnosticEvent.asyncResultViaText(tool: .findEvents).logLine == "tool-result find_events via=text reason=reconnected")
         #expect(done.contains { if case .provider(.text(_, turnComplete: true)) = $0 { true } else { false } })

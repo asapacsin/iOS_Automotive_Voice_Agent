@@ -443,7 +443,7 @@ public enum ToolCatalog {
             "additionalProperties": false,
         ]))
 
-    /// F-18 §35 item 1 (T-046x): time-limited events through the background browse loop; declared only with search on.
+    /// F-18 §35 item 1 (T-046x): time-limited events through the background searches (§39); declared only with search on.
     public static let findEventsDescription = "查某几天里的展览、演出、漫展、节庆等活动。司机问展览、演出、漫展、节日或某几天有什么活动时用它，不用 web_search。cities 填1到3个城市名，不填省；from、to 由你按现在的日期给出 YYYY-MM-DD（「这周末」是接下来的周六和周日）；kinds 填司机说的种类，比如「漫展、cosplay、AI」。调用后不用说话，查好了结果会自己回来，按 next 回答。"
     public static let findEventsSpec = ToolSpec(domain: "live_info", repeatSensitive: true, declaration: ToolDeclaration(
         name: "find_events",

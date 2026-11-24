@@ -113,6 +113,6 @@ struct AgentSetupTests {
             agentLines: a.headerLines()))!
         let w = MemoryWriter()
         record.drain(to: w)
-        #expect(Array(w.lines.withLock { $0 }.prefix(5)) == ["recordFormat 12", "app 0.1.0(1) abcdef0"] + a.headerLines())
+        #expect(Array(w.lines.withLock { $0 }.prefix(5)) == ["recordFormat 13", "app 0.1.0(1) abcdef0"] + a.headerLines())
     }
 }
