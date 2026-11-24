@@ -1574,4 +1574,105 @@ for word, as an owner-approved exception to the search-prompt rule (2026-11-05) 
 
 | Task | Scope | Status |
 |---|---|---|
-| T-046za | §38 items 1–7; rows 42–47 (46 before the build) | NOT_RUN |
+| T-046za | §38 items 1–7; rows 42–47 (46 before the build) | Built; row 46 PASS, row 47 device FAIL (record 20261124-220730); replaced by §39 (T-046zb) |
+
+## 39. Events come from several short searches and the search's own answer, not a browse loop (iOS, owner request 2026-11-24)
+
+**Why (owner phone test 2026-11-24, build 9384bbf, record 20261124-220730).** The driver asked 「最近在澳门珠海这里有什么活动吗」,
+then for 漫展/音乐/AI 展, then "this month or next", then Macau free exhibitions. She said there was nothing, four times.
+- **The loop found nothing.** The first `find_events` (珠海+澳门, 11-24…29) ran 12 steps, 62 s, 57,482 `qwen3.8-max`
+  tokens: `found=0`. Its `open_page` calls returned in 115–437 ms with almost no text. The month-long call (11-24…12-24)
+  found one event (VAC电音节, 11-28…29) in 67 s and 71,906 tokens.
+- **The store returned an empty result as a hit.** The 漫展/音乐/AI call (129703) and the Macau call (325799) did no
+  search: `events store hit`, `events: []` in 0–1 ms. The kinds the driver gave were ignored. She said
+  「我确实很认真地多方位帮您找过了」 for a lookup that never ran.
+- **Row 46 measured the wrong thing.** Its bar was "at least one event in 2 of 3 runs". On the PC the loop kept one
+  event (or none) per run while more than 15 were easy to find.
+
+**PoC on the PC (2026-11-24, `qwen3.8-flash`, the search request §35 item 3 uses, `forced_search`, `search_strategy:
+max`, `enable_source`, no system text, the answer text kept).**
+- One broad question (all kinds, both cities, 11-25…12-31): one search, 8 old or off-topic sources, answer 「无法列出」.
+  This matches §35's PoC: one broad question per search answers 「没有」.
+- Four short keyword queries — 「珠海 漫展 2026年11月 12月」, 「澳门 展览 活动 2026年11月 12月」,
+  「Macau events exhibition anime ACG concert November December 2026」, 「珠海 横琴 2026年11月 12月 展会 AI 演唱会 活动」 —
+  about 1.2–1.7K tokens and one search each, 5.7K in total. The answers named, with dates and venues: 起源ACG动漫展
+  (12-05…06, 珠海香山文化艺术中心), 横琴AI嘉年华 + 人工智能大赛决赛 (11-28…29, 珠海国际会展中心), 第十六届中国航展 (12-07…13),
+  AIE 电子展 (珠海+澳门), 水产前沿国际展 (12-03…05), JEONGHAN X JOSHUA (12-11…12, Galaxy Arena), 澳门光影节
+  (12-05…01-10), 澳门炮竹特展 (to 11-29, free), a Broadway Macau fancon, Macau trade fairs. Missed: 澳门美食节, VAC电音节.
+  Wrong: one answer said the 航展 date was not out yet while another gave 12-07…13.
+- So the search engine finds the events; the loop lost them by keeping only titles and links (§35 item 3), opening
+  pages that return no text, and asking for each date on an opened page.
+
+**Published practice this copies.** Ask the search with short keyword queries, one topic each, and read the search
+system's own grounded answer with its sources (Alibaba Cloud Model Studio, "Web search" — `enable_search`,
+`search_options.enable_source`, `forced_search`, `search_strategy`; the PoC above). Turn the text into records with a
+schema-bound extraction call (OpenAI, "Structured Outputs" guide: system text 「Extract the event information.」 with a
+JSON schema). Keep event data in your own store and query it at decision time (PredictHQ docs, "Search Events", as
+§35). Resolve date words to explicit dates and check items fall in the window (as §35).
+
+**Owner decision (2026-11-24).** Replace the browse loop (§35 items 3, 4, 6 and all of §38) with several short
+`qwen3.8-flash` searches whose answer text is kept, and one extraction call. Dates come from the search answers; no
+page is opened, no date is checked on a page. She says the dates are from the web.
+
+1. **Queries.** For each city in `cities` and each kind, one query: 「<城市> <kind> <YYYY>年<M>月」, adding 「 <M>月」 for
+   each further month the window touches (at most 3 months). Kinds: the driver's `kinds` split on 、，, and spaces (at
+   most 5); with no `kinds`, the default five: 展览展会, 漫展 ACG, 演唱会 演出, AI 科技展, 节庆活动. At most 12 queries
+   per call (cities × kinds in that order, then the English ones); the rest are dropped and counted. For 澳门 and 香港 one extra query in
+   English: 「<Macau|Hong Kong> events exhibition concert <Month> <YYYY>」.
+2. **Search call.** Each query is one request on the app's search route (§35 item 3's endpoint and options:
+   `qwen3.8-flash`, `enable_search`, `forced_search: true`, `search_strategy: max`, `enable_source: true`,
+   `enable_thinking: false`), the query as the only user message, **no system text**. Kept: the answer text and
+   `search_info.search_results` (title, url, site). At most 4 requests at once; each 45 s; a failed or timed-out query
+   is skipped and counted, the others go on. Backup chain §36 (`qwen3.8-flash` → `qwen3.8-max`).
+3. **Extraction.** One call, `qwen3.8-flash` (chain §36), compatible-mode chat, `enable_thinking: false`,
+   `response_format: {"type": "json_object"}`. System text 「Extract the event information.」 (copied, see above) plus
+   the JSON shape `{"events": [{"name","start","end","dates_text","venue","city","source_url"}]}`, today's date and the
+   window as values. User message: each query's answer text followed by its numbered sources. 30 s.
+4. **Code checks each event** (replaces §35 item 6). `start`, `end` parse as dates, `end` ≥ `start`; the event overlaps
+   `from`…`to` and `end` ≥ today; `city` is one of `cities`; `source_url` is one of the sources the searches returned
+   (else the first source of the query whose answer names the event, else dropped). Same name and start from two
+   queries: kept once. Dropped events are counted in `dropped`.
+5. **Store (amends §35 items 2 and 5).** Kept events go to `events.json` as today. A city and window are marked
+   searched **per kind**; a later call is a store hit only when every city × kind it asks for was searched less than
+   24 h ago for a covering window. **A search that kept no event for a city × kind marks it for 30 minutes, not 24 h.**
+   The app-open refresh (§35 item 5) uses the default kinds.
+6. **Result (amends §35 item 7).** `ok=true`, `events`, `dropped`, `sites`, `source: store|search`, and for a store
+   hit `searched_minutes_ago`. `next` on a search: 「这些是网上查到的活动，日期以主办方为准。按日期跟司机说名字、日期、地点，
+   一两句，提醒出发前核实；没有就说这几类在网上没查到，不要说一定没有。」 On a store hit, the same text starting
+   「这是<n>分钟前查到的，」 so she never says she just searched. All queries failed: `ok=false`, `code=EVENTS_FAILED`,
+   §35 item 7's failure `next`.
+7. **She is told it runs (amends §35 item 8).** Handoff line 「好，我查一下这几天的活动，半分钟左右。」; spinner
+   「正在查活动」, then 「已查<n>/<m>」 as queries finish.
+8. **Record.** `events store hit|miss cities=<n> kinds=<k> window=<from>..<to>`, `events query <i>/<m> ms=<ms>
+   ok=<yes|no> sources=<n> tokens=<n> q=<query>`, `events extract ms=<ms> tokens=<n> found=<n>`, `events search done
+   ms=<ms> queries=<m> failed=<f> kept=<n> dropped=<n> tokens=<n>`.
+9. **Removed.** `EventBrowseLoop`, `open_page`, the page fetch, the page date parser's use in `find_events` (kept only
+   if F-15b §64 still needs it), §38's texts and its `QwenRoute.eventsLoop`. F-15b §64 reads the store as before.
+10. **Code layout.** Query building, checks, store and result in `Packages/NovaCore` (no network); the search and
+    extraction clients in `Packages/NovaRealtime` next to the Qwen clients. Catalog/agent version bump per F-09b §15.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 48 | 珠海+澳门, 2026-11-25…12-31, no kinds | 11 queries: 5 kinds × 2 cities as 「珠海 漫展 ACG 2026年11月 12月」, plus 「Macau events exhibition concert November 2026」; with 3 cities, queries past 12 dropped and counted | unit |
+| 49 | Search request body | `qwen3.8-flash`, `forced_search`, `search_strategy: max`, `enable_source`, no system message; answer text and sources kept | unit |
+| 50 | Fake answers: an event with an invented URL, one outside the window, one from two queries | URL replaced by the query's first source; outside dropped; duplicate kept once; `dropped` counts | unit |
+| 51 | Store: 珠海 展览展会 searched 2 h ago; call asks 漫展 ACG | Store miss, searches 漫展 only | unit |
+| 52 | A search kept 0 events; same call 10 min later, then 40 min later | First: store hit with `searched_minutes_ago=10`; second: searches again | unit |
+| 53 | Store hit result | `next` starts 「这是<n>分钟前查到的」; `source: store` | unit |
+| 54 | 3 of 10 queries time out | Others used; record `failed=3`; `ok=true` | unit |
+| 55 | **PC, before the build:** the app's queries and extraction for 珠海+澳门, 2026-11-25…12-31, 3 runs, against `scripts/eval/events_reference_2026-11.json` (events confirmed by hand on their source pages) | Each run finds ≥ 60% of the reference events with the right start date and no event outside the window; median ≤ 60 s and ≤ 25K flash tokens; times and tokens in STATUS. Not met: stop and report, no build | PC |
+| 56 | Device: the 2026-11-24 drive again: 「最近珠海澳门有什么活动」, then 「有没有漫展、音乐或者 AI 展」, then 「澳门有什么免费的展」 | Several events with dates each time; the kinds question searches again; no 「认真找过了」 for a store answer | D |
+
+**Reference list for row 55** (candidates from 2026-11-24 searches; the task confirms each on its source page and
+drops any it cannot): 横琴AI嘉年华 11-28…29; 横琴VAC电音节 11-28…29; 起源ACG动漫展 12-05…06; 第十六届中国航展
+12-07…13; AIE 电子展 12-03…05 (珠海, 澳门); 水产前沿国际展 12-03…05; 澳门美食节 11-20…12-06; 澳门国际光影节
+12-05…2027-01-10; JEONGHAN X JOSHUA 12-11…12; 韦礼安 澳门站 12-12; 圣诞购物展 威尼斯人 12-11…13; HIGHLIGHT fan concert
+11-29; LINGORM fancon 11-28; 澳门炮竹特展 to 11-29; 横琴马拉松 12-27.
+
+**Trace gate.** Add `T-046zb: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zb.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zb | §39 items 1–10; rows 48–56 (55 before the build); supersedes T-046za | NOT_RUN |

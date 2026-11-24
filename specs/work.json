@@ -2791,7 +2791,19 @@
         "spec-reviewer high effort FAIL (item 1 city) -> fix 51fa392 -> medium re-check PASS 2026-11-24",
         "row 46 NOT_RUN (no key in cloud; replica script scripts/eval/event_loop_replica.py); row 47 device NOT_VERIFIED; no app build until row 46 passes"
       ],
-      "blocked_by": "§38 row 46 PC eval before the app build: needs the DashScope key on the owner PC (python -I -X utf8 scripts/eval/event_loop_replica.py 3)"
+      "blocked_by": "Superseded by T-046zb (F-18 §39): row 46 PASS 2026-11-24 (9384bbf) but row 47 device FAIL on build 9384bbf (record 20261124-220730)"
+    },
+    {
+      "id": "T-046zb",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "depends_on": [
+        "T-046za"
+      ],
+      "action": "F-18 §39 items 1-10: find_events runs city x kind keyword queries (max 12, 4 at once, 45 s each) on the qwen3.8-flash search route with no system text, keeps answer text + sources; one qwen3.8-flash extraction call (system 'Extract the event information.' + JSON shape); code checks dates, window, city, source url, duplicates; store marked per kind, empty results only 30 min; store answers carry searched_minutes_ago and next says how old; handoff/spinner/record lines; EventBrowseLoop and open_page removed; rows 48-56, row 55 PC recall eval before the build.",
+      "notes": "Owner phone test 2026-11-24 (build 9384bbf): the browse loop found 0 then 1 event; two later calls returned a cached empty result without searching. PC PoC: 4 short flash queries found 10+ real events for 5.7K tokens. Row 55 needs scripts/eval/events_reference_2026-11.json confirmed by hand first and the DashScope key on the owner PC.",
+      "evidence": []
     },
     {
       "id": "T-040zq",
