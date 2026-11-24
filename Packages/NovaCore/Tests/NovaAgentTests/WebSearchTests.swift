@@ -353,3 +353,20 @@ struct PhotoToolTextTests {
         #expect(!search.contains("。只按返回的 answer 回答。"))
     }
 }
+
+@Suite("T-031zf F-09b §21 every ok web_search result tells her to show named places as photo cards")
+struct SearchPlacesNextTests {
+    @Test("T-031zf F-09b §21 row 1: ok with show_places declared carries item 1's text; ok without it and a failed search do not")
+    func row1() async {
+        let on = await WebSearchExecutor(service: ScriptedSearch([.reply(grounded)]), clock: SystemClock(), showPlaces: true)
+            .execute(searchCall())
+        #expect(WebSearchExecutor.placesNext == "answer 里有地点时，用 show_places 把它们列在屏幕上（每个是带照片的卡片），再简短说找到了哪些。")
+        #expect(on.ok && on.data["next"] == .string(WebSearchExecutor.next + WebSearchExecutor.placesNext))
+        let off = await WebSearchExecutor(service: ScriptedSearch([.reply(grounded)]), clock: SystemClock()).execute(searchCall())
+        #expect(off.ok && off.data["next"] == .string(WebSearchExecutor.next))
+        let bad = WebSearchReply(answer: " ", sources: [])
+        let failed = await WebSearchExecutor(service: ScriptedSearch([.reply(bad), .reply(bad)]), clock: SystemClock(), showPlaces: true)
+            .execute(searchCall())
+        #expect(!failed.ok && !"\(failed)".contains("show_places"))
+    }
+}

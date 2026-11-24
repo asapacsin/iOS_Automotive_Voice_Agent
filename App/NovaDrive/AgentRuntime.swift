@@ -1209,7 +1209,8 @@ final class AgentRuntime {
                 case .place(_, _, let added, let hint):
                     RuntimeLog.agent.notice("webSearchPlace added=\(added ? "yes" : "no", privacy: .public) hint=\(hint ? "yes" : "no", privacy: .public)")
                 }
-            }, destination: { destinationName.name }, driverWords: { lastWords.words(for: $0) })
+            }, destination: { destinationName.name }, driverWords: { lastWords.words(for: $0) },
+               showPlaces: true)  // F-09b §21 item 1 (T-031zf): search on declares show_places (F-16 §15 item 2)
         } else {
             // Setting off: an undeclared web_search call is UNKNOWN_TOOL, as before T-046c.
             executors[WebSearchExecutor.tool] = UndeclaredToolExecutor()
