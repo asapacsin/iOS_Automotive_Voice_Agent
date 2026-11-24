@@ -2768,14 +2768,17 @@
     {
       "id": "T-046y",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-040zo"
       ],
       "action": "F-18 §36 items 1-5: QwenRoute gets an ordered model list per job (live, ground, picker, planner, events loop, events search) with per-entry search options and thinking; move on 429 or quota 403 before any answer, each entry once, within the job's time; a quota 403 marks the model used up for 24 h or until restart; record qwen fallback / qwen exhausted; diagnostics show marked models; an entry is listed only after its job's PC eval passes (row 35); rows 33-36. Amends F-15b §50 item 10, §59 item 2, §62 item 7.",
       "notes": "Owner 2026-11-24: quotas run out fast (qwen3.8-max 686K/1M, qwen3.8-flash 855K/1M after one day); picker and planner have no backup today.",
-      "evidence": []
+      "evidence": [
+        "a16b7a9: Linux gates green (NovaCore 1115, NovaRealtime 62, NovaServices 118 tests; ios_spec_check, spec_trace PASS; secrets gate flags only untracked .claude/worktrees); spec-reviewer high effort PASS 2026-11-24",
+        "row 35 PC eval NOT_RUN (no DashScope key in cloud); unevaluated entries kept in QwenRoute.awaitingEval"
+      ]
     },
     {
       "id": "T-046z",
