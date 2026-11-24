@@ -2843,3 +2843,49 @@ station or a namesake (陈家祠(地铁站), 中旅·阿那亚) when the planner
 | Task | Scope | Status |
 |---|---|---|
 | T-040zo | §62 items 1–13 (`plan_trip` carries the request; `qwen3.8-flash` planner writes and reviews in its own shape, stay may be a sight; code counts every round, no verdict; bounded 3 rounds; result and `next` for the voice model; `PLANNER_FAILED`, no fallback; trip claims judged only by §58's verdict; panel and record; catalog and major agent version; the handoff line said by code and a spinner with step text shown); rows 279–291 | NOT_RUN |
+
+## 63. The same place twice in a row is one stop (owner request 2026-11-24)
+
+**Why (owner phone test 2026-11-24, build 6512033, record 20261124-100527).** 「广东四天游，其中大概两天住在佛山绿湖温泉度假酒店」:
+- 326885: the planner wrote day 1 as sights 长鹿旅游休博园 (240 min), 佛山绿湖温泉度假酒店 (120 min) and stay
+  佛山绿湖温泉度假酒店. §62 item 2's shape gives minutes only to sights, so the planner listed the resort as a sight to
+  count its time there, and again as the stay.
+- 326892: the saved plan held them as two stops, `s317` (sight) and `s318` (hotel), next to each other; the cards
+  showed the resort twice and `plan_text` read 「长鹿旅游休博园、佛山绿湖温泉度假酒店、住佛山绿湖温泉度假酒店」. Row 281
+  of §62 had asked for that text.
+- 316421, 347268: the driver asked why; she said 「酒店重复显示是为了记录住宿时间」 and 「系统记录了您入住的时间」, which
+  nothing in the app does.
+
+**Owner rule (2026-11-24).** The same place never shows twice in a row. Code merges it, whatever the planner writes;
+the planner's prompt does not change.
+
+1. **One rule, applied by code to every saved plan.** Within each day, a stop that is the same place as the stop right
+   before it is merged into that stop. Same place: the same `Place.id`, or the same found name (高德's name after the
+   lookup). The rule runs in the one function that saves a `TripPlan`, so `plan_trip` (§62), screen edits (§46) and a
+   reopened saved plan all get it.
+2. **What the merged stop keeps.** If either of the two is the night's hotel, the merged stop is the hotel (the night
+   is never lost) and keeps the sight's `minutes` as time spent there that day; the day's time count (§48 `TripTimes`,
+   budget B) counts those minutes once. Two sights merge into one with the larger `minutes`. The merged stop keeps the
+   first stop's position.
+3. **Not merged.** A day's first stop being the previous night's hotel and its last stop being the same hotel again
+   (day 2 of the record: start and night at the resort, other sights between) are not next to each other and both
+   stay. The same place on two different days stays on each day.
+4. **Everything the driver sees and hears uses the merged plan:** the cards, the map pins and lines, `plan_text`, and
+   the counts sent to the planner (§62 item 4). `plan_text` writes a merged hotel stop once:
+   「…佛山绿湖温泉度假酒店（玩约2小时，住这里）」; a hotel with no sight minutes stays 「住<name>」.
+5. **Replaces** §62 row 281's `plan_text` 「…九龙湖旅游度假村、住九龙湖旅游度假村」 (now 「…九龙湖旅游度假村（玩约<m>分钟，住这里）」
+   with hours when ≥ 60 min, as item 4).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 292 | Replay of 326885's plan (record 20261124-100527) through the save | Day 1 has 2 stops: 长鹿旅游休博园, then 佛山绿湖温泉度假酒店 as the hotel with 120 min; day 1's count includes those 120 min once; `plan_text` day 1 「长鹿旅游休博园、佛山绿湖温泉度假酒店（玩约2小时，住这里）」; day 2 still starts and ends at the resort | unit |
+| 293 | Two sights with the same `Place.id` next to each other; two with the same found name and different ids; the same place on day 1 and day 2 | First two: one stop each, the larger `minutes`; the third: kept on both days | unit |
+| 294 | Screen edit (§46) moves a stop next to the same place; a saved plan with such a pair is reopened | Merged on save in both; no day in any saved plan has the same place twice in a row | unit |
+| 295 | §62 row 281 with item 5's text | Passes with the merged `plan_text` | unit |
+| 296 | Device: 「广东四天游，其中大概两天住在佛山绿湖温泉度假酒店」 | No day's cards show the same place twice in a row; the resort day shows one resort card marked as that night's stay | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zp | §63 items 1–5 (adjacent same place merged by code on every save; hotel wins and keeps the sight minutes, counted once; start/end hotel of a day kept; cards, pins, `plan_text` and planner counts use the merged plan; §62 row 281 text replaced); rows 292–296 | NOT_RUN |
