@@ -924,3 +924,43 @@ world, never about what she can do. No other behaviour changes.
 | Task | Scope | Status |
 |---|---|---|
 | T-031ze | §20 items 1–4 (`show_places` says its cards have photos and is used when the driver asks to see pictures of places she named; `show_place` pictures wording; `web_search` answer is facts, not her abilities; agent version and parts); rows 1–4 | NOT_RUN |
+
+## 21. A search answer that names places is shown as photo cards: the `web_search` result says so (owner request 2026-11-24)
+
+**Why (owner phone test 2026-11-24, build da3afe8, agent 10.1.0, record 20261124-131230).** §20's tool texts were on the
+phone and she still did not show pictures: 71441 「我想去海边度假村，有图片或者啥的可以看一下吗?」 → `web_search` only;
+76992 「由于我无法直接显示图片，建议您在旅游平台上看看实景图」, again at 93175 and 118112. The search answer had no picture
+wording this time.
+
+**PoC (2026-11-24, `scripts/eval/photo_live_poc.py`, `gemini-3.8-live` over the Live websocket, the 10.1.0 setup with
+search on, the record's words as text, the record's 75996 search result as the fake result, 5 runs each).**
+- 71441 as recorded: **0/5** called `show_places`/`show_place` (each called `web_search`, then spoke; 1 said she cannot
+  show pictures, 4 sent him to a travel site).
+- 118112 after her recorded refusal, places already named: **5/5** called `show_places` with the named resorts.
+- 71441 with item 1's `next` added to the search result: **5/5** called `web_search`, then `show_places` with the resorts.
+She can use the tool; the tool texts read at session start do not make her chain it after a search. A `next` in the
+result, read when she decides, does (as §62 item 6's `next` for `plan_trip`).
+
+**Owner rule (2026-11-24).** Every search answer that names places is shown as photo cards; cards for a time or price
+question are accepted (「关掉」 closes them).
+
+1. **`web_search` result `next`.** Code adds to every `ok=true` `web_search` result:
+   「answer 里有地点时，用 show_places 把它们列在屏幕上（每个是带照片的卡片），再简短说找到了哪些。」
+   Only when `show_places` is declared (search on, F-16 §15 item 2). Code does not judge whether the answer names
+   places; she does. A failed search keeps its own `next` unchanged.
+2. **Kept.** §20's tool texts, `show_places` behaviour and its result, the search request and the search prompt
+   (owner rule 2026-11-05 untouched: this is the tool result, not the search model's text).
+3. **Version.** The `next` is part of the result, not the catalog: no agent version bump unless the F-09b §15 gate
+   counts result texts; the record line `tool-result web_search` shows the `next`.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 1 | `web_search` ok with search on; ok with `show_places` not declared; failed | First: `next` is item 1's text exactly; second and third: no such `next` | unit |
+| 2 | Eval: `scripts/eval/photo_live_poc.py --with-next` case A (71441), `gemini-3.8-live`, 5 runs | ≥ 4 of 5: `show_places` with the named resorts after `web_search`; in none does she say she cannot show pictures | eval |
+| 3 | Device: 「珠海有什么海边度假村，给我看看图片」 | Photo cards for the places she names; she does not say pictures cannot be shown | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-031zf | §21 items 1–3 (`web_search` ok result carries item 1's `next` when `show_places` is declared); rows 1–3 | NOT_RUN |
