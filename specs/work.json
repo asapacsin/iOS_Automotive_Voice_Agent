@@ -2741,14 +2741,16 @@
     {
       "id": "T-031zg",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-031zd"
       ],
       "action": "F-09b §22 items 1-5: a tap 「×」 (xmark.circle.fill, top-right, >= 44 pt, white on dark, identifier <panel>-close) on destinationList, routePicking, tripScreen, tripDetail, tripPlans and musicCard, calling the same close function exit_navigation_mode uses (destinationList/routePicking: the 「不去了」 executor path, I-6); no model call, no spoken line; a running plan_trip keeps running with its spinner; record `panel close tap <key>`; trip cards' per-stop 「×」 unchanged; rows 1-4.",
       "notes": "Owner 2026-11-24: he has to say 「关掉」 every time to close the trip screen, cards or route choices, and she is sometimes slow. Only camera and mapPin have a 「×」 today.",
-      "evidence": []
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 2003ff8 in a clean worktree (NovaCore 1115 tests, 1 known NoiseCorpus issue; NovaRealtime 57; NovaServices 118); record format 11 (fixtures, read.py, record-format.md). Review: spec-reviewer high FAIL on d230db0/ca26bf8 (trip 「×」 during guidance ended guidance; no-session 「×」 dead; 「×」 over per-stop ✕ and 「完成」; plan_trip result did not reshow tapped-away cards) -> fixed e181dbf/2003ff8 (NavigationController.exit(panel:) closes only the named panel, also fixing her named-panel voice close; trip 「×」 in its own row; no 「×」 on in-guidance route alternatives, spec line added) -> re-check medium PASS. Rows 1-2 unit PASS (PanelCloseTapTests, PanelCloseFlowTests real flow); row 3 by reading (no unit test); row 4 device NOT_VERIFIED; App files read, not compiled."
+      ]
     }
   ]
 }

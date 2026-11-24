@@ -978,7 +978,7 @@ it at once.
 
 1. **Which panels.** Every `ScreenPanel` with a layer (§17 item 1) that has a close in the §17 registry:
    `destinationList` (the place list, including `show_places`' cards), `routePicking`, `tripScreen`, `tripDetail`,
-   `tripPlans`, `musicCard`; `camera` and `mapPin` keep theirs. Not: `navigation` (its 「结束导航」 button stays the way
+   `tripPlans`, `musicCard`; `camera` and `mapPin` keep theirs. `routePicking` over running guidance (the HUD route alternatives) has none: a 「×」 never ends guidance (T-031zg review). Not: `navigation` (its 「结束导航」 button stays the way
    to end guidance), `routeCalculating`, `working`, `backgroundWork`, `settings`.
 2. **One close path.** The 「×」 calls the same close as her `exit_navigation_mode` for that panel (§17 item 4; for
    `destinationList` / `routePicking` the executor path that 「不去了」 uses, I-6), never a second copy. The view reports
