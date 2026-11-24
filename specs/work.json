@@ -818,14 +818,17 @@
     {
       "id": "T-046z",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-046x"
       ],
       "action": "F-18 §37 items 1-4: a newer web_search supersedes an older running one (older result held, dropped if the newer is ok, sent if it fails); the 现在 note lists running find_events/plan_trip with seconds; RESULT_PENDING tool=<name> correction generalising TRIP_RESULT_PENDING; a result whose call predates a reconnect is sent as a text turn when idle; results older than 10 min not spoken; rows 37-41.",
       "notes": "Record 20261124-145528: two overlapping breakfast searches gave contradicting turns 70/71; she said 「选项已过期」 while plan_trip ran.",
-      "evidence": []
+      "evidence": [
+        "41704d3: Linux gates green in a clean worktree (NovaCore 1135 tests; ios_spec_check, spec_trace PASS); spec-reviewer high effort FAIL (carried calls kept RESULT_PENDING; a third overlapping search leaked a held result) -> 457a700, 41704d3 -> medium re-check PASS 2026-11-24; rows 37-40 unit; agent 11.1.0, record format 12",
+        "row 41 device NOT_VERIFIED; App not compiled; noteIdle now lets notes go while only background calls run (F-09b §21 item 2 wording not yet amended)"
+      ]
     },
     {
       "id": "T-040zq",
