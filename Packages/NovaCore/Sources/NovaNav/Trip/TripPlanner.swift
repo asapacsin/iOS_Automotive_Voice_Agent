@@ -1118,7 +1118,8 @@ public actor TripPlanner: ToolExecutor {
                         s.role = role
                         s.pickedBy = .model
                     }
-                    if let m = w.minutes { s.minutes = m }
+                    // §63 (T-040zp): a hotel's minutes come only from a merge, never from the model.
+                    if let m = w.minutes, s.role != .hotel { s.minutes = m }
                     return s
                 }
                 if w.name == nil, let near = w.near {
@@ -1133,7 +1134,8 @@ public actor TripPlanner: ToolExecutor {
                 if role == .hotel, let made = newStopOf[name] { return made }
                 let place = placeOf[name]
                 let stop = TripStop(index: 0, asked: name, place: place ?? Self.unplacedPlace(name, key: "\(revisionKey)|\(name)"),
-                                    distanceMeters: place.flatMap { distance(here, $0) }, role: role, minutes: w.minutes,
+                                    distanceMeters: place.flatMap { distance(here, $0) }, role: role,
+                                    minutes: role == .hotel ? nil : w.minutes,
                                     importance: w.importance, placed: place != nil, pickedBy: .model)
                 newStopOf[name] = stop
                 return stop
@@ -1229,13 +1231,14 @@ public actor TripPlanner: ToolExecutor {
                     if let id = w.id {
                         guard var stop = known[id] else { return nil }
                         if let r = w.role { stop.role = r }
-                        if let m = w.minutes { stop.minutes = m }
+                        if let m = w.minutes, stop.role != .hotel { stop.minutes = m }
                         return stop
                     }
                     let name = w.name ?? w.near.map { "\($0)附近的酒店" } ?? ""
                     let place = w.name.flatMap { placeOf[$0] } ?? w.near.flatMap { nearOf[$0] }
                     return TripStop(index: 0, asked: name, place: place ?? Self.unplacedPlace(name, key: "draft|\(name)"),
-                                    distanceMeters: nil, role: w.role ?? (w.near != nil ? .hotel : .sight), minutes: w.minutes,
+                                    distanceMeters: nil, role: w.role ?? (w.near != nil ? .hotel : .sight),
+                                    minutes: (w.role ?? (w.near != nil ? .hotel : .sight)) == .hotel ? nil : w.minutes,
                                     importance: w.importance, placed: place != nil, pickedBy: .model)
                 }
             }

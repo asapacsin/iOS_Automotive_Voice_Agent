@@ -377,7 +377,7 @@ private func list(_ stops: [TripStop]) -> TripList {
 private func noAdjacentRepeat(_ plan: TripPlan) -> Bool {
     plan.days.allSatisfy { day in
         zip(day.stops, day.stops.dropFirst()).allSatisfy { a, b in
-            !(a.place.id == b.place.id && !(a.role == .hotel && b.role == .hotel))
+            a.place.id != b.place.id
         }
     }
 }
@@ -423,7 +423,7 @@ struct TripMergeTests {
         #expect(Set(d1.map(\.id) + d2.map(\.id)).count == 5)
     }
 
-    @Test("T-040zp F-15b §63 items 2-3: the hotel wins (first or second) and keeps the sight's minutes; a day's start and night hotel stay; start/end are never merged")
+    @Test("T-040zp F-15b §63 items 2-3: the hotel wins (first or second) and keeps the sight's minutes; a day's start and night hotel with nothing between them are one stop; start/end are never merged")
     func hotelRules() {
         let plan = TripPlan(name: nil, days: [
             list([stop("h", .hotel), stop("h", minutes: 150), stop("s"), stop("h", .hotel)]),
@@ -432,7 +432,7 @@ struct TripMergeTests {
         ])
         let d1 = plan.days[0].stops
         #expect(d1.map(\.place.id) == ["h", "s", "h"] && d1[0].role == .hotel && d1[0].visitMinutes == 150)
-        #expect(plan.days[1].stops.count == 2)
+        #expect(plan.days[1].stops.count == 1 && plan.days[1].stops[0].role == .hotel)
         #expect(plan.days[2].stops.count == 2)
         #expect(TripPlanJSON.planText(plan).hasPrefix("第1天：h（玩约2.5小时，住这里）、s、住h\n"), "\(TripPlanJSON.planText(plan))")
         let short = TripPlan(name: nil, days: [list([stop("s", minutes: 45), stop("h", .hotel, name: "s")])])
@@ -457,5 +457,32 @@ struct TripMergeTests {
         let reopened = TripPlanFile.current(from: TripPlanFile.current(old))
         #expect(reopened?.days[0].stops.map(\.place.id) == ["a", "b"])
         #expect(reopened?.days[0].stops.last?.role == .hotel && reopened?.days[0].stops.last?.visitMinutes == 200)
+    }
+
+    @Test("T-040zp review fix: the resort day (start at the resort, the resort as the day's sight, night at the resort) is one card, the night's stay, with the sight's minutes")
+    func resortDay() {
+        let plan = TripPlan(name: nil, days: [
+            list([stop("a"), stop("r", .hotel)]),
+            list([stop("r", .hotel), stop("r", minutes: 480), stop("r", .hotel)]),
+            list([stop("r", .hotel), stop("b")]),
+        ])
+        #expect(plan.days[1].stops.count == 1)
+        #expect(plan.days[1].stops[0].role == .hotel && plan.days[1].stops[0].visitMinutes == 480)
+        #expect(plan.days[2].stops.map(\.place.id) == ["r", "b"] && plan.days[2].stops[0].visitMinutes == 0)
+        #expect(noAdjacentRepeat(plan))
+        #expect(TripPlanJSON.planText(plan).contains("第2天：r（玩约8小时，住这里）\n"), "\(TripPlanJSON.planText(plan))")
+    }
+
+    @Test("T-040zp review fix: a hotel's minutes saved before §63 (the old writer's 15) are not read back; a merged hotel's minutes are")
+    func oldHotelMinutes() throws {
+        let json = """
+        {"version":\(TripPlanFile.version),"plan":{"currentDay":1,"days":[[{"asked":"h","id":"h","name":"h","lat":23.1,"lng":113.3,"role":"hotel","minutes":15}]]}}
+        """
+        let old = try #require(TripPlanFile.current(from: Data(json.utf8)))
+        #expect(old.days[0].stops[0].visitMinutes == 0)
+        #expect(TripPlanJSON.planText(old) == "第1天：住h")
+        let merged = TripPlan(name: nil, days: [list([stop("h", minutes: 120), stop("h", .hotel)])])
+        let back = try #require(TripPlanFile.current(from: TripPlanFile.current(merged)))
+        #expect(back.days[0].stops.count == 1 && back.days[0].stops[0].visitMinutes == 120)
     }
 }

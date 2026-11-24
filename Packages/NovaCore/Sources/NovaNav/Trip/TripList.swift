@@ -206,23 +206,29 @@ public struct TripList: Sendable, Hashable {
         return !x.isEmpty && x == TranscriptText.normalize(b.place.name)
     }
 
-    /// §63 items 1-3: only a sight next to a sight or a hotel merges; a day's start hotel and its night hotel (two
-    /// hotels) are not merged. The hotel wins and keeps the sight's minutes; two sights keep the larger minutes. The
+    /// §63 items 1-3: a sight or hotel next to a sight or hotel of the same place merges (a day's start and night
+    /// hotel merge only when nothing is between them). The hotel wins and keeps the sight's minutes; two sights keep the larger minutes. The
     /// merged stop keeps the first stop's position.
     public static func mergedAdjacent(_ stops: [TripStop]) -> [TripStop] {
         var out: [TripStop] = []
         for s in stops {
             guard let last = out.last, last.role == .sight || last.role == .hotel, s.role == .sight || s.role == .hotel,
-                  !(last.role == .hotel && s.role == .hotel), samePlace(last, s) else {
+                  samePlace(last, s) else {
                 out.append(s)
                 continue
             }
             let hotel = last.role == .hotel ? last : (s.role == .hotel ? s : nil)
             var keep: TripStop
-            if let hotel {
+            if last.role == .hotel, s.role == .hotel {
+                // The night's hotel (the later one) is kept, with the time already spent there.
+                keep = s
+                keep.minutes = max(last.visitMinutes, s.visitMinutes)
+                if keep.minutes == 0 { keep.minutes = nil }
+                if keep.mark == nil { keep.mark = last.mark }
+            } else if let hotel {
                 let sight = hotel == last ? s : last
                 keep = hotel
-                keep.minutes = sight.visitMinutes
+                keep.minutes = max(sight.visitMinutes, hotel.visitMinutes)
                 if keep.mark == nil { keep.mark = sight.mark }
             } else {
                 keep = last

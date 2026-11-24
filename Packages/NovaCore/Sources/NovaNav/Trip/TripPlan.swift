@@ -98,7 +98,9 @@ public struct TripPlan: Sendable, Hashable {
     public mutating func place(id: String, at place: Place) -> Bool {
         var found = false
         for d in days.indices {
-            for (i, s) in days[d].stops.enumerated() where s.id == id && !s.placed {
+            // Review fix (T-040zp): a set can merge stops and shift indexes, so each copy is found afresh.
+            while d < days.count, let i = days[d].stops.firstIndex(where: { $0.id == id && !$0.placed }) {
+                let s = days[d].stops[i]
                 var stop = TripStop(index: 0, asked: s.asked, place: place, distanceMeters: s.distanceMeters, mark: s.mark,
                                     role: s.role, minutes: s.minutes, importance: s.importance, id: s.id, placed: true,
                                     pickedBy: s.pickedBy)
@@ -283,6 +285,8 @@ public enum TripPlanFile {
         var sid: String?
         var unplaced: Bool?
         var by: TripPickedBy?
+        /// T-040zp §63 item 2 (optional): a hotel's merged sight minutes. A hotel's `minutes` from before §63 is ignored.
+        var stay: Int?
     }
 
     struct Plan: Codable, Hashable {
@@ -316,8 +320,9 @@ public enum TripPlanFile {
              district: s.place.district, lat: s.place.coordinate.latitude, lng: s.place.coordinate.longitude,
              photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city,
              role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode, kind: s.place.kind?.rawValue,
-             minutes: s.minutes, optional: s.optional ? true : nil, importance: s.importance == 3 || s.importance == 1 ? nil : s.importance,
-             sid: s.id.isEmpty ? nil : s.id, unplaced: s.placed ? nil : true, by: s.pickedBy)
+             minutes: s.role == .hotel ? nil : s.minutes, optional: s.optional ? true : nil, importance: s.importance == 3 || s.importance == 1 ? nil : s.importance,
+             sid: s.id.isEmpty ? nil : s.id, unplaced: s.placed ? nil : true, by: s.pickedBy,
+             stay: s.role == .hotel ? s.minutes : nil)
     }
 
     /// §55 item 2 (T-040zh): the city is kept at home too (new names are looked up inside it).
@@ -336,7 +341,7 @@ public enum TripPlanFile {
                               distanceMeters: nil, city: s.city, district: s.district,
                               photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country, kind: s.kind.flatMap(PlaceKind.init(rawValue:))),
                  distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false,
-                 minutes: s.minutes, optional: s.optional ?? false, importance: s.importance,
+                 minutes: s.role == .hotel ? s.stay : s.minutes, optional: s.optional ?? false, importance: s.importance,
                  id: s.sid ?? "", placed: !(s.unplaced ?? false), pickedBy: s.by ?? ((s.picked ?? false) ? .app : .model))
     }
 
