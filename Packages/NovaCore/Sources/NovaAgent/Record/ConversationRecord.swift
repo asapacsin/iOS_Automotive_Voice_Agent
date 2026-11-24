@@ -28,6 +28,8 @@ public enum RecordEvent: Sendable, Hashable {
     case toolResult(name: String, ok: Bool, code: String?, data: JSONValue, elapsedMs: Int? = nil)
     /// F-18 §27 item 4: a background tool's result dropped because the socket was replaced.
     case toolDropped(AsyncTool)
+    /// F-18 §37 (T-046z): `tool-result <name> dropped reason=superseded|stale`, `tool-result <name> via=text reason=reconnected`.
+    case toolResultLine(String)
     case correction(String)
     case playbackStarted
     case playbackFinished
@@ -230,6 +232,7 @@ public struct ConversationRecorder: Sendable {
             let async = AsyncTool(name: name) == nil ? "" : " async=true"
             return [line("tool-call", "\(name)\(async) \(Self.json(args))")]
         case .toolDropped(let tool): return [line("tool-result", "\(tool.rawValue) dropped reason=reconnect")]
+        case .toolResultLine(let text): return [line("tool-result", String(text.dropFirst("tool-result ".count)))]
         case .toolResult(let name, let ok, let code, let data, let elapsed):
             let timing = elapsed.map { " scheduling=\(AsyncTool.scheduling) ms=\($0)" } ?? ""
             // F-15b §56 item 6 (T-040zi): a refusal's `problems` lines are written as their count, never the lines;

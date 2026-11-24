@@ -72,6 +72,7 @@ enum RecordFormatSession {
         .trip("handoff said tool=plan_trip ms=0"),
         .weather("ok"),
         .events("events store hit cities=1 window=2026-11-28..2026-11-29"),
+        .toolResultLine("tool-result web_search dropped reason=superseded"),
         .turnEnded(.needMoreInput),
         .sessionResume(handle: true, result: SessionResumeResult.allCases[0]),
         .sessionGaveUp(ms: 3000, attempts: 3, code: RetryableErrorCode.allCases[0]),

@@ -57,8 +57,9 @@ tools declared=2 set_volume=yes
 4700 handoff said tool=plan_trip ms=0
 4800 ok
 4900 events store hit cities=1 window=2026-11-28..2026-11-29
-5000 turn-end reason=need_more_input
-5100 reply-out turn=2 not-spoken
-5100 session resume handle=yes result=resumed
-5200 session gave-up ms=3000 attempts=3 code=DISCONNECT
-5300 session closed code=1000 reason=test
+5000 tool-result web_search dropped reason=superseded
+5100 turn-end reason=need_more_input
+5200 reply-out turn=2 not-spoken
+5200 session resume handle=yes result=resumed
+5300 session gave-up ms=3000 attempts=3 code=DISCONNECT
+5400 session closed code=1000 reason=test

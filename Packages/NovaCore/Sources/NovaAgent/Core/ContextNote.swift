@@ -58,6 +58,9 @@ public struct ContextSnapshot: Sendable, Hashable {
     public var localTime: String
     /// F-15b §52 item 2 (T-040zb): the trip line, the whole plan (`TripPlanJSON.noteLine`); nil without a plan.
     public var tripPlan: String?
+    /// F-18 §37 item 2 (T-046z): 「后台在查：活动（已过40秒）」, 「后台在查：行程」 per running background job; set by the
+    /// agent when the note is sent, never part of `key`.
+    public var running: [String] = []
 
     public init(place: ContextPlace?, onHighway: Bool?, localTime: String, tripPlan: String? = nil) {
         self.place = place
@@ -77,7 +80,7 @@ public struct ContextSnapshot: Sendable, Hashable {
 
     /// What a change is measured on: everything but the time (a minute passing, or a GPS fix in the same district,
     /// is no change).
-    var key: ContextSnapshot { var k = self; k.localTime = ""; return k }
+    var key: ContextSnapshot { var k = self; k.localTime = ""; k.running = []; return k }
 
     /// Item 8: the field names the note carries (no values, I-8).
     public var fields: [ContextNoteField] {
@@ -90,6 +93,7 @@ public struct ContextSnapshot: Sendable, Hashable {
         if let onHighway { parts.append(onHighway ? "在高速上" : "不在高速上") }
         parts.append("当地时间 \(localTime)")
         if let tripPlan { parts.append(tripPlan) }
+        parts += running
         return "[系统] 现在：" + parts.joined(separator: "；") + "。这句不用回答。"
     }
 }

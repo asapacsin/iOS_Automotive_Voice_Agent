@@ -13,6 +13,9 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case wrongLanguage = "WRONG_LANGUAGE"
     /// F-15b §52 item 12 (T-040ze): a "done" claim while a trip tool's result has not come back.
     case tripResultPending = "TRIP_RESULT_PENDING"
+    /// F-18 §37 item 2 (T-046z, generalises TRIP_RESULT_PENDING): a reply says there is nothing (no result, no event,
+    /// expired) while `find_events` still runs.
+    case eventsResultPending = "RESULT_PENDING tool=find_events"
     /// F-18 §33 item 7 (T-046v): after `LIVE_INFO_UNAVAILABLE` the reply blames the network, which is false.
     case networkBlamed = "NETWORK_BLAMED"
     /// F-15b §58 items 2–3 (T-040zk): a trip change claimed after a refused or failed trip write (no ok one after it),
@@ -34,6 +37,7 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         // F-05a §15 item 4 as changed by §16 item 5 (T-016n): never with the driver's words.
         case .wrongLanguage: "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
         case .tripResultPending: "[系统] TRIP_RESULT_PENDING：\(AsyncTool.tripPendingNext)。"
+        case .eventsResultPending: "[系统] RESULT_PENDING tool=find_events：活动还在查，跟司机说还在查，好了告诉他。"
         case .networkBlamed: "[系统] NETWORK_BLAMED：网络没有问题，只是现在查不了网上的信息。请如实这样说，不要说网络有问题或连不上网。"
         // §58 item 2's correction, exactly as §58 gives it.
         case .tripClaimAfterFailure: "[系统] 行程没有改成，原因在上一个工具结果的 problems 里。如实告诉司机没改成和原因，不要说已经加了。"
@@ -200,7 +204,17 @@ public struct DriverTurnPipeline: Sendable {
     /// so it stops allowing a background claim (a write still running across a new utterance still does).
     public mutating func callsEnded(_ ids: some Sequence<CallID>) {
         tripWrites.subtract(ids)
+        runningEvents.subtract(ids)
+        runningTrips.subtract(ids)
     }
+
+    /// F-18 §37 item 2 (T-046z): `find_events` and `plan_trip` calls of the session still running, whatever the
+    /// utterance that started them.
+    private var runningEvents: Set<CallID> = []
+    private var runningTrips: Set<CallID> = []
+    /// §37 item 2: a reply that says there is nothing, or that something expired.
+    static let nothingWords = ["没有找到", "没找到", "找不到", "查不到", "没查到", "没有活动", "暂无", "过期", "已结束", "没有结果"]
+    static func saysNothing(_ text: String) -> Bool { nothingWords.contains(where: text.contains) }
 
     public mutating func handle(_ input: PipelineInput, at now: NovaInstant) -> [PipelineOutput] {
         switch input {
@@ -283,6 +297,8 @@ public struct DriverTurnPipeline: Sendable {
             utterancePending.formUnion(calls.map(\.id))
             utteranceBackground.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
             utteranceTrip.formUnion(calls.filter { AsyncTool(name: $0.name)?.isTrip == true }.map(\.id))
+            runningEvents.formUnion(calls.filter { $0.name == AsyncTool.findEvents.rawValue }.map(\.id))
+            runningTrips.formUnion(calls.filter { AsyncTool(name: $0.name)?.isTrip == true }.map(\.id))
             for call in calls where Self.tripWriteTools.contains(call.name) {
                 tripWrites.insert(call.id)
                 if case .array(let days)? = call.arguments["days"] {
@@ -307,6 +323,8 @@ public struct DriverTurnPipeline: Sendable {
             return modelResponded() + cancel(.correction)
         case .toolResult(let id, let response):
             let ofUtterance = utterancePending.remove(response.id) != nil
+            runningEvents.remove(response.id)
+            runningTrips.remove(response.id)
             if ofUtterance { utteranceResults.append(response) }
             if Self.tripWriteTools.contains(response.name) {
                 tripWrites.remove(response.id)
@@ -426,6 +444,11 @@ public struct DriverTurnPipeline: Sendable {
         }
         // F-15b §52 item 12 (T-040ze): "done" before a trip tool's result is drift, whatever else proved.
         if !t.claims.isEmpty, !t.tripPending.isEmpty { return .disproven(.tripResultPending) }
+        // F-18 §37 item 2 (T-046z): 「没有找到」「已过期」 while the work that would answer still runs.
+        if Self.saysNothing(t.text) {
+            if !runningEvents.isEmpty { return .disproven(.eventsResultPending) }
+            if !runningTrips.isEmpty { return .disproven(.tripResultPending) }
+        }
         // F-15b §58 items 1–3 (T-040zk): a trip change is proven only by an ok `set_trip_plan` since the driver's last
         // words; a refused one with no ok after it disproves it; background work is claimed only while one runs.
         // F-15b §61 item 6 (T-040zn): §55 item 10's drift while issues are open is removed (no critics, no rounds).

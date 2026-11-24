@@ -67,6 +67,11 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case claimCut(turn: Int, playedMs: Int)
     /// F-18 §27 item 4 (T-020c): a background tool's result was not sent because the socket was replaced.
     case asyncToolDropped(tool: AsyncTool)
+    /// F-18 §37 items 1, 4 (T-046z): a background result not sent: `superseded` by a newer ok `web_search`, or
+    /// `stale` (older than 10 minutes).
+    case asyncResultDropped(tool: AsyncTool, reason: AsyncDropReason)
+    /// F-18 §37 item 3 (T-046z): a result of a call from before a reconnect, sent as a text turn.
+    case asyncResultViaText(tool: AsyncTool)
     /// F-09b §8 (T-031j): a car-state note went to the model, and why. No values (I-8).
     case stateNote(reason: StateNoteReason)
     /// F-09b §8 (T-016p): a summary of earlier exchanges went to the model. Numbers only, no words (I-8, I-7).
@@ -111,6 +116,11 @@ public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     public static let tripPendingNext = "结果还没回来，不要说已经做好"
     /// The `scheduling` their response carries (F-18 §27 item 3).
     public static let scheduling = "WHEN_IDLE"
+}
+
+/// F-18 §37 (T-046z): why a background result was not sent.
+public enum AsyncDropReason: String, Sendable, Hashable, CaseIterable {
+    case superseded, stale
 }
 
 /// F-05a §13 item 2: which conversation text the screen check hid.
@@ -167,6 +177,8 @@ extension DiagnosticEvent {
         case sessionResume
         case claimCut
         case asyncToolDropped
+        case asyncResultDropped
+        case asyncResultViaText
         case stateNote
         case summaryNote
         case contextNote
@@ -216,6 +228,8 @@ extension DiagnosticEvent {
         case .sessionResume: .sessionResume
         case .claimCut: .claimCut
         case .asyncToolDropped: .asyncToolDropped
+        case .asyncResultDropped: .asyncResultDropped
+        case .asyncResultViaText: .asyncResultViaText
         case .stateNote: .stateNote
         case .summaryNote: .summaryNote
         case .contextNote: .contextNote
@@ -252,6 +266,8 @@ extension DiagnosticEvent {
         case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
         case .claimCut(let turn, let ms): "claim-cut turn=\(turn) played_ms=\(ms)"
         case .asyncToolDropped(let tool): "tool-result \(tool.rawValue) dropped reason=reconnect"
+        case .asyncResultDropped(let tool, let reason): "tool-result \(tool.rawValue) dropped reason=\(reason.rawValue)"
+        case .asyncResultViaText(let tool): "tool-result \(tool.rawValue) via=text reason=reconnected"
         case .stateNote(let reason): "state-note reason=\(reason.rawValue)"
         case .summaryNote(let n, let age): "summary-note exchanges=\(n) age_s=\(age)"
         case .contextNote(let fields): "contextNote fields=\(fields.map(\.rawValue).joined(separator: ","))"

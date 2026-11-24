@@ -346,6 +346,7 @@ struct RuntimeSink: AgentEffectSink {
         case .claimHeld: record?.submit(.held)
         case .claimCut(let turn, let ms): record?.submit(.claimCut(turn: turn, playedMs: ms))  // F-07 §15 item 8
         case .asyncToolDropped(let tool): record?.submit(.toolDropped(tool))  // F-18 §27 item 4
+        case .asyncResultDropped, .asyncResultViaText: record?.submit(.toolResultLine(event.logLine))  // F-18 §37
         case .stateNote(let reason): record?.submit(.stateNote(reason))  // F-09b §8
         case .summaryNote(let n, let age): record?.submit(.summaryNote(exchanges: n, ageS: age))  // F-09b §8
         case .contextNote(let fields): record?.submit(.nowNote(fields: fields))  // F-09b §14 item 8

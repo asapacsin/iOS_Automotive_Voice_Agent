@@ -183,6 +183,7 @@ struct DiagnosticsTests {
         .reaskSuppressed, .abandonCleared, .postStopTurnDropped, .bargeInStopped, .webSearchAsFunction, .handoffSaid(tool: .planTrip, ms: 0), .destinationNote, .screenHidden(kind: .reply),
         .wakeDetected,
         .sessionGaveUp(ms: 52_600, attempts: 11, code: .connection), .sessionResume(handle: true, result: .resumed), .claimCut(turn: 1, playedMs: 800), .asyncToolDropped(tool: .queryLiveInfo),
+        .asyncResultDropped(tool: .webSearch, reason: .superseded), .asyncResultViaText(tool: .findEvents),
     ]
 
     /// The case label as Swift reflects it (`.bargeIn(qualified:)` -> "bargeIn").

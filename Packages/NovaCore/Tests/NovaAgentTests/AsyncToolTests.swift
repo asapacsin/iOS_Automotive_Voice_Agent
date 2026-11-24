@@ -64,14 +64,14 @@ struct AsyncToolTests {
         #expect(r.count == 1 && r[0].scheduling == nil && r[0].elapsedMs == nil)
     }
 
-    @Test("Row 4: the socket drops while web_search runs: cancelled, dropped reason=reconnect, result never sent")
+    @Test("Row 4 as amended by F-18 §37 item 3 (T-046z): the socket drops while web_search runs: it keeps running; no tool response to the new socket")
     func reconnectDrops() {
         var d = Self.asking("今天油价多少")
         let call = searchCall()
         d.realtime(.toolCalls(TurnID(1), [call]))
         let failed = d.realtime(.failed(RealtimeError(.disconnect)))
-        #expect(failed.contains(.cancelTool(call.id)))
-        #expect(failed.contains(.diagnostic(.asyncToolDropped(tool: .webSearch))))
+        #expect(!failed.contains(.cancelTool(call.id)))
+        #expect(!failed.contains(.diagnostic(.asyncToolDropped(tool: .webSearch))))
         #expect(DiagnosticEvent.asyncToolDropped(tool: .webSearch).logLine == "tool-result web_search dropped reason=reconnect")
         #expect(Self.responses(d.send(.toolFinished(TurnID(1), call, .success(["answer": "7元"])))).isEmpty)
     }

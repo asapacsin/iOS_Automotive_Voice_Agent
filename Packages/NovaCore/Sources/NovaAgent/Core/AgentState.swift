@@ -306,6 +306,20 @@ public struct AgentState: Sendable {
     private var searchCalls: [CallID: TurnID] = [:]
     /// F-18 §27 (T-020c): running NON_BLOCKING calls and when each was sent to the tool.
     private var asyncCalls: [CallID: (tool: AsyncTool, at: NovaInstant)] = [:]
+    /// F-18 §37 item 1 (T-046z): an older running `web_search` → the newer one that started while it ran.
+    private var supersededBy: [CallID: CallID] = [:]
+    /// §37 item 1: an older search's result held while its newer search runs, keyed by the newer call.
+    private var heldSearch: [CallID: (turn: TurnID, call: ToolCall, result: ToolResult, elapsedMs: Int?)] = [:]
+    /// §37 item 1: newer searches that ended, and whether ok.
+    private var searchEnded: [CallID: Bool] = [:]
+    /// §37 item 3: background calls that were running when the socket was replaced; they keep running.
+    private var carriedCalls: [CallID: (tool: AsyncTool, at: NovaInstant)] = [:]
+    /// §37 item 3: their results, sent as a text turn when she is idle.
+    private var lateResults: [(tool: AsyncTool, call: ToolCall, result: ToolResult)] = []
+    /// §37 item 4: a background result older than this is not spoken.
+    public static let staleResultMs = 600_000
+    /// The `now` of the event being handled (the 现在 note's 已过 seconds).
+    private var handledAt: NovaInstant = .zero
     /// Calls that came from a tap: their result goes to the model as a note to announce, not as a
     /// tool response (the model never issued them).
     private var uiCalls: Set<CallID> = []
@@ -405,10 +419,44 @@ public struct AgentState: Sendable {
     }
 
     public mutating func handle(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
+        handledAt = now
         let effects = dispatch(event, at: now)
         if destinationNotes { noteTriggers(event) }
         stateTriggers(event)
-        return effects + flushNotes()
+        return effects + flushNotes() + flushLate()
+    }
+
+    /// F-18 §37 item 3 (T-046z): one late result of a call from before a reconnect, as a text turn, when she is idle.
+    private mutating func flushLate() -> [AgentEffect] {
+        guard !lateResults.isEmpty, noteIdle else { return [] }
+        let late = lateResults.removeFirst()
+        let next = late.result.data["next"]?.stringValue ?? late.result.advice ?? ""
+        let text = "（刚才\(late.call.name)的结果：\(Self.payloadJSON(late.result))）" + next
+        answerOwed = true
+        return [.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)),
+                .diagnostic(.asyncResultViaText(tool: late.tool))]
+    }
+
+    /// A result as the JSON the model reads in a text turn (`ok`, `data`, `code`, `advice`).
+    static func payloadJSON(_ result: ToolResult) -> String {
+        var payload: [String: JSONValue] = ["ok": .bool(result.ok)]
+        payload["data"] = .object(result.data)
+        if let code = result.code { payload["code"] = .string(code.rawValue) }
+        if let advice = result.advice { payload["advice"] = .string(advice) }
+        return (try? JSONValue.canonicalEncoder().encode(JSONValue.object(payload))).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+    }
+
+    /// F-18 §37 item 2: the 现在 note's parts for the running `find_events` / `plan_trip` calls.
+    private func runningParts() -> [String] {
+        (asyncCalls.map { ($0.key, $0.value) } + carriedCalls.map { ($0.key, $0.value) })
+            .sorted { ($0.1.at, $0.0.rawValue) < ($1.1.at, $1.0.rawValue) }
+            .compactMap { _, c in
+                switch c.tool {
+                case .findEvents: "后台在查：活动（已过\((handledAt.milliseconds - c.at.milliseconds) / 1000)秒）"
+                case .planTrip: "后台在查：行程"
+                default: nil
+                }
+            }
     }
 
     /// F-09b §5 item 2: on (re)connect; after a completed turn in which the state changed (a tap included); when the
@@ -491,7 +539,7 @@ public struct AgentState: Sendable {
     /// §21 item 2 "Only when idle": connected, no reply open, no answer owed, no tool running, driver not
     /// speaking, no guidance prompt waiting. A note never interrupts a reply.
     private var noteIdle: Bool {
-        session.state == .listening && openTurn == nil && !answerOwed && runningTools == 0 && !driverSpeaking
+        session.state == .listening && openTurn == nil && !answerOwed && runningTools <= asyncCalls.count && !driverSpeaking
             && !utteranceOpen && relayAwaiting == nil && unclassified == nil
     }
 
@@ -517,7 +565,9 @@ public struct AgentState: Sendable {
         if contextPending, let now = contextNow {
             contextPending = false
             contextSent = now.key
-            texts.append(now.note)
+            var note = now
+            note.running = runningParts()
+            texts.append(note.note)
             diagnostics.append(.diagnostic(.contextNote(fields: now.fields)))
         }
         if screenPending, let screen = screenNow {
@@ -643,48 +693,56 @@ public struct AgentState: Sendable {
                 return []
             }
         case .toolFinished(let turn, let call, let result):
-            if call.name == "web_search", searchCalls.removeValue(forKey: call.id) == nil {
+            // F-18 §37 item 3 (T-046z, amends §27 item 4): a call from before a reconnect is answered as a text turn.
+            if let carried = carriedCalls.removeValue(forKey: call.id) {
+                if now.milliseconds - carried.at.milliseconds > Int64(Self.staleResultMs) {
+                    return [.diagnostic(.asyncResultDropped(tool: carried.tool, reason: .stale))]
+                }
+                lateResults.append((carried.tool, call, result))
+                return []
+            }
+            if call.name == "web_search", searchCalls[call.id] == nil {
                 asyncCalls[call.id] = nil
                 return []
             }
             var elapsedMs: Int?
-            if AsyncTool(name: call.name) != nil {
+            if let tool = AsyncTool(name: call.name) {
                 // F-18 §27 item 4: a result whose socket was replaced is never sent.
-                guard let started = asyncCalls.removeValue(forKey: call.id) else { return [] }
+                guard let started = asyncCalls[call.id] else { return [] }
                 elapsedMs = Int(now.milliseconds - started.at.milliseconds)
+                // §37 item 4: a result older than 10 minutes is not spoken (the store or the plan has it).
+                if elapsedMs! > Self.staleResultMs {
+                    endAsync(call.id)
+                    if tool == .findEvents || tool == .planTrip, contextNow != nil { contextPending = true }
+                    return [.diagnostic(.asyncResultDropped(tool: tool, reason: .stale))]
+                }
             }
-            runningTools = max(runningTools - 1, 0)
-            exchangeTools.append(call.name + " " + (result.ok ? "ok" : (result.code?.rawValue ?? "failed")))
-            if uiCalls.remove(call.id) != nil {
-                context.record(call, ok: result.ok, at: now)
-                return uiResult(call, dispatcher.finish(call, result), at: now)
+            if call.name == "web_search" {
+                // §37 item 1: an older search's result waits for the newer one, or is dropped after its ok.
+                if let newer = supersededBy.removeValue(forKey: call.id) {
+                    if searchCalls[newer] != nil {
+                        searchCalls[call.id] = nil
+                        heldSearch[newer] = (turn, call, result, elapsedMs)
+                        return []
+                    }
+                    if searchEnded[newer] == true {
+                        endAsync(call.id)
+                        return [.diagnostic(.asyncResultDropped(tool: .webSearch, reason: .superseded))]
+                    }
+                }
+                searchEnded[call.id] = result.ok
+                if let held = heldSearch.removeValue(forKey: call.id) {
+                    if result.ok {
+                        endAsync(held.call.id)
+                        return [.diagnostic(.asyncResultDropped(tool: .webSearch, reason: .superseded))]
+                            + deliver(turn, call, result, elapsedMs: elapsedMs, at: now)
+                    }
+                    // The newer one failed: the older answer is sent instead.
+                    endAsync(call.id)
+                    return deliver(held.turn, held.call, held.result, elapsedMs: held.elapsedMs, at: now)
+                }
             }
-            guard session.state != .disconnected, session.state != .error else { return [] }
-            // R6: the answer to a tool the driver asked for may be spoken (PROPOSED: a navigation start
-            // can take longer than the 10 s window after the utterance).
-            arbiter.driverSpoke(at: now)
-            context.record(call, ok: result.ok, at: now)
-            // F-15b §56 item 4 (T-040zi): a refused `set_trip_plan` is not run again with the same arguments.
-            dispatcher.noteResult(call, result)
-            var finished = dispatcher.finish(call, result)
-            // F-15b §52 item 12 (T-040ze): while a trip tool's result has not come back, any other result's `next`
-            // says so: she must not say the trip change is done.
-            if AsyncTool(name: call.name)?.isTrip != true, asyncCalls.values.contains(where: { $0.tool.isTrip }) {
-                finished = Self.withTripPending(finished)
-            }
-            // F-09b §17 item 6 (T-031zb): an owed 屏幕 line rides on the next tool result as `screen`.
-            var screenSent: [AgentEffect] = []
-            if let line = takeOwedScreen() {
-                var data = finished.data
-                data["screen"] = .string(line.text)
-                finished = ToolResult(ok: finished.ok, code: finished.code, data: data, advice: finished.advice)
-                screenSent = [line.diagnostic]
-            }
-            let response = ToolResponse(id: call.id, name: call.name, result: finished, elapsedMs: elapsedMs)
-            // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
-            // The model answers a tool result with a new turn: guidance waits for it (F-14 RESPONSE_OPEN).
-            answerOwed = true
-            return [.provider(.toolResponses([response]))] + screenSent + pipeline(.toolResult(turn, response), at: now)
+            return deliver(turn, call, result, elapsedMs: elapsedMs, at: now)
         case .playback(let playback):
             switch playback {
             // Only the current reply epoch counts: a late event of a flushed reply changes nothing.
@@ -1094,17 +1152,73 @@ public struct AgentState: Sendable {
         return effects
     }
 
-    /// F-18 §27 item 4 (T-020c): background calls of a closed or replaced socket are dropped, never answered.
+    /// The tool response of a finished call (the toolFinished path after §37's checks).
+    private mutating func deliver(_ turn: TurnID, _ call: ToolCall, _ result: ToolResult, elapsedMs: Int?,
+                                  at now: NovaInstant) -> [AgentEffect] {
+        if AsyncTool(name: call.name) != nil {
+            searchCalls[call.id] = nil
+            if let tool = asyncCalls.removeValue(forKey: call.id)?.tool, tool == .findEvents || tool == .planTrip, contextNow != nil {
+                contextPending = true
+            }
+        }
+        runningTools = max(runningTools - 1, 0)
+
+        exchangeTools.append(call.name + " " + (result.ok ? "ok" : (result.code?.rawValue ?? "failed")))
+        if uiCalls.remove(call.id) != nil {
+            context.record(call, ok: result.ok, at: now)
+            return uiResult(call, dispatcher.finish(call, result), at: now)
+        }
+        guard session.state != .disconnected, session.state != .error else { return [] }
+        // R6: the answer to a tool the driver asked for may be spoken (PROPOSED: a navigation start
+        // can take longer than the 10 s window after the utterance).
+        arbiter.driverSpoke(at: now)
+        context.record(call, ok: result.ok, at: now)
+        // F-15b §56 item 4 (T-040zi): a refused `set_trip_plan` is not run again with the same arguments.
+        dispatcher.noteResult(call, result)
+        var finished = dispatcher.finish(call, result)
+        // F-15b §52 item 12 (T-040ze): while a trip tool's result has not come back, any other result's `next`
+        // says so: she must not say the trip change is done.
+        if AsyncTool(name: call.name)?.isTrip != true, asyncCalls.values.contains(where: { $0.tool.isTrip }) {
+            finished = Self.withTripPending(finished)
+        }
+        // F-09b §17 item 6 (T-031zb): an owed 屏幕 line rides on the next tool result as `screen`.
+        var screenSent: [AgentEffect] = []
+        if let line = takeOwedScreen() {
+            var data = finished.data
+            data["screen"] = .string(line.text)
+            finished = ToolResult(ok: finished.ok, code: finished.code, data: data, advice: finished.advice)
+            screenSent = [line.diagnostic]
+        }
+        let response = ToolResponse(id: call.id, name: call.name, result: finished, elapsedMs: elapsedMs)
+        // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
+        // The model answers a tool result with a new turn: guidance waits for it (F-14 RESPONSE_OPEN).
+        answerOwed = true
+        return [.provider(.toolResponses([response]))] + screenSent + pipeline(.toolResult(turn, response), at: now)
+    }
+
+    /// §37: a background call that ends without a response sent.
+    private mutating func endAsync(_ id: CallID) {
+        searchCalls[id] = nil
+        asyncCalls[id] = nil
+        runningTools = max(runningTools - 1, 0)
+        pipeline.callsEnded([id])
+    }
+
+    /// F-18 §27 item 4 (T-020c) as amended by §37 item 3 (T-046z): background calls of a closed or replaced socket
+    /// keep running; the new session does not know their ids, so each result goes as a text turn when she is idle
+    /// (`flushLate`). Held and superseded searches are forgotten (the held answer is sent late as well).
     private mutating func dropAsyncCalls() -> [AgentEffect] {
-        var effects: [AgentEffect] = []
-        for (id, call) in asyncCalls.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+        for (id, call) in asyncCalls {
             searchCalls[id] = nil
             runningTools = max(runningTools - 1, 0)
-            effects += [.cancelTool(id), .diagnostic(.asyncToolDropped(tool: call.tool))]
+            carriedCalls[id] = call
         }
-        pipeline.callsEnded(asyncCalls.keys)
+        for held in heldSearch.values { lateResults.append((.webSearch, held.call, held.result)); carriedCalls[held.call.id] = nil }
+        heldSearch = [:]
+        supersededBy = [:]
+        searchEnded = [:]
         asyncCalls = [:]
-        return effects
+        return []
     }
 
     /// F-18 §16 item 7: cancels the running searches that `match` their turn; their results are never sent.
@@ -1112,6 +1226,8 @@ public struct AgentState: Sendable {
         let ids = searchCalls.filter { match($0.value) }.keys.sorted { $0.rawValue < $1.rawValue }
         for id in ids { searchCalls[id] = nil; asyncCalls[id] = nil }
         runningTools = max(runningTools - ids.count, 0)
+        // F-18 §37 item 1: an older answer held for a cancelled newer search is dropped with it.
+        for id in ids { if let held = heldSearch.removeValue(forKey: id) { endAsync(held.call.id) } }
         return ids.map { .cancelTool($0) }
     }
 
@@ -1306,8 +1422,16 @@ public struct AgentState: Sendable {
                 switch dispatcher.decide(call, context: guardContext) {
                 case .execute(let running):
                     runningTools += 1
-                    if running.name == "web_search" { searchCalls[running.id] = turn }
-                    if let tool = AsyncTool(name: running.name) { asyncCalls[running.id] = (tool, now) }
+                    if running.name == "web_search" {
+                        // F-18 §37 item 1 (T-046z): every running search is superseded by this newer one.
+                        for older in searchCalls.keys { supersededBy[older] = running.id }
+                        searchCalls[running.id] = turn
+                    }
+                    if let tool = AsyncTool(name: running.name) {
+                        asyncCalls[running.id] = (tool, now)
+                        // §37 item 2: the 现在 note says what runs in the background.
+                        if tool == .findEvents || tool == .planTrip, contextNow != nil { contextPending = true }
+                    }
                     effects.append(.startTool(turn, running))
                     if running.name == AsyncTool.planTrip.rawValue { effects += handoff(running) }
                 case .refuse(let result):
