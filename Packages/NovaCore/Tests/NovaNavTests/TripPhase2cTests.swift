@@ -139,14 +139,16 @@ struct PanelCloseFlowTests {
         let rig = await TripRig()
         _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         #expect(await rig.run(trip("trip_next")).ok)
-        #expect(await rig.nav.current.navigating)
+        #expect(await rig.nav.current.phase == .navigating)
         let hidden = await rig.nav.execute(close("tripScreen"))
         #expect(hidden.data["status"] == "trip_cards_hidden", "\(hidden)")
-        #expect(await rig.planner.cardsHidden && rig.nav.current.navigating)
+        let hiddenNow = await rig.planner.cardsHidden
+        let stillDriving = await rig.nav.current.phase
+        #expect(hiddenNow && stillDriving == .navigating)
         for panel in ["routePicking", "destinationList"] {
             let none = await rig.nav.execute(close(panel))
             #expect(!none.ok && none.code == .noOptionsOnScreen, "\(panel) \(none)")
-            #expect(await rig.nav.current.navigating)
+            #expect(await rig.nav.current.phase == .navigating)
         }
         // `navigation` (her 「结束导航」) still ends guidance.
         #expect(await rig.nav.execute(close("navigation")).data["status"] == "navigation_stopped")
