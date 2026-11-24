@@ -177,7 +177,7 @@ extension QwenRoute.Job {
         case .picker: .qwenPicker
         case .ground: .qwenGround
         case .planner: .qwenPlanner
-        case .eventsLoop, .eventsSearch: .qwenEvents
+        case .eventsSearch, .eventsExtract: .qwenEvents
         }
     }
 }

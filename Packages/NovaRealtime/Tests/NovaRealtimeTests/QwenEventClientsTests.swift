@@ -1,54 +1,54 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import NovaKit
 import NovaPorts
 import Testing
 @testable import NovaRealtime
 
-@Suite("T-046x F-18 §35 item 3 events loop clients")
+private func first(_ v: JSONValue?) -> JSONValue? {
+    if case .array(let a)? = v { return a.first }
+    return nil
+}
+
+@Suite("T-046zb F-18 §39 events search and extraction clients")
 struct QwenEventClientsTests {
-    @Test("T-046za F-18 §38 item 5: a whole (non-streamed) turn gives its tool calls and usage")
-    func wholeToolCalls() {
-        let body = #"{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_b","type":"function","function":{"name":"open_page","arguments":"{\"url\":\"https://a.example/x\"}"}}]}}],"usage":{"total_tokens":77}}"#
-        let r = QwenEventChatClient.parse(Data(body.utf8))
-        #expect(r.tokens == 77)
-        #expect(r.toolCalls == [EventToolCall(id: "call_b", name: "open_page", arguments: #"{"url":"https://a.example/x"}"#)])
-    }
+    @Test("T-046zb F-18 §39 row 49: search body is qwen3.8-flash, forced, max, sources, thinking off, the query the only message, no system; answer text and sources kept")
+    func row49() async throws {
+        let s = QwenEventSearcher(key: { "k" })
+        let body = try JSONDecoder().decode(JSONValue.self, from: s.request("珠海 漫展 ACG 2026年11月 12月", key: "k").httpBody!)
+        #expect(body["model"] == "qwen3.8-flash")
+        guard case .array(let m)? = body["input"]?["messages"] else { Issue.record("no messages"); return }
+        #expect(m.count == 1 && m[0]["role"] == "user" && first(m[0]["content"])?["text"] == "珠海 漫展 ACG 2026年11月 12月")
+        let p = body["parameters"]
+        #expect(p?["enable_search"] == true && p?["enable_thinking"] == false)
+        #expect(p?["search_options"]?["forced_search"] == true && p?["search_options"]?["search_strategy"] == "max"
+                && p?["search_options"]?["enable_source"] == true)
 
-    @Test("T-046x F-18 §35 item 3: a streamed turn assembles tool calls by index and reads usage")
-    func streamedToolCalls() {
-        let body = """
-        data: {"choices":[{"delta":{"reasoning_content":"想一想"}}]}
-        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"search","arguments":"{\\"query\\":"}}]}}]}
-        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"珠海 活动\\"}"}}]}}]}
-        data: {"choices":[],"usage":{"total_tokens":1234}}
-        data: [DONE]
+        let reply = """
+        data: {"output":{"choices":[{"message":{"content":"起源ACG动漫展"}}],"search_info":{"search_results":[{"title":"起源ACG","url":"https://zh.example.com/acg","site_name":"例子"}]}}}
+        data: {"output":{"choices":[{"message":{"content":"12月5日至6日。"}}]},"usage":{"total_tokens":1500}}
         """
-        let r = QwenEventChatClient.parse(Data(body.utf8))
-        #expect(r.content.isEmpty && r.tokens == 1234)
-        #expect(r.toolCalls == [EventToolCall(id: "call_a", name: "search", arguments: #"{"query":"珠海 活动"}"#)])
+        let answer = try await QwenEventSearcher(key: { "k" }, send: { _ in (200, Data(reply.utf8)) }, fallback: QwenFallback())
+            .search("q", timeout: .seconds(45))
+        #expect(answer == EventSearchAnswer(text: "起源ACG动漫展12月5日至6日。",
+                                            sources: [EventSearchHit(title: "起源ACG", url: "https://zh.example.com/acg", site: "例子")],
+                                            tokens: 1500))
     }
 
-    @Test("T-046za F-18 §38 row 45 (replaces §35 item 3's request): qwen3.8-max, thinking off, no stream, the tools on every turn; the last step adds tool_choice none")
-    func request() throws {
-        let c = QwenEventChatClient(key: { "k" }, tools: ["x"])
-        let msgs = [EventChatMessage(role: .assistant, content: "", toolCalls: [EventToolCall(id: "1", name: "open_page", arguments: "{}")]),
-                    EventChatMessage(role: .tool, content: "page", toolCallID: "1")]
-        let req = c.request(msgs, lastStep: false, key: "k", timeout: .seconds(100))
+    @Test("T-046zb F-18 §39 item 3: extraction body is qwen3.8-flash on the compatible endpoint, json_object, thinking off, not streamed; content and tokens returned")
+    func extraction() async throws {
+        let e = QwenEventExtractor(key: { "k" })
+        let req = e.request(system: "Extract the event information.", user: "U", key: "k")
+        #expect(req.url?.absoluteString == QwenRoute.plannerEndpoint)
         let body = try JSONDecoder().decode(JSONValue.self, from: req.httpBody!)
-        #expect(body["model"] == "qwen3.8-max" && body["enable_thinking"] == false && body["tools"] == ["x"])
-        #expect(body["stream"] == nil && body["stream_options"] == nil && body["tool_choice"] == nil)
-        guard case .array(let m)? = body["messages"] else { Issue.record("no messages"); return }
-        #expect(m[1]["tool_call_id"] == "1" && m[0]["tool_calls"] != nil)
-        let last = try JSONDecoder().decode(JSONValue.self, from: c.request(msgs, lastStep: true, key: "k", timeout: .seconds(5)).httpBody!)
-        #expect(last["tools"] == ["x"] && last["tool_choice"] == "none")
-    }
-
-    @Test("T-046x F-18 §35 item 3: search returns links only; open_page asks zh-CN with a desktop agent, http(s) only")
-    func searchAndPage() {
-        let body = #"data: {"output":{"choices":[{"message":{"content":"答案"}}],"search_info":{"search_results":[{"title":"AI嘉年华","url":"https://zh.bendibao.com/a.shtm","site_name":"珠海本地宝"}]}}}"#
-        #expect(QwenEventSearcher.hits(Data(body.utf8)) == [EventSearchHit(title: "AI嘉年华", url: "https://zh.bendibao.com/a.shtm", site: "珠海本地宝")])
-        let r = EventPageClient.request("https://zh.bendibao.com/a.shtm")
-        #expect(r?.value(forHTTPHeaderField: "Accept-Language")?.hasPrefix("zh-CN") == true && r?.timeoutInterval == 20)
-        #expect(EventPageClient.request("file:///etc/passwd") == nil)
+        #expect(body["model"] == "qwen3.8-flash" && body["enable_thinking"] == false && body["stream"] == false)
+        #expect(body["response_format"]?["type"] == "json_object")
+        #expect(first(body["messages"])?["role"] == "system" && first(body["messages"])?["content"] == "Extract the event information.")
+        let answer = #"{"choices":[{"message":{"content":"{\"events\":[]}"}}],"usage":{"total_tokens":900}}"#
+        let r = try await QwenEventExtractor(key: { "k" }, send: { _ in (200, Data(answer.utf8)) }, fallback: QwenFallback())
+            .extract(system: "S", user: "U", timeout: .seconds(30))
+        #expect(r == EventModelReply(content: #"{"events":[]}"#, tokens: 900))
     }
 }

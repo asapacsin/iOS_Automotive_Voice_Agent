@@ -15,14 +15,14 @@ import NovaKit
 /// | `ground` | qwen3.7-plus → qwen3.7-flash | qwen3.8-flash | turbo (row 160), forced, sources | off | 30 s |
 /// | `picker` | qwen3.8-flash (§59) | qwen3.8-max, qwen3.8-max-0902 | off | off | 2.5 s |
 /// | `planner` | qwen3.8-flash (§62) | qwen3.8-max, qwen3.8-max-0902 | off | off | 30 s |
-/// | `eventsLoop` | qwen3.8-max (§35 PoC) | qwen3.8-max-0902, qwen3.8-2.4t-a95b | off (tools) | off, not streamed (§38) | 180 s |
-/// | `eventsSearch` | qwen3.8-flash | qwen3.8-max | max, forced, sources | off | as the loop's |
+/// | `eventsSearch` | qwen3.8-flash | qwen3.8-max | max, forced, sources | off | 45 s per query (§39) |
+/// | `eventsExtract` | qwen3.8-flash | qwen3.8-max | off | off, not streamed, `json_object` (§39) | 30 s |
 ///
-/// `planner` and `eventsLoop` use the OpenAI-compatible chat endpoint (`plannerEndpoint`); the others the native one.
+/// `planner` and `eventsExtract` use the OpenAI-compatible chat endpoint (`plannerEndpoint`); the others the native one.
 public struct QwenRoute: Sendable, Hashable {
     public enum Job: String, Sendable, Hashable, CaseIterable {
         case live, picker, ground, planner
-        case eventsLoop = "events_loop"
+        case eventsExtract = "events_extract"
         case eventsSearch = "events_search"
     }
 
@@ -125,20 +125,19 @@ public struct QwenRoute: Sendable, Hashable {
                                           awaitingEval: [Entry(model: "qwen3.8-max", search: nil, thinking: false),
                                                          Entry(model: "qwen3.8-max-0902", search: nil, thinking: false)],
                                           stream: false, budget: .seconds(30))
-    /// F-18 §35 item 3 (T-046x), §38 item 5 (T-046za): the events browse loop, compatible-mode chat with tools, thinking
-    /// off, not streamed (the PoC's settings).
-    public static let eventsLoop = QwenRoute(job: .eventsLoop,
-                                             chain: [Entry(model: "qwen3.8-max", search: nil, thinking: false)],
-                                             awaitingEval: [Entry(model: "qwen3.8-max-0902", search: nil, thinking: false),
-                                                            Entry(model: "qwen3.8-2.4t-a95b", search: nil, thinking: false)],
-                                             stream: false, budget: .seconds(180))
-    /// F-18 §35 item 3: the loop's `search(query)` tool, `max`, returning the links of `search_info`.
+    /// F-18 §39 item 2 (T-046zb): one events keyword query, `max`, forced, sources; the answer text and the sources
+    /// are kept. 45 s per query (`EventSearchRun.queryLimit`).
     public static let eventsSearch = QwenRoute(job: .eventsSearch,
                                                chain: [Entry(model: "qwen3.8-flash", search: maxSearch, thinking: false)],
                                                awaitingEval: [Entry(model: "qwen3.8-max", search: maxSearch, thinking: false)],
-                                               stream: true)
+                                               stream: true, budget: .seconds(45))
+    /// F-18 §39 item 3 (T-046zb): the one extraction call, compatible-mode chat, `json_object`, thinking off, 30 s.
+    public static let eventsExtract = QwenRoute(job: .eventsExtract,
+                                                chain: [Entry(model: "qwen3.8-flash", search: nil, thinking: false)],
+                                                awaitingEval: [Entry(model: "qwen3.8-max", search: nil, thinking: false)],
+                                                stream: false, budget: .seconds(30))
 
-    public static let all: [QwenRoute] = [live, picker, ground, planner, eventsLoop, eventsSearch]
+    public static let all: [QwenRoute] = [live, picker, ground, planner, eventsSearch, eventsExtract]
 
     /// F-15b §62 item 10 (T-040zo): the trip planner's first model (kept for callers that show it).
     public static var plannerModel: String { planner.model }
@@ -151,8 +150,8 @@ public struct QwenRoute: Sendable, Hashable {
         case .picker: picker
         case .ground: ground
         case .planner: planner
-        case .eventsLoop: eventsLoop
         case .eventsSearch: eventsSearch
+        case .eventsExtract: eventsExtract
         }
     }
 

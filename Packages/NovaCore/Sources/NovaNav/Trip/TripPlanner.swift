@@ -161,8 +161,8 @@ public actor TripPlanner: ToolExecutor {
     private var work: WorkProgressBoard?
     public func setWork(_ board: WorkProgressBoard?) { work = board }
     /// F-15b §64 item 2 (T-040zq): the F-18 §35 event store and loop (search on only).
-    private var events: EventBrowser?
-    public func setEvents(_ browser: EventBrowser?) { events = browser }
+    private var events: EventFinder?
+    public func setEvents(_ finder: EventFinder?) { events = finder }
     /// §64 step text, shown before 「正在规划行程」.
     public static let eventsStep = "正在查活动"
 
@@ -177,7 +177,8 @@ public actor TripPlanner: ToolExecutor {
         work?.step(Self.eventsStep)
         let last = first.adding(days: max((asked.days ?? max(plan.dayCount, 1)) - 1, 0))
         let today = await events.store.today
-        let r = EventBrowseRequest(cities: Array(cities.prefix(3)), from: max(first, today), to: max(last, today), kinds: asked.notes.joined(separator: "、"), today: today)
+        // F-18 §39 item 5: the default kinds, the ones the app-open refresh searches, so a refreshed store answers.
+        let r = EventRequest(cities: Array(cities.prefix(3)), from: max(first, today), to: max(last, today), kinds: "", today: today)
         return await events.events(for: r) ?? []
     }
     /// §15: the current plan; `list` is its current day.

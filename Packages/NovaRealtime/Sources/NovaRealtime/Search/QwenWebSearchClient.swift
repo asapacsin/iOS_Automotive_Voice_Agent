@@ -29,9 +29,6 @@ public struct QwenWebSearchClient: WebSearchService {
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
     private let fallback: QwenFallback
-    /// F-18 §35 (T-046x): `QwenEventSearcher` sends this client's request on its own route.
-    func keyValue() -> String? { key() }
-    var sender: Send { send }
 
     public init(key: @escaping @Sendable () -> String?, send: @escaping Send = QwenWebSearchClient.urlSession,
                 now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current },

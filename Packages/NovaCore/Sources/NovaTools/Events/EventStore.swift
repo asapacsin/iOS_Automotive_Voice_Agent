@@ -2,7 +2,7 @@ import Foundation
 import NovaKit
 import Synchronization
 
-/// F-18 §35 item 5 (T-046x): one kept event. Only events whose dates code found on their opened page (item 6).
+/// F-18 §35 item 5 (T-046x), §39 item 4 (T-046zb): one kept event, after code's checks.
 public struct EventEntry: Sendable, Hashable, Codable {
     public let name: String
     public let start: String
@@ -42,12 +42,37 @@ public struct EventEntry: Sendable, Hashable, Codable {
     }
 }
 
-/// Item 5: a city's browsed window and when.
-public struct BrowsedWindow: Sendable, Hashable, Codable {
+/// F-18 §39 item 5 (T-046zb, amends §35 item 5): a city × kind searched for a window, when, and how many events it
+/// kept (none: fresh for 30 minutes only). A window from an older file has no kind and never matches.
+public struct SearchedWindow: Sendable, Hashable, Codable {
     public let city: String
+    public let kind: String
     public let from: String
     public let to: String
     public let at: Date
+    public let kept: Int
+
+    public init(city: String, kind: String, from: String, to: String, at: Date, kept: Int) {
+        self.city = city
+        self.kind = kind
+        self.from = from
+        self.to = to
+        self.at = at
+        self.kept = kept
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        city = try c.decode(String.self, forKey: .city)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        from = try c.decode(String.self, forKey: .from)
+        to = try c.decode(String.self, forKey: .to)
+        at = try c.decode(Date.self, forKey: .at)
+        kept = try c.decodeIfPresent(Int.self, forKey: .kept) ?? 0
+    }
+
+    /// How long it answers from the store.
+    public var freshFor: TimeInterval { kept > 0 ? EventStore.freshFor : EventStore.emptyFreshFor }
 }
 
 /// Where the store's file lives (`Application Support/events.json` in the app). Local only (I-8).
@@ -75,17 +100,19 @@ public final class MemoryEventStorage: EventStorage {
     public var saved: Data? { load() }
 }
 
-/// Item 5: the event store. Entries whose `end` is before today are dropped on load; a refresh replaces a city's
-/// entries for the window it browsed. Never sent anywhere.
+/// Item 5: the event store. Entries whose `end` is before today are dropped on load; a search adds what it kept (the
+/// same city, name and start replaced) and marks each city × kind it searched (§39 item 5). Never sent anywhere.
 public actor EventStore {
     struct File: Codable {
-        var version = 1
+        var version = 2
         var events: [EventEntry] = []
-        var windows: [BrowsedWindow] = []
+        var windows: [SearchedWindow] = []
     }
 
-    /// Item 2: a browse younger than this answers from the store.
+    /// Item 2: a search that kept events answers from the store this long.
     public static let freshFor: TimeInterval = 24 * 3600
+    /// §39 item 5: a search that kept no event for a city × kind, only this long.
+    public static let emptyFreshFor: TimeInterval = 30 * 60
     /// Item 5: the app-open refresh window, today…today+30.
     public static let refreshDays = 30
 
@@ -108,12 +135,25 @@ public actor EventStore {
 
     public var today: EventDay { EventDay(now(), zone: zone()) }
 
-    /// Item 2: every city browsed less than 24 h ago for a window covering `from`…`to`.
-    public func covers(cities: [String], from: String, to: String) -> Bool {
+    /// §39 item 5: a store hit only when every city × kind was searched for a window covering `from`…`to` and is still
+    /// fresh. The age in seconds of the oldest of those (each pair's newest covering search); nil: a miss.
+    public func age(cities: [String], kinds: [String], from: String, to: String) -> TimeInterval? {
         let t = now()
-        return cities.allSatisfy { city in
-            file.windows.contains { $0.city == city && $0.from <= from && $0.to >= to && t.timeIntervalSince($0.at) < Self.freshFor }
+        var oldest: TimeInterval = 0
+        for city in cities {
+            for kind in kinds {
+                let ages = file.windows.filter { $0.city == city && $0.kind == kind && $0.from <= from && $0.to >= to }
+                    .map { (age: t.timeIntervalSince($0.at), fresh: $0.freshFor) }
+                    .filter { $0.age < $0.fresh }.map(\.age)
+                guard let newest = ages.min() else { return nil }
+                oldest = max(oldest, newest)
+            }
         }
+        return oldest
+    }
+
+    public func covers(cities: [String], kinds: [String], from: String, to: String) -> Bool {
+        age(cities: cities, kinds: kinds, from: from, to: to) != nil
     }
 
     /// The kept events of `cities` overlapping `from`…`to`, sorted by start.
@@ -122,18 +162,23 @@ public actor EventStore {
             .sorted { ($0.start, $0.name) < ($1.start, $1.name) }
     }
 
-    /// Item 5: the cities whose today…+30 window is older than 24 h (the app-open refresh).
+    /// Item 5: the cities whose today…+30 window with the default kinds is not fresh (the app-open refresh).
     public func stale(_ cities: [String]) -> [String] {
         let from = today.description, to = today.adding(days: Self.refreshDays).description
-        return cities.filter { !covers(cities: [$0], from: from, to: to) }
+        return cities.filter { !covers(cities: [$0], kinds: EventSearchRun.defaultKinds, from: from, to: to) }
     }
 
-    /// A browse of `city` for `from`…`to`: its entries in that window are replaced by `entries`.
-    public func replace(city: String, from: String, to: String, with entries: [EventEntry]) {
-        file.events.removeAll { $0.city == city && $0.start <= to && $0.end >= from }
-        file.events += entries.filter { $0.city == city }
-        file.windows.removeAll { $0.city == city && $0.from >= from && $0.to <= to }
-        file.windows.append(BrowsedWindow(city: city, from: from, to: to, at: now()))
+    /// §39 item 5: a search's kept events and the city × kind pairs it searched for `from`…`to`.
+    public func record(_ entries: [EventEntry], searched: [SearchedPair], from: String, to: String) {
+        for e in entries {
+            file.events.removeAll { $0.city == e.city && $0.name == e.name && $0.start == e.start }
+            file.events.append(e)
+        }
+        let at = now()
+        for p in searched {
+            file.windows.removeAll { $0.city == p.city && $0.kind == p.kind && $0.from >= from && $0.to <= to }
+            file.windows.append(SearchedWindow(city: p.city, kind: p.kind, from: from, to: to, at: at, kept: p.kept))
+        }
         save()
     }
 

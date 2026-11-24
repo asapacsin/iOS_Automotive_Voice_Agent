@@ -524,28 +524,34 @@ private let carnival = EventEntry(name: "AI嘉年华", start: "2026-11-28", end:
 private let zhAsked: JSONValue = ["text": "11月25号开始珠海四天游，酒店住珠海，这几天有展的话排进去", "days": 4, "city": "珠海",
                                   "start": "2026-11-25", "stay_city": "珠海", "notes": ["有展的话排进去"]]
 
-/// A loop that must not run (the store is fresh), or one scripted to return `finalJSON`.
+/// Counts the searches; the store is fresh, so none must run.
 private final class Ran: @unchecked Sendable {
     private let lock = NSLock()
     private var n = 0
     func withLock<T>(_ f: (inout Int) -> T) -> T { lock.lock(); defer { lock.unlock() }; return f(&n) }
 }
 
-private struct NoChat: EventChatModel {
+private struct NoSearch: EventWebSearcher {
     let ran: Ran
-    func turn(_ messages: [EventChatMessage], lastStep: Bool, timeout: NovaDuration) async throws -> EventChatReply {
+    func search(_ query: String, timeout: NovaDuration) async throws -> EventSearchAnswer {
         ran.withLock { $0 += 1 }
-        return EventChatReply(content: #"{"events":[],"note":""}"#)
+        return EventSearchAnswer(text: "", sources: [])
     }
 }
-private struct NoSearch: EventSearcher { func search(_ query: String) async throws -> [EventSearchHit] { [] } }
-private struct NoPages: EventPageFetcher { func open(_ url: String) async throws -> String { throw URLError(.badURL) } }
+private struct NoExtract: EventExtractor {
+    func extract(system: String, user: String, timeout: NovaDuration) async throws -> EventModelReply {
+        EventModelReply(content: #"{"events":[]}"#)
+    }
+}
 
-private func browser(fresh: Bool, ran: Ran) async -> EventBrowser {
+private func browser(fresh: Bool, ran: Ran) async -> EventFinder {
     let store = EventStore(storage: MemoryEventStorage(), now: { nov24 }, zone: { shanghaiZone })
-    if fresh { await store.replace(city: "珠海", from: "2026-11-24", to: "2026-12-24", with: [carnival]) }
-    return EventBrowser(store: store, work: nil) { _ in
-        EventBrowseLoop(model: NoChat(ran: ran), searcher: NoSearch(), fetcher: NoPages(), clock: ManualClock())
+    if fresh {
+        await store.record([carnival], searched: EventSearchRun.defaultKinds.map { SearchedPair(city: "珠海", kind: $0, kept: 1) },
+                           from: "2026-11-24", to: "2026-12-24")
+    }
+    return EventFinder(store: store, work: nil) { _ in
+        EventSearchRun(searcher: NoSearch(ran: ran), extractor: NoExtract(), clock: ManualClock())
     }
 }
 

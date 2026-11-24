@@ -52,8 +52,10 @@ struct QwenChainTests {
         #expect(QwenRoute.picker.chain.map(\.model) == ["qwen3.8-flash"])
         #expect(QwenRoute.picker.awaitingEval.map(\.model) == ["qwen3.8-max", "qwen3.8-max-0902"])
         #expect(QwenRoute.planner.chain.map(\.model) == ["qwen3.8-flash"] && QwenRoute.plannerModel == "qwen3.8-flash")
-        #expect(!QwenRoute.eventsLoop.chain.contains(where: \.thinking) && !QwenRoute.eventsLoop.stream)  // F-18 §38 item 5
-        #expect(QwenRoute.eventsLoop.awaitingEval.map(\.model) == ["qwen3.8-max-0902", "qwen3.8-2.4t-a95b"])
+        // F-18 §39 items 2-3 (T-046zb): the search on flash with max; the extraction on flash, thinking off, not streamed.
+        #expect(QwenRoute.eventsSearch.chain.map(\.model) == ["qwen3.8-flash"] && QwenRoute.eventsSearch.awaitingEval.map(\.model) == ["qwen3.8-max"])
+        #expect(QwenRoute.eventsExtract.chain.map(\.model) == ["qwen3.8-flash"] && !QwenRoute.eventsExtract.stream)
+        #expect(!QwenRoute.eventsExtract.chain.contains(where: \.thinking) && QwenRoute.eventsExtract.chain.allSatisfy { $0.search == nil })
         #expect(QwenRoute.eventsSearch.chain.allSatisfy { $0.search?.strategy == "max" })
         for r in QwenRoute.all {
             #expect(Set(r.chain.map(\.model)).isDisjoint(with: r.awaitingEval.map(\.model)), "\(r.job)")
