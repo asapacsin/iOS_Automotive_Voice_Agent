@@ -13,17 +13,7 @@
       "pass_criteria": "Mac can run xcodebuild; iPhone registered for development",
       "expected_return": "Mac/Xcode version, iPhone model + iOS version"
     },
-    {
-      "id": "H-ios-min",
-      "owner": "HUMAN_DECISION",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "H-ios-min", "owner": "HUMAN_DECISION", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "H-keys",
       "owner": "HUMAN_CREDENTIAL",
@@ -36,39 +26,9 @@
       "pass_criteria": "Keys work in the spikes",
       "expected_return": "Confirmation keys are available (not the keys)"
     },
-    {
-      "id": "T-000",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-000c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-000x",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-000", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-000c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-000x", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-001",
       "owner": "HUMAN_PHYSICAL",
@@ -139,314 +99,34 @@
         "threshold": "≥9/10 silent trials without the gate opening"
       }
     },
-    {
-      "id": "T-010",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-011",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-000g",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-012",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-014",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-019",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-017",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-018",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-020",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-020a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-020b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-020c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-032b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-032c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-090",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-032d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-032e",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-032f",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-032g",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-032h",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-032i",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-020d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-024",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-015",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-022",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-023",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-010", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-011", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-000g", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-012", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-014", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-019", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-017", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-018", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-020", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-020a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-020b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-020c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-032b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-032c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-090", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-032d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-032e", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-032f", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-032g", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-032h", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-032i", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-020d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-024", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-015", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-022", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-023", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-021",
       "owner": "EXTERNAL_RESOURCE",
@@ -460,17 +140,7 @@
       ],
       "blocked_by": "needs Xcode + device (T-000x, G0)"
     },
-    {
-      "id": "T-025",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-025", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-026",
       "owner": "HUMAN_PHYSICAL",
@@ -485,127 +155,17 @@
       "pass_criteria": "W1-W4 PASS; latency recorded",
       "expected_return": "Device log + video, numbers in STATUS.md"
     },
-    {
-      "id": "T-071a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-071c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-071b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-071d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-070",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-045",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-053a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-021p",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-030",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-043",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-071a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-071c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-071b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-071d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-070", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-045", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-053a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-021p", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-030", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-043", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-050",
       "owner": "EXTERNAL_RESOURCE",
@@ -621,160 +181,20 @@
       ],
       "blocked_by": "off-device part done (logic PASS, Linux gates green 2026-10-26); remaining OQ-IOS-10 fallback voice needs a device run"
     },
-    {
-      "id": "T-051",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-052",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-053",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-042",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-044",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-047",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-032",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-033",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-061",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-062",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-063",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-072",
-      "owner": "HUMAN_DECISION",
-      "status": "NOT_APPLICABLE",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-080",
-      "owner": "HUMAN_DECISION",
-      "status": "NOT_APPLICABLE",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-051", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-052", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-053", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-042", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-044", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-047", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-032", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-033", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-061", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-062", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-063", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-072", "owner": "HUMAN_DECISION", "status": "NOT_APPLICABLE", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-080", "owner": "HUMAN_DECISION", "status": "NOT_APPLICABLE", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-042b",
       "owner": "EXTERNAL_RESOURCE",
@@ -790,72 +210,12 @@
       ],
       "blocked_by": "CoreLocationProvider built (CI xcode); WGS-84 fix and permission flow need a device"
     },
-    {
-      "id": "T-031",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-034",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-041",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-071",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-048",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-060",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-031", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-034", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-041", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-071", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-048", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-060", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-035",
       "owner": "HUMAN_PHYSICAL",
@@ -902,94 +262,14 @@
       "pass_criteria": "F-01/F-23 device rows PASS",
       "expected_return": "Device log in STATUS.md"
     },
-    {
-      "id": "H-evidence",
-      "owner": "HUMAN_DECISION",
-      "status": "NOT_APPLICABLE",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-071e",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-071f",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-071g",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "H-evidence", "owner": "HUMAN_DECISION", "status": "NOT_APPLICABLE", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-071e", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-071f", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-071g", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-042a",
       "owner": "AUTONOMOUS",
@@ -1009,50 +289,10 @@
       ],
       "blocked_by": "NovaDriveTests (fake-manager adapter tests) not run: the Codemagic workflow builds but runs no tests"
     },
-    {
-      "id": "T-046a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "H-F16b",
-      "owner": "HUMAN_DECISION",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-044a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-044b",
-      "owner": "EXTERNAL_RESOURCE",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-046a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "H-F16b", "owner": "HUMAN_DECISION", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-044a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-044b", "owner": "EXTERNAL_RESOURCE", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-044c",
       "owner": "EXTERNAL_RESOURCE",
@@ -1073,94 +313,14 @@
       ],
       "blocked_by": "Phone run only: F-16b rows 1, 2, 6-9 (S/D) NOT_VERIFIED"
     },
-    {
-      "id": "H-F05a",
-      "owner": "HUMAN_DECISION",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016b",
-      "owner": "HUMAN_DECISION",
-      "status": "NOT_APPLICABLE",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016c",
-      "owner": "HUMAN_DECISION",
-      "status": "NOT_APPLICABLE",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "H-F15a",
-      "owner": "HUMAN_DECISION",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "H-F05a", "owner": "HUMAN_DECISION", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016b", "owner": "HUMAN_DECISION", "status": "NOT_APPLICABLE", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016c", "owner": "HUMAN_DECISION", "status": "NOT_APPLICABLE", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "H-F15a", "owner": "HUMAN_DECISION", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-040d",
       "owner": "EXTERNAL_RESOURCE",
@@ -1173,83 +333,13 @@
       ],
       "notes": "From the T-040a/b review: pass the trip's NaviMode into SelfPosition.Input (default .emulator hides the marker between car updates); routeChoiceOpen reaches AgentState via the snapshot observer, so a very fast pick could precede it; check on device that a 第一条 said before any transcript arrives is not refused (row 10); App must pass location: deviceLocation (or Switchable) and the clock to AmapRouteEngine, and read NavigationModeSetting at start (NavigationController tuning.mode is fixed .emulator); signal timers use clock.now vs fix timestamps (same SystemClock base on device)"
     },
-    {
-      "id": "T-016d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040e",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016e",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040f",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040g",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040h",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-004i",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-016d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040e", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016e", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040f", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040g", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040h", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-004i", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-004j",
       "owner": "AUTONOMOUS",
@@ -1262,999 +352,96 @@
       "notes": "Device run 7565bcf: 9/52 utterances open 7-13 s for short commands.",
       "blocked_by": "needs the T-004i per-utterance log lines from a device run of 25a5cd9 or later"
     },
-    {
-      "id": "T-016f",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-022a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-034a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016g",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016h",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-034b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-022b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-071h",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-022c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-001a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-022d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-022e",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031e",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031f",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031g",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031h",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031i",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_APPLICABLE",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-017a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-034c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-034d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046e",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046f",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046g",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046h",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046i",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046j",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016i",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-060a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016j",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016o",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016l",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016m",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016n",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013e",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013f",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013g",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013h",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013i",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013j",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-042c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046k",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046l",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046m",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046n",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046o",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046q",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046r",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046s",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-046t",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013k",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013l",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-013m",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-021q",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040i",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040j",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040l",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040m",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040n",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040o",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040p",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040q",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040r",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040s",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040t",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040u",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040v",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040w",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040x",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031j",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031k",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031l",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031m",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031n",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-031o",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-016p",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-017c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040y",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040z",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040za",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [
-        "T-040z"
-      ],
-      "action": "F-15b §51 item 9: navigate_to near=here while the trip cards are shown searches around the simulated car (trip stop guidance in 模拟导航) or else the trip's next stop; vendor by that point; facts searched_around 行程位置, source=trip_here; cards hidden: the phone as item 8; rows 190-194.",
-      "notes": "Owner 2026-11-20: 'if you using the card, the here mean the simulate one otherwise the current real location'; no catalog text change. Gemini eval (real setup) showed near=here is chosen reliably for 附近 sentences.",
-      "evidence": [
-        "9ff8136, 9fcec8c: gates green (1022 NovaCore tests, 1 known issue as before; spec-trace 152 ids, 0 missing); high-effort read-only review FAIL (car vendor by China box) fixed, medium re-check PASS. Row 194 (device) NOT_VERIFIED."
-      ]
-    },
-    {
-      "id": "T-900a",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-900b",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-900c",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-900d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-016f", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-022a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-034a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016g", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016h", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-034b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-022b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-071h", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-022c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-001a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-022d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-022e", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031e", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031f", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031g", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031h", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031i", "owner": "AUTONOMOUS", "status": "NOT_APPLICABLE", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-017a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-034c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-034d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046e", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046f", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046g", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046h", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046i", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046j", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016i", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-060a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016j", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016o", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016l", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016m", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016n", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013e", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013f", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013g", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013h", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013i", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013j", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-042c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046k", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046l", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046m", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046n", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046o", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046q", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046r", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046s", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-046t", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013k", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013l", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-013m", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-021q", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040i", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040j", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040l", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040m", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040n", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040o", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040p", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040q", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040r", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040s", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040t", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040u", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040v", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040w", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040x", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031j", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031k", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031l", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031m", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031n", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031o", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-016p", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-017c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040y", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040z", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040za", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-900a", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-900b", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-900c", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-900d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-900e",
       "owner": "AUTONOMOUS",
@@ -2265,17 +452,7 @@
       "notes": "Owner 2026-11-19: write the token-optimization spec and implement from now.",
       "evidence": []
     },
-    {
-      "id": "T-900f",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
+    {"id": "T-900f", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-031p",
       "owner": "AUTONOMOUS",
@@ -2341,18 +518,7 @@
       "notes": "Owner 2026-11-20: 'you actually can build some deterministic code here that let llm decide to call'; sources Rasa CALM, Home Assistant, ask_user tools, LangGraph HITL, Anthropic.",
       "evidence": []
     },
-    {
-      "id": "T-031u",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [],
-      "action": "F-12 §21 items 1-7: recordFormat header (format 1 = today's lines), format fixture test that fails on any unbumped change, record-format.md + check_record_format.py gate, scripts/records/collect.py (pull, archive D:\ndrecords\\<commit>, index.csv, refuse unknown formats), read.py with one reader per format; rows 1-8.",
-      "notes": "Owner 2026-11-20: 'can you register the log with version' - records from many builds will be collected and read for patterns.",
-      "evidence": [
-        "scripts/gates/run_all.sh T-031u T-046u green on a clean clone of f83f078 (Linux Swift 6.1.2; spec-trace 2 ids, 0 missing); spec-reviewer high effort PASS (mutation check: changed line and removed kind both fail the fixture tests); rows 1-7 unit/gate; row 8 device pull NOT_VERIFIED (pymobiledevice3 command unverified, noted in phone-test skill)"
-      ]
-    },
+    {"id": "T-031u", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-031y",
       "owner": "AUTONOMOUS",
@@ -2367,32 +533,8 @@
         "scripts/gates/run_all.sh green on a clean clone of 88723be (Linux Swift 6.1.2; NovaCore 1044 tests; spec-trace 156 ids, 0 missing; check_agent_version OK); spec-reviewer high effort FAIL (note-template branches and fragments not hashed) -> fixed in 2034d5d -> medium re-check PASS; agent-versions 1.0.0 = 6dbbd9c5d47e; rows 1-7 unit/gate; row 8 device NOT_VERIFIED; model-served not written (no served-model name exposed) NOT_VERIFIED"
       ]
     },
-    {
-      "id": "T-046u",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [],
-      "action": "F-18 §32 items 1-8: CallBudget in NovaCore asked before every paid call (per turn 3/2 per route, per session 40, per day 300 calls and 300k tokens, BudgetStore port), repeat key refused on the 3rd send in 10 min, quota breaker per model per day with one backup try, LIVE_INFO_UNAVAILABLE reason=budget|repeat|quota, paid record lines (I-8), PC scripts print planned calls and need --yes and --max-calls, gate; rows 1-12.",
-      "notes": "Owner 2026-11-20: qwen3.7-flash free quota (1M) ran out; nothing limited paid calls. Sources: LiteLLM iteration budgets, AWS Agentic AI Lens AGENTCOST07-BP01, OpenRouter loop guide, dev.to tool-call budgets. Quota error codes still to be copied from vendor pages before start.",
-      "evidence": [
-        "scripts/gates/run_all.sh T-046u green on a clean clone of b7f92dc (Linux Swift 6.1.2; NovaCore, NovaRealtime 55, NovaServices 110 tests; static gates incl. check_paid_scripts); spec-reviewer high effort FAIL (qwen.tts used the shared counters) then fixed in b7f92dc, re-check PASS; rows 1-10 unit/gate; row 11 Codemagic build and row 12 device NOT_VERIFIED"
-      ]
-    },
-    {
-      "id": "T-031za",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [
-        "T-031y"
-      ],
-      "action": "F-09b §16 item 8: show_place(name) place card (find on screen / car's city / nationwide, fill TripDetailSheet, ok only when shown); rows 12, 13.",
-      "notes": "Owner 2026-11-20: a tool with well defined content filled by a well defined process; the LLM fills the tool call. Base instruction no longer forbids a tool for place introductions (agent 2.0.0).",
-      "evidence": [
-        "scripts/gates/run_all.sh PASS on 9aca0b0 (Linux Swift 6.1.2; NovaCore 1050 tests, 1 known NoiseCorpus issue; spec-trace 157 ids, 0 missing; check_agent_version OK, 2.0.0 = dae929dc9ff0); spec-reviewer high effort FAIL (list over guidance missed) -> fixed in 9aca0b0 -> medium re-check PASS; row 12 unit; row 13 device NOT_VERIFIED; App files read, not compiled"
-      ]
-    },
+    {"id": "T-046u", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031za", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-031z",
       "owner": "AUTONOMOUS",
@@ -2409,125 +551,15 @@
         "Off-device parts done: items 1-6, 9, 10. scripts/gates/run_all.sh PASS on 364b701 (Linux Swift 6.1.2; NovaCore 1058 tests, 1 known NoiseCorpus issue; spec-trace 158 ids; check_single_types, check_agent_version 2.2.0, check_record_format 3 OK); spec-reviewer high effort FAIL (exit waited on panels it did not close) -> fixed in 364b701 -> medium re-check PASS; rows 1-6 unit/gate; App and NovaAudio files read, not compiled; rows 7-11 device NOT_VERIFIED; item 7 not done"
       ]
     },
-    {
-      "id": "T-042d",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [
-        "T-042c"
-      ],
-      "action": "F-16 §15 items 1-6: explore (「附近有没有滑雪的」) → web_search → new show_places tool (list with about lines, no route); navigate_to only after the driver says go; §14 never reports found=0 when 高德 returned places; one base-text sentence; rows 1-5.",
-      "notes": "Owner phone test 2026-11-20 (3d84411, record 20261120-214921): 滑雪/爬山/好玩 all 没找到; 雪自由 12 km dropped by the §14 name check (0.45 < askMin). Owner approved the explore-only version 2026-11-20.",
-      "evidence": [
-        "Gates: scripts/gates/run_all.sh PASS on 29620bb (NovaCore 1073 tests, 1 known NoiseCorpus issue). Review: spec-reviewer high effort FAIL (unlocated show_places name usable as a real place via 加入清单 and show_place) -> fixed 14fa121 -> medium re-check PASS. Rows 4-5 unit PASS (ExploreTests); rows 1-3 eval/device NOT_VERIFIED; App files read, not compiled."
-      ]
-    },
-    {
-      "id": "T-031zb",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [
-        "T-031z",
-        "T-031za"
-      ],
-      "action": "F-09b §17 items 1-8: panel layers, stack in ScreenStateStore from the same view reports, top = highest layer then newest; registry of open/close/act tools per panel with check_panel_tools.py gate; exit_navigation_mode closes only the top (tripDetail, tripPlans, camera, musicCard added) and returns closed/top; 屏幕 line gains top, sent with the next driver turn or tool result instead of waiting for idle; panel on/off record line at each report; rows 1-10.",
-      "notes": "Owner phone test 2026-11-20 (3d84411, record 20261120-215214): 收起来 closed the list under the place card, said 已取消, card stayed; the list and card opening never reached her (noteIdle starved while the driver talked). Owner approved the stack-by-layer design 2026-11-20.",
-      "evidence": [
-        "Gates: scripts/gates/run_all.sh PASS on 3ffb80e (NovaCore 1074 tests, 1 known NoiseCorpus issue; check_panel_tools, check_agent_version 4.0.0, check_record_format 4 OK). Review: spec-reviewer high effort FAIL (named panel closed the top; closed not what went off) -> fixed 14fa121 -> medium re-check FAIL (named panel not on screen stopped guidance) -> fixed 3ffb80e -> medium re-check PASS. Rows 1-9 unit/gate PASS; row 10 and D parts device NOT_VERIFIED; App files read, not compiled."
-      ]
-    },
-    {
-      "id": "T-040zb",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [
-        "T-040za"
-      ],
-      "action": "F-15b §52 items 1-8, 14: TripPlan the only trip data (stops with id, role, placed, picked_by); whole plan with roles in every trip tool result and the state note; set_trip_plan writes the whole plan (ids kept, new names looked up, not found kept placed=false and retried); PLAN_CHECK (one start/end, one hotel per night at the day ends); driver hotel never replaced; removed listed; times and fit over the written plan; old edit actions and revise_trip_list removed; agent version bump; rows 195-198, 200, 201.",
-      "notes": "Owner phone tests 2026-11-21 (a253d83, records 20261121-000733, -002727, -005519, -103731; syslog-20261121-001944): airport start timed out as NOT_FOUND, no way to set the end or the driver's hotel, a day tap hid the trip and voice said NO_TRIP_LIST with 8 stops, three hotels in one plan, a copied name searched by its Chinese half. Owner 2026-11-21: 'there should be a data structure … the trip just display the content on the plan'; the model designs the change on it.",
-      "evidence": [
-        "Re-review 2026-11-21 (high effort, a253d83..a367539): FAIL. zb: reached hotel could not be written back; background retry made a running edit OPTIONS_STALE; unplaced (0,0) stops used as next/search centre. zd: make_trip_list and edit replace still said a slow lookup as not found. Fixed d3e4db5..15235de; medium re-checks: FAIL (retry test inert, replace not a write, slow codes, untested paths) -> fixed 3bce311 -> FAIL (replace untested) -> test added 15235de; each new test fails when its fix is reverted. Gates PASS on 15235de in a clean clone (NovaCore 1098, 1 known issue; spec-trace 164/0).",
-        "Gates: scripts/gates/run_all.sh PASS on ddd47c3 in a clean clone (NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 162 ids 0 missing; agent version 5.1.0). Review: spec-reviewer high effort PASS (b4588d5). Rows 195-198, 200, 201 unit PASS (TripSetPlanTests). App files read, not compiled."
-      ]
-    },
-    {
-      "id": "T-040zc",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040zd",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040ze",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "action": "archived",
-      "depends_on": [],
-      "archived": true,
-      "evidence": [
-        "work-archive.json"
-      ]
-    },
-    {
-      "id": "T-040zf",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [
-        "T-040zb"
-      ],
-      "action": "F-15b §53 items 1-6: a multi-day plan is a pool (places + day_count) the code fills; make_trip_list example replaced (8-place 广州 pool with minutes and importance; days only when the driver said which day); thin day = under 75% of the budget, or fewer sights than the pace (relaxed 2, normal 3, packed 4) with 90+ min left; exempt: a 360+ min sight, a one-day plan of must-sees; fitNotes and trip fit under= at 75%; agent 5.2.0; rows 208-217.",
-      "notes": "Owner 2026-11-21: multi-day plans come out with about one attraction per day. Cause: the only multi-day example was days=[[2],[1]] bare names (groups kept, the fill skipped) and under fired only below half the budget. Visit-time and sights-per-day sources cited in §53.",
-      "evidence": [
-        "Gates: scripts/gates/run_all.sh PASS on 05d63c4 in a clean clone (NovaCore 1085 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 163 ids 0 missing; agent version 5.2.0); NovaCore 1085 green again after the review notes fix. Review: spec-reviewer high effort PASS (0a114ce), notes fixed: a 360+ min sight day is not over either, test labels. Rows 208-215 unit PASS (TripThinDayTests). Row 216 eval and 217 device NOT_VERIFIED; runChecks wiring tested end to end (TripReviseTests.thinBySightsWired)."
-      ]
-    },
-    {
-      "id": "T-040zg",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [
-        "T-040zb"
-      ],
-      "action": "F-15b §54 items 1-6: make_trip_list text: a new place is a new plan (replaces the old); set_trip_plan text: only for the plan on screen; set_trip_plan refuses a new stop in another country group or 300+ km from every kept placed stop (second search without the trip area for one not found), PLAN_CHECK new_trip, nothing saved, next says make_trip_list; trip set check=new_trip; agent 5.3.0; rows 218-224.",
-      "notes": "Owner phone test 2026-11-21 (97a14cb, IMG_0651): with a Tokyo trip saved, 规划澳门两天 gave 关闸 + Tokyo stops on the strip and the reply 我听不清. Record not yet pulled.",
-      "evidence": [
-        "Gates: scripts/gates/run_all.sh PASS on 16daa8b in a clean clone (NovaCore 1092, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 164 ids 0 missing; agent 5.3.0). Review: spec-reviewer high effort PASS (3568631); main note (home lookups nationwide, so 300 km could throw a home trip away) fixed in 16daa8b (distance rule abroad only, home second search Photon only, §54 amended) -> medium re-check PASS; distance-branch test and comments added after. Rows 218-222 unit PASS (TripNewTripTests). Rows 223 eval, 224 device NOT_VERIFIED."
-      ]
-    },
-    {
-      "id": "T-040zh",
-      "owner": "AUTONOMOUS",
-      "status": "PASS",
-      "priority": 1,
-      "depends_on": [
-        "T-040zg"
-      ],
-      "action": "F-15b §55 items 1-15: set_trip_plan makes and changes every plan (new plan = no kept id, needs city, replaces the old one); city-limited lookups (高德 citylimit at home, city box abroad), not found = placed=false + not_found issue; code never moves stops between days, no day_count fill, no NO_START; hotel stop by name or near; checks empty/over (1.25 x budget)/under/driving/not_found/hotel -> trip_needs_fix, 2 rounds; no done-claim while issues remain (reply check), facts.ready false with an empty or over day; make_trip_list and edit_trip_list removed, §54 items 1-3 removed; agent 6.0.0; record trip set new_plan/issues/round; rows 225-236.",
-      "notes": "Owner phone test 2026-11-22 (bdc1e2a, record 20261122-211727): 规划上海五天 -> make_trip_list pool of 14 with day_count 5, no start -> order NO_START, all 14 on day 1, days 2-5 empty, ok=true, she said 规划好了; no city -> 北京新天地. Cause: new trips bypassed the data structure (§53 pool, §54 'never set_trip_plan for a new place').",
-      "evidence": [
-        "Gates: scripts/gates/run_all.sh PASS on b44f84a in a clean clone (NovaCore 1043 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; agent 6.0.0). Review: spec-reviewer high effort FAIL (done-claim rule caught every claim and never cleared; §50 item 1 Qwen grounding not called for new abroad plans) -> fixed b44f84a -> medium re-check PASS. Rows 225-234 unit PASS (TripModelPlanTests, TripNeedsFixClaimTests.row228, TripCatalogVersionTests.row234); 235 eval and 236 device NOT_VERIFIED. Owner questions: voice 打开行程/已经去过了/跳过这个 and rental auto-pick gone with edit_trip_list/make_trip_list (§55 item 11)."
-      ]
-    },
+    {"id": "T-042d", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-031zb", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040zb", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040zc", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040zd", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040ze", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040zf", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040zg", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
+    {"id": "T-040zh", "owner": "AUTONOMOUS", "status": "PASS", "action": "archived", "depends_on": [], "archived": true, "evidence": ["work-archive.json"]},
     {
       "id": "T-046v",
       "owner": "AUTONOMOUS",
