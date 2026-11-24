@@ -129,3 +129,26 @@ struct TripPhase2cTests {
         #expect(ToolCatalog.spec("edit_trip_list") == nil)
     }
 }
+
+@Suite("T-031zg F-09b §22 review fixes: a panel's 「×」 closes only that panel")
+struct PanelCloseFlowTests {
+    private func close(_ panel: String) -> ToolCall { trip("exit_navigation_mode", ["panel": .string(panel)]) }
+
+    @Test("T-031zg row 1 (real flow): guidance running and the trip cards shown: tripScreen closes the cards, guidance keeps running; routePicking or destinationList with nothing to pick closes nothing")
+    func guidanceKept() async {
+        let rig = await TripRig()
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
+        #expect(await rig.run(trip("trip_next")).ok)
+        #expect(await rig.nav.current.navigating)
+        let hidden = await rig.nav.execute(close("tripScreen"))
+        #expect(hidden.data["status"] == "trip_cards_hidden", "\(hidden)")
+        #expect(await rig.planner.cardsHidden && rig.nav.current.navigating)
+        for panel in ["routePicking", "destinationList"] {
+            let none = await rig.nav.execute(close(panel))
+            #expect(!none.ok && none.code == .noOptionsOnScreen, "\(panel) \(none)")
+            #expect(await rig.nav.current.navigating)
+        }
+        // `navigation` (her 「结束导航」) still ends guidance.
+        #expect(await rig.nav.execute(close("navigation")).data["status"] == "navigation_stopped")
+    }
+}

@@ -130,7 +130,6 @@ final class RuntimeHolder: ObservableObject {
     let runtime = AgentRuntime()
 }
 
-/// F-13 §14 item 7 (T-032b): the playing iTunes preview, with the attribution and the store link.
 /// F-09b §22 items 1-3 (T-031zg): a panel's 「×」, top-right, white on a dark disc, tap area 44 pt. The tap closes the
 /// panel through her `exit_navigation_mode` close path (`PanelCloseTap`); no model call, no spoken line.
 struct PanelCloseButton: View {
@@ -149,11 +148,13 @@ struct PanelCloseButton: View {
 
 extension View {
     /// §22 item 3: the 「×」 over the panel's top-right corner.
-    func panelClose(_ panel: ScreenPanel, _ runtime: AgentRuntime) -> some View {
-        overlay(alignment: .topTrailing) { PanelCloseButton(panel: panel, runtime: runtime) }
+    /// `below`: points to leave free at the top (a sheet's own toolbar button, e.g. 「完成」, stays uncovered).
+    func panelClose(_ panel: ScreenPanel, _ runtime: AgentRuntime, below: CGFloat = 0) -> some View {
+        overlay(alignment: .topTrailing) { PanelCloseButton(panel: panel, runtime: runtime).padding(.top, below) }
     }
 }
 
+/// F-13 §14 item 7 (T-032b): the playing iTunes preview, with the attribution and the store link.
 private struct PreviewCardView: View {
     let card: PreviewCard
     @Environment(\.openURL) private var openURL
@@ -255,7 +256,7 @@ private struct DriveContent: View {
             }
         }
         // F-15b §16 item 6: 「我的行程」.
-        .sheet(isPresented: $model.tripPlansOpen) { TripPlansSheet(model: model, runtime: runtime).panelClose(.tripPlans, runtime).screenPanel(.tripPlans) }
+        .sheet(isPresented: $model.tripPlansOpen) { TripPlansSheet(model: model, runtime: runtime).panelClose(.tripPlans, runtime, below: 56).screenPanel(.tripPlans) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && model.cameraOpen { runtime.closeCamera() }
             // F-16b §9: 我的位置 streams only while the drive screen is visible, not in the background.
@@ -542,8 +543,8 @@ private struct DriveContent: View {
                     }
                 }
                 // F-09b §16 item 1: the route choice over the running guidance is routePicking too.
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .panelClose(.routePicking, runtime)
+                // F-09b §22 (T-031zg): no 「×」 here: this choice shows only over running guidance, which a 「×」 never
+                // ends (「结束导航」 does).
                 .screenPanel(.routePicking)
             }
         }

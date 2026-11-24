@@ -50,7 +50,7 @@ struct TripCardsView: View {
         case .emptyDay:
             // §52 item 9: an empty day is still the trip screen: every day tab and 「这一天还没有安排」.
             VStack(alignment: .leading, spacing: 6) {
-                dayTabs
+                topRow
                 Text(TripScreen.emptyDayText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -58,11 +58,10 @@ struct TripCardsView: View {
                     .accessibilityIdentifier("trip-empty-day")
                 HStack { Spacer(); plansButton }.font(.subheadline)
             }
-            .panelClose(.tripScreen, runtime)
             .screenPanel(.tripScreen)
         case .cards(let cards):
             VStack(alignment: .leading, spacing: 6) {
-                dayTabs
+                topRow
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(cards) { card in
@@ -115,13 +114,22 @@ struct TripCardsView: View {
                 .padding(.top, 12)
             }
             // F-09b §16 item 1 (T-031z): the trip cards on screen.
-            .panelClose(.tripScreen, runtime)
             .screenPanel(.tripScreen)
         }
     }
 }
 
 extension TripCardsView {
+    /// F-09b §22 item 3 (T-031zg): the day tabs, then the panel's 「×」 at the right, in its own row above the cards so
+    /// it never covers a card's per-stop ✕.
+    private var topRow: some View {
+        HStack(spacing: 6) {
+            dayTabs
+            Spacer(minLength: 0)
+            PanelCloseButton(panel: .tripScreen, runtime: runtime)
+        }
+    }
+
     /// §11 item 5 with §52 item 9: a tab for every day of the plan; a tap only changes the day in front.
     @ViewBuilder private var dayTabs: some View {
         if model.tripPlan.dayCount > 1 {

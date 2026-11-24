@@ -44,8 +44,8 @@ struct PanelCloseTapTests {
             if ScreenConfirmedExecutor.ownClose[panel] != nil {
                 #expect(closed.withLock { $0 } == [panel] && flow.args.withLock { $0 }.isEmpty, "\(panel)")
             } else {
-                // §22 item 2: the navigation flow, called as 「不去了」 calls it (no arguments), never a second close.
-                #expect(closed.withLock { $0 }.isEmpty && flow.args.withLock { $0 } == [.object([:])], "\(panel)")
+                // §22 item 2: the navigation flow's own close for that panel (named, so guidance is never ended by it).
+                #expect(closed.withLock { $0 }.isEmpty && flow.args.withLock { $0 } == [.object(["panel": .string(panel.rawValue)])], "\(panel)")
             }
         }
         #expect(PanelCloseTap.identifier(.tripScreen) == "tripScreen-close" && PanelCloseTap.label(.routePicking) == "关掉路线选择")
@@ -63,7 +63,7 @@ struct PanelCloseTapTests {
             let said = await ScreenConfirmedExecutor(voiceFlow, screen: voiceScreen, clock: ManualClock())
                 .execute(ToolCall(id: CallID("c1")!, name: "exit_navigation_mode", arguments: [:]))
             #expect(tapped.data["status"] == said.data["status"] && tapped.data["status"] == "navigation_selection_cancelled")
-            #expect(flow.args.withLock { $0 } == voiceFlow.args.withLock { $0 })
+            #expect(flow.args.withLock { $0 } == [.object(["panel": .string(panel.rawValue)])] && voiceFlow.args.withLock { $0 } == [.object([:])])
             #expect(await !screen.current.isOn(panel))
         }
     }

@@ -511,6 +511,8 @@ public actor TripPlanner: ToolExecutor {
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         changes[id] = nil
         if result.ok {
+            // F-09b §22 item 4 (T-031zg): a 「×」 tapped while the planner ran hid the cards; the result opens them again.
+            setHidden(false)
             work?.finish(WorkProgress.tripUpdated, failed: false)
             onLine("work step=plan_trip state=saved")
         } else {

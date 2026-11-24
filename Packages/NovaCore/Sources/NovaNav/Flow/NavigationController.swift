@@ -256,7 +256,8 @@ public actor NavigationController: ToolExecutor {
             guard let near = call.arguments["near"] else { return await navigate(destination) }
             return await navigateNear(destination, near: near, call.arguments)
         case "choose_navigation_option": return await choose(call.arguments, fromTap: call.id.rawValue.hasPrefix("ui"))
-        case "exit_navigation_mode": return await exit()
+        case "exit_navigation_mode":
+            return await exit(panel: call.arguments["panel"]?.stringValue.flatMap(ScreenPanel.init(rawValue:)))
         case "show_places": return await showPlaces(call.arguments)
         default: return .failure(.unknownTool)
         }
@@ -1382,6 +1383,30 @@ public actor NavigationController: ToolExecutor {
         .result.data["next"]?.stringValue ?? ""
     static let cardsHidden = ToolReply.success(
         facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开我的行程"], may: [.nameCommand]).result.data
+
+    /// F-09b §22 items 1-2 (T-031zg): a named panel (a 「×」 tap, or her `panel=`) closes only that panel, with the
+    /// branch `exit()` uses for it: the trip cards are put away (guidance untouched); a list or a route choice is
+    /// cancelled as 「不去了」 cancels it; running guidance is never ended by a panel other than `navigation`.
+    private func exit(panel: ScreenPanel?) async -> ToolResult {
+        guard let panel, panel != .navigation else { return await exit() }
+        let selecting: Set<NavigationPhase> = [.awaitingDestinationSelection, .awaitingRouteSelection, .resolvingDestination,
+                                               .planningRoute, .calculatingRoute, .routeReady]
+        switch panel {
+        case .tripScreen:
+            if await hideTripCards?() == true {
+                return .success(["status": "trip_cards_hidden"].merging(Self.cardsHidden) { $1 })
+            }
+        case .destinationList where snapshot.alongRouteList:
+            closeAlongRouteList()
+            return .success(["status": "list_closed_guidance_kept", "next": "说一句：好的，继续按原路线导航。"])
+        case .destinationList, .routePicking, .routeCalculating:
+            if selecting.contains(snapshot.phase) { return await exit() }
+        default:
+            break
+        }
+        return ToolReply.notDone(.noOptionsOnScreen, facts: ["on_screen": 0, "panel": .string(panel.rawValue)],
+                                 mustNot: [.invent]).result
+    }
 
     private func exit() async -> ToolResult {
         if snapshot.alongRouteList {

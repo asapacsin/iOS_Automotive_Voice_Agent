@@ -610,24 +610,27 @@ final class AgentRuntime {
         }
     }
 
-    /// F-09b §17 item 4 (T-031zb): `exit_navigation_mode` closing the top panel the App owns; the panel's view reports
-    /// `off` when it is really gone.
     /// F-09b §22 (T-031zg): the session's `exit_navigation_mode` executor (screen-confirmed), for a panel's 「×」.
     private var exitTap: (any ToolExecutor)?
 
     /// §22 items 2, 4-5: a 「×」 tap closes the panel at once through her close path, even while she speaks or a tool
-    /// runs; no model call, no spoken line; `panel close tap <key>` in the record. Without a session the panel is
-    /// dismissed directly (the same `closePanel` her path uses for sheets and cards).
+    /// runs; no model call, no spoken line; `panel close tap <key>` in the record. Without a session the same close:
+    /// a sheet or card through `closePanel`, a navigation-flow panel (the trip cards shown before any session, F-15b
+    /// §14 item 1) through the app-owned flow with the panel named, as `stopNavigationTap` reaches it.
     func tapClose(_ panel: ScreenPanel) {
         let record = sessionRecord
-        guard let exit = exitTap else {
+        if let exit = exitTap {
+            Task { await PanelCloseTap.tap(panel, exit: exit, record: { record?.submit(.panelCloseTap($0)) }) }
+        } else if ScreenConfirmedExecutor.ownClose[panel] != nil {
             record?.submit(.panelCloseTap(panel))
             closePanel(panel)
-            return
+        } else if let flow = navigation ?? trip?.navigation {
+            Task { await PanelCloseTap.tap(panel, exit: flow, record: { record?.submit(.panelCloseTap($0)) }) }
         }
-        Task { await PanelCloseTap.tap(panel, exit: exit, record: { record?.submit(.panelCloseTap($0)) }) }
     }
 
+    /// F-09b §17 item 4 (T-031zb): `exit_navigation_mode` closing the top panel the App owns; the panel's view reports
+    /// `off` when it is really gone.
     func closePanel(_ panel: ScreenPanel) {
         switch panel {
         case .tripDetail: model.tripDetail = nil
