@@ -37,6 +37,7 @@ struct TripCardsView: View {
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("trip-strip")
                 // F-09b §16 item 1 (T-031z): the trip on screen (the strip while moving).
+                .panelClose(.tripScreen, runtime)
                 .screenPanel(.tripScreen)
         case .cards where model.tripCardsHidden, .emptyDay where model.tripCardsHidden:
             // §22 item 1: one 「行程」 button; a tap is the current day's read (shows the cards again).
@@ -57,6 +58,7 @@ struct TripCardsView: View {
                     .accessibilityIdentifier("trip-empty-day")
                 HStack { Spacer(); plansButton }.font(.subheadline)
             }
+            .panelClose(.tripScreen, runtime)
             .screenPanel(.tripScreen)
         case .cards(let cards):
             VStack(alignment: .leading, spacing: 6) {
@@ -113,6 +115,7 @@ struct TripCardsView: View {
                 .padding(.top, 12)
             }
             // F-09b §16 item 1 (T-031z): the trip cards on screen.
+            .panelClose(.tripScreen, runtime)
             .screenPanel(.tripScreen)
         }
     }

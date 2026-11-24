@@ -180,6 +180,13 @@ def read_format_10(session: str, lines: list[str]) -> list[dict]:
     return read_format_9(session, lines)
 
 
+
+def read_format_11(session: str, lines: list[str]) -> list[dict]:
+    """F-09b §22 item 5 (T-031zg): as format 10; new `panel close tap <key>` lines (the driver tapped a panel's
+    「×」), kept as fields by the generic event reader."""
+    return read_format_10(session, lines)
+
+
 def body(row: dict) -> str | None:
     """The `body=` text of a search row (everything after the first ` body=`), or None."""
     _, sep, rest = row["fields"].partition(" body=")
@@ -188,7 +195,7 @@ def body(row: dict) -> str | None:
 
 READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2, 3: read_format_3, 4: read_format_4,
            5: read_format_5, 6: read_format_6, 7: read_format_7, 8: read_format_8, 9: read_format_9,
-           10: read_format_10}
+           10: read_format_10, 11: read_format_11}
 
 
 def read(path: pathlib.Path) -> list[dict]:

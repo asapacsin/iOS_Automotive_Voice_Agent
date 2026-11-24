@@ -612,6 +612,22 @@ final class AgentRuntime {
 
     /// F-09b §17 item 4 (T-031zb): `exit_navigation_mode` closing the top panel the App owns; the panel's view reports
     /// `off` when it is really gone.
+    /// F-09b §22 (T-031zg): the session's `exit_navigation_mode` executor (screen-confirmed), for a panel's 「×」.
+    private var exitTap: (any ToolExecutor)?
+
+    /// §22 items 2, 4-5: a 「×」 tap closes the panel at once through her close path, even while she speaks or a tool
+    /// runs; no model call, no spoken line; `panel close tap <key>` in the record. Without a session the panel is
+    /// dismissed directly (the same `closePanel` her path uses for sheets and cards).
+    func tapClose(_ panel: ScreenPanel) {
+        let record = sessionRecord
+        guard let exit = exitTap else {
+            record?.submit(.panelCloseTap(panel))
+            closePanel(panel)
+            return
+        }
+        Task { await PanelCloseTap.tap(panel, exit: exit, record: { record?.submit(.panelCloseTap($0)) }) }
+    }
+
     func closePanel(_ panel: ScreenPanel) {
         switch panel {
         case .tripDetail: model.tripDetail = nil
@@ -1233,6 +1249,7 @@ final class AgentRuntime {
                 })
             }
         }
+        exitTap = executors["exit_navigation_mode"]  // F-09b §22 item 2 (T-031zg): the 「×」 uses the same close.
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(webSearch: webSearch),
                                    thinkingLevel: nil)
@@ -1900,6 +1917,7 @@ final class AgentRuntime {
         model.mapPin = nil
         speakLine = nil
         sessionRecord = nil
+        exitTap = nil
         AppVolume.shared.records.record = nil
         AppVolume.shared.output.attach(nil)
         lifecycle = nil
