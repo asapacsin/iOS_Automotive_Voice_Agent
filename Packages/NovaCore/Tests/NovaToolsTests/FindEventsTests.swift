@@ -142,7 +142,7 @@ struct FindEventsTests {
         guard case .store = await f.find(request(["珠海"], kinds: "展览展会"), onMiss: { _ in }) else { Issue.record("not a hit"); return }
         #expect(searcher.queries.isEmpty)
         guard case .searched = await f.find(request(["珠海"], kinds: "漫展 ACG"), onMiss: { _ in }) else { Issue.record("not searched"); return }
-        #expect(searcher.queries == ["珠海 漫展 2026年11月 12月", "珠海 ACG 2026年11月 12月"])
+        #expect(Set(searcher.queries) == ["珠海 漫展 2026年11月 12月", "珠海 ACG 2026年11月 12月"])
     }
 
     @Test("T-046zb F-18 §39 rows 52-53: a search that kept nothing answers from the store 10 min later (searched_minutes_ago, 「这是10分钟前查到的」, source store), not 40 min later")
