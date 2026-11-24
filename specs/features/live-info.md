@@ -1373,7 +1373,7 @@ whose dates code finds on the opened source page are used.
    (「这周末」 is the coming Saturday and Sunday by the 现在 note's date). Declared only with search on.
 2. **Store first.** The event store (item 5) is read for each city and the window. When every city was browsed less
    than 24 h ago for a window covering `from`…`to`, the result is built from the store at once (no network).
-3. **Browse loop on a miss.** Otherwise code runs the loop: model `qwen3.8-max` (backup chain §36) on the
+3. **Browse loop on a miss.** *(System text, question, tools, model settings and last step replaced by §38.)* Otherwise code runs the loop: model `qwen3.8-max` (backup chain §36) on the
    compatible-mode chat endpoint with tools `search(query)` (the app's search route, `max`, `qwen3.8-flash`, returning
    title, url and site of up to 10 results, not the answer text) and `open_page(url)` (code fetches the page, 20 s,
    2 MB, desktop browser user agent, `zh-CN`; strips script and style; returns item 4's excerpt and up to 40 links). At
@@ -1381,7 +1381,7 @@ whose dates code finds on the opened source page are used.
    browsing-agent prompt (WebGPT's or ReAct's, cited in the code) with the date, the cities, the window and the JSON
    shape `{"events": [{"name","start","end","dates_text","venue","city","source_url"}], "note"}` added; the PoC's own
    text is not used (owner rule 2026-11-05: search prompts are copied, never written).
-4. **Fewer tokens per page.** `open_page` returns only the page's title and the lines that hold a date (item 6's
+4. **Fewer tokens per page.** *(Replaced by §38 item 4: `open_page` returns the page text.)* `open_page` returns only the page's title and the lines that hold a date (item 6's
    parser) with one line before and after, up to 2,500 characters; a page with no date returns its first 600
    characters. A page already returned is replaced in the conversation by 「（已读：<url>）」 after the next model turn.
    Target ≤ 30K tokens per loop (the response `usage`), recorded.
@@ -1509,3 +1509,69 @@ common, and a result may arrive after the Live session reconnected (F-05).
 | T-046x | §35 items 1–10 (`find_events`, store, browse loop with a cited system text, page excerpts, date check on the page, result, spinner, record); rows 24–32 | unit, eval, D |
 | T-046y | §36 items 1–5 (backup chain per Qwen job, used-up memory, record); rows 33–36 | unit, eval |
 | T-046z | §37 items 1–4 (superseded search, pending-result correction, late result after reconnect, stale results); rows 37–41 | unit, D |
+
+## 38. The events loop is the PoC that worked, not a cut-down copy (iOS, owner request 2026-11-24)
+
+**Why (record 20261124-173419, build 1a062de; PC replica 2026-11-24).** Every `find_events` on the phone failed, so
+nothing was saved. The PoC (`scripts/eval/event_browse_poc.py`, §35) found 2026横琴人工智能大赛AI嘉年华 in 2/3 runs. §35
+items 3–4 then built something else, and row 31 (the PC eval) never ran before PASS. A PC replica of the app's loop at
+1a062de (2 runs, `qwen3.8-max`, the app's texts and tools):
+- **Last step.** After 12 tool calls the app asks for the JSON without tools. Both runs answered with two more tool
+  calls (「Let me verify the remaining candidate events…」), so `EventBrowseLoop` dropped the reply and logged `events
+  failed reason=timeout` at 70 s of 180 s. The same messages with `tools` and `tool_choice: "none"` gave JSON.
+- **Empty pages.** That JSON had no events: 「页面正文抓取均返回空内容」. §35 item 4 keeps only date lines and one line
+  either side (≤ 2,500 characters), so a list page (jufair, 51zhan) loses the event names; onezh answers a plain fetch
+  with 423 bytes.
+
+| | PoC (worked) | §35 as built (fails) |
+|---|---|---|
+| System text | The PoC's Chinese brief, ending 「查够了就只输出 JSON」 | One ReAct sentence plus values; nothing says when to stop |
+| Tool descriptions | Yes | None |
+| `open_page` returns | Page text, ≤ 6,000 characters, ≤ 40 links | Date lines ± 1 line, ≤ 2,500 characters; read pages replaced by 「（已读：…）」 |
+| Thinking, streaming | Off, not streamed | On, streamed |
+| Last step | 「步数用完了，现在按要求只输出 JSON。」 | `finalAsk` without tools; a reply with tool calls fails the loop |
+
+**Owner decision (2026-11-24).** Build the PoC as it ran. Its system text, question and tool descriptions are used word
+for word, as an owner-approved exception to the search-prompt rule (2026-11-05) for this loop only; only the values
+(date, weekday, cities, window, kinds) are filled in.
+
+1. **System text (replaces §35 item 3's ReAct sentence).** The PoC's `SYSTEM`, with 「今天是<YYYY>年<M>月<D>日（周<X>），在<城市>」
+   from the 现在 note's date and the car's city (the first of `cities` when there is no fix), and the JSON shape changed
+   to §35 item 3's (`name, start, end, dates_text, venue, city, source_url`):
+   「你是会上网查资料的助手，今天是…，在…。你有两个工具：search 搜网页（返回标题、链接、摘要），open_page 打开一个链接读全文。
+   像人一样查：换不同说法多搜几次，打开活动列表页、主办方页、票务页读原文，顺着页面里的链接继续找。日期只认你打开的页面里写的。
+   查够了就只输出 JSON：<shape>。没找到就 events 为空。」
+2. **Question.** 「<from 月日>到<to 日>（<YYYY>年）<cities 以「和」连接>有什么<kinds>？只要这几天开放的。」 (the PoC's
+   sentence with the values filled in), replacing §35's JSON question.
+3. **Tools.** The PoC's two tools with their descriptions: `search` 「搜索网页，返回最多10条结果（标题、链接、摘要）。」 and
+   `open_page` 「打开一个网页链接，返回页面正文文字（最多6000字）和页面里的链接。」
+4. **`open_page` returns the page (replaces §35 item 4).** `{"text": <page text, scripts and styles removed, whitespace
+   collapsed, first 6,000 characters>, "links": <up to 40 {url, text}>}`, or `{"error": …}`. No date-line excerpt, no
+   「（已读）」 replacement. The full text is still kept by code for §35 item 6's date check.
+5. **Model call.** `qwen3.8-max` on the compatible-mode chat endpoint, `enable_thinking: false`, not streamed (the
+   PoC's settings; `QwenRoute.eventsLoop` changes). Backup chain as §36.
+6. **Last step.** After 12 tool calls (or when 180 s is near, as today), code adds the PoC's 「步数用完了，现在按要求只输出
+   JSON。」 and sends it with `tools` and `"tool_choice": "none"`, so the model must answer. A reply that still has no
+   JSON is `reason=json`, not `timeout`.
+7. **Failure reasons say what happened.** `events failed reason=timeout` only when the time ran out; `http` for a non-200;
+   `json` for an answer that does not parse; new `tools` if a reply to the last step still has tool calls.
+8. **Not changed.** §35 items 1, 2, 5–10 (arguments, store first, store, date check on the opened page, result, spinner,
+   record, layout), §36, §37. 180 s and 12 tool calls stay. The ~30K-token target of §35 item 4 is dropped (the PoC used
+   about 100K per run).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 42 | `EventBrowseLoop.system`, `question`, `tools` for 珠海+澳门, 2026-11-25…29, 会展 | Equal to the PoC's texts with those values (fixture copied from `event_browse_poc.py`) | unit |
+| 43 | `open_page` on a fixture list page with names three lines above their dates | `text` holds the names and the dates; ≤ 6,000 characters; ≤ 40 links | unit |
+| 44 | Fake model answers the last step with tool calls; then with JSON | Request has `tools` and `tool_choice: "none"`; first: `reason=tools`; second: events checked as §35 item 6 | unit |
+| 45 | Request body of a loop turn | `qwen3.8-max`, `enable_thinking: false`, no `stream` | unit |
+| 46 | **PC, before the build:** the app's loop (same texts, tools, settings) for 珠海+澳门, 2026-11-25…29, 3 runs | ≥ 2/3 keep at least one event whose opened page states dates in the window; no run fails on the last step; times and tokens in STATUS. Not met: stop and report, no build | PC |
+| 47 | Device: 「这周末珠海澳门有什么展」, wait | She names events with dates; asked again, she answers from the store | D |
+
+**Trace gate.** Add `T-046za: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046za.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046za | §38 items 1–7; rows 42–47 (46 before the build) | NOT_RUN |

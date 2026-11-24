@@ -831,6 +831,24 @@
       ]
     },
     {
+      "id": "T-046za",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-18 §38: the events loop as the PoC ran it: PoC system text, question and tool descriptions (owner exception); open_page returns page text ≤6000 chars + 40 links; qwen3.8-max thinking off, not streamed; last step with tool_choice none; failure reasons as they happened; rows 42-47, row 46 PC before the build.",
+      "depends_on": [
+        "T-046z"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 42-47)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner 2026-11-24: every find_events failed on the phone (record 20261124-173419); §35 was built as a cut-down copy of the working PoC and row 31 never ran. Owner: build the PoC as it ran. Row 46 (PC, 3 runs) must pass before the app build.",
+      "evidence": "Spec at the commit that adds F-18 §38."
+    },
+    {
       "id": "T-040zq",
       "owner": "AUTONOMOUS",
       "status": "PASS",
