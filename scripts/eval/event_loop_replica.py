@@ -74,6 +74,11 @@ def norm_dates(s):
         out.add(f"{y}-{int(m):02d}-{int(d):02d}")
     for m, d in re.findall(r"(?<!\d)(\d{1,2})\s*月\s*(\d{1,2})\s*日", s):
         out.add(f"2026-{int(m):02d}-{int(d):02d}")
+    # a range's end without its month: 11月28日-29日, 11月28日至29日, 11月28-29日
+    for m, d in re.findall(r"(?<!\d)(\d{1,2})\s*月\s*\d{1,2}\s*日?\s*[-—–~～至到]\s*(\d{1,2})\s*日", s):
+        out.add(f"2026-{int(m):02d}-{int(d):02d}")
+    for m, d in re.findall(r"(?<!\d)(\d{1,2})\s*月\s*(\d{1,2})\s*[-—–~～至到]\s*\d{1,2}\s*日", s):
+        out.add(f"2026-{int(m):02d}-{int(d):02d}")
     for m, d in re.findall(r"(?<![\d/.-])(\d{1,2})[./](\d{1,2})(?![\d/.])", s):
         if 1 <= int(m) <= 12 and 1 <= int(d) <= 31: out.add(f"2026-{int(m):02d}-{int(d):02d}")
     return out
