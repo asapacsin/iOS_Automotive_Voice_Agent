@@ -787,7 +787,7 @@
     {
       "id": "T-046x",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-046w",
@@ -795,7 +795,10 @@
       ],
       "action": "F-18 §35 items 1-10: find_events tool (cities, from, to, kinds; NON_BLOCKING; field checks); event store Application Support/events.json (per city windows, 24 h, today..+30, refresh on app open, local only); browse loop on a miss (qwen3.8-max compatible-mode chat with search(query) via the search route max qwen3.8-flash returning links, and open_page(url) fetched by code; <= 12 tool calls, 180 s; system text copied from a published browsing-agent prompt and cited); page excerpts <= 2,500 chars around date lines, read pages collapsed; code keeps only events whose start/end parse from the opened source page and fall in the window; result/next/EVENTS_FAILED; spinner steps and handoff line; record lines; agent version bump; rows 24-32.",
       "notes": "Owner 2026-11-24 (35ce0ff, record 20261124-145528): event questions answered wrongly; PoCs on the PC: single forced searches on every qwen3.7/3.8 model and site filters found no events for Nov 25-29; a browse loop (qwen3.8-max, search + open_page) found 2026横琴人工智能大赛AI嘉年华 11月28日-29日 on an opened 本地宝 page in 2/3 runs, ~100K tokens and ~2.5 min per run.",
-      "evidence": []
+      "evidence": [
+        "c3e1f22..457a700: Linux gates green in a clean worktree (NovaCore 1135, NovaRealtime 65 tests; ios_spec_check, spec_trace PASS; secrets gate flags only ignored .claude/worktrees in the main checkout); spec-reviewer high effort PASS 2026-11-24; rows 24-30 unit; agent 11.0.0, record format 12",
+        "row 31 PC eval NOT_RUN (no DashScope key in cloud; scripts/eval/event_browse_poc.py still uses the PoC text, must switch to EventBrowseLoop.system before row 31); row 32 device NOT_VERIFIED; App not compiled"
+      ]
     },
     {
       "id": "T-046y",
@@ -827,7 +830,7 @@
     {
       "id": "T-040zq",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "PASS",
       "priority": 1,
       "depends_on": [
         "T-040zp",
@@ -835,7 +838,10 @@
       ],
       "action": "F-15b §64 items 1-6: asked.start and asked.stay_city; dated days on cards and plan_text; events from the F-18 §35 store (browse on a miss inside plan_trip, spinner 正在查活动 first); planner shape gains optional event {title,start,end} on a sight and one system-text line; code counts facts each round (event not in store, day outside open dates, night outside stay_city); unmatched events saved as plain sights and named in note; event cards show dates; rows 297-302.",
       "notes": "PoC 2026-11-24: planner placed every event on an open day (3 runs) but once invented an end date and once moved a night to 深圳 despite 酒店住珠海.",
-      "evidence": []
+      "evidence": [
+        "457a700: Linux gates green in a clean worktree (NovaCore 1135 tests); spec-reviewer high effort PASS 2026-11-24 (shape() dropping events fixed in 457a700); rows 297-300 unit; agent 12.0.0",
+        "row 301 PC eval NOT_RUN, row 302 device NOT_VERIFIED; App not compiled; stay fact added only with stay_city given"
+      ]
     }
   ]
 }
