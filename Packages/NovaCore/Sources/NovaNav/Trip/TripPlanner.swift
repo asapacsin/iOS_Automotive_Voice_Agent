@@ -120,6 +120,10 @@ public actor TripPlanner: ToolExecutor {
     private let picker: (any PlacePicker)?
     /// §4 item 9: plan writes still running (`set_trip_plan`); `trip_next` waits for them.
     private var changes: [Int: Task<ToolResult, Never>] = [:]
+    /// F-15b §69 (T-040zv): the running trip writes (`plan_trip`, `set_trip_plan`): their call ids and start times.
+    private var writes: [Int: (call: CallID, started: NovaInstant)] = [:]
+    /// §69 item 1: writes cancelled by a newer one; their results are `SUPERSEDED` (never sent to her).
+    private var superseded: Set<Int> = []
     private var nextChange = 0
     /// §4 item 9: calls waiting for running list changes (tests read it).
     private(set) var waiting = 0
@@ -377,11 +381,13 @@ public actor TripPlanner: ToolExecutor {
         if Self.showsCards(call) { setHidden(false) }
         switch call.name {
         case "plan_trip":
-            // F-15b §62 (T-040zo): a write; it waits for the writes already running and `trip_next` waits for it.
+            // F-15b §62 (T-040zo): a write; `trip_next` waits for it. §69 (T-040zv): a newer write replaces a running one.
+            supersede(by: call)
             await waitFor()
             return withPlan(await trackedPlanTrip(call))
         case "set_trip_plan":
-            // §4 item 9: a write waits for the writes already running.
+            // §4 item 9: a write waits for the writes already running; §69: it cancels them first.
+            supersede(by: call)
             await waitFor()
             let result = await tracked(call)
             // F-15b §61 item 1 (T-040zn): `saved` is the generic `ok` and means only that the plan was stored.
@@ -469,11 +475,25 @@ public actor TripPlanner: ToolExecutor {
         }
     }
 
+    /// F-15b §69 items 1, 3 (T-040zv): every trip write still running is cancelled (its planner calls with it); the
+    /// cancelled one saves nothing and answers `SUPERSEDED`. `trip superseded old= new= ms=` per cancelled call.
+    private func supersede(by call: ToolCall) {
+        for (id, write) in writes.sorted(by: { $0.key < $1.key }) where !superseded.contains(id) {
+            superseded.insert(id)
+            changes[id]?.cancel()
+            onLine("trip superseded old=\(write.call) new=\(call.id) ms=\(ms(since: write.started))")
+        }
+    }
+
+    /// §69 item 1: what a cancelled write returns; the agent core drops it (as F-18 §37 for `web_search`).
+    public static let supersededResult = ToolResult.failure(.superseded, advice: "这个行程请求已被新的请求取代，不要回答它。")
+
     private func tracked(_ call: ToolCall) async -> ToolResult {
         let id = nextChange
         nextChange += 1
         let task = Task { await self.run(call) }
         changes[id] = task
+        writes[id] = (call.id, clock.now)
         // F-15b §58 item 5 (T-040zk): an edit (the plan's ids kept) shows 正在改行程 from the start.
         let edit = call.name == "set_trip_plan" && !Self.makesNewPlan(call) && !Self.clearsWhole(call)
         // F-15b §60 item 1 (T-040zm): every `set_trip_plan` call opens its own panel (a fix round is a new call).
@@ -481,6 +501,9 @@ public actor TripPlanner: ToolExecutor {
         if edit { onLine("work step=trip_edit state=running") }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         changes[id] = nil
+        writes[id] = nil
+        // §69 item 1: a replaced write leaves the panel to the newer one and is not sent.
+        if superseded.remove(id) != nil { return Self.supersededResult }
         if !result.ok, result.code == .invalidFields || result.code == .planCheck {
             // §58 item 5, §61 item 5 (T-040zn): a refused write: the cards stay, 「没保存：<first problems line>」 for 5 s.
             work?.finish(WorkProgress.tripNotSaved(Self.firstProblem(result)), failed: true)
@@ -536,8 +559,15 @@ public actor TripPlanner: ToolExecutor {
         onLine("work step=plan_trip state=running")
         let task = Task { await self.run(call) }
         changes[id] = task
+        writes[id] = (call.id, clock.now)
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         changes[id] = nil
+        writes[id] = nil
+        // F-15b §69 item 1 (T-040zv): a replaced call leaves the panel to the newer one and is not sent.
+        if superseded.remove(id) != nil {
+            onLine("work step=plan_trip state=superseded")
+            return Self.supersededResult
+        }
         if result.ok {
             // F-09b §22 item 4 (T-031zg): a 「×」 tapped while the planner ran hid the cards; the result opens them again.
             setHidden(false)

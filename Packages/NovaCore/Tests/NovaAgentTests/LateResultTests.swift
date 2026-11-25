@@ -114,6 +114,21 @@ struct LateResultTests {
         #expect(done.contains { if case .provider(.text(_, turnComplete: true)) = $0 { true } else { false } })
     }
 
+    @Test("T-040zv F-15b §69 row 326: a plan_trip result SUPERSEDED by a newer call is not sent; the newer one is")
+    func tripSuperseded() {
+        var d = AsyncToolTests.asking("帮我安排珠海两天")
+        let older = ToolCall(id: CallID("call_a")!, name: "plan_trip", arguments: ["asked": ["text": "珠海四天"]])
+        let newer = ToolCall(id: CallID("call_b")!, name: "plan_trip", arguments: ["asked": ["text": "珠海两天"]])
+        d.realtime(.toolCalls(TurnID(1), [older]))
+        d.realtime(.toolCalls(TurnID(1), [newer]))
+        let dropped = d.send(.toolFinished(TurnID(1), older, .failure(.superseded)))
+        #expect(AsyncToolTests.responses(dropped).isEmpty && texts(dropped).isEmpty)
+        #expect(diagnostics(dropped).contains(.asyncResultDropped(tool: .planTrip, reason: .superseded)))
+        #expect(DiagnosticEvent.asyncResultDropped(tool: .planTrip, reason: .superseded).logLine == "tool-result plan_trip dropped reason=superseded")
+        let done = d.send(.toolFinished(TurnID(1), newer, .success(["status": "trip_plan", "saved": true])))
+        #expect(AsyncToolTests.responses(done).map(\.id) == [newer.id])
+    }
+
     @Test("T-046z F-18 §37 item 4: a result older than 10 minutes is not spoken")
     func stale() {
         var d = AsyncToolTests.asking("这周末珠海有什么展")
