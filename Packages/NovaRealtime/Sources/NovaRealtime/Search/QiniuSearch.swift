@@ -7,8 +7,9 @@ import NovaPorts
 
 /// F-18 §42 (T-046ze, owner order 2026-11-25): the 七牛云 (Qiniu) web search API returns plain results (no model
 /// tokens); a model on Qiniu's chat completions reads them. With no 七牛云 key every search job stays on §41
-/// (`QwenWebSearchClient`, `QwenTripGrounder`, `QwenEventSearcher`) unchanged; a failed Qiniu model call falls back to
-/// the same job on §41 with the 千问 key (item 3). The key goes in the `Authorization` header only, never in logs.
+/// (`QwenWebSearchClient`, `QwenTripGrounder`, `QwenEventSearcher`) unchanged. F-18 §43 item 1 (T-046zf, replaces §42's
+/// fallback): with the key a failed Qiniu call is sent again on Qiniu, at most 2 more times (after 1 s, then 3 s), and
+/// after the last try the job fails; no §41 call. The key goes in the `Authorization` header only, never in logs.
 public enum QiniuRoute {
     /// §42 item 2.
     public static let searchEndpoint = "https://api.qnaigc.com/v1/search/web"
@@ -19,6 +20,11 @@ public enum QiniuRoute {
     public static let searchTimeout = NovaDuration.seconds(15)
     /// §42 item 5: the results that go into FreshPrompt's evidence block.
     public static let evidenceCount = 10
+    /// §43 item 1: the waits before the second and the third try.
+    public static let retryDelays: [NovaDuration] = [.seconds(1), .seconds(3)]
+    /// §43 item 4a: the event page fetch: 10 s, at most 1 MB.
+    public static let pageTimeout = NovaDuration.seconds(10)
+    public static let pageMaxBytes = 1_000_000
 }
 
 /// §42 item 2: one kept result.
@@ -33,7 +39,7 @@ public struct QiniuResult: Sendable, Hashable {
     }
 }
 
-/// §42 item 2: a failed search (non-200, `success: false`, timeout, network). A 429 is `rate_limit`, never retried.
+/// §42 item 2: a failed call (non-200, `success: false`, timeout, network). §43 item 1 decides which are tried again.
 public struct QiniuFailure: Error, Sendable, Hashable {
     public let reason: String
     public let status: Int?
@@ -54,19 +60,59 @@ public struct QiniuChatReply: Sendable, Hashable {
     public var tokensText: String { "\(prompt ?? 0),\(completion ?? 0),\(reasoning ?? 0)" }
 }
 
-/// §42 items 2-3: the two Qiniu calls.
+/// §42 items 2-3: the Qiniu calls; §43 item 1: the retry; §43 item 4: the image search and the page fetch.
 public struct QiniuClient: Sendable {
     public typealias Send = QwenWebSearchClient.Send
+    public typealias Sleep = @Sendable (NovaDuration) async throws -> Void
     private let send: Send
+    private let sleep: Sleep
 
-    public init(send: @escaping Send = QwenWebSearchClient.urlSession) { self.send = send }
+    public init(send: @escaping Send = QwenWebSearchClient.urlSession,
+                sleep: @escaping Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0.milliseconds)) * 1_000_000) }) {
+        self.send = send
+        self.sleep = sleep
+    }
 
-    public static func searchRequest(_ query: String, key: String) -> URLRequest {
+    /// §43 item 1: a network error, a timeout, HTTP 5xx and 429 are tried again; any other 4xx, a `success: false`
+    /// body and a cancelled call are not.
+    public static func retryable(_ f: QiniuFailure) -> Bool {
+        switch f.reason {
+        case "network", "timeout", "rate_limit": true
+        case "http": (f.status ?? 0) >= 500
+        default: false
+        }
+    }
+
+    /// §43 item 1: `body` at most 3 times (waits 1 s, then 3 s); each try goes to `onTry` (attempt, ms, failure). A wait
+    /// that would end past `budget` (counted from the first try) is not made: the call fails with the last failure.
+    public func attempts<T: Sendable>(budget: NovaDuration?, onTry: (Int, Int64, QiniuFailure?) -> Void,
+                                      _ body: () async throws(QiniuFailure) -> T) async throws(QiniuFailure) -> T {
+        let t0 = ContinuousClock.now
+        var attempt = 1
+        while true {
+            let t = ContinuousClock.now
+            do {
+                let value = try await body()
+                onTry(attempt, elapsed(t), nil)
+                return value
+            } catch {
+                onTry(attempt, elapsed(t), error)
+                guard attempt <= QiniuRoute.retryDelays.count, Self.retryable(error) else { throw error }
+                let delay = QiniuRoute.retryDelays[attempt - 1]
+                if let budget, elapsed(t0) + delay.milliseconds >= budget.milliseconds { throw error }
+                do { try await sleep(delay) } catch { throw QiniuFailure(reason: "cancelled") }
+                attempt += 1
+            }
+        }
+    }
+
+    /// §42 item 2 (`type` web); §43 item 4b (`type` image).
+    public static func searchRequest(_ query: String, key: String, type: String = "web") -> URLRequest {
         var request = URLRequest(url: URL(string: QiniuRoute.searchEndpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: JSONValue = ["query": .string(query), "max_results": .int(Int64(QiniuRoute.maxResults)), "search_type": "web"]
+        let body: JSONValue = ["query": .string(query), "max_results": .int(Int64(QiniuRoute.maxResults)), "search_type": .string(type)]
         request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
         request.limit(QiniuRoute.searchTimeout)
         return request
@@ -89,16 +135,20 @@ public struct QiniuClient: Sendable {
         return request
     }
 
-    /// §42 item 2: the results, or `QiniuFailure`.
-    public func search(_ query: String, key: String) async throws(QiniuFailure) -> [QiniuResult] {
-        let status: Int, body: Data
+    /// The status and body, or the failure of a call that got no answer.
+    private func exchange(_ request: URLRequest) async throws(QiniuFailure) -> (Int, Data) {
         do {
-            (status, body) = try await send(Self.searchRequest(query, key: key))
+            return try await send(request)
         } catch {
             if (error as? URLError)?.code == .timedOut { throw QiniuFailure(reason: "timeout") }
             if error is CancellationError || (error as? URLError)?.code == .cancelled { throw QiniuFailure(reason: "cancelled") }
             throw QiniuFailure(reason: "network")
         }
+    }
+
+    /// §42 item 2: one search (one try): the results, or `QiniuFailure`.
+    public func search(_ query: String, key: String) async throws(QiniuFailure) -> [QiniuResult] {
+        let (status, body) = try await exchange(Self.searchRequest(query, key: key))
         if status == 429 { throw QiniuFailure(reason: "rate_limit", status: 429) }
         guard status == 200 else { throw QiniuFailure(reason: "http", status: status) }
         guard let results = Self.results(body) else { throw QiniuFailure(reason: "unsuccessful", status: status) }
@@ -116,19 +166,73 @@ public struct QiniuClient: Sendable {
         }
     }
 
-    /// §42 item 3: one chat call; a non-200 or an empty answer throws `QiniuFailure`.
+    /// §43 item 4b: one image search (one try, `search_type: image`).
+    public func imageSearch(_ query: String, key: String) async throws(QiniuFailure) -> [EventImageHit] {
+        let (status, body) = try await exchange(Self.searchRequest(query, key: key, type: "image"))
+        if status == 429 { throw QiniuFailure(reason: "rate_limit", status: 429) }
+        guard status == 200 else { throw QiniuFailure(reason: "http", status: status) }
+        guard let hits = Self.images(body) else { throw QiniuFailure(reason: "unsuccessful", status: status) }
+        return hits
+    }
+
+    /// `data.results[]` of an image search: `title`, `date`, `image.url` (results without an image url dropped).
+    public static func images(_ body: Data) -> [EventImageHit]? {
+        guard let v = try? JSONDecoder().decode(JSONValue.self, from: body), v["success"] == true,
+              case .array(let raw)? = v["data"]?["results"] else { return nil }
+        return raw.compactMap { r in
+            guard let url = r["image"]?["url"]?.stringValue, !url.isEmpty else { return nil }
+            return EventImageHit(title: r["title"]?.stringValue ?? "", date: r["date"]?.stringValue ?? "", imageURL: url)
+        }
+    }
+
+    /// §43 item 4a: GET the page once (10 s, no cookies), the first 1 MB as text; nil on a failure or a non-200.
+    public static func pageRequest(_ url: String) -> URLRequest? {
+        guard let u = URL(string: url), let scheme = u.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return nil }
+        var request = URLRequest(url: u)
+        request.httpMethod = "GET"
+        request.httpShouldHandleCookies = false
+        request.limit(QiniuRoute.pageTimeout)
+        return request
+    }
+
+    public func page(_ url: String) async -> String? {
+        guard let request = Self.pageRequest(url), let (status, data) = try? await exchange(request), status == 200 else { return nil }
+        return String(decoding: data.prefix(QiniuRoute.pageMaxBytes), as: UTF8.self)
+    }
+
+    /// §42 item 3: one chat call (one try); a non-200 or an empty answer throws `QiniuFailure`.
     public func chat(_ messages: [(role: String, text: String)], key: String, json: Bool = false,
                      timeout: NovaDuration?) async throws(QiniuFailure) -> QiniuChatReply {
-        let status: Int, body: Data
-        do {
-            (status, body) = try await send(Self.chatRequest(messages, key: key, json: json, timeout: timeout))
-        } catch {
-            if (error as? URLError)?.code == .timedOut { throw QiniuFailure(reason: "timeout") }
-            throw QiniuFailure(reason: "network")
-        }
+        let (status, body) = try await exchange(Self.chatRequest(messages, key: key, json: json, timeout: timeout))
         if status == 429 { throw QiniuFailure(reason: "rate_limit", status: 429) }
         guard status == 200, let reply = Self.reply(body) else { throw QiniuFailure(reason: "http", status: status) }
         return reply
+    }
+
+    /// §43 item 1: a search with the retry; one record line per try.
+    public func search(_ query: String, key: String, job: String, budget: NovaDuration?,
+                       onLine: @Sendable (String) -> Void) async throws(QiniuFailure) -> [QiniuResult] {
+        var count = 0
+        return try await attempts(budget: budget, onTry: { attempt, ms, failure in
+            onLine(Self.searchLine(job, ms: ms, results: failure == nil ? count : nil, failure: failure, attempt: attempt))
+        }) { () async throws(QiniuFailure) -> [QiniuResult] in
+            let r = try await search(query, key: key)
+            count = r.count
+            return r
+        }
+    }
+
+    /// §43 item 1: a chat call with the retry; one record line per try.
+    public func chat(_ messages: [(role: String, text: String)], key: String, json: Bool = false, timeout: NovaDuration?,
+                     job: String, budget: NovaDuration?, onLine: @Sendable (String) -> Void) async throws(QiniuFailure) -> QiniuChatReply {
+        var last: QiniuChatReply?
+        return try await attempts(budget: budget, onTry: { attempt, ms, failure in
+            onLine(Self.modelLine(job, ms: ms, reply: failure == nil ? last : nil, failure: failure, attempt: attempt))
+        }) { () async throws(QiniuFailure) -> QiniuChatReply in
+            let r = try await chat(messages, key: key, json: json, timeout: timeout)
+            last = r
+            return r
+        }
     }
 
     /// `choices[0].message.content` and `usage` (`prompt_tokens`, `completion_tokens`,
@@ -141,8 +245,8 @@ public struct QiniuClient: Sendable {
                               reasoning: n(u?["completion_tokens_details"]?["reasoning_tokens"]))
     }
 
-    /// §42 item 6: the search record line.
-    static func searchLine(_ job: String, ms: Int64, results: Int?, failure: QiniuFailure?) -> String {
+    /// §42 item 6 with §43 item 1: the search record line.
+    static func searchLine(_ job: String, ms: Int64, results: Int?, failure: QiniuFailure?, attempt: Int = 1) -> String {
         var s = "search provider=qiniu job=\(job) ms=\(ms) results=\(results ?? 0)"
         if let failure {
             s += " failed=yes reason=\(failure.reason)"
@@ -150,14 +254,14 @@ public struct QiniuClient: Sendable {
         } else {
             s += " failed=no"
         }
-        return s
+        return s + " attempt=\(attempt)"
     }
 
-    /// §42 item 6: the model record line.
-    static func modelLine(_ job: String, ms: Int64, reply: QiniuChatReply?, failure: QiniuFailure?) -> String {
+    /// §42 item 6 with §43 item 1: the model record line.
+    static func modelLine(_ job: String, ms: Int64, reply: QiniuChatReply?, failure: QiniuFailure?, attempt: Int = 1) -> String {
         var s = "model provider=qiniu job=\(job) model=\(QiniuRoute.model) ms=\(ms) tokens=\(reply?.tokensText ?? "0,0,0")"
         if let failure { s += " failed=yes reason=\(failure.reason)" + (failure.status.map { " status=\($0)" } ?? "") }
-        return s
+        return s + " attempt=\(attempt)"
     }
 }
 
@@ -239,13 +343,12 @@ public enum FreshPromptEvidence {
 
 // MARK: Jobs
 
-/// §42 item 4: one events query on Qiniu search. A failed search (429 included) throws and is counted failed; it is
-/// never retried and does not fall back (row 71).
+/// §42 item 4: one events query on Qiniu search, with §43 item 1's retry inside the query's time limit. A search that
+/// failed every try throws and is counted failed.
 public struct QiniuEventSearcher: EventWebSearcher {
     private let key: @Sendable () -> String?
     private let client: QiniuClient
     private let onLine: @Sendable (String) -> Void
-    private let clock = ContinuousClock()
 
     public init(key: @escaping @Sendable () -> String?, client: QiniuClient = QiniuClient(),
                 onLine: @escaping @Sendable (String) -> Void = { _ in }) {
@@ -256,33 +359,24 @@ public struct QiniuEventSearcher: EventWebSearcher {
 
     public func search(_ query: String, timeout: NovaDuration) async throws -> EventSearchAnswer {
         guard let key = key(), !key.isEmpty else { throw WebSearchError.notConfigured }
-        let t0 = clock.now
-        do {
-            let results = try await client.search(query, key: key)
-            onLine(QiniuClient.searchLine("events", ms: elapsed(t0), results: results.count, failure: nil))
-            let hits = results.map {
-                EventSearchHit(title: $0.title, url: $0.url, site: $0.source.isEmpty ? (URL(string: $0.url)?.host ?? "") : $0.source,
-                               snippet: $0.content, date: $0.date)
-            }
-            // The titles and snippets stand in for the search's answer text (§39 item 4's naming-query rule).
-            let text = results.map { $0.title + " " + $0.content }.joined(separator: "\n")
-            return EventSearchAnswer(text: text, sources: hits, tokens: 0, searches: 1)
-        } catch {
-            onLine(QiniuClient.searchLine("events", ms: elapsed(t0), results: nil, failure: error))
-            throw error
+        let results = try await client.search(query, key: key, job: "events", budget: timeout, onLine: onLine)
+        let hits = results.map {
+            EventSearchHit(title: $0.title, url: $0.url, site: $0.source.isEmpty ? (URL(string: $0.url)?.host ?? "") : $0.source,
+                           snippet: $0.content, date: $0.date)
         }
+        // The titles and snippets stand in for the search's answer text (§39 item 4's naming-query rule).
+        let text = results.map { $0.title + " " + $0.content }.joined(separator: "\n")
+        return EventSearchAnswer(text: text, sources: hits, tokens: 0, searches: 1)
     }
-
-
 }
 
-/// §42 items 3-4: the extraction on Qiniu's model; a failed call falls back to `fallback` (§41's extractor, 千问 key).
+/// §42 items 3-4: the extraction on Qiniu's model with §43 item 1's retry; a call that failed every try throws (no §41
+/// call). `fallback` (§41's extractor, 千问 key) answers only with no 七牛云 key.
 public struct QiniuEventExtractor: EventExtractor {
     private let key: @Sendable () -> String?
     private let client: QiniuClient
     private let fallback: any EventExtractor
     private let onLine: @Sendable (String) -> Void
-    private let clock = ContinuousClock()
 
     public init(key: @escaping @Sendable () -> String?, fallback: any EventExtractor, client: QiniuClient = QiniuClient(),
                 onLine: @escaping @Sendable (String) -> Void = { _ in }) {
@@ -294,22 +388,45 @@ public struct QiniuEventExtractor: EventExtractor {
 
     public func extract(system: String, user: String, timeout: NovaDuration) async throws -> EventModelReply {
         guard let key = key(), !key.isEmpty else { return try await fallback.extract(system: system, user: user, timeout: timeout) }
-        let t0 = clock.now
-        do {
-            let reply = try await client.chat([("system", system), ("user", user)], key: key, json: true, timeout: timeout)
-            onLine(QiniuClient.modelLine("events_extract", ms: elapsed(t0), reply: reply, failure: nil))
-            return EventModelReply(content: reply.content, tokens: reply.total)
-        } catch {
-            onLine(QiniuClient.modelLine("events_extract", ms: elapsed(t0), reply: nil, failure: error)
-                   + " fallback=qwen")
-            return try await fallback.extract(system: system, user: user, timeout: timeout)
+        let reply = try await client.chat([("system", system), ("user", user)], key: key, json: true, timeout: timeout,
+                                          job: "events_extract", budget: timeout, onLine: onLine)
+        return EventModelReply(content: reply.content, tokens: reply.total)
+    }
+}
+
+/// §43 items 4a-4b, §44 items 1-2 (T-046zf, T-046zg): the event page fetch and the image search on Qiniu (§42 item 2
+/// key, §43 item 1 retry). With no 七牛云 key the image search fails `notConfigured`; pages are fetched all the same.
+public struct QiniuEventPages: EventPageSource {
+    private let key: @Sendable () -> String?
+    private let client: QiniuClient
+    private let onLine: @Sendable (String) -> Void
+
+    public init(key: @escaping @Sendable () -> String?, client: QiniuClient = QiniuClient(),
+                onLine: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.key = key
+        self.client = client
+        self.onLine = onLine
+    }
+
+    public func page(_ url: String) async -> String? { await client.page(url) }
+
+    public func images(_ query: String) async throws -> [EventImageHit] {
+        guard let key = key(), !key.isEmpty else { throw WebSearchError.notConfigured }
+        var count = 0
+        return try await client.attempts(budget: QiniuRoute.searchTimeout * 3, onTry: { attempt, ms, failure in
+            onLine(QiniuClient.searchLine("events_image", ms: ms, results: failure == nil ? count : nil, failure: failure,
+                                          attempt: attempt))
+        }) { () async throws(QiniuFailure) -> [EventImageHit] in
+            let hits = try await client.imageSearch(query, key: key)
+            count = hits.count
+            return hits
         }
     }
 }
 
 /// §42 item 5 (`live`): one Qiniu search with her query, then Qiniu's model with FreshPrompt's messages (§24 item 2)
-/// and the top 10 results as the evidence block. No 七牛云 key, a failed search or a failed model call: `fallback`
-/// (§41's `QwenWebSearchClient`) answers.
+/// and the top 10 results as the evidence block. §43 item 1: each call retried on Qiniu; a call that failed every try
+/// fails the search (`WebSearchError`), no §41 call. No 七牛云 key: `fallback` (§41's `QwenWebSearchClient`) answers.
 public struct QiniuWebSearchClient: WebSearchService {
     private let key: @Sendable () -> String?
     private let client: QiniuClient
@@ -317,7 +434,6 @@ public struct QiniuWebSearchClient: WebSearchService {
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
     private let onLine: @Sendable (String) -> Void
-    private let clock = ContinuousClock()
 
     public init(key: @escaping @Sendable () -> String?, fallback: any WebSearchService, client: QiniuClient = QiniuClient(),
                 now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current },
@@ -341,41 +457,46 @@ public struct QiniuWebSearchClient: WebSearchService {
         ]
     }
 
+    /// §43 item 1: the search error a Qiniu call that failed every try gives.
+    static func error(_ f: QiniuFailure) -> WebSearchError {
+        switch f.reason {
+        case "timeout": .timeout
+        case "network", "cancelled": .network
+        default: .http(f.status ?? 0, code: f.reason)
+        }
+    }
+
     public func search(_ query: String, attempt: Int) async throws -> WebSearchReply {
         guard let key = key(), !key.isEmpty else { return try await fallback.search(query, attempt: attempt) }
-        let t0 = clock.now
         let results: [QiniuResult]
         do {
             // §42 item 5: the search gets her query (§19/§21 rewrites), not the FreshPrompt message around it.
-            results = try await client.search(FreshPromptEvidence.query(query), key: key)
-            onLine(QiniuClient.searchLine("live", ms: elapsed(t0), results: results.count, failure: nil))
+            results = try await client.search(FreshPromptEvidence.query(query), key: key, job: "live", budget: nil, onLine: onLine)
         } catch {
-            onLine(QiniuClient.searchLine("live", ms: elapsed(t0), results: nil, failure: error) + " fallback=qwen")
-            return try await fallback.search(query, attempt: attempt)
+            throw Self.error(error)
         }
-        // "The search ran" = at least one result; none: §41 answers.
+        // "The search ran" = at least one result; none: §41 answers (§42 item 5, not a failed call).
         guard !results.isEmpty else {
             onLine("search provider=qiniu job=live no_results=yes fallback=qwen")
             return try await fallback.search(query, attempt: attempt)
         }
-        let t1 = clock.now
+        let reply: QiniuChatReply
         do {
-            let reply = try await client.chat(messages(query, results: results), key: key, timeout: nil)
-            onLine(QiniuClient.modelLine("live", ms: elapsed(t1), reply: reply, failure: nil))
-            // "The search ran" = at least one result; the sources are the evidence rows.
-            let sources = results.prefix(QiniuRoute.evidenceCount).map {
-                WebSearchSource(title: $0.title, host: URL(string: $0.url)?.host ?? "")
-            }
-            return WebSearchReply(answer: reply.content.trimmingCharacters(in: .whitespacesAndNewlines), sources: Array(sources))
+            reply = try await client.chat(messages(query, results: results), key: key, timeout: nil, job: "live", budget: nil,
+                                          onLine: onLine)
         } catch {
-            onLine(QiniuClient.modelLine("live", ms: elapsed(t1), reply: nil, failure: error) + " fallback=qwen")
-            return try await fallback.search(query, attempt: attempt)
+            throw Self.error(error)
         }
+        let sources = results.prefix(QiniuRoute.evidenceCount).map {
+            WebSearchSource(title: $0.title, host: URL(string: $0.url)?.host ?? "")
+        }
+        return WebSearchReply(answer: reply.content.trimmingCharacters(in: .whitespacesAndNewlines), sources: Array(sources))
     }
 }
 
 /// §42 item 5 (`ground`): one Qiniu search with the trip input, then Qiniu's model with `QwenTripGrounder`'s messages
-/// and the evidence block. Grounded only with at least one result. No key or a failed call: `fallback` (§41).
+/// and the evidence block. Grounded only with at least one result. §43 item 1: each call retried on Qiniu inside the
+/// route's budget; a call that failed every try fails the grounding, no §41 call. No 七牛云 key: `fallback` (§41).
 public struct QiniuTripGrounder: TripGrounder {
     private let key: @Sendable () -> String?
     private let client: QiniuClient
@@ -383,7 +504,6 @@ public struct QiniuTripGrounder: TripGrounder {
     private let now: @Sendable () -> Date
     private let zone: @Sendable () -> TimeZone
     private let onLine: @Sendable (String) -> Void
-    private let clock = ContinuousClock()
 
     public init(key: @escaping @Sendable () -> String?, fallback: any TripGrounder, client: QiniuClient = QiniuClient(),
                 now: @escaping @Sendable () -> Date = { Date() }, zone: @escaping @Sendable () -> TimeZone = { .current },
@@ -411,26 +531,24 @@ public struct QiniuTripGrounder: TripGrounder {
         ]
     }
 
+    static func error(_ f: QiniuFailure) -> TripGroundError { f.reason == "timeout" ? .timeout : .failed }
+
     public func ground(_ r: TripGroundRequest) async throws -> TripGroundAnswer {
         guard let key = key(), !key.isEmpty else { return try await fallback.ground(r) }
-        let t0 = clock.now
+        let budget = QwenRoute.ground.budget
         let results: [QiniuResult]
         do {
-            results = try await client.search(Self.query(r), key: key)
-            onLine(QiniuClient.searchLine("ground", ms: elapsed(t0), results: results.count, failure: nil))
+            results = try await client.search(Self.query(r), key: key, job: "ground", budget: budget, onLine: onLine)
         } catch {
-            onLine(QiniuClient.searchLine("ground", ms: elapsed(t0), results: nil, failure: error) + " fallback=qwen")
-            return try await fallback.ground(r)
+            throw Self.error(error)
         }
         guard !results.isEmpty else { throw TripGroundError.noSearch }
-        let t1 = clock.now
         let reply: QiniuChatReply
         do {
-            reply = try await client.chat(messages(r, results: results), key: key, timeout: QwenRoute.ground.budget)
-            onLine(QiniuClient.modelLine("ground", ms: elapsed(t1), reply: reply, failure: nil))
+            reply = try await client.chat(messages(r, results: results), key: key, timeout: budget, job: "ground", budget: budget,
+                                          onLine: onLine)
         } catch {
-            onLine(QiniuClient.modelLine("ground", ms: elapsed(t1), reply: nil, failure: error) + " fallback=qwen")
-            return try await fallback.ground(r)
+            throw Self.error(error)
         }
         return try QwenTripGrounder.fields(reply.content)
     }

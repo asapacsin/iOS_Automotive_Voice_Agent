@@ -60,3 +60,23 @@ public enum EventExtractError: Error, Sendable, Hashable {
 public protocol EventExtractor: Sendable {
     func extract(system: String, user: String, timeout: NovaDuration) async throws -> EventModelReply
 }
+
+/// F-18 §43 item 4b (T-046zf): one image-search result (`title`, `date`, `image.url`).
+public struct EventImageHit: Sendable, Hashable {
+    public let title: String
+    public let date: String
+    public let imageURL: String
+    public init(title: String, date: String, imageURL: String) {
+        self.title = title
+        self.date = date
+        self.imageURL = imageURL
+    }
+}
+
+/// F-18 §43 item 4, §44 items 1-2: an event's own page and the one image search (the Qiniu client lives in NovaRealtime).
+public protocol EventPageSource: Sendable {
+    /// §43 item 4a: the page's HTML (GET, 10 s, at most 1 MB, no cookies); nil when the fetch fails.
+    func page(_ url: String) async -> String?
+    /// §43 item 4b: one image search (§43 item 1's retry inside); throws when every try failed.
+    func images(_ query: String) async throws -> [EventImageHit]
+}

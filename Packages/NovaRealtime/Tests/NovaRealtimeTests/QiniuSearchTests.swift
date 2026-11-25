@@ -56,6 +56,13 @@ private final class FakeExtractor: EventExtractor, Sendable {
     }
 }
 
+/// Records each wait instead of sleeping (ms).
+private final class Sleeps: Sendable {
+    private let list = Mutex<[Int64]>([])
+    var all: [Int64] { list.withLock { $0 } }
+    var sleep: QiniuClient.Sleep { { [self] d in list.withLock { $0.append(d.milliseconds) } } }
+}
+
 private let tokyo = TimeZone(identifier: "Asia/Shanghai")!
 private let fixed = Date(timeIntervalSince1970: 1_795_579_200)  // 2026-11-25 Asia/Shanghai
 
@@ -115,36 +122,103 @@ struct QiniuSearchTests {
         #expect(answer.sources.map(\.date) == ["2026-11-17", ""] && answer.sources.map(\.site) == ["例子网", "b.example.com"])
     }
 
-    @Test("T-046ze F-18 §42 row 71: a 429 search is failed with reason=rate_limit, one request, not retried, no fallback")
-    func row71() async {
-        let wire = Wire { _ in (429, #"{"error":{"message":"rate limit reached for RPM","type":"rate_limit"}}"#) }
+    @Test("T-046zf F-18 §43 row 78: a Qiniu search answers 429, then 200: the second try is used after 1 s; record attempt=2; no §41 call")
+    func row78() async throws {
+        let n = Mutex(0)
+        let wire = Wire { _ in n.withLock { $0 += 1; return $0 } == 1 ? (429, #"{"error":{"message":"rate limit reached for RPM"}}"#) : (200, qiniuSearchFixture) }
+        let sleeps = Sleeps()
         let lines = Lines()
-        await #expect(throws: QiniuFailure(reason: "rate_limit", status: 429)) {
-            _ = try await QiniuEventSearcher(key: { "k" }, client: QiniuClient(send: wire.send), onLine: lines.add)
-                .search("q", timeout: .seconds(45))
+        let client = QiniuClient(send: wire.send, sleep: sleeps.sleep)
+        let answer = try await QiniuEventSearcher(key: { "k" }, client: client, onLine: lines.add).search("q", timeout: .seconds(45))
+        #expect(answer.sources.count == 2 && wire.urls.count == 2 && sleeps.all == [1000])
+        #expect(lines.all.count == 2 && lines.all[0].contains("failed=yes reason=rate_limit status=429") && lines.all[0].hasSuffix("attempt=1"))
+        #expect(lines.all[1].contains("results=2 failed=no") && lines.all[1].hasSuffix("attempt=2"))
+        // live: the same retry, and §41 is never asked.
+        n.withLock { $0 = 0 }
+        let live = FakeLive()
+        let mixed = Wire { r in
+            if r.url?.absoluteString == QiniuRoute.searchEndpoint {
+                return n.withLock { $0 += 1; return $0 } == 1 ? (429, "{}") : (200, qiniuSearchFixture)
+            }
+            return (200, chatReply)
         }
-        #expect(wire.urls.count == 1)
-        #expect(lines.all.count == 1 && lines.all[0].hasPrefix("search provider=qiniu job=events ms=")
-                && lines.all[0].hasSuffix("results=0 failed=yes reason=rate_limit status=429"))
+        let reply = try await QiniuWebSearchClient(key: { "k" }, fallback: live, client: QiniuClient(send: mixed.send, sleep: sleeps.sleep))
+            .search("q", attempt: 1)
+        #expect(reply.answer == "珠海今天多云，18到24度。" && live.calls.withLock { $0 } == 0)
     }
 
-    @Test("T-046ze F-18 §42 row 72: a failed Qiniu chat call falls back to the same job on §41 (千问 key); the record says so")
-    func row72() async throws {
-        let wire = Wire { r in r.url?.absoluteString == QiniuRoute.searchEndpoint ? (200, qiniuSearchFixture) : (500, "{}") }
+    @Test("T-046zf F-18 §43 row 79: a Qiniu chat call fails 3 times (network): tries at 0, 1, 4 s, then failed as today; no §41 call")
+    func row79() async throws {
+        let wire = Wire { r in r.url?.absoluteString == QiniuRoute.searchEndpoint ? (200, qiniuSearchFixture) : (0, "") }
+        let down: QwenWebSearchClient.Send = { request in
+            _ = try await wire.send(request)
+            if request.url?.absoluteString == QiniuRoute.chatEndpoint { throw URLError(.networkConnectionLost) }
+            return (200, Data(qiniuSearchFixture.utf8))
+        }
+        let sleeps = Sleeps()
         let lines = Lines()
+        let client = QiniuClient(send: down, sleep: sleeps.sleep)
         let live = FakeLive()
-        let reply = try await QiniuWebSearchClient(key: { "k" }, fallback: live, client: QiniuClient(send: wire.send), onLine: lines.add)
-            .search("q", attempt: 1)
-        #expect(reply.answer == "qwen" && live.calls.withLock { $0 } == 1)
-        #expect(lines.all.last?.contains("model provider=qiniu job=live") == true && lines.all.last?.hasSuffix("fallback=qwen") == true)
+        await #expect(throws: WebSearchError.network) {
+            _ = try await QiniuWebSearchClient(key: { "k" }, fallback: live, client: client, onLine: lines.add).search("q", attempt: 1)
+        }
+        #expect(sleeps.all == [1000, 3000])  // tries at 0, 1 and 4 s
+        #expect(wire.urls.filter { $0 == QiniuRoute.chatEndpoint }.count == 3 && live.calls.withLock { $0 } == 0)
+        let model = lines.all.filter { $0.hasPrefix("model provider=qiniu job=live") }
+        #expect(model.count == 3 && model.enumerated().allSatisfy { $1.contains("failed=yes reason=network") && $1.hasSuffix("attempt=\($0 + 1)") })
+        // The extraction: the same three tries, then it throws (no §41 extractor call).
         let extractor = FakeExtractor()
-        let x = try await QiniuEventExtractor(key: { "k" }, fallback: extractor, client: QiniuClient(send: wire.send), onLine: lines.add)
-            .extract(system: "s", user: "u", timeout: .seconds(60))
-        #expect(x.tokens == 1 && extractor.calls.withLock { $0 } == 1 && lines.all.last?.hasSuffix("fallback=qwen") == true)
-        // A failed search on live also falls back (no key path untouched).
-        let down = Wire { _ in (503, "{}") }
-        _ = try await QiniuWebSearchClient(key: { "k" }, fallback: live, client: QiniuClient(send: down.send)).search("q", attempt: 1)
-        #expect(live.calls.withLock { $0 } == 2)
+        await #expect(throws: QiniuFailure(reason: "network")) {
+            _ = try await QiniuEventExtractor(key: { "k" }, fallback: extractor, client: client).extract(system: "s", user: "u", timeout: .seconds(60))
+        }
+        #expect(extractor.calls.withLock { $0 } == 0 && sleeps.all == [1000, 3000, 1000, 3000])
+        // ground: failed, not grounded by §41.
+        let ground = TripGroundRequest(city: "珠海", days: 1, places: [TripGroundPlace(name: "圆明新园", minutes: 60, importance: 3)],
+                                       wishes: nil, start: nil, end: nil, hotelNear: nil)
+        await #expect(throws: TripGroundError.failed) {
+            _ = try await QiniuTripGrounder(key: { "k" }, fallback: QwenTripGrounder(key: { "qwen" }), client: client).ground(ground)
+        }
+        // A wait that would end past the job's budget is not made.
+        let tight = Sleeps()
+        await #expect(throws: QiniuFailure(reason: "network")) {
+            _ = try await QiniuClient(send: down, sleep: tight.sleep).chat([("user", "u")], key: "k", timeout: nil, job: "x",
+                                                                            budget: .milliseconds(500), onLine: { _ in })
+        }
+        #expect(tight.all.isEmpty)
+    }
+
+    @Test("T-046zf F-18 §43 row 80: Qiniu answers 401: not retried (one request, no wait); HTTP 5xx is retried")
+    func row80() async {
+        let wire = Wire { _ in (401, #"{"error":{"message":"invalid key"}}"#) }
+        let sleeps = Sleeps()
+        await #expect(throws: QiniuFailure(reason: "http", status: 401)) {
+            _ = try await QiniuEventSearcher(key: { "k" }, client: QiniuClient(send: wire.send, sleep: sleeps.sleep)).search("q", timeout: .seconds(45))
+        }
+        #expect(wire.urls.count == 1 && sleeps.all.isEmpty)
+        #expect(QiniuClient.retryable(QiniuFailure(reason: "http", status: 503)) && QiniuClient.retryable(QiniuFailure(reason: "timeout")))
+        #expect(!QiniuClient.retryable(QiniuFailure(reason: "http", status: 404)) && !QiniuClient.retryable(QiniuFailure(reason: "unsuccessful", status: 200)))
+    }
+
+    @Test("T-046zf F-18 §43 row 84 (client part): the image search sends search_type image; results keep title, date, image.url; the page GET sends no cookies")
+    func row84Client() async throws {
+        let wire = Wire { r in
+            r.httpMethod == "GET" ? (200, #"<meta property="og:image" content="//p.example.com/a.jpg">"#)
+                : (200, #"{"success":true,"data":{"results":[{"title":"2026横琴AI嘉年华","date":"2026-11-20","image":{"url":"https://i.example.com/p.jpg"}},{"title":"x"}]}}"#)
+        }
+        let lines = Lines()
+        let pages = QiniuEventPages(key: { "k" }, client: QiniuClient(send: wire.send), onLine: lines.add)
+        let hits = try await pages.images("2026横琴AI嘉年华 2026 海报")
+        #expect(hits == [EventImageHit(title: "2026横琴AI嘉年华", date: "2026-11-20", imageURL: "https://i.example.com/p.jpg")])
+        let sent = wire.sent.withLock { $0 }
+        #expect(try JSONDecoder().decode(JSONValue.self, from: sent[0].httpBody ?? Data())["search_type"] == "image")
+        #expect(lines.all.count == 1 && lines.all[0].hasPrefix("search provider=qiniu job=events_image") && lines.all[0].hasSuffix("attempt=1"))
+        let html = await pages.page("https://m.zh.example.com/ai")
+        #expect(html?.contains("og:image") == true)
+        let get = try #require(wire.sent.withLock { $0 }.last)
+        #expect(get.httpMethod == "GET" && get.httpShouldHandleCookies == false && get.timeoutInterval == 10)
+        #expect(get.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(QiniuClient.pageRequest("javascript:alert(1)") == nil)
+        await #expect(throws: WebSearchError.notConfigured) { _ = try await QiniuEventPages(key: { nil }).images("q") }
     }
 
     @Test("T-046ze F-18 §42 item 5: FreshPrompt messages with the top results as the evidence block before the question; answer and tokens recorded")
@@ -166,7 +240,7 @@ struct QiniuSearchTests {
             + "\n\nsource: a.example.com\ndate: Nov 17, 2026\ntitle: AIE电子展\nsnippet: 11月18日至20日在珠海国际会展中心\nhighlight: "
             + "\n\nquestion: 今天珠海天气怎么样\nanswer: "))
         #expect(lines.all.last?.hasPrefix("model provider=qiniu job=live model=deepseek/deepseek-v4-flash-20260731 ms=") == true
-                && lines.all.last?.hasSuffix("tokens=3000,200,150") == true)
+                && lines.all.last?.hasSuffix("tokens=3000,200,150 attempt=1") == true)
         // The search got her query, not the FreshPrompt message (review 2026-11-25).
         let search = try #require(wire.sent.withLock { $0 }.first { $0.url?.absoluteString == QiniuRoute.searchEndpoint })
         #expect(try JSONDecoder().decode(JSONValue.self, from: search.httpBody ?? Data())["query"] == "珠海今天天气")

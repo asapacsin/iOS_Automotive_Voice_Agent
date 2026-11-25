@@ -49,8 +49,13 @@ public struct FindEventsExecutor: ToolExecutor {
         guard let from = args["from"]?.stringValue.flatMap(EventDay.init), from >= today else { return "from" }
         guard let to = args["to"]?.stringValue.flatMap(EventDay.init), to >= from, today.days(to: to) <= maxDaysAhead else { return "to" }
         if let k = args["kinds"], (k.stringValue ?? "").count > 60 { return "kinds" }
+        // F-18 §43 item 2: the event the driver named, at most 30 characters.
+        if let n = args["name"], (n.stringValue ?? "").count > maxNameLength { return "name" }
         return nil
     }
+
+    /// F-18 §43 item 2.
+    public static let maxNameLength = 30
 
     public func execute(_ call: ToolCall) async -> ToolResult {
         let today = await finder.store.today
@@ -61,7 +66,8 @@ public struct FindEventsExecutor: ToolExecutor {
         let cities = list.compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }
         let from = EventDay(call.arguments["from"]?.stringValue ?? "")!, to = EventDay(call.arguments["to"]?.stringValue ?? "")!
         let kinds = call.arguments["kinds"]?.stringValue ?? ""
-        let request = EventRequest(cities: cities, from: from, to: to, kinds: kinds, today: today)
+        let request = EventRequest(cities: cities, from: from, to: to, kinds: kinds, today: today,
+                                   name: call.arguments["name"]?.stringValue ?? "")
         switch await finder.find(request, onMiss: onHandoff) {
         case .store(let events, let minutes):
             var data = Self.data(events, dropped: 0, source: "store", next: Self.storeNext(minutes: minutes))
@@ -133,13 +139,32 @@ public actor EventFinder {
                                       to: today.adding(days: EventStore.refreshDays), kinds: "", today: today), spinner: false)
     }
 
+    /// F-18 §43 item 2: with `name`, the store answers only when one of its events' names contains `name` or `name`
+    /// contains it (lower-cased, spaces removed).
+    public static func names(_ events: [EventEntry], _ name: String) -> Bool {
+        let n = EventPicture.folded(name)
+        guard !n.isEmpty else { return true }
+        return events.contains { e in
+            let f = EventPicture.folded(e.name)
+            return !f.isEmpty && (f.contains(n) || n.contains(f))
+        }
+    }
+
+    /// The store's events and age when it covers `r` (and, with `name`, has the named event); nil otherwise.
+    private func covered(_ r: EventRequest) async -> (events: [EventEntry], age: TimeInterval)? {
+        let from = r.from.description, to = r.to.description
+        guard let age = await store.age(cities: r.cities, kinds: r.kindList, from: from, to: to) else { return nil }
+        let events = await store.events(cities: r.cities, from: from, to: to)
+        return Self.names(events, r.name) ? (events, age) : nil
+    }
+
     /// §39 item 8's store line; the store's events on a hit.
     private func storeHit(_ r: EventRequest) async -> Found? {
-        let from = r.from.description, to = r.to.description
-        let age = await store.age(cities: r.cities, kinds: r.kindList, from: from, to: to)
-        onLine("events store \(age == nil ? "miss" : "hit") cities=\(r.cities.count) kinds=\(r.kindList.count) window=\(from)..\(to)")
-        guard let age else { return nil }
-        return .store(await store.events(cities: r.cities, from: from, to: to), minutes: Int(age / 60))
+        let hit = await covered(r)
+        onLine("events store \(hit == nil ? "miss" : "hit") cities=\(r.cities.count) kinds=\(r.kindList.count) "
+               + "window=\(r.from)..\(r.to)" + (r.name.isEmpty ? "" : " name=yes"))
+        guard let hit else { return nil }
+        return .store(hit.events, minutes: Int(hit.age / 60))
     }
 
     private func search(_ r: EventRequest, spinner: Bool) async -> Found {
@@ -151,14 +176,12 @@ public actor EventFinder {
         }
         let from = r.from.description, to = r.to.description
         // A search that ran while this one waited may already cover it.
-        if let age = await store.age(cities: r.cities, kinds: r.kindList, from: from, to: to) {
-            return .store(await store.events(cities: r.cities, from: from, to: to), minutes: Int(age / 60))
-        }
+        if let hit = await covered(r) { return .store(hit.events, minutes: Int(hit.age / 60)) }
         let work = spinner ? work : nil
         work?.start(.handoff, step: FindEventsExecutor.stepStart, immediate: true)
         let onProgress: @Sendable (Int, Int) -> Void = { n, m in work?.step(FindEventsExecutor.stepProgress(done: n, of: m)) }
         do {
-            let outcome = try await run(onProgress).run(r)
+            let outcome = try await run(onProgress).run(r, known: await store.all)
             await store.record(outcome.kept, searched: outcome.searched, from: from, to: to)
             work?.clear(.handoff)
             return .searched(await store.events(cities: r.cities, from: from, to: to), outcome)

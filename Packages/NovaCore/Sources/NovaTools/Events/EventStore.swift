@@ -3,19 +3,25 @@ import NovaKit
 import Synchronization
 
 /// F-18 §35 item 5 (T-046x), §39 item 4 (T-046zb): one kept event, after code's checks.
+/// F-18 §43 item 4 (T-046zf): its picture (`image_url`), how it was found (`og`/`search`/`none`) and the day the
+/// picture was looked for (at most once per event per day).
 public struct EventEntry: Sendable, Hashable, Codable {
     public let name: String
-    public let start: String
-    public let end: String
+    public var start: String
+    public var end: String
     public let datesText: String
-    public let venue: String
+    public var venue: String
     public let city: String
     public let sourceURL: String
     public let sourceSite: String
     public let fetchedAt: Date
+    public var imageURL: String?
+    public var imageVia: String
+    public var imageOn: String?
 
     public init(name: String, start: String, end: String, datesText: String, venue: String, city: String,
-                sourceURL: String, sourceSite: String, fetchedAt: Date) {
+                sourceURL: String, sourceSite: String, fetchedAt: Date,
+                imageURL: String? = nil, imageVia: String = "none", imageOn: String? = nil) {
         self.name = name
         self.start = start
         self.end = end
@@ -25,6 +31,9 @@ public struct EventEntry: Sendable, Hashable, Codable {
         self.sourceURL = sourceURL
         self.sourceSite = sourceSite
         self.fetchedAt = fetchedAt
+        self.imageURL = imageURL
+        self.imageVia = imageVia
+        self.imageOn = imageOn
     }
 
     enum CodingKeys: String, CodingKey {
@@ -33,12 +42,40 @@ public struct EventEntry: Sendable, Hashable, Codable {
         case sourceURL = "source_url"
         case sourceSite = "source_site"
         case fetchedAt = "fetched_at"
+        case imageURL = "image_url"
+        case imageVia = "image_via"
+        case imageOn = "image_on"
     }
+
+    /// An entry from an older store file has no picture fields.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        start = try c.decode(String.self, forKey: .start)
+        end = try c.decode(String.self, forKey: .end)
+        datesText = try c.decodeIfPresent(String.self, forKey: .datesText) ?? ""
+        venue = try c.decodeIfPresent(String.self, forKey: .venue) ?? ""
+        city = try c.decode(String.self, forKey: .city)
+        sourceURL = try c.decodeIfPresent(String.self, forKey: .sourceURL) ?? ""
+        sourceSite = try c.decodeIfPresent(String.self, forKey: .sourceSite) ?? ""
+        fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
+        imageURL = try c.decodeIfPresent(String.self, forKey: .imageURL)
+        imageVia = try c.decodeIfPresent(String.self, forKey: .imageVia) ?? "none"
+        imageOn = try c.decodeIfPresent(String.self, forKey: .imageOn)
+    }
+
+    /// §43 item 4: 「网络图片」 under a picture from the image search.
+    public static let searchImageLabel = "网络图片"
+    public var imageLabel: String? { imageURL != nil && imageVia == "search" ? Self.searchImageLabel : nil }
 
     /// What `find_events` returns for it.
     public var json: JSONValue {
-        ["name": .string(name), "start": .string(start), "end": .string(end), "dates_text": .string(datesText),
-         "venue": .string(venue), "city": .string(city), "source_url": .string(sourceURL)]
+        var o: [String: JSONValue] = [
+            "name": .string(name), "start": .string(start), "end": .string(end), "dates_text": .string(datesText),
+            "venue": .string(venue), "city": .string(city), "source_url": .string(sourceURL),
+        ]
+        if let imageURL { o["image_url"] = .string(imageURL) }
+        return .object(o)
     }
 }
 
