@@ -97,6 +97,9 @@ public enum RecordEvent: Sendable, Hashable {
     /// F-18 §35 item 9 (T-046x): `events store hit|miss …`, `events query …`, `events extract …`, `events search done …` (§39 item 8);
     /// counts, codes and dates only (no event names, I-8).
     case events(String)
+    /// F-18 §42 item 6 (T-046ze): `search provider=qiniu job=… ms= results= failed= reason=` and `model provider=qiniu job=…
+    /// model= ms= tokens=<prompt>,<completion>,<reasoning>`; codes and numbers only.
+    case qiniu(String)
     /// F-03 §14 item 4 (T-021q): `audio interrupted`, `audio interruption-ended resume=…`, `audio resumed …`.
     case audio(String)
 }
@@ -281,6 +284,7 @@ public struct ConversationRecorder: Sendable {
         case .volume(let text), .audio(let text): return ["\(ms) \(text)"]
         case .weather(let text): return ["\(ms) \(text)"]
         case .events(let text): return ["\(ms) \(text)"]
+        case .qiniu(let text): return ["\(ms) \(text)"]
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]
@@ -442,7 +446,7 @@ public final class ConversationRecord: Sendable {
     public static let capacity = 2000
     /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
     /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
-    public static let formatVersion = 14
+    public static let formatVersion = 15
     /// §21 item 1: the first line of every new file. A file without it is format 0.
     public static var formatLine: String { "recordFormat \(formatVersion)" }
 

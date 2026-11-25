@@ -61,6 +61,18 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
     @StateObject private var locationPermission = LocationPermission()
 
+    /// A write-only key field (H-keys): never shows a saved value.
+    @ViewBuilder private func keyField(_ key: CredentialKey) -> some View {
+        SecureField(saved.contains(key) ? "已保存，输入可替换" : "未设置", text: binding(key))
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        HStack {
+            Button("保存") { save(key) }.disabled((drafts[key] ?? "").isEmpty)
+            Spacer()
+            if saved.contains(key) { Button("删除", role: .destructive) { remove(key) } }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -70,16 +82,7 @@ struct SettingsView: View {
                     Text("开始对话后，你的语音会发送到 Google Gemini 处理。").font(.footnote).foregroundStyle(.secondary)
                 }
                 ForEach(keys, id: \.0) { key, title in
-                    Section(title) {
-                        SecureField(saved.contains(key) ? "已保存，输入可替换" : "未设置", text: binding(key))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        HStack {
-                            Button("保存") { save(key) }.disabled((drafts[key] ?? "").isEmpty)
-                            Spacer()
-                            if saved.contains(key) { Button("删除", role: .destructive) { remove(key) } }
-                        }
-                    }
+                    Section(title) { keyField(key) }
                 }
                 // F-07 §14 item 2 (T-020a).
                 VoiceSettingsSection(onChange: refresh)
@@ -128,6 +131,11 @@ struct SettingsView: View {
                 Section("联网") {
                     Toggle("联网搜索（实验）", isOn: $webSearch)
                     Text("需要阿里云百炼 key。问题会发到阿里云北京。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    // F-18 §42 item 1 (T-046ze): write-only, Keychain `qiniu_api_key`.
+                    Text("七牛云 key").font(.subheadline)
+                    keyField(.qiniuAPIKey)
+                    Text("填了七牛云 key：搜索走七牛云，问题会发到七牛云。不填：和现在一样。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("开：天气、新闻、营业时间这类信息由她联网查，答案可能不准。车辆操作不变，仍只通过车辆工具。关：和现在一样。下次开始对话时生效。")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -235,7 +243,7 @@ struct SettingsView: View {
     }
 
     private func refresh() {
-        saved = Set(keys.map(\.0).filter { SecretField.display($0, in: store) == .saved })
+        saved = Set((keys.map(\.0) + [.qiniuAPIKey]).filter { SecretField.display($0, in: store) == .saved })
         readiness = SettingsReadiness(credentials: store, settings: settings)
     }
 

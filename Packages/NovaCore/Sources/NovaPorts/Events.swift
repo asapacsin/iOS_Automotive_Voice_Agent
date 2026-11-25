@@ -8,10 +8,15 @@ public struct EventSearchHit: Sendable, Hashable {
     public let title: String
     public let url: String
     public let site: String
-    public init(title: String, url: String, site: String) {
+    /// F-18 §42 item 2: a Qiniu result's `content` (snippet) and `date`; empty on the Aliyun paths.
+    public let snippet: String
+    public let date: String
+    public init(title: String, url: String, site: String, snippet: String = "", date: String = "") {
         self.title = title
         self.url = url
         self.site = site
+        self.snippet = snippet
+        self.date = date
     }
 }
 

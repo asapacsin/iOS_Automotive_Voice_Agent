@@ -297,6 +297,9 @@ public enum CredentialKey: String, Sendable, Hashable, CaseIterable {
     case zhipuKey = "zhipu_key"
     /// F-18 §17 item 1: Alibaba Cloud Model Studio key for `web_search`. Never blocks a session.
     case qwenAPIKey = "qwen_api_key"
+    /// F-18 §42 item 1 (T-046ze): the 七牛云 AI 大模型推理 API key (`sk-…`) for Qiniu web search and its model. Without it
+    /// the search jobs stay on §41.
+    case qiniuAPIKey = "qiniu_api_key"
     /// F-18 §31 item 1 (T-046t): the account's 和风天气 API Host (no `https://`, no trailing `/`) and API KEY.
     case qweatherHost = "qweather_host"
     case qweatherKey = "qweather_key"

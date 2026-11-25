@@ -10,6 +10,9 @@ import re
 import sys
 
 ALLOWED = {"qwen3.8-max-0902", "deepseek-v4.1-flash", "deepseek-v4.1-flash-1017", "kimi-k3.1-pro", "qwen4-max"}
+# F-18 §42 item 3 (T-046ze, owner order 2026-11-25): the one model on Qiniu (api.qnaigc.com), written
+# `deepseek/deepseek-v4-flash-20260731` there; the five above stay the only Aliyun models.
+ALLOWED |= {"deepseek-v4-flash-20260731"}
 MODEL = re.compile(r"\b(?:qwen[0-9][\w.\-]*|qwen-(?:plus|max|turbo|flash|long)[\w.\-]*|deepseek-[\w.\-]+|kimi-[\w.\-]+)")
 ROOTS = ("App", "scripts/eval", "scripts/search_eval")
 

@@ -23,10 +23,27 @@ public struct EventRequest: Sendable, Hashable {
 }
 
 /// §39 item 1: one keyword query. `kind` nil: the extra English query of 澳门 or 香港.
+/// F-18 §42 item 4: a Qiniu query names every city of the call (`cities`) and covers several of the request's kinds
+/// (`covers`, for the store's city × kind marks); `city`/`kind` are the first of each.
 public struct EventQuery: Sendable, Hashable {
     public let text: String
     public let city: String
     public let kind: String?
+    public let cities: [String]
+    public let covers: [String]
+    public init(text: String, city: String, kind: String?, cities: [String]? = nil, covers: [String]? = nil) {
+        self.text = text
+        self.city = city
+        self.kind = kind
+        self.cities = cities ?? [city]
+        self.covers = covers ?? kind.map { [$0] } ?? []
+    }
+}
+
+/// F-18 §42: which search path a run uses. `qwen`: §39 queries on the Aliyun search (§41); `qiniu`: three Qiniu queries,
+/// the numbered results extracted (§42 item 4).
+public enum EventSearchMode: String, Sendable, Hashable {
+    case qwen, qiniu
 }
 
 /// One event the extraction named, before code's checks.
@@ -71,6 +88,17 @@ public struct EventSearchRun: Sendable {
     public static let parallel = 4
     public static let queryLimit = NovaDuration.seconds(45)
     public static let extractLimit = NovaDuration.seconds(30)
+    /// §42 item 4: at most 3 Qiniu queries, all at once; the extraction gets 60 s.
+    public static let qiniuMaxQueries = 3
+    public static let qiniuExtractLimit = NovaDuration.seconds(60)
+    /// §42 item 4: the kind groups with no `kinds`, and the default kinds each covers (for the store's marks).
+    public static let qiniuGroups: [(text: String, covers: [String])] = [
+        ("展览展会 科技展", ["展览展会", "AI 科技展"]),
+        ("演唱会 演出", ["演唱会 演出"]),
+        ("漫展 节庆 嘉年华", ["漫展 ACG", "节庆活动"]),
+    ]
+    /// §42 item 4: a result's content in the extraction message, first this many characters.
+    public static let snippetChars = 300
     /// Item 1: the default five kinds.
     public static let defaultKinds = ["展览展会", "漫展 ACG", "演唱会 演出", "AI 科技展", "节庆活动"]
     /// Item 1: the cities that get one extra English query, and their English names.
@@ -108,10 +136,47 @@ public struct EventSearchRun: Sendable {
         return out
     }
 
+    static func when(_ r: EventRequest) -> String {
+        let ms = months(r)
+        return "\(ms[0].0)年\(ms[0].1)月" + ms.dropFirst().map { " \($0.1)月" }.joined()
+    }
+
+    /// §42 item 4: 「<城市1> <城市2> … <YYYY>年<M>月[ <M>月…] <kind group>」, at most 3, no English query. With no `kinds` the
+    /// three groups; with the driver's kinds one per query in order, kinds 4–5 appended to queries 1–2.
+    public static func qiniuQueries(_ r: EventRequest) -> [EventQuery] {
+        let head = (r.cities + [when(r)]).joined(separator: " ")
+        let given = r.kinds.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : r.kindList
+        var groups: [[String]]
+        if given.isEmpty {
+            return qiniuGroups.map { g in
+                EventQuery(text: "\(head) \(g.text)", city: r.cities.first ?? "", kind: g.covers.first,
+                           cities: r.cities, covers: g.covers)
+            }
+        }
+        groups = given.prefix(qiniuMaxQueries).map { [$0] }
+        for (i, k) in given.dropFirst(qiniuMaxQueries).enumerated() where i < groups.count { groups[i].append(k) }
+        return groups.map { g in
+            EventQuery(text: "\(head) \(g.joined(separator: " "))", city: r.cities.first ?? "", kind: g.first,
+                       cities: r.cities, covers: g)
+        }
+    }
+
+    /// §42 item 4: every result of the answers, deduplicated by url, in query order.
+    public static func numbered(_ answers: [(EventQuery, EventSearchAnswer)]) -> [EventSearchHit] {
+        var seen = Set<String>()
+        return answers.flatMap(\.1.sources).filter { !$0.url.isEmpty && seen.insert($0.url).inserted }
+    }
+
+    /// §42 item 4: one line per result, `[n] <date> <title> — <content, first 300 characters> (<url>)`.
+    public static func qiniuUser(_ answers: [(EventQuery, EventSearchAnswer)]) -> String {
+        numbered(answers).enumerated().map { i, h in
+            "[\(i + 1)] \(h.date) \(h.title) — \(String(h.snippet.prefix(snippetChars))) (\(h.url))"
+        }.joined(separator: "\n")
+    }
+
     /// Cities × kinds in that order, then the English ones; at most 12 (the rest are `cut`).
     public static func queries(_ r: EventRequest) -> (queries: [EventQuery], cut: Int) {
-        let ms = months(r)
-        let when = "\(ms[0].0)年\(ms[0].1)月" + ms.dropFirst().map { " \($0.1)月" }.joined()
+        let when = when(r)
         var all: [EventQuery] = []
         for city in r.cities {
             for kind in r.kindList { all.append(EventQuery(text: "\(city) \(kind) \(when)", city: city, kind: kind)) }
@@ -140,14 +205,17 @@ public struct EventSearchRun: Sendable {
     private let onProgress: @Sendable (_ done: Int, _ of: Int) -> Void
     /// Item 8: the record lines.
     private let onLine: @Sendable (String) -> Void
+    private let mode: EventSearchMode
 
     public init(searcher: any EventWebSearcher, extractor: any EventExtractor, clock: any NovaClock,
+                mode: EventSearchMode = .qwen,
                 now: @escaping @Sendable () -> Date = { Date() },
                 onProgress: @escaping @Sendable (Int, Int) -> Void = { _, _ in },
                 onLine: @escaping @Sendable (String) -> Void = { _ in }) {
         self.searcher = searcher
         self.extractor = extractor
         self.clock = clock
+        self.mode = mode
         self.now = now
         self.onProgress = onProgress
         self.onLine = onLine
@@ -172,9 +240,12 @@ public struct EventSearchRun: Sendable {
 
     public func run(_ r: EventRequest) async throws(EventSearchFailure) -> EventSearchOutcome {
         let started = clock.now
-        let (queries, cut) = Self.queries(r)
+        let qiniu = mode == .qiniu
+        let (queries, cut) = qiniu ? (Self.qiniuQueries(r), 0) : Self.queries(r)
         if cut > 0 { onLine("events queries cut=\(cut)") }
         let m = queries.count
+        let parallel = qiniu ? m : Self.parallel
+        if qiniu { onLine("events provider=qiniu queries=\(m)") }
         var answers: [Int: EventSearchAnswer] = [:]
         // Item 2: at most 4 at once; a failed or timed-out query is skipped and counted.
         await withTaskGroup(of: (Int, EventSearchAnswer?, Int64).self) { group in
@@ -190,7 +261,7 @@ public struct EventSearchRun: Sendable {
                     return (i, a, (clock.now - t0).milliseconds)
                 }
             }
-            for _ in 0..<Self.parallel { add() }
+            for _ in 0..<max(1, parallel) { add() }
             var finished = 0
             for await (i, a, ms) in group {
                 if let a { answers[i] = a }
@@ -214,11 +285,12 @@ public struct EventSearchRun: Sendable {
         let used = answers.keys.sorted().map { (queries[$0], answers[$0]!) }
         // Item 3: one extraction call.
         let t0 = clock.now
-        let system = Self.system(r), user = Self.user(used)
+        let system = Self.system(r), user = qiniu ? Self.qiniuUser(used) : Self.user(used)
+        let limit = qiniu ? Self.qiniuExtractLimit : Self.extractLimit
         var reply: EventModelReply?
         do {
-            reply = try await within(Self.extractLimit) { [extractor] in
-                try await extractor.extract(system: system, user: user, timeout: Self.extractLimit)
+            reply = try await within(limit) { [extractor] in
+                try await extractor.extract(system: system, user: user, timeout: limit)
             }
         } catch let EventExtractError.http(status, body) {
             // Item 3 (amended): a non-200 answer's error body, first 300 characters.
@@ -231,10 +303,20 @@ public struct EventSearchRun: Sendable {
             finished(0, dropped: 0)
             throw .extract
         }
-        let checked = Self.check(candidates, answers: used, request: r, at: now())
+        let checked = Self.check(candidates, answers: used, request: r, at: now(), numbered: qiniu ? Self.numbered(used) : [])
         finished(checked.kept.count, dropped: checked.dropped)
         var pairs: [SearchedPair] = []
         for (q, _) in used {
+            if qiniu {
+                // §42 item 4 with §39 item 5: each city × kind the query covered.
+                for city in q.cities {
+                    for kind in q.covers {
+                        pairs.append(SearchedPair(city: city, kind: kind,
+                                                  kept: checked.from.filter { $0.query == q && $0.entry.city == city }.count))
+                    }
+                }
+                continue
+            }
             guard let kind = q.kind else { continue }
             pairs.append(SearchedPair(city: q.city, kind: kind,
                                       kept: checked.from.filter { $0.query.city == q.city && $0.query.kind == kind }.count))
@@ -274,8 +356,11 @@ public struct EventSearchRun: Sendable {
     /// Item 4: dates parse, `end` ≥ `start`, overlaps the window and `end` ≥ today; `city` one of the asked; the
     /// source one the searches returned (else the first source of the query whose answer names the event, else
     /// dropped); the same name and start once. `from` is each kept event with the query it came from.
+    /// §42 item 4: with `numbered` (the Qiniu results as numbered in the message), a `source_url` that names a result
+    /// number (「3」 or 「[3]」) is that result's url.
     public static func check(_ candidates: [EventCandidate], answers: [(EventQuery, EventSearchAnswer)], request r: EventRequest,
-                             at: Date) -> (kept: [EventEntry], dropped: Int, from: [(entry: EventEntry, query: EventQuery)]) {
+                             at: Date, numbered: [EventSearchHit] = [])
+        -> (kept: [EventEntry], dropped: Int, from: [(entry: EventEntry, query: EventQuery)]) {
         var kept: [(entry: EventEntry, query: EventQuery)] = []
         var dropped = 0
         var seen = Set<String>()
@@ -287,6 +372,8 @@ public struct EventSearchRun: Sendable {
                 continue
             }
             var url = c.sourceURL
+            let digits = url.trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
+            if let n = Int(digits), n >= 1, n <= numbered.count { url = numbered[n - 1].url }
             var query = answers.first { $0.1.sources.contains { $0.url == url } }?.0
             if query == nil, let naming = answers.first(where: { $0.1.text.contains(c.name) && !$0.1.sources.isEmpty }),
                let first = naming.1.sources.first {

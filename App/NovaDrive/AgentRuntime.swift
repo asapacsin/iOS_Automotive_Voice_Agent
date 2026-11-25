@@ -529,9 +529,17 @@ final class AgentRuntime {
             Task { @MainActor in self?.sessionRecord?.submit(.events(text)) }
         }
         let key: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
+        // F-18 §42 items 1, 4 (T-046ze): with a 七牛云 key, three Qiniu queries and the extraction on Qiniu's model (a failed
+        // extraction falls back to §41's); without one, §39/§41 unchanged. Decided per run.
+        let qiniuKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qiniuAPIKey) }
         return EventFinder(store: store, work: work, onLine: line) { onProgress in
-            EventSearchRun(searcher: QwenEventSearcher(key: key), extractor: QwenEventExtractor(key: key), clock: SystemClock(),
-                           onProgress: onProgress, onLine: line)
+            if let k = qiniuKey(), !k.isEmpty {
+                return EventSearchRun(searcher: QiniuEventSearcher(key: qiniuKey, onLine: line),
+                                      extractor: QiniuEventExtractor(key: qiniuKey, fallback: QwenEventExtractor(key: key), onLine: line),
+                                      clock: SystemClock(), mode: .qiniu, onProgress: onProgress, onLine: line)
+            }
+            return EventSearchRun(searcher: QwenEventSearcher(key: key), extractor: QwenEventExtractor(key: key), clock: SystemClock(),
+                                  onProgress: onProgress, onLine: line)
         }
     }()
 
@@ -1244,7 +1252,14 @@ final class AgentRuntime {
             let destinationName = currentDestination
             let lastWords = driverWords
             executors[WebSearchExecutor.tool] = WebSearchExecutor(
-                service: QwenWebSearchClient(key: qwenKey, onExchange: onExchange), clock: SystemClock(),
+                // F-18 §42 item 5 (T-046ze): Qiniu search + model with a 七牛云 key; §41 without one or on a failed call.
+                service: QiniuWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qiniuAPIKey) },
+                                              fallback: QwenWebSearchClient(key: qwenKey, onExchange: onExchange),
+                                              onLine: { line in
+                                                  RuntimeLog.agent.notice("\(line, privacy: .public)")
+                                                  record?.submit(.qiniu(line))
+                                              }),
+                clock: SystemClock(),
                 onOutcome: { outcome in
                 // F-18 §18 items 3, 8: the whole outcome goes to the local record; the log gets no words (I-8).
                 record?.submit(.searchOutcome(outcome))
@@ -1825,7 +1840,10 @@ final class AgentRuntime {
                                   // §46 (T-040r): photos abroad from English Wikipedia, within 2 km of the stop.
                                   abroadPhotos: WikipediaPhotos(),
                                   // F-15b §50 items 1 and 9 (T-040v): Qwen `ground` route with web search, the F-18 key.
-                                  grounder: QwenTripGrounder(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
+                                  // F-18 §42 item 5 (T-046ze): Qiniu with a 七牛云 key, §41 without one or on a failed call.
+                                  grounder: QiniuTripGrounder(key: { try? KeychainCredentialStore().value(for: .qiniuAPIKey) },
+                                                              fallback: QwenTripGrounder(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
+                                                              onLine: tripLine),
                                   // §50 item 3: the city's centre and country; trip lookups stay inside its box.
                                   abroadArea: { city in await photon.area(city) },
                                   // F-15b §52 item 13 (T-040ze): clearing the whole trip waits for the driver's next turn.
@@ -1853,7 +1871,9 @@ final class AgentRuntime {
         await navigation.setExploreLine(tripLine)
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
-        let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
+        let intro = TripIntro(search: QiniuWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qiniuAPIKey) },
+                                                           fallback: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
+                                                           onLine: tripLine),
                               clock: navigationClock, onLine: tripLine)
         // F-15b §11 item 4: moving at ≥ 8 km/h or while 真实导航 runs; still after 3 s below 3 km/h; a stale fix's
         // speed is unknown. `trip strip moving=<yes|no>` on each change.
