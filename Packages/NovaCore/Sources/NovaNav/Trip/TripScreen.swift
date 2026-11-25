@@ -70,6 +70,8 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public static let unplacedText = "位置待确认"
     /// F-15b §64 item 6 (T-040zq): 「<title> · <start>～<end>」 under the venue of an event stop; nil otherwise.
     public var event: String? = nil
+    /// F-15b §67 item 4 (T-040zt): the map's place name under the title when it differs from the title; nil otherwise.
+    public var place: String? = nil
 
     static func tag(_ stop: TripStop) -> String? {
         switch stop.role {
@@ -125,17 +127,19 @@ public enum TripScreen: Sendable, Hashable {
     public static func of(_ list: TripList, moving: Bool) -> TripScreen {
         guard !list.isEmpty else { return .none }
         if moving {
-            let full = list.stops.map { "\($0.index) \($0.place.name)" }.joined(separator: " · ")
+            let full = list.stops.map { "\($0.index) \($0.title)" }.joined(separator: " · ")
             return .strip(full.count <= stripLimit ? full : String(full.prefix(stripLimit - 1)) + "…")
         }
         return .cards(list.stops.map { stop in
-            TripCard(index: stop.index, placeID: stop.place.id, name: stop.place.name,
+            // F-15b §67 item 4 (T-040zt): the title is the stop's name; the map's name goes on the line under it.
+            TripCard(index: stop.index, placeID: stop.place.id, name: stop.title,
                      district: stop.placed ? stop.place.district : TripCard.unplacedText,
                      km: stop.placed ? stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 } : nil, photoURL: stop.place.photoURL,
-                     initial: String(stop.place.name.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
+                     initial: String(stop.title.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
                      minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
                      tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed,
-                     event: stop.event?.cardText)
+                     event: stop.event?.cardText,
+                     place: stop.placed && stop.title != stop.place.name ? stop.place.name : nil)
         })
     }
 }

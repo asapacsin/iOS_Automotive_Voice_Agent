@@ -258,6 +258,8 @@ private struct TripCardView: View {
             // F-15b §37 item 8 (T-040o): 住 / 机场, a small label under the poster.
             if let tag = card.tag { Text(tag).font(.caption2.bold()).foregroundStyle(.orange) }
             Text(card.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+            // F-15b §67 item 4 (T-040zt): the map's place name under the stop's name when they differ.
+            if let place = card.place { Text(place).font(.caption2).lineLimit(1) }
             // F-15b §64 item 6 (T-040zq): the event at this venue and its open dates.
             if let event = card.event { Text(event).font(.caption2).foregroundStyle(.purple).lineLimit(1) }
             HStack(spacing: 4) {
@@ -391,6 +393,7 @@ struct TripDetailSheet: View {
                 .frame(height: 180)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             Text("\(card.index) \(card.name)").font(.title3.weight(.bold))
+            if let mapName = card.place { Text(mapName).font(.subheadline).foregroundStyle(.secondary) }
             // §21 items 2, 4: 「介绍」 under the name; none for a saved 家/公司 stop.
             if !card.placeID.hasPrefix("saved_") {
                 Text("介绍").font(.headline)

@@ -103,7 +103,7 @@ public struct TripPlan: Sendable, Hashable {
                 let s = days[d].stops[i]
                 var stop = TripStop(index: 0, asked: s.asked, place: place, distanceMeters: s.distanceMeters, mark: s.mark,
                                     role: s.role, minutes: s.minutes, importance: s.importance, id: s.id, placed: true,
-                                    pickedBy: s.pickedBy, event: s.event)
+                                    pickedBy: s.pickedBy, event: s.event, location: s.location)
                 stop.legSeconds = nil
                 days[d].set(stop, at: i + 1)
                 found = true
@@ -289,6 +289,8 @@ public enum TripPlanFile {
         var stay: Int?
         /// T-040zq §64 item 6 (optional): the event placed on this venue.
         var event: TripEvent?
+        /// T-040zt §67 item 3 (optional): the looked-up text when it differs from `asked`; older files read as `asked`.
+        var location: String?
     }
 
     struct Plan: Codable, Hashable {
@@ -324,7 +326,7 @@ public enum TripPlanFile {
              role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode, kind: s.place.kind?.rawValue,
              minutes: s.role == .hotel ? nil : s.minutes, optional: s.optional ? true : nil, importance: s.importance == 3 || s.importance == 1 ? nil : s.importance,
              sid: s.id.isEmpty ? nil : s.id, unplaced: s.placed ? nil : true, by: s.pickedBy,
-             stay: s.role == .hotel ? s.minutes : nil, event: s.event)
+             stay: s.role == .hotel ? s.minutes : nil, event: s.event, location: s.location == s.asked ? nil : s.location)
     }
 
     /// §55 item 2 (T-040zh): the city is kept at home too (new names are looked up inside it).
@@ -345,7 +347,7 @@ public enum TripPlanFile {
                  distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false,
                  minutes: s.role == .hotel ? s.stay : s.minutes, optional: s.optional ?? false, importance: s.importance,
                  id: s.sid ?? "", placed: !(s.unplaced ?? false), pickedBy: s.by ?? ((s.picked ?? false) ? .app : .model),
-                 event: s.event)
+                 event: s.event, location: s.location)
     }
 
     static func decode(_ plan: Plan) -> TripPlan {

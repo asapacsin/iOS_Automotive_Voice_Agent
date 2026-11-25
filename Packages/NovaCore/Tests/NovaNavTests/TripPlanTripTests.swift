@@ -342,7 +342,7 @@ struct TripPlanTripTests {
         #expect(TripPlannerShape.parse("{\"plan\":1}") == nil && TripPlannerShape.parse("不是") == nil)
         #expect(TripPlannerShape.system.hasPrefix("你是行程规划师。司机的要求由语音助手转给你，你只输出 JSON，不要其他文字。"))
         // F-15b §64 item 3 (T-040zq): the event line follows the not-found line.
-        #expect(TripPlannerShape.system.hasSuffix("- 司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。\n- 只在某几天开放的活动，name 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。"))
+        #expect(TripPlannerShape.system.hasSuffix("- 司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。\n- 只在某几天开放的活动，name 写活动名，location 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。"))
         let rig = await PlanTripRig([answer([["广州塔", "九龙湖公主酒店"]], done: false), answer([["广州塔", "九龙湖公主酒店"]], done: true, note: "九龙湖公主酒店没找到")])
         let r = await rig.run(newPlan())
         #expect(r.ok && r.data["not_placed"] == [["name": "九龙湖公主酒店", "searched": "广州"]], "\(r)")
@@ -572,7 +572,7 @@ struct TripEventPlanTests {
         // The planner got the events list in its first message.
         let first = rig.model.calls.withLock { $0 }.first?.first?.content ?? ""
         #expect(first.contains(TripPlannerShape.eventsHead) && first.contains("AI嘉年华"))
-        #expect(rig.model.systems.withLock { $0 }.first?.contains("只在某几天开放的活动，name 写场馆全名，event 写活动名和开放日期") == true)
+        #expect(rig.model.systems.withLock { $0 }.first?.contains("只在某几天开放的活动，name 写活动名，location 写场馆全名，event 写活动名和开放日期") == true)
         // Round 1's counts: the event's open dates and that day's date.
         let counts = rig.model.calls.withLock { $0 }[1].last?.content ?? ""
         #expect(counts.contains("AI嘉年华开放2026-11-28～2026-11-29，这天是2026-11-27"), "\(counts)")

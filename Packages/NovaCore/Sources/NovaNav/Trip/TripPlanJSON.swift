@@ -32,7 +32,8 @@ public enum TripPlanJSON {
         return .object(top.merging(["days": .array(plan.days.map { day in
             .array(day.stops.map { s in
                 var o: [String: JSONValue] = [
-                    "id": .string(s.id), "name": .string(s.place.name), "role": .string(s.role.rawValue),
+                    // F-15b §67 item 4 (T-040zt): 「<name>（<place name>）」 when they differ, else 「<name>」.
+                    "id": .string(s.id), "name": .string(s.label), "role": .string(s.role.rawValue),
                     "placed": .bool(s.placed), "picked_by": .string(s.pickedBy.rawValue),
                 ]
                 if minutes { o["minutes"] = .int(Int64(s.visitMinutes)) }
@@ -57,11 +58,12 @@ public enum TripPlanJSON {
                 let missing = s.placed ? "" : "（没找到）"
                 // §63 item 4: a hotel merged with its sight is written once, with the time there.
                 if s.role == .hotel, s.visitMinutes > 0 {
-                    return s.place.name + missing + "（玩约\(stayTime(s.visitMinutes))，住这里）"
+                    return s.label + missing + "（玩约\(stayTime(s.visitMinutes))，住这里）"
                 }
-                // F-15b §64 item 6 (T-040zq): an event stop is 「<venue>（<title>）」.
-                let event = s.event.map { "（\($0.title)）" } ?? ""
-                return (s.role == .hotel ? "住" : "") + s.place.name + missing + event
+                // F-15b §64 item 6 (T-040zq): an event stop is 「<venue>（<title>）」; §67 item 4 (T-040zt): the stop is
+                // 「<name>（<place name>）」, so an event named as the stop is not written twice.
+                let event = s.event.flatMap { $0.title == s.title ? nil : "（\($0.title)）" } ?? ""
+                return (s.role == .hotel ? "住" : "") + s.label + missing + event
             }
             // §64 item 1: with a start date, 「第1天 · 11月25日 周三」.
             return TripDayLabel.text(day: d, asked: plan.asked) + "：" + (names.isEmpty ? "（空）" : names.joined(separator: "、"))

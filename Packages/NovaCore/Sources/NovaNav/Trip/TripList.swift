@@ -59,12 +59,17 @@ public struct TripStop: Sendable, Hashable {
     public var importance: Int
     /// F-15b §64 item 6 (T-040zq): a time-limited event at this venue, as the planner placed it and code checked it.
     public var event: TripEvent?
+    /// F-15b §67 item 3 (T-040zt): the text looked up on the map (the planner's `location`); `asked` keeps its `name`.
+    /// Equals `asked` when the planner gave no `location` and for stops from before §67.
+    public var location: String
 
     public init(index: Int, asked: String, place: Place, distanceMeters: Int?, mark: TripMark? = nil,
                 legSeconds: Int? = nil, role: TripRole = .sight, picked: Bool = false,
                 minutes: Int? = nil, optional: Bool = false, importance: Int? = nil,
-                id: String = "", placed: Bool = true, pickedBy: TripPickedBy? = nil, event: TripEvent? = nil) {
+                id: String = "", placed: Bool = true, pickedBy: TripPickedBy? = nil, event: TripEvent? = nil,
+                location: String? = nil) {
         self.event = event
+        self.location = location ?? asked
         self.id = id
         self.placed = placed
         self.pickedBy = pickedBy ?? (picked ? .app : .model)
@@ -81,8 +86,16 @@ public struct TripStop: Sendable, Hashable {
 
     func renumbered(_ index: Int) -> TripStop {
         TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds,
-                 role: role, minutes: minutes, importance: importance, id: id, placed: placed, pickedBy: pickedBy, event: event)
+                 role: role, minutes: minutes, importance: importance, id: id, placed: placed, pickedBy: pickedBy, event: event,
+                 location: location)
     }
+
+    /// F-15b §67 item 4 (T-040zt): the card title: what the driver calls the stop (`asked`); the map's name for a stop
+    /// the app picked (its `asked` is a search word such as 「酒店」) or one without `asked`.
+    public var title: String { pickedBy == .app || asked.isEmpty ? place.name : asked }
+
+    /// §67 item 4: 「<name>（<place name>）」 when the map's name differs, else 「<name>」 (a stop not placed: the name).
+    public var label: String { placed && title != place.name ? "\(title)（\(place.name)）" : title }
 
     /// §49 item 1: importance is 1–3.
     public static func clampImportance(_ i: Int) -> Int { min(max(i, 1), 3) }
@@ -257,7 +270,7 @@ public struct TripList: Sendable, Hashable {
             ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters,
                        mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role,
                        minutes: $0.minutes, importance: $0.importance, id: $0.id, placed: $0.placed, pickedBy: $0.pickedBy,
-                       event: $0.event)
+                       event: $0.event, location: $0.location)
             : $0 }
     }
 
