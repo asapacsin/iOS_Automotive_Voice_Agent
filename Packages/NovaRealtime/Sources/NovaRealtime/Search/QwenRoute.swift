@@ -7,7 +7,7 @@ import NovaKit
 /// F-18 §36 (T-046y, owner 2026-11-24, amends F-15b §50 item 10, §59 item 2, §62 item 7): each job has an ordered
 /// list of models (`chain`), each entry with its own search options and thinking flag. A 429 or a quota 403 before any
 /// answer moves the same request to the next entry (`QwenFallback`). §36 item 1: a model enters a list only after its
-/// job's PC eval (row 35) passes; the spec's other entries wait in `awaitingEval` and are never called.
+/// job's PC eval (row 35) passes (superseded by F-18 §40: the five Beijing models, `awaitingEval` empty).
 ///
 /// F-18 §40 (T-046zc, owner order 2026-11-25): every job runs on the Beijing 百炼 account's free-quota models only,
 /// earliest free-quota expiry first (`qwen3.8-max-0902` 12-01, `deepseek-v4.1-flash` 12-13, `deepseek-v4.1-flash-1017`

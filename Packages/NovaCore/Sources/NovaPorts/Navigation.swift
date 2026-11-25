@@ -616,7 +616,7 @@ public enum AmapWebError: Error, Sendable, Hashable {
 
 /// F-15b §62 items 2, 10 (T-040zo): the planner model that writes and reviews a trip plan (`QwenRoute.planner`'s chain, its client
 /// in NovaRealtime). One chat completion per round: the system text, then the conversation so far; the answer is the
-/// model's text (JSON asked for). Throws `TripPlannerModelError` on an HTTP error; no fallback model (§62 item 7).
+/// model's text (JSON asked for). Throws `TripPlannerModelError` on an HTTP error; the client moves along `QwenRoute.planner`'s chain on a quota or rate error (F-18 §36, §40).
 public protocol TripPlannerModel: Sendable {
     func complete(system: String, messages: [TripPlannerMessage]) async throws -> String
     /// The model id written on every `trip planner round=` line.

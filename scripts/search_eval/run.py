@@ -32,7 +32,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 KEY_ENV = "DASHSCOPE_API_KEY_CN"
 RUNS = 3
 
-# Endpoints (Singapore). Check each against the Alibaba docs on the day of the run (§23 "Not verified").
+# Endpoints (Beijing, F-18 §40). Check each against the Alibaba docs on the day of the run (§23 "Not verified").
 # `--base-url` replaces the host (e.g. a workspace domain); the paths stay.
 DEFAULT_BASE = "https://dashscope.aliyuncs.com"  # F-18 §40 item 1: Beijing
 MULTIMODAL_PATH = "/api/v1/services/aigc/multimodal-generation/generation"
@@ -42,7 +42,7 @@ MULTIMODAL = DEFAULT_BASE + MULTIMODAL_PATH
 COMPATIBLE_CHAT = DEFAULT_BASE + COMPATIBLE_CHAT_PATH
 RESPONSES = DEFAULT_BASE + RESPONSES_PATH
 
-# Singapore search price, §23 sources: $10 per 1,000 calls. Token prices are not filled in (no source in §23).
+# Singapore search price, §23 sources: $10 per 1,000 calls. Token prices are not filled in (no source in §23). Not re-sourced for Beijing (F-18 §40): cost estimates may be off.
 SEARCH_USD_PER_CALL = 10 / 1000
 
 SETUPS = {
