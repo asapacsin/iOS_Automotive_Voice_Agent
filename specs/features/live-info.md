@@ -1914,7 +1914,7 @@ returns plain results (no model tokens), and three searches per events question.
    c. Else no picture. No other source (no first `<img>` of the page: on 4 government/news pages it was the site's logo
       or banner).
    The URL is kept as the event's `image_url`; the event card (trip event stop, §64) and any list of events on screen
-   show it, nothing when nil. A picture from (b) is labelled 「网络图片」 under it. Record:
+   show it, 「未找到图片」 when nil (§44 item 3). A picture from (b) is labelled 「网络图片」 under it. Record:
    `events image name=<name> via=<og|search|none>`. The image search runs at most once per event per day (store), and
    counts toward Qiniu's per-minute limit (§42 PC check: 429 from the 6th search in a minute).
 

@@ -2905,7 +2905,8 @@ never gave; run 3 moved a night's hotel to 深圳 although the driver said 「�
    `plan_trip` first reads the store for the trip's cities and dates; on a miss it runs §35's loop inside its own
    background run (spinner 「正在查活动」 before 「正在规划行程」), within §35's limits.
 3. **The planner gets the events and may place them.** The user message adds 「这几天开放的活动（只能排在开放的日子）：」
-   with each stored event {name, venue, city, start, end}. The planner shape (§62 item 2) gains an optional `event`
+   with each stored event {name, venue, city, start, end}, written as live-info §44 item 3 gives it (「场馆：未找到」,
+   「日期：未找到」, 「开始：HH:MM」, 「门票：…」 from §44 items 8–9). The planner shape (§62 item 2) gains an optional `event`
    on a sight: `{"title", "start", "end"}`, `name` being the venue. §62 item 3's system text gains one line:
    「只在某几天开放的活动，name 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。」
 4. **Code checks, every round, with facts only (§61 rule).** An `event` whose title is not a store entry for that venue,
