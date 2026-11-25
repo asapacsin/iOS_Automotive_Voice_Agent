@@ -7,27 +7,37 @@ import NovaTools
 /// round. Pure: no network, no clock. The loop that uses them is `TripPlanner.planTrip`.
 public enum TripPlannerShape {
     public struct Sight: Sendable, Hashable {
+        /// F-15b §67 item 1 (T-040zt): what the driver calls it (the card title, never looked up).
         public var name: String
+        /// §67 items 1-2: what the map looks up; nil when the planner left it out (then `name`).
+        public var location: String?
         /// The real city of the place (never a province); nil when the planner left it out.
         public var city: String?
         public var minutes: Int?
-        /// F-15b §64 item 3 (T-040zq): a time-limited event at this venue (`name`).
+        /// F-15b §64 item 3 (T-040zq): a time-limited event at this venue (`location`).
         public var event: TripEvent?
-        public init(name: String, city: String? = nil, minutes: Int? = nil, event: TripEvent? = nil) {
+        public init(name: String, location: String? = nil, city: String? = nil, minutes: Int? = nil, event: TripEvent? = nil) {
             self.name = name
+            self.location = location
             self.city = city
             self.minutes = minutes
             self.event = event
         }
+        /// §67 item 2: the only text that goes to the map.
+        public var lookup: String { location ?? name }
     }
 
     public struct Stay: Sendable, Hashable {
         public var name: String
+        /// §67 item 1: as a sight's `location`.
+        public var location: String?
         public var city: String?
-        public init(name: String, city: String? = nil) {
+        public init(name: String, location: String? = nil, city: String? = nil) {
             self.name = name
+            self.location = location
             self.city = city
         }
+        public var lookup: String { location ?? name }
     }
 
     public struct Day: Sendable, Hashable {
@@ -60,6 +70,7 @@ public enum TripPlannerShape {
                     .object([
                         "sights": .array(d.sights.map { s in
                             var o: [String: JSONValue] = ["name": .string(s.name)]
+                            if let l = s.location { o["location"] = .string(l) }
                             if let c = s.city { o["city"] = .string(c) }
                             if let m = s.minutes { o["minutes"] = .int(Int64(m)) }
                             if let e = s.event { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
@@ -67,6 +78,7 @@ public enum TripPlannerShape {
                         }),
                         "stay": d.stay.map { s in
                             var o: [String: JSONValue] = ["name": .string(s.name)]
+                            if let l = s.location { o["location"] = .string(l) }
                             if let c = s.city { o["city"] = .string(c) }
                             return .object(o)
                         } ?? .null,
@@ -109,10 +121,15 @@ public enum TripPlannerShape {
                     if let title = string(s["event"]?["title"]) {
                         event = TripEvent(title: title, start: s["event"]?["start"]?.stringValue ?? "", end: s["event"]?["end"]?.stringValue ?? "")
                     }
-                    sights.append(Sight(name: name, city: string(s["city"]), minutes: minutes, event: event))
+                    // §67 item 1: `location` equal to `name` is the same as none.
+                    let location = string(s["location"]).flatMap { $0 == name ? nil : $0 }
+                    sights.append(Sight(name: name, location: location, city: string(s["city"]), minutes: minutes, event: event))
                 }
             }
-            let stay = string(day["stay"]?["name"]).map { Stay(name: $0, city: string(day["stay"]?["city"])) }
+            let stay = string(day["stay"]?["name"]).map { name in
+                Stay(name: name, location: string(day["stay"]?["location"]).flatMap { $0 == name ? nil : $0 },
+                     city: string(day["stay"]?["city"]))
+            }
             return Day(sights: sights, stay: stay)
         }
         return Plan(days: Array(parsed.prefix(TripPlan.maxDays)), done: value["done"]?.boolValue ?? false,
@@ -123,15 +140,15 @@ public enum TripPlannerShape {
 
     /// §62 item 3: the planner's system text as used in the PoC, plus §61 item 3a's line for a named place not found.
     public static let system = """
-    你是行程规划师。司机的要求由语音助手转给你，你只输出 JSON，不要其他文字。JSON 格式：{"days": [ {"sights": [{"name": "地点全名", "city": "所在城市", "minutes": 停留分钟}], "stay": {"name": "当晚住的地方全名", "city": "城市"} 或 null } ], "done": true/false, "note": "给司机的一句话：没做到的要说"}
+    你是行程规划师。司机的要求由语音助手转给你，你只输出 JSON，不要其他文字。JSON 格式：{"days": [ {"sights": [{"name": "司机怎么叫它", "location": "地图上要搜的地点全名", "city": "所在城市", "minutes": 停留分钟, "event": {"title": "活动名", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} 只有活动才写}], "stay": {"name": "当晚住的地方全名", "city": "城市"} 或 null } ], "done": true/false, "note": "给司机的一句话：没做到的要说"}
     要求：
     - 天数按司机说的；司机点名的地点必须放进去。
     - 每天一般 3 到 4 个景点，景点时间加开车时间一天 6 到 8 小时；整天的地方（主题乐园、度假村玩一整天）可以单独一天。
     - 每晚写 stay；度假村、酒店式景区本身能住，就直接住那里，不要再加别的酒店。最后一天 stay 写 null。
-    - 地点写能在地图上搜到的全名，city 写它真正所在的城市。
+    - name 写司机怎么叫它；location 写能在地图上搜到的地点全名（活动、演出这类不是地点的，写它的场馆）；name 本身就是地点时 location 可以不写。city 写它真正所在的城市。
     - 每次你会收到程序核对的数字（地图找到的地点、开车时间、每天总时间）。按这些数字自己判断合不合理，不合理就改好整份再输出，done=false；都合理了输出最终行程，done=true。
     - 司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。
-    - 只在某几天开放的活动，name 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。
+    - 只在某几天开放的活动，name 写活动名，location 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。
     """
 
     /// §62 item 3: a new plan's user message: 「司机说：「<asked.text>」」 with `asked` as JSON.
@@ -198,6 +215,8 @@ public enum TripPlannerShape {
                 if s.role == .start || s.role == .end { continue }
                 var o: [String: JSONValue] = ["name": .string(s.asked.isEmpty ? s.place.name : s.asked), "city": city(s),
                                               "minutes": .int(Int64(s.visitMinutes)), "地图": fact(s)]
+                // F-15b §67 item 1 (T-040zt): the looked-up text, when it is not the name.
+                if s.location != s.asked, !s.location.isEmpty { o["location"] = .string(s.location) }
                 // Review fix (§64 items 3, 6): a change keeps the plan's events.
                 if let e = s.event { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
                 sights.append(.object(o))
@@ -214,13 +233,16 @@ public enum TripPlannerShape {
     /// One stop as code found it.
     public struct StopCount: Sendable, Hashable {
         public var name: String
+        /// F-15b §67 item 6 (T-040zt): what was looked up; nil or equal to `name` when the planner gave no `location`.
+        public var location: String?
         public var found: Place?
         public var minutes: Int
         public var isStay: Bool
         /// Where the lookup searched (for a miss).
         public var range: String
-        public init(name: String, found: Place?, minutes: Int, isStay: Bool, range: String) {
+        public init(name: String, location: String? = nil, found: Place?, minutes: Int, isStay: Bool, range: String) {
             self.name = name
+            self.location = location
             self.found = found
             self.minutes = minutes
             self.isStay = isStay
@@ -261,7 +283,11 @@ public enum TripPlannerShape {
             var line = "第\(d + 1)天：\(day.sights)个景点；景点\(day.sightMinutes)分＋开车\(day.driving)分（各段[\(legs)]）＝\(day.total)分，预算\(day.budget)分。"
             line += day.stops.map { s in
                 let head = (s.isStay ? "住" : "") + s.name
-                guard let p = s.found else { return head + "=地图没找到（在\(s.range)找）" }
+                guard let p = s.found else {
+                    // §67 item 4: a miss names what was looked up: 「地图没找到 <location>（<name>）」.
+                    if let l = s.location, l != s.name { return head + "=" + notFound(location: l, name: s.name) + "（在\(s.range)找）" }
+                    return head + "=地图没找到（在\(s.range)找）"
+                }
                 let at = head + "=地图:" + p.name + "·" + (p.city ?? "") + (p.district ?? "")
                 return s.isStay && s.minutes == 0 ? at : at + "，停\(s.minutes)分"
             }.joined(separator: "；")
@@ -271,6 +297,9 @@ public enum TripPlannerShape {
         lines.append(countsClose)
         return lines.joined(separator: "\n")
     }
+
+    /// F-15b §67 item 4 (T-040zt): 「地图没找到 <location>（<name>）」.
+    public static func notFound(location: String, name: String) -> String { "地图没找到 \(location)（\(name)）" }
 
     /// §62 item 4 with §61 item 2: words the counts never carry (advice or a verdict).
     public static let adviceWords = ["换", "去掉", "加", "挪", "太满", "考虑"]

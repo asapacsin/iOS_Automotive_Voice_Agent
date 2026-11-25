@@ -167,6 +167,10 @@ T-040zn: F-15b
 T-040zo: F-15b
 T-040zp: F-15b
 T-040zq: F-15b
+T-040zr: F-15b
+T-040zt: F-15b
+T-040zu: F-15b
+T-040zv: F-15b
 T-031zd: F-09b
 T-031ze: F-09b
 T-031zf: F-09b

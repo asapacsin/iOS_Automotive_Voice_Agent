@@ -724,6 +724,11 @@ public struct AgentState: Sendable {
                     if tool == .findEvents || tool == .planTrip, contextNow != nil { contextPending = true }
                     return [.diagnostic(.asyncResultDropped(tool: tool, reason: .stale))]
                 }
+                // F-15b §69 item 1 (T-040zv): a trip call a newer one replaced is not sent (as §37 for web_search).
+                if tool == .planTrip, result.code == .superseded {
+                    endAsync(call.id)
+                    return [.diagnostic(.asyncResultDropped(tool: tool, reason: .superseded))]
+                }
             }
             if call.name == "web_search" {
                 // §37 item 1: an older search's result waits for the newer one, or is dropped after its ok.

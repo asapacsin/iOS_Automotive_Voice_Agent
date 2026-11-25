@@ -70,7 +70,9 @@ struct TripReviewTests {
         ]))
         #expect(r.ok && r.data["saved"] == true && r.data["status"] == "trip_list", "\(r)")
         #expect(r.data["issues"] == nil && r.data["round"] == nil && r.data["facts"]?["ready"] == nil)
-        #expect(r.data["next"]?.stringValue == TripPlanner.reviewNext)
+        // F-15b §68 item 4 (T-040zu): with stops not placed, the reason sentence follows.
+        #expect(r.data["next"]?.stringValue == TripPlanner.reviewNext
+                || r.data["next"]?.stringValue == TripPlanner.reviewNext + TripPlanner.notPlacedNext(["not_found"]))
         let notPlaced = strings(r.data["facts"]?["not_placed"])
         #expect(notPlaced.contains("九龙湖公主酒店"))
         #expect(r.data["facts"]?["not_placed_range"] == "天津")
@@ -182,7 +184,9 @@ struct TripReviewTests {
             "city": "天津", "asked": asked,
         ]))
         #expect(r.data["plan_text"] == "第1天：古文化街、五大道、住某酒店（没找到）\n第2天：住某酒店（没找到）、天津之眼\n第3天：（空）", "\(r)")
-        #expect(r.data["next"]?.stringValue == TripPlanner.reviewNext)
+        // F-15b §68 item 4 (T-040zu): with stops not placed, the reason sentence follows.
+        #expect(r.data["next"]?.stringValue == TripPlanner.reviewNext
+                || r.data["next"]?.stringValue == TripPlanner.reviewNext + TripPlanner.notPlacedNext(["not_found"]))
         #expect(r.data["plan"] != nil)
         let id = await ids(rig.planner)
         let same: ToolCall = rawTrip("set_trip_plan", ["days": days([[byID(id["古文化街"]), byID(id["五大道"])]])])

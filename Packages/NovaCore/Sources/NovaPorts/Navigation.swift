@@ -245,11 +245,14 @@ public struct Place: Sendable, Hashable {
     public let countryCode: String?
     /// F-15b §46 item 6 (T-040r): the kind of place, from Photon's `osm_key`/`osm_value` or 高德's `type`; nil when unknown.
     public let kind: PlaceKind?
+    /// F-15b §68 item 1 (T-040zu): 高德's `adcode` (82xxxx Macau, 81xxxx Hong Kong); nil when unknown.
+    public let adcode: String?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
                 openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil,
-                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil) {
+                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil, adcode: String? = nil) {
         self.kind = kind
+        self.adcode = adcode
         self.photoURL = photoURL
         self.countryCode = countryCode
         self.city = city
@@ -269,7 +272,7 @@ extension Place {
     public func with(photoURL: URL?) -> Place {
         Place(id: id, name: name, address: address, coordinate: coordinate, distanceMeters: distanceMeters,
               openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL, countryCode: countryCode,
-              kind: kind)
+              kind: kind, adcode: adcode)
     }
 }
 
@@ -359,6 +362,42 @@ public protocol PlaceSearch: Sendable {
     func text(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place]
     /// F-16 §14 item 1: `/v3/place/around` only, with no nationwide fallback when nothing is in the radius.
     func aroundOnly(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place]
+}
+
+/// F-15b §68 items 1, 3 (T-040zu): a 高德 error with its `info` (e.g. `USER_ABROAD_DAILY_QUERY_OVER_LIMIT`), for the trip
+/// lookup's record line and its `not_placed` reason. `info` is nil when 高德 gave none (a transport error).
+public struct AmapWebFailure: Error, Sendable, Hashable {
+    public let error: AmapWebError
+    public let info: String?
+    public init(_ error: AmapWebError, info: String?) {
+        self.error = error
+        self.info = info
+    }
+    /// §68 item 4: any `…LIMIT` info is the map's own limit (`map_limit`).
+    public var isLimit: Bool { info?.hasSuffix("LIMIT") == true }
+    /// §68 item 2: 高德's per-second limit.
+    public static let qpsInfo = "CUQPS_HAS_EXCEEDED_THE_LIMIT"
+}
+
+/// F-15b §68 (T-040zu): `/v3/place/text` as `text(_:city:cityLimit:)`, throwing `AmapWebFailure` (the error with 高德's
+/// `info`) instead of a bare `AmapWebError`.
+public protocol PlaceInfoSearch: PlaceSearch {
+    func textInfo(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place]
+}
+
+/// F-15b §68 item 1 (T-040zu): a lookup city in Macau or Hong Kong is searched without 高德's city limit; only results
+/// with these adcode prefixes are kept (82 Macau, 81 Hong Kong). nil for any other city.
+public enum SpecialRegion {
+    public static let adcodePrefixes = ["82", "81"]
+    public static let cities: Set<String> = ["澳门", "澳门特别行政区", "香港", "香港特别行政区"]
+    public static func isSpecial(_ city: String?) -> Bool {
+        guard let c = city?.trimmingCharacters(in: .whitespaces) else { return false }
+        return cities.contains(c)
+    }
+    public static func keeps(_ place: Place) -> Bool {
+        guard let code = place.adcode else { return false }
+        return adcodePrefixes.contains { code.hasPrefix($0) }
+    }
 }
 
 public extension PlaceSearch {

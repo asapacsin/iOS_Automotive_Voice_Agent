@@ -722,11 +722,22 @@ final class AgentRuntime {
     private var trip: AppTrip?
     /// F-15b §11 item 4: the moving rule, sampled once a second for the app's lifetime (not a session's).
     private var tripMonitor: Task<Void, Never>?
+    /// F-15b §65 (T-040zr): whether the saved trip is in her context note in this conversation (off at each new one).
+    let tripContext = TripContextGate()
+
+    /// F-15b §65 item 2: a touch on the trip screen or a card turns the trip line on (`reason=touch`).
+    private func tripTouched() {
+        if let line = tripContext.turnOn(.touch) {
+            RuntimeLog.agent.notice("\(line, privacy: .public)")
+            sessionRecord?.submit(.trip(line))
+        }
+    }
 
     /// F-15b §13 item 1 (I-6): a card tap becomes the voice path's tool call; refused while moving. With a session
     /// connected, she gets the §13 item 4 silent note and says nothing.
     func tripTap(_ tap: TripTap) async {
         guard let planner = trip?.planner else { return }
+        tripTouched()
         let (_, note) = await planner.tap(tap, moving: model.tripMoving)
         if let note, let core { await core.send(.screenNote(note)) }
     }
@@ -755,6 +766,7 @@ final class AgentRuntime {
     /// F-15b §11 item 6: the details sheet of a card (photo, address, opening hours, phone); nothing is spoken.
     func openTripDetail(_ card: TripCard) async {
         guard !model.tripMoving else { return }
+        tripTouched()
         model.tripDetail = card
         model.tripDetailPlace = nil
         model.tripDetailLoading = true
@@ -1310,6 +1322,16 @@ final class AgentRuntime {
                 })
             }
         }
+        // F-15b §65 item 2 (T-040zr): a result that uses the trip turns the trip line on for this conversation.
+        let tripContext = self.tripContext
+        for (name, inner) in executors {
+            executors[name] = TripContextExecutor(inner, gate: tripContext,
+                                                  onTripScreen: { await screen.current.isOn(.tripScreen) },
+                                                  onLine: { line in
+                                                      RuntimeLog.agent.notice("\(line, privacy: .public)")
+                                                      record?.submit(.trip(line))
+                                                  })
+        }
         exitTap = executors["exit_navigation_mode"]  // F-09b §22 item 2 (T-031zg): the 「×」 uses the same close.
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(webSearch: webSearch),
@@ -1327,6 +1349,8 @@ final class AgentRuntime {
                                onExchange: { [weak self] exchange in Task { @MainActor in self?.keepExchange(exchange) } })
         // F-24 §15 item 5 (T-016j): a handle kept by the last give-up is sent once, then forgotten.
         let resume = keptResumption.take(at: navigationClock.now)
+        // F-15b §65 item 1 (T-040zr): a new conversation starts without the trip line; a resumed one keeps it.
+        if resume == nil { tripContext.reset() }
         // F-09b §6 item 2 (T-016p): a session without a handle gets the last exchanges, within 30 minutes.
         let summary = resume == nil ? exchanges.summary(at: navigationClock.now) : nil
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors, background: background),
@@ -1405,8 +1429,9 @@ final class AgentRuntime {
                     }
                 }
                 if place != nil { lastPlace = place }
-                // F-15b §52 item 2 (T-040zb): the trip line carries the whole plan.
-                let tripPlan = TripPlanJSON.noteLine(await trip.planner.currentPlan)
+                // F-15b §52 item 2 (T-040zb): the trip line carries the whole plan; §65 (T-040zr): only once the trip
+                // is used in this conversation.
+                let tripPlan = tripContext.noteLine(await trip.planner.currentPlan)
                 await core.send(.context(ContextSnapshot(place: place, onHighway: nil,
                                                          localTime: ContextSnapshot.localTime(Date()), tripPlan: tripPlan)))
                 try? await Task.sleep(for: .seconds(15))
@@ -1773,7 +1798,10 @@ final class AgentRuntime {
         let tripLine: @Sendable (String) -> Void = { line in
             // F-15b §62 item 9 (T-040zo): the planner's JSON and the counts message hold place names: the local record
             // only, never the log (as stop names today, I-8).
-            if !line.hasPrefix("trip planner text ") { RuntimeLog.agent.notice("\(line, privacy: .public)") }
+            // F-15b §68 item 3 (T-040zu): `trip lookup name=` names a place too: the record only.
+            if !line.hasPrefix("trip planner text "), !line.hasPrefix("trip lookup name=") {
+                RuntimeLog.agent.notice("\(line, privacy: .public)")
+            }
             tripSession.record()?.submit(.trip(line))
         }
         // The screen follows the trip with or without a session, in snapshot order.
