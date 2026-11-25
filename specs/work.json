@@ -2872,13 +2872,17 @@
     },
     {
       "id": "T-040zr",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §65 items 1-4: at each new conversation the context note carries no trip line (ContextSnapshot.tripPlan nil) even with a saved plan; it turns on for the rest of the conversation after a plan_trip/set_trip_plan result, a trip tool that reads the saved plan (trip_next, trip screen, plan_kept results) or a touch on the trip screen/cards; record 'trip context on reason=...'; trip tools keep reading the saved plan; rows 303-307.",
       "notes": "Phone run 98eb278 2026-11-25: 「这周末…帮我安排一下行程」 became plan_trip days 4 with the morning test's asked text word for word, copied from the saved plan in the context note.",
-      "evidence": []
+      "evidence": [
+        "e3caba1 (§65 items 1-4; rows 303-306 unit) + review fix 752bd7a (voice show_place is not a trip touch)",
+        "spec-reviewer high 2026-11-25 FAIL (show_place turned the trip line on) -> fixed 752bd7a; re-check medium PASS; gates green on merge-trial 320e605 (NovaCore 1177+, 1 known issue; NovaRealtime 88; NovaServices 120; spec-trace 197/0)"
+      ],
+      "blocked_by": "Row 307 device run"
     },
     {
       "id": "T-040zs",
@@ -2892,30 +2896,38 @@
     },
     {
       "id": "T-046zf",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [],
       "action": "F-18 §43 items 1-4: Qiniu search/model retry (2 more tries after 1 s, 3 s; 5xx/429/network/timeout; no §41 fallback); find_events optional name -> first query by name, store hit only if a stored name matches; 'events drop name= reason=' per dropped candidate; event image_url from the source page og:image, shown on event cards; rows 78-86.",
       "notes": "Phone run 98eb278 2026-11-25 (records 20261125-164242, 20261125-165923); owner order 2026-11-25.",
-      "evidence": []
+      "evidence": [
+        "0e00ad0 (§43 items 1-6; rows 78-84 unit) + review fix 0854a04 (event names record-only, I-8; page fetch 10 s total / 1 MB streamed; event card picture, 网络图片/未找到图片)",
+        "spec-reviewer high FAIL -> fixed; re-check medium PASS; gates green on merge-trial 320e605 (NovaCore 1177+, 1 known issue; NovaRealtime 88; NovaServices 120; spec-trace 197/0). Agent setup 13.0.0 (find_events.name). §43 item 1's 'no §41 call' later amended by §45 (T-046zh)"
+      ],
+      "blocked_by": "Row 86 device run"
     },
     {
       "id": "T-046zg",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [
         "T-046zf"
       ],
       "action": "F-18 §44 items 1-6: code checks each event's venue (after a place word) and dates against its source result and page; for a missing venue or dates one Qiniu search 「<name> <YYYY> 时间 地点」 + one extraction, checked the same way on up to 3 pages; else 「场馆：未找到」/「日期：未找到」 in find_events text and 场馆未找到/日期未找到/未找到图片 on cards; no map lookup by event name; store keeps confirmed fields for the trip planner; record 'events check'; items 7-9: year next to the date or in the title; start time kept only when the page states it; ticket note from keywords around the event's date mentions (code only); rows 87-99.",
       "notes": "Owner 2026-11-25: reliable location, time, picture; show 未找到 rather than invent, but a venue one search finds (AIE) must be found; events searched once, stored structured, picked up by the trip planner. PoC with Opus as extractor: 7/7 kept, 6/6 planted errors caught; AIE and 航展 venues found by the venue search.",
-      "evidence": []
+      "evidence": [
+        "19fbaaa (§44 items 1-9; rows 87-91b, 95-98 unit) + review fix 0854a04 (card 日期未找到)",
+        "spec-reviewer high FAIL -> fixed; re-check medium PASS; gates green on merge-trial 320e605 (NovaCore 1177+, 1 known issue; NovaRealtime 88; NovaServices 120; spec-trace 197/0). Card 场馆未找到 and no map lookup by event name are T-040zs (§66 item 6)"
+      ],
+      "blocked_by": "Row 92 PC (Qiniu real-name check), row 94 device run"
     },
     {
       "id": "T-046zh",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 0,
       "depends_on": [
         "T-046zf"
@@ -2926,33 +2938,45 @@
     },
     {
       "id": "T-040zt",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §67 items 1-6: every sight/stay has name (shown) and location (looked up); only location goes to the map; TripStop.location; cards title=name, line=place; plan_text 「name（place）」; old plans load with location=asked; rows 314-318.",
       "notes": "Phone run 98eb278 2026-11-25 (records 20261125-164242, 20261125-165923); owner order 2026-11-25.",
-      "evidence": []
+      "evidence": [
+        "5dca897 (§67 items 1-6; rows 314-317 unit) + review fix 752bd7a (event check reads the stop's location; test eventNameLocation)",
+        "spec-reviewer high FAIL (eventFact got name, not location) -> fixed; re-check medium PASS; gates green on merge-trial 320e605 (NovaCore 1177+, 1 known issue; NovaRealtime 88; NovaServices 120; spec-trace 197/0). §67 item 7 moved to T-040zs; non-blocking: TripIntro searches by card.name"
+      ],
+      "blocked_by": "Row 318 device run"
     },
     {
       "id": "T-040zu",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §68 items 1-4: 高德 lookups in 澳门/香港 without region/city_limit, keep adcode 82/81; at most 3 lookups per second, QPS answer retried once; 'trip lookup' line with info; not_placed reason not_found|map_limit, must_not invent, next names only the reason; rows 319-325.",
       "notes": "Phone run 98eb278 2026-11-25 (records 20261125-164242, 20261125-165923); owner order 2026-11-25.",
-      "evidence": []
+      "evidence": [
+        "5c70a6d (§68 items 1-4; rows 319-323 unit)",
+        "spec-reviewer high 2026-11-25 PASS; gates green on merge-trial 320e605 (NovaCore 1177+, 1 known issue; NovaRealtime 88; NovaServices 120; spec-trace 197/0). For the owner: a third not_placed reason search_slow (「地图这次没查完这些地方」) for timeouts is not in §68 item 4; set_trip_plan not_placed stays names only; LookupPace waits in real time"
+      ],
+      "blocked_by": "Row 325 device run"
     },
     {
       "id": "T-040zv",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §69 items 1-3: a newer plan_trip/set_trip_plan cancels a running one; its result not sent, nothing saved; record 'trip superseded'; rows 326-328.",
       "notes": "Phone run 98eb278 2026-11-25 (records 20261125-164242, 20261125-165923); owner order 2026-11-25.",
-      "evidence": []
+      "evidence": [
+        "3dc323d (§69 items 1-3; rows 326-327 unit) + review fix 752bd7a (a write replaced while it waits answers SUPERSEDED; test threeCalls)",
+        "spec-reviewer high FAIL (third call could not cancel a waiting write) -> fixed; re-check medium PASS; gates green on merge-trial 320e605 (NovaCore 1177+, 1 known issue; NovaRealtime 88; NovaServices 120; spec-trace 197/0)"
+      ],
+      "blocked_by": "Row 328 device run"
     }
   ]
 }
