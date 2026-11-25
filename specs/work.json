@@ -2879,6 +2879,16 @@
       "action": "F-15b §65 items 1-4: at each new conversation the context note carries no trip line (ContextSnapshot.tripPlan nil) even with a saved plan; it turns on for the rest of the conversation after a plan_trip/set_trip_plan result, a trip tool that reads the saved plan (trip_next, trip screen, plan_kept results) or a touch on the trip screen/cards; record 'trip context on reason=...'; trip tools keep reading the saved plan; rows 303-307.",
       "notes": "Phone run 98eb278 2026-11-25: 「这周末…帮我安排一下行程」 became plan_trip days 4 with the morning test's asked text word for word, copied from the saved plan in the context note.",
       "evidence": []
+    },
+    {
+      "id": "T-040zs",
+      "owner": "AUTONOMOUS",
+      "status": "READY",
+      "priority": 0,
+      "depends_on": [],
+      "action": "F-15b §66 items 1-5: after the planner round, code links each sight to the events list (loose name/title match, year and punctuation removed, longest wins): event from the list, map lookup by the entry's venue, event name never looked up as a place; unmatched sights as written; plan_text shows 「event（venue，dates）」; record 'trip event link'; rows 308-313.",
+      "notes": "Phone run 98eb278 2026-11-25: plans showed venues without the event (577804) or sent 「2026横琴AI嘉年华」 to the map (683676); code kept an event only on an exact title match.",
+      "evidence": []
     }
   ]
 }

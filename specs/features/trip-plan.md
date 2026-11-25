@@ -2969,3 +2969,46 @@ morning's test (record 8f4fc7b `20261125-130922.txt`, the row-60 four-day reques
 | Task | Scope | Status |
 |---|---|---|
 | T-040zr | §65 items 1–4; rows 303–307 | NOT_RUN |
+
+## 66. An event stop keeps the event and its venue apart, filled by code from the events list (iOS, owner order 2026-11-25)
+
+**Why (phone run 2026-11-25, build 98eb278, record `20261125-164242.txt`).** A stop already has `asked` (the planner's
+name, looked up on the map), `place` (what the map found) and an optional `event` (§64: title, start, end); the card shows
+the event in a purple line. But the planner model fills them, and code keeps an `event` only when its title equals an
+events-list name exactly (`TripPlanner`, §64 item 3). In the run:
+- Saved plans had `{"name":"珠海香山文化艺术中心"}` and `{"name":"珠海国际会展中心7-8号馆"}` with no `event`
+  (577804); the event names (动漫游园会, 横琴AI嘉年华) were only in the plan's `note`, so the cards showed buildings.
+- One plan had `{"name":"2026横琴AI嘉年华"}` (683676): the event name went to the map, 「地图没找到」.
+- She mixed which day and which place the event was on (turns 27–28).
+
+1. **Link by code.** After the planner's round and before the map lookups, for each sight code looks in the events list
+   the call used (§64 item 2, the F-18 store): a sight matches an entry when, after removing spaces, punctuation and a
+   leading 4-digit year, the sight's `name` or `event.title` contains the entry's `name` or the entry's `name` contains
+   it. On a match: `event` = the entry's name, start, end (not the planner's); the name looked up on the map = the
+   entry's `venue`; the planner's `name` is kept only as `asked` for the record. At most one entry per sight; with
+   several matches, the longest entry name wins.
+2. **No match.** The sight stays as the planner wrote it (`name` looked up; `event` kept if the planner gave one). An
+   `event.title` with no list entry is kept as written (an event the driver named, e.g. 动漫游园会), and the planner's
+   `name` is its venue.
+3. **An event never goes to the map as a place.** A sight whose `name` matched an entry is never looked up by that name;
+   only the venue is.
+4. **What she and the cards get.** The plan JSON she reads (`plan_text`, the trip line) gives each event stop as
+   「<event>（<venue>，<start>–<end>）」; the card shows the venue's map name and the event line (as now, always filled
+   after item 1).
+5. **Record.** One line per linked sight: `trip event link sight=<asked> event=<name> venue=<venue> by=<name|title>`;
+   none for unlinked sights.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 308 | Events list has 横琴AI嘉年华 (venue 珠海国际会展中心7-8号馆, 11-28…29); planner sight `{"name":"2026横琴AI嘉年华"}` | `event` = 横琴AI嘉年华 11-28…29; map looks up 「珠海国际会展中心7-8号馆」, never 「2026横琴AI嘉年华」; record line `by=name` | unit |
+| 309 | Same list; sight `{"name":"珠海国际会展中心7-8号馆","event":{"title":"AI嘉年华"}}` | Linked (`by=title`); `event` dates from the list | unit |
+| 310 | Sight `{"name":"珠海香山文化艺术中心","event":{"title":"动漫游园会"}}`, no list entry | Kept as written; card shows the venue and 动漫游园会 | unit |
+| 311 | Sight `{"name":"珠海渔女"}`, no match | Unchanged, no record line | unit |
+| 312 | Plan with a linked stop | `plan_text`/trip line shows 「横琴AI嘉年华（珠海国际会展中心7-8号馆，11-28–11-29）」 | unit |
+| 313 | Device: find events, then 「把AI嘉年华排进周日」 | Card shows the venue and the event line; she names the event and the venue for the same day | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zs | §66 items 1–5; rows 308–313 | NOT_RUN |
