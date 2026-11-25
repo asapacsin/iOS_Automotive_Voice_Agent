@@ -1682,37 +1682,3 @@ drops any it cannot): 横琴AI嘉年华 11-28…29; 横琴VAC电音节 11-28…2
 | Task | Scope | Status |
 |---|---|---|
 | T-046zb | §39 items 1–10; rows 48–56 (55 before the build); supersedes T-046za | NOT_RUN |
-
-## 40. The app never calls `qwen3.7-plus` or `qwen-plus` (iOS, owner order 2026-11-25)
-
-**Why (owner, DashScope console and bill, 2026-11-25).** The account went to −20.09 USD, overdue, and every model then
-answered 403 `AccessDenied.Unpurchased` (the account is blocked while a bill is unpaid). The console shows
-`qwen3.7-plus-2026-05-26` and `qwen-plus` at **0 of 1M free tokens left with Stop-on-Exhaust "Not Supported"**: once
-their free quota ran out, every call was billed. The app's `ground` job (F-15b §50, `QwenRoute.ground`) called
-`qwen3.7-plus` (with search) for each trip lookup; that undated name most likely resolves to the dated model the
-console bills, `qwen3.7-plus-2026-05-26` (owner, 2026-11-25: the billed model is `qwen3.7-plus-2026-05-26`). `qwen-plus` is not in this repository, code or history. The owner
-never asked for either model.
-
-**Owner order (2026-11-25, amends F-15b §50 item 10 and §36 item 1).** Remove both models from every list.
-
-1. **`ground` chain** becomes `qwen3.7-flash-2026-07-15` → `qwen3.8-flash` (search `turbo`, forced, sources, as
-   today). `qwen3.8-flash` enters the chain by this order, without waiting for row 35 (§36 item 1's rule is
-   overridden for this entry only).
-2. **Never in any list.** No `QwenRoute` entry, PC script or eval names `qwen3.7-plus-2026-05-26`, the undated
-   `qwen3.7-plus` (or any other `qwen3.7-plus-…` snapshot), or `qwen-plus`. A unit test walks every job's `chain` and `awaitingEval` and fails on
-   either name; `scripts/gates/check_paid_scripts.py` fails on either name in `scripts/`.
-3. **Specs.** F-15b §50 item 10's table, row 154 and row 160, and §36 item 1's ground line are read with item 1's
-   chain; their `qwen3.7-plus` text is history only.
-
-**Acceptance (iOS).**
-
-| # | Given / when | Then | Test |
-|---|---|---|---|
-| 57 | `QwenRoute.ground` | Chain `["qwen3.7-flash-2026-07-15", "qwen3.8-flash"]`; request body model `qwen3.7-flash-2026-07-15` | unit |
-| 58 | Every job's `chain` and `awaitingEval`; every file under `scripts/` | No `qwen3.7-plus…` or `qwen-plus` | unit, gate |
-
-**Trace gate.** Add `T-046zc: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zc.
-
-| Task | Scope | Status |
-|---|---|---|
-| T-046zc | §40 items 1–3; rows 57–58 | NOT_RUN |
