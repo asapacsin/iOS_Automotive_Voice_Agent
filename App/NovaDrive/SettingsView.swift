@@ -127,7 +127,7 @@ struct SettingsView: View {
                 }
                 Section("联网") {
                     Toggle("联网搜索（实验）", isOn: $webSearch)
-                    Text("需要阿里云百炼 key。问题会发到阿里云新加坡。")
+                    Text("需要阿里云百炼 key。问题会发到阿里云北京。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("开：天气、新闻、营业时间这类信息由她联网查，答案可能不准。车辆操作不变，仍只通过车辆工具。关：和现在一样。下次开始对话时生效。")
                         .font(.footnote).foregroundStyle(.secondary)

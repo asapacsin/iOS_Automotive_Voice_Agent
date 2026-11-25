@@ -33,19 +33,19 @@ private let goodJSON = #"{"places":[{"name":"浅草寺","english":"Senso-ji","mi
 
 @Suite("T-040v F-15b §50 item 9 one Qwen model per job")
 struct QwenRouteTests {
-    @Test("T-040v F-15b row 154: QwenRoute table and bodies: ground is qwen3.7-plus, agent, forced, sources, thinking off, streamed, date turn")
+    @Test("T-040v F-15b row 154: QwenRoute table and bodies: ground is deepseek-v4.1-flash (F-18 §40), turbo, forced, sources, thinking off, streamed, date turn")
     func row154() throws {
-        #expect(QwenRoute.live.model == "qwen3.7-flash-2026-07-15" && QwenRoute.live.search?.strategy == "turbo")
-        #expect(QwenRoute.picker.model == "qwen3.8-flash" && QwenRoute.picker.search == nil && !QwenRoute.picker.stream)
-        #expect(QwenRoute.ground.model == "qwen3.7-plus" && QwenRoute.ground.search?.strategy == "turbo")
-        #expect(QwenRoute.ground.chain.map(\.model).last == "qwen3.7-flash-2026-07-15" && QwenRoute.live.chain.map(\.model).last == "qwen3.8-flash")
+        #expect(QwenRoute.live.model == "deepseek-v4.1-flash" && QwenRoute.live.search?.strategy == "turbo")
+        #expect(QwenRoute.picker.model == "qwen3.8-max-0902" && QwenRoute.picker.search == nil && !QwenRoute.picker.stream)
+        #expect(QwenRoute.ground.model == "deepseek-v4.1-flash" && QwenRoute.ground.search?.strategy == "turbo")
+        #expect(QwenRoute.ground.chain.map(\.model).last == "qwen4-max" && QwenRoute.live.chain.map(\.model).last == "qwen4-max")
         #expect(QwenWebSearchClient.model == QwenRoute.live.model)
 
         let grounder = QwenTripGrounder(key: { "k" }, send: { _ in (200, Data()) }, now: { fixed }, zone: { tokyoZone })
         let r = grounder.request(request, key: "k")
         #expect(r.url?.absoluteString == QwenRoute.endpoint && r.value(forHTTPHeaderField: "X-DashScope-SSE") == "enable")
         let body = try JSONDecoder().decode(JSONValue.self, from: r.httpBody ?? Data())
-        #expect(body["model"] == "qwen3.7-plus")
+        #expect(body["model"] == "deepseek-v4.1-flash")
         let p = body["parameters"]
         #expect(p?["enable_thinking"] == false && p?["enable_search"] == true && p?["incremental_output"] == true)
         #expect(p?["search_options"]?["search_strategy"] == "turbo" && p?["search_options"]?["forced_search"] == true
@@ -67,7 +67,7 @@ struct QwenRouteTests {
         #expect(!files.isEmpty)
         for f in files {
             let text = try String(contentsOf: sources.appendingPathComponent(f), encoding: .utf8)
-            let hasModelName = text.contains("qwen3")
+            let hasModelName = QwenRoute.allowedModels.contains { text.contains($0) } || text.contains("qwen3")
             #expect(hasModelName == false, "\(f)")
         }
     }

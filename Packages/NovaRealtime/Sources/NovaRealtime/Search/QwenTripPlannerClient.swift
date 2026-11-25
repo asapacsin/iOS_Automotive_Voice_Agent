@@ -5,7 +5,7 @@ import FoundationNetworking
 import NovaKit
 import NovaPorts
 
-/// F-15b §62 item 10 (T-040zo): the trip planner model's HTTP client. `QwenRoute.plannerModel` on DashScope international's
+/// F-15b §62 item 10 (T-040zo): the trip planner model's HTTP client. `QwenRoute.plannerModel` on DashScope Beijing's (F-18 §40)
 /// compatible-mode chat endpoint, `response_format: json_object`, `enable_thinking: false`, the saved search key, not
 /// streamed. The loop, the plan shape and the prompt texts are in NovaCore (`TripPlanner.planTrip`,
 /// `TripPlannerShape`); this only sends one round and returns the model's text. F-18 §36 (T-046y): a 429 or a quota 403

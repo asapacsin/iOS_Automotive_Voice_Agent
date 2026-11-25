@@ -35,13 +35,13 @@ struct WebSearchClientTests {
         }, now: { date }, zone: { TimeZone(identifier: "Asia/Shanghai")! })
         _ = try await client.search("上海后天天气怎么样", attempt: 1)
         let request = try #require(sent.withLock { $0 })
-        #expect(request.url?.absoluteString == "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")
+        #expect(request.url?.absoluteString == "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer \(TestKey.value)")
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         #expect(request.value(forHTTPHeaderField: "X-DashScope-SSE") == "enable")
         let body = try JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data())
-        #expect(body["model"] == "qwen3.7-flash-2026-07-15")
+        #expect(body["model"] == "deepseek-v4.1-flash")
         #expect(body["parameters"] == ["result_format": "message", "incremental_output": true, "enable_thinking": false,
                                        "enable_search": true,
                                        "search_options": ["search_strategy": "turbo", "enable_source": true,
@@ -56,7 +56,7 @@ struct WebSearchClientTests {
         let text = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
         #expect(!text.contains(TestKey.value) && !(request.url?.absoluteString.contains(TestKey.value) ?? true))
         #expect(!text.contains("google"))
-        #expect(QwenWebSearchClient.model == "qwen3.7-flash-2026-07-15")
+        #expect(QwenWebSearchClient.model == "deepseek-v4.1-flash")
     }
 
     static let stream = """

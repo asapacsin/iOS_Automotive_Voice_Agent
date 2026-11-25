@@ -43,23 +43,40 @@ private let threePlanners = QwenRoute(job: .planner, chain: [
 
 @Suite("T-046y F-18 §36 Qwen backup chains")
 struct QwenChainTests {
-    @Test("T-046y F-18 §36 item 1: one ordered list per job; every listed model evaluated, the rest awaiting row 35; no model name outside QwenRoute")
+    @Test("T-046zc F-18 §40 rows 57-58: Beijing endpoints; search jobs deepseek-v4.1-flash → -1017 → qwen4-max, text jobs qwen3.8-max-0902 → deepseek-v4.1-flash → -1017 → kimi-k3.1-pro → qwen4-max; awaitingEval empty; only the five models")
     func table() {
         #expect(QwenRoute.Job.allCases.count == 6 && QwenRoute.all.count == 6)
-        #expect(QwenRoute.live.chain.map(\.model) == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
-        #expect(QwenRoute.live.awaitingEval.map(\.model) == ["qwen3.8-max"])
-        #expect(QwenRoute.ground.chain.map(\.model) == ["qwen3.7-plus", "qwen3.7-flash-2026-07-15"])
-        #expect(QwenRoute.picker.chain.map(\.model) == ["qwen3.8-flash"])
-        #expect(QwenRoute.picker.awaitingEval.map(\.model) == ["qwen3.8-max", "qwen3.8-max-0902"])
-        #expect(QwenRoute.planner.chain.map(\.model) == ["qwen3.8-flash"] && QwenRoute.plannerModel == "qwen3.8-flash")
-        // F-18 §39 items 2-3 (T-046zb): the search on flash with max; the extraction on flash, thinking off, not streamed.
-        #expect(QwenRoute.eventsSearch.chain.map(\.model) == ["qwen3.8-flash"] && QwenRoute.eventsSearch.awaitingEval.map(\.model) == ["qwen3.8-max"])
-        #expect(QwenRoute.eventsExtract.chain.map(\.model) == ["qwen3.8-flash"] && !QwenRoute.eventsExtract.stream)
-        #expect(!QwenRoute.eventsExtract.chain.contains(where: \.thinking) && QwenRoute.eventsExtract.chain.allSatisfy { $0.search == nil })
-        #expect(QwenRoute.eventsSearch.chain.allSatisfy { $0.search?.strategy == "max" })
+        #expect(QwenRoute.endpoint == "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")
+        #expect(QwenRoute.plannerEndpoint == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+        let search = ["deepseek-v4.1-flash", "deepseek-v4.1-flash-1017", "qwen4-max"]
+        let text = ["qwen3.8-max-0902", "deepseek-v4.1-flash", "deepseek-v4.1-flash-1017", "kimi-k3.1-pro", "qwen4-max"]
+        for r in [QwenRoute.live, .ground, .eventsSearch] { #expect(r.chain.map(\.model) == search, "\(r.job)") }
+        for r in [QwenRoute.picker, .planner, .eventsExtract] { #expect(r.chain.map(\.model) == text, "\(r.job)") }
+        #expect(QwenRoute.plannerModel == "qwen3.8-max-0902")
+        #expect(QwenRoute.live.chain.allSatisfy { $0.search?.strategy == "turbo" } && QwenRoute.ground.chain.allSatisfy { $0.search?.strategy == "turbo" })
+        #expect(QwenRoute.eventsSearch.chain.allSatisfy { $0.search?.strategy == "max" && $0.search?.forced == true && $0.search?.enableSource == true })
+        #expect([QwenRoute.picker, .planner, .eventsExtract].allSatisfy { $0.chain.allSatisfy { $0.search == nil } })
+        #expect(!QwenRoute.eventsExtract.stream)
         for r in QwenRoute.all {
-            #expect(Set(r.chain.map(\.model)).isDisjoint(with: r.awaitingEval.map(\.model)), "\(r.job)")
+            #expect(r.awaitingEval.isEmpty, "\(r.job)")
+            #expect(r.chain.allSatisfy { !$0.thinking }, "\(r.job)")
+            // Row 58: only item 3's five models.
+            #expect(Set(r.chain.map(\.model)).isSubset(of: QwenRoute.allowedModels), "\(r.job)")
         }
+        #expect(QwenRoute.allowedModels == Set(text))
+    }
+
+    @Test("T-046zc F-18 §40 row 59: 403 AllocationQuota.FreeTierOnly on the first planner model: the next answers; record fallback reason=quota")
+    func row59() async throws {
+        let lines = Lines()
+        let fallback = QwenFallback(clock: ManualClock(), log: { lines.add($0) })
+        let freeTier = #"{"code":"AllocationQuota.FreeTierOnly","message":"free tier used up"}"#
+        let sender = Sender { $0 == "qwen3.8-max-0902" ? (403, freeTier) : (200, planAnswer) }
+        let client = QwenTripPlannerClient(key: { "k" }, send: sender.send, fallback: fallback)
+        let text = try await client.complete(system: "S", messages: [TripPlannerMessage(role: .user, content: "U")])
+        #expect(text == #"{"days":[],"done":true}"#)
+        #expect(sender.sent == ["qwen3.8-max-0902", "deepseek-v4.1-flash"])
+        #expect(lines.all.contains("qwen fallback job=planner from=qwen3.8-max-0902 to=deepseek-v4.1-flash reason=quota"), "\(lines.all)")
     }
 
     @Test("T-046y F-18 §36 row 33: planner first model 403 quota, second 200: plan made by the second; record fallback and exhausted")
@@ -112,11 +129,11 @@ struct QwenChainTests {
         let clock = ManualClock()
         let lines = Lines()
         let fallback = QwenFallback(clock: clock, log: { lines.add($0) })
-        let sender = Sender { $0 == "qwen3.7-flash-2026-07-15" ? (429, throttled) : (200, liveAnswer) }
+        let sender = Sender { $0 == "deepseek-v4.1-flash" ? (429, throttled) : (200, liveAnswer) }
         let client = QwenWebSearchClient(key: { "k" }, send: sender.send, fallback: fallback)
         _ = try await client.search("q", attempt: 1)
-        #expect(sender.sent == ["qwen3.7-flash-2026-07-15", "qwen3.8-flash"])
-        #expect(lines.all == ["qwen fallback job=live from=qwen3.7-flash-2026-07-15 to=qwen3.8-flash reason=rate"])
+        #expect(sender.sent == ["deepseek-v4.1-flash", "deepseek-v4.1-flash-1017"])
+        #expect(lines.all == ["qwen fallback job=live from=deepseek-v4.1-flash to=deepseek-v4.1-flash-1017 reason=rate"])
         #expect(fallback.usedUpModels().isEmpty && fallback.skipped(.live) == .rateLimit)
         clock.advance(by: .seconds(60))
         #expect(fallback.skipped(.live) == nil)

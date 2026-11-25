@@ -9,6 +9,7 @@ python3 "$root/scripts/gates/check_imports.py"
 python3 "$root/scripts/gates/check_secrets.py"
 python3 "$root/scripts/gates/check_kws_tokens.py"
 python3 "$root/scripts/gates/check_paid_scripts.py"  # F-18 §32 item 6 (T-046u)
+python3 "$root/scripts/gates/check_qwen_models.py"  # F-18 §40 row 58 (T-046zc)
 python3 "$root/scripts/gates/check_record_format.py"  # F-12 §21 item 4 (T-031u)
 python3 "$root/scripts/gates/check_agent_version.py"  # F-09b §15 item 5 (T-031y)
 python3 "$root/scripts/gates/check_single_types.py"  # F-09b §16 item 10 (T-031z)

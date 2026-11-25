@@ -9,14 +9,23 @@ import NovaKit
 /// answer moves the same request to the next entry (`QwenFallback`). §36 item 1: a model enters a list only after its
 /// job's PC eval (row 35) passes; the spec's other entries wait in `awaitingEval` and are never called.
 ///
-/// | Job | Chain (evaluated) | Awaiting row 35 | Search | Thinking | Budget |
-/// |---|---|---|---|---|---|
-/// | `live` | qwen3.7-flash → qwen3.8-flash | qwen3.8-max | turbo, forced, sources | off | as today |
-/// | `ground` | qwen3.7-plus → qwen3.7-flash | qwen3.8-flash | turbo (row 160), forced, sources | off | 30 s |
-/// | `picker` | qwen3.8-flash (§59) | qwen3.8-max, qwen3.8-max-0902 | off | off | 2.5 s |
-/// | `planner` | qwen3.8-flash (§62) | qwen3.8-max, qwen3.8-max-0902 | off | off | 30 s |
-/// | `eventsSearch` | qwen3.8-flash | qwen3.8-max | max, forced, sources | off | 45 s per query (§39) |
-/// | `eventsExtract` | qwen3.8-flash | qwen3.8-max | off | off, not streamed, `json_object` (§39) | 30 s |
+/// F-18 §40 (T-046zc, owner order 2026-11-25): every job runs on the Beijing 百炼 account's free-quota models only,
+/// earliest free-quota expiry first (`qwen3.8-max-0902` 12-01, `deepseek-v4.1-flash` 12-13, `deepseek-v4.1-flash-1017`
+/// 01-17, `kimi-k3.1-pro` 02-02, `qwen4-max` 02-14). `awaitingEval` is empty. A used-up free quota answers 403
+/// `AllocationQuota.FreeTierOnly`, which `QwenFallback` treats as quota.
+///
+/// | Job | Chain | Search | Thinking | Budget |
+/// |---|---|---|---|---|
+/// | `live` | `searchChain` | turbo, forced, sources | off | as today |
+/// | `ground` | `searchChain` | turbo, forced, sources | off | 30 s |
+/// | `eventsSearch` | `searchChain` | max, forced, sources | off | 45 s per query (§39) |
+/// | `picker` | `textChain` | off | off | 2.5 s |
+/// | `planner` | `textChain` | off | off | 30 s |
+/// | `eventsExtract` | `textChain` | off | off, not streamed, `json_object` (§39) | 30 s |
+///
+/// `searchChain`: deepseek-v4.1-flash → deepseek-v4.1-flash-1017 → qwen4-max (kimi-k3.1-pro cannot search;
+/// qwen3.8-max-0902 gave no search answer in 240 s). `textChain`: qwen3.8-max-0902 → deepseek-v4.1-flash →
+/// deepseek-v4.1-flash-1017 → kimi-k3.1-pro → qwen4-max.
 ///
 /// `planner` and `eventsExtract` use the OpenAI-compatible chat endpoint (`plannerEndpoint`); the others the native one.
 public struct QwenRoute: Sendable, Hashable {
@@ -90,59 +99,46 @@ public struct QwenRoute: Sendable, Hashable {
     /// The same route sending `entry` (one of `chain`).
     public func on(_ entry: Entry) -> QwenRoute { QwenRoute(self, entry: entry) }
 
-    /// Model Studio, Singapore, multimodal API (the key's endpoint).
-    public static let endpoint = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+    /// F-18 §40 item 1: Model Studio, Beijing, multimodal API (the 设置 「千问 key」 is the Beijing account's).
+    public static let endpoint = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 
     private static let turbo = Search(strategy: "turbo", forced: true, enableSource: true)
-    /// §36 PC check 2026-11-24: `qwen3.8-max` and `qwen3.8-flash` accept `max`, not `agent`.
     private static let maxSearch = Search(strategy: "max", forced: true, enableSource: true)
 
-    /// F-18 §16 live info and §21 introductions (unchanged: §20 item 1, §22 item 1 chose `turbo`).
-    public static let live = QwenRoute(job: .live,
-                                       chain: [Entry(model: "qwen3.7-flash-2026-07-15", search: turbo, thinking: false),
-                                               Entry(model: "qwen3.8-flash", search: turbo, thinking: false)],
-                                       awaitingEval: [Entry(model: "qwen3.8-max", search: turbo, thinking: false)],
-                                       stream: true)
-    /// F-15b §4 item 6 picker: search off, not streamed. §59 (T-040zl, PC replay 2026-11-23): `qwen3.7-flash` answered
-    /// "none" for all 22 names, `qwen3.8-flash` picked every one right.
-    public static let picker = QwenRoute(job: .picker,
-                                         chain: [Entry(model: "qwen3.8-flash", search: nil, thinking: false)],
-                                         awaitingEval: [Entry(model: "qwen3.8-max", search: nil, thinking: false),
-                                                        Entry(model: "qwen3.8-max-0902", search: nil, thinking: false)],
-                                         stream: false, budget: .milliseconds(2500))
-    /// F-15b §50 item 1: `forced_search` so the search must run (the answer's `search_info` is checked); plus is the
-    /// "balanced" model. Row 160 (PC, 2026-11-19): `agent` and `max` answered with an empty `search_results`, so the
-    /// search-ran check would refuse every answer; `turbo` returned 8 sources in 6.1 s. Hence `turbo`.
-    public static let ground = QwenRoute(job: .ground,
-                                         chain: [Entry(model: "qwen3.7-plus", search: turbo, thinking: false),
-                                                 Entry(model: "qwen3.7-flash-2026-07-15", search: turbo, thinking: false)],
-                                         awaitingEval: [Entry(model: "qwen3.8-flash", search: turbo, thinking: false)],
-                                         stream: true, budget: .seconds(30))
-    /// F-15b §62 item 10 (T-040zo): the trip planner on the compatible-mode chat endpoint, `json_object`, thinking off,
-    /// 30 s (TripTuning.plannerTimeout). §36: its list is the same planner job on sibling models.
-    public static let planner = QwenRoute(job: .planner,
-                                          chain: [Entry(model: "qwen3.8-flash", search: nil, thinking: false)],
-                                          awaitingEval: [Entry(model: "qwen3.8-max", search: nil, thinking: false),
-                                                         Entry(model: "qwen3.8-max-0902", search: nil, thinking: false)],
-                                          stream: false, budget: .seconds(30))
-    /// F-18 §39 item 2 (T-046zb): one events keyword query, `max`, forced, sources; the answer text and the sources
-    /// are kept. 45 s per query (`EventSearchRun.queryLimit`).
-    public static let eventsSearch = QwenRoute(job: .eventsSearch,
-                                               chain: [Entry(model: "qwen3.8-flash", search: maxSearch, thinking: false)],
-                                               awaitingEval: [Entry(model: "qwen3.8-max", search: maxSearch, thinking: false)],
-                                               stream: true, budget: .seconds(45))
-    /// F-18 §39 item 3 (T-046zb): the one extraction call, compatible-mode chat, `json_object`, thinking off, 30 s.
-    public static let eventsExtract = QwenRoute(job: .eventsExtract,
-                                                chain: [Entry(model: "qwen3.8-flash", search: nil, thinking: false)],
-                                                awaitingEval: [Entry(model: "qwen3.8-max", search: nil, thinking: false)],
-                                                stream: false, budget: .seconds(30))
+    /// F-18 §40 item 3: the only five models any job may call.
+    public static let allowedModels: Set<String> = ["qwen3.8-max-0902", "deepseek-v4.1-flash", "deepseek-v4.1-flash-1017",
+                                                    "kimi-k3.1-pro", "qwen4-max"]
+    /// §40 item 2: the search jobs' list.
+    static let searchModels = ["deepseek-v4.1-flash", "deepseek-v4.1-flash-1017", "qwen4-max"]
+    /// §40 item 2: the jobs without search.
+    static let textModels = ["qwen3.8-max-0902", "deepseek-v4.1-flash", "deepseek-v4.1-flash-1017", "kimi-k3.1-pro", "qwen4-max"]
+
+    private static func chain(_ models: [String], search: Search?) -> [Entry] {
+        models.map { Entry(model: $0, search: search, thinking: false) }
+    }
+
+    /// F-18 §16 live info and §21 introductions.
+    public static let live = QwenRoute(job: .live, chain: chain(searchModels, search: turbo), stream: true)
+    /// F-15b §4 item 6 picker: search off, not streamed, 2.5 s (§40 item 6: watch `pick … ms=` on the phone).
+    public static let picker = QwenRoute(job: .picker, chain: chain(textModels, search: nil), stream: false,
+                                         budget: .milliseconds(2500))
+    /// F-15b §50 item 1: `forced_search` so the search must run; `turbo` (row 160).
+    public static let ground = QwenRoute(job: .ground, chain: chain(searchModels, search: turbo), stream: true, budget: .seconds(30))
+    /// F-15b §62 item 10 (T-040zo): the trip planner on the compatible-mode chat endpoint, `json_object`, 30 s.
+    public static let planner = QwenRoute(job: .planner, chain: chain(textModels, search: nil), stream: false, budget: .seconds(30))
+    /// F-18 §39 item 2 (T-046zb): one events keyword query, `max`, forced, sources; 45 s per query.
+    public static let eventsSearch = QwenRoute(job: .eventsSearch, chain: chain(searchModels, search: maxSearch), stream: true,
+                                               budget: .seconds(45))
+    /// F-18 §39 item 3 (T-046zb): the one extraction call, compatible-mode chat, `json_object`, 30 s.
+    public static let eventsExtract = QwenRoute(job: .eventsExtract, chain: chain(textModels, search: nil), stream: false,
+                                                budget: .seconds(30))
 
     public static let all: [QwenRoute] = [live, picker, ground, planner, eventsSearch, eventsExtract]
 
     /// F-15b §62 item 10 (T-040zo): the trip planner's first model (kept for callers that show it).
     public static var plannerModel: String { planner.model }
-    /// Model Studio, Singapore, OpenAI-compatible chat completions; the same key as the routes above.
-    public static let plannerEndpoint = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+    /// F-18 §40 item 1: Model Studio, Beijing, OpenAI-compatible chat completions; the same key as the routes above.
+    public static let plannerEndpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
     public static func route(_ job: Job) -> QwenRoute {
         switch job {

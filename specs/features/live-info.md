@@ -246,7 +246,7 @@ This section replaces §16 items 4, 5 and 8, and the parts of items 7 and 12 sta
 **Rule in plain words.** She still talks through `gemini-3.8-live` and still calls `web_search`. Our app now asks `qwen3.7-flash` instead of Gemini, using a separate key. Nothing else about how she finds information changes.
 
 1. **Key.** Add `CredentialKey.qwenAPIKey = "qwen_api_key"` and a `SettingsView` row 「阿里云百炼 key（联网搜索）」. It is write-only and kept in the Keychain like the others, and `CredentialWipe` removes it. A missing key never blocks a session or changes the Gemini key's readiness.
-2. **Telling the driver.** The setting's caption says: 「需要阿里云百炼 key。问题会发到阿里云新加坡。」 The setting's default stays off.
+2. **Telling the driver.** The setting's caption says: 「需要阿里云百炼 key。问题会发到阿里云北京。」 (北京 since F-18 §40, 2026-11-25; was 新加坡) The setting's default stays off.
 3. **The client.** `QwenWebSearchClient` in `NovaRealtime` replaces `GeminiWebSearchClient`, and the Gemini client and its tests are removed:
    - `POST https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`, headers `Authorization: Bearer <key>`, `Content-Type: application/json` and `X-DashScope-SSE: enable`. The key appears only in that header.
    - Body: `model` from one constant, `qwen3.7-flash`; `input.messages` with a `system` and a `user` message, each `content` being `[{"text": ...}]`; `parameters`: `result_format: "message"`, `incremental_output: true`, `enable_thinking: false`, `enable_search: true`, `search_options: {"search_strategy": "agent", "enable_source": true}`.

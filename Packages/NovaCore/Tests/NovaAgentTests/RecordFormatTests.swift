@@ -67,8 +67,8 @@ enum RecordFormatSession {
         .undo("navigation"),
         .trip("shown days=1"),
         // F-15b §62 items 9, 12 (T-040zo): the planner round, failure and handoff lines (format 10).
-        .trip("trip planner round=1 ms=8000 done=no days=4 stops=12 model=qwen3.8-flash"),
-        .trip("trip planner failed reason=timeout round=2 ms=30000 model=qwen3.8-flash"),
+        .trip("trip planner round=1 ms=8000 done=no days=4 stops=12 model=qwen3.8-max-0902"),
+        .trip("trip planner failed reason=timeout round=2 ms=30000 model=qwen3.8-max-0902"),
         .trip("handoff said tool=plan_trip ms=0"),
         .weather("ok"),
         .events("events store hit cities=1 window=2026-11-28..2026-11-29"),

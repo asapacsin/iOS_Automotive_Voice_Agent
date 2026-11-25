@@ -159,7 +159,7 @@ final class FakePicker: PlacePicker, @unchecked Sendable {
     let hang: Bool
     let fail: Bool
     let calls = Mutex<[[String]]>([])
-    var model: String { "qwen3.8-flash" }
+    var model: String { "qwen3.8-max-0902" }
     init(_ answers: [String: Int?] = [:], hang: Bool = false, fail: Bool = false) {
         self.answers = answers
         self.hang = hang
@@ -322,7 +322,7 @@ struct TripLookupTests {
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=1 none=0 ok=no reason=timeout") })
     }
 
-    @Test("T-040zl F-15b row 260: the picker fails (429 with no backup): every open name takes 高德's first result; the pick line says ok=no reason=failed model=qwen3.8-flash")
+    @Test("T-040zl F-15b row 260: the picker fails (429 with no backup): every open name takes 高德's first result; the pick line says ok=no reason=failed model=qwen3.8-max-0902")
     func row260() async {
         let picker = FakePicker(fail: true)
         let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
@@ -330,10 +330,10 @@ struct TripLookupTests {
         #expect(r.ok && r.data["count"] == .int(2))
         #expect(await rig.order() == ["北京故宫博物院北院区(建设中)", "陈家祠(地铁站)"])
         #expect(picker.calls.withLock { $0.count } == 1)
-        #expect(rig.lines.withLock { $0 }.contains { $0 == "trip pick names=2 none=0 ok=no reason=failed ms=0 model=qwen3.8-flash" }, "\(rig.lines.withLock { $0 })")
+        #expect(rig.lines.withLock { $0 }.contains { $0 == "trip pick names=2 none=0 ok=no reason=failed ms=0 model=qwen3.8-max-0902" }, "\(rig.lines.withLock { $0 })")
         let ok = await TripRig(search: TripSearch(Self.beijing), picker: FakePicker(["北京故宫": 1, "陈家祠": 1]))
         _ = await ok.run(planCall(["places": names(["北京故宫", "陈家祠"])]))
-        #expect(ok.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=2 none=0 ok=yes") && $0.hasSuffix(" model=qwen3.8-flash") })
+        #expect(ok.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=2 none=0 ok=yes") && $0.hasSuffix(" model=qwen3.8-max-0902") })
     }
 
     @Test("F-15b row 46: a name with one result and a cached name never go to the picker")

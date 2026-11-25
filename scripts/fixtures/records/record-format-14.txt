@@ -52,8 +52,8 @@ tools declared=2 set_volume=yes
 4200 up
 4300 navigation
 4400 shown days=1
-4500 trip planner round=1 ms=8000 done=no days=4 stops=12 model=qwen3.8-flash
-4600 trip planner failed reason=timeout round=2 ms=30000 model=qwen3.8-flash
+4500 trip planner round=1 ms=8000 done=no days=4 stops=12 model=qwen3.8-max-0902
+4600 trip planner failed reason=timeout round=2 ms=30000 model=qwen3.8-max-0902
 4700 handoff said tool=plan_trip ms=0
 4800 ok
 4900 events store hit cities=1 window=2026-11-28..2026-11-29

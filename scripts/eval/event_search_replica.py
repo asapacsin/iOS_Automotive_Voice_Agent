@@ -1,7 +1,7 @@
 """F-18 §39 row 55 (T-046zb): a PC replica of the app's events search (EventSearchRun), to run BEFORE an app build.
 As the app does it: city x kind keyword queries (EventSearchRun.queries: at most 12, the Macau/Hong Kong English query
-last), each on qwen3.8-flash with enable_search, forced_search, search_strategy max, enable_source, thinking off, the
-query as the only user message and no system text, 4 at once, 45 s each; then one qwen3.8-flash extraction call
+last), each on deepseek-v4.1-flash (F-18 §40: the search chain's first model) with enable_search, forced_search, search_strategy max, enable_source, thinking off, the
+query as the only user message and no system text, 4 at once, 45 s each; then one qwen3.8-max-0902 extraction call (§40: the text chain's first)
 (compatible mode, json_object, system 「Extract the event information. Answer in JSON.」 + the shape, today and the window); then
 code's checks (dates parse, end >= start, overlaps the window, end >= today, city one of the asked, source_url one the
 searches returned else the naming query's first source, name+start once).
@@ -16,8 +16,10 @@ MAX_CALLS = int(ARGS[ARGS.index("--max-calls") + 1]) if "--max-calls" in ARGS el
 POS = [a for i, a in enumerate(ARGS) if not a.startswith("--") and (i == 0 or ARGS[i - 1] != "--max-calls")]
 RUNS = int(POS[0]) if POS else 3
 CALLS = 0
-SEARCH_URL = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-CHAT_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+# F-18 §40 items 1, 4: the Beijing 百炼 account (key DASHSCOPE_API_KEY_CN) and its free-quota models.
+SEARCH_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+CHAT_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+SEARCH_MODEL, EXTRACT_MODEL = "deepseek-v4.1-flash", "qwen3.8-max-0902"
 CITIES, FROM, TO, TODAY = ["珠海", "澳门"], "2026-11-25", "2026-12-31", "2026-11-24"
 DEFAULT_KINDS = ["展览展会", "漫展 ACG", "演唱会 演出", "AI 科技展", "节庆活动"]
 ENGLISH = {"澳门": "Macau", "香港": "Hong Kong"}
@@ -58,7 +60,7 @@ def post(url, body, key, timeout):
 
 def search(q, key):
     t0 = time.time()
-    r = post(SEARCH_URL, {"model": "qwen3.8-flash", "input": {"messages": [{"role": "user", "content": [{"text": q}]}]},
+    r = post(SEARCH_URL, {"model": SEARCH_MODEL, "input": {"messages": [{"role": "user", "content": [{"text": q}]}]},
                           "parameters": {"result_format": "message", "enable_search": True, "enable_thinking": False,
                                          "search_options": {"search_strategy": "max", "enable_source": True, "forced_search": True}}},
              key, 45)
@@ -75,7 +77,7 @@ def extract(answers, key):
     system = f"Extract the event information. Answer in JSON.\n{SHAPE}\ntoday: {TODAY}\nfrom: {FROM}\nto: {TO}"
     user = "\n\n".join(f"## {i + 1}. {q}\n{a['text']}\n" + "\n".join(f"[{n + 1}] {s['title']} {s['url']}" for n, s in enumerate(a["sources"]))
                        for i, (q, a) in enumerate(answers))
-    r = post(CHAT_URL, {"model": "qwen3.8-flash", "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+    r = post(CHAT_URL, {"model": EXTRACT_MODEL, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
                         "response_format": {"type": "json_object"}, "enable_thinking": False, "stream": False}, key, 30)
     return json.loads(r["choices"][0]["message"]["content"]).get("events", []), r.get("usage", {}).get("total_tokens", 0)
 
@@ -119,7 +121,7 @@ def main():
     print(f"planned paid calls: {planned} ({RUNS} runs x {len(qs)} searches + 1 extraction); --max-calls {MAX_CALLS}")
     if "--yes" not in ARGS and input("start? [y/N] ").strip().lower() != "y":
         return 1
-    key = os.environ["DASHSCOPE_API_KEY"].strip()
+    key = os.environ["DASHSCOPE_API_KEY_CN"].strip()
     results = []
     for run in range(RUNS):
         t0 = time.time()

@@ -10,7 +10,7 @@ import Testing
 
 @Suite("T-040zo F-15b §62 item 10 the trip planner client")
 struct TripPlannerClientTests {
-    @Test("T-040zo F-15b §62 item 10: qwen3.8-flash on the compatible-mode endpoint, json_object, thinking off, system then the conversation; the answer is choices[0].message.content")
+    @Test("T-040zo F-15b §62 item 10 with F-18 §40: qwen3.8-max-0902 on the compatible-mode endpoint, json_object, thinking off, system then the conversation; the answer is choices[0].message.content")
     func request() async throws {
         let sent = Mutex<URLRequest?>(nil)
         let client = QwenTripPlannerClient(key: { "k" }, send: { req in
@@ -21,16 +21,16 @@ struct TripPlannerClientTests {
                                                                      TripPlannerMessage(role: .assistant, content: "A")])
         #expect(text == #"{"days":[],"done":true}"#)
         let req = try #require(sent.withLock { $0 })
-        #expect(req.url?.absoluteString == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions")
+        #expect(req.url?.absoluteString == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
         #expect(req.value(forHTTPHeaderField: "Authorization") == "Bearer k")
         let body = try JSONDecoder().decode(JSONValue.self, from: try #require(req.httpBody))
-        #expect(body["model"] == "qwen3.8-flash" && client.model == "qwen3.8-flash")
+        #expect(body["model"] == "qwen3.8-max-0902" && client.model == "qwen3.8-max-0902")
         #expect(body["response_format"]?["type"] == "json_object" && body["enable_thinking"] == false && body["stream"] == false)
         #expect(body["messages"] == [["role": "system", "content": "S"], ["role": "user", "content": "U"], ["role": "assistant", "content": "A"]])
         #expect(body["enable_search"] == nil)
     }
 
-    @Test("T-040zo F-15b §62 item 7 (with F-18 §36's one-model planner list): an HTTP error throws http(status); no key is notConfigured; no other model is asked")
+    @Test("T-040zo F-15b §62 item 7 (with F-18 §40's planner list): a 429 on every model throws http(429) after each model once; no key is notConfigured")
     func errors() async {
         let calls = Mutex(0)
         let failing = QwenTripPlannerClient(key: { "k" }, send: { _ in
@@ -38,7 +38,7 @@ struct TripPlannerClientTests {
             return (429, Data("{}".utf8))
         }, fallback: QwenFallback(clock: ManualClock()))
         await #expect(throws: TripPlannerModelError.http(429)) { try await failing.complete(system: "S", messages: []) }
-        #expect(calls.withLock { $0 } == 1)
+        #expect(calls.withLock { $0 } == QwenRoute.planner.chain.count)
         let none = QwenTripPlannerClient(key: { nil }, send: { _ in (200, Data()) })
         await #expect(throws: TripPlannerModelError.notConfigured) { try await none.complete(system: "S", messages: []) }
     }

@@ -41,11 +41,11 @@ struct SearchRecordTests {
 
     @Test("Rows 1, 5: request and response lines; parser counts; an error reply")
     func exchangeLines() {
-        let x = WebSearchExchange(attempt: 1, requestBody: #"{"model":"qwen3.7-flash"}"#, status: 200, ms: 812, bytes: 40,
+        let x = WebSearchExchange(attempt: 1, requestBody: #"{"model":"deepseek-v4.1-flash"}"#, status: 200, ms: 812, bytes: 40,
                                   responseBody: "data:{}", error: nil, urlError: nil, chunks: 3, answerChars: 12,
                                   sources: 2, searchCount: 1)
         #expect(lines(.searchExchange(x)) == [
-            #"5 search-request attempt=1 body={"model":"qwen3.7-flash"}"#,
+            #"5 search-request attempt=1 body={"model":"deepseek-v4.1-flash"}"#,
             "5 search-response attempt=1 status=200 ms=812 bytes=40 chunks=3 answerChars=12 sources=2 searchCount=1 body=data:{}",
         ])
         let none = WebSearchExchange(attempt: 2, requestBody: "{}", status: 200, ms: 1, bytes: 0, responseBody: "",

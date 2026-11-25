@@ -31,7 +31,7 @@ struct CallBudgetTests {
     @Test("T-046u F-18 §32 row 1: one turn asks qwen.live 3 times: 2 allowed, the 3rd refused budget")
     func row1() {
         let b = budget()
-        let m = "qwen3.7-flash-2026-07-15"
+        let m = "deepseek-v4.1-flash"
         #expect(b.ask(.qwenLive, model: m, key: "a") == .allow)
         #expect(b.ask(.qwenLive, model: m, key: "b") == .allow)
         #expect(b.ask(.qwenLive, model: m, key: "c") == .refuse(.budget))
