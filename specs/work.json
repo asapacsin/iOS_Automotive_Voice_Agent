@@ -2886,7 +2886,7 @@
       "status": "READY",
       "priority": 0,
       "depends_on": [],
-      "action": "F-15b §66 items 1-5: after the planner round, code links each sight to the events list (loose name/title match, year and punctuation removed, longest wins): event from the list, map lookup by the entry's venue, event name never looked up as a place; unmatched sights as written; plan_text shows 「event（venue，dates）」; record 'trip event link'; rows 308-313.",
+      "action": "F-15b §66 items 1-5: after the planner round, code links each sight to the events list (loose name/title match, year and punctuation removed, longest wins): event from the list, map lookup by the entry's venue, event name never looked up as a place; unmatched sights as written; plan_text shows 「event（venue，dates）」; record 'trip event link'; item 6: an entry with no confirmed venue (live-info §44) is never looked up, card 「场馆未找到」; rows 308-313a.",
       "notes": "Phone run 98eb278 2026-11-25: plans showed venues without the event (577804) or sent 「2026横琴AI嘉年华」 to the map (683676); code kept an event only on an exact title match.",
       "evidence": []
     },
@@ -2898,6 +2898,18 @@
       "depends_on": [],
       "action": "F-18 §43 items 1-4: Qiniu search/model retry (2 more tries after 1 s, 3 s; 5xx/429/network/timeout; no §41 fallback); find_events optional name -> first query by name, store hit only if a stored name matches; 'events drop name= reason=' per dropped candidate; event image_url from the source page og:image, shown on event cards; rows 78-86.",
       "notes": "Phone run 98eb278 2026-11-25 (records 20261125-164242, 20261125-165923); owner order 2026-11-25.",
+      "evidence": []
+    },
+    {
+      "id": "T-046zg",
+      "owner": "AUTONOMOUS",
+      "status": "READY",
+      "priority": 0,
+      "depends_on": [
+        "T-046zf"
+      ],
+      "action": "F-18 §44 items 1-6: code checks each event's venue (after a place word) and dates against its source result and page; for a missing venue or dates one Qiniu search 「<name> <YYYY> 时间 地点」 + one extraction, checked the same way on up to 3 pages; else 「场馆：未找到」/「日期：未找到」 in find_events text and 场馆未找到/日期未找到/未找到图片 on cards; no map lookup by event name; store keeps confirmed fields for the trip planner; record 'events check'; rows 87-94.",
+      "notes": "Owner 2026-11-25: reliable location, time, picture; show 未找到 rather than invent, but a venue one search finds (AIE) must be found; events searched once, stored structured, picked up by the trip planner. PoC with Opus as extractor: 7/7 kept, 6/6 planted errors caught; AIE and 航展 venues found by the venue search.",
       "evidence": []
     },
     {

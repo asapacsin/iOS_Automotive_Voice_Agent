@@ -2997,6 +2997,10 @@ events-list name exactly (`TripPlanner`, §64 item 3). In the run:
    after item 1).
 5. **Record.** One line per linked sight: `trip event link sight=<asked> event=<name> venue=<venue> by=<name|title>`;
    none for unlinked sights.
+6. **A linked event with no venue (live-info §44).** When the list entry has no confirmed venue, the stop is not looked
+   up on the map (not by the event name, not by the planner's `location`, §67 item 2) and offers no navigation; the card
+   shows the event line and 「场馆未找到」 with the city; `plan_text`/trip line give 「<event>（场馆未找到，<start>–<end>）」.
+   An entry with no confirmed dates gives 「日期未找到」 and is not checked against the day (as §67 item 7).
 
 **Acceptance (iOS).**
 
@@ -3008,10 +3012,11 @@ events-list name exactly (`TripPlanner`, §64 item 3). In the run:
 | 311 | Sight `{"name":"珠海渔女"}`, no match | Unchanged, no record line | unit |
 | 312 | Plan with a linked stop | `plan_text`/trip line shows 「横琴AI嘉年华（珠海国际会展中心7-8号馆，11-28–11-29）」 | unit |
 | 313 | Device: find events, then 「把AI嘉年华排进周日」 | Card shows the venue and the event line; she names the event and the venue for the same day | D |
+| 313a | Events list has 第十六届中国航展 with no venue (live-info §44 found none); sight `{"name":"航展","location":"珠海国际航展中心"}` | Linked; no map call; card 「场馆未找到」 + 珠海; trip line 「第十六届中国航展（场馆未找到，12-07–12-13）」 | unit |
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040zs | §66 items 1–5; rows 308–313 | NOT_RUN |
+| T-040zs | §66 items 1–6; rows 308–313a | NOT_RUN |
 
 ## 67. Every stop has a name and a location; only the location goes to the map (iOS, owner order 2026-11-25)
 

@@ -1965,3 +1965,89 @@ NOT_RUN until then.
 | Task | Scope | Status |
 |---|---|---|
 | T-046zf | §43 items 1–4; rows 78–86 (85, 85a passed on the PC) | NOT_RUN |
+
+## 44. An event's venue and dates are shown only when a source states them; one search for what is missing; otherwise 「未找到」 (iOS, owner order 2026-11-25)
+
+**Why.** Owner 2026-11-25: event results must be reliable on location, time and picture, and 「show not found rather than
+hallucinate」; but a venue that one search finds (AIE) must not be 「未找到」. The events are searched once, kept as
+structured data in the local store (F-18 store), and the trip planner reads them from there (trip-plan §64, §66). Phone
+run 98eb278: she knew AIE was at 威尼斯人, then said she could not locate it; the planner sent the event name to the map
+(trip-plan §66 Why). Today the extraction model fills `venue` and dates from what it read and from memory, and nothing
+checks them.
+
+**PoC (PC 2026-11-25; Claude Opus 5.5 as the extractor, planner and picture judge, no paid model calls; the 7 confirmed
+events of `scripts/eval/events_reference_2026-11.json`; source pages fetched; scripts `rel/check.py`, `rel/rule.py` and
+the store `rel/events_store.json` in the session scratchpad).**
+- Each event's own source page: dates on all 7. A venue on 4 (珠海国际会展中心7-8号馆, 横琴长隆度假区(5号停车场),
+  伦敦人综艺馆 ×2); none on 3: 航展 (「在广东珠海举办」), AIE (a 发布会 story: 「在澳门、珠海同步举办」), 横琴马拉松 (a route).
+- Item 1's checks with 6 planted wrong answers: the 7 real values kept, all 6 caught: 航展 hall from memory, AIE hall
+  from another page, 「横琴」 for 横琴AI嘉年华 (on its page only inside the name; the page says
+  「活动地点 ：珠海国际会展中心7-8号馆」), AIE end 12-06, 韦礼安 12-13, 马拉松 2025. Checking only that the venue text is
+  somewhere on the page let 「横琴」 through.
+- Item 2's search for the 3 without a venue (web search 「<name> 地点 展馆」): AIE → shifair.com page,
+  「展会地址： 珠海国际会展中心」 and 「同步在澳门威尼斯人金光会展中心」, both kept by item 1, 「横琴」 rejected; 航展 → the first
+  page (gmw.cn) names no hall, the next (dayoo.com) 「12月7日至13日在珠海国际航展中心」 kept; 横琴马拉松 → only the 2025
+  race's start (横琴金融岛中央公园, 2025-12-28): 「未找到」 is right, last year's start is not used. Not yet run on Qiniu
+  (blocked, §43): row 92.
+- Map (高德): venues land right (珠海国际会展中心 440402, 横琴长隆国际海洋度假区 440402, 伦敦人综艺馆 820007). Event names
+  looked up as places land wrong: 第十六届中国航展 → 「第十六届中国航展证件管理中心」, AIE → 「奥普塔智能制造」 (a company),
+  2026横琴马拉松 → 「横琴蚝生态庄园」.
+- Pictures (§43 item 4a, each looked at): og:image on 5 of 7 pages: 韦礼安 and LINGORM official posters (their date,
+  time and 伦敦人综艺馆 on the poster), 横琴AI嘉年华 its poster, VAC a VAC festival photo, 马拉松 a race photo; none wrong.
+  gmw.cn and stdaily.com have no og:image; their other images were site icons or other stories' photos.
+- Store to planner: the 7 events kept as structured data (`rel/events_store.json`: venue list, dates, source, picture,
+  how each was confirmed), given to the planner as item 3's text; 4 requests planned from it (this weekend with events;
+  AIE on 12-05 in Macau; 横琴马拉松 on 12-27; 航展 on 12-14). Code check (`rel/plan_check.py`, trip-plan §64 item 4 and
+  §66): every event stop on an open day at a confirmed venue (AIE at 澳门威尼斯人金光会展中心 for the Macau day), 马拉松
+  with no location (「场馆未找到」, no map lookup), 航展 on 12-14 not placed (「12月7日到13日，14号已经结束」); 0 problems.
+  Planted wrong plans (航展 on 12-14, 马拉松 at last year's start, AIE at 「横琴」): all 3 caught.
+
+1. **Checked against the source text (code).** An event's source text is its source result's `title` + `content`, then
+   its source page's text (the §43 item 4a fetch, tags removed; one fetch serves both).
+   a. **Venue.** `venue` is split at 「；」「;」「、」「/」 (an event in two cities has two halls). A part is kept when the
+      source text has it right after a place word: regex `(?:地点|地址|场地|场馆|会场|举办地|在|于|at|venue)[\s：:]{0,3}`,
+      then optionally 「广东」/「广东省」 and optionally one of the call's cities (with or without 「市」), then the part
+      itself. Other parts are dropped. No part kept → no venue.
+   b. **Dates.** Kept when the source text contains the start's year and the start day as one of 「M月D日」 「M月D号」 「M.D」
+      「M/D」 「MM-DD」 「YYYY.MM.DD」 「<English month> D」, and, when the end differs, the end day in one of those forms or,
+      in the same month, as 「D日」/「D号」 after one of `-–—~～至到` within 20 characters after the start day. Else no dates.
+      (Keeping and dropping events, §39 item 4, still uses the model's dates.)
+2. **One search for what is missing.** For a kept event with no venue or no dates after item 1, at most 3 events per
+   `find_events` call (in the order kept): one Qiniu search 「<name> <YYYY> 时间 地点」 (§42 item 2, §43 item 1 retry), then
+   one extraction call (§42 item 4, same text and shape) on its results; the extracted event whose name matches (§43
+   item 5's name variants) gives `venue`/`start`/`end`. Item 1 checks them against each result whose `title`+`content`
+   names the event (same name variants), then that result's page (fetched as §43 item 4a), at most 3 pages, in result
+   order, until confirmed. Confirmed values fill what was missing only (a confirmed value is never replaced).
+3. **「未找到」, never a guess.** In the events text she and the trip planner read (`find_events` result, the events list of
+   trip-plan §64) every event gives 「场馆：<venue>」 or 「场馆：未找到」 and 「日期：<start>–<end>」 or 「日期：未找到」: the
+   fields are always there, so the gap is stated, not left out. On screen (event cards, trip-plan §64 event stop, any
+   list of events) a missing venue shows 「场馆未找到」 with the city, missing dates 「日期未找到」, a missing picture (§43
+   item 4c) 「未找到图片」 in the picture's place. Asked for a picture with none, the tool result says 「未找到这个活动的图片」.
+4. **No map lookup by an event's name.** An event with no venue is never looked up on the map, by its name or anything
+   else, and offers no navigation; with a venue only the venue is looked up (trip-plan §66 item 6, §67 item 2).
+5. **Store.** The F-18 store keeps each event as structured data: `name`, `city`, `venue` (list, confirmed parts only),
+   `start`, `end` (confirmed or none), `source_url`, `image_url`, how each was confirmed (`page`/`search`/none), and the
+   time item 2 ran; item 2 runs at most once per event per day. Later calls and the trip planner read the store; a
+   confirmed value is never refilled from a model.
+6. **Record.** `events check name=<name> venue=<page|search|none> dates=<page|search|none> image=<og|search|none>`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 87 | Source text 「2026横琴人工智能大赛AI嘉年华… ➤活动地点 ：珠海国际会展中心7-8号馆」; model venue 「横琴」, then 「珠海国际会展中心」 | 「横琴」 → no venue; 「珠海国际会展中心」 kept | unit |
+| 88 | 「➤活动地点 ：广东珠海横琴长隆度假区(5号停车场)」, venue 「横琴长隆度假区」, cities 珠海, 澳门 | Kept | unit |
+| 89 | 「第十六届中国航展将于2026年12月7日至13日在广东珠海举办」; venue 「珠海国际航展中心」, 12-07…12-13 | No venue (item 2 runs); dates kept | unit |
+| 90 | 「2026AIE电子展将于12月3日至5日在澳门、珠海同步举办」; end 12-06, then 12-05 | 12-06 → no dates; 12-05 → kept | unit |
+| 91 | Item 2 fixture: result 1 page names no hall, result 2 「…将于12月7日至13日在珠海国际航展中心举办」; venue 「珠海国际航展中心；珠海国际会展中心」 | Venue 珠海国际航展中心 (the other part dropped); record `venue=search`; one search, one model call | unit |
+| 91a | Item 2 finds nothing confirmed | `find_events` text 「场馆：未找到」; card 「场馆未找到」 + city; no map call; no navigation | unit |
+| 91b | Event with no picture | Card 「未找到图片」; picture request → 「未找到这个活动的图片」 | unit |
+| 92 | PC: Qiniu; item 2 for AIE, 航展, 横琴马拉松 | AIE both halls, 航展 珠海国际航展中心, 马拉松 「未找到」 | PC (NOT_RUN: Qiniu blocked) |
+| 93 | PC: items 1–2 on the 7 reference events and 6 planted errors | 7 kept, 6 caught; AIE and 航展 venues from item 2 | PC (passed 2026-11-25, Opus as extractor, own web search for item 2) |
+| 94 | Device: 「最近有什么活动」, then 「AIE在哪里」 | Every venue and date matches its source or says 未找到; AIE 珠海国际会展中心 and 澳门威尼斯人金光会展中心 | D |
+
+**Trace gate.** Add `T-046zg: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zg.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zg | §44 items 1–6; rows 87–94 (93 passed on the PC) | NOT_RUN |
