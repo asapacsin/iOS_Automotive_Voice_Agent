@@ -2931,3 +2931,41 @@ never gave; run 3 moved a night's hotel to 深圳 although the driver said 「�
 | Task | Scope | Status |
 |---|---|---|
 | T-040zq | §64 items 1–6 (`asked.start` and `stay_city`, events from the F-18 §35 store, planner `event` field and line, code date/store checks in the counts, stay city counted, saved and shown); rows 297–302 | NOT_RUN |
+
+## 65. A trip from an earlier conversation is not in her context until it is used (iOS, owner order 2026-11-25)
+
+**Why (phone run 2026-11-25, build 98eb278, record `20261125-164242.txt`).** The driver said 「这周末我想在这个珠海这里澳门游一游，
+帮我安排一下行程。」 (62502). She called `plan_trip` with `{"days":4, "start":"2026-11-28", "text":"安排一个珠海和澳门的旅行，
+大概玩四天。"}`: `start` is the right Saturday, but `days` and `text` are word for word the `asked` of the trip saved in the
+morning's test (record 8f4fc7b `20261125-130922.txt`, the row-60 four-day request). That trip reached her through the
+`[系统] 现在` note: every note carries the whole saved plan, `asked` included (`TripPlanJSON.noteLine`, sent from
+`AgentRuntime` with each context snapshot, F-15b §52 item 2). The driver: 「两天嘛，你怎么四天了？」
+
+1. **Off at the start of a conversation.** At each new conversation (`session connected`), the context note carries no
+   trip line (`ContextSnapshot.tripPlan` nil, `fields` without `trip`), even when a plan is saved. The plan stays saved
+   on the phone; nothing is deleted.
+2. **On once the trip is used in this conversation.** The trip line comes back (as today, the whole plan) from the first
+   of these in the conversation, and stays on until it ends:
+   - a `plan_trip` or `set_trip_plan` result in this conversation (a new plan or a change);
+   - a trip tool that reads the saved plan (`trip_next`, opening the trip screen, `exit_navigation_mode` on
+     `tripScreen`, any tool whose result carries `plan_kept`);
+   - the driver opening the trip screen or a trip card by touch.
+3. **Code, not prompt.** The on/off is a flag in the app's context code (`AgentRuntime` where the snapshot
+   is built, or a NovaCore type it asks); no prompt text changes. Trip tools read the saved plan directly as now, so
+   「去下一站」 and 「打开我的行程」 work in a new conversation with the line off.
+4. **Record.** `contextNote fields=` shows `trip` only while the line is on (already so); add one line
+   `trip context on reason=<plan_trip|set_trip_plan|tool:<name>|touch>` when it turns on.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 303 | A plan saved; a new conversation starts | First context note has no trip line; `fields` without `trip` | unit |
+| 304 | Same; then a `plan_trip` result | Next note carries the trip line; record `trip context on reason=plan_trip` | unit |
+| 305 | Same; then `trip_next` (no `plan_trip` before) | `trip_next` works from the saved plan; the next note carries the trip line, `reason=tool:trip_next` | unit |
+| 306 | Trip line on; the conversation ends and a new one starts | Off again | unit |
+| 307 | Device: a saved 4-day trip from an earlier conversation; new conversation, 「这周末去珠海澳门玩，帮我安排行程」 | `plan_trip` `days` is not 4 and `text` is not the old request; record shows no `trip` in `contextNote fields` before the call | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zr | §65 items 1–4; rows 303–307 | NOT_RUN |
