@@ -84,7 +84,7 @@ public struct QwenTripGrounder: TripGrounder {
         guard let key = key(), !key.isEmpty else { throw TripGroundError.notConfigured }
         let status: Int, body: Data
         do {
-            // §50 item 10 (T-040x): a 429 or a quota 403 switches once to `route.backupModel` with `turbo`.
+            // §50 item 10 (T-040x): a 429 or a quota 403 switches once to the next model with the same `web_search` body (§41).
             (status, body) = try await fallback.run(Self.route, request: Self.input(r)) { route, timeout in
                 var req = request(r, key: key, route: route)
                 req.limit(timeout)

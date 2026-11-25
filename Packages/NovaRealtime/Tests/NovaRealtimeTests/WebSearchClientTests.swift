@@ -154,7 +154,7 @@ struct WebSearchClientTests {
         #expect(seen.withLock { $0 }.first?.sources == 2 && seen.withLock { $0 }.first?.chunks == 4)
     }
 
-    @Test("§19 item 3, §20 row 1: the date sentence and forced_search are in every request")
+    @Test("§19 item 3, §20 row 1: the date sentence and the web_search tool (§41) are in every request")
     func forced() {
         #expect(QwenWebSearchClient.forcedSearch && QwenWebSearchClient.searchStrategy == "turbo" && QwenWebSearchClient.enableSource)
         let client = QwenWebSearchClient(key: { TestKey.value })
@@ -167,7 +167,7 @@ struct WebSearchClientTests {
         #expect(one == two)
     }
 
-    @Test("§22 rows 1-2: turbo on first attempt and retry; HTTP 400 with a code is one request, no other strategy")
+    @Test("§22 rows 1-2: web_search (§41) on first attempt and retry; HTTP 400 with a code is one request, no other strategy")
     func turbo() async {
         let bodies = Mutex<[String]>([])
         let client = QwenWebSearchClient(key: { TestKey.value }, send: { request in

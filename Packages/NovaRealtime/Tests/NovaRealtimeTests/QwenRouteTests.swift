@@ -33,7 +33,7 @@ private let goodJSON = #"{"places":[{"name":"浅草寺","english":"Senso-ji","mi
 
 @Suite("T-040v F-15b §50 item 9 one Qwen model per job")
 struct QwenRouteTests {
-    @Test("T-040v F-15b row 154: QwenRoute table and bodies: ground is deepseek-v4.1-flash (F-18 §40), turbo, forced, sources, thinking off, streamed, date turn")
+    @Test("T-040v F-15b row 154: QwenRoute table and bodies: ground is deepseek-v4.1-flash (F-18 §40), web_search on the Responses API (§41), thinking off, not streamed, date turn")
     func row154() throws {
         #expect(QwenRoute.live.model == "deepseek-v4.1-flash" && QwenRoute.live.search?.strategy == "turbo")
         #expect(QwenRoute.picker.model == "qwen3.8-max-0902" && QwenRoute.picker.search == nil && !QwenRoute.picker.stream)

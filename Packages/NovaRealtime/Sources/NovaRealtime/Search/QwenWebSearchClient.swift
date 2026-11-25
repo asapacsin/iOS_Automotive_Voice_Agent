@@ -6,8 +6,8 @@ import Synchronization
 import NovaKit
 import NovaPorts
 
-/// F-18 §17 items 3-4 (T-046e): the only `WebSearchService`. One streamed request to the `live` route (`QwenRoute`) on Alibaba Cloud
-/// Model Studio (Beijing since F-18 §40, multimodal API) with search on, using its own Keychain key in the `Authorization` header
+/// F-18 §17 items 3-4 (T-046e): the only `WebSearchService`. One request to the `live` route (`QwenRoute`) on Alibaba Cloud
+/// Model Studio (Beijing since F-18 §40; since §41 the Responses API with the `web_search` tool, not streamed), using its own Keychain key in the `Authorization` header
 /// only. The FreshPrompt system text and date turn carry the phone's date and time zone (§24) and are never sent to the voice model.
 public struct QwenWebSearchClient: WebSearchService {
     /// F-15b §50 item 9 (T-040v): the model and options come from the `live` route of `QwenRoute`.
@@ -41,7 +41,7 @@ public struct QwenWebSearchClient: WebSearchService {
         self.zone = zone
     }
 
-    /// The whole stream is read before parsing (§17 item 3); she only gets the finished answer.
+    /// The whole body is read before parsing (§17 item 3); she only gets the finished answer.
     public static let urlSession: Send = { request in
         let (data, response) = try await URLSession.shared.data(for: request)
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)

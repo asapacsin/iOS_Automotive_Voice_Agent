@@ -5,9 +5,9 @@ import FoundationNetworking
 import NovaKit
 import NovaPorts
 
-/// F-18 §39 item 2 (T-046zb): one events keyword query on the app's search route (`QwenRoute.eventsSearch`: `max`,
-/// forced, sources, thinking off), the query as the only user message and **no system text**. Kept: the search's own
-/// answer text, `search_info.search_results` (title, url, site) and `usage.total_tokens`. A 429 or a quota 403 moves the
+/// F-18 §39 item 2 (T-046zb): one events keyword query on the app's search route (`QwenRoute.eventsSearch`: since §41 the
+/// Responses `web_search` tool, thinking off), the query as the only user message and **no system text**. Kept: the search's own
+/// answer text, the source urls (§41: no title or site) and `usage.total_tokens`. A 429 or a quota 403 moves the
 /// query to the next model of the chain (§36, `QwenFallback`). Queries, checks and store are NovaCore's
 /// (`EventSearchRun`).
 public struct QwenEventSearcher: EventWebSearcher {

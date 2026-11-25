@@ -2809,13 +2809,17 @@
     },
     {
       "id": "T-046zd",
-      "owner": "AUTONOMOUS",
-      "status": "READY",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [],
       "action": "F-18 §41 items 1-7: search jobs live/ground/eventsSearch send to https://dashscope.aliyuncs.com/compatible-mode/v1/responses with tools [{type: web_search}], enable_thinking false, not streamed (no enable_search/search_options/web_extractor); answer = message output_text, sources = web_search_call action.sources urls (dedup), tokens = usage.total_tokens; record searches=; event_search_replica.py sends the same request; rows 61-65.",
       "notes": "Phone run 8f4fc7b 2026-11-25: enable_search on the Beijing key returns 200 with no pages (search_info empty), so every search said 查不到. Responses web_search with thinking off: 5-9 s, ~3K tokens, 9-19 sources (PC, §41). Do before the next build.",
-      "evidence": []
+      "evidence": [
+        "8724340: items 1-7 built; rows 61-63 unit (QwenResponsesTests); gates green (NovaCore 1137, 1 known issue; NovaRealtime 70; NovaServices 118; spec-trace 189/0)",
+        "spec-reviewer high effort PASS 2026-11-25 (non-blocking: stale comments/test titles fixed; live sources now have empty hosts per item 3, so search-result sources= is empty)"
+      ],
+      "blocked_by": "Row 64 PC run (event_search_replica.py 1 on DASHSCOPE_API_KEY_CN) and row 65 device run (Codemagic build)"
     },
     {
       "id": "T-046zb",
