@@ -2913,6 +2913,18 @@
       "evidence": []
     },
     {
+      "id": "T-046zh",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 0,
+      "depends_on": [
+        "T-046zf"
+      ],
+      "action": "F-18 §45 items 1-4: after §43 item 1's Qiniu retries fail (or a non-429 4xx), the same job runs on the Qwen API with the 千问 key as §41 sends it: live -> QwenWebSearchClient, ground -> QwenTripGrounder, one events query -> QwenEventSearcher, extraction -> QwenEventExtractor; no fallback for the image search or the §44 item 2 search; no 千问 key -> failed as §43; inside the job's remaining budget; record fallback=qwen; rows 100-106.",
+      "notes": "Owner order 2026-11-25 (chat): 「if the 七牛 fail you should use the qwen api instead」. Amends §43 item 1's 'no §41 call'. 百炼 quotas left 2026-11-25: kimi-k3.1-pro 995.84K, qwen3.8-max-0902 766.27K (to 12-01), deepseek-v4.1-flash-1017 289.91K.",
+      "evidence": []
+    },
+    {
       "id": "T-040zt",
       "owner": "AUTONOMOUS",
       "status": "RUNNING",
