@@ -52,6 +52,19 @@ public enum EventSearchMode: String, Sendable, Hashable {
 /// One event the extraction named, before code's checks.
 public struct EventCandidate: Sendable, Hashable {
     public let name, start, end, datesText, venue, city, sourceURL: String
+    /// F-18 §44 item 8: `HH:MM`, empty when not stated.
+    public let time: String
+    public init(name: String, start: String, end: String, datesText: String, venue: String, city: String, sourceURL: String,
+                time: String = "") {
+        self.name = name
+        self.start = start
+        self.end = end
+        self.datesText = datesText
+        self.venue = venue
+        self.city = city
+        self.sourceURL = sourceURL
+        self.time = time
+    }
 }
 
 public struct EventSearchOutcome: Sendable, Hashable {
@@ -112,7 +125,8 @@ public struct EventSearchRun: Sendable {
     /// Item 3 (amended 2026-11-25): the system text (OpenAI "Structured Outputs" guide, copied; 「Answer in JSON.」 is
     /// what JSON mode requires: the word JSON in the messages) and the JSON shape, today and the window as values.
     public static let instruction = "Extract the event information. Answer in JSON."
-    public static let shape = #"{"events": [{"name": "", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "dates_text": "", "venue": "", "city": "", "source_url": ""}]}"#
+    /// F-18 §44 item 8: the shape gains `"time": "HH:MM"` (empty when not stated).
+    public static let shape = #"{"events": [{"name": "", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "time": "HH:MM", "dates_text": "", "venue": "", "city": "", "source_url": ""}]}"#
 
     /// F-18 §43 item 6 (Qiniu, amends §42 item 4): the call's cities as one more data line, like today/from/to.
     public static func system(_ r: EventRequest, qiniu: Bool = false) -> String {
@@ -338,42 +352,167 @@ public struct EventSearchRun: Sendable {
                                       kept: checked.from.filter { $0.query.city == q.city && $0.query.kind == kind }.count))
         }
         let sites = checked.kept.map(\.sourceSite).filter { !$0.isEmpty }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-        let kept = await pictures(checked.kept, request: r, known: known)
+        let times = Dictionary(candidates.map { ($0.name + "|" + $0.start, $0.time) }, uniquingKeysWith: { a, _ in a })
+        let kept = await confirm(checked.kept, request: r, known: known, sources: used.flatMap(\.1.sources), modelTimes: times)
         return EventSearchOutcome(kept: kept, dropped: checked.dropped, sites: sites, queries: m, failed: failed,
                                   cut: cut, tokens: tokens, searched: pairs)
     }
 
-    // MARK: F-18 §43 item 4, pictures
+    // MARK: F-18 §44 items 1-2, 5-6 and §43 item 4: checks, one search for what is missing, pictures
 
-    /// Each kept event's picture, in order: a picture the store looked for today is kept as it is; else the page's
-    /// `og:image`, else one image search, else none. One `events image` line per event looked for.
-    func pictures(_ kept: [EventEntry], request r: EventRequest, known: [EventEntry]) async -> [EventEntry] {
+    /// F-18 §44 item 2: at most this many events per call get the search for what is missing.
+    public static let fillMax = 3
+    /// §44 item 2: at most this many result pages fetched per event.
+    public static let fillPages = 3
+
+    /// Fetches each page once per run (one fetch serves the checks and the picture, §44 item 1).
+    final class PageCache: @unchecked Sendable {
+        private var pages: [String: String?] = [:]
+        private let source: any EventPageSource
+        init(_ source: any EventPageSource) { self.source = source }
+        func page(_ url: String) async -> String? {
+            if let cached = pages[url] { return cached }
+            let html = await source.page(url)
+            pages[url] = .some(html)
+            return html
+        }
+    }
+
+    /// Each kept event in order: an event the store checked today is kept as stored; else §44 item 1's checks against
+    /// its source result and its page, §44 item 2's search for what is still missing (at most 3 events, Qiniu only), a
+    /// confirmed value from the store kept when the new check found none, §43 item 4's picture, and the
+    /// `events check` line. `modelTimes`: the extraction's `time` by `name|start`.
+    func confirm(_ kept: [EventEntry], request r: EventRequest, known: [EventEntry], sources: [EventSearchHit],
+                 modelTimes: [String: String]) async -> [EventEntry] {
         guard let pages else { return kept }
+        let cache = PageCache(pages)
         let today = r.today.description
+        var filled = 0
         var out: [EventEntry] = []
         for var e in kept {
-            if let k = known.first(where: { $0.city == e.city && $0.name == e.name && $0.start == e.start }), k.imageOn == today {
+            let k = known.first { $0.city == e.city && $0.name == e.name && $0.start == e.start }
+            if let k, k.checkedOn == today {
+                out.append(k)
+                continue
+            }
+            let html = await cache.page(e.sourceURL)
+            var texts: [EventSourceCheck.Text] = []
+            if let hit = sources.first(where: { $0.url == e.sourceURL }) {
+                texts.append(EventSourceCheck.result(title: hit.title, content: hit.snippet))
+            }
+            if let html { texts.append(EventSourceCheck.page(html)) }
+            // Item 1a: the confirmed parts only.
+            let parts = EventSourceCheck.venue(e.venue, in: texts, cities: r.cities)
+            e.venue = parts.joined(separator: "；")
+            e.venueVia = parts.isEmpty ? "none" : "page"
+            // Items 1b, 7.
+            if let s = EventDay(e.start), let en = EventDay(e.end), EventSourceCheck.dates(start: s, end: en, in: texts) {
+                e.datesVia = "page"
+            } else {
+                e.datesVia = "none"
+            }
+            // Items 8, 9.
+            e.time = modelTimes[e.name + "|" + e.start].flatMap { EventSourceCheck.time($0, in: texts) } ?? ""
+            e.ticket = EventDay(e.start).map { EventSourceCheck.ticket(start: $0, in: texts, today: r.today) } ?? []
+            // Item 2.
+            if mode == .qiniu, e.venueVia == "none" || e.datesVia == "none", filled < Self.fillMax {
+                filled += 1
+                await fill(&e, request: r, cache: cache)
+            }
+            // Item 5: a confirmed value is never replaced, and never refilled from a model.
+            if let k {
+                if e.venueVia == "none", k.venueVia != "none" { e.venue = k.venue; e.venueVia = k.venueVia }
+                if e.datesVia == "none", k.datesVia != "none" { e.start = k.start; e.end = k.end; e.datesVia = k.datesVia }
+                if e.time.isEmpty { e.time = k.time }
+                if e.ticket.isEmpty { e.ticket = k.ticket }
+            }
+            e.checkedOn = today
+            e.checkedAt = now()
+            // §43 item 4: the picture (looked for at most once per event per day).
+            if let k, k.imageOn == today {
                 e.imageURL = k.imageURL
                 e.imageVia = k.imageVia
                 e.imageOn = k.imageOn
-                out.append(e)
-                continue
-            }
-            e.imageOn = today
-            if let html = await pages.page(e.sourceURL), let og = EventPicture.ogImage(html) {
-                e.imageURL = og
-                e.imageVia = "og"
-            } else if let hits = try? await pages.images(EventPicture.query(e)), let url = EventPicture.pick(hits, for: e) {
-                e.imageURL = url
-                e.imageVia = "search"
             } else {
-                e.imageURL = nil
-                e.imageVia = "none"
+                e.imageOn = today
+                if let html, let og = EventPicture.ogImage(html) {
+                    e.imageURL = og
+                    e.imageVia = "og"
+                } else if let hits = try? await pages.images(EventPicture.query(e)), let url = EventPicture.pick(hits, for: e) {
+                    e.imageURL = url
+                    e.imageVia = "search"
+                } else {
+                    e.imageURL = nil
+                    e.imageVia = "none"
+                }
+                onLine(EventPicture.line(e))
             }
-            onLine(EventPicture.line(e))
+            onLine(Self.checkLine(e))
             out.append(e)
         }
         return out
+    }
+
+    /// §44 item 6.
+    public static func checkLine(_ e: EventEntry) -> String {
+        "events check name=\(e.name) venue=\(e.venueVia) dates=\(e.datesVia) image=\(e.imageVia) "
+            + "time=\(e.time.isEmpty ? "none" : "page") ticket=\(e.ticket.isEmpty ? "none" : e.ticket.joined(separator: ","))"
+    }
+
+    /// §44 item 2: one search 「<name> <YYYY> 时间 地点」, one extraction on its results (§42 item 4's text and shape); the
+    /// extracted event whose name matches (§43 item 5's variants) gives venue and dates, checked (item 1) against each
+    /// result that names the event, then that result's page (at most 3 pages), in result order, until confirmed.
+    /// Only what is missing is filled.
+    func fill(_ e: inout EventEntry, request r: EventRequest, cache: PageCache) async {
+        let text = "\(e.name) \(EventDay(e.start)?.year ?? r.today.year) 时间 地点"
+        let answer: EventSearchAnswer
+        do {
+            answer = try await within(Self.queryLimit) { [searcher] in try await searcher.search(text, timeout: Self.queryLimit) }
+        } catch {
+            onLine("events fill name=\(e.name) search=failed")
+            return
+        }
+        let query = EventQuery(text: text, city: e.city, kind: nil, cities: r.cities, covers: [])
+        let system = Self.system(r, qiniu: true), user = Self.qiniuUser([(query, answer)])
+        let reply = try? await within(Self.qiniuExtractLimit) { [extractor] in
+            try await extractor.extract(system: system, user: user, timeout: Self.qiniuExtractLimit)
+        }
+        let variants = Self.nameVariants(e.name)
+        guard let candidates = reply.flatMap({ Self.candidates($0.content) }),
+              // The same event, and the same year's (the PoC: 横琴马拉松's only venue was the 2025 race's start, 「未找到」 is right).
+              let c = candidates.first(where: { c in
+                  (variants.contains { c.name.contains($0) } || Self.nameVariants(c.name).contains { e.name.contains($0) })
+                      && EventDay(c.start)?.year == EventDay(e.start)?.year
+              }) else {
+            onLine("events fill name=\(e.name) found=no")
+            return
+        }
+        let start = EventDay(c.start), end = EventDay(c.end)
+        var venue: [String] = []
+        var pagesLeft = Self.fillPages
+        func apply(_ texts: [EventSourceCheck.Text]) {
+            if e.venueVia == "none" {
+                for p in EventSourceCheck.venue(c.venue, in: texts, cities: r.cities) where !venue.contains(p) { venue.append(p) }
+            }
+            if e.datesVia == "none", let start, let end, start <= end, EventSourceCheck.dates(start: start, end: end, in: texts) {
+                e.start = start.description
+                e.end = end.description
+                e.datesVia = "search"
+            }
+        }
+        var done: Bool { (e.venueVia != "none" || !venue.isEmpty) && e.datesVia != "none" }
+        for hit in Self.numbered([(query, answer)]) where variants.contains(where: { (hit.title + " " + hit.snippet).contains($0) }) {
+            apply([EventSourceCheck.result(title: hit.title, content: hit.snippet)])
+            if done { break }
+            guard pagesLeft > 0 else { continue }
+            pagesLeft -= 1
+            if let html = await cache.page(hit.url) { apply([EventSourceCheck.page(html)]) }
+            if done { break }
+        }
+        if e.venueVia == "none", !venue.isEmpty {
+            e.venue = venue.joined(separator: "；")
+            e.venueVia = "search"
+        }
     }
 
     // MARK: Item 4, checks
@@ -390,7 +529,8 @@ public struct EventSearchRun: Sendable {
         return events.map { e in
             func s(_ k: String) -> String { e[k]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
             return EventCandidate(name: s("name"), start: s("start"), end: s("end").isEmpty ? s("start") : s("end"),
-                                  datesText: s("dates_text"), venue: s("venue"), city: s("city"), sourceURL: s("source_url"))
+                                  datesText: s("dates_text"), venue: s("venue"), city: s("city"), sourceURL: s("source_url"),
+                                  time: s("time"))
         }.filter { !$0.name.isEmpty }
     }
 
