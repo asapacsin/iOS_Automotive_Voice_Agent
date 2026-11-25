@@ -183,6 +183,7 @@ struct QiniuSearchTests {
         let body = try JSONDecoder().decode(JSONValue.self, from: sent[1].httpBody ?? Data())
         guard case .array(let m)? = body["messages"], let text = m[3]["content"]?.stringValue else { Issue.record("messages"); return }
         #expect(text.hasPrefix("query: 珠海天气\n\nsource: ") && text.hasSuffix("\nhighlight: \n\nquestion: 珠海天气\nanswer: "))
+        #expect(FreshPromptEvidence.displayDate("2026-11-05") == "Nov 05, 2026")
         #expect(text.components(separatedBy: "question: ").count == 2 && text.components(separatedBy: "answer: ").count == 2)
     }
 

@@ -196,7 +196,7 @@ public enum FreshPromptEvidence {
         let p = d.split(separator: "-").compactMap { Int($0) }
         let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         guard p.count == 3, (1...12).contains(p[1]) else { return text }
-        return "\(months[p[1] - 1]) \(p[2]), \(p[0])"
+        return "\(months[p[1] - 1]) \(p[2] < 10 ? "0" : "")\(p[2]), \(p[0])"
     }
 
     /// Her query in the user message the executor builds: `query: Q\n\nquestion: …\nanswer: ` (driver words) or

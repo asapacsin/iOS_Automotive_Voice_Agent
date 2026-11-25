@@ -2823,13 +2823,17 @@
     },
     {
       "id": "T-046ze",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [],
       "action": "F-18 §42 items 1-7: 设置 「七牛云 key」 (Keychain qiniu_api_key); search jobs use POST https://api.qnaigc.com/v1/search/web (max_results 20) and model deepseek/deepseek-v4-flash-20260731 on api.qnaigc.com chat completions; events: 3 queries (all cities, kind groups 展览展会 科技展 / 演唱会 演出 / 漫展 节庆 嘉年华), extraction on numbered results, 60 s; live/ground: one search + FreshPrompt evidence block; fallback to §41 without a 七牛云 key or on a failed Qiniu call; record provider=qiniu; replica --qiniu; rows 66-77.",
       "notes": "Owner order 2026-11-25. PC: Qiniu search 2-4 s, 20 results, no model tokens; events 3 queries: 4/7 in titles/snippets, extraction 3/7 in 22-31 s, ~16.5K tokens (3 runs, identical). 429 RPM from the 6th search in a minute. Search price not verified. Rows 74-76 PC before the build. depends_on T-046zd dropped 2026-11-25: §42 replaces §41's search path; T-046zd code is in (8724340), its rows 64-65 are external.",
-      "evidence": []
+      "evidence": [
+        "4258563 + review fix 4d8dcf1 (+ day zero-pad): items 1-7 built; rows 66-72 unit (QiniuEventsTests, QiniuSearchTests); gates green (NovaCore 1141, 1 known issue; NovaRealtime 78; spec-trace 190/0); record format 15",
+        "spec-reviewer high 2026-11-25 FAIL (live search sent the FreshPrompt message as the query; no-words frame doubled labels) -> fixed 4d8dcf1; re-check medium PASS. Non-blocking left: extraction Qiniu timeout = outer 60 s so a Qiniu timeout ends .extract without §41 fallback; WebSearchExecutor attempt 2 re-searches Qiniu after a 429; App events-run choice untested (App not built here)"
+      ],
+      "blocked_by": "Row 73 app build (Codemagic) and 设置 check; rows 74-76 PC with QINIU_API_KEY (event_search_replica.py 3 --qiniu; live and ground through item 5); row 77 device"
     },
     {
       "id": "T-046zb",
