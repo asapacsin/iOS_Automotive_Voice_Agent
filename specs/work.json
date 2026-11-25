@@ -2822,6 +2822,18 @@
       "blocked_by": "Row 64 PC run (event_search_replica.py 1 on DASHSCOPE_API_KEY_CN) and row 65 device run (Codemagic build)"
     },
     {
+      "id": "T-046ze",
+      "owner": "AUTONOMOUS",
+      "status": "READY",
+      "priority": 0,
+      "depends_on": [
+        "T-046zd"
+      ],
+      "action": "F-18 §42 items 1-7: 设置 「七牛云 key」 (Keychain qiniu_api_key); search jobs use POST https://api.qnaigc.com/v1/search/web (max_results 20) and model deepseek/deepseek-v4-flash-20260731 on api.qnaigc.com chat completions; events: 3 queries (all cities, kind groups 展览展会 科技展 / 演唱会 演出 / 漫展 节庆 嘉年华), extraction on numbered results, 60 s; live/ground: one search + FreshPrompt evidence block; fallback to §41 without a 七牛云 key or on a failed Qiniu call; record provider=qiniu; replica --qiniu; rows 66-77.",
+      "notes": "Owner order 2026-11-25. PC: Qiniu search 2-4 s, 20 results, no model tokens; events 3 queries: 4/7 in titles/snippets, extraction 3/7 in 22-31 s, ~16.5K tokens (3 runs, identical). 429 RPM from the 6th search in a minute. Search price not verified. Rows 74-76 PC before the build.",
+      "evidence": []
+    },
+    {
       "id": "T-046zb",
       "rework": "2026-11-25: F-18 §39 item 3 amended: extraction system text is 「Extract the event information. Answer in JSON.」 (json_object needs the word JSON; row 55 run 1 got HTTP 400 at extraction after 11 good searches). Change EventSearchRun.instruction, rows 49 tests (FindEventsTests row49, QwenEventClientsTests extraction), scripts/eval/event_search_replica.py extract(); print the error body on non-200 (record `events extract failed status=<code> body=<300 chars>`); then row 55 again. Reference list now has 7 confirmed events (checked by hand 2026-11-24).",
       "owner": "EXTERNAL_RESOURCE",

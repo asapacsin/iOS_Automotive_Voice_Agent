@@ -1791,3 +1791,79 @@ shows sources. §40's PC check said `enable_search` returned sources; it does no
 | Task | Scope | Status |
 |---|---|---|
 | T-046zd | §41 items 1–7; rows 61–65; before the next build | NOT_RUN |
+
+## 42. Search through the 七牛云 (Qiniu) web search API; a model reads the results (iOS, owner order 2026-11-25)
+
+**Why (2026-11-25).** §41's Aliyun `web_search` lets the model search 3–14 times inside one request: 48–123K tokens
+and 24–51 s per events question, events found swinging 2–5 of 7 run to run. In one afternoon of tests the free quota of
+`deepseek-v4.1-flash` ran out and `deepseek-v4.1-flash-1017` fell to 290K. The owner chose Qiniu's search API, which
+returns plain results (no model tokens), and three searches per events question.
+
+**PC check (2026-11-25, Qiniu AI API key, `https://api.qnaigc.com/v1`).**
+- Search `POST /v1/search/web` `{"query", "max_results": 20, "search_type": "web"}`: 2–4 s, 20 results each, dated
+  11-17…11-24 for 「珠海 澳门 2026年11月 12月 展览展会」 (AIE电子展, 航展, 「澳门11月宝藏展览合集」). The backend is
+  Baidu Search (Qiniu's doc). Response: `success`, `data.results[]` with `title`, `url`, `content` (snippet), `date`,
+  `source`, `score`; `data.total`; errors as `{"error": {"message", "type"}}`.
+- Events, three queries (both cities each; kind groups 「展览展会 科技展」, 「演唱会 演出」, 「漫展 节庆 嘉年华」), 3 runs,
+  identical: the reference events named in titles/snippets after query 1: 2/7 (航展, AIE); after query 2: 4/7 (+VAC,
+  韦礼安); query 3 adds none. Never found: 横琴AI嘉年华, 水产前沿国际展, LINGORM.
+- Extraction on the 54 results of the three queries, `deepseek/deepseek-v4-flash-20260731`, chat completions,
+  `json_object`, system 「Extract the event information. Answer in JSON.」 + shape + today/window/cities: 3 runs, each
+  3/7 (VAC, 航展, AIE; 韦礼安 was in the results but not extracted), 21.6–30.5 s, 16.3–16.8K tokens (about 3.3K of them
+  reasoning: thinking is on by default).
+- Limit: the 6th search within one minute answered 429 `rate limit reached for RPM`. Qiniu's docs give no number.
+- Price: Qiniu bills models from a token pack weighted by model price (base: DeepSeek-V3.1 input 0.004 元/K);
+  `deepseek-v4-flash-20260731` is 0.001–0.002 元/K input, 0.004–0.008 元/K output (time of day). The `/v1/search/web`
+  price and whether it draws on the pack are not on Qiniu's pages (2026-11-25): **not verified**.
+- Not tested: the `live` and `ground` jobs on Qiniu (rows 75, 76 are the PC checks before the build).
+
+1. **Key.** 设置 gets a field 「七牛云 key」 under 联网 (Keychain `qiniu_api_key`, write-only like the other keys, never in
+   logs). It takes the AI 大模型推理 API key (`sk-…`), not an AccessKey/SecretKey. With no 七牛云 key, the search jobs
+   stay on §41 unchanged.
+2. **Search call.** `POST https://api.qnaigc.com/v1/search/web`, `Authorization: Bearer <七牛云 key>`, body
+   `{"query": <query>, "max_results": 20, "search_type": "web"}`, 15 s. Kept per result: `title`, `url`, `content`,
+   `date`, `source`. A non-200, `success: false` or a timeout is a failed search; a 429 is logged `reason=rate_limit`
+   and not retried.
+3. **Model.** `QwenRoute`-style route on `https://api.qnaigc.com/v1/chat/completions` with the 七牛云 key, model
+   `deepseek/deepseek-v4-flash-20260731`, not streamed. A failed call falls back to the same job on §41 with the 千问 key.
+4. **Events (`eventsSearch` + `eventsExtract`, replaces §39 item 1 and §41 for this job).** At most 3 queries per
+   `find_events` call, each naming all cities of the call: 「<城市1> <城市2> … <YYYY>年<M>月[ <M>月…] <kind group>」 (months
+   as §39 item 1). Kind groups with no `kinds`: 「展览展会 科技展」, 「演唱会 演出」, 「漫展 节庆 嘉年华」; with the
+   driver's `kinds` (split as §39 item 1): one kind per query in order, kinds 4–5 appended to queries 1–2. No English
+   query. All queries at once. Extraction: one call on item 3's model with the system text above (§39 item 3, unchanged
+   wording) and the user message = the results, deduplicated by url, numbered, one per line:
+   `[n] <date> <title> — <content, first 300 characters> (<url>)`; `response_format` `json_object`; 60 s. A kept
+   event's `source_url` is the url of the result number it names. Checks, store and record as §39 items 4–7.
+5. **Her answers and trip grounding (`live`, `ground`).** One search per call with her query (§19/§21 rewrites as now),
+   then one call on item 3's model: the system text and messages stay exactly as §23 item 7 / §24 item 2 (FreshPrompt);
+   the top 10 results go in before the question as FreshPrompt's evidence block, copied from the notebook's
+   `format_search_results` (fields `source`, `date`, `title`, `snippet`, `highlight`, listed here from memory, not
+   re-read: the notebook wins; `snippet` = `content`, `highlight` empty), [FreshPrompt notebook](https://github.com/freshllms/freshqa/blob/main/freshprompt.ipynb). No
+   wording is added (owner rule 2026-11-05). "The search ran" = at least one result.
+6. **Record.** Search lines: `provider=qiniu`, `ms=`, `results=`, `failed=`/`reason=`; extraction and answer lines:
+   `model=`, `ms=`, `tokens=` (prompt, completion, reasoning).
+7. **PC script.** `scripts/eval/event_search_replica.py` gains `--qiniu` (key `QINIU_API_KEY`) running items 2–4
+   exactly, and prints per query time/results and the extraction time/tokens/recall.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 66 | 七牛云 key saved; any search job | `POST …/v1/search/web` with the key as Bearer, body as item 2; never the 千问 key | unit |
+| 67 | No 七牛云 key | Search jobs send §41's request unchanged | unit |
+| 68 | `find_events` 珠海+澳门, no `kinds`, window 11-25…12-31 | 3 queries 「珠海 澳门 2026年11月 12月 展览展会 科技展」, 「… 演唱会 演出」, 「… 漫展 节庆 嘉年华」; no English query | unit |
+| 69 | `kinds` 「漫展、音乐」, city 澳门 | 2 queries 「澳门 2026年11月 漫展」, 「澳门 2026年11月 音乐」 | unit |
+| 70 | Fixture Qiniu search response | Results parsed (title, url, content, date, source); extraction user message lines as item 4 | unit |
+| 71 | Search answers 429 | Failed, `reason=rate_limit`, not retried; the other queries still used | unit |
+| 72 | Qiniu chat call fails | Same job falls back to §41 with the 千问 key; record says so | unit |
+| 73 | 设置 | 「七牛云 key」 field, write-only, Keychain `qiniu_api_key` | build, D |
+| 74 | PC: `event_search_replica.py 3 --qiniu` | ≥ 3/7 reference events in each run; extraction ≤ 60 s | PC |
+| 75 | PC: 「今天珠海天气怎么样」 through item 5 (`live`) | Answer with today's 11-25 facts and a source | PC |
+| 76 | PC: one `ground` request (a place in a trip) through item 5 | Grounded with a source | PC |
+| 77 | Device: 「今天珠海天气怎么样」, then 「最近珠海澳门有什么活动」 | Today's facts; events with dates; record `provider=qiniu`, `queries=3` | D |
+
+**Trace gate.** Add `T-046ze: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046ze.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046ze | §42 items 1–7; rows 66–77; rows 74–76 on the PC before the build | NOT_RUN |
