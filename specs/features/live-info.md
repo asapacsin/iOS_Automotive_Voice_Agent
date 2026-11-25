@@ -1682,3 +1682,57 @@ drops any it cannot): 横琴AI嘉年华 11-28…29; 横琴VAC电音节 11-28…2
 | Task | Scope | Status |
 |---|---|---|
 | T-046zb | §39 items 1–10; rows 48–56 (55 before the build); supersedes T-046za | NOT_RUN |
+
+## 40. All Qwen jobs move to the Beijing 百炼 account and its free-quota models, earliest expiry first (iOS, owner order 2026-11-25)
+
+**Why (owner, 2026-11-25).** The Singapore account went −20.09 USD overdue (a model's Stop-on-Exhaust switch was off),
+and an overdue account answers 403 `AccessDenied.Unpurchased` for every model, so every Qwen job in the app fails. The
+owner moved to a Beijing 百炼 account. Its free-quota models (1M each, Stop-on-Exhaust **on** for all) and when their free
+quota expires: `qwen3.8-max-0902` 2026-12-01, `deepseek-v4.1-flash` 2026-12-13, `deepseek-v4.1-flash-1017` 2027-01-17,
+`kimi-k3.1-pro` 2027-02-02, `qwen4-max` 2027-02-14. Owner rule: use the one that expires first first.
+
+**PC check (2026-11-25, Beijing key, Clash route DIRECT for `aliyuncs.com`).**
+- Plan (`TripPlannerShape.system`, the §64 row 301 request with two events): `qwen3.8-max-0902` 7.6 s, 868 tokens;
+  `deepseek-v4.1-flash` 4.0 s, 966 tokens. Both: valid JSON, 4 days, 长隆海洋王国 in, all nights in 珠海, last night
+  null, events only on 11-28/29.
+- Search (compatible mode, `enable_search`, `max`, one broad query): `deepseek-v4.1-flash` 35 s 18.4K tokens,
+  `deepseek-v4.1-flash-1017` 27 s 16.5K, `qwen4-max` 40 s 16.7K, each 2/7 reference events; `qwen3.8-max-0902` no answer
+  in 120 s and 240 s; `kimi-k3.1-pro` answered that it cannot go online. With §39's short queries (4 queries)
+  `deepseek-v4.1-flash` found 4/7 (AI嘉年华 with dates, venue, free entry; 航展; AIE; 韦礼安) for 41.9K tokens.
+- The app's own request shape: `deepseek-v4.1-flash` on the **native** multimodal endpoint, streamed, `turbo`, forced,
+  sources: 5.5 s, `search_info.search_results` 9 sources. `qwen3.8-max-0902` there without search: 2 s. So the clients
+  and request bodies do not change.
+
+1. **Endpoints.** `QwenRoute.endpoint` = `https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`;
+   `QwenRoute.plannerEndpoint` = `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions` (Beijing). The key is
+   the 设置 「千问 key」 (Keychain `qwen_api_key`); the owner enters the Beijing key there.
+2. **Chains (replace every list in `QwenRoute`, amends F-18 §36 item 1 and F-15b §50/§59/§62).** `awaitingEval` empty.
+   - Search jobs `live`, `ground` (`turbo`, forced, sources) and `eventsSearch` (`max`, forced, sources):
+     `deepseek-v4.1-flash` → `deepseek-v4.1-flash-1017` → `qwen4-max`.
+   - Jobs without search `picker`, `planner`, `eventsExtract`: `qwen3.8-max-0902` → `deepseek-v4.1-flash` →
+     `deepseek-v4.1-flash-1017` → `kimi-k3.1-pro` → `qwen4-max`.
+   - Thinking off everywhere; streaming, budgets and options per job unchanged.
+3. **Only these five models.** No other model name in `QwenRoute`, the clients or PC scripts (no `qwen3.7-*`,
+   `qwen3.8-flash`, `qwen3.8-max`, `qwen-plus`, `qwen3.7-plus-2026-05-26`). A used-up or expired free quota answers 403
+   `AllocationQuota.FreeTierOnly`; `QwenFallback` already treats a code containing `Quota` as quota and moves on.
+4. **PC scripts.** `scripts/eval/*` read `DASHSCOPE_API_KEY_CN` and use the Beijing endpoints and these models.
+5. **Tests.** Every test that names an old model or the `dashscope-intl` endpoint is updated to item 1–2's values; a test
+   walks every job's chain and fails on any model outside item 3's five.
+6. **Picker speed (watch).** `picker` has 2.5 s; `qwen3.8-max-0902` answered a 1-token call in 2 s, so a pick may time out
+   until 2026-12-01. Record `pick … ms=` on the phone; if picks time out, the owner decides whether the picker starts at
+   `deepseek-v4.1-flash`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 57 | `QwenRoute` | Both endpoints Beijing; chains as item 2; `awaitingEval` empty | unit |
+| 58 | Every job's chain; `scripts/` | Only item 3's five models | unit, gate |
+| 59 | Fake 403 `AllocationQuota.FreeTierOnly` on the first planner model | Next model answers; record `qwen fallback … reason=quota` | unit |
+| 60 | Device, Beijing key in 设置: 「最近珠海澳门有什么活动」, then a 4-day 珠海 trip | Events with dates; a plan; record shows `deepseek-v4.1-flash` / `qwen3.8-max-0902`; no 403 | D |
+
+**Trace gate.** Add `T-046zc: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zc.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zc | §40 items 1–6; rows 57–60; before any other build | NOT_RUN |
