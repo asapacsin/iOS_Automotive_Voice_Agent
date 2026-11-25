@@ -3592,6 +3592,262 @@
       ],
       "archived_on": "2026-11-24",
       "archive_reason": "PASS, no open dependents, only device/eval rows pending (kept in the archive, history.py find)"
+    },
+    {
+      "id": "T-046v",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-046u"
+      ],
+      "action": "F-18 §33 items 1-10: BudgetLimits.enforce; .standard keeps the §32 limits (enforce true), new .unlimited (enforce false); CallBudget.ask checks limits only when enforce is on, still counts and writes paid lines; CallBudget.shared uses .unlimited (the app is not capped); tests and PC scripts keep the limits; the quota breaker stays; a refusal never says the network is down (next text; reply-check drift); rows 13-17.",
+      "notes": "Owner phone test 2026-11-23 (d0a0797, record 20261123-094001): in one driver turn set_trip_plan used the picker twice, the 3rd pick and then web_search were refused reason=budget, and she said 网络限制/无法连接网络. Owner rule 2026-11-23: the limits are for tests only; normal use has no call limit.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort FAIL (quota next said 不要说网络有问题; test stripped it) -> fixed b2e7b28 -> medium re-check PASS. Rows 13-16 unit PASS (UnlimitedBudgetTests, QuotaWordingTests, NetworkBlameTests); row 15 budget side only; row 17 device NOT_VERIFIED."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-040zi",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zh"
+      ],
+      "action": "F-15b §56 items 1-7: set_trip_plan accepts every field a trip result shows (id wins: name/placed/picked_by/near ignored, role and minutes applied; unknown keys ignored and listed); only the item 2 checks refuse; INVALID_FIELDS always carries problems lines (day, stop, field) and next; the same refused call is not run twice in one driver request (REPEATED_FAILURE); catalog text; agent minor bump; record problems/ignored/repeat-blocked; rows 237-244.",
+      "notes": "Owner phone test 2026-11-23 (d0a0797, record 20261123-095148): plan fix sent back in the result's shape {id,name,minutes,role} was refused INVALID_FIELDS {} three times (validator: exactly one of id, name, near); she gave up, the trip was never fixed. Owner: delete the over-strict check.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort PASS (2af2200); accepted deviations: repeat check in ToolDispatcher, unknown stop keys allowed instead of schema fields, new plan without city is INVALID_FIELDS. Rows 237-243 unit PASS (TripReadShapeTests, TripRefusalRecordTests); 244 device NOT_VERIFIED."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-040zj",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zh"
+      ],
+      "action": "F-15b §57 items 1-7: 结束导航 button whenever navigation, routePicking or routeCalculating is on (same path as exit_navigation_mode, works while moving); 去下一站 button with icon, apart from the cards, toggles to 结束导航 while navigating; trip_next toward the stop already guided -> ALREADY_NAVIGATING; screen-state keys tripNextButton and stopNavigationButton (on/off, from the display); tap lines to her; record nav tap; rows 245-251.",
+      "notes": "Owner 2026-11-23 (d0a0797, records 20261123-101517, -101941): no button stops navigation; 停止导航 heard as 新手导航 restarted it via trip_next; 2026-11-21 a tap meant for the cards hit 去下一站. Owner: a start button needs a stop button, and the navigation buttons go in the state (F-09b §16 rule: on/off only).",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort PASS (2af2200). Rows 245-250 unit PASS (TripNavButtonsTests); build part of 245, 247 NOT_VERIFIED (App not compiled on Linux); 251 device NOT_VERIFIED."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-046w",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-046f"
+      ],
+      "action": "F-18 §34 items 1-5: search-request/search-response body= escaped (backslash, \n, \r, \t) so every record entry is one line; any other entry's line break becomes a space; record format 5 with fixture and record-format.md row; read.py format-5 reader unescapes, format-4 reader joins body lines (legacy); rows 18-23.",
+      "notes": "Record 20261123-101517 (d0a0797): Qwen's SSE reply body written raw split one search-response entry into ~140 lines without times. Owner 2026-11-23: spec it. What is recorded is unchanged (F-18 §18, owner-enabled local record).",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort PASS (2af2200); note fixed (format-5 row commit 735e757). Rows 18-21 unit PASS (RecordOneLineTests, check_record_format), row 22 Python tests PASS (format-4 case on a made-up file, real record 20261123-101517 not in the repo); row 23 device NOT_VERIFIED."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-040zk",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zi"
+      ],
+      "action": "F-15b §58 items 1-7: a trip-change claim is proven only by an ok set_trip_plan since the driver's last words (never by another tool's ok); a refused set_trip_plan anywhere in the driver request disproves it (CLAIM_AFTER_FAILURE); background/later-sync claims are drift unless a set_trip_plan is running; async start next says 我在改行程; work panel steps for edits (正在改行程, 正在找<名字>, 已加入<名字>, 没改成：<line>); record; rows 252-258.",
+      "notes": "Owner phone test 2026-11-23 (d0a0797, record 20261123-102422): add a cafe -> set_trip_plan INVALID_FIELDS {}, web_search ok, she said 已经加入了BAMN Coffee, then 已经在后台更新了行程，稍后同步; the cafe never appeared and the screen showed nothing. Owner: say she is doing it, show progress on screen.",
+      "evidence": [
+        "scripts/gates/run_all.sh PASS on 278241b in a clean clone (Linux Swift 6.1.2; NovaCore 1076 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 170 ids 0 missing; agent 6.3.0, record format 6). Review: spec-reviewer high effort FAIL (tripVerdict before TRIP_NEEDS_FIX broke row 228; tripWrites leaked on cancel/reconnect) -> fixed b2e7b28 -> medium re-check FAIL (clearing on utterance voided a running write) -> fixed 278241b (callsEnded on cancel and drop) -> medium re-check PASS. Rows 252-257 unit PASS (TripChangeClaimTests, TripChangeClaimReviewTests, TripEditProgressTests); 256 via catalog text (NON_BLOCKING calls have no immediate result); build part of 257 NOT_VERIFIED; 258 device NOT_VERIFIED; cancel/drop wiring in AgentState checked by reading only."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-040zl",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zb"
+      ],
+      "action": "F-15b §59 items 1-4: QwenRoute.picker model qwen3.8-flash (search off, thinking off, 2.5 s); no backup route for the picker (429/quota 403 -> pick fails, 高德 first result); QwenFallback skips a route without backup; trip pick line gets model=<id>; §50 item 9 table and rows 47/154 expectations updated; rows 259-262.",
+      "notes": "Owner phone test 2026-11-23 (7442737, record 20261123-130852): 厦门/海南/深圳 make_trip_list NO_CANDIDATES, trip pick none=8. PC replay same day with real 高德 results: qwen3.7-flash-2026-07-15 answered 0 (none) for all 22 names, qwen3.8-flash picked all 22 correctly. Owner: switch to qwen3.8-flash.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 9c377ab in a clean clone (NovaCore 1087, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; spec-trace 174/0). Review: spec-reviewer high effort PASS (3f78f4a); notes: rows 157/159 text still describes the picker backup, ground backup-budget path lost its test. Rows 259-260 unit PASS; 261 PC, 262 device NOT_VERIFIED."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-040zm",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zk"
+      ],
+      "action": "F-15b §60 items 1-5: the trip work panel shows only while a set_trip_plan call runs and goes off when it returns with any result (trip_needs_fix included; remove the early return and continueTrip carry-over); §58 result line then off; off at once when tripScreen goes off; working in the screen state matches the panel; panel working on/off always recorded; no maxOpen for trip work; rows 263-267.",
+      "notes": "Owner phone test 2026-11-23 (6e72c92, record 20261123-141523): 中山 plan ended trip_needs_fix twice, the panel went on at 428929 and never off while the cards showed the plan. Owner: the panel belongs to the screen state; when the trip work or card closes, it closes.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 9c377ab in a clean clone (NovaCore 1087, 1 known issue; spec-trace 174/0). Review: spec-reviewer high effort PASS (f2e344c); notes: other failures still use end() (keeps a failed step line 3 s, pre-existing); row 264 test also accepts trip_list. Rows 263, 265, 266 unit PASS (TripWorkPanelTests); 264 unit PASS; App files read, not compiled; row 267 device NOT_VERIFIED."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-004k",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-004i"
+      ],
+      "action": "F-04 §15 items 1-5: the dispatcher keeps the running tool calls; a caption next to the status caption shows while any runs (正在搜索…/正在查天气…/正在查…/正在改行程…/正在处理…, newest with 等 N 项), on at the call and off at its result, no timers, regardless of who talks; session end empties it; backgroundWork on/off in the screen state and panel lines in the record; rows 10-14.",
+      "notes": "Owner phone test 2026-11-23 (6e72c92): searches and trip writes run async while the caption says 待命/请说; nothing shows background work. Owner: work running in the back must be visible.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 9c377ab in a clean clone (NovaCore 1087, 1 known issue; agent 6.4.0 then 7.0.0 with T-031zc; record format 7). Review: spec-reviewer high effort PASS (f2e344c); notes: screen key and panel line come from the caption view polled every 0.25 s, so a call under ~0.25 s may not be recorded; reconnect clear not unit-tested in AgentCore. Rows 10-13 unit PASS (BackgroundWorkTests); App files read, not compiled; row 14 device NOT_VERIFIED."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-031zc",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031za"
+      ],
+      "action": "F-09b §18 items 1-8: show_place(name, city); screen match unchanged, else 高德 text search in her city (car city only when city empty), no nationwide fallback, no first result; one exact name+city match -> card; else PLACE_UNSURE ok=false with asked/found (5) and next (check with web_search, call again, no apology-only); ok result names card name and city; record line with sure/found; scripts/show_place_check.py real-data PC check with --max-calls; rows 1-8.",
+      "notes": "Owner phone test 2026-11-23 (6e72c92, records 20261123-142445, -143104): 清远悦天下生态度假区 (really in 云浮) showed 清泉湾, a different resort; 清远新世界酒店 showed a 珠海 door shop; she apologised and never re-searched. Owner: the model finds the place, code only fetches; unsure goes back to the model.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on e2107e3 in a clean clone (NovaCore all green, 1 known NoiseCorpus issue; agent 7.0.0). Review: spec-reviewer high effort FAIL (asked branch name stripped, so calling again from found stayed PLACE_UNSURE) -> fixed e2107e3 -> medium re-check PASS. Rows 1-5 unit PASS (ShowPlaceToolTests, mutation-checked); row 6 PC needs AMAP_WEB_KEY (dry-run only), row 7 eval (no replay case yet) and row 8 device NOT_VERIFIED; App files read, not compiled."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-031zd",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031zc"
+      ],
+      "action": "F-09b §19 items 1-7: show_on_map(name, city) declared always; the §18 show_place lookup shared in one function (screen match, 高德 in her city, exact name+city sure, else PLACE_UNSURE with found, no pin); sure -> one green pin (replaces any earlier) and a small card with name, district, straight-line distance and ×, no route request of any kind; camera frames car+pin (pin alone at 5 km when car unknown or >300 km; no move while navigating), following paused, recenter off; mapPin screen key layer 1 in the §17 registry, opening closes tripDetail/tripPlans, off on ×, 关掉, a navigate_to list, session end; ok facts name/city/district/address/distance_km with next 没有开始导航 and must_not claim_started; navigate_to description sentence; agent minor bump; record line; rows 1-9.",
+      "notes": "Owner phone test 2026-11-23 (6082b0e, record 20261123-162956): asked three times where 九龙湖度假区 is on the map; open_app maps showed nothing, show_place gave only an intro card, so she called navigate_to and a tap started a 168-minute route. Owner: add a show-map tool.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 2d263fe in a clean clone (NovaCore 1095, 1 known NoiseCorpus issue; spec-trace 175/0; agent 8.0.0 — the §15 gate counts a new tool as major, spec said minor, noted in §19; record format 8). Review: spec-reviewer high effort FAIL (8.0.0 parts stale; pin stopped the auto-recenter while navigating) -> fixed df47803, 2d263fe -> medium re-check PASS (new test fails without the fix). Rows 1-7 unit PASS (ShowOnMapToolTests, MapPinCameraTests); row 8 eval (no replay case) and row 9 device NOT_VERIFIED; App files read, not compiled. Notes: × calls closePanel directly, not through the executor; rows 3/5 App halves checked by reading only."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-040zn",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zm"
+      ],
+      "action": "F-15b §61 items 1-9: set_trip_plan saves and reports only (saved true/false, ok == saved, whole plan, not_placed with the searched range, removed over the driver request); no critics in the write, no issues, no trip_needs_fix, no rounds (§55 items 8-10, §49 items 5-6 removed); new read-only check_trip_plan (no args = plan in hand, or a draft days in set_trip_plan shape, nothing saved): per-day sight/driving/total/budget minutes, stops placed, hotel, not_found with range, unknown_driving; numbers only, no advice words; new set_trip_plan field asked {text, must, days, city, notes} written by the model, required for a new plan, kept when not sent, part of TripPlan (saved plans, every trip result, 现在 note), never compared by code; saved-result next asks her to review her own plan against asked (driver's places/days/city/hotel present, no empty day, each day reasonable, check_trip_plan when needed) and revise with set_trip_plan before speaking; plan_text one line per day ahead of the JSON; from the 3rd save in a driver request next says stop revising and tell the driver; panel 行程已更新 / 没保存 / 正在核对行程; record trip_edit state=saved|refused, trip set saved=, trip check-call; catalog texts; major agent version; rows 268-278.",
+      "notes": "Owner phone test 2026-11-23 (416bff7, record 20261123-181633): 广东几天游 including 九龙湖公主酒店; lookup searched 中山 only, issue line said 换一个或者去掉, she replaced it twice, the last result read ok=true / state=done, and she said the plan included 九龙湖. Owner: the LLM plans; counting is a tool the LLM calls to verify its plan; success is approved by the LLM, never by code. Owner follow-up: the LLM can see an empty day and a wrong split itself, so it reviews and revises its own plan; root cause per owner: the driver's request was never saved with the plan (context lost), so it is now saved as asked.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 959f2ff in a clean clone (Linux Swift 6.1.2; NovaCore 1092 tests, 1 known NoiseCorpus issue; NovaRealtime 55; NovaServices 118; check_agent_version 9.0.0, check_record_format 9, check_panel_tools, spec-trace OK). The first clean-clone run on dca046c failed 4 stale tests -> fixed 959f2ff. Review: spec-reviewer high effort PASS on 94882ba..959f2ff (FAIL on dca046c alone for those 4 tests). Non-blocking review fix: clearAll forgets asked (test added). Rows 268-272, 275, 277 unit PASS (TripReviewTests); rows 273, 274, 276, 278 eval/device NOT_VERIFIED; App files read, not compiled. Open notes for the owner: plan_text cannot come before plan on the wire (sorted keys); row 268's fixture leaves out the spec-given texts containing 改好/安排好; dispatcher REPEATED_FAILURE carries no saved=false; TripChecks issue texts remain (unreachable in production)."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-040zo",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zn"
+      ],
+      "action": "F-15b §62 items 1-13: the voice model's trip tool plan_trip carries asked (new plan) or change (the driver's words), never days; set_trip_plan leaves the catalog, check_trip_plan stays; a qwen3.8-flash planner (DashScope intl compatible-mode, json_object, no thinking; client in NovaRealtime next to QwenPlacePicker, loop/shape/prompt in NovaCore) writes {days:[{sights:[{name,city,minutes}],stay}],done,note} with item 3's system text; a stay may be a sight of the same day (one place, no other hotel); code looks up each stop with its own city and sends per-day counts (sights, sight/driving/total minutes, budget B, found name/city/district, not found with range) every round, no verdict or advice words; the planner revises; a done in round 1 still gets one counts round; stop at done from round 2 or after round 3 and save; result saved/asked/plan_text/note/not_placed/removed/rounds and item 6's next (she tells the driver, does not revise); PLANNER_FAILED on http/timeout 30 s/non-JSON twice, cards unchanged, no fallback planner; trip claims judged only by §58's trip verdict (refused writes before an ok one and not_placed never give CLAIM_AFTER_FAILURE); the handoff line is said by the app (guidance voice + subtitle) at every plan_trip dispatch and a spinner with one line of text naming the current backend step (豆包 style, owner sketch: turning circle left, text right) shows on top of any screen until the result (search tools: the row only, no spoken line); record trip planner round/failed, handoff said; record format bump; major agent version; rows 279-291.",
+      "notes": "Owner phone test 2026-11-23 (791335a, record 20261123-213534): 广东四天游 with 九龙湖旅游度假村; her plan had one sight a day and a separate hotel next to the resort; city 广东 made the lookup pick 韶关/肇庆/惠州 places; a saved plan with 陈家祠 not found was retracted by a false CLAIM_AFTER_FAILURE. PoC on the PC: gemini live 9 runs, most with empty days; qwen3.8-flash planner with 高德 counts 6/6 sensible. Owner: the voice model only hands the request on; a stronger model plans; code counts; the planner reviews. Owner: handing work over must always be said and shown as a turning circle with text that follows the backend progress, as 豆包 does.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 17324b3 in a clean clone (Linux Swift 6.1; NovaCore 1104 tests, 1 known NoiseCorpus issue; NovaRealtime 57; NovaServices 118; check_agent_version 10.0.0, record format 10, check_panel_tools, spec-trace OK). Review: spec-reviewer high effort FAIL on 16da101 (a search during plan_trip removed the spinner row) -> fixed 17324b3; re-check medium PASS. Rows 279-285, 288, 289-290 (core) unit PASS (TripPlanTripTests, TripSavedClaimTests, PlanTripHandoffTests, TripPlannerClientTests); rows 286 eval, 287, 291 device NOT_VERIFIED; App files read, not compiled. Notes: during plan_trip a search keeps the planner's row (no 正在查 text); handoff said ms is 0 (said at dispatch); counts use the plan's B; removed only for a change; check_trip_plan text still names set_trip_plan (owner/spec note); planner calls bypass CallBudget."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-040zp",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-040zo"
+      ],
+      "action": "F-15b §63 items 1-5: in the one function that saves a TripPlan (plan_trip, screen edits, reopened saved plans), a stop that is the same place as the stop right before it in the same day (same Place.id or same found name) is merged into it; if either is the night's hotel the merged stop is the hotel and keeps the sight's minutes, counted once in TripTimes and budget B; two sights keep the larger minutes; a day's start hotel and its night hotel are not merged; cards, map pins, plan_text and the planner counts use the merged plan; plan_text writes a merged hotel once as 「<name>（玩约<time>，住这里）」; §62 row 281's text replaced; rows 292-296.",
+      "notes": "Owner phone test 2026-11-24 (6512033, record 20261124-100527): the planner listed 佛山绿湖温泉度假酒店 as a 120-minute sight and as that night's stay; the cards showed it twice in a row and she invented a reason (「为了记录住宿时间」). Owner: never show the same place twice in a row; code merges it, the planner prompt is unchanged.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on f139a9e in a clean worktree (Linux Swift 6.1.2; NovaCore 1110 tests, 1 known NoiseCorpus issue). Review: spec-reviewer high effort FAIL on 27c9b8e (adjacent same-place hotels not merged; old hotel minutes would count; place(id:at:) index shift) -> fixed f139a9e; re-check medium PASS. Rows 292-295 unit PASS (TripMergeTests in TripPlanTripTests.swift; §62 rows 279/281 updated to the merged plan); row 296 device NOT_VERIFIED. Notes: a start and night hotel with nothing between merge too (owner rule: never twice in a row); hotel minutes persisted as optional `stay`; open non-blocking: check_trip_plan drafts are counted unmerged and a sight turned hotel keeps its minutes; a merge after timing drops that day's legs; a rest day's counts line loses its 住R fact."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-031ze",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031zd"
+      ],
+      "action": "F-09b §20 items 1-4: tool descriptions only. show_places (F-16 §15) gets item 1's text: each place is a card with photos; used also when the driver asks to see pictures of places she just named. show_place (§18 item 1) pictures wording as item 2, pointing to show_places for several places. web_search (F-18 §16 item 3): 「只按返回的 answer 回答。」 becomes item 3's text (facts only from answer; the answer's words about its own abilities are not about her). Agent version bump per F-09b §15, agent-versions.md row, regenerated parts and hash; rows 1-4.",
+      "notes": "Owner phone test 2026-11-24 (857bf0f, record 20261124-110720): 「你给我看一下图片吧」 after she named Bali-style resorts; she called web_search, whose answer began 「抱歉，我无法直接显示图片」, and told the driver four times the system cannot show pictures. show_places never said its cards have photos. Owner: tell her the tool includes images.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 0be3b5d in a clean worktree (Linux Swift 6.1.2; check_agent_version OK, agent 10.1.0 minor, hash 8bb8c96405f1, parts 10.1.0.json regenerated). Review: spec-reviewer high effort PASS (texts byte-equal to items 1-3; parts diff shows only the three descriptions). Row 1 unit PASS (PhotoToolTextTests, WebSearchTests/ForecastSearchTests full texts); rows 2-3 eval NOT_RUN (no PC replay harness here); row 4 device NOT_VERIFIED. trace-ids.txt gained T-031ze and T-040zp."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-031zf",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031ze"
+      ],
+      "action": "F-09b §21 items 1-3: code adds next 「answer 里有地点时，用 show_places 把它们列在屏幕上（每个是带照片的卡片），再简短说找到了哪些。」 to every ok web_search result when show_places is declared; failed results unchanged; code does not judge whether places are named; rows 1-3 (eval with scripts/eval/photo_live_poc.py).",
+      "notes": "Owner phone test 2026-11-24 (da3afe8, record 20261124-131230): §20's texts did not help; she searched and said she cannot show pictures. Live PoC on gemini-3.8-live with the 10.1.0 setup: 0/5 as is, 5/5 with this next. Owner accepts cards also for time/price searches.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on ca26bf8 in a clean worktree (NovaCore 1114 tests, 1 known NoiseCorpus issue). Code da6c4a1: placesNext appended to the ok result's next when show_places is declared (App passes showPlaces: true with search on). Review: spec-reviewer high FAIL (spec row 1 said 'exactly', PoC replaced next) -> f9d8190 spec item 1/row 1 say appended, photo_live_poc.py appends; re-check medium PASS. Row 1 unit PASS (SearchPlacesNextTests); row 2 eval NOT_RUN (no GEMINI_API_KEY in this environment; the spec's 5/5 was with a replaced next, rerun needed); row 3 device NOT_VERIFIED. No agent version bump (result text not in the §15 hash)."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
+    },
+    {
+      "id": "T-031zg",
+      "owner": "AUTONOMOUS",
+      "status": "PASS",
+      "priority": 1,
+      "depends_on": [
+        "T-031zd"
+      ],
+      "action": "F-09b §22 items 1-5: a tap 「×」 (xmark.circle.fill, top-right, >= 44 pt, white on dark, identifier <panel>-close) on destinationList, routePicking, tripScreen, tripDetail, tripPlans and musicCard, calling the same close function exit_navigation_mode uses (destinationList/routePicking: the 「不去了」 executor path, I-6); no model call, no spoken line; a running plan_trip keeps running with its spinner; record `panel close tap <key>`; trip cards' per-stop 「×」 unchanged; rows 1-4.",
+      "notes": "Owner 2026-11-24: he has to say 「关掉」 every time to close the trip screen, cards or route choices, and she is sometimes slow. Only camera and mapPin have a 「×」 today.",
+      "evidence": [
+        "Gates: scripts/gates/run_all.sh PASS on 2003ff8 in a clean worktree (NovaCore 1115 tests, 1 known NoiseCorpus issue; NovaRealtime 57; NovaServices 118); record format 11 (fixtures, read.py, record-format.md). Review: spec-reviewer high FAIL on d230db0/ca26bf8 (trip 「×」 during guidance ended guidance; no-session 「×」 dead; 「×」 over per-stop ✕ and 「完成」; plan_trip result did not reshow tapped-away cards) -> fixed e181dbf/2003ff8 (NavigationController.exit(panel:) closes only the named panel, also fixing her named-panel voice close; trip 「×」 in its own row; no 「×」 on in-guidance route alternatives, spec line added) -> re-check medium PASS. Rows 1-2 unit PASS (PanelCloseTapTests, PanelCloseFlowTests real flow); row 3 by reading (no unit test); row 4 device NOT_VERIFIED; App files read, not compiled."
+      ],
+      "archived_on": "2026-11-25",
+      "archive_reason": "PASS, no open dependents; only device/eval rows pending, kept in the archive and findable with history.py find; not used by the current §42-§69 work"
     }
   ]
 }
