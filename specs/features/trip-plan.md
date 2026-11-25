@@ -3031,8 +3031,25 @@ driver asked for (phone run 98eb278, §66 Why).
 4. **What she and the cards get.** The card title is `name`; the line under it is the map's place name (and the event
    line, §66). `plan_text`/trip line give 「<name>（<place name>）」 when they differ, else 「<name>」. 「地图没找到」
    names `location`: 「地图没找到 <location>（<name>）」.
-5. **Planner text.** The planner's shape text in `TripPlannerShape` gains the `location` field and one sentence copied
-   from the field description above; nothing else changes.
+5. **Planner text (PoC-tested, see below).** In `TripPlannerShape.system` exactly three changes, nothing else:
+   - the JSON format's sight becomes `{"name": "司机怎么叫它", "location": "地图上要搜的地点全名", "city": "所在城市",
+     "minutes": 停留分钟, "event": {"title": "活动名", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} 只有活动才写}`;
+   - the line 「地点写能在地图上搜到的全名，city 写它真正所在的城市。」 becomes 「name 写司机怎么叫它；location 写能在地图上
+     搜到的地点全名（活动、演出这类不是地点的，写它的场馆）；name 本身就是地点时 location 可以不写。city 写它真正所在的城市。」;
+   - the event line becomes 「只在某几天开放的活动，name 写活动名，location 写场馆全名，event 写活动名和开放日期，照给你的
+     活动表写；只能排在开放的那天。」
+7. **Dates of an event not in the list.** An `event` with no events-list entry (§66 item 2) keeps its `title`; its
+   `start`/`end` are not shown or checked (the model guesses them: PoC case A wrote 11-28…11-29 for a one-day 动漫游园会).
+   The card shows the title only.
+
+**PoC (PC 2026-11-25, `qwen3.8-max-0902`, Beijing, `json_object`, thinking off; script kept in the session scratchpad,
+the request shape as `TripPlannerShape.newRequest`).** Case A: 「这周末两天，周六去香山文化艺术中心的动漫游园会，再逛逛珠海；
+周日去澳门，大三巴和威尼斯人。」 (no events list). Case B: 「这周末珠海两天，周日去AI嘉年华。」 with the events list
+(横琴AI嘉年华, venue 珠海国际会展中心7-8号馆, 11-28…29). With item 5's text, 5 runs (3 without and 2 with the `event`
+shape): every run wrote 动漫游园会 → `location` 香山文化艺术中心, 横琴AI嘉年华/AI嘉年华 → `location` 珠海国际会展中心7-8号馆
+with `event` from the list, 大三巴 → 大三巴牌坊, 威尼斯人 → 澳门威尼斯人, plain places `location` = `name`. With the `event`
+shape in the format line, 4/4 runs wrote `event` as `{title, start, end}` (without it, 3/3 wrote a string). 3.4–6.1 s,
+658–802 tokens per call. The locations it wrote are all found on 高德 (§68 PoC, and 珠海国际会展中心7-8号馆 → 珠海国际会展中心).
 6. **Record.** `trip planner text plan=` already shows both; `trip planner text counts` names `location` for not-found
    stops.
 
@@ -3043,10 +3060,11 @@ driver asked for (phone run 98eb278, §66 Why).
 | 316 | Saved plan from before §67 | Loads; `location` = `asked` | unit |
 | 317 | `location` not found | Counts and she see 「地图没找到 香山文化艺术中心（动漫游园会）」 | unit |
 | 318 | Device: a trip with an event the driver names | Card shows the event as title and the venue under it; navigation goes to the venue | D |
+| 318a | PC: the PoC's two cases, 3 runs each, with item 5's text | Every event has `location` = its venue and `event` as `{title,start,end}`; places `location` found on 高德 | PC (passed 2026-11-25) |
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040zt | §67 items 1–6; rows 314–318 (with or after T-040zs) | NOT_RUN |
+| T-040zt | §67 items 1–7; rows 314–318a (with or after T-040zs) | NOT_RUN |
 
 ## 68. Macau and Hong Kong places are looked up without 高德's city limit; she does not invent why a place is missing (iOS, owner order 2026-11-25)
 

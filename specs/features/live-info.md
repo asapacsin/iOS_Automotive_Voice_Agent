@@ -1880,6 +1880,16 @@ returns plain results (no model tokens), and three searches per events question.
 - The driver asked for a picture of the event (765192, 780852). Qiniu image search (`search_type: image`) for
   「2026横琴AI嘉年华」 returned other events' photos (PC 2026-11-25); the event's own page (its `source_url`,
   m.zh.bendibao.com) has an `og:image` that is the event's poster (PC 2026-11-25).
+- **Picture PoC (PC 2026-11-25, the 15 events of `scripts/eval/events_reference_2026-11.json`, item 4's rule as written,
+  every picture looked at).** `og:image` on 3 source pages (珠海本地宝 ×2, 南方网); none on hengqin.gov.cn,
+  zhuhai.gov.cn, people.com.cn, stdaily.com; WeChat pages return nothing; a page's first `<img>` was always site chrome.
+  Pictures shown: 横琴AI嘉年华 (og, the event poster) ✓, 横琴VAC电音节 (og, VAC festival photo) ✓, 横琴马拉松 (og, race
+  photo) ✓, 第十六届中国航展 (search 「大麦与第十六届中国航展达成票务合作」, official poster) ✓, AIE 电子展 (search, an
+  exhibitor's poster with 12月3日-5日 and 珠海国际会展中心) ✓, 澳门国际光影节 (search, official poster 2026.12.05–2027.01.10) ✓,
+  水产前沿国际展 (search, a photo of an older 水产种业博览会 under a 2026 article) ✗: **6 of 7 right (86%)**, none from a shop
+  or generated host. No picture for the other 8 (nothing passed). Rules tried and dropped: no shop filter (2 more wrong:
+  an AI-generated image with garbled text and a Taobao album photo, both `img.alicdn.com`); title containing the first
+  6 characters of the name (LINGORM fancon matched 「lingorm巴黎行」, a personal travel photo: 6 of 8).
 
 1. **Retry, no fallback (replaces §42 item 2's "429 not retried" and §42 item 3's fallback).** A Qiniu search or model
    call that fails (network error, timeout, HTTP 5xx, 429) is sent again on Qiniu, at most 2 more times, after 1 s and
@@ -1893,11 +1903,20 @@ returns plain results (no model tokens), and three searches per events question.
 3. **Every dropped event is logged.** One record line per dropped candidate:
    `events drop name=<name> reason=<no_date|end_before_start|outside_window|past|city|no_source|duplicate>` (the
    §39 item 4 checks, in that order; the first failed check is the reason).
-4. **Event pictures.** For each kept event with a `source_url`, code fetches the page once (GET, 5 s, at most 1 MB, no
-   cookies) and reads `<meta property="og:image" content="…">` (else `name="og:image"`); an `http(s)` URL ending or
-   typed as an image is kept as the event's `image_url`. No picture search. The event card (trip event stop, §64) and
-   any list of events on screen show the picture when `image_url` is set, nothing when not. Failed fetches are not
-   retried and not logged as errors (`events image name=<name> ok=<yes|no>`).
+4. **Event pictures (PoC-tested, see below).** For each kept event, in order, the first that gives a picture:
+   a. **The event's own page.** Code fetches its `source_url` once (GET, 10 s, at most 1 MB, no cookies) and reads
+      `<meta property="og:image" content="…">` (else `name="og:image"`; a `//` URL gets `https:`).
+   b. **One image search.** Qiniu `POST /v1/search/web` `{"query": "<event name> <YYYY> 海报", "max_results": 20,
+      "search_type": "image"}` (§42 item 2 key, §43 item 1 retry). The first result is kept whose `title` contains the
+      event's whole name (both lower-cased, spaces removed) **and** whose `date` is from 75 days
+      before the event's start to its end **and** whose `image.url` host is not a shop or generated-image host
+      (`alicdn.com`, `taobao`, `tmall`, `jd.com`, `360buyimg`, `yangkeduo`, `pinduoduo`, or `gen_ai` in the URL).
+   c. Else no picture. No other source (no first `<img>` of the page: on 4 government/news pages it was the site's logo
+      or banner).
+   The URL is kept as the event's `image_url`; the event card (trip event stop, §64) and any list of events on screen
+   show it, nothing when nil. A picture from (b) is labelled 「网络图片」 under it. Record:
+   `events image name=<name> via=<og|search|none>`. The image search runs at most once per event per day (store), and
+   counts toward Qiniu's per-minute limit (§42 PC check: 429 from the 6th search in a minute).
 
 **Acceptance (iOS).**
 
@@ -1909,12 +1928,13 @@ returns plain results (no model tokens), and three searches per events question.
 | 81 | `find_events` with `name` 「AI 展」, 珠海+澳门, window in Nov 2026 | First query 「AI 展 珠海 澳门 2026年11月」; at most 3 queries | unit |
 | 82 | Store has events for the window but none with 「AI」 in its name; call with `name` 「AI 展」 | Store is not a hit; searches run | unit |
 | 83 | Extraction gives one event with no dates | `events drop name=… reason=no_date` | unit |
-| 84 | Fixture page with `og:image` | Event `image_url` set; page without it → nil | unit |
-| 85 | PC: `name` query for 「AI嘉年华」 on Qiniu | 横琴AI嘉年华 in the results | PC |
+| 84 | Fixture page with `og:image`; image-search fixture with a shop URL, a wrong title, an old date and a good one | `og:image` used; else only the good search result; else nil | unit |
+| 85 | PC: `name` query for 「AI 展」 on Qiniu | 横琴AI嘉年华 in the results | PC (passed 2026-11-25: 「AI 展 珠海 澳门 2026年11月」 → 「免费参与！2026横琴AI嘉年华来啦！」; 「AIE 珠海 澳门 2026年11月」 → 20/20 AIE) |
+| 85a | PC: item 4 on the 12 reference events, each picture looked at | ≥ 80% of pictures shown belong to the event; none from a shop or generated host | PC (passed 2026-11-25: 6/7) |
 | 86 | Device: 「最近有一个 AI 展吗？」 | 横琴AI嘉年华 with dates; its card shows its poster | D |
 
 **Trace gate.** Add `T-046zf: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zf.
 
 | Task | Scope | Status |
 |---|---|---|
-| T-046zf | §43 items 1–4; rows 78–86 | NOT_RUN |
+| T-046zf | §43 items 1–4; rows 78–86 (85, 85a passed on the PC) | NOT_RUN |
