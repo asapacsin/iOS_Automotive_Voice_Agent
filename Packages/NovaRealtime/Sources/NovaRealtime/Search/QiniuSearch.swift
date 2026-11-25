@@ -387,17 +387,37 @@ public struct QiniuEventSearcher: EventWebSearcher {
     private let key: @Sendable () -> String?
     private let client: QiniuClient
     private let onLine: @Sendable (String) -> Void
+    /// F-18 §45 item 1 (T-046zh): §41's searcher (千问 key) for a query whose Qiniu search failed every try; nil for
+    /// §44 item 2's search (no fallback).
+    private let fallback: (any EventWebSearcher)?
 
-    public init(key: @escaping @Sendable () -> String?, client: QiniuClient = QiniuClient(),
+    public init(key: @escaping @Sendable () -> String?, client: QiniuClient = QiniuClient(), fallback: (any EventWebSearcher)? = nil,
                 onLine: @escaping @Sendable (String) -> Void = { _ in }) {
         self.key = key
         self.client = client
+        self.fallback = fallback
         self.onLine = onLine
     }
 
     public func search(_ query: String, timeout: NovaDuration) async throws -> EventSearchAnswer {
         guard let key = key(), !key.isEmpty else { throw WebSearchError.notConfigured }
-        let results = try await client.search(query, key: key, job: "events", budget: timeout, onLine: onLine)
+        let t0 = ContinuousClock.now
+        let results: [QiniuResult]
+        do {
+            results = try await client.search(query, key: key, job: "events", budget: timeout, onLine: onLine)
+        } catch {
+            guard let fallback, let left = remaining(timeout, since: t0), left.milliseconds > 0 else { throw error }
+            onLine(qwenFallbackLine("events", after: error))
+            let a: EventSearchAnswer
+            do { a = try await fallback.search(query, timeout: left) } catch WebSearchError.notConfigured { throw error }
+            // §45 item 1: its sources are the query's results; the Responses sources carry only urls, so the answer
+            // text (where the dates and venues are) goes in as the first source's snippet.
+            let hits = a.sources.enumerated().map { i, h in
+                EventSearchHit(title: h.title, url: h.url, site: h.site.isEmpty ? (URL(string: h.url)?.host ?? "") : h.site,
+                               snippet: i == 0 ? a.text : h.snippet, date: h.date)
+            }
+            return EventSearchAnswer(text: a.text, sources: hits, tokens: a.tokens, searches: a.searches)
+        }
         let hits = results.map {
             EventSearchHit(title: $0.title, url: $0.url, site: $0.source.isEmpty ? (URL(string: $0.url)?.host ?? "") : $0.source,
                            snippet: $0.content, date: $0.date)
@@ -416,19 +436,33 @@ public struct QiniuEventExtractor: EventExtractor {
     private let fallback: any EventExtractor
     private let onLine: @Sendable (String) -> Void
 
+    /// §45 item 1: false for §44 item 2's extraction (`fallback` then answers only with no 七牛云 key, as §42).
+    private let useFallback: Bool
+
     public init(key: @escaping @Sendable () -> String?, fallback: any EventExtractor, client: QiniuClient = QiniuClient(),
-                onLine: @escaping @Sendable (String) -> Void = { _ in }) {
+                useFallback: Bool = true, onLine: @escaping @Sendable (String) -> Void = { _ in }) {
         self.key = key
         self.client = client
         self.fallback = fallback
+        self.useFallback = useFallback
         self.onLine = onLine
     }
 
     public func extract(system: String, user: String, timeout: NovaDuration) async throws -> EventModelReply {
         guard let key = key(), !key.isEmpty else { return try await fallback.extract(system: system, user: user, timeout: timeout) }
-        let reply = try await client.chat([("system", system), ("user", user)], key: key, json: true, timeout: timeout,
-                                          job: "events_extract", budget: timeout, onLine: onLine)
-        return EventModelReply(content: reply.content, tokens: reply.total)
+        let t0 = ContinuousClock.now
+        do {
+            let reply = try await client.chat([("system", system), ("user", user)], key: key, json: true, timeout: timeout,
+                                              job: "events_extract", budget: timeout, onLine: onLine)
+            return EventModelReply(content: reply.content, tokens: reply.total)
+        } catch {
+            // F-18 §45 item 1 (T-046zh): the same system and user text on §41's extractor (千问 key), in what is left.
+            guard useFallback, let left = remaining(timeout, since: t0), left.milliseconds > 0 else { throw error }
+            onLine(qwenFallbackLine("events_extract", after: error))
+            do { return try await fallback.extract(system: system, user: user, timeout: left) } catch WebSearchError.notConfigured {
+                throw error
+            }
+        }
     }
 }
 
@@ -504,6 +538,15 @@ public struct QiniuWebSearchClient: WebSearchService {
         }
     }
 
+    /// F-18 §45 items 1-2 (T-046zh): a Qiniu call that failed every try: the same message on §41 (千问 key); with no
+    /// 千问 key the Qiniu failure stands (no request to dashscope).
+    private func qwen(_ query: String, attempt: Int, after failure: QiniuFailure) async throws -> WebSearchReply {
+        onLine(qwenFallbackLine("live", after: failure))
+        do { return try await fallback.search(query, attempt: attempt) } catch WebSearchError.notConfigured {
+            throw Self.error(failure)
+        }
+    }
+
     public func search(_ query: String, attempt: Int) async throws -> WebSearchReply {
         guard let key = key(), !key.isEmpty else { return try await fallback.search(query, attempt: attempt) }
         let results: [QiniuResult]
@@ -511,7 +554,7 @@ public struct QiniuWebSearchClient: WebSearchService {
             // §42 item 5: the search gets her query (§19/§21 rewrites), not the FreshPrompt message around it.
             results = try await client.search(FreshPromptEvidence.query(query), key: key, job: "live", budget: nil, onLine: onLine)
         } catch {
-            throw Self.error(error)
+            return try await qwen(query, attempt: attempt, after: error)
         }
         // "The search ran" = at least one result; none: §41 answers (§42 item 5, not a failed call).
         guard !results.isEmpty else {
@@ -523,7 +566,7 @@ public struct QiniuWebSearchClient: WebSearchService {
             reply = try await client.chat(messages(query, results: results), key: key, timeout: nil, job: "live", budget: nil,
                                           onLine: onLine)
         } catch {
-            throw Self.error(error)
+            return try await qwen(query, attempt: attempt, after: error)
         }
         let sources = results.prefix(QiniuRoute.evidenceCount).map {
             WebSearchSource(title: $0.title, host: URL(string: $0.url)?.host ?? "")
@@ -571,14 +614,24 @@ public struct QiniuTripGrounder: TripGrounder {
 
     static func error(_ f: QiniuFailure) -> TripGroundError { f.reason == "timeout" ? .timeout : .failed }
 
+    /// F-18 §45 items 1-3 (T-046zh): §41's grounder (千问 key) with the same input, only with budget left; no 千问 key:
+    /// the Qiniu failure stands.
+    private func qwen(_ r: TripGroundRequest, after failure: QiniuFailure, budget: NovaDuration?,
+                      since t0: ContinuousClock.Instant) async throws -> TripGroundAnswer {
+        if let left = remaining(budget, since: t0), left.milliseconds <= 0 { throw Self.error(failure) }
+        onLine(qwenFallbackLine("ground", after: failure))
+        do { return try await fallback.ground(r) } catch TripGroundError.notConfigured { throw Self.error(failure) }
+    }
+
     public func ground(_ r: TripGroundRequest) async throws -> TripGroundAnswer {
         guard let key = key(), !key.isEmpty else { return try await fallback.ground(r) }
         let budget = QwenRoute.ground.budget
+        let t0 = ContinuousClock.now
         let results: [QiniuResult]
         do {
             results = try await client.search(Self.query(r), key: key, job: "ground", budget: budget, onLine: onLine)
         } catch {
-            throw Self.error(error)
+            return try await qwen(r, after: error, budget: budget, since: t0)
         }
         guard !results.isEmpty else { throw TripGroundError.noSearch }
         let reply: QiniuChatReply
@@ -586,10 +639,20 @@ public struct QiniuTripGrounder: TripGrounder {
             reply = try await client.chat(messages(r, results: results), key: key, timeout: budget, job: "ground", budget: budget,
                                           onLine: onLine)
         } catch {
-            throw Self.error(error)
+            return try await qwen(r, after: error, budget: budget, since: t0)
         }
         return try QwenTripGrounder.fields(reply.content)
     }
+}
+
+/// F-18 §45 item 4 (T-046zh): the line written when a Qiniu call that failed every try goes to the Qwen API.
+func qwenFallbackLine(_ job: String, after f: QiniuFailure) -> String {
+    "fallback provider=qwen job=\(job) after=\(f.reason)" + (f.status.map { " status=\($0)" } ?? "")
+}
+
+/// §45 item 3: what is left of `budget` since `t0`; nil budget: no limit here (the caller's own).
+func remaining(_ budget: NovaDuration?, since t0: ContinuousClock.Instant) -> NovaDuration? {
+    budget.map { .milliseconds(max(0, $0.milliseconds - elapsed(t0))) }
 }
 
 /// Milliseconds since `t0` on the continuous clock.

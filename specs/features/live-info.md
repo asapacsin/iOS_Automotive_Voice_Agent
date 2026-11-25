@@ -2093,7 +2093,8 @@ still answer. The owner's 百炼 console (screenshot 2026-11-25) shows the free 
    - `live` → `QwenWebSearchClient` (§41 request, the same user message);
    - `ground` → `QwenTripGrounder` (§41 request, the same input);
    - `eventsSearch` (one Qiniu query) → that query on `QwenEventSearcher` (§41 request); its answer is used like a Qiniu
-     answer (its sources are the query's results);
+     answer (its sources are the query's results; the Responses sources carry only urls, so the answer text goes in as
+     the first source's snippet in the numbered extraction message);
    - `eventsExtract` → `QwenEventExtractor` (§39 item 3 request, the same system and user text);
    - the §43 item 4b image search and the §44 item 2 search for what is missing: no fallback (they are optional steps).
    The Qwen models, chains and quota rules are §40/§41 unchanged (`QwenFallback`: a used-up model is skipped, so a model
@@ -2101,20 +2102,21 @@ still answer. The owner's 百炼 console (screenshot 2026-11-25) shows the free 
 2. **No 千问 key.** With no 千问 key saved the call fails as §43 item 1 says (no fallback).
 3. **Budget.** The fallback runs inside what is left of the job's budget (`ground` 30 s, `eventsSearch` 45 s per query,
    `eventsExtract` 60 s, `live` the executor's); with nothing left it is not started.
-4. **Record.** The failed Qiniu line ends `fallback=qwen`; the §41 call's own lines follow as today (events: the query
-   line's `sources=`/`tokens=` are the Qwen call's).
+4. **Record.** After the failed Qiniu lines (§43 item 1, one per try), one line
+   `fallback provider=qwen job=<live|ground|events|events_extract> after=<reason>[ status=<code>]`; the §41 call's own
+   lines follow as today (events: the query line's `sources=`/`tokens=` are the Qwen call's).
 
 **Acceptance (iOS).**
 
 | # | Given / when | Then | Test |
 |---|---|---|---|
-| 100 | 七牛云 and 千问 keys; Qiniu `live` model call fails 3 times (5xx) | §41 `live` request sent with the 千问 key; her answer is §41's; record `fallback=qwen` | unit |
+| 100 | 七牛云 and 千问 keys; Qiniu `live` model call fails 3 times (5xx) | §41 `live` request sent with the 千问 key; her answer is §41's; record `fallback provider=qwen job=live` | unit |
 | 101 | Same, `ground` search fails 3 times (network) | §41 `ground` request; grounded from it | unit |
 | 102 | `find_events`, 1 of 3 Qiniu queries fails 3 times (429) | That query sent once on `QwenEventSearcher`; its sources go into the numbered extraction message; the other 2 stay Qiniu | unit |
 | 103 | Qiniu extraction fails (400) | No Qiniu retry; `QwenEventExtractor` called with the same system and user text | unit |
 | 104 | No 千问 key; Qiniu `live` fails 3 times | Failed as §43 (no request to dashscope) | unit |
 | 105 | Image search or §44 item 2 search fails | No fallback | unit |
-| 106 | Device: 七牛云 key wrong (401), 千问 key right; 「今天珠海天气怎么样」, 「最近珠海澳门有什么活动」 | Answers come from Qwen; record `fallback=qwen` | D |
+| 106 | Device: 七牛云 key wrong (401), 千问 key right; 「今天珠海天气怎么样」, 「最近珠海澳门有什么活动」 | Answers come from Qwen; record `fallback provider=qwen` | D |
 
 **Trace gate.** Add `T-046zh: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zh.
 

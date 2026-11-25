@@ -223,6 +223,8 @@ public struct EventSearchRun: Sendable {
 
     private let searcher: any EventWebSearcher
     private let extractor: any EventExtractor
+    private let fillSearcher: any EventWebSearcher
+    private let fillExtractor: any EventExtractor
     private let clock: any NovaClock
     private let now: @Sendable () -> Date
     /// Item 7: queries finished, of all.
@@ -233,13 +235,18 @@ public struct EventSearchRun: Sendable {
     /// F-18 §43 item 4: the event pages and the image search; nil: no pictures are looked for.
     private let pages: (any EventPageSource)?
 
+    /// F-18 §45 item 1 (T-046zh): `fillSearcher`/`fillExtractor` serve §44 item 2's search for what is missing, which
+    /// gets no Qwen fallback; nil: `searcher`/`extractor`.
     public init(searcher: any EventWebSearcher, extractor: any EventExtractor, clock: any NovaClock,
                 mode: EventSearchMode = .qwen, pages: (any EventPageSource)? = nil,
+                fillSearcher: (any EventWebSearcher)? = nil, fillExtractor: (any EventExtractor)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() },
                 onProgress: @escaping @Sendable (Int, Int) -> Void = { _, _ in },
                 onLine: @escaping @Sendable (String) -> Void = { _ in }) {
         self.searcher = searcher
         self.extractor = extractor
+        self.fillSearcher = fillSearcher ?? searcher
+        self.fillExtractor = fillExtractor ?? extractor
         self.clock = clock
         self.mode = mode
         self.pages = pages
@@ -467,15 +474,15 @@ public struct EventSearchRun: Sendable {
         let text = "\(e.name) \(EventDay(e.start)?.year ?? r.today.year) 时间 地点"
         let answer: EventSearchAnswer
         do {
-            answer = try await within(Self.queryLimit) { [searcher] in try await searcher.search(text, timeout: Self.queryLimit) }
+            answer = try await within(Self.queryLimit) { [fillSearcher] in try await fillSearcher.search(text, timeout: Self.queryLimit) }
         } catch {
             onLine("events fill name=\(e.name) search=failed")
             return
         }
         let query = EventQuery(text: text, city: e.city, kind: nil, cities: r.cities, covers: [])
         let system = Self.system(r, qiniu: true), user = Self.qiniuUser([(query, answer)])
-        let reply = try? await within(Self.qiniuExtractLimit) { [extractor] in
-            try await extractor.extract(system: system, user: user, timeout: Self.qiniuExtractLimit)
+        let reply = try? await within(Self.qiniuExtractLimit) { [fillExtractor] in
+            try await fillExtractor.extract(system: system, user: user, timeout: Self.qiniuExtractLimit)
         }
         let variants = Self.nameVariants(e.name)
         guard let candidates = reply.flatMap({ Self.candidates($0.content) }),

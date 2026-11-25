@@ -147,7 +147,7 @@ struct QiniuSearchTests {
         #expect(reply.answer == "珠海今天多云，18到24度。" && live.calls.withLock { $0 } == 0)
     }
 
-    @Test("T-046zf F-18 §43 row 79: a Qiniu chat call fails 3 times (network): tries at 0, 1, 4 s, then failed as today; no §41 call")
+    @Test("T-046zf F-18 §43 row 79: a Qiniu chat call fails 3 times (network): tries at 0, 1, 4 s; then (F-18 §45, T-046zh) the job on §41")
     func row79() async throws {
         let wire = Wire { r in r.url?.absoluteString == QiniuRoute.searchEndpoint ? (200, qiniuSearchFixture) : (0, "") }
         let down: QwenWebSearchClient.Send = { request in
@@ -159,24 +159,22 @@ struct QiniuSearchTests {
         let lines = Lines()
         let client = QiniuClient(send: down, sleep: sleeps.sleep)
         let live = FakeLive()
-        await #expect(throws: WebSearchError.network) {
-            _ = try await QiniuWebSearchClient(key: { "k" }, fallback: live, client: client, onLine: lines.add).search("q", attempt: 1)
-        }
+        let reply = try await QiniuWebSearchClient(key: { "k" }, fallback: live, client: client, onLine: lines.add).search("q", attempt: 1)
+        #expect(reply.answer == "qwen")
         #expect(sleeps.all == [1000, 3000])  // tries at 0, 1 and 4 s
-        #expect(wire.urls.filter { $0 == QiniuRoute.chatEndpoint }.count == 3 && live.calls.withLock { $0 } == 0)
+        #expect(wire.urls.filter { $0 == QiniuRoute.chatEndpoint }.count == 3 && live.calls.withLock { $0 } == 1)
         let model = lines.all.filter { $0.hasPrefix("model provider=qiniu job=live") }
         #expect(model.count == 3 && model.enumerated().allSatisfy { $1.contains("failed=yes reason=network") && $1.hasSuffix("attempt=\($0 + 1)") })
-        // The extraction: the same three tries, then it throws (no §41 extractor call).
+        // The extraction: the same three tries, then §45's §41 extractor.
         let extractor = FakeExtractor()
-        await #expect(throws: QiniuFailure(reason: "network")) {
-            _ = try await QiniuEventExtractor(key: { "k" }, fallback: extractor, client: client).extract(system: "s", user: "u", timeout: .seconds(60))
-        }
-        #expect(extractor.calls.withLock { $0 } == 0 && sleeps.all == [1000, 3000, 1000, 3000])
-        // ground: failed, not grounded by §41.
+        _ = try await QiniuEventExtractor(key: { "k" }, fallback: extractor, client: client).extract(system: "s", user: "u", timeout: .seconds(60))
+        #expect(extractor.calls.withLock { $0 } == 1 && sleeps.all == [1000, 3000, 1000, 3000])
+        // ground with no 千问 key: failed, not grounded by §41.
         let ground = TripGroundRequest(city: "珠海", days: 1, places: [TripGroundPlace(name: "圆明新园", minutes: 60, importance: 3)],
                                        wishes: nil, start: nil, end: nil, hotelNear: nil)
         await #expect(throws: TripGroundError.failed) {
-            _ = try await QiniuTripGrounder(key: { "k" }, fallback: QwenTripGrounder(key: { "qwen" }), client: client).ground(ground)
+            // §45 item 2: with no 千问 key the Qiniu failure stands (no request to dashscope).
+            _ = try await QiniuTripGrounder(key: { "k" }, fallback: QwenTripGrounder(key: { nil }), client: client).ground(ground)
         }
         // A wait that would end past the job's budget is not made.
         let tight = Sleeps()

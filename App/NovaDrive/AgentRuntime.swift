@@ -537,9 +537,14 @@ final class AgentRuntime {
         let qiniuKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qiniuAPIKey) }
         return EventFinder(store: store, work: work, onLine: line) { onProgress in
             if let k = qiniuKey(), !k.isEmpty {
-                return EventSearchRun(searcher: QiniuEventSearcher(key: qiniuKey, onLine: line),
+                // F-18 §45 (T-046zh): a query or the extraction that failed every Qiniu try runs on §41 (千问 key); the
+                // §44 item 2 search for what is missing stays Qiniu only.
+                return EventSearchRun(searcher: QiniuEventSearcher(key: qiniuKey, fallback: QwenEventSearcher(key: key), onLine: line),
                                       extractor: QiniuEventExtractor(key: qiniuKey, fallback: QwenEventExtractor(key: key), onLine: line),
                                       clock: SystemClock(), mode: .qiniu, pages: QiniuEventPages(key: qiniuKey, onLine: line),
+                                      fillSearcher: QiniuEventSearcher(key: qiniuKey, onLine: line),
+                                      fillExtractor: QiniuEventExtractor(key: qiniuKey, fallback: QwenEventExtractor(key: key),
+                                                                         useFallback: false, onLine: line),
                                       onProgress: onProgress, onLine: line)
             }
             // F-18 §44 item 1 (T-046zg): the venue and dates are checked against each event's page on this path too (no
