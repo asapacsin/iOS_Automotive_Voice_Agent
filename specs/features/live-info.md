@@ -1894,7 +1894,7 @@ returns plain results (no model tokens), and three searches per events question.
 1. **Retry, no fallback (replaces §42 item 2's "429 not retried" and §42 item 3's fallback).** A Qiniu search or model
    call that fails (network error, timeout, HTTP 5xx, 429) is sent again on Qiniu, at most 2 more times, after 1 s and
    then 3 s, inside the job's budget. A 4xx other than 429 is not retried. After the last try the call is failed as
-   today (no §41 call). Record: `attempt=<n>` on each search/model line.
+   today (no §41 call). **Amended by §45 (owner 2026-11-25): after the last try the job runs on the Qwen API (§41).** Record: `attempt=<n>` on each search/model line.
 2. **A named event is searched by its name.** `find_events` gets an optional argument `name` (string, ≤ 30 characters):
    the event the driver named (「AI 展」, 「AIE」, 「横琴AI嘉年华」). With `name`, the first query is
    「<name> <城市1> <城市2> … <YYYY>年<M>月」 and the kind queries follow (§42 item 4, at most 3 queries in all). The
@@ -2078,3 +2078,46 @@ AIE (stdaily.com) none; 韦礼安 page's 「门票火速售罄」 (another conce
 | Task | Scope | Status |
 |---|---|---|
 | T-046zg | §44 items 1–9; rows 87–99 (93, 99 passed on the PC) | NOT_RUN |
+
+## 45. When Qiniu still fails, the job runs on the Qwen (百炼) API (iOS, owner order 2026-11-25)
+
+**Why.** The owner (2026-11-25): 「if the 七牛 fail you should use the qwen api instead」. §43 item 1 retries Qiniu and
+then fails the call; the driver then hears that nothing was found although the 千问 key (设置 「阿里云百炼 key」) could
+still answer. The owner's 百炼 console (screenshot 2026-11-25) shows the free quotas left: `kimi-k3.1-pro` 995.84K / 1M
+(to 2027-02-02), `qwen3.8-max-0902` 766.27K / 1M (to 2026-12-01), `deepseek-v4.1-flash-1017` 289.91K / 1M (to
+2027-01-17); `deepseek-v4.1-flash` and `qwen4-max` are not in the screenshot (not verified whether used up or cut off).
+
+1. **Fallback after the retries (amends §43 item 1's "no §41 call").** A Qiniu search or model call that has failed
+   after §43 item 1's tries (or failed at once with a 4xx other than 429), and a Qiniu call made without a saved 千问 key
+   aside, goes to the same job on the Qwen API with the 千问 key, as §41 sends it today:
+   - `live` → `QwenWebSearchClient` (§41 request, the same user message);
+   - `ground` → `QwenTripGrounder` (§41 request, the same input);
+   - `eventsSearch` (one Qiniu query) → that query on `QwenEventSearcher` (§41 request); its answer is used like a Qiniu
+     answer (its sources are the query's results);
+   - `eventsExtract` → `QwenEventExtractor` (§39 item 3 request, the same system and user text);
+   - the §43 item 4b image search and the §44 item 2 search for what is missing: no fallback (they are optional steps).
+   The Qwen models, chains and quota rules are §40/§41 unchanged (`QwenFallback`: a used-up model is skipped, so a model
+   whose free quota is gone is not called again for 24 h).
+2. **No 千问 key.** With no 千问 key saved the call fails as §43 item 1 says (no fallback).
+3. **Budget.** The fallback runs inside what is left of the job's budget (`ground` 30 s, `eventsSearch` 45 s per query,
+   `eventsExtract` 60 s, `live` the executor's); with nothing left it is not started.
+4. **Record.** The failed Qiniu line ends `fallback=qwen`; the §41 call's own lines follow as today (events: the query
+   line's `sources=`/`tokens=` are the Qwen call's).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 100 | 七牛云 and 千问 keys; Qiniu `live` model call fails 3 times (5xx) | §41 `live` request sent with the 千问 key; her answer is §41's; record `fallback=qwen` | unit |
+| 101 | Same, `ground` search fails 3 times (network) | §41 `ground` request; grounded from it | unit |
+| 102 | `find_events`, 1 of 3 Qiniu queries fails 3 times (429) | That query sent once on `QwenEventSearcher`; its sources go into the numbered extraction message; the other 2 stay Qiniu | unit |
+| 103 | Qiniu extraction fails (400) | No Qiniu retry; `QwenEventExtractor` called with the same system and user text | unit |
+| 104 | No 千问 key; Qiniu `live` fails 3 times | Failed as §43 (no request to dashscope) | unit |
+| 105 | Image search or §44 item 2 search fails | No fallback | unit |
+| 106 | Device: 七牛云 key wrong (401), 千问 key right; 「今天珠海天气怎么样」, 「最近珠海澳门有什么活动」 | Answers come from Qwen; record `fallback=qwen` | D |
+
+**Trace gate.** Add `T-046zh: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zh.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zh | §45 items 1–4; rows 100–106 | NOT_RUN |
