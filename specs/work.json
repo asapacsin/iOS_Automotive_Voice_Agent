@@ -2795,13 +2795,16 @@
     },
     {
       "id": "T-046zc",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [],
       "action": "F-18 §40 items 1-6: QwenRoute endpoints to Beijing (dashscope.aliyuncs.com native + compatible-mode); search jobs live/ground/eventsSearch chain deepseek-v4.1-flash -> deepseek-v4.1-flash-1017 -> qwen4-max; text jobs picker/planner/eventsExtract chain qwen3.8-max-0902 -> deepseek-v4.1-flash -> deepseek-v4.1-flash-1017 -> kimi-k3.1-pro -> qwen4-max; awaitingEval empty; no other model names anywhere; scripts/eval on DASHSCOPE_API_KEY_CN and Beijing; update every test naming old models or dashscope-intl; test that only the five models appear; rows 57-60.",
       "notes": "Owner order 2026-11-25: Singapore account overdue (-20.09 USD), every model 403 AccessDenied.Unpurchased. Beijing account free models, all Stop-on-Exhaust on; owner rule: earliest expiry first. PC checks in §40. Do this before any other build, then Codemagic build and phone test with the Beijing key in 设置.",
-      "evidence": []
+      "evidence": [
+        "c34975f: items 1-5 built; rows 57-59 unit/gate (QwenChainTests table+row59, check_qwen_models.py); gates green on a clean clone of c34975f (NovaCore 1137, 1 known issue; NovaRealtime 66; NovaServices 118; spec-trace 188/0)"
+      ],
+      "blocked_by": "Independent high-effort review of c34975f running (not PASS until it returns); then row 60 device run with the Beijing key in 设置"
     },
     {
       "id": "T-046zb",
