@@ -1736,3 +1736,58 @@ quota expires: `qwen3.8-max-0902` 2026-12-01, `deepseek-v4.1-flash` 2026-12-13, 
 | Task | Scope | Status |
 |---|---|---|
 | T-046zc | §40 items 1–6; rows 57–60; before any other build | NOT_RUN |
+
+## 41. Every search goes through the Responses API `web_search` tool (iOS, owner order 2026-11-25)
+
+**Why (phone run 2026-11-25, build 8f4fc7b).** On the Beijing key every `enable_search` call returns HTTP 200 with no
+pages: `search_info` empty, `usage.plugins.search.count` 1, the model gets only the question (20–47 input tokens) and
+answers from memory. Phone record `D:\ndrecords\8f4fc7b\20261125-131517.txt`: 11 event queries `ok=yes sources=0`,
+`kept=0`, so she says 查不到. Same on the PC for every search model, `turbo`/`max`/plain, streamed or not, native and
+compatible-mode, and with a new key; `scripts/eval/event_search_replica.py 1` → 0/7. The 百炼 web page with 联网搜索
+shows sources. §40's PC check said `enable_search` returned sources; it does not on 2026-11-25 afternoon, so §40's
+"the clients and request bodies do not change" is withdrawn for the search jobs.
+
+**PC check (2026-11-25, `DASHSCOPE_API_KEY_CN`, `https://dashscope.aliyuncs.com/compatible-mode/v1/responses`).**
+- `tools: [{"type":"web_search"}]`, `enable_thinking: false`, not streamed, the query as the only user message:
+  `deepseek-v4.1-flash` 「今天珠海天气怎么样」 8 s, 9 sources, 2.6K tokens, right weather for 11-25;
+  「澳门 展览展会 2026年11月」 9 s, 19 sources, 3.2K tokens, events with dates (AHSE 11月18–20日 …);
+  「珠海 漫展 ACG 2026年11月」 5 s, 17 sources, 3.4K tokens (起源ACG 12月5–6日 …).
+- With `web_extractor` added and thinking on (`scripts/search_eval/run.py` S3): 55–108 s and 36–39K tokens per query
+  on `deepseek-v4.1-flash`, `-1017`, `qwen4-max`, 47–65 sources. Too slow and too costly for the app: not used.
+- `qwen4-max` with thinking off and `web_search` only: one call timed out at 300 s. Not verified as a fallback.
+- `kimi-k3.1-pro` + `web_search`: 0 sources (stays out of the search chain, as in §40).
+- Response shape (seen): `output[]` items of `type` `web_search_call` (`status`, `action.query`,
+  `action.sources[]` = `{"type":"url","url":…}`, no title or site) and `message` (`content[].type` `output_text`,
+  `text`, `annotations` empty); `usage.total_tokens`, `usage.x_tools.web_search.count`.
+
+1. **Endpoint.** `QwenRoute.responsesEndpoint` = `https://dashscope.aliyuncs.com/compatible-mode/v1/responses`. The jobs
+   `live`, `ground`, `eventsSearch` send there; `picker`, `planner`, `eventsExtract` are unchanged.
+2. **Request.** `{"model", "input": [the same role/text messages the client sends today, as {"role","content": text}],
+   "tools": [{"type":"web_search"}], "enable_thinking": false}`, not streamed, `Authorization: Bearer <千问 key>`.
+   No `enable_search`, `search_options`, `web_extractor`. The messages' wording does not change (owner rule 2026-11-05).
+3. **Reading the answer.** Answer = the `output_text` texts of the `message` items, joined. Sources = every
+   `web_search_call` item's `action.sources[].url`, in order, duplicates dropped; title and site empty. "The search ran"
+   (`QwenTripGrounder`, the events query's `sources=`) means at least one source. Tokens = `usage.total_tokens`.
+4. **Chain.** Search jobs: `deepseek-v4.1-flash` → `deepseek-v4.1-flash-1017` → `qwen4-max` (§40 item 2), fallback rules
+   unchanged (429, quota 403 → next model). Budgets unchanged (`ground` 30 s, `eventsSearch` 45 s per query).
+5. **Record.** Each search line keeps `sources=` and `tokens=`; add `searches=` (count of `web_search_call` items). A
+   200 with 0 sources is logged `ok=yes sources=0` as today.
+6. **PC scripts.** `scripts/eval/event_search_replica.py` sends item 2's request (so row 55 measures what the app sends).
+7. **Tests.** Fixture: a recorded `web_search` response (the shape above) parsed into answer, sources, tokens; the request
+   body has `tools` and no `enable_search`; the three search clients use `responsesEndpoint`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 61 | `QwenRoute.live`, `.ground`, `.eventsSearch` request | URL `…/compatible-mode/v1/responses`; body `tools` `[{"type":"web_search"}]`, `enable_thinking` false; no `enable_search`/`search_options` | unit |
+| 62 | Fixture `web_search` response | Answer text, sources = the `action.sources` urls (deduplicated), tokens = `usage.total_tokens` | unit |
+| 63 | `QwenTripGrounder` with the fixture | Grounded (search ran); with a response without `web_search_call` → not grounded | unit |
+| 64 | PC: `event_search_replica.py 1` on the Beijing key | Row 55 bar (≥ 60% of the reference events, none outside the window) | PC |
+| 65 | Device: 「今天珠海天气怎么样」 then 「最近珠海澳门有什么活动」 | Answer with today's facts; events with dates; record `sources=` > 0 | D |
+
+**Trace gate.** Add `T-046zd: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zd.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zd | §41 items 1–7; rows 61–65; before the next build | NOT_RUN |

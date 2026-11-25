@@ -2808,6 +2808,16 @@
       "blocked_by": "Row 60 device run: Codemagic build, Beijing key in 设置; check the Qwen voice host (same key; a Singapore voice host will refuse the Beijing key) or keep the voice on Gemini; watch picker pick ms= (item 6)"
     },
     {
+      "id": "T-046zd",
+      "owner": "AUTONOMOUS",
+      "status": "READY",
+      "priority": 0,
+      "depends_on": [],
+      "action": "F-18 §41 items 1-7: search jobs live/ground/eventsSearch send to https://dashscope.aliyuncs.com/compatible-mode/v1/responses with tools [{type: web_search}], enable_thinking false, not streamed (no enable_search/search_options/web_extractor); answer = message output_text, sources = web_search_call action.sources urls (dedup), tokens = usage.total_tokens; record searches=; event_search_replica.py sends the same request; rows 61-65.",
+      "notes": "Phone run 8f4fc7b 2026-11-25: enable_search on the Beijing key returns 200 with no pages (search_info empty), so every search said 查不到. Responses web_search with thinking off: 5-9 s, ~3K tokens, 9-19 sources (PC, §41). Do before the next build.",
+      "evidence": []
+    },
+    {
       "id": "T-046zb",
       "rework": "2026-11-25: F-18 §39 item 3 amended: extraction system text is 「Extract the event information. Answer in JSON.」 (json_object needs the word JSON; row 55 run 1 got HTTP 400 at extraction after 11 good searches). Change EventSearchRun.instruction, rows 49 tests (FindEventsTests row49, QwenEventClientsTests extraction), scripts/eval/event_search_replica.py extract(); print the error body on non-200 (record `events extract failed status=<code> body=<300 chars>`); then row 55 again. Reference list now has 7 confirmed events (checked by hand 2026-11-24).",
       "owner": "EXTERNAL_RESOURCE",
