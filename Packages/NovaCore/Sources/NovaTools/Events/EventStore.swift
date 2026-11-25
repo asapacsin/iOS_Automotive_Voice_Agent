@@ -3,19 +3,38 @@ import NovaKit
 import Synchronization
 
 /// F-18 §35 item 5 (T-046x), §39 item 4 (T-046zb): one kept event, after code's checks.
+/// F-18 §43 item 4 (T-046zf): its picture (`image_url`), how it was found (`og`/`search`/`none`) and the day the
+/// picture was looked for (at most once per event per day).
+/// F-18 §44 item 5 (T-046zg): `venue` holds the confirmed parts only (「；」 between them); how the venue and the dates
+/// were confirmed (`page`/`search`/`none`; with `none` the dates are the model's, used only to keep or drop the event);
+/// the confirmed start time and ticket notes; the day and time the checks (and item 2's search) ran.
 public struct EventEntry: Sendable, Hashable, Codable {
     public let name: String
-    public let start: String
-    public let end: String
+    public var start: String
+    public var end: String
     public let datesText: String
-    public let venue: String
+    public var venue: String
     public let city: String
     public let sourceURL: String
     public let sourceSite: String
     public let fetchedAt: Date
+    public var imageURL: String?
+    public var imageVia: String
+    public var imageOn: String?
+    public var venueVia: String
+    public var datesVia: String
+    /// §44 item 8: `HH:MM` when the source states it; empty otherwise.
+    public var time: String
+    /// §44 item 9: 「免费」 「需预约」 …; empty: nothing shown.
+    public var ticket: [String]
+    public var checkedOn: String?
+    public var checkedAt: Date?
 
     public init(name: String, start: String, end: String, datesText: String, venue: String, city: String,
-                sourceURL: String, sourceSite: String, fetchedAt: Date) {
+                sourceURL: String, sourceSite: String, fetchedAt: Date,
+                imageURL: String? = nil, imageVia: String = "none", imageOn: String? = nil,
+                venueVia: String = "none", datesVia: String = "none", time: String = "", ticket: [String] = [],
+                checkedOn: String? = nil, checkedAt: Date? = nil) {
         self.name = name
         self.start = start
         self.end = end
@@ -25,6 +44,15 @@ public struct EventEntry: Sendable, Hashable, Codable {
         self.sourceURL = sourceURL
         self.sourceSite = sourceSite
         self.fetchedAt = fetchedAt
+        self.imageURL = imageURL
+        self.imageVia = imageVia
+        self.imageOn = imageOn
+        self.venueVia = venueVia
+        self.datesVia = datesVia
+        self.time = time
+        self.ticket = ticket
+        self.checkedOn = checkedOn
+        self.checkedAt = checkedAt
     }
 
     enum CodingKeys: String, CodingKey {
@@ -33,12 +61,78 @@ public struct EventEntry: Sendable, Hashable, Codable {
         case sourceURL = "source_url"
         case sourceSite = "source_site"
         case fetchedAt = "fetched_at"
+        case imageURL = "image_url"
+        case imageVia = "image_via"
+        case imageOn = "image_on"
+        case venueVia = "venue_via"
+        case datesVia = "dates_via"
+        case time, ticket
+        case checkedOn = "checked_on"
+        case checkedAt = "checked_at"
     }
 
-    /// What `find_events` returns for it.
+    /// An entry from an older store file has no picture fields.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        start = try c.decode(String.self, forKey: .start)
+        end = try c.decode(String.self, forKey: .end)
+        datesText = try c.decodeIfPresent(String.self, forKey: .datesText) ?? ""
+        venue = try c.decodeIfPresent(String.self, forKey: .venue) ?? ""
+        city = try c.decode(String.self, forKey: .city)
+        sourceURL = try c.decodeIfPresent(String.self, forKey: .sourceURL) ?? ""
+        sourceSite = try c.decodeIfPresent(String.self, forKey: .sourceSite) ?? ""
+        fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
+        imageURL = try c.decodeIfPresent(String.self, forKey: .imageURL)
+        imageVia = try c.decodeIfPresent(String.self, forKey: .imageVia) ?? "none"
+        imageOn = try c.decodeIfPresent(String.self, forKey: .imageOn)
+        // §44 item 5: an entry from an older file was never checked: nothing of it counts as confirmed.
+        venueVia = try c.decodeIfPresent(String.self, forKey: .venueVia) ?? "none"
+        datesVia = try c.decodeIfPresent(String.self, forKey: .datesVia) ?? "none"
+        time = try c.decodeIfPresent(String.self, forKey: .time) ?? ""
+        ticket = try c.decodeIfPresent([String].self, forKey: .ticket) ?? []
+        checkedOn = try c.decodeIfPresent(String.self, forKey: .checkedOn)
+        checkedAt = try c.decodeIfPresent(Date.self, forKey: .checkedAt)
+    }
+
+    /// §44 item 3: the venue (confirmed parts) and the dates, nil when not confirmed.
+    public var confirmedVenue: String? { venueVia == "none" || venue.isEmpty ? nil : venue }
+    public var confirmedDates: (start: String, end: String)? { datesVia == "none" ? nil : (start, end) }
+
+    /// §44 item 3: 「场馆：<venue>」 or 「场馆：未找到」, 「日期：<start>–<end>」 or 「日期：未找到」 (always both), then
+    /// 「开始：HH:MM」 and 「门票：…」 when kept (item 8, item 9).
+    public var factsText: String {
+        var parts = ["场馆：\(confirmedVenue ?? Self.notFound)",
+                     "日期：" + (confirmedDates.map { "\($0.start)–\($0.end)" } ?? Self.notFound)]
+        if !time.isEmpty { parts.append("开始：\(time)") }
+        if !ticket.isEmpty { parts.append("门票：" + ticket.joined(separator: "，")) }
+        return parts.joined(separator: "；")
+    }
+
+    public static let notFound = "未找到"
+    /// §44 item 3: asked for a picture with none.
+    public static let noPictureAnswer = "未找到这个活动的图片"
+
+    /// §44 item 3, on screen: the venue, or 「场馆未找到」 with the city.
+    public var venueCardText: String { confirmedVenue ?? "场馆未找到 · \(city)" }
+    public var datesCardText: String { confirmedDates.map { "\($0.start)～\($0.end)" } ?? "日期未找到" }
+    /// §43 item 4c / §44 item 3: in the picture's place when there is none.
+    public var imageCardText: String? { imageURL == nil ? "未找到图片" : nil }
+    /// §44 item 4: only a confirmed venue is looked up on the map or offers navigation; never the event's name.
+    public var mapQuery: String? { confirmedVenue.flatMap { EventSourceCheck.venueParts($0).first } }
+
+    /// §43 item 4: 「网络图片」 under a picture from the image search.
+    public static let searchImageLabel = "网络图片"
+    public var imageLabel: String? { imageURL != nil && imageVia == "search" ? Self.searchImageLabel : nil }
+
+    /// What `find_events` returns for it: §44 item 3's facts (never the model's unconfirmed venue or dates), the
+    /// picture or 「未找到这个活动的图片」.
     public var json: JSONValue {
-        ["name": .string(name), "start": .string(start), "end": .string(end), "dates_text": .string(datesText),
-         "venue": .string(venue), "city": .string(city), "source_url": .string(sourceURL)]
+        var o: [String: JSONValue] = [
+            "name": .string(name), "city": .string(city), "facts": .string(factsText), "source_url": .string(sourceURL),
+        ]
+        if let imageURL { o["image_url"] = .string(imageURL) } else { o["image"] = .string(Self.noPictureAnswer) }
+        return .object(o)
     }
 }
 

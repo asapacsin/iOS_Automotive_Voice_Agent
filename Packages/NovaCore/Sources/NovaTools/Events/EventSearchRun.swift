@@ -10,12 +10,15 @@ public struct EventRequest: Sendable, Hashable {
     /// The driver's `kinds` text; empty: the default five (§39 item 1).
     public let kinds: String
     public let today: EventDay
-    public init(cities: [String], from: EventDay, to: EventDay, kinds: String, today: EventDay) {
+    /// F-18 §43 item 2 (T-046zf): the event the driver named (≤ 30 characters); empty: none.
+    public let name: String
+    public init(cities: [String], from: EventDay, to: EventDay, kinds: String, today: EventDay, name: String = "") {
         self.cities = cities
         self.from = from
         self.to = to
         self.kinds = kinds
         self.today = today
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// §39 item 1: the kinds searched (the driver's split on 、，, and spaces, at most 5; else the default five).
@@ -49,10 +52,23 @@ public enum EventSearchMode: String, Sendable, Hashable {
 /// One event the extraction named, before code's checks.
 public struct EventCandidate: Sendable, Hashable {
     public let name, start, end, datesText, venue, city, sourceURL: String
+    /// F-18 §44 item 8: `HH:MM`, empty when not stated.
+    public let time: String
+    public init(name: String, start: String, end: String, datesText: String, venue: String, city: String, sourceURL: String,
+                time: String = "") {
+        self.name = name
+        self.start = start
+        self.end = end
+        self.datesText = datesText
+        self.venue = venue
+        self.city = city
+        self.sourceURL = sourceURL
+        self.time = time
+    }
 }
 
 public struct EventSearchOutcome: Sendable, Hashable {
-    public let kept: [EventEntry]
+    public var kept: [EventEntry]
     /// §39 item 4: events the checks dropped.
     public let dropped: Int
     /// The sites of the kept events' sources.
@@ -109,10 +125,13 @@ public struct EventSearchRun: Sendable {
     /// Item 3 (amended 2026-11-25): the system text (OpenAI "Structured Outputs" guide, copied; 「Answer in JSON.」 is
     /// what JSON mode requires: the word JSON in the messages) and the JSON shape, today and the window as values.
     public static let instruction = "Extract the event information. Answer in JSON."
-    public static let shape = #"{"events": [{"name": "", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "dates_text": "", "venue": "", "city": "", "source_url": ""}]}"#
+    /// F-18 §44 item 8: the shape gains `"time": "HH:MM"` (empty when not stated).
+    public static let shape = #"{"events": [{"name": "", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "time": "HH:MM", "dates_text": "", "venue": "", "city": "", "source_url": ""}]}"#
 
-    public static func system(_ r: EventRequest) -> String {
+    /// F-18 §43 item 6 (Qiniu, amends §42 item 4): the call's cities as one more data line, like today/from/to.
+    public static func system(_ r: EventRequest, qiniu: Bool = false) -> String {
         "\(instruction)\n\(shape)\ntoday: \(r.today)\nfrom: \(r.from)\nto: \(r.to)"
+            + (qiniu ? "\ncities: \(r.cities.joined(separator: ", "))" : "")
     }
 
     // MARK: Item 1, queries
@@ -143,19 +162,24 @@ public struct EventSearchRun: Sendable {
 
     /// §42 item 4: 「<城市1> <城市2> … <YYYY>年<M>月[ <M>月…] <kind group>」, at most 3, no English query. With no `kinds` the
     /// three groups; with the driver's kinds one per query in order, kinds 4–5 appended to queries 1–2.
+    /// F-18 §43 item 2: with `name` the first query is 「<name> <城市1> <城市2> … <YYYY>年<M>月[ <M>月…]」 and the kind queries
+    /// follow, 3 queries in all (the kind groups' first two; the driver's kinds spread over two queries).
     public static func qiniuQueries(_ r: EventRequest) -> [EventQuery] {
         let head = (r.cities + [when(r)]).joined(separator: " ")
         let given = r.kinds.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : r.kindList
-        var groups: [[String]]
+        let named: [EventQuery] = r.name.isEmpty ? [] : [
+            EventQuery(text: "\(r.name) \(head)", city: r.cities.first ?? "", kind: nil, cities: r.cities, covers: []),
+        ]
+        let slots = qiniuMaxQueries - named.count
         if given.isEmpty {
-            return qiniuGroups.map { g in
+            return named + qiniuGroups.prefix(slots).map { g in
                 EventQuery(text: "\(head) \(g.text)", city: r.cities.first ?? "", kind: g.covers.first,
                            cities: r.cities, covers: g.covers)
             }
         }
-        groups = given.prefix(qiniuMaxQueries).map { [$0] }
-        for (i, k) in given.dropFirst(qiniuMaxQueries).enumerated() where i < groups.count { groups[i].append(k) }
-        return groups.map { g in
+        var groups = given.prefix(slots).map { [$0] }
+        for (i, k) in given.dropFirst(slots).enumerated() { groups[i % groups.count].append(k) }
+        return named + groups.map { g in
             EventQuery(text: "\(head) \(g.joined(separator: " "))", city: r.cities.first ?? "", kind: g.first,
                        cities: r.cities, covers: g)
         }
@@ -206,9 +230,11 @@ public struct EventSearchRun: Sendable {
     /// Item 8: the record lines.
     private let onLine: @Sendable (String) -> Void
     private let mode: EventSearchMode
+    /// F-18 §43 item 4: the event pages and the image search; nil: no pictures are looked for.
+    private let pages: (any EventPageSource)?
 
     public init(searcher: any EventWebSearcher, extractor: any EventExtractor, clock: any NovaClock,
-                mode: EventSearchMode = .qwen,
+                mode: EventSearchMode = .qwen, pages: (any EventPageSource)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() },
                 onProgress: @escaping @Sendable (Int, Int) -> Void = { _, _ in },
                 onLine: @escaping @Sendable (String) -> Void = { _ in }) {
@@ -216,6 +242,7 @@ public struct EventSearchRun: Sendable {
         self.extractor = extractor
         self.clock = clock
         self.mode = mode
+        self.pages = pages
         self.now = now
         self.onProgress = onProgress
         self.onLine = onLine
@@ -238,7 +265,8 @@ public struct EventSearchRun: Sendable {
 
     struct EventLimitPassed: Error {}
 
-    public func run(_ r: EventRequest) async throws(EventSearchFailure) -> EventSearchOutcome {
+    /// `known`: the store's events (a picture looked for today is not looked for again, §43 item 4).
+    public func run(_ r: EventRequest, known: [EventEntry] = []) async throws(EventSearchFailure) -> EventSearchOutcome {
         let started = clock.now
         let qiniu = mode == .qiniu
         let (queries, cut) = qiniu ? (Self.qiniuQueries(r), 0) : Self.queries(r)
@@ -285,7 +313,7 @@ public struct EventSearchRun: Sendable {
         let used = answers.keys.sorted().map { (queries[$0], answers[$0]!) }
         // Item 3: one extraction call.
         let t0 = clock.now
-        let system = Self.system(r), user = qiniu ? Self.qiniuUser(used) : Self.user(used)
+        let system = Self.system(r, qiniu: qiniu), user = qiniu ? Self.qiniuUser(used) : Self.user(used)
         let limit = qiniu ? Self.qiniuExtractLimit : Self.extractLimit
         var reply: EventModelReply?
         do {
@@ -304,6 +332,8 @@ public struct EventSearchRun: Sendable {
             throw .extract
         }
         let checked = Self.check(candidates, answers: used, request: r, at: now(), numbered: qiniu ? Self.numbered(used) : [])
+        // F-18 §43 item 3: one line per dropped candidate, the first failed check as the reason.
+        for d in checked.drops { onLine("events drop name=\(d.name) reason=\(d.reason.rawValue)") }
         finished(checked.kept.count, dropped: checked.dropped)
         var pairs: [SearchedPair] = []
         for (q, _) in used {
@@ -322,8 +352,167 @@ public struct EventSearchRun: Sendable {
                                       kept: checked.from.filter { $0.query.city == q.city && $0.query.kind == kind }.count))
         }
         let sites = checked.kept.map(\.sourceSite).filter { !$0.isEmpty }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-        return EventSearchOutcome(kept: checked.kept, dropped: checked.dropped, sites: sites, queries: m, failed: failed,
+        let times = Dictionary(candidates.map { ($0.name + "|" + $0.start, $0.time) }, uniquingKeysWith: { a, _ in a })
+        let kept = await confirm(checked.kept, request: r, known: known, sources: used.flatMap(\.1.sources), modelTimes: times)
+        return EventSearchOutcome(kept: kept, dropped: checked.dropped, sites: sites, queries: m, failed: failed,
                                   cut: cut, tokens: tokens, searched: pairs)
+    }
+
+    // MARK: F-18 §44 items 1-2, 5-6 and §43 item 4: checks, one search for what is missing, pictures
+
+    /// F-18 §44 item 2: at most this many events per call get the search for what is missing.
+    public static let fillMax = 3
+    /// §44 item 2: at most this many result pages fetched per event.
+    public static let fillPages = 3
+
+    /// Fetches each page once per run (one fetch serves the checks and the picture, §44 item 1).
+    final class PageCache: @unchecked Sendable {
+        private var pages: [String: String?] = [:]
+        private let source: any EventPageSource
+        init(_ source: any EventPageSource) { self.source = source }
+        func page(_ url: String) async -> String? {
+            if let cached = pages[url] { return cached }
+            let html = await source.page(url)
+            pages[url] = .some(html)
+            return html
+        }
+    }
+
+    /// Each kept event in order: an event the store checked today is kept as stored; else §44 item 1's checks against
+    /// its source result and its page, §44 item 2's search for what is still missing (at most 3 events, Qiniu only), a
+    /// confirmed value from the store kept when the new check found none, §43 item 4's picture, and the
+    /// `events check` line. `modelTimes`: the extraction's `time` by `name|start`.
+    func confirm(_ kept: [EventEntry], request r: EventRequest, known: [EventEntry], sources: [EventSearchHit],
+                 modelTimes: [String: String]) async -> [EventEntry] {
+        guard let pages else { return kept }
+        let cache = PageCache(pages)
+        let today = r.today.description
+        var filled = 0
+        var out: [EventEntry] = []
+        for var e in kept {
+            let k = known.first { $0.city == e.city && $0.name == e.name && $0.start == e.start }
+            if let k, k.checkedOn == today {
+                out.append(k)
+                continue
+            }
+            let html = await cache.page(e.sourceURL)
+            var texts: [EventSourceCheck.Text] = []
+            if let hit = sources.first(where: { $0.url == e.sourceURL }) {
+                texts.append(EventSourceCheck.result(title: hit.title, content: hit.snippet))
+            }
+            if let html { texts.append(EventSourceCheck.page(html)) }
+            // Item 1a: the confirmed parts only.
+            let parts = EventSourceCheck.venue(e.venue, in: texts, cities: r.cities)
+            e.venue = parts.joined(separator: "；")
+            e.venueVia = parts.isEmpty ? "none" : "page"
+            // Items 1b, 7.
+            if let s = EventDay(e.start), let en = EventDay(e.end), EventSourceCheck.dates(start: s, end: en, in: texts) {
+                e.datesVia = "page"
+            } else {
+                e.datesVia = "none"
+            }
+            // Items 8, 9.
+            e.time = modelTimes[e.name + "|" + e.start].flatMap { EventSourceCheck.time($0, in: texts) } ?? ""
+            e.ticket = EventDay(e.start).map { EventSourceCheck.ticket(start: $0, in: texts, today: r.today) } ?? []
+            // Item 2.
+            if mode == .qiniu, e.venueVia == "none" || e.datesVia == "none", filled < Self.fillMax {
+                filled += 1
+                await fill(&e, request: r, cache: cache)
+            }
+            // Item 5: a confirmed value is never replaced, and never refilled from a model.
+            if let k {
+                if e.venueVia == "none", k.venueVia != "none" { e.venue = k.venue; e.venueVia = k.venueVia }
+                if e.datesVia == "none", k.datesVia != "none" { e.start = k.start; e.end = k.end; e.datesVia = k.datesVia }
+                if e.time.isEmpty { e.time = k.time }
+                if e.ticket.isEmpty { e.ticket = k.ticket }
+            }
+            e.checkedOn = today
+            e.checkedAt = now()
+            // §43 item 4: the picture (looked for at most once per event per day).
+            if let k, k.imageOn == today {
+                e.imageURL = k.imageURL
+                e.imageVia = k.imageVia
+                e.imageOn = k.imageOn
+            } else {
+                e.imageOn = today
+                if let html, let og = EventPicture.ogImage(html) {
+                    e.imageURL = og
+                    e.imageVia = "og"
+                } else if let hits = try? await pages.images(EventPicture.query(e)), let url = EventPicture.pick(hits, for: e) {
+                    e.imageURL = url
+                    e.imageVia = "search"
+                } else {
+                    e.imageURL = nil
+                    e.imageVia = "none"
+                }
+                onLine(EventPicture.line(e))
+            }
+            onLine(Self.checkLine(e))
+            out.append(e)
+        }
+        return out
+    }
+
+    /// §44 item 6.
+    public static func checkLine(_ e: EventEntry) -> String {
+        "events check name=\(e.name) venue=\(e.venueVia) dates=\(e.datesVia) image=\(e.imageVia) "
+            + "time=\(e.time.isEmpty ? "none" : "page") ticket=\(e.ticket.isEmpty ? "none" : e.ticket.joined(separator: ","))"
+    }
+
+    /// §44 item 2: one search 「<name> <YYYY> 时间 地点」, one extraction on its results (§42 item 4's text and shape); the
+    /// extracted event whose name matches (§43 item 5's variants) gives venue and dates, checked (item 1) against each
+    /// result that names the event, then that result's page (at most 3 pages), in result order, until confirmed.
+    /// Only what is missing is filled.
+    func fill(_ e: inout EventEntry, request r: EventRequest, cache: PageCache) async {
+        let text = "\(e.name) \(EventDay(e.start)?.year ?? r.today.year) 时间 地点"
+        let answer: EventSearchAnswer
+        do {
+            answer = try await within(Self.queryLimit) { [searcher] in try await searcher.search(text, timeout: Self.queryLimit) }
+        } catch {
+            onLine("events fill name=\(e.name) search=failed")
+            return
+        }
+        let query = EventQuery(text: text, city: e.city, kind: nil, cities: r.cities, covers: [])
+        let system = Self.system(r, qiniu: true), user = Self.qiniuUser([(query, answer)])
+        let reply = try? await within(Self.qiniuExtractLimit) { [extractor] in
+            try await extractor.extract(system: system, user: user, timeout: Self.qiniuExtractLimit)
+        }
+        let variants = Self.nameVariants(e.name)
+        guard let candidates = reply.flatMap({ Self.candidates($0.content) }),
+              // The same event, and the same year's (the PoC: 横琴马拉松's only venue was the 2025 race's start, 「未找到」 is right).
+              let c = candidates.first(where: { c in
+                  (variants.contains { c.name.contains($0) } || Self.nameVariants(c.name).contains { e.name.contains($0) })
+                      && EventDay(c.start)?.year == EventDay(e.start)?.year
+              }) else {
+            onLine("events fill name=\(e.name) found=no")
+            return
+        }
+        let start = EventDay(c.start), end = EventDay(c.end)
+        var venue: [String] = []
+        var pagesLeft = Self.fillPages
+        func apply(_ texts: [EventSourceCheck.Text]) {
+            if e.venueVia == "none" {
+                for p in EventSourceCheck.venue(c.venue, in: texts, cities: r.cities) where !venue.contains(p) { venue.append(p) }
+            }
+            if e.datesVia == "none", let start, let end, start <= end, EventSourceCheck.dates(start: start, end: end, in: texts) {
+                e.start = start.description
+                e.end = end.description
+                e.datesVia = "search"
+            }
+        }
+        var done: Bool { (e.venueVia != "none" || !venue.isEmpty) && e.datesVia != "none" }
+        for hit in Self.numbered([(query, answer)]) where variants.contains(where: { (hit.title + " " + hit.snippet).contains($0) }) {
+            apply([EventSourceCheck.result(title: hit.title, content: hit.snippet)])
+            if done { break }
+            guard pagesLeft > 0 else { continue }
+            pagesLeft -= 1
+            if let html = await cache.page(hit.url) { apply([EventSourceCheck.page(html)]) }
+            if done { break }
+        }
+        if e.venueVia == "none", !venue.isEmpty {
+            e.venue = venue.joined(separator: "；")
+            e.venueVia = "search"
+        }
     }
 
     // MARK: Item 4, checks
@@ -340,7 +529,8 @@ public struct EventSearchRun: Sendable {
         return events.map { e in
             func s(_ k: String) -> String { e[k]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
             return EventCandidate(name: s("name"), start: s("start"), end: s("end").isEmpty ? s("start") : s("end"),
-                                  datesText: s("dates_text"), venue: s("venue"), city: s("city"), sourceURL: s("source_url"))
+                                  datesText: s("dates_text"), venue: s("venue"), city: s("city"), sourceURL: s("source_url"),
+                                  time: s("time"))
         }.filter { !$0.name.isEmpty }
     }
 
@@ -358,38 +548,69 @@ public struct EventSearchRun: Sendable {
     /// dropped); the same name and start once. `from` is each kept event with the query it came from.
     /// §42 item 4: with `numbered` (the Qiniu results as numbered in the message), a `source_url` that names a result
     /// number (「3」 or 「[3]」) is that result's url.
+    /// F-18 §43 item 3: why a candidate was dropped (§39 item 4's checks, in that order).
+    public enum DropReason: String, Sendable, Hashable {
+        case noDate = "no_date"
+        case endBeforeStart = "end_before_start"
+        case outsideWindow = "outside_window"
+        case past
+        case city
+        case noSource = "no_source"
+        case duplicate
+    }
+
+    /// F-18 §43 item 5: the event's name, its name without a leading 4-digit year, and the part in brackets
+    /// (「AIE电子展」 of 「2026全球智能制造与电子产品博览会（AIE电子展）」), each at least 3 characters.
+    public static func nameVariants(_ name: String) -> [String] {
+        var out = [name]
+        if name.count > 4, name.prefix(4).allSatisfy(\.isASCII), name.prefix(4).allSatisfy(\.isNumber) {
+            out.append(String(name.dropFirst(4)).trimmingCharacters(in: .whitespaces))
+        }
+        for (open, close) in [("（", "）"), ("(", ")")] {
+            if let a = name.range(of: open), let b = name.range(of: close, range: a.upperBound..<name.endIndex) {
+                out.append(String(name[a.upperBound..<b.lowerBound]).trimmingCharacters(in: .whitespaces))
+            }
+        }
+        var seen = Set<String>()
+        return out.filter { $0.count >= 3 && seen.insert($0).inserted }
+    }
+
     public static func check(_ candidates: [EventCandidate], answers: [(EventQuery, EventSearchAnswer)], request r: EventRequest,
                              at: Date, numbered: [EventSearchHit] = [])
-        -> (kept: [EventEntry], dropped: Int, from: [(entry: EventEntry, query: EventQuery)]) {
+        -> (kept: [EventEntry], dropped: Int, from: [(entry: EventEntry, query: EventQuery)], drops: [(name: String, reason: DropReason)]) {
         var kept: [(entry: EventEntry, query: EventQuery)] = []
-        var dropped = 0
+        var drops: [(name: String, reason: DropReason)] = []
         var seen = Set<String>()
         for c in candidates {
-            guard let start = EventDay(c.start), let end = EventDay(c.end), start <= end,
-                  start <= r.to, end >= r.from, end >= r.today,
-                  let city = city(c.city, in: r.cities) else {
-                dropped += 1
-                continue
-            }
+            guard let start = EventDay(c.start), let end = EventDay(c.end) else { drops.append((c.name, .noDate)); continue }
+            guard start <= end else { drops.append((c.name, .endBeforeStart)); continue }
+            guard start <= r.to, end >= r.from else { drops.append((c.name, .outsideWindow)); continue }
+            guard end >= r.today else { drops.append((c.name, .past)); continue }
+            guard let city = city(c.city, in: r.cities) else { drops.append((c.name, .city)); continue }
             var url = c.sourceURL
             let digits = url.trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
             if let n = Int(digits), n >= 1, n <= numbered.count { url = numbered[n - 1].url }
             var query = answers.first { $0.1.sources.contains { $0.url == url } }?.0
-            if query == nil, let naming = answers.first(where: { $0.1.text.contains(c.name) && !$0.1.sources.isEmpty }),
-               let first = naming.1.sources.first {
+            if query == nil, !numbered.isEmpty {
+                // F-18 §43 item 5 (Qiniu): the first result whose title or content names the event.
+                let variants = nameVariants(c.name)
+                if let hit = numbered.first(where: { h in variants.contains { h.title.contains($0) || h.snippet.contains($0) } }) {
+                    url = hit.url
+                    query = answers.first { $0.1.sources.contains { $0.url == hit.url } }?.0
+                }
+            } else if query == nil, let naming = answers.first(where: { $0.1.text.contains(c.name) && !$0.1.sources.isEmpty }),
+                      let first = naming.1.sources.first {
                 url = first.url
                 query = naming.0
             }
-            guard let query, !url.isEmpty, seen.insert(c.name + "|" + c.start).inserted else {
-                dropped += 1
-                continue
-            }
+            guard let query, !url.isEmpty else { drops.append((c.name, .noSource)); continue }
+            guard seen.insert(c.name + "|" + c.start).inserted else { drops.append((c.name, .duplicate)); continue }
             let entry = EventEntry(name: c.name, start: c.start, end: c.end, datesText: c.datesText, venue: c.venue,
                                    city: city, sourceURL: url, sourceSite: site(url) ?? "", fetchedAt: at)
             kept.append((entry, query))
         }
         let sorted = kept.sorted { ($0.entry.start, $0.entry.name) < ($1.entry.start, $1.entry.name) }
-        return (sorted.map(\.entry), dropped, sorted)
+        return (sorted.map(\.entry), drops.count, sorted, drops)
     }
 
     public static func site(_ url: String) -> String? { URL(string: url)?.host }

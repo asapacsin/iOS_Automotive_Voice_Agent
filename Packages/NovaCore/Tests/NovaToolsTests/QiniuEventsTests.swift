@@ -106,7 +106,7 @@ struct QiniuEventsTests {
         #expect(out.queries == 3 && out.failed == 1 && out.cut == 0)
         #expect(out.kept.map(\.sourceURL) == ["https://z.example.com/air", "https://m.example.com/vac"])
         let call = try #require(extractor.calls.first)
-        #expect(call.0 == EventSearchRun.system(request()) && call.2 == .seconds(60) && call.1.hasPrefix("[1] 2026-11-17 珠海航展"))
+        #expect(call.0 == EventSearchRun.system(request(), qiniu: true) && call.2 == .seconds(60) && call.1.hasPrefix("[1] 2026-11-17 珠海航展"))
         #expect(lines.all.first == "events provider=qiniu queries=3")
         #expect(lines.all.contains { $0.hasPrefix("events query 3/3 ") && $0.contains("ok=no") })
         // The two queries that ran mark both cities × their kinds; the failed group's kinds are not marked.

@@ -529,17 +529,22 @@ final class AgentRuntime {
             Task { @MainActor in self?.sessionRecord?.submit(.events(text)) }
         }
         let key: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
-        // F-18 §42 items 1, 4 (T-046ze): with a 七牛云 key, three Qiniu queries and the extraction on Qiniu's model (a failed
-        // extraction falls back to §41's); without one, §39/§41 unchanged. Decided per run.
+        // F-18 §42 items 1, 4 (T-046ze): with a 七牛云 key, three Qiniu queries and the extraction on Qiniu's model; without
+        // one, §39/§41 unchanged. Decided per run. §43 item 1 (T-046zf): a failed Qiniu call is retried on Qiniu, never
+        // §41. §43 item 4: each kept event's picture (its page's og:image, else one Qiniu image search). §44 items 1-2
+        // (T-046zg): venue and dates only as a source states them, one Qiniu search for what is missing, else 「未找到」.
         let qiniuKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qiniuAPIKey) }
         return EventFinder(store: store, work: work, onLine: line) { onProgress in
             if let k = qiniuKey(), !k.isEmpty {
                 return EventSearchRun(searcher: QiniuEventSearcher(key: qiniuKey, onLine: line),
                                       extractor: QiniuEventExtractor(key: qiniuKey, fallback: QwenEventExtractor(key: key), onLine: line),
-                                      clock: SystemClock(), mode: .qiniu, onProgress: onProgress, onLine: line)
+                                      clock: SystemClock(), mode: .qiniu, pages: QiniuEventPages(key: qiniuKey, onLine: line),
+                                      onProgress: onProgress, onLine: line)
             }
+            // F-18 §44 item 1 (T-046zg): the venue and dates are checked against each event's page on this path too (no
+            // image search and no §44 item 2 search without a 七牛云 key).
             return EventSearchRun(searcher: QwenEventSearcher(key: key), extractor: QwenEventExtractor(key: key), clock: SystemClock(),
-                                  onProgress: onProgress, onLine: line)
+                                  pages: QiniuEventPages(key: qiniuKey, onLine: line), onProgress: onProgress, onLine: line)
         }
     }()
 
@@ -1264,7 +1269,8 @@ final class AgentRuntime {
             let destinationName = currentDestination
             let lastWords = driverWords
             executors[WebSearchExecutor.tool] = WebSearchExecutor(
-                // F-18 §42 item 5 (T-046ze): Qiniu search + model with a 七牛云 key; §41 without one or on a failed call.
+                // F-18 §42 item 5 (T-046ze): Qiniu search + model with a 七牛云 key; §41 without one. §43 item 1 (T-046zf): a
+                // failed Qiniu call is retried on Qiniu (1 s, 3 s), then fails; no §41 call.
                 service: QiniuWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qiniuAPIKey) },
                                               fallback: QwenWebSearchClient(key: qwenKey, onExchange: onExchange),
                                               onLine: { line in
@@ -1868,7 +1874,7 @@ final class AgentRuntime {
                                   // §46 (T-040r): photos abroad from English Wikipedia, within 2 km of the stop.
                                   abroadPhotos: WikipediaPhotos(),
                                   // F-15b §50 items 1 and 9 (T-040v): Qwen `ground` route with web search, the F-18 key.
-                                  // F-18 §42 item 5 (T-046ze): Qiniu with a 七牛云 key, §41 without one or on a failed call.
+                                  // F-18 §42 item 5 (T-046ze): Qiniu with a 七牛云 key, §41 without one; §43 item 1: retried on Qiniu.
                                   grounder: QiniuTripGrounder(key: { try? KeychainCredentialStore().value(for: .qiniuAPIKey) },
                                                               fallback: QwenTripGrounder(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
                                                               onLine: tripLine),

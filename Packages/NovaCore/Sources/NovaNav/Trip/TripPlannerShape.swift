@@ -160,8 +160,10 @@ public enum TripPlannerShape {
     public static let eventsHead = "这几天开放的活动（只能排在开放的日子）："
     public static func eventsLine(_ events: [EventEntry]) -> String {
         guard !events.isEmpty else { return "" }
+        // F-18 §44 item 3 (T-046zg): a venue or dates no source confirmed are given as 「未找到」, never the model's guess.
         let list: JSONValue = .array(events.map {
-            ["name": .string($0.name), "venue": .string($0.venue), "city": .string($0.city), "start": .string($0.start), "end": .string($0.end)]
+            ["name": .string($0.name), "venue": .string($0.confirmedVenue ?? EventEntry.notFound), "city": .string($0.city),
+             "start": .string($0.confirmedDates?.start ?? EventEntry.notFound), "end": .string($0.confirmedDates?.end ?? EventEntry.notFound)]
         })
         return "\n" + eventsHead + TripPlanJSON.text(list)
     }

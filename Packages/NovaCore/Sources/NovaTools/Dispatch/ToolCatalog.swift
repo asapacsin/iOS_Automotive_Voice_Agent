@@ -444,7 +444,7 @@ public enum ToolCatalog {
         ]))
 
     /// F-18 §35 item 1 (T-046x): time-limited events through the background searches (§39); declared only with search on.
-    public static let findEventsDescription = "查某几天里的展览、演出、漫展、节庆等活动。司机问展览、演出、漫展、节日或某几天有什么活动时用它，不用 web_search。cities 填1到3个城市名，不填省；from、to 由你按现在的日期给出 YYYY-MM-DD（「这周末」是接下来的周六和周日）；kinds 填司机说的种类，比如「漫展、cosplay、AI」。调用后不用说话，查好了结果会自己回来，按 next 回答。"
+    public static let findEventsDescription = "查某几天里的展览、演出、漫展、节庆等活动。司机问展览、演出、漫展、节日或某几天有什么活动时用它，不用 web_search。cities 填1到3个城市名，不填省；from、to 由你按现在的日期给出 YYYY-MM-DD（「这周末」是接下来的周六和周日）；kinds 填司机说的种类，比如「漫展、cosplay、AI」。司机说了某个活动的名字时填 name。调用后不用说话，查好了结果会自己回来，按 next 回答。"
     public static let findEventsSpec = ToolSpec(domain: "live_info", repeatSensitive: true, declaration: ToolDeclaration(
         name: "find_events",
         description: findEventsDescription,
@@ -456,6 +456,8 @@ public enum ToolCatalog {
                 "from": ["type": "string", "minLength": .int(10), "maxLength": .int(10)],
                 "to": ["type": "string", "minLength": .int(10), "maxLength": .int(10)],
                 "kinds": ["type": "string", "maxLength": .int(60)],
+                // F-18 §43 item 2 (T-046zf): the event the driver named.
+                "name": ["type": "string", "maxLength": .int(30)],
             ],
             "required": ["cities", "from", "to"],
             "additionalProperties": false,
@@ -674,8 +676,9 @@ public enum ToolCatalog {
             if keys.contains("where") && str("where")!.utf16.count > maxWhereLength { return .invalidArgument }
         case "find_events":
             // F-18 §35 item 1: the shape here; the date and city rules are FindEventsExecutor's (refused by field name).
-            if !keys.isSuperset(of: ["cities", "from", "to"]) || !keys.isSubset(of: ["cities", "from", "to", "kinds"]) { return .invalidFields }
-            guard case .array? = a["cities"], isString("from"), isString("to"), !keys.contains("kinds") || isString("kinds") else {
+            if !keys.isSuperset(of: ["cities", "from", "to"]) || !keys.isSubset(of: ["cities", "from", "to", "kinds", "name"]) { return .invalidFields }
+            guard case .array? = a["cities"], isString("from"), isString("to"), !keys.contains("kinds") || isString("kinds"),
+                  !keys.contains("name") || isString("name") else {
                 return .invalidFieldType
             }
         case "web_search":
