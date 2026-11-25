@@ -2807,9 +2807,10 @@
       "evidence": [
         "8a554cf..934d6bc: items 1-10 built; rows 48-54 unit PASS (NovaCore 1136+, NovaRealtime 64, NovaServices 118; 1 pre-existing known issue; spec-trace 187/0; record format 13); gates green on a clean clone of 934d6bc",
         "spec-reviewer high effort PASS 2026-11-24 (non-blocking findings fixed: record format 13, fallback source needs sources, 1-char city, comments)",
-        "row 55 NOT_RUN: scripts/eval/event_search_replica.py ready; scripts/eval/events_reference_2026-11.json entries confirmed=false (confirm by hand) and needs DASHSCOPE_API_KEY on the owner PC; row 56 device NOT_VERIFIED; App not compiled"
+        "row 55 NOT_RUN: scripts/eval/event_search_replica.py ready; scripts/eval/events_reference_2026-11.json entries confirmed=false (confirm by hand) and needs DASHSCOPE_API_KEY on the owner PC; row 56 device NOT_VERIFIED; App not compiled",
+        "rework 2026-11-25 (ac9e532 + replica print order): system text 'Extract the event information. Answer in JSON.'; non-200 extraction records `events extract failed status= body=<300>` (record format 14); replica prints it; gates green on a clean clone of ac9e532 (NovaCore 1137, NovaRealtime 65, NovaServices 118); medium re-check PASS"
       ],
-      "blocked_by": "Row 55 PC recall eval before the build: confirm events_reference_2026-11.json by hand, then run event_search_replica.py with the DashScope key"
+      "blocked_by": "Row 55 PC recall eval again (event_search_replica.py with the DashScope key on the owner PC; 7 reference events confirmed) before the build"
     },
     {
       "id": "T-040zq",

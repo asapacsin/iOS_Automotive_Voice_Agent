@@ -49,10 +49,10 @@ def post(url, body, key, timeout):
         return json.load(urllib.request.urlopen(req, timeout=timeout))
     except urllib.error.HTTPError as e:
         text = e.read().decode("utf-8", "ignore")
-        if e.code == 429 or "Quota" in text:
-            raise SystemExit(f"quota/rate error {e.code}: stopping (F-18 §32 item 6)")
         # §39 item 3 (amended 2026-11-25): print the error body of a non-200 answer.
         print(f"{'events extract' if url == CHAT_URL else 'events query'} failed status={e.code} body={text[:300]}")
+        if e.code == 429 or "Quota" in text:
+            raise SystemExit(f"quota/rate error {e.code}: stopping (F-18 §32 item 6)")
         raise
 
 
