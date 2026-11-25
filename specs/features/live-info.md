@@ -1918,6 +1918,33 @@ returns plain results (no model tokens), and three searches per events question.
    `events image name=<name> via=<og|search|none>`. The image search runs at most once per event per day (store), and
    counts toward Qiniu's per-minute limit (§42 PC check: 429 from the 6th search in a minute).
 
+5. **Event source by name (amends §39 item 4 for Qiniu results).** When an extracted event's `source_url` is not one of
+   the results' urls (and no result number), its source is the first result whose `title` or `content` contains the
+   event's name, its name without a leading 4-digit year, or the part in brackets (「AIE电子展」 of
+   「2026全球智能制造与电子产品博览会（AIE电子展）」), each at least 3 characters; else it is dropped `no_source`. (Qiniu results
+   have no answer text, so §39's "the naming query's answer" never matched.)
+6. **Cities line (amends §42 item 4's system text by one data line, like today/from/to).** The extraction system text
+   ends with 「cities: <城市1>, <城市2>」 (the call's cities). Without it the model wrote 「横琴」 or 「澳门、珠海」 as the city
+   and the event was dropped `window/city`.
+7. **Reasoning stays on for extraction.** On Qiniu `enable_thinking: false` and `thinking: {type: disabled}` do not turn
+   reasoning off (71 and 129 reasoning tokens on a tiny call); only `reasoning_effort: "none"` does, and with it the
+   extraction kept 1/7 (7.5 s) against 2–3/7 with reasoning. The request sends no reasoning parameter.
+
+**Row 74 PoC so far (PC 2026-11-25, `event_search_replica.py 3 --qiniu`, each change on top of the last).**
+
+| Setup | Runs: reference events kept / 7 (s) | Lost where |
+|---|---|---|
+| As built (T-046ze) | 3 (32), 3 (53), 2 (54) | AIE dropped `no_source` (model's url not a result url) |
+| + item 5 | 3 (46), 3 (34), 2 (37) | run 3: VAC dropped `window/city` (city 「横琴」) |
+| + items 5, 6 | 2 (33), 3 (17), 2 (29) | 0 dropped; the extraction itself leaves out VAC or AIE in some runs |
+
+The three searches name 4/7 reference events every run (航展, AIE, VAC, 韦礼安; §42 PC check); the extraction keeps 2–3
+of them. Next PoC (not run): the same saved results through 3 extraction set-ups, 3 runs each (as now; 800-character
+snippets; `deepseek/deepseek-v4-pro`), script `extract_variants.py` in the session scratchpad. **Blocked 2026-11-25
+18:18:** Qiniu answers every search 429 `trial_quota_exhausted` 「Trial period quota exhausted for unverified user」:
+the account needs real-name verification (OWNER, https://portal.qiniu.com/developer/user/identity). Rows 74–76 stay
+NOT_RUN until then.
+
 **Acceptance (iOS).**
 
 | # | Given / when | Then | Test |
