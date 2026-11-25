@@ -27,7 +27,7 @@ private func first(_ v: JSONValue?) -> JSONValue? {
     guard case .array(let a)? = v else { return nil }
     return a.first
 }
-private func text(_ m: JSONValue) -> JSONValue? { first(m["content"])?["text"] }
+private func text(_ m: JSONValue) -> JSONValue? { m["content"] }
 
 private let goodJSON = #"{"places":[{"name":"浅草寺","english":"Senso-ji","minutes":60,"importance":3}],"hotels":[{"night":1,"name":"新宿华盛顿酒店","english":"Shinjuku Washington Hotel"}],"area":"Tokyo"}"#
 
@@ -43,15 +43,13 @@ struct QwenRouteTests {
 
         let grounder = QwenTripGrounder(key: { "k" }, send: { _ in (200, Data()) }, now: { fixed }, zone: { tokyoZone })
         let r = grounder.request(request, key: "k")
-        #expect(r.url?.absoluteString == QwenRoute.endpoint && r.value(forHTTPHeaderField: "X-DashScope-SSE") == "enable")
+        // F-18 §41: Responses API, web_search tool, thinking off, not streamed.
+        #expect(r.url?.absoluteString == QwenRoute.responsesEndpoint && r.value(forHTTPHeaderField: "X-DashScope-SSE") == nil)
         let body = try JSONDecoder().decode(JSONValue.self, from: r.httpBody ?? Data())
         #expect(body["model"] == "deepseek-v4.1-flash")
-        let p = body["parameters"]
-        #expect(p?["enable_thinking"] == false && p?["enable_search"] == true && p?["incremental_output"] == true)
-        #expect(p?["search_options"]?["search_strategy"] == "turbo" && p?["search_options"]?["forced_search"] == true
-                && p?["search_options"]?["enable_source"] == true)
-        #expect(p?["response_format"] == nil)
-        guard case .array(let messages)? = body["input"]?["messages"] else { Issue.record("messages"); return }
+        #expect(body["enable_thinking"] == false && body["tools"] == [["type": "web_search"]] && body["parameters"] == nil)
+        #expect(body["response_format"] == nil)
+        guard case .array(let messages)? = body["input"] else { Issue.record("messages"); return }
         #expect(messages.count == 4)
         let system = text(messages[0])?.stringValue ?? ""
         #expect(system.hasPrefix("You are a helpful assistant. You need to extract the places") && system.contains("JSON"))

@@ -35,24 +35,22 @@ struct WebSearchClientTests {
         }, now: { date }, zone: { TimeZone(identifier: "Asia/Shanghai")! })
         _ = try await client.search("上海后天天气怎么样", attempt: 1)
         let request = try #require(sent.withLock { $0 })
-        #expect(request.url?.absoluteString == "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")
+        #expect(request.url?.absoluteString == "https://dashscope.aliyuncs.com/compatible-mode/v1/responses")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer \(TestKey.value)")
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
-        #expect(request.value(forHTTPHeaderField: "X-DashScope-SSE") == "enable")
+        #expect(request.value(forHTTPHeaderField: "X-DashScope-SSE") == nil)
         let body = try JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data())
         #expect(body["model"] == "deepseek-v4.1-flash")
-        #expect(body["parameters"] == ["result_format": "message", "incremental_output": true, "enable_thinking": false,
-                                       "enable_search": true,
-                                       "search_options": ["search_strategy": "turbo", "enable_source": true,
-                                                          "forced_search": true]])
-        guard case .array(let messages)? = body["input"]?["messages"] else { Issue.record("no messages"); return }
+        // F-18 §41 item 2: the Responses API with the web_search tool, thinking off.
+        #expect(body["tools"] == [["type": "web_search"]] && body["enable_thinking"] == false && body["parameters"] == nil)
+        guard case .array(let messages)? = body["input"] else { Issue.record("no messages"); return }
         // F-18 §24 row 1 (T-046m): FreshPrompt's messages, in order, date from the injected clock and zone.
         #expect(messages.map { $0["role"] } == ["system", "user", "assistant", "user"])
-        #expect(messages[0]["content"] == [["text": "You are a helpful assistant. Answer as concisely as possible. Knowledge cutoff: November 04, 2026."]])
-        #expect(messages[1]["content"] == [["text": "What's today's date?"]])
-        #expect(messages[2]["content"] == [["text": "Today is November 04, 2026 in Asia/Shanghai."]])
-        #expect(messages[3]["content"] == [["text": "上海后天天气怎么样"]])
+        #expect(messages[0]["content"] == "You are a helpful assistant. Answer as concisely as possible. Knowledge cutoff: November 04, 2026.")
+        #expect(messages[1]["content"] == "What's today's date?")
+        #expect(messages[2]["content"] == "Today is November 04, 2026 in Asia/Shanghai.")
+        #expect(messages[3]["content"] == "上海后天天气怎么样")
         let text = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
         #expect(!text.contains(TestKey.value) && !(request.url?.absoluteString.contains(TestKey.value) ?? true))
         #expect(!text.contains("google"))
@@ -116,7 +114,7 @@ struct WebSearchClientTests {
         #expect(seen.withLock { $0 }.count == 1)
         #expect(x.attempt == 2 && x.status == 200 && x.error == nil && x.bytes == Self.stream.utf8.count)
         #expect(x.responseBody == Self.stream)
-        #expect(x.requestBody.contains("上海后天天气") && x.requestBody.contains(#""forced_search":true"#) && x.requestBody.contains(#""search_strategy":"turbo""#))
+        #expect(x.requestBody.contains("上海后天天气") && x.requestBody.contains(#""type":"web_search""#))
         #expect(!x.requestBody.contains(TestKey.value) && !"\(x)".contains(TestKey.value) && !"\(x)".contains("Bearer"))
         #expect(x.chunks == 3 && x.answerChars == "上海后天小雨，16到21度。".count && x.sources == 2 && x.searchCount == 1)
         let forbidden = Data(#"{"code":"AllocationQuota.FreeTierOnly","message":"m"}"#.utf8)
@@ -163,7 +161,7 @@ struct WebSearchClientTests {
         let one = client.request("上海后天（2026年11月6日）天气", key: "k").httpBody
         let two = client.request("上海后天（2026年11月6日）天气", key: "k").httpBody
         let body = String(decoding: one ?? Data(), as: UTF8.self)
-        #expect(body.contains(#""forced_search":true"#) && body.contains("上海后天（2026年11月6日）天气"))
+        #expect(body.contains(#""type":"web_search""#) && body.contains("上海后天（2026年11月6日）天气"))
         // §24 (T-046m): the date now arrives as FreshPrompt's cutoff line and date turn, not a Chinese rule.
         #expect(body.contains("Knowledge cutoff: ") && body.contains("What's today's date?") && !body.contains("查不到"))
         #expect(one == two)
@@ -183,8 +181,8 @@ struct WebSearchClientTests {
         }
         let sent = bodies.withLock { $0 }
         #expect(sent.count == 2)
-        #expect(sent.allSatisfy { $0.contains(#""search_strategy":"turbo""#) && $0.contains(#""forced_search":true"#)
-            && $0.contains(#""enable_source":true"#) && !$0.contains("agent") })
+        // F-18 §41: every attempt sends the web_search tool and no enable_search.
+        #expect(sent.allSatisfy { $0.contains(#""type":"web_search""#) && !$0.contains("enable_search") && !$0.contains("agent") })
     }
 
     @Test("T-046m F-18 §24 rows 1-2: retry sends the same FreshPrompt messages; the system text has no 查不到, 必须, 中文")
@@ -195,8 +193,8 @@ struct WebSearchClientTests {
         let first = try JSONDecoder().decode(JSONValue.self, from: client.request("q", key: "k").httpBody ?? Data())
         let retry = try JSONDecoder().decode(JSONValue.self, from: client.request("q", key: "k").httpBody ?? Data())
         #expect(first == retry)
-        guard case .array(let messages)? = first["input"]?["messages"], messages.count == 4 else { Issue.record("no messages"); return }
-        #expect(messages[2]["content"] == [["text": "Today is December 31, 2026 in America/New_York."]])
+        guard case .array(let messages)? = first["input"], messages.count == 4 else { Issue.record("no messages"); return }
+        #expect(messages[2]["content"] == "Today is December 31, 2026 in America/New_York.")
         let system = QwenWebSearchClient.instruction(now: date, zone: zone)
         #expect(system == "You are a helpful assistant. Answer as concisely as possible. Knowledge cutoff: December 31, 2026.")
         for banned in ["查不到", "必须", "中文"] { #expect(!system.contains(banned), "\(banned)") }

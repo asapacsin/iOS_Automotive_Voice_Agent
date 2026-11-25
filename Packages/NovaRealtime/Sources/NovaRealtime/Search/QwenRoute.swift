@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import NovaKit
 
 /// F-15b §50 item 9 (T-040v, owner 2026-11-19): one Qwen model per job. Code picks the route from the tool that runs,
@@ -16,9 +19,9 @@ import NovaKit
 ///
 /// | Job | Chain | Search | Thinking | Budget |
 /// |---|---|---|---|---|
-/// | `live` | `searchChain` | turbo, forced, sources | off | as today |
-/// | `ground` | `searchChain` | turbo, forced, sources | off | 30 s |
-/// | `eventsSearch` | `searchChain` | max, forced, sources | off | 45 s per query (§39) |
+/// | `live` | `searchChain` | Responses `web_search` (§41) | off, not streamed | as today |
+/// | `ground` | `searchChain` | Responses `web_search` (§41) | off, not streamed | 30 s |
+/// | `eventsSearch` | `searchChain` | Responses `web_search` (§41) | off, not streamed | 45 s per query (§39) |
 /// | `picker` | `textChain` | off | off | 2.5 s |
 /// | `planner` | `textChain` | off | off | 30 s |
 /// | `eventsExtract` | `textChain` | off | off, not streamed, `json_object` (§39) | 30 s |
@@ -27,7 +30,11 @@ import NovaKit
 /// qwen3.8-max-0902 gave no search answer in 240 s). `textChain`: qwen3.8-max-0902 → deepseek-v4.1-flash →
 /// deepseek-v4.1-flash-1017 → kimi-k3.1-pro → qwen4-max.
 ///
-/// `planner` and `eventsExtract` use the OpenAI-compatible chat endpoint (`plannerEndpoint`); the others the native one.
+/// `planner` and `eventsExtract` use the OpenAI-compatible chat endpoint (`plannerEndpoint`); `picker` the native one.
+///
+/// F-18 §41 (T-046zd, owner order 2026-11-25): `enable_search` returns no pages on the Beijing key, so the search jobs
+/// (`live`, `ground`, `eventsSearch`) send to the Responses API (`responsesEndpoint`) with the `web_search` tool, thinking
+/// off, not streamed (`responsesBody`). No `enable_search`, `search_options` or `web_extractor`.
 public struct QwenRoute: Sendable, Hashable {
     public enum Job: String, Sendable, Hashable, CaseIterable {
         case live, picker, ground, planner
@@ -118,16 +125,16 @@ public struct QwenRoute: Sendable, Hashable {
     }
 
     /// F-18 §16 live info and §21 introductions.
-    public static let live = QwenRoute(job: .live, chain: chain(searchModels, search: turbo), stream: true)
+    public static let live = QwenRoute(job: .live, chain: chain(searchModels, search: turbo), stream: false)
     /// F-15b §4 item 6 picker: search off, not streamed, 2.5 s (§40 item 6: watch `pick … ms=` on the phone).
     public static let picker = QwenRoute(job: .picker, chain: chain(textModels, search: nil), stream: false,
                                          budget: .milliseconds(2500))
     /// F-15b §50 item 1: `forced_search` so the search must run; `turbo` (row 160).
-    public static let ground = QwenRoute(job: .ground, chain: chain(searchModels, search: turbo), stream: true, budget: .seconds(30))
+    public static let ground = QwenRoute(job: .ground, chain: chain(searchModels, search: turbo), stream: false, budget: .seconds(30))
     /// F-15b §62 item 10 (T-040zo): the trip planner on the compatible-mode chat endpoint, `json_object`, 30 s.
     public static let planner = QwenRoute(job: .planner, chain: chain(textModels, search: nil), stream: false, budget: .seconds(30))
     /// F-18 §39 item 2 (T-046zb): one events keyword query, `max`, forced, sources; 45 s per query.
-    public static let eventsSearch = QwenRoute(job: .eventsSearch, chain: chain(searchModels, search: maxSearch), stream: true,
+    public static let eventsSearch = QwenRoute(job: .eventsSearch, chain: chain(searchModels, search: maxSearch), stream: false,
                                                budget: .seconds(45))
     /// F-18 §39 item 3 (T-046zb): the one extraction call, compatible-mode chat, `json_object`, 30 s.
     public static let eventsExtract = QwenRoute(job: .eventsExtract, chain: chain(textModels, search: nil), stream: false,
@@ -139,6 +146,33 @@ public struct QwenRoute: Sendable, Hashable {
     public static var plannerModel: String { planner.model }
     /// F-18 §40 item 1: Model Studio, Beijing, OpenAI-compatible chat completions; the same key as the routes above.
     public static let plannerEndpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+    /// F-18 §41 item 1: the Responses API, Beijing; the search jobs send here.
+    public static let responsesEndpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/responses"
+
+    /// §41 item 1: the route sends a search (the Responses `web_search` tool) instead of a plain call.
+    public var usesResponses: Bool { search != nil }
+
+    /// §41 item 2: `{"model", "input": [{"role","content": text}], "tools": [{"type":"web_search"}], "enable_thinking": false}`,
+    /// not streamed. The messages are the client's own, unchanged (owner rule 2026-11-05).
+    public func responsesBody(_ messages: [(role: String, text: String)]) -> JSONValue {
+        [
+            "model": .string(model),
+            "input": .array(messages.map { ["role": .string($0.role), "content": .string($0.text)] }),
+            "tools": [["type": "web_search"]],
+            "enable_thinking": .bool(thinking),
+        ]
+    }
+
+    /// §41: a `POST` to `responsesEndpoint` with `responsesBody`, the key in the `Authorization` header only.
+    public func responsesRequest(_ messages: [(role: String, text: String)], key: String) -> URLRequest {
+        var request = URLRequest(url: URL(string: Self.responsesEndpoint)!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONValue.canonicalEncoder().encode(responsesBody(messages))
+        return request
+    }
 
     public static func route(_ job: Job) -> QwenRoute {
         switch job {

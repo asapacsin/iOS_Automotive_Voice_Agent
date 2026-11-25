@@ -21,10 +21,13 @@ public struct EventSearchAnswer: Sendable, Hashable {
     public let sources: [EventSearchHit]
     /// `usage.total_tokens`, when given.
     public let tokens: Int?
-    public init(text: String, sources: [EventSearchHit], tokens: Int? = nil) {
+    /// F-18 §41 item 5: the number of `web_search_call` items, when known.
+    public let searches: Int?
+    public init(text: String, sources: [EventSearchHit], tokens: Int? = nil, searches: Int? = nil) {
         self.text = text
         self.sources = sources
         self.tokens = tokens
+        self.searches = searches
     }
 }
 

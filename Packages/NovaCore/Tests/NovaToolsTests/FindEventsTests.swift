@@ -124,7 +124,7 @@ struct FindEventsTests {
         // Item 8's lines.
         let all = lines.all
         #expect(all.first == "events store miss cities=2 kinds=5 window=2026-11-25..2026-12-31")
-        #expect(all.contains("events query 2/11 ms=0 ok=yes sources=1 tokens=1500 q=珠海 漫展 ACG 2026年11月 12月"))
+        #expect(all.contains("events query 2/11 ms=0 ok=yes sources=1 searches=0 tokens=1500 q=珠海 漫展 ACG 2026年11月 12月"))
         #expect(all.contains("events extract ms=0 tokens=900 found=5"))
         #expect(all.last == "events search done ms=0 queries=11 failed=0 kept=1 dropped=4 tokens=\(1500 + 10 * 1200 + 900)")
     }

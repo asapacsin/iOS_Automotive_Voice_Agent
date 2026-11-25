@@ -38,7 +38,8 @@ private final class FakeQwen: Sendable {
             let body = (try? JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data())) ?? .null
             sent.withLock {
                 $0.append(Sent(model: body["model"]?.stringValue ?? "",
-                               strategy: body["parameters"]?["search_options"]?["search_strategy"]?.stringValue,
+                               strategy: body["parameters"]?["search_options"]?["search_strategy"]?.stringValue
+                                   ?? (body["tools"] == [["type": "web_search"]] ? "web_search" : nil),
                                body: body, timeout: request.timeoutInterval))
             }
             let next = replies.withLock { r in r.count > 1 ? r.removeFirst() : r[0] }
@@ -141,14 +142,14 @@ struct QwenFallbackTests {
         #expect(lines2.all == ["qwen fallback job=live from=deepseek-v4.1-flash to=deepseek-v4.1-flash-1017 reason=rate",
                                "qwen fallback job=live from=deepseek-v4.1-flash-1017 to=qwen4-max reason=rate"])
 
-        // ground (F-18 §40): every entry with turbo; the last 429 falls back to the model's places (failed).
+        // ground (F-18 §40, §41): every entry with the web_search tool; the last 429 falls back to the model's places (failed).
         let (g, fallback3, _, lines3) = rig([(10, .http(429, throttled))])
         let grounder = QwenTripGrounder(key: { "k" }, send: g.send, fallback: fallback3)
         let request = TripGroundRequest(city: "Tokyo, Japan", days: 1, places: [TripGroundPlace(name: "浅草寺", minutes: 60, importance: 3)],
                                         wishes: nil, start: nil, end: nil, hotelNear: nil)
         await #expect(throws: TripGroundError.failed) { try await grounder.ground(request) }
         #expect(g.models == ["deepseek-v4.1-flash", "deepseek-v4.1-flash-1017", "qwen4-max"])
-        #expect(g.sent.withLock { $0.map(\.strategy) } == ["turbo", "turbo", "turbo"])
+        #expect(g.sent.withLock { $0.map(\.strategy) } == ["web_search", "web_search", "web_search"])
         #expect(lines3.all.count == 2 && lines3.all.first == "qwen fallback job=ground from=deepseek-v4.1-flash to=deepseek-v4.1-flash-1017 reason=rate")
     }
 

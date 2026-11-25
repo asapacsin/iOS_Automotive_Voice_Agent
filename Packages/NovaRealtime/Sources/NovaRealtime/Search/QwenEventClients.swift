@@ -25,20 +25,9 @@ public struct QwenEventSearcher: EventWebSearcher {
         self.fallback = fallback
     }
 
+    /// F-18 §41 item 2: the query as the only user message, on the Responses API with the `web_search` tool.
     public func request(_ query: String, key: String, route: QwenRoute? = nil) -> URLRequest {
-        let route = route ?? self.route
-        var request = URLRequest(url: URL(string: QwenRoute.endpoint)!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if route.stream { request.setValue("enable", forHTTPHeaderField: "X-DashScope-SSE") }
-        let body: JSONValue = [
-            "model": .string(route.model),
-            "input": ["messages": [["role": "user", "content": [["text": .string(query)]]]]],
-            "parameters": route.parameters(),
-        ]
-        request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
-        return request
+        (route ?? self.route).responsesRequest([("user", query)], key: key)
     }
 
     public func search(_ query: String, timeout: NovaDuration) async throws -> EventSearchAnswer {
@@ -51,11 +40,16 @@ public struct QwenEventSearcher: EventWebSearcher {
         guard status == 200 else { throw WebSearchError.http(status, code: QwenWebSearchClient.errorCode(body)) }
         let parsed = QwenWebSearchClient.parse(body)
         if let code = parsed.code { throw WebSearchError.api(code) }
-        return EventSearchAnswer(text: parsed.reply.answer, sources: Self.hits(body), tokens: Self.tokens(body))
+        return EventSearchAnswer(text: parsed.reply.answer, sources: Self.hits(body), tokens: Self.tokens(body),
+                                 searches: QwenWebSearchClient.responses(body)?.searches)
     }
 
-    /// The last non-empty `output.search_info.search_results`.
+    /// §41 item 3: the Responses sources (url only, title and site empty); else the last non-empty
+    /// `output.search_info.search_results`.
     public static func hits(_ body: Data) -> [EventSearchHit] {
+        if let r = QwenWebSearchClient.responses(body) {
+            return r.sources.map { EventSearchHit(title: "", url: $0, site: "") }
+        }
         var results: [JSONValue] = []
         for o in QwenWebSearchClient.objects(body) {
             if case .array(let r)? = o["output"]?["search_info"]?["search_results"], !r.isEmpty { results = r }

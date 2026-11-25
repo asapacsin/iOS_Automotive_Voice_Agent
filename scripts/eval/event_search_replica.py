@@ -1,6 +1,6 @@
 """F-18 §39 row 55 (T-046zb): a PC replica of the app's events search (EventSearchRun), to run BEFORE an app build.
 As the app does it: city x kind keyword queries (EventSearchRun.queries: at most 12, the Macau/Hong Kong English query
-last), each on deepseek-v4.1-flash (F-18 §40: the search chain's first model) with enable_search, forced_search, search_strategy max, enable_source, thinking off, the
+last), each on deepseek-v4.1-flash (F-18 §40: the search chain's first model) on the Responses API with the web_search tool (F-18 §41), thinking off, not streamed, the
 query as the only user message and no system text, 4 at once, 45 s each; then one qwen3.8-max-0902 extraction call (§40: the text chain's first)
 (compatible mode, json_object, system 「Extract the event information. Answer in JSON.」 + the shape, today and the window); then
 code's checks (dates parse, end >= start, overlaps the window, end >= today, city one of the asked, source_url one the
@@ -17,7 +17,8 @@ POS = [a for i, a in enumerate(ARGS) if not a.startswith("--") and (i == 0 or AR
 RUNS = int(POS[0]) if POS else 3
 CALLS = 0
 # F-18 §40 items 1, 4: the Beijing 百炼 account (key DASHSCOPE_API_KEY_CN) and its free-quota models.
-SEARCH_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+# F-18 §41 item 6: the search jobs send to the Responses API with the web_search tool, as the app does.
+SEARCH_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/responses"
 CHAT_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 SEARCH_MODEL, EXTRACT_MODEL = "deepseek-v4.1-flash", "qwen3.8-max-0902"
 CITIES, FROM, TO, TODAY = ["珠海", "澳门"], "2026-11-25", "2026-12-31", "2026-11-24"
@@ -60,14 +61,19 @@ def post(url, body, key, timeout):
 
 def search(q, key):
     t0 = time.time()
-    r = post(SEARCH_URL, {"model": SEARCH_MODEL, "input": {"messages": [{"role": "user", "content": [{"text": q}]}]},
-                          "parameters": {"result_format": "message", "enable_search": True, "enable_thinking": False,
-                                         "search_options": {"search_strategy": "max", "enable_source": True, "forced_search": True}}},
-             key, 45)
-    content = r["output"]["choices"][0]["message"]["content"]
-    text = content if isinstance(content, str) else "".join(c.get("text", "") for c in content)
-    res = (r["output"].get("search_info") or {}).get("search_results", [])
-    sources = [{"title": x.get("title", ""), "url": x.get("url", "")} for x in res if x.get("url")]
+    r = post(SEARCH_URL, {"model": SEARCH_MODEL, "input": [{"role": "user", "content": q}],
+                          "tools": [{"type": "web_search"}], "enable_thinking": False}, key, 45)
+    # §41 item 3: answer = output_text of the message items; sources = web_search_call action.sources urls, deduplicated.
+    items = r.get("output") or []
+    text = "".join(c.get("text", "") for it in items if it.get("type") == "message"
+                   for c in it.get("content") or [] if c.get("type") == "output_text")
+    urls = []
+    for it in items:
+        if it.get("type") == "web_search_call":
+            for x in (it.get("action") or {}).get("sources") or []:
+                if x.get("url") and x["url"] not in urls:
+                    urls.append(x["url"])
+    sources = [{"title": "", "url": u} for u in urls]
     u = r.get("usage", {})
     return {"text": text, "sources": sources, "tokens": u.get("total_tokens") or u.get("input_tokens", 0) + u.get("output_tokens", 0),
             "ms": int((time.time() - t0) * 1000)}

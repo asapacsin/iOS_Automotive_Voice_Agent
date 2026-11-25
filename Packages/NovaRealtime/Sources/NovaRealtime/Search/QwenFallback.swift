@@ -83,8 +83,8 @@ public final class QwenFallback: Sendable {
     /// F-18 §32 item 3: a DashScope reply that says the quota is used up (`QuotaError.dashScope`).
     public static func quotaError(status: Int, body: Data) -> Bool {
         let objects = QwenWebSearchClient.objects(body)
-        let code = objects.lazy.compactMap { $0["code"]?.stringValue }.first { !$0.isEmpty }
-        let message = objects.lazy.compactMap { $0["message"]?.stringValue }.first
+        let code = QwenWebSearchClient.errorCode(body)
+        let message = objects.lazy.compactMap { $0["message"]?.stringValue ?? $0["error"]?["message"]?.stringValue }.first
         return QuotaError.dashScope(status: status, code: code, message: message)
     }
 

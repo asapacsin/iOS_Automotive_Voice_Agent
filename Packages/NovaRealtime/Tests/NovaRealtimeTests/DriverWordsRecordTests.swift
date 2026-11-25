@@ -16,12 +16,12 @@ struct DriverWordsRecordTests {
         _ = try await client.search(message, attempt: 1)
         let x = try #require(seen.withLock { $0 }.first)
         let body = try JSONDecoder().decode(JSONValue.self, from: Data(x.requestBody.utf8))
-        guard case .array(let messages)? = body["input"]?["messages"], messages.count == 4,
-              case .array(let parts)? = messages[3]["content"], let first = parts.first else {
+        // F-18 §41 item 2: Responses `input` messages with text content.
+        guard case .array(let messages)? = body["input"], messages.count == 4 else {
             Issue.record("unexpected body shape")
             return
         }
-        #expect(first["text"] == .string(message))
+        #expect(messages[3]["content"] == .string(message))
         #expect(QwenWebSearchClient.model == "deepseek-v4.1-flash")
     }
 }

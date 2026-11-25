@@ -196,7 +196,7 @@ public struct EventSearchRun: Sendable {
                 if let a { answers[i] = a }
                 finished += 1
                 onLine("events query \(i + 1)/\(m) ms=\(ms) ok=\(a == nil ? "no" : "yes") "
-                       + "sources=\(a?.sources.count ?? 0) tokens=\(a?.tokens ?? 0) q=\(queries[i].text)")
+                       + "sources=\(a?.sources.count ?? 0) searches=\(a?.searches ?? 0) tokens=\(a?.tokens ?? 0) q=\(queries[i].text)")
                 onProgress(finished, m)
                 add()
             }

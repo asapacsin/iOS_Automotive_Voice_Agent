@@ -14,17 +14,15 @@ private func first(_ v: JSONValue?) -> JSONValue? {
 
 @Suite("T-046zb F-18 §39 events search and extraction clients")
 struct QwenEventClientsTests {
-    @Test("T-046zb F-18 §39 row 49: search body is deepseek-v4.1-flash (F-18 §40), forced, max, sources, thinking off, the query the only message, no system; answer text and sources kept")
+    @Test("T-046zb F-18 §39 row 49: search body is deepseek-v4.1-flash (F-18 §40), web_search (§41), thinking off, the query the only message, no system; answer text and sources kept")
     func row49() async throws {
         let s = QwenEventSearcher(key: { "k" })
         let body = try JSONDecoder().decode(JSONValue.self, from: s.request("珠海 漫展 ACG 2026年11月 12月", key: "k").httpBody!)
         #expect(body["model"] == "deepseek-v4.1-flash")
-        guard case .array(let m)? = body["input"]?["messages"] else { Issue.record("no messages"); return }
-        #expect(m.count == 1 && m[0]["role"] == "user" && first(m[0]["content"])?["text"] == "珠海 漫展 ACG 2026年11月 12月")
-        let p = body["parameters"]
-        #expect(p?["enable_search"] == true && p?["enable_thinking"] == false)
-        #expect(p?["search_options"]?["forced_search"] == true && p?["search_options"]?["search_strategy"] == "max"
-                && p?["search_options"]?["enable_source"] == true)
+        // F-18 §41 item 2: the Responses API with the web_search tool (replaces enable_search, max, forced).
+        guard case .array(let m)? = body["input"] else { Issue.record("no messages"); return }
+        #expect(m.count == 1 && m[0]["role"] == "user" && m[0]["content"] == "珠海 漫展 ACG 2026年11月 12月")
+        #expect(body["tools"] == [["type": "web_search"]] && body["enable_thinking"] == false && body["parameters"] == nil)
 
         let reply = """
         data: {"output":{"choices":[{"message":{"content":"起源ACG动漫展"}}],"search_info":{"search_results":[{"title":"起源ACG","url":"https://zh.example.com/acg","site_name":"例子"}]}}}
