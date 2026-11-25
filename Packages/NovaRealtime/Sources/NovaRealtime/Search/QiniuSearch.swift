@@ -180,9 +180,37 @@ public enum FreshPromptEvidence {
             }
         }.map(\.element)
         return sorted.map { r in
-            let source = r.source.isEmpty ? (URL(string: r.url)?.host ?? "") : r.source
-            return "\n\nsource: \(source)\ndate: \(r.date)\ntitle: \(r.title)\nsnippet: \(r.content)\nhighlight: "
+            "\n\nsource: \(source(r.url))\ndate: \(displayDate(r.date))\ntitle: \(r.title)\nsnippet: \(r.content)\nhighlight: "
         }.joined()
+    }
+
+    /// The notebook's `extract_source_webpage`: the link's domain without `www.`.
+    static func source(_ url: String) -> String {
+        let host = URL(string: url)?.host ?? ""
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    /// The notebook's `format_date`: `Nov 17, 2026`; a date that does not parse stays as given.
+    static func displayDate(_ text: String) -> String {
+        guard let d = day(text) else { return text }
+        let p = d.split(separator: "-").compactMap { Int($0) }
+        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        guard p.count == 3, (1...12).contains(p[1]) else { return text }
+        return "\(months[p[1] - 1]) \(p[2]), \(p[0])"
+    }
+
+    /// Her query in the user message the executor builds: `query: Q\n\nquestion: …\nanswer: ` (driver words) or
+    /// `question: Q\nanswer: `; any other text is the query itself.
+    public static func query(_ text: String) -> String {
+        if text.hasPrefix("query: "), let r = text.range(of: "\n\nquestion: ") {
+            return String(text[text.index(text.startIndex, offsetBy: 7)..<r.lowerBound])
+        }
+        if text.hasPrefix("question: ") {
+            var q = String(text.dropFirst(10))
+            if q.hasSuffix("\nanswer: ") { q = String(q.dropLast(9)) }
+            return q
+        }
+        return text
     }
 
     /// `YYYY-MM-DD` (or `YYYY-MM-DD hh:mm…`, `YYYY/MM/DD`) as a comparable string; nil when it does not parse.
@@ -199,8 +227,11 @@ public enum FreshPromptEvidence {
     /// question). A message without that marker gets FreshPrompt's own frame around it.
     public static func message(_ text: String, results: [QiniuResult]) -> String {
         let evidence = block(results)
-        if let r = text.range(of: "\n\nquestion: ") {
+        if text.hasPrefix("query: "), let r = text.range(of: "\n\nquestion: ") {
             return String(text[..<r.lowerBound]) + evidence + String(text[r.lowerBound...])
+        }
+        if text.hasPrefix("question: ") {
+            return "query: \(query(text))" + evidence + "\n\n" + text
         }
         return "query: \(text)" + evidence + "\n\nquestion: \(text)\nanswer: "
     }
@@ -315,10 +346,16 @@ public struct QiniuWebSearchClient: WebSearchService {
         let t0 = clock.now
         let results: [QiniuResult]
         do {
-            results = try await client.search(query, key: key)
+            // §42 item 5: the search gets her query (§19/§21 rewrites), not the FreshPrompt message around it.
+            results = try await client.search(FreshPromptEvidence.query(query), key: key)
             onLine(QiniuClient.searchLine("live", ms: elapsed(t0), results: results.count, failure: nil))
         } catch {
             onLine(QiniuClient.searchLine("live", ms: elapsed(t0), results: nil, failure: error) + " fallback=qwen")
+            return try await fallback.search(query, attempt: attempt)
+        }
+        // "The search ran" = at least one result; none: §41 answers.
+        guard !results.isEmpty else {
+            onLine("search provider=qiniu job=live no_results=yes fallback=qwen")
             return try await fallback.search(query, attempt: attempt)
         }
         let t1 = clock.now

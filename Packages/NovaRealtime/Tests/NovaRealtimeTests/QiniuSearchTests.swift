@@ -163,9 +163,34 @@ struct QiniuSearchTests {
             // A date that does not parse sorts first (FreshPrompt's na_position='first'); no source: the url's host.
             + "\n\nsource: b.example.com"
             + "\ndate: \ntitle: 澳门11月宝藏展览合集\nsnippet: 澳门展览\nhighlight: "
-            + "\n\nsource: 例子网\ndate: 2026-11-17\ntitle: AIE电子展\nsnippet: 11月18日至20日在珠海国际会展中心\nhighlight: "
+            + "\n\nsource: a.example.com\ndate: Nov 17, 2026\ntitle: AIE电子展\nsnippet: 11月18日至20日在珠海国际会展中心\nhighlight: "
             + "\n\nquestion: 今天珠海天气怎么样\nanswer: "))
         #expect(lines.all.last?.hasPrefix("model provider=qiniu job=live model=deepseek/deepseek-v4-flash-20260731 ms=") == true
                 && lines.all.last?.hasSuffix("tokens=3000,200,150") == true)
+        // The search got her query, not the FreshPrompt message (review 2026-11-25).
+        let search = try #require(wire.sent.withLock { $0 }.first { $0.url?.absoluteString == QiniuRoute.searchEndpoint })
+        #expect(try JSONDecoder().decode(JSONValue.self, from: search.httpBody ?? Data())["query"] == "珠海今天天气")
+    }
+
+    @Test("T-046ze F-18 §42 item 5: with no driver words (`question: Q\nanswer: `) the search gets Q and the message is the notebook frame, no doubled labels")
+    func liveNoWords() async throws {
+        let wire = Wire { r in r.url?.absoluteString == QiniuRoute.searchEndpoint ? (200, qiniuSearchFixture) : (200, chatReply) }
+        let client = QiniuWebSearchClient(key: { "k" }, fallback: FakeLive(), client: QiniuClient(send: wire.send),
+                                          now: { fixed }, zone: { tokyo })
+        _ = try await client.search("question: 珠海天气\nanswer: ", attempt: 1)
+        let sent = wire.sent.withLock { $0 }
+        #expect(try JSONDecoder().decode(JSONValue.self, from: sent[0].httpBody ?? Data())["query"] == "珠海天气")
+        let body = try JSONDecoder().decode(JSONValue.self, from: sent[1].httpBody ?? Data())
+        guard case .array(let m)? = body["messages"], let text = m[3]["content"]?.stringValue else { Issue.record("messages"); return }
+        #expect(text.hasPrefix("query: 珠海天气\n\nsource: ") && text.hasSuffix("\nhighlight: \n\nquestion: 珠海天气\nanswer: "))
+        #expect(text.components(separatedBy: "question: ").count == 2 && text.components(separatedBy: "answer: ").count == 2)
+    }
+
+    @Test("T-046ze F-18 §42 item 5: a live search with no results is not grounded: §41 answers, no model call")
+    func liveNoResults() async throws {
+        let wire = Wire { _ in (200, #"{"success":true,"data":{"results":[],"total":0}}"#) }
+        let live = FakeLive()
+        let reply = try await QiniuWebSearchClient(key: { "k" }, fallback: live, client: QiniuClient(send: wire.send)).search("q", attempt: 1)
+        #expect(reply.answer == "qwen" && wire.urls == [QiniuRoute.searchEndpoint])
     }
 }
