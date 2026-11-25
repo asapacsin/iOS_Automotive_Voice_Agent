@@ -67,7 +67,31 @@ public struct QiniuClient: Sendable {
     private let send: Send
     private let sleep: Sleep
 
-    public init(send: @escaping Send = QwenWebSearchClient.urlSession,
+    /// The app's transport: POSTs read whole; a GET (§43 item 4a page) is read as it streams and stopped at
+    /// `QiniuRoute.pageMaxBytes`, so a large source (a PDF) is never downloaded in full.
+    public static let urlSession: Send = { request in
+        #if canImport(FoundationNetworking)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+        #else
+        guard request.httpMethod == "GET" else {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+        }
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { bytes.task.cancel(); return (status, Data()) }
+        var data = Data()
+        data.reserveCapacity(64 * 1024)
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count >= QiniuRoute.pageMaxBytes { bytes.task.cancel(); break }
+        }
+        return (status, data)
+        #endif
+    }
+
+    public init(send: @escaping Send = QiniuClient.urlSession,
                 sleep: @escaping Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0.milliseconds)) * 1_000_000) }) {
         self.send = send
         self.sleep = sleep
@@ -195,8 +219,22 @@ public struct QiniuClient: Sendable {
         return request
     }
 
+    /// §43 item 4a: 10 s in all (`timeoutInterval` only limits idle time, so the whole fetch races a 10 s timer), the
+    /// first 1 MB (the transport stops reading there; the cut here holds for any transport).
     public func page(_ url: String) async -> String? {
-        guard let request = Self.pageRequest(url), let (status, data) = try? await exchange(request), status == 200 else { return nil }
+        guard let request = Self.pageRequest(url) else { return nil }
+        let send = send, sleep = sleep
+        let result: (Int, Data)? = await withTaskGroup(of: (Int, Data)?.self) { group in
+            group.addTask { try? await send(request) }
+            group.addTask {
+                try? await sleep(QiniuRoute.pageTimeout)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        guard let (status, data) = result, status == 200 else { return nil }
         return String(decoding: data.prefix(QiniuRoute.pageMaxBytes), as: UTF8.self)
     }
 

@@ -269,3 +269,20 @@ struct QiniuSearchTests {
         #expect(reply.answer == "qwen" && wire.urls == [QiniuRoute.searchEndpoint])
     }
 }
+
+@Suite("T-046zf F-18 §43 item 4a page fetch limits")
+struct QiniuPageLimitTests {
+    @Test("T-046zf F-18 §43 item 4a: a page that never answers is given up at the 10 s total limit; only the first 1 MB is read")
+    func limits() async {
+        let slept = Mutex<[NovaDuration]>([])
+        let hang = QiniuClient(send: { _ in
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+            return (200, Data())
+        }, sleep: { d in slept.withLock { $0.append(d) } })
+        #expect(await hang.page("https://slow.example/x") == nil)
+        #expect(slept.withLock { $0 } == [QiniuRoute.pageTimeout])
+        let big = QiniuClient(send: { _ in (200, Data(repeating: 0x61, count: QiniuRoute.pageMaxBytes + 5000)) },
+                              sleep: { _ in try await Task.sleep(nanoseconds: 60_000_000_000) })
+        #expect(await big.page("https://big.example/x")?.utf8.count == QiniuRoute.pageMaxBytes)
+    }
+}

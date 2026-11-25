@@ -548,13 +548,26 @@ public struct TripEvent: Sendable, Hashable, Codable {
     public var title: String
     public var start: String
     public var end: String
-    public init(title: String, start: String, end: String) {
+    /// F-18 §44 item 3 (T-046zg): false when no source confirmed the dates (the card says 「日期未找到」); nil in a plan
+    /// saved before §44 (dates shown as before).
+    public var datesFound: Bool?
+    /// F-18 §43 item 4 (T-046zf): the event's picture, shown in the card's picture place instead of the venue's photo.
+    public var imageURL: String?
+    /// §43 item 4 / §44 item 3: 「网络图片」 under a picture from the image search, 「未找到图片」 in the picture's place
+    /// when there is none; nil otherwise (and in a plan saved before §43).
+    public var imageNote: String?
+    public init(title: String, start: String, end: String, datesFound: Bool? = nil, imageURL: String? = nil,
+                imageNote: String? = nil) {
         self.title = title
         self.start = start
         self.end = end
+        self.datesFound = datesFound
+        self.imageURL = imageURL
+        self.imageNote = imageNote
     }
-    /// §64 item 6: 「<title> · <start>～<end>」 under the venue on its card.
-    public var cardText: String { "\(title) · \(start)～\(end)" }
+    /// §64 item 6: 「<title> · <start>～<end>」 under the venue on its card; §44 item 3: 「<title> · 日期未找到」 when no
+    /// source states the dates.
+    public var cardText: String { datesFound == false ? "\(title) · 日期未找到" : "\(title) · \(start)～\(end)" }
 }
 
 /// §64 item 1: 「第1天 · 11月25日 周三」, or 「第1天」 without a start date.

@@ -579,7 +579,7 @@ struct TripEventPlanTests {
         #expect(!TripPlannerShape.adviceWords.contains(where: { counts.replacingOccurrences(of: "开车", with: "").contains($0) }))
         // Round 2 saved on day 4 with the event; plan_text and the card show it.
         let day4 = await rig.planner.currentPlan.days[3].stops
-        #expect(day4.contains { $0.event == TripEvent(title: "AI嘉年华", start: "2026-11-28", end: "2026-11-29") })
+        #expect(day4.contains { $0.event?.title == "AI嘉年华" && $0.event?.start == "2026-11-28" && $0.event?.end == "2026-11-29" })
         let text = r.data["plan_text"]?.stringValue ?? ""
         #expect(text.contains("第4天 · 11月28日 周六：") && text.contains("珠海国际会展中心（AI嘉年华）"), "\(text)")
         #expect(text.hasPrefix("第1天 · 11月25日 周三："))

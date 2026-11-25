@@ -70,6 +70,8 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public static let unplacedText = "位置待确认"
     /// F-15b §64 item 6 (T-040zq): 「<title> · <start>～<end>」 under the venue of an event stop; nil otherwise.
     public var event: String? = nil
+    /// F-18 §43 item 4, §44 item 3: 「网络图片」 or 「未找到图片」 for an event stop's picture; nil otherwise.
+    public var imageNote: String? = nil
     /// F-15b §67 item 4 (T-040zt): the map's place name under the title when it differs from the title; nil otherwise.
     public var place: String? = nil
 
@@ -134,11 +136,15 @@ public enum TripScreen: Sendable, Hashable {
             // F-15b §67 item 4 (T-040zt): the title is the stop's name; the map's name goes on the line under it.
             TripCard(index: stop.index, placeID: stop.place.id, name: stop.title,
                      district: stop.placed ? stop.place.district : TripCard.unplacedText,
-                     km: stop.placed ? stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 } : nil, photoURL: stop.place.photoURL,
+                     km: stop.placed ? stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 } : nil,
+                     // F-18 §43 item 4: an event stop shows the event's picture (none: 「未找到图片」 in its place); a stop
+                     // from a plan saved before §43 (no note) keeps the venue's photo.
+                     photoURL: stop.event.map { $0.imageNote == nil && $0.imageURL == nil ? stop.place.photoURL : $0.imageURL.flatMap(URL.init(string:)) }
+                        ?? stop.place.photoURL,
                      initial: String(stop.title.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
                      minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
                      tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed,
-                     event: stop.event?.cardText,
+                     event: stop.event?.cardText, imageNote: stop.event?.imageNote,
                      place: stop.placed && stop.title != stop.place.name ? stop.place.name : nil)
         })
     }

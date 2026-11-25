@@ -257,6 +257,8 @@ private struct TripCardView: View {
             }
             // F-15b §37 item 8 (T-040o): 住 / 机场, a small label under the poster.
             if let tag = card.tag { Text(tag).font(.caption2.bold()).foregroundStyle(.orange) }
+            // F-18 §43 item 4, §44 item 3: 「网络图片」 under a searched picture, 「未找到图片」 when the event has none.
+            if let note = card.imageNote { Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
             Text(card.name).font(.subheadline.weight(.semibold)).lineLimit(1)
             // F-15b §67 item 4 (T-040zt): the map's place name under the stop's name when they differ.
             if let place = card.place { Text(place).font(.caption2).lineLimit(1) }

@@ -859,7 +859,11 @@ public actor TripPlanner: ToolExecutor {
                         dayFacts[d].append(fact)
                         if !badEvents.contains(e.title) { badEvents.append(e.title) }
                     } else if let entry = events.first(where: { $0.name == e.title }) {
-                        made.event = TripEvent(title: entry.name, start: entry.start, end: entry.end)
+                        // F-18 §43 item 4, §44 item 3 (T-046zf/zg): the card shows only confirmed dates, the event's picture
+                        // or 「未找到图片」, and 「网络图片」 under a searched picture.
+                        made.event = TripEvent(title: entry.name, start: entry.start, end: entry.end,
+                                               datesFound: entry.confirmedDates != nil, imageURL: entry.imageURL,
+                                               imageNote: entry.imageLabel ?? entry.imageCardText)
                     }
                 }
                 list.append(made)

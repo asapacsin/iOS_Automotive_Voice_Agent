@@ -525,7 +525,8 @@ final class AgentRuntime {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let store = EventStore(storage: FileEventStorage(url: dir.appendingPathComponent("events.json")))
         let line: @Sendable (String) -> Void = { [weak self] text in
-            RuntimeLog.agent.notice("\(text, privacy: .public)")
+            // I-8: event names and the query text go to the local record only (EventLogLine).
+            if let logged = EventLogLine.forLog(text) { RuntimeLog.agent.notice("\(logged, privacy: .public)") }
             Task { @MainActor in self?.sessionRecord?.submit(.events(text)) }
         }
         let key: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
