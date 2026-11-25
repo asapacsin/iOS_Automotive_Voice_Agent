@@ -508,7 +508,10 @@ private func zhAnswer(_ days: [[(String, TripEvent?)]], stays: [String?], done: 
     let d: [JSONValue] = days.enumerated().map { i, sights in
         let stay: JSONValue = (i < stays.count ? stays[i] : nil).map { .object(["name": .string($0), "city": "珠海"]) } ?? .null
         return .object(["sights": .array(sights.map { n, e in
-            var o: [String: JSONValue] = ["name": .string(n), "city": "珠海", "minutes": 120]
+            // 「name@location」 writes §67's shape (name shown, location looked up).
+            let parts = n.split(separator: "@", maxSplits: 1).map(String.init)
+            var o: [String: JSONValue] = ["name": .string(parts[0]), "city": "珠海", "minutes": 120]
+            if parts.count == 2 { o["location"] = .string(parts[1]) }
             if let e { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
             return .object(o)
         }), "stay": stay])
@@ -557,6 +560,27 @@ private func browser(fresh: Bool, ran: Ran) async -> EventFinder {
 
 @Suite("T-040zq F-15b §64 events on open days; the trip's dates and stay city")
 struct TripEventPlanTests {
+    @Test("T-040zt F-15b §67 item 5 with §64: an event written as name=event, location=venue keeps its event (the venue check reads location)")
+    func eventNameLocation() async throws {
+        let ran = Ran()
+        let ev = TripEvent(title: "AI嘉年华", start: "2026-11-28", end: "2026-11-29")
+        let hotel = "珠海长隆横琴湾酒店"
+        let rig = await PlanTripRig([
+            zhAnswer([[("长隆海洋王国", nil)], [("日月贝", nil)], [("日月贝", nil)], [("AI嘉年华@珠海国际会展中心", ev)]],
+                     stays: [hotel, hotel, hotel], done: false),
+            zhAnswer([[("长隆海洋王国", nil)], [("日月贝", nil)], [("日月贝", nil)], [("AI嘉年华@珠海国际会展中心", ev)]],
+                     stays: [hotel, hotel, hotel], done: true),
+        ], table: zhuhai)
+        await rig.planner.setEvents(await browser(fresh: true, ran: ran))
+        let r = await rig.run(rawTrip("plan_trip", ["asked": zhAsked]))
+        #expect(r.ok && r.data["saved"] == true, "\(r)")
+        let day4 = await rig.planner.currentPlan.days[3].stops
+        #expect(day4.contains { $0.event?.title == "AI嘉年华" && $0.location == "珠海国际会展中心" }, "\(day4)")
+        let text = r.data["plan_text"]?.stringValue ?? ""
+        let counts = rig.model.calls.withLock { $0 }.last?.last?.content ?? ""
+        #expect(text.contains("AI嘉年华（珠海国际会展中心）") && !counts.contains("活动表里没有"), "\(text)\n\(counts)")
+    }
+
     @Test("T-040zq F-15b row 297: the event on a closed day is counted with its dates; on an open day it is saved with event; cards show the dates")
     func row297() async throws {
         let ran = Ran()

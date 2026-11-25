@@ -124,6 +124,10 @@ public actor TripPlanner: ToolExecutor {
     private var writes: [Int: (call: CallID, started: NovaInstant)] = [:]
     /// §69 item 1: writes cancelled by a newer one; their results are `SUPERSEDED` (never sent to her).
     private var superseded: Set<Int> = []
+    /// §69 item 1 (review 2026-11-25): writes that cancelled the running ones and still wait for them to wind down;
+    /// a newer write cancels these too (`supersededWaiting`), so of several quick requests only the last runs.
+    private var waitingWrites: [CallID: NovaInstant] = [:]
+    private var supersededWaiting: Set<CallID> = []
     private var nextChange = 0
     /// §4 item 9: calls waiting for running list changes (tests read it).
     private(set) var waiting = 0
@@ -382,13 +386,11 @@ public actor TripPlanner: ToolExecutor {
         switch call.name {
         case "plan_trip":
             // F-15b §62 (T-040zo): a write; `trip_next` waits for it. §69 (T-040zv): a newer write replaces a running one.
-            supersede(by: call)
-            await waitFor()
+            if let replaced = await supersedeAndWait(call) { return withPlan(replaced) }
             return withPlan(await trackedPlanTrip(call))
         case "set_trip_plan":
             // §4 item 9: a write waits for the writes already running; §69: it cancels them first.
-            supersede(by: call)
-            await waitFor()
+            if let replaced = await supersedeAndWait(call) { return withPlan(replaced) }
             let result = await tracked(call)
             // F-15b §61 item 1 (T-040zn): `saved` is the generic `ok` and means only that the plan was stored.
             var data = result.data
@@ -483,6 +485,23 @@ public actor TripPlanner: ToolExecutor {
             changes[id]?.cancel()
             onLine("trip superseded old=\(write.call) new=\(call.id) ms=\(ms(since: write.started))")
         }
+        for (old, started) in waitingWrites.sorted(by: { $0.value < $1.value })
+        where old != call.id && !supersededWaiting.contains(old) {
+            supersededWaiting.insert(old)
+            onLine("trip superseded old=\(old) new=\(call.id) ms=\(ms(since: started))")
+        }
+    }
+
+    /// §69 item 1: cancels the running and waiting writes, then waits for the running ones to end. Nil: this call runs;
+    /// else it was replaced while it waited and answers `SUPERSEDED` (nothing saved, never sent to her).
+    private func supersedeAndWait(_ call: ToolCall) async -> ToolResult? {
+        supersede(by: call)
+        waitingWrites[call.id] = clock.now
+        await waitFor()
+        waitingWrites[call.id] = nil
+        guard supersededWaiting.remove(call.id) != nil else { return nil }
+        if call.name == "plan_trip" { onLine("work step=plan_trip state=superseded") }
+        return Self.supersededResult
     }
 
     /// §69 item 1: what a cancelled write returns; the agent core drops it (as F-18 §37 for `web_search`).
@@ -855,7 +874,7 @@ public actor TripPlanner: ToolExecutor {
             for s in day.sights {
                 var made = stop(s.name, location: s.lookup, cityOf(s.city), role: .sight, minutes: s.minutes)
                 if let e = s.event {
-                    if let fact = TripPlannerShape.eventFact(e, venue: s.name, date: asked.date(ofDay: d), store: events) {
+                    if let fact = TripPlannerShape.eventFact(e, venue: s.lookup, date: asked.date(ofDay: d), store: events) {
                         dayFacts[d].append(fact)
                         if !badEvents.contains(e.title) { badEvents.append(e.title) }
                     } else if let entry = events.first(where: { $0.name == e.title }) {

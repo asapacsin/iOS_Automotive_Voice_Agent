@@ -770,9 +770,11 @@ final class AgentRuntime {
     }
 
     /// F-15b §11 item 6: the details sheet of a card (photo, address, opening hours, phone); nothing is spoken.
-    func openTripDetail(_ card: TripCard) async {
+    /// `touched` false for the voice `show_place` path (F-15b §65 item 2: only the driver's own touch turns the trip
+    /// line on; a spoken place is not a use of the trip).
+    func openTripDetail(_ card: TripCard, touched: Bool = true) async {
         guard !model.tripMoving else { return }
-        tripTouched()
+        if touched { tripTouched() }
         model.tripDetail = card
         model.tripDetailPlace = nil
         model.tripDetailLoading = true
@@ -795,7 +797,7 @@ final class AgentRuntime {
     func showPlaceCard(_ card: TripCard) async -> ShowPlaceTool.Shown {
         // §16 item 8 step 3: DriveView shows one sheet at a time; with 我的行程 open the card would not be seen.
         guard !model.tripPlansOpen else { return ShowPlaceTool.Shown(shown: false, intro: nil, address: nil) }
-        await openTripDetail(card)
+        await openTripDetail(card, touched: false)
         // §16 item 8 step 4 with item 2 built: the sheet holds the place and the display reports it on.
         let onScreen = await ScreenReporter.shared.store.wait(until: { $0.isOn(.tripDetail) },
                                                              timeout: ScreenTuning().screenConfirm, clock: SystemClock())

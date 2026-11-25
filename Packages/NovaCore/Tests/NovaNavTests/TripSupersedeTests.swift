@@ -40,6 +40,26 @@ struct TripSupersedeTests {
         #expect(await rig.planner.currentPlan.allStops.map(\.stop.asked) == ["日月贝"])
     }
 
+    @Test("T-040zv F-15b §69 row 326 (three calls): A slow to wind down, B waits for it, C arrives: B is replaced too (SUPERSEDED, never runs); only C runs")
+    func threeCalls() async {
+        let rig = await LookupRig([plannerAnswer([[sight("珠海渔女")]], done: false), .stubborn(.milliseconds(400)),
+                                   plannerAnswer([[sight("长隆海洋王国")]]), plannerAnswer([[sight("长隆海洋王国")]])],
+                                  search: AmapLookupSearch(table))
+        let a = Task { await rig.run(planCall("珠海四天", id: "call_a")) }
+        await until { rig.model.count >= 2 }
+        let b = Task { await rig.run(planCall("珠海两天", id: "call_b")) }
+        await until { rig.line("trip superseded ").count >= 1 }
+        try? await Task.sleep(for: .milliseconds(50))
+        let c = await rig.run(planCall("珠海一天", id: "call_c"))
+        let (ra, rb) = (await a.value, await b.value)
+        #expect(ra.code == .superseded && rb.code == .superseded, "\(ra)\n\(rb)")
+        #expect(c.ok && c.data["saved"] == true, "\(c)")
+        #expect(rig.model.count == 4)  // B never called the planner
+        let lines = rig.line("trip superseded ")
+        #expect(lines.count == 2 && lines[1].hasPrefix("trip superseded old=call_b new=call_c ms="), "\(lines)")
+        #expect(await rig.planner.currentPlan.allStops.map(\.stop.asked) == ["长隆海洋王国"])
+    }
+
     @Test("T-040zv F-15b §69 row 327: A cancelled after one planner round: nothing from A saved; B starts from the plan saved before")
     func row327() async {
         let rig = await LookupRig([plannerAnswer([[sight("长隆海洋王国")]]), plannerAnswer([[sight("长隆海洋王国")]]),

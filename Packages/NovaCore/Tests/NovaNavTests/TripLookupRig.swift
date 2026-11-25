@@ -11,7 +11,8 @@ import Testing
 
 /// A planner model with scripted answers, one per call. `gate` (when set) holds each call until released.
 final class ScriptPlanner: TripPlannerModel, @unchecked Sendable {
-    enum Answer { case text(String), hang }
+    /// `stubborn`: ignores cancellation for that long (a call that is slow to wind down), then fails.
+    enum Answer { case text(String), hang, stubborn(Duration) }
     let answers: Mutex<[Answer]>
     let calls = Mutex<[[TripPlannerMessage]]>([])
     let cancelled = Mutex(0)
@@ -22,6 +23,10 @@ final class ScriptPlanner: TripPlannerModel, @unchecked Sendable {
         let next = answers.withLock { a -> Answer in a.isEmpty ? .hang : a.removeFirst() }
         switch next {
         case .text(let t): return t
+        case .stubborn(let d):
+            await Task.detached { try? await Task.sleep(for: d) }.value
+            cancelled.withLock { $0 += 1 }
+            throw CancellationError()
         case .hang:
             do { try await Task.sleep(for: .seconds(3600)) } catch {
                 cancelled.withLock { $0 += 1 }
