@@ -3001,6 +3001,14 @@ events-list name exactly (`TripPlanner`, §64 item 3). In the run:
    up on the map (not by the event name, not by the planner's `location`, §67 item 2) and offers no navigation; the card
    shows the event line and 「场馆未找到」 with the city; `plan_text`/trip line give 「<event>（场馆未找到，<start>–<end>）」.
    An entry with no confirmed dates gives 「日期未找到」 and is not checked against the day (as §67 item 7).
+7. **An event with several halls (live-info §44 item 1a: AIE 珠海国际会展中心 + 澳门威尼斯人金光会展中心).** Each hall's city
+   comes from its map lookup (adcode 4404 珠海, 82 澳门, §68). The stop's `location` is the planner's `location` when it is
+   one of the entry's halls in the stop's city; else the entry's hall in the stop's city; else its first hall.
+8. **Start time fits the day (code, facts only, §61 rule).** For an event stop with a start time (live-info §44 item 8),
+   code adds the day's stop minutes and drive minutes up to that stop from the day's start; arriving later than 15
+   minutes before the start gives the counts line 「<title><HH:MM>开始，按行程<HH:MM>才到」. When a drive time on the way
+   is unknown (高德 gives no route across the 澳门 border: `USER_ABROAD_DAILY_QUERY_OVER_LIMIT`, PC 2026-11-25), the line is
+   「<title><HH:MM>开始，到澳门的车程查不到」, no guess. The card shows 「<HH:MM>开始」 in the event line.
 
 **Acceptance (iOS).**
 
@@ -3013,10 +3021,12 @@ events-list name exactly (`TripPlanner`, §64 item 3). In the run:
 | 312 | Plan with a linked stop | `plan_text`/trip line shows 「横琴AI嘉年华（珠海国际会展中心7-8号馆，11-28–11-29）」 | unit |
 | 313 | Device: find events, then 「把AI嘉年华排进周日」 | Card shows the venue and the event line; she names the event and the venue for the same day | D |
 | 313a | Events list has 第十六届中国航展 with no venue (live-info §44 found none); sight `{"name":"航展","location":"珠海国际航展中心"}` | Linked; no map call; card 「场馆未找到」 + 珠海; trip line 「第十六届中国航展（场馆未找到，12-07–12-13）」 | unit |
+| 313b | AIE entry with both halls; sight city 澳门 with `location` 珠海国际会展中心; another sight city 珠海 with `location` 横琴 | 澳门威尼斯人金光会展中心; 珠海国际会展中心 | unit |
+| 313c | Day from 09:00: one 150-min stop, 23-min drive, then an event at 16:00; then six 90-min stops before it; then a leg into 澳门 with no drive time | No line; 「…16:00开始，按行程…才到」; 「…16:00开始，到澳门的车程查不到」 | unit |
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040zs | §66 items 1–6; rows 308–313a | NOT_RUN |
+| T-040zs | §66 items 1–8; rows 308–313c | NOT_RUN |
 
 ## 67. Every stop has a name and a location; only the location goes to the map (iOS, owner order 2026-11-25)
 

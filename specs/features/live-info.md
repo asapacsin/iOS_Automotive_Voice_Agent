@@ -2029,7 +2029,34 @@ the store `rel/events_store.json` in the session scratchpad).**
    `start`, `end` (confirmed or none), `source_url`, `image_url`, how each was confirmed (`page`/`search`/none), and the
    time item 2 ran; item 2 runs at most once per event per day. Later calls and the trip planner read the store; a
    confirmed value is never refilled from a model.
-6. **Record.** `events check name=<name> venue=<page|search|none> dates=<page|search|none> image=<og|search|none>`.
+6. **Record.** `events check name=<name> venue=<page|search|none> dates=<page|search|none> image=<og|search|none> time=<page|none> ticket=<note|none>`.
+7. **The year sits with the date (amends item 1b).** The start's year counts only within 20 characters before a
+   start-day match, or in the page title; a year anywhere else on the page (「© 2026」 in a footer) does not.
+8. **Start time.** The extraction shape (§42 item 4) gains `"time": "HH:MM"` (empty when not stated). Kept only when the
+   source text has it as 「H:MM」 「HH:MM」 「H点」 「H点MM」, or for 12:00 and later 「下午h时」 「晚上h时」 「下午h点」 「晚上h点」 「hpm」
+   「h p.m.」 (h = hour − 12); else none (「时间：未找到」 is not said; only the date is given). The events text gives
+   「开始：HH:MM」 when kept.
+9. **Ticket note (code only, no model).** From the source text within 30 characters before to 300 after each mention of
+   the start day (any item 1b form): 「售罄」/`sold out` → 售罄; 「无需门票」「免费参与」「免费入场」「免费参观」 → 免费; 「预约」 →
+   需预约; 「票价」「门票价钱」「购票」「开票」「公开发售」 → 需购票; 「报名」/`registration` followed within 40 characters by
+   「截止」/`close` and within 30 more by a date (「M月D日」 or `on <English month> D`) → 报名已截止 when that date is before
+   today, else 报名截止M月D日; 「报名」/`registration` alone → 需报名. The events text and the card give the notes
+   (「门票：免费，需预约」); none → nothing shown (not 「未找到」). The whole page is not scanned: on hk01 pages it caught
+   「售罄」 of another concert and 「预约」 of the site's ticket tips.
+
+**PoC for items 7–9 and trip-plan §66 items 7–8 (PC 2026-11-25, saved pages, `rel/poc2.py`, no model calls):** 26/26.
+Year: 7 real kept; a 2025 story on a page with 「© 2026」 and 马拉松 2025-12-27 caught. Time: 韦礼安 20:00 (「晚上8时」),
+LINGORM 16:00 (「下午4时」) kept; LINGORM 19:00 and AI嘉年华 10:00 (page states none) caught. Ticket: 横琴AI嘉年华 免费，需预约;
+VAC, 韦礼安, LINGORM 需购票; 横琴马拉松 报名已截止 (「Registration will close at 10:00 p.m. on September 12」); 航展 (gmw.cn),
+AIE (stdaily.com) none; 韦礼安 page's 「门票火速售罄」 (another concert) not taken. Hall by city and time fit: trip-plan §66.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 95 | Page 「…2025年11月28日（六）在伦敦人综艺馆举行… © 2026」, model start 2026-11-28 | Dates none | unit |
+| 96 | LINGORM page text, model time 16:00, then 19:00 | 16:00 kept; 19:00 none | unit |
+| 97 | 韦礼安 page text (「门票火速售罄」 in another story's line, date mention 「2026年12月12日…公开发售」) | Ticket 需购票 only | unit |
+| 98 | 「…December 27… Registration will close at 10:00 p.m. on September 12」, today 2026-11-25 | 报名已截止 | unit |
+| 99 | PC: items 7–9 on the saved reference pages and planted errors | All pass | PC (passed 2026-11-25, 26/26 with trip-plan §66 items 7–8) |
 
 **Acceptance (iOS).**
 
@@ -2050,4 +2077,4 @@ the store `rel/events_store.json` in the session scratchpad).**
 
 | Task | Scope | Status |
 |---|---|---|
-| T-046zg | §44 items 1–6; rows 87–94 (93 passed on the PC) | NOT_RUN |
+| T-046zg | §44 items 1–9; rows 87–99 (93, 99 passed on the PC) | NOT_RUN |
