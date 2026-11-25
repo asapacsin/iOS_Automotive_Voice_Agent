@@ -2795,6 +2795,7 @@
     },
     {
       "id": "T-046zb",
+      "rework": "2026-11-25: F-18 §39 item 3 amended: extraction system text is 「Extract the event information. Answer in JSON.」 (json_object needs the word JSON; row 55 run 1 got HTTP 400 at extraction after 11 good searches). Change EventSearchRun.instruction, rows 49 tests (FindEventsTests row49, QwenEventClientsTests extraction), scripts/eval/event_search_replica.py extract(); print the error body on non-200 (record `events extract failed status=<code> body=<300 chars>`); then row 55 again. Reference list now has 7 confirmed events (checked by hand 2026-11-24).",
       "owner": "EXTERNAL_RESOURCE",
       "status": "BLOCKED_EXTERNAL",
       "priority": 1,

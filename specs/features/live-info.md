@@ -1625,9 +1625,15 @@ page is opened, no date is checked on a page. She says the dates are from the we
    `search_info.search_results` (title, url, site). At most 4 requests at once; each 45 s; a failed or timed-out query
    is skipped and counted, the others go on. Backup chain §36 (`qwen3.8-flash` → `qwen3.8-max`).
 3. **Extraction.** One call, `qwen3.8-flash` (chain §36), compatible-mode chat, `enable_thinking: false`,
-   `response_format: {"type": "json_object"}`. System text 「Extract the event information.」 (copied, see above) plus
+   `response_format: {"type": "json_object"}`. System text 「Extract the event information. Answer in JSON.」 plus
    the JSON shape `{"events": [{"name","start","end","dates_text","venue","city","source_url"}]}`, today's date and the
    window as values. User message: each query's answer text followed by its numbered sources. 30 s.
+   *(Amended 2026-11-25.)* The first sentence is copied (see above). 「Answer in JSON.」 is required by the API, not
+   wording of ours: JSON mode needs the word "JSON" in the messages (OpenAI, "Structured Outputs" guide, JSON mode
+   section: "you must always instruct the model to produce JSON via some message"; Alibaba Cloud Model Studio,
+   "Structured output", the same rule for `json_object`). Row 55's first run (2026-11-25, T-046zb at 5d9680a) got
+   HTTP 400 on the extraction call after all 11 searches succeeded; the system text had no "JSON". Code and the PC
+   replica print the error body of a non-200 answer (`events extract failed status=<code> body=<first 300 chars>`).
 4. **Code checks each event** (replaces §35 item 6). `start`, `end` parse as dates, `end` ≥ `start`; the event overlaps
    `from`…`to` and `end` ≥ today; `city` is one of `cities`; `source_url` is one of the sources the searches returned
    (else the first source of the query whose answer names the event, else dropped). Same name and start from two
