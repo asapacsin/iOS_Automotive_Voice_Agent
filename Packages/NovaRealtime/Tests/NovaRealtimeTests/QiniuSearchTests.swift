@@ -78,7 +78,7 @@ struct QiniuSearchTests {
         _ = try await QiniuEventSearcher(key: { "sk-qiniu" }, client: client).search("珠海 澳门 2026年11月 展览展会 科技展", timeout: .seconds(45))
         let ground = TripGroundRequest(city: "珠海", days: 1, places: [TripGroundPlace(name: "圆明新园", minutes: 60, importance: 3)],
                                        wishes: nil, start: nil, end: nil, hotelNear: nil)
-        _ = try? await QiniuTripGrounder(key: { "sk-qiniu" }, fallback: QwenTripGrounder(key: { "qwen" }), client: client).ground(ground)
+        _ = try? await QiniuTripGrounder(key: { "sk-qiniu" }, fallback: QwenTripGrounder(key: { nil }), client: client).ground(ground)
         let searches = wire.sent.withLock { $0 }.filter { $0.url?.absoluteString == QiniuRoute.searchEndpoint }
         #expect(searches.count == 3)
         for r in wire.sent.withLock({ $0 }) {

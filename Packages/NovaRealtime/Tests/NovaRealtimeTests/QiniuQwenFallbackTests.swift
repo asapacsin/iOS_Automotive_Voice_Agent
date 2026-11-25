@@ -143,4 +143,19 @@ struct QiniuQwenFallbackTests {
         }
         #expect(qwen.calls.withLock { $0 }.isEmpty)
     }
+
+    @Test("T-046zh F-18 §45 items 1, 3: a cancelled Qiniu call (budget out, barge-in) starts no fallback and writes no fallback line")
+    func cancelled() async {
+        let cancelled = QiniuClient(send: { _ in throw CancellationError() }, sleep: noWait)
+        let live = Live(), qwen = EventsQwen(), lines = Lines()
+        await #expect(throws: (any Error).self) {
+            _ = try await QiniuWebSearchClient(key: { "k" }, fallback: live, client: cancelled, onLine: lines.add).search("q", attempt: 1)
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await QiniuEventSearcher(key: { "k" }, client: cancelled, fallback: qwen, onLine: lines.add)
+                .search("q", timeout: .seconds(45))
+        }
+        #expect(live.calls.withLock { $0 }.isEmpty && qwen.calls.withLock { $0 }.isEmpty)
+        #expect(!lines.all.contains { $0.hasPrefix("fallback provider=qwen") })
+    }
 }

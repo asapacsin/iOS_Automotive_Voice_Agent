@@ -9,7 +9,7 @@ import NovaPorts
 /// tokens); a model on Qiniu's chat completions reads them. With no 七牛云 key every search job stays on §41
 /// (`QwenWebSearchClient`, `QwenTripGrounder`, `QwenEventSearcher`) unchanged. F-18 §43 item 1 (T-046zf, replaces §42's
 /// fallback): with the key a failed Qiniu call is sent again on Qiniu, at most 2 more times (after 1 s, then 3 s), and
-/// after the last try the job fails; no §41 call. The key goes in the `Authorization` header only, never in logs.
+/// after the last try the job runs on §41 with the 千问 key (F-18 §45, T-046zh; not a cancelled call). The key goes in the `Authorization` header only, never in logs.
 public enum QiniuRoute {
     /// §42 item 2.
     public static let searchEndpoint = "https://api.qnaigc.com/v1/search/web"
@@ -406,7 +406,7 @@ public struct QiniuEventSearcher: EventWebSearcher {
         do {
             results = try await client.search(query, key: key, job: "events", budget: timeout, onLine: onLine)
         } catch {
-            guard let fallback, let left = remaining(timeout, since: t0), left.milliseconds > 0 else { throw error }
+            guard let fallback, fallsBack(error), let left = remaining(timeout, since: t0), left.milliseconds > 0 else { throw error }
             onLine(qwenFallbackLine("events", after: error))
             let a: EventSearchAnswer
             do { a = try await fallback.search(query, timeout: left) } catch WebSearchError.notConfigured { throw error }
@@ -428,8 +428,8 @@ public struct QiniuEventSearcher: EventWebSearcher {
     }
 }
 
-/// §42 items 3-4: the extraction on Qiniu's model with §43 item 1's retry; a call that failed every try throws (no §41
-/// call). `fallback` (§41's extractor, 千问 key) answers only with no 七牛云 key.
+/// §42 items 3-4: the extraction on Qiniu's model with §43 item 1's retry; a call that failed every try goes to
+/// `fallback` (§41's extractor, 千问 key; F-18 §45) unless `useFallback` is off; with no 七牛云 key `fallback` answers.
 public struct QiniuEventExtractor: EventExtractor {
     private let key: @Sendable () -> String?
     private let client: QiniuClient
@@ -457,7 +457,7 @@ public struct QiniuEventExtractor: EventExtractor {
             return EventModelReply(content: reply.content, tokens: reply.total)
         } catch {
             // F-18 §45 item 1 (T-046zh): the same system and user text on §41's extractor (千问 key), in what is left.
-            guard useFallback, let left = remaining(timeout, since: t0), left.milliseconds > 0 else { throw error }
+            guard useFallback, fallsBack(error), let left = remaining(timeout, since: t0), left.milliseconds > 0 else { throw error }
             onLine(qwenFallbackLine("events_extract", after: error))
             do { return try await fallback.extract(system: system, user: user, timeout: left) } catch WebSearchError.notConfigured {
                 throw error
@@ -498,7 +498,7 @@ public struct QiniuEventPages: EventPageSource {
 
 /// §42 item 5 (`live`): one Qiniu search with her query, then Qiniu's model with FreshPrompt's messages (§24 item 2)
 /// and the top 10 results as the evidence block. §43 item 1: each call retried on Qiniu; a call that failed every try
-/// fails the search (`WebSearchError`), no §41 call. No 七牛云 key: `fallback` (§41's `QwenWebSearchClient`) answers.
+/// goes to `fallback` (§45; no 千问 key: fails as `WebSearchError`). No 七牛云 key: `fallback` (§41's `QwenWebSearchClient`) answers.
 public struct QiniuWebSearchClient: WebSearchService {
     private let key: @Sendable () -> String?
     private let client: QiniuClient
@@ -541,6 +541,7 @@ public struct QiniuWebSearchClient: WebSearchService {
     /// F-18 §45 items 1-2 (T-046zh): a Qiniu call that failed every try: the same message on §41 (千问 key); with no
     /// 千问 key the Qiniu failure stands (no request to dashscope).
     private func qwen(_ query: String, attempt: Int, after failure: QiniuFailure) async throws -> WebSearchReply {
+        guard fallsBack(failure) else { throw Self.error(failure) }
         onLine(qwenFallbackLine("live", after: failure))
         do { return try await fallback.search(query, attempt: attempt) } catch WebSearchError.notConfigured {
             throw Self.error(failure)
@@ -577,7 +578,7 @@ public struct QiniuWebSearchClient: WebSearchService {
 
 /// §42 item 5 (`ground`): one Qiniu search with the trip input, then Qiniu's model with `QwenTripGrounder`'s messages
 /// and the evidence block. Grounded only with at least one result. §43 item 1: each call retried on Qiniu inside the
-/// route's budget; a call that failed every try fails the grounding, no §41 call. No 七牛云 key: `fallback` (§41).
+/// route's budget; a call that failed every try goes to `fallback` (§45). No 七牛云 key: `fallback` (§41).
 public struct QiniuTripGrounder: TripGrounder {
     private let key: @Sendable () -> String?
     private let client: QiniuClient
@@ -618,6 +619,7 @@ public struct QiniuTripGrounder: TripGrounder {
     /// the Qiniu failure stands.
     private func qwen(_ r: TripGroundRequest, after failure: QiniuFailure, budget: NovaDuration?,
                       since t0: ContinuousClock.Instant) async throws -> TripGroundAnswer {
+        guard fallsBack(failure) else { throw Self.error(failure) }
         if let left = remaining(budget, since: t0), left.milliseconds <= 0 { throw Self.error(failure) }
         onLine(qwenFallbackLine("ground", after: failure))
         do { return try await fallback.ground(r) } catch TripGroundError.notConfigured { throw Self.error(failure) }
@@ -649,6 +651,10 @@ public struct QiniuTripGrounder: TripGrounder {
 func qwenFallbackLine(_ job: String, after f: QiniuFailure) -> String {
     "fallback provider=qwen job=\(job) after=\(f.reason)" + (f.status.map { " status=\($0)" } ?? "")
 }
+
+/// F-18 §45 items 1, 3 (review 2026-11-25): a cancelled call (the caller's budget ran out, the driver cut in) is not
+/// a failed one: it starts no fallback.
+func fallsBack(_ f: QiniuFailure) -> Bool { f.reason != "cancelled" && !Task.isCancelled }
 
 /// §45 item 3: what is left of `budget` since `t0`; nil budget: no limit here (the caller's own).
 func remaining(_ budget: NovaDuration?, since t0: ContinuousClock.Instant) -> NovaDuration? {
