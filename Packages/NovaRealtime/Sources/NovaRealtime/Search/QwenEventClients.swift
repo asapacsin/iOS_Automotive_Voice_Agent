@@ -124,7 +124,10 @@ public struct QwenEventExtractor: EventExtractor {
             req.limit(left ?? timeout)
             return try await send(req)
         }
-        guard status == 200 else { throw WebSearchError.http(status, code: QwenWebSearchClient.errorCode(body)) }
+        // §39 item 3 (amended): the error body goes with the status, so the record can print it.
+        guard status == 200 else {
+            throw EventExtractError.http(status: status, body: String(decoding: body.prefix(2000), as: UTF8.self))
+        }
         return EventModelReply(content: QwenTripPlannerClient.content(body) ?? "", tokens: QwenEventSearcher.tokens(body))
     }
 }

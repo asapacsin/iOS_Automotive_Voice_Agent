@@ -43,6 +43,11 @@ public struct EventModelReply: Sendable, Hashable {
     }
 }
 
+/// §39 item 3 (amended 2026-11-25): a non-200 extraction answer with its error body (the record prints 300 chars).
+public enum EventExtractError: Error, Sendable, Hashable {
+    case http(status: Int, body: String)
+}
+
 /// §39 item 3: the one extraction call (`QwenRoute.eventsExtract`, `json_object`).
 public protocol EventExtractor: Sendable {
     func extract(system: String, user: String, timeout: NovaDuration) async throws -> EventModelReply

@@ -40,15 +40,24 @@ struct QwenEventClientsTests {
     @Test("T-046zb F-18 §39 item 3: extraction body is qwen3.8-flash on the compatible endpoint, json_object, thinking off, not streamed; content and tokens returned")
     func extraction() async throws {
         let e = QwenEventExtractor(key: { "k" })
-        let req = e.request(system: "Extract the event information.", user: "U", key: "k")
+        let req = e.request(system: "Extract the event information. Answer in JSON.", user: "U", key: "k")
         #expect(req.url?.absoluteString == QwenRoute.plannerEndpoint)
         let body = try JSONDecoder().decode(JSONValue.self, from: req.httpBody!)
         #expect(body["model"] == "qwen3.8-flash" && body["enable_thinking"] == false && body["stream"] == false)
         #expect(body["response_format"]?["type"] == "json_object")
-        #expect(first(body["messages"])?["role"] == "system" && first(body["messages"])?["content"] == "Extract the event information.")
+        #expect(first(body["messages"])?["role"] == "system" && first(body["messages"])?["content"] == "Extract the event information. Answer in JSON.")
         let answer = #"{"choices":[{"message":{"content":"{\"events\":[]}"}}],"usage":{"total_tokens":900}}"#
         let r = try await QwenEventExtractor(key: { "k" }, send: { _ in (200, Data(answer.utf8)) }, fallback: QwenFallback())
             .extract(system: "S", user: "U", timeout: .seconds(30))
         #expect(r == EventModelReply(content: #"{"events":[]}"#, tokens: 900))
+    }
+
+    @Test("T-046zb F-18 §39 item 3 (amended): a non-200 extraction answer throws its status and error body")
+    func extractionError() async {
+        let body = #"{"code":"InvalidParameter","message":"json"}"#
+        await #expect(throws: EventExtractError.http(status: 400, body: body)) {
+            try await QwenEventExtractor(key: { "k" }, send: { _ in (400, Data(body.utf8)) }, fallback: QwenFallback())
+                .extract(system: "S", user: "U", timeout: .seconds(30))
+        }
     }
 }

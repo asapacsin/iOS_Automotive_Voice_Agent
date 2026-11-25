@@ -89,7 +89,7 @@ struct FindEventsTests {
     @Test("T-046zb F-18 §39 row 49 (unit, NovaCore part): the extraction's system text is the Structured Outputs line, the shape, today and the window; the user message holds each answer and its numbered sources")
     func row49() {
         let r = request()
-        #expect(EventSearchRun.system(r) == "Extract the event information.\n" + EventSearchRun.shape
+        #expect(EventSearchRun.system(r) == "Extract the event information. Answer in JSON.\n" + EventSearchRun.shape
                 + "\ntoday: 2026-11-24\nfrom: 2026-11-25\nto: 2026-12-31")
         let q = EventQuery(text: "珠海 漫展 ACG 2026年11月 12月", city: "珠海", kind: "漫展 ACG")
         let user = EventSearchRun.user([(q, EventSearchAnswer(text: "起源ACG动漫展12月5日至6日。", sources: [acgSource]))])
@@ -190,6 +190,27 @@ struct FindEventsTests {
                                                              none, Extract("{}")))
             .execute(findCall(["cities": ["珠海", "广州"], "from": "2026-11-25", "to": "2026-12-31"]))
         #expect(!failed.ok && failed.data["next"]?.stringValue == FindEventsExecutor.failedNext)
+    }
+
+    @Test("T-046zb F-18 §39 item 3 (amended 2026-11-25): the system text names JSON; an HTTP 400 at extraction records status and the first 300 chars of the body, EVENTS_FAILED")
+    func extractHTTP400() async throws {
+        #expect(EventSearchRun.instruction == "Extract the event information. Answer in JSON.")
+        struct Refuses: EventExtractor {
+            func extract(system: String, user: String, timeout: NovaDuration) async throws -> EventModelReply {
+                throw EventExtractError.http(status: 400, body: #"{"code":"InvalidParameter","message":"'messages' must contain the word 'json'"}"# + String(repeating: "x", count: 400))
+            }
+        }
+        let lines = Lines()
+        let store = EventStore(storage: MemoryEventStorage(), now: { noon }, zone: { shanghai })
+        let f = EventFinder(store: store, work: nil, onLine: lines.add) { _ in
+            EventSearchRun(searcher: Searches { _ in EventSearchAnswer(text: "a", sources: [acgSource]) }, extractor: Refuses(),
+                           clock: ManualClock(), now: { noon }, onLine: lines.add)
+        }
+        let r = await FindEventsExecutor(finder: f).execute(findCall(["cities": ["珠海"], "from": "2026-11-25", "to": "2026-11-29"]))
+        #expect(!r.ok && r.data["next"]?.stringValue == FindEventsExecutor.failedNext)
+        let line = lines.all.first { $0.hasPrefix("events extract failed ") } ?? ""
+        #expect(line.hasPrefix(#"events extract failed status=400 body={"code":"InvalidParameter""#))
+        #expect(line.count == "events extract failed status=400 body=".count + 300)
     }
 
     @Test("T-046x F-18 §35 row 29: from yesterday, to 90 days out, a province: each refused naming the field")

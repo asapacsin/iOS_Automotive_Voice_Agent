@@ -2,7 +2,7 @@
 As the app does it: city x kind keyword queries (EventSearchRun.queries: at most 12, the Macau/Hong Kong English query
 last), each on qwen3.8-flash with enable_search, forced_search, search_strategy max, enable_source, thinking off, the
 query as the only user message and no system text, 4 at once, 45 s each; then one qwen3.8-flash extraction call
-(compatible mode, json_object, system 「Extract the event information.」 + the shape, today and the window); then
+(compatible mode, json_object, system 「Extract the event information. Answer in JSON.」 + the shape, today and the window); then
 code's checks (dates parse, end >= start, overlaps the window, end >= today, city one of the asked, source_url one the
 searches returned else the naming query's first source, name+start once).
 Bar (row 55): each run finds >= 60% of the CONFIRMED reference events (scripts/eval/events_reference_2026-11.json) with
@@ -51,6 +51,8 @@ def post(url, body, key, timeout):
         text = e.read().decode("utf-8", "ignore")
         if e.code == 429 or "Quota" in text:
             raise SystemExit(f"quota/rate error {e.code}: stopping (F-18 §32 item 6)")
+        # §39 item 3 (amended 2026-11-25): print the error body of a non-200 answer.
+        print(f"{'events extract' if url == CHAT_URL else 'events query'} failed status={e.code} body={text[:300]}")
         raise
 
 
@@ -70,7 +72,7 @@ def search(q, key):
 
 
 def extract(answers, key):
-    system = f"Extract the event information.\n{SHAPE}\ntoday: {TODAY}\nfrom: {FROM}\nto: {TO}"
+    system = f"Extract the event information. Answer in JSON.\n{SHAPE}\ntoday: {TODAY}\nfrom: {FROM}\nto: {TO}"
     user = "\n\n".join(f"## {i + 1}. {q}\n{a['text']}\n" + "\n".join(f"[{n + 1}] {s['title']} {s['url']}" for n, s in enumerate(a["sources"]))
                        for i, (q, a) in enumerate(answers))
     r = post(CHAT_URL, {"model": "qwen3.8-flash", "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],

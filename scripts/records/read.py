@@ -181,6 +181,12 @@ def read_format_10(session: str, lines: list[str]) -> list[dict]:
 
 
 
+def read_format_14(session: str, lines: list[str]) -> list[dict]:
+    """F-18 §39 item 3 (amended 2026-11-25): as format 13; new `events extract failed status=<code> body=<300 chars>`
+    line, kept as fields by the generic event reader."""
+    return read_format_13(session, lines)
+
+
 def read_format_13(session: str, lines: list[str]) -> list[dict]:
     """F-18 §39 item 8 (T-046zb): as format 12; the events lines are `events store … kinds=`, `events query`,
     `events extract`, `events search done`, `events queries cut=`, kept as fields by the generic event reader."""
@@ -207,7 +213,7 @@ def body(row: dict) -> str | None:
 
 READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2, 3: read_format_3, 4: read_format_4,
            5: read_format_5, 6: read_format_6, 7: read_format_7, 8: read_format_8, 9: read_format_9,
-           10: read_format_10, 11: read_format_11, 12: read_format_12, 13: read_format_13}
+           10: read_format_10, 11: read_format_11, 12: read_format_12, 13: read_format_13, 14: read_format_14}
 
 
 def read(path: pathlib.Path) -> list[dict]:

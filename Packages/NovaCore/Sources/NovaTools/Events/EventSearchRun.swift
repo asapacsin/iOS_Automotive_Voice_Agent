@@ -78,9 +78,9 @@ public struct EventSearchRun: Sendable {
     static let months = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
                          "October", "November", "December"]
 
-    /// Item 3: the system text (OpenAI "Structured Outputs" guide, copied) and the JSON shape, today and the window
-    /// as values.
-    public static let instruction = "Extract the event information."
+    /// Item 3 (amended 2026-11-25): the system text (OpenAI "Structured Outputs" guide, copied; 「Answer in JSON.」 is
+    /// what JSON mode requires: the word JSON in the messages) and the JSON shape, today and the window as values.
+    public static let instruction = "Extract the event information. Answer in JSON."
     public static let shape = #"{"events": [{"name": "", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "dates_text": "", "venue": "", "city": "", "source_url": ""}]}"#
 
     public static func system(_ r: EventRequest) -> String {
@@ -215,9 +215,15 @@ public struct EventSearchRun: Sendable {
         // Item 3: one extraction call.
         let t0 = clock.now
         let system = Self.system(r), user = Self.user(used)
-        let reply = try? await within(Self.extractLimit) { [extractor] in
-            try await extractor.extract(system: system, user: user, timeout: Self.extractLimit)
-        }
+        var reply: EventModelReply?
+        do {
+            reply = try await within(Self.extractLimit) { [extractor] in
+                try await extractor.extract(system: system, user: user, timeout: Self.extractLimit)
+            }
+        } catch let EventExtractError.http(status, body) {
+            // Item 3 (amended): a non-200 answer's error body, first 300 characters.
+            onLine("events extract failed status=\(status) body=\(String(body.prefix(300)))")
+        } catch {}
         tokens += reply?.tokens ?? 0
         let candidates = reply.flatMap { Self.candidates($0.content) }
         onLine("events extract ms=\((clock.now - t0).milliseconds) tokens=\(reply?.tokens ?? 0) found=\(candidates?.count ?? 0)")
