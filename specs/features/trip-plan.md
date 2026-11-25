@@ -3012,3 +3012,97 @@ events-list name exactly (`TripPlanner`, §64 item 3). In the run:
 | Task | Scope | Status |
 |---|---|---|
 | T-040zs | §66 items 1–5; rows 308–313 | NOT_RUN |
+
+## 67. Every stop has a name and a location; only the location goes to the map (iOS, owner order 2026-11-25)
+
+**Why.** §66 separates the event from its venue only for events in the events list. A stop the planner writes is still one
+`name`, used both as what the driver hears and sees and as what the map looks up; an event the driver named (动漫游园会)
+or a place inside a larger one goes to the map by the wrong word, or the card shows a building instead of what the
+driver asked for (phone run 98eb278, §66 Why).
+
+1. **Shape (amends §62/§64 planner sight).** Each sight and stay is
+   `{"name": <what the driver calls it>, "location": <what the map looks up>, "city", "minutes", "event"?}`.
+   `location` is required when `name` is an event, a show or anything that is not itself a place on a map; otherwise it
+   may be left out and equals `name`.
+2. **Map.** Only `location` is looked up (§68 for Macau/Hong Kong). `name` never goes to the map. §66's link overrides:
+   a linked sight's `location` is the list entry's `venue`, its `name` the entry's name.
+3. **Stop.** `TripStop.asked` keeps `name`; a new `TripStop.location` keeps the looked-up text; `place` stays what the
+   map found. Saved plans without `location` load with `location` = `asked`.
+4. **What she and the cards get.** The card title is `name`; the line under it is the map's place name (and the event
+   line, §66). `plan_text`/trip line give 「<name>（<place name>）」 when they differ, else 「<name>」. 「地图没找到」
+   names `location`: 「地图没找到 <location>（<name>）」.
+5. **Planner text.** The planner's shape text in `TripPlannerShape` gains the `location` field and one sentence copied
+   from the field description above; nothing else changes.
+6. **Record.** `trip planner text plan=` already shows both; `trip planner text counts` names `location` for not-found
+   stops.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 314 | Sight `{"name":"动漫游园会","location":"香山文化艺术中心"}` | Map looks up 香山文化艺术中心 only; card title 动漫游园会, line 香山文化艺术中心 | unit |
+| 315 | Sight `{"name":"珠海渔女"}` | `location` = 珠海渔女; unchanged behaviour | unit |
+| 316 | Saved plan from before §67 | Loads; `location` = `asked` | unit |
+| 317 | `location` not found | Counts and she see 「地图没找到 香山文化艺术中心（动漫游园会）」 | unit |
+| 318 | Device: a trip with an event the driver names | Card shows the event as title and the venue under it; navigation goes to the venue | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zt | §67 items 1–6; rows 314–318 (with or after T-040zs) | NOT_RUN |
+
+## 68. Macau and Hong Kong places are looked up without 高德's city limit; she does not invent why a place is missing (iOS, owner order 2026-11-25)
+
+**Why (phone run 98eb278; PC 2026-11-25, 高德 web key `AMAP_WEB_KEY`).** Every trip stop in Macau was 「地图没找到」
+(大三巴牌坊, 议事亭前地, 澳门旅游塔, 威尼斯人, The Venetian Macao, both records, every plan). 高德 v5 `place/text` with
+`region=澳门&city_limit=true` answers `info=USER_ABROAD_DAILY_QUERY_OVER_LIMIT` (it counts Hong Kong and Macau as
+abroad, with its own daily quota, used up). The same names **without** `region`/`city_limit`: 13/13 found, each first
+result with a Macau adcode (82xxxx): 大三巴牌坊 820002, 议事亭前地广场 820004, 澳门旅游塔 820004, 澳门威尼斯人 820007,
+澳门威尼斯人金光会展E馆 820007, 官也街 820006, North-The Venetian macao 820007, 妈阁庙 820005, 新濠天地 820007,
+澳门渔人码头 820004. Zhuhai names come back 4404xx. Back-to-back calls hit `CUQPS_HAS_EXCEEDED_THE_LIMIT` once (妈阁庙;
+alone it was found). She then said 「我们的地图工具目前不支持直接在行程中添加澳门的地点」 (record 165923 turn 30), a
+reason the record does not show. Apple Maps was not tested (no PC route).
+
+1. **Lookup.** When the city of a lookup is 澳门/澳门特别行政区 (or 香港/香港特别行政区), the 高德 text search is sent
+   without `region`/`city_limit` (and the iOS SDK search without its city restriction), and only results whose adcode
+   starts with 82 (Macau) or 81 (Hong Kong) are kept. Other cities unchanged.
+2. **Pace.** 高德 lookups of one plan run at most 3 per second; a `CUQPS_HAS_EXCEEDED_THE_LIMIT` answer is tried once
+   more after 1 s.
+3. **Record.** A failed lookup logs `trip lookup name=<location> city=<city> info=<高德 info or none>`.
+4. **No invented reason.** `not_placed` entries get `reason`: `not_found` (高德 OK, nothing kept) or `map_limit` (any
+   `…LIMIT` info). The `plan_trip`/`set_trip_plan` result with `not_placed` adds `invent` to `must_not` (the existing
+   claim check, as `show_places`), and its `next` says what `reason` says: 「地图没找到这些地方」 or 「地图今天查不了这些地方」.
+   Nothing about tools or support.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 319 | Lookup 大三巴牌坊, city 澳门 | Request has no `region`/`city_limit`; a 4404 result is dropped, an 82 result kept | unit |
+| 320 | Lookup 珠海渔女, city 珠海 | Request as today (`region` 珠海, `city_limit`) | unit |
+| 321 | 10 lookups in one plan | Never more than 3 in one second; a QPS answer retried once | unit |
+| 322 | 高德 answers `USER_ABROAD_DAILY_QUERY_OVER_LIMIT` | `not_placed` `reason=map_limit`; record `info=` | unit |
+| 323 | Result with `not_placed` | `must_not` has `invent`; `next` names only the reason | unit |
+| 324 | PC: the 13 names, no city limit | All found with 82 adcodes (done 2026-11-25) | PC |
+| 325 | Device: 「周日去澳门，大三巴和威尼斯人」 | Both stops placed on the map; drive times known | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zu | §68 items 1–4; rows 319–325 | NOT_RUN |
+
+## 69. A newer trip request replaces one still running (iOS, owner order 2026-11-25)
+
+**Why (phone run 98eb278, record `20261125-164242.txt`).** While the driver was correcting her, she sent 5 `plan_trip`
+calls in 46 s (149340, 178831, 180570, 193475, 195559). They ran one after another; their results came back 8–65 s
+later (157849 … 258304), each an older version of the request, and she read each out.
+
+1. **Replace.** A `plan_trip` or `set_trip_plan` call while another trip call of this conversation is still running
+   cancels the running one (task cancelled, its planner calls cancelled). The cancelled call's result is not sent to her
+   (as F-18 §37 for `web_search`); the newest runs.
+2. **Saved plan.** A cancelled call saves nothing. The newest call starts from the plan saved before the cancelled ones.
+3. **Record.** `trip superseded old=<call id> new=<call id> ms=<age of old>`.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 326 | `plan_trip` A running; `plan_trip` B arrives | A cancelled, its result not sent; B runs; record `trip superseded` | unit |
+| 327 | A cancelled after one planner round | Nothing from A saved | unit |
+| 328 | Device: three quick corrections to a trip | One result read out, the last one | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zv | §69 items 1–3; rows 326–328 | NOT_RUN |

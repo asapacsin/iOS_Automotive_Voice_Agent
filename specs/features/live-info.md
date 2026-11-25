@@ -1822,10 +1822,11 @@ returns plain results (no model tokens), and three searches per events question.
    stay on §41 unchanged.
 2. **Search call.** `POST https://api.qnaigc.com/v1/search/web`, `Authorization: Bearer <七牛云 key>`, body
    `{"query": <query>, "max_results": 20, "search_type": "web"}`, 15 s. Kept per result: `title`, `url`, `content`,
-   `date`, `source`. A non-200, `success: false` or a timeout is a failed search; a 429 is logged `reason=rate_limit`
-   and not retried.
+   `date`, `source`. A non-200, `success: false` or a timeout is a failed search (retry: §43 item 1, replaces "a 429
+   is logged `reason=rate_limit` and not retried").
 3. **Model.** `QwenRoute`-style route on `https://api.qnaigc.com/v1/chat/completions` with the 七牛云 key, model
-   `deepseek/deepseek-v4-flash-20260731`, not streamed. A failed call falls back to the same job on §41 with the 千问 key.
+   `deepseek/deepseek-v4-flash-20260731`, not streamed. A failed call is retried on Qiniu (§43 item 1; the fallback to §41
+   is withdrawn, owner 2026-11-25).
 4. **Events (`eventsSearch` + `eventsExtract`, replaces §39 item 1 and §41 for this job).** At most 3 queries per
    `find_events` call, each naming all cities of the call: 「<城市1> <城市2> … <YYYY>年<M>月[ <M>月…] <kind group>」 (months
    as §39 item 1). Kind groups with no `kinds`: 「展览展会 科技展」, 「演唱会 演出」, 「漫展 节庆 嘉年华」; with the
@@ -1854,8 +1855,8 @@ returns plain results (no model tokens), and three searches per events question.
 | 68 | `find_events` 珠海+澳门, no `kinds`, window 11-25…12-31 | 3 queries 「珠海 澳门 2026年11月 12月 展览展会 科技展」, 「… 演唱会 演出」, 「… 漫展 节庆 嘉年华」; no English query | unit |
 | 69 | `kinds` 「漫展、音乐」, city 澳门 | 2 queries 「澳门 2026年11月 漫展」, 「澳门 2026年11月 音乐」 | unit |
 | 70 | Fixture Qiniu search response | Results parsed (title, url, content, date, source); extraction user message lines as item 4 | unit |
-| 71 | Search answers 429 | Failed, `reason=rate_limit`, not retried; the other queries still used | unit |
-| 72 | Qiniu chat call fails | Same job falls back to §41 with the 千问 key; record says so | unit |
+| 71 | Search answers 429 | Replaced by §43 row 78 | — |
+| 72 | Qiniu chat call fails | Replaced by §43 row 79 | — |
 | 73 | 设置 | 「七牛云 key」 field, write-only, Keychain `qiniu_api_key` | build, D |
 | 74 | PC: `event_search_replica.py 3 --qiniu` | ≥ 3/7 reference events in each run; extraction ≤ 60 s | PC |
 | 75 | PC: 「今天珠海天气怎么样」 through item 5 (`live`) | Answer with today's 11-25 facts and a source | PC |
@@ -1867,3 +1868,53 @@ returns plain results (no model tokens), and three searches per events question.
 | Task | Scope | Status |
 |---|---|---|
 | T-046ze | §42 items 1–7; rows 66–77; rows 74–76 on the PC before the build | NOT_RUN |
+
+## 43. Qiniu retries instead of falling back; a named event is searched by name; dropped events are logged; event pictures (iOS, owner order 2026-11-25)
+
+**Why (phone run 2026-11-25, build 98eb278, records `20261125-164242.txt`, `20261125-165923.txt`).**
+- 388037–398073: the Qiniu model call for `live` failed (`reason=network`), the §42 fallback to §41 was cancelled after
+  8 ms (`error=cancelled`), so she said she could not find it. The owner: no fallback, try Qiniu again.
+- 512454–519219: the driver asked 「你知道最近有一个 AI 展吗？」; `find_events` with `kinds` 「AI 展览」 ran 2 queries,
+  `found=2 kept=1 dropped=1`; the record does not say which event was dropped or why. 横琴AI嘉年华 (11-28…29) was
+  then found at once by a `web_search` with its name (742318).
+- The driver asked for a picture of the event (765192, 780852). Qiniu image search (`search_type: image`) for
+  「2026横琴AI嘉年华」 returned other events' photos (PC 2026-11-25); the event's own page (its `source_url`,
+  m.zh.bendibao.com) has an `og:image` that is the event's poster (PC 2026-11-25).
+
+1. **Retry, no fallback (replaces §42 item 2's "429 not retried" and §42 item 3's fallback).** A Qiniu search or model
+   call that fails (network error, timeout, HTTP 5xx, 429) is sent again on Qiniu, at most 2 more times, after 1 s and
+   then 3 s, inside the job's budget. A 4xx other than 429 is not retried. After the last try the call is failed as
+   today (no §41 call). Record: `attempt=<n>` on each search/model line.
+2. **A named event is searched by its name.** `find_events` gets an optional argument `name` (string, ≤ 30 characters):
+   the event the driver named (「AI 展」, 「AIE」, 「横琴AI嘉年华」). With `name`, the first query is
+   「<name> <城市1> <城市2> … <YYYY>年<M>月」 and the kind queries follow (§42 item 4, at most 3 queries in all). The
+   tool description says: 司机说了某个活动的名字时填 name。 A stored result does not count as a hit for a call with
+   `name` unless one stored event's name contains `name` or `name` contains it.
+3. **Every dropped event is logged.** One record line per dropped candidate:
+   `events drop name=<name> reason=<no_date|end_before_start|outside_window|past|city|no_source|duplicate>` (the
+   §39 item 4 checks, in that order; the first failed check is the reason).
+4. **Event pictures.** For each kept event with a `source_url`, code fetches the page once (GET, 5 s, at most 1 MB, no
+   cookies) and reads `<meta property="og:image" content="…">` (else `name="og:image"`); an `http(s)` URL ending or
+   typed as an image is kept as the event's `image_url`. No picture search. The event card (trip event stop, §64) and
+   any list of events on screen show the picture when `image_url` is set, nothing when not. Failed fetches are not
+   retried and not logged as errors (`events image name=<name> ok=<yes|no>`).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 78 | Qiniu search answers 429, then 200 | Second try used; record `attempt=2`; no §41 call | unit |
+| 79 | Qiniu chat call fails 3 times (network) | 3 tries at 0, 1, 4 s; then failed as today; no §41 call | unit |
+| 80 | Qiniu answers 401 | Not retried | unit |
+| 81 | `find_events` with `name` 「AI 展」, 珠海+澳门, window in Nov 2026 | First query 「AI 展 珠海 澳门 2026年11月」; at most 3 queries | unit |
+| 82 | Store has events for the window but none with 「AI」 in its name; call with `name` 「AI 展」 | Store is not a hit; searches run | unit |
+| 83 | Extraction gives one event with no dates | `events drop name=… reason=no_date` | unit |
+| 84 | Fixture page with `og:image` | Event `image_url` set; page without it → nil | unit |
+| 85 | PC: `name` query for 「AI嘉年华」 on Qiniu | 横琴AI嘉年华 in the results | PC |
+| 86 | Device: 「最近有一个 AI 展吗？」 | 横琴AI嘉年华 with dates; its card shows its poster | D |
+
+**Trace gate.** Add `T-046zf: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zf.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zf | §43 items 1–4; rows 78–86 | NOT_RUN |
