@@ -2873,7 +2873,7 @@
     {
       "id": "T-040zr",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §65 items 1-4: at each new conversation the context note carries no trip line (ContextSnapshot.tripPlan nil) even with a saved plan; it turns on for the rest of the conversation after a plan_trip/set_trip_plan result, a trip tool that reads the saved plan (trip_next, trip screen, plan_kept results) or a touch on the trip screen/cards; record 'trip context on reason=...'; trip tools keep reading the saved plan; rows 303-307.",
@@ -2883,17 +2883,17 @@
     {
       "id": "T-040zs",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §66 items 1-5: after the planner round, code links each sight to the events list (loose name/title match, year and punctuation removed, longest wins): event from the list, map lookup by the entry's venue, event name never looked up as a place; unmatched sights as written; plan_text shows 「event（venue，dates）」; record 'trip event link'; item 6: an entry with no confirmed venue (live-info §44) is never looked up, card 「场馆未找到」; item 7: several halls -> the hall in the stop's city; item 8: event start time vs planned arrival, facts-only counts line, unknown cross-border drive stated; rows 308-313c.",
-      "notes": "Phone run 98eb278 2026-11-25: plans showed venues without the event (577804) or sent 「2026横琴AI嘉年华」 to the map (683676); code kept an event only on an exact title match.",
+      "notes": "Phone run 98eb278 2026-11-25: plans showed venues without the event (577804) or sent 「2026横琴AI嘉年华」 to the map (683676); code kept an event only on an exact title match. 2026-11-25: starts after T-046zg (§44 confirmed venue, item 6) and the trip items are merged.",
       "evidence": []
     },
     {
       "id": "T-046zf",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 0,
       "depends_on": [],
       "action": "F-18 §43 items 1-4: Qiniu search/model retry (2 more tries after 1 s, 3 s; 5xx/429/network/timeout; no §41 fallback); find_events optional name -> first query by name, store hit only if a stored name matches; 'events drop name= reason=' per dropped candidate; event image_url from the source page og:image, shown on event cards; rows 78-86.",
@@ -2903,7 +2903,7 @@
     {
       "id": "T-046zg",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 0,
       "depends_on": [
         "T-046zf"
@@ -2915,7 +2915,7 @@
     {
       "id": "T-040zt",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §67 items 1-6: every sight/stay has name (shown) and location (looked up); only location goes to the map; TripStop.location; cards title=name, line=place; plan_text 「name（place）」; old plans load with location=asked; rows 314-318.",
@@ -2925,7 +2925,7 @@
     {
       "id": "T-040zu",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §68 items 1-4: 高德 lookups in 澳门/香港 without region/city_limit, keep adcode 82/81; at most 3 lookups per second, QPS answer retried once; 'trip lookup' line with info; not_placed reason not_found|map_limit, must_not invent, next names only the reason; rows 319-325.",
@@ -2935,7 +2935,7 @@
     {
       "id": "T-040zv",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §69 items 1-3: a newer plan_trip/set_trip_plan cancels a running one; its result not sent, nothing saved; record 'trip superseded'; rows 326-328.",
