@@ -1798,7 +1798,10 @@ final class AgentRuntime {
         let tripLine: @Sendable (String) -> Void = { line in
             // F-15b §62 item 9 (T-040zo): the planner's JSON and the counts message hold place names: the local record
             // only, never the log (as stop names today, I-8).
-            if !line.hasPrefix("trip planner text ") { RuntimeLog.agent.notice("\(line, privacy: .public)") }
+            // F-15b §68 item 3 (T-040zu): `trip lookup name=` names a place too: the record only.
+            if !line.hasPrefix("trip planner text "), !line.hasPrefix("trip lookup name=") {
+                RuntimeLog.agent.notice("\(line, privacy: .public)")
+            }
             tripSession.record()?.submit(.trip(line))
         }
         // The screen follows the trip with or without a session, in snapshot order.

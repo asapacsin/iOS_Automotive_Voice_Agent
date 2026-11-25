@@ -42,7 +42,7 @@ struct LookupRequest: Sendable, Hashable {
 }
 
 /// 高德 stand-in: answers `city|name`, else `name`; `errors[name]` throws (one per request, then the table).
-final class AmapLookupSearch: PlaceSearch, @unchecked Sendable {
+final class AmapLookupSearch: PlaceInfoSearch, @unchecked Sendable {
     let table: [String: [Place]]
     let errors: Mutex<[String: [any Error]]>
     let requests = Mutex<[LookupRequest]>([])
@@ -73,9 +73,9 @@ final class AmapLookupSearch: PlaceSearch, @unchecked Sendable {
     var asked: [String] { requests.withLock { $0.map(\.keywords) } }
 }
 
-func mapPlace(_ name: String, _ lat: Double, city: String) -> Place {
+func mapPlace(_ name: String, _ lat: Double, city: String, adcode: String? = nil) -> Place {
     Place(id: name, name: name, address: nil, coordinate: GeoCoordinate(latitude: lat, longitude: 113.5, datum: .gcj02),
-          distanceMeters: nil, city: city, district: nil)
+          distanceMeters: nil, city: city, district: nil, adcode: adcode)
 }
 
 struct LookupRig {

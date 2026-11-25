@@ -41,6 +41,11 @@ public struct TripTuning: Sendable, Hashable {
     /// §52 item 11: lookups abroad (Photon, no per-second limit like 高德's) run 4 at once.
     public var abroadParallelLookups = 4
     public var retryDelay = NovaDuration.milliseconds(600)
+    /// F-15b §68 item 2 (T-040zu): at most `paceCount` 高德 lookups start in any `paceWindow`; a per-second-limit answer
+    /// (`CUQPS_HAS_EXCEEDED_THE_LIMIT`) is tried once more after `qpsRetry`.
+    public var paceCount = 3
+    public var paceWindow = NovaDuration.seconds(1)
+    public var qpsRetry = NovaDuration.seconds(1)
     /// §4 item 6: 高德 results kept per name for the picker, and how long the picker may take (Ultravox's default
     /// tool timeout); after that every open name takes 高德's first result.
     public var candidates = 5
@@ -186,6 +191,8 @@ public actor TripPlanner: ToolExecutor {
     /// §4 item 7: places already found this launch, by city and asked name (高德 quota and per-second limits:
     /// re-adding or re-making a plan costs no lookup). At most `cacheLimit` entries, oldest dropped.
     private var foundCache: [String: Place] = [:]
+    /// F-15b §68 item 2 (T-040zu): the start times of 高德 trip lookups.
+    private let pace = LookupPace()
     private var cacheOrder: [String] = []
     static let cacheLimit = 64
     private var list: TripList {
@@ -637,7 +644,7 @@ public actor TripPlanner: ToolExecutor {
         ]
         if !built.notPlaced.isEmpty {
             data["not_placed"] = .array(built.notPlaced.map { n in
-                var o: [String: JSONValue] = ["name": .string(n.name), "searched": .string(n.range)]
+                var o: [String: JSONValue] = ["name": .string(n.name), "searched": .string(n.range), "reason": .string(n.reason)]
                 // §67 item 4: she sees what was looked up: 「地图没找到 <location>（<name>）」.
                 if let l = n.location, l != n.name {
                     o["location"] = .string(l)
@@ -645,6 +652,11 @@ public actor TripPlanner: ToolExecutor {
                 }
                 return .object(o)
             })
+        }
+        if !built.notPlaced.isEmpty {
+            // F-15b §68 item 4 (T-040zu): she gives only the reason code gives; no invented one.
+            data["must_not"] = .array([.string(ReplyMustNot.invent.rawValue)])
+            data["next"] = .string(TripPlannerShape.savedNext + Self.notPlacedNext(built.notPlaced.map(\.reason)))
         }
         if change != nil, !removed.isEmpty { data["removed"] = .array(removed.map(JSONValue.string)) }
         onLine("trip planner saved rounds=\(rounds) days=\(plan.dayCount) stops=\(plan.stopCount) not_placed=\(built.notPlaced.count) new_plan=\(change == nil ? "yes" : "no") ms=\(ms(since: started))")
@@ -705,6 +717,8 @@ public actor TripPlanner: ToolExecutor {
         let range: String
         /// F-15b §67 item 4 (T-040zt): what was looked up.
         var location: String? = nil
+        /// F-15b §68 item 4 (T-040zu): `not_found`, `map_limit` or `search_slow`.
+        var reason: String = "not_found"
     }
 
     /// A planner plan as code laid it out: the days as stops (timed), the counts, the misses.
@@ -763,7 +777,13 @@ public actor TripPlanner: ToolExecutor {
             let found: [Lookup] = abroad
                 ? await resolveCounting(group.names, city: nil, abroad: true, near: cityArea?.center).0
                 : await resolve(group.names, city: group.city)
-            for (i, name) in group.names.enumerated() where i < found.count { lookups[key(name, group.city)] = found[i] }
+            for (i, name) in group.names.enumerated() where i < found.count {
+                lookups[key(name, group.city)] = found[i]
+                // F-15b §68 item 3 (T-040zu): a failed lookup names what was looked up, its city and 高德's info.
+                if case .missing(let reason) = found[i] {
+                    onLine("trip lookup name=\(name) city=\(group.city ?? "-") info=\(Self.limitInfo(reason) ?? (reason == Self.qpsReason ? AmapWebFailure.qpsInfo : "none"))")
+                }
+            }
         }
         var keyMissing = false
         func range(_ city: String?) -> String {
@@ -785,7 +805,8 @@ public actor TripPlanner: ToolExecutor {
             default: break
             }
             if place == nil, !misses.contains(where: { $0.name == name }) {
-                misses.append(PlannerMiss(name: name, range: range(city), location: location))
+                misses.append(PlannerMiss(name: name, range: range(city), location: location,
+                                          reason: Self.notPlacedReason(lookups[key(location, city)])))
             }
             let made = TripStop(index: 0, asked: name,
                                 place: place ?? Self.unplacedPlace(name, key: "\(revisionKey)|plan|\(location)"),
@@ -1148,7 +1169,9 @@ public actor TripPlanner: ToolExecutor {
         var placeOf: [String: Place] = [:]
         var notPlaced: [String] = []
         var slow: [String] = []
+        var reasons: [String] = []
         for (i, name) in newNames.enumerated() {
+            if case .found = lookups[i] {} else { reasons.append(Self.notPlacedReason(lookups[i])) }
             switch lookups[i] {
             case .found(let place): placeOf[name] = place
             case .missing(let reason):
@@ -1255,10 +1278,13 @@ public actor TripPlanner: ToolExecutor {
         let removedOverRequest = requestStartNames.filter { !now.contains($0) }
         facts["removed"] = removedOverRequest.isEmpty ? nil : .array(removedOverRequest.map(JSONValue.string))
         if !notPlaced.isEmpty { facts["not_placed_range"] = .string(searchedRange()) }
-        var data = listResult(changed: "set", facts: facts, may: may, mustNot: [.readList, .readDistances]).data
+        // F-15b §68 item 4 (T-040zu): with stops not placed, `invent` too, and `next` gives only the reason.
+        let mustNot: [ReplyMustNot] = [.readList, .readDistances] + (notPlaced.isEmpty ? [] : [.invent])
+        var data = listResult(changed: "set", facts: facts, may: may, mustNot: mustNot).data
         // §61 item 3a: the plan as she wrote it, one line per day, ahead of the JSON.
         data["plan_text"] = .string(TripPlanJSON.planText(plan))
-        data["next"] = .string(requestSaves >= Self.stopRevisingFrom ? Self.stopRevisingNext : Self.reviewNext)
+        data["next"] = .string((requestSaves >= Self.stopRevisingFrom ? Self.stopRevisingNext : Self.reviewNext)
+                               + (notPlaced.isEmpty ? "" : Self.notPlacedNext(reasons)))
         log(true)
         return .success(data)
     }
@@ -2119,7 +2145,7 @@ public actor TripPlanner: ToolExecutor {
                                            guardCountry: guardCountry, near: near, parallel: tuning.abroadParallelLookups)
                 }
             } else {
-                fetched = await fetch(missing.map { names[$0] }, city: city, search: vendor, guardCountry: false, near: nil)
+                fetched = await fetch(missing.map { names[$0] }, city: city, search: vendor, guardCountry: false, near: nil, pace: pace)
             }
         }
         var results = cached.map { $0.map(Lookup.found) ?? .missing("timeout") }
@@ -2215,8 +2241,9 @@ public actor TripPlanner: ToolExecutor {
     }
 
     private func fetch(_ names: [String], city: String?, search: any PlaceSearch, guardCountry: Bool,
-                       near: GeoCoordinate?, parallel: Int? = nil) async -> [(Lookup, Int)] {
+                       near: GeoCoordinate?, parallel: Int? = nil, pace: LookupPace? = nil) async -> [(Lookup, Int)] {
         let limit = max(1, parallel ?? tuning.parallelLookups), clock = clock, retry = tuning.retryDelay, kept = tuning.candidates
+        let paced = pace.map { Paced(pace: $0, count: tuning.paceCount, window: tuning.paceWindow, qpsRetry: tuning.qpsRetry) }
         let nameLimit = tuning.nameLimit
         let region = near.map { ($0, tuning.abroadRegionMeters) }
         // §50 item 3: only trip lookups abroad (the country guard on) stay inside the area.
@@ -2233,7 +2260,7 @@ public actor TripPlanner: ToolExecutor {
                         // §52 item 11: this name's own limit, from when its lookup starts.
                         let (lookup, dropped) = await Self.limited(clock: clock, limit: nameLimit) {
                             await Self.lookup(names[i], city: city, search: search, retryDelay: retry, kept: kept,
-                                              guardCountry: guardCountry, region: region, area: inside)
+                                              guardCountry: guardCountry, region: region, area: inside, paced: paced)
                         }
                         feed.yield((i, lookup, dropped))
                     }
@@ -2282,27 +2309,79 @@ public actor TripPlanner: ToolExecutor {
         let limit: Int
     }
 
+    /// F-15b §68 item 2 (T-040zu): the pace of 高德 lookups and the wait before a per-second-limit retry.
+    struct Paced: Sendable {
+        let pace: LookupPace
+        let count: Int
+        let window: NovaDuration
+        let qpsRetry: NovaDuration
+    }
+
     private static func lookup(_ name: String, city: String?, search: any PlaceSearch, retryDelay: NovaDuration,
                                kept: Int, guardCountry: Bool = false, region: (GeoCoordinate, Int)? = nil,
-                               area: AreaCheck? = nil) async -> (Lookup, Int) {
+                               area: AreaCheck? = nil, paced: Paced? = nil) async -> (Lookup, Int) {
+        func once() async -> (Lookup, Int) {
+            if let paced { await paced.pace.wait(count: paced.count, window: paced.window) }
+            return await lookupOnce(name, city: city, search: search, kept: kept, guardCountry: guardCountry, region: region, area: area)
+        }
         // §4 item 7: up to 2 retries, waiting retryDelay then twice that (高德 rejects requests over the per-second
         // limit and answers those within it).
-        var result = await lookupOnce(name, city: city, search: search, kept: kept, guardCountry: guardCountry, region: region, area: area)
+        var result = await once()
+        // F-15b §68 item 2 (T-040zu): a per-second-limit answer is tried once more after `qpsRetry`; still over, it is
+        // the map's limit. Any other `…LIMIT` (a daily quota) is not tried again.
+        if case .missing(Self.qpsReason) = result.0 {
+            try? await Task.sleep(for: .milliseconds((paced?.qpsRetry ?? .seconds(1)).milliseconds))
+            if Task.isCancelled { return (.missing(Self.limitReason(AmapWebFailure.qpsInfo)), 0) }
+            result = await once()
+            if case .missing(Self.qpsReason) = result.0 { return (.missing(Self.limitReason(AmapWebFailure.qpsInfo)), 0) }
+        }
         for attempt in 0..<2 {
             // §52 item 11: `slow` (Photon out of its own tries, ~12 s) is not tried again here.
             guard case .missing(let reason) = result.0, reason != "nomatch", reason != "country", reason != "area",
-                  reason != "slow", !Task.isCancelled else { return result }
+                  reason != "slow", Self.limitInfo(reason) == nil, !Task.isCancelled else { return result }
             try? await Task.sleep(for: .milliseconds(retryDelay.milliseconds << attempt))
             if Task.isCancelled { return result }
-            result = await lookupOnce(name, city: city, search: search, kept: kept, guardCountry: guardCountry, region: region, area: area)
+            result = await once()
         }
         return result
+    }
+
+    /// F-15b §68 (T-040zu): a lookup answered `CUQPS_HAS_EXCEEDED_THE_LIMIT` (tried once more).
+    static let qpsReason = "qps"
+    /// §68 items 3-4: a lookup refused by any other `…LIMIT` of 高德: 「limit|<info>」.
+    static func limitReason(_ info: String) -> String { "limit|" + info }
+    static func limitInfo(_ reason: String) -> String? { reason.hasPrefix("limit|") ? String(reason.dropFirst(6)) : nil }
+
+    /// F-15b §68 item 4: the `not_placed` reason of a lookup that found nothing: `map_limit` (any `…LIMIT`, and 高德's
+    /// quota errors), `search_slow` (out of time, §52 item 11: never "not found"), else `not_found`.
+    static func notPlacedReason(_ lookup: Lookup?) -> String {
+        guard case .missing(let reason)? = lookup else { return "not_found" }
+        if limitInfo(reason) != nil || reason == qpsReason || reason == "busy" { return "map_limit" }
+        if isSlow(reason) { return "search_slow" }
+        return "not_found"
+    }
+
+    /// §68 item 4: the words of `next` for each reason; nothing about tools or support.
+    static let notPlacedWords: [(reason: String, words: String)] = [
+        ("not_found", "地图没找到这些地方"), ("map_limit", "地图今天查不了这些地方"), ("search_slow", "地图这次没查完这些地方"),
+    ]
+
+    /// §68 item 4: the sentence added to `next` when stops are not placed: only what `reason` says.
+    static func notPlacedNext(_ reasons: [String]) -> String {
+        let parts = notPlacedWords.filter { reasons.contains($0.reason) }.map { "reason=\($0.reason) 的：\($0.words)" }
+        return "not_placed 里的地方，" + parts.joined(separator: "；") + "。原因只照 reason 说，不要说别的原因。"
     }
 
     private static func lookupOnce(_ name: String, city: String?, search: any PlaceSearch, kept: Int, guardCountry: Bool,
                                    region: (GeoCoordinate, Int)?, area: AreaCheck? = nil) async -> (Lookup, Int) {
         do {
             var places: [Place]
+            // F-15b §68 item 1 (T-040zu): a Macau or Hong Kong lookup goes without 高德's city limit; only 82/81 results.
+            if area == nil, region == nil, SpecialRegion.isSpecial(city) {
+                places = try await textWithInfo(search, name, city: nil, cityLimit: false).filter(SpecialRegion.keeps)
+                guard !places.isEmpty else { return (.missing("nomatch"), 0) }
+                return (.candidates(Array(places.prefix(max(kept, 1)))), 0)
+            }
             if let area {
                 // §50 item 3: Photon's `bbox` restricts the search; the country and 50 km checks cover the rest.
                 if let boxed = search as? any AreaPlaceSearch {
@@ -2318,7 +2397,7 @@ public actor TripPlanner: ToolExecutor {
             if let (center, radius) = region {
                 places = try await search.around(name, center: center, radiusMeters: radius, sort: .weight)
             } else {
-                places = try await search.text(name, city: city, cityLimit: city != nil)
+                places = try await textWithInfo(search, name, city: city, cityLimit: city != nil)
             }
             guard !places.isEmpty else { return (.missing("nomatch"), 0) }
             var dropped = 0
@@ -2330,6 +2409,17 @@ public actor TripPlanner: ToolExecutor {
                 guard !places.isEmpty else { return (.missing("country"), dropped) }
             }
             return (.candidates(Array(places.prefix(max(kept, 1)))), dropped)
+        } catch let failure as AmapWebFailure {
+            // F-15b §68 items 2-4 (T-040zu): 高德's info decides: per-second limit, another limit, else as before.
+            if failure.info == AmapWebFailure.qpsInfo { return (.missing(qpsReason), 0) }
+            if failure.isLimit, let info = failure.info { return (.missing(limitReason(info)), 0) }
+            switch failure.error {
+            case .keyMissing, .keyRejected: return (.keyMissing, 0)
+            case .quota: return (.missing("busy"), 0)
+            case .timeout: return (.missing("timeout"), 0)
+            case .slow: return (.missing("slow"), 0)
+            case .failed: return (.missing("failed"), 0)
+            }
         } catch let error as AmapWebError where error == .keyMissing || error == .keyRejected {
             return (.keyMissing, 0)
         } catch AmapWebError.quota {
@@ -2824,5 +2914,29 @@ public actor TripPlanner: ToolExecutor {
         case .double(let v): Int(exactly: v)
         default: nil
         }
+    }
+}
+
+extension TripPlanner {
+    /// F-15b §68 (T-040zu): 高德's text search, with its `info` when the vendor gives it.
+    static func textWithInfo(_ search: any PlaceSearch, _ name: String, city: String?, cityLimit: Bool) async throws -> [Place] {
+        if let info = search as? any PlaceInfoSearch { return try await info.textInfo(name, city: city, cityLimit: cityLimit) }
+        return try await search.text(name, city: city, cityLimit: cityLimit)
+    }
+}
+
+/// F-15b §68 item 2 (T-040zu): at most `count` 高德 lookups start in any `window`. Each caller reserves the earliest
+/// start that keeps the rule (the reservations are in order), then waits for it.
+actor LookupPace {
+    private var starts: [ContinuousClock.Instant] = []
+
+    func wait(count: Int, window: NovaDuration) async {
+        let span = Duration.milliseconds(window.milliseconds)
+        let now = ContinuousClock.now
+        starts.removeAll { now - $0 >= span }
+        var at = now
+        if count > 0, starts.count >= count { at = max(now, starts[starts.count - count] + span) }
+        starts.append(at)
+        if at > now { try? await Task.sleep(until: at, clock: .continuous) }
     }
 }

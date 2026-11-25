@@ -345,7 +345,7 @@ struct TripPlanTripTests {
         #expect(TripPlannerShape.system.hasSuffix("- 司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。\n- 只在某几天开放的活动，name 写活动名，location 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。"))
         let rig = await PlanTripRig([answer([["广州塔", "九龙湖公主酒店"]], done: false), answer([["广州塔", "九龙湖公主酒店"]], done: true, note: "九龙湖公主酒店没找到")])
         let r = await rig.run(newPlan())
-        #expect(r.ok && r.data["not_placed"] == [["name": "九龙湖公主酒店", "searched": "广州"]], "\(r)")
+        #expect(r.ok && r.data["not_placed"] == [["name": "九龙湖公主酒店", "searched": "广州", "reason": "not_found"]], "\(r)")
         #expect(r.data["plan_text"]?.stringValue == "第1天：广州塔、九龙湖公主酒店（没找到）")
         #expect(rig.model.calls.withLock { $0 }[1][2].content.contains("九龙湖公主酒店=地图没找到（在广州找）"))
     }
