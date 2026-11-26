@@ -1028,13 +1028,13 @@ final class AgentRuntime {
             RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
             voiceLines.record?.submit(.sessionClosed(line))
         }
-        // F-05 §15 items 1-2 (T-016q): the voice model chosen in 设置, read at this connect; a Qwen choice whose key or
-        // workspace host is gone falls back to Gemini.
+        // F-05 §15 items 1-2 (T-016q): the voice model chosen in 设置, read at this connect; a Qwen choice whose key is
+        // gone falls back to Gemini. T-016r: Qwen connects to the fixed dashscope.aliyuncs.com endpoint, never the
+        // saved 千问 voice API Host.
         let qwenKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
-        let workspaceHost = defaults.string(forKey: SettingsKey.qwenTTSHost)
-        let voiceModel = VoiceModel.resolved(in: DefaultsSettingsStore(), qwenKey: qwenKey(), workspaceHost: workspaceHost)
+        let voiceModel = VoiceModel.resolved(in: DefaultsSettingsStore(), qwenKey: qwenKey())
         let provider: any LiveSessionProvider = voiceModel.isQwen
-            ? QwenRealtimeProvider(key: qwenKey, host: workspaceHost ?? "", model: voiceModel.modelID, connector: connector,
+            ? QwenRealtimeProvider(key: qwenKey, model: voiceModel.modelID, connector: connector,
                                    onUsage: { usage in
                                        // Item 6: tokens only (I-8).
                                        RuntimeLog.agent.notice("\(usage.logLine, privacy: .public)")

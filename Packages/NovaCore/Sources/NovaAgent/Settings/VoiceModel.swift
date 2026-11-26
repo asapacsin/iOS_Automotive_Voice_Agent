@@ -14,7 +14,7 @@ public enum VoiceModel: String, Sendable, Hashable, CaseIterable {
     public static let title = "语音模型"
     /// Item 1: shown under the row; the choice applies at the next connect.
     public static let nextConnectNote = "下次连接时生效"
-    /// Item 1: a Qwen choice without the 百炼 key and workspace host.
+    /// Item 1: a Qwen choice without the 百炼 key.
     public static let qwenKeyMissing = "先在设置里填百炼 key"
 
     /// The model id sent to the provider (and written in the record header, item 6).
@@ -30,15 +30,16 @@ public enum VoiceModel: String, Sendable, Hashable, CaseIterable {
 
     public var isQwen: Bool { self != .geminiLive }
 
-    /// Item 1: a Qwen choice needs the 百炼 key and the workspace API Host already saved.
-    public func isAvailable(qwenKey: String?, workspaceHost: String?) -> Bool {
+    /// Item 1 (changed 2026-11-26, T-016r): a Qwen choice needs only the 百炼 key; the saved 千问 voice API Host is
+    /// not used.
+    public func isAvailable(qwenKey: String?) -> Bool {
         guard isQwen else { return true }
-        return qwenKey?.isEmpty == false && VoiceHostCheck.isValid(workspaceHost ?? "")
+        return qwenKey?.isEmpty == false
     }
 
     /// The disabled reason for the picker row; nil when the choice can be made.
-    public func disabledReason(qwenKey: String?, workspaceHost: String?) -> String? {
-        isAvailable(qwenKey: qwenKey, workspaceHost: workspaceHost) ? nil : Self.qwenKeyMissing
+    public func disabledReason(qwenKey: String?) -> String? {
+        isAvailable(qwenKey: qwenKey) ? nil : Self.qwenKeyMissing
     }
 
     /// The stored choice; unset or unknown reads as Gemini (the default).
@@ -46,10 +47,10 @@ public enum VoiceModel: String, Sendable, Hashable, CaseIterable {
         settings.string(settingsKey).flatMap(VoiceModel.init(rawValue:)) ?? defaultModel
     }
 
-    /// The model the next connect uses: a Qwen choice whose key or host has gone falls back to Gemini.
-    public static func resolved(in settings: any SettingsStore, qwenKey: String?, workspaceHost: String?) -> VoiceModel {
+    /// The model the next connect uses: a Qwen choice whose key has gone falls back to Gemini.
+    public static func resolved(in settings: any SettingsStore, qwenKey: String?) -> VoiceModel {
         let model = saved(in: settings)
-        return model.isAvailable(qwenKey: qwenKey, workspaceHost: workspaceHost) ? model : defaultModel
+        return model.isAvailable(qwenKey: qwenKey) ? model : defaultModel
     }
 
     public static func save(_ model: VoiceModel, in settings: any SettingsStore) {

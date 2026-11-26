@@ -6,9 +6,13 @@ import NovaPorts
 /// events, read 2026-11-26). Client messages are built here; server events become `RealtimeEvent`s in
 /// `QwenEventMapper`. Pure.
 public enum QwenRealtimeCodec {
-    /// `wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=<model>`; the host is the 百炼
-    /// workspace API Host saved in 设置.
-    public static func url(host: String, model: String) -> URL? {
+    /// F-05 §15 vendor facts as changed 2026-11-26 (T-016r): the Beijing public endpoint, fixed in the app like the
+    /// other 百炼 calls in `QwenRoute`; never the saved 千问 voice API Host (a Singapore workspace host refused the
+    /// Beijing key with AUTH).
+    public static let host = "dashscope.aliyuncs.com"
+
+    /// `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=<model>`.
+    public static func url(model: String) -> URL? {
         var components = URLComponents()
         components.scheme = "wss"
         components.host = host

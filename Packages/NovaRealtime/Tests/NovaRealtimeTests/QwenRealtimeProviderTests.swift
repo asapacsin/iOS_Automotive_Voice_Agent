@@ -66,7 +66,7 @@ private final class FakeQwenSocket: WebSocketConnection, @unchecked Sendable {
 }
 
 private func provider(_ server: FakeQwenServer, usage: (@Sendable (QwenUsage) -> Void)? = nil) -> QwenRealtimeProvider {
-    QwenRealtimeProvider(key: { "test-key" }, host: "ws1.cn-beijing.maas.aliyuncs.com", model: "qwen-audio-3.1-realtime-flash",
+    QwenRealtimeProvider(key: { "test-key" }, model: "qwen-audio-3.1-realtime-flash",
                          connector: server, onUsage: usage)
 }
 
@@ -96,8 +96,9 @@ struct QwenRealtimeProviderTests {
         let events = await collect(p) { $0 == .setupComplete }
         #expect(events == [.setupComplete])
         let socket = try #require(server.opened.withLock { $0.first })
+        // T-016r: the fixed Beijing public endpoint (the PC handshake accepted it with the Beijing key).
         #expect(socket.request.url?.absoluteString
-            == "wss://ws1.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen-audio-3.1-realtime-flash")
+            == "wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen-audio-3.1-realtime-flash")
         #expect(socket.request.value(forHTTPHeaderField: "Authorization") == "Bearer test-key")
         let first = try #require(socket.messages().first)
         #expect(first["type"] == "session.update")
@@ -222,5 +223,15 @@ struct QwenRealtimeProviderTests {
         let audio = try #require(sent[3]["audio"]?.stringValue.flatMap { Data(base64Encoded: $0) })
         #expect(audio.count == QwenRealtimeProvider.framesPerMessage * PCMFrame16k.byteCount)
         await p.close()
+    }
+}
+
+@Suite("T-016r F-05 §15 Qwen voice endpoint")
+struct QwenEndpointTests {
+    @Test("T-016r F-05 rows 10, 16: Qwen connects to the fixed wss://dashscope.aliyuncs.com endpoint, never a saved workspace host")
+    func fixedEndpoint() {
+        #expect(QwenRealtimeCodec.host == "dashscope.aliyuncs.com")
+        #expect(QwenRealtimeCodec.url(model: "qwen-audio-3.1-realtime-plus")?.absoluteString
+            == "wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen-audio-3.1-realtime-plus")
     }
 }

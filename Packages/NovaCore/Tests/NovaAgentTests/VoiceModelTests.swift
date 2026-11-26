@@ -46,16 +46,16 @@ struct VoiceModelTests {
             == ["gemini-3.8-live", "qwen-audio-3.1-realtime-flash", "qwen-audio-3.1-realtime-plus"])
         let settings = ModelSettings()
         #expect(VoiceModel.saved(in: settings) == .geminiLive)
-        #expect(VoiceModel.geminiLive.disabledReason(qwenKey: nil, workspaceHost: nil) == nil)
-        #expect(VoiceModel.qwenFlash.disabledReason(qwenKey: nil, workspaceHost: "ws.cn-beijing.maas.aliyuncs.com")
-            == "先在设置里填百炼 key")
-        #expect(VoiceModel.qwenPlus.disabledReason(qwenKey: "k", workspaceHost: "") == "先在设置里填百炼 key")
-        #expect(VoiceModel.qwenPlus.disabledReason(qwenKey: "k", workspaceHost: "ws.cn-beijing.maas.aliyuncs.com") == nil)
+        #expect(VoiceModel.geminiLive.disabledReason(qwenKey: nil) == nil)
+        #expect(VoiceModel.qwenFlash.disabledReason(qwenKey: nil) == "先在设置里填百炼 key")
+        #expect(VoiceModel.qwenFlash.disabledReason(qwenKey: "") == "先在设置里填百炼 key")
+        // T-016r: only the 百炼 key; no saved voice API Host is needed.
+        #expect(VoiceModel.qwenPlus.disabledReason(qwenKey: "k") == nil)
         VoiceModel.save(.qwenFlash, in: settings)
         #expect(VoiceModel.saved(in: settings) == .qwenFlash)
-        #expect(VoiceModel.resolved(in: settings, qwenKey: "k", workspaceHost: "ws.cn-beijing.maas.aliyuncs.com") == .qwenFlash)
+        #expect(VoiceModel.resolved(in: settings, qwenKey: "k") == .qwenFlash)
         // The key removed since: the next connect uses Gemini.
-        #expect(VoiceModel.resolved(in: settings, qwenKey: nil, workspaceHost: "ws.cn-beijing.maas.aliyuncs.com") == .geminiLive)
+        #expect(VoiceModel.resolved(in: settings, qwenKey: nil) == .geminiLive)
         #expect(VoiceModel.nextConnectNote == "下次连接时生效")
         #expect(VoiceModel.title == "语音模型")
     }

@@ -34,7 +34,6 @@ public final class QwenRealtimeProvider: LiveSessionProvider {
 
     private let continuation: AsyncStream<ProviderEvent>.Continuation
     private let key: @Sendable () -> String?
-    private let host: String
     private let model: String
     private let connector: any WebSocketConnector
     private let onUsage: (@Sendable (QwenUsage) -> Void)?
@@ -108,12 +107,11 @@ public final class QwenRealtimeProvider: LiveSessionProvider {
         }
     }
 
-    /// `key`: the 百炼 key (Keychain), read at each connect; `host`: the workspace API Host; `model`: item 1's id.
-    public init(key: @escaping @Sendable () -> String?, host: String, model: String,
+    /// `key`: the 百炼 key (Keychain), read at each connect; `model`: item 1's id. The endpoint is fixed (T-016r).
+    public init(key: @escaping @Sendable () -> String?, model: String,
                 connector: any WebSocketConnector = URLSessionWebSocketConnector(), tuning: RealtimeTuning = RealtimeTuning(),
                 onUsage: (@Sendable (QwenUsage) -> Void)? = nil, onClose: (@Sendable (SessionClosedLine) -> Void)? = nil) {
         self.key = key
-        self.host = host
         self.model = model
         self.connector = connector
         self.onUsage = onUsage
@@ -131,7 +129,7 @@ public final class QwenRealtimeProvider: LiveSessionProvider {
             s.attempt += 1
             return s.attempt
         }
-        guard let key = key(), !key.isEmpty, let url = QwenRealtimeCodec.url(host: host, model: model) else {
+        guard let key = key(), !key.isEmpty, let url = QwenRealtimeCodec.url(model: model) else {
             yieldIfCurrent(attempt, ProviderEvent(connection: generation, event: .failed(RealtimeError(.credential))))
             return
         }
