@@ -270,6 +270,8 @@ private struct TripCardView: View {
                 if let district = card.district { Text(district) }
                 if let km = card.km { Text(String(format: "%.1f 公里", km)) }
                 if let minutes = card.minutes { Text("车程\(minutes)分钟") }
+                // F-15b §71 item 6 (T-040zx): a leg across the Macau/Hong Kong border.
+                if let border = card.border { Text(border).foregroundStyle(.orange) }
                 if card.mark == .visited { Text("已到").foregroundStyle(.green) }
                 if card.mark == .skipped { Text("跳过").foregroundStyle(.secondary) }
             }

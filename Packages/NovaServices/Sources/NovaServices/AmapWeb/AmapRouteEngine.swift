@@ -83,7 +83,9 @@ public final class AmapRouteEngine: NaviEngine, @unchecked Sendable {
     public func calculateRoutes(_ request: RouteRequest, generation: Generation) async {
         stopDriving()
         // §47 item 1: abroad, OSRM; at home (or without an abroad source), 高德 as before.
-        let source: (any RouteSource)? = request.abroad ? abroadSource : nil
+        // F-15b §71 item 5 (T-040zx): a Macau/Hong Kong stop: OSRM with the GCJ-02 ↔ WGS-84 shift.
+        let source: (any RouteSource)? = request.abroad
+            ? (request.sar ? abroadSource.map { SarRouteSource(base: $0) } : abroadSource) : nil
         let token = state.withLock { s -> Int in
             s.latest = max(s.latest, generation)
             s.request += 1

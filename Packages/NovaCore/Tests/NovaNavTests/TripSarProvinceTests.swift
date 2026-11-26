@@ -45,8 +45,8 @@ struct TripSarProvinceTests {
         guard case .array(let missed)? = r.data["not_placed"] else { Issue.record("no not_placed: \(r)"); return }
         #expect(missed.first?["reason"] == "not_found")
         #expect(rig.line("trip lookup name=") == ["trip lookup name=海洋公园 city=澳门 info=none dropped=1 kept_by=none"])
-        // Answered and filtered: not tried again.
-        #expect(search.asked == ["海洋公园"])
+        // Answered and filtered: not tried again, except F-15b §71 item 2b's one retry with 「澳门」 in front (T-040zx).
+        #expect(search.asked == ["海洋公园", "澳门海洋公园"])
     }
 
     @Test("T-040zw F-15b §70 row 331: a v5-style result with adcode 820002 is kept (kept_by=adcode), as §68")

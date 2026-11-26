@@ -31,11 +31,15 @@ public struct RouteRequest: Sendable, Hashable {
     /// F-15b §47 item 1 (T-040s): from an `abroad` trip or `navigate_to abroad=true`; the route then comes from
     /// OSRM instead of 高德.
     public let abroad: Bool
+    /// F-15b §71 item 5 (T-040zx): a stop in Macau or Hong Kong routed on OSRM: its GCJ-02 points (and the car's) go
+    /// to OSRM as WGS-84, and the route comes back as GCJ-02. Only with `abroad`.
+    public let sar: Bool
 
-    public init(destination: GeoCoordinate, destinationName: String, abroad: Bool = false) {
+    public init(destination: GeoCoordinate, destinationName: String, abroad: Bool = false, sar: Bool = false) {
         self.destination = destination
         self.destinationName = destinationName
-        self.abroad = abroad
+        self.abroad = abroad || sar
+        self.sar = sar
     }
 }
 
