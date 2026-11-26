@@ -110,6 +110,21 @@ Tips:
 - Building the app yourself also needs a [Codemagic](https://codemagic.io/) account (cloud Mac build) and a free Apple
   ID to sign and install it on your iPhone; see `.claude/skills/phone-test/SKILL.md`.
 
+## Setting up the features
+
+On first launch, allow the microphone, location, camera and speech recognition when iOS asks; each feature needs its
+permission. Everything else is in 设置.
+
+| Feature | What to do | Good to know |
+|---|---|---|
+| **Music** | Nothing to sign up for. 设置 → 「音乐」 → 「曲库地区」 picks the catalogue: 香港 (default), 台湾, 日本, 美国 | 「放周杰伦的晴天」 plays a **30-second iTunes preview** inside the app, with a card and a 「在 Apple Music 中打开」 button for the full song. 「放首歌」 with no name plays a built-in track. The mainland China catalogue returns no results, so it is not offered |
+| **Voiceprint lock (声纹锁定)** | 设置 → turn on 「声纹锁定」 and record your voice: park, close the windows, turn the music off, be the only one talking, and read the sentences shown in a normal voice | Only your voice can then talk to her or stop her. It is a convenience, not a security feature: it can be fooled |
+| **Wake word 「你好小诺」** | Save the three 讯飞 rows (see the keys table), then 设置 → 「唤醒词」 on | Without it, tap the screen to talk |
+| **Navigation mode** | 设置 → 「导航方式」: 「真实导航」 follows the car; 「模拟导航」 drives the route by itself | Use 模拟导航 to try guidance at a desk |
+| **Location** | 设置 → 「位置来源」: the phone's real GPS, or 「演示位置」 for testing away from the car | 「我现在在哪？」 tells you which one is in use |
+| **Noise filter and interrupting her** | Two switches in 设置: only a human voice opens the mic; and whether talking over her makes her stop and listen (otherwise only 「别说了」 stops her) | Navigation prompts are never cut off |
+| **Air-con, seats, windows** | Nothing: these are simulated (「模拟车辆」 in 设置 shows their state) | No real car connection yet |
+
 ## Where to start
 
 | You want to | Read |
