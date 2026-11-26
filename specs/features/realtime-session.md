@@ -127,8 +127,13 @@ Amsterdam, about 2.3 s and 1.6 s; 3 connections dropped mid-handshake. The owner
 [WebSocket API](https://help.aliyun.com/en/model-studio/qwen-audio-realtime-websocket-api),
 [client events](https://help.aliyun.com/zh/model-studio/fun-audiochat-client-events),
 [server events](https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-server-events):
-- WebSocket `wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=<model>`, header
-  `Authorization: Bearer <key>`. Input PCM 16 kHz mono 16-bit (as the app sends Gemini), output PCM 24 kHz (as Gemini).
+- WebSocket `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=<model>` (Beijing public endpoint, fixed in the
+  app like the other 百炼 calls in `QwenRoute`), header `Authorization: Bearer <key>`. Changed 2026-11-26 (T-016r):
+  the first build used the workspace host `wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/...` taken from the saved
+  千问 voice API Host; on the phone that host was a Singapore workspace (`…ap-southeast-1.maas.aliyuncs.com`) and the
+  Beijing key got `session failed code=AUTH` (record 20261126-174516, build 55f99fb). PC handshake 2026-11-26 with the
+  Beijing key and `qwen-audio-3.1-realtime-flash`: `dashscope.aliyuncs.com` 101 (accepted); `ws1.cn-beijing.maas…`
+  400 「Workspace endpoint is invalid」; `{WorkspaceId}.cn-beijing.maas…` 403; the Singapore host 401. Input PCM 16 kHz mono 16-bit (as the app sends Gemini), output PCM 24 kHz (as Gemini).
 - `session.update` with `instructions`, `voice` (first update only; 3.1 default `longanqian_v3.1`), `turn_detection`
   (`server_vad`, `smart_turn`, `smart_turn_v2` recommended, or `null`), `tools` (OpenAI function shape; first update
   only), `max_history_turns` (1–50), `modalities`.
@@ -140,8 +145,8 @@ Amsterdam, about 2.3 s and 1.6 s; 3 connections dropped mid-handshake. The owner
 1. **Setting.** 设置 gains 「语音模型」 with three choices: `Gemini 3.8 Live` (default, today's), `Qwen Audio 3.1 Flash`
    (`qwen-audio-3.1-realtime-flash`), `Qwen Audio 3.1 Plus` (`qwen-audio-3.1-realtime-plus`). Stored on the phone; it
    takes effect at the next connect (a running session is not switched; the row says 「下次连接时生效」). A Qwen choice
-   needs the 百炼 key and workspace id already saved for search (F-18 §40); without them the choice is shown disabled
-   with 「先在设置里填百炼 key」.
+   needs the 百炼 key already saved for search (F-18 §40); without it the choice is shown disabled with
+   「先在设置里填百炼 key」. The saved 千问 voice API Host (F-07 §14) is not used and not required for the voice model.
 2. **One provider per choice.** `AgentRuntime` builds `GeminiLiveProvider` or the new `QwenRealtimeProvider`
    (NovaRealtime) from the setting. Nothing above `RealtimeProvider` changes: the same instruction text, the same 25
    tools (`AgentSetup`), the same tool dispatch, record and UI.
