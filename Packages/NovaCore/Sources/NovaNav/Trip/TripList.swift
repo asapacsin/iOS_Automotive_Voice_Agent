@@ -99,6 +99,8 @@ public struct TripStop: Sendable, Hashable {
     /// 「场馆未找到」 / 「日期未找到」 in place of what no source confirmed.
     public var label: String {
         if let e = event, e.linked == true {
+            // §64 item 4: not placed as an event (closed that day); still no venue.
+            if e.closedDay == true { return "\(e.title)（\(TripEvent.venueMissing)）" }
             return "\(e.title)（\(e.venueFound == false ? TripEvent.venueMissing : location)，\(e.shortDates)）"
         }
         return placed && title != place.name ? "\(title)（\(place.name)）" : title
@@ -107,6 +109,10 @@ public struct TripStop: Sendable, Hashable {
     /// §66 item 6: false for a linked event with no confirmed venue: never looked up on the map (not by the event's
     /// name, not by the planner's `location`), so never placed and no navigation.
     public var mapLookup: Bool { !(event?.linked == true && event?.venueFound == false) }
+
+    /// The event shown on the stop (its line, picture, the planner's `event`): none for one not placed as an event
+    /// (`closedDay`).
+    public var shownEvent: TripEvent? { event?.closedDay == true ? nil : event }
 
     /// §49 item 1: importance is 1–3.
     public static func clampImportance(_ i: Int) -> Int { min(max(i, 1), 3) }

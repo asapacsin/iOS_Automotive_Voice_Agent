@@ -910,16 +910,28 @@ public actor TripPlanner: ToolExecutor {
             var list: [TripStop] = morning.map { [$0] } ?? []
             for s in day.sights {
                 let lookup = lookupOf(s)
-                var made = stop(s.name, location: lookup ?? "", cityOf(s.city), role: .sight, minutes: s.minutes,
-                                lookedUp: lookup != nil)
+                // F-15b §64 item 4 with §66 (T-040zs): facts only. A linked event's confirmed dates are checked against
+                // the day; one on a closed day is a plain stop named in `note`: titled by its hall (never the event's
+                // name), or, with no venue, still never looked up and shown 「场馆未找到」.
+                let fact = s.event.flatMap { TripPlannerShape.eventFact($0, date: asked.date(ofDay: d)) }
+                let closed = s.event?.linked == true && fact != nil
+                var made = stop(closed ? lookup ?? s.name : s.name, location: lookup ?? "", cityOf(s.city), role: .sight,
+                                minutes: s.minutes, lookedUp: lookup != nil)
                 if let e = s.event {
-                    // F-15b §64 item 4 with §66 (T-040zs): facts only. A linked event's confirmed dates are checked against
-                    // the day; one on a closed day after the last round is a plain sight named in `note`. F-18 §43 item 4,
-                    // §44 item 3: the event (from the list) carries only confirmed dates and the picture or 「未找到图片」.
-                    let fact = TripPlannerShape.eventFact(e, date: asked.date(ofDay: d))
+                    // F-18 §43 item 4, §44 item 3: the event (from the list) carries only confirmed dates and the
+                    // picture or 「未找到图片」.
                     if let fact { dayFacts[d].append(fact) }
                     if e.linked == true {
-                        if fact == nil { made.event = e } else if !badEvents.contains(e.title) { badEvents.append(e.title) }
+                        if !closed {
+                            made.event = e
+                        } else {
+                            if !badEvents.contains(e.title) { badEvents.append(e.title) }
+                            if lookup == nil {
+                                var kept = e
+                                kept.closedDay = true
+                                made.event = kept
+                            }
+                        }
                     } else {
                         // §66 item 2, §67 item 7: an event with no list entry keeps its title as written; the planner's
                         // dates are guesses: not shown, not checked.
@@ -955,7 +967,7 @@ public actor TripPlanner: ToolExecutor {
                 guard let e = s.event, e.linked == true, let time = e.time,
                       let fact = TripPlannerShape.startFact(title: e.title, time: time,
                                                             before: list[..<k].map { ($0.visitMinutes, minutes($0), city($0)) },
-                                                            legIn: minutes(s), city: city(s) ?? e.city) else { continue }
+                                                            legIn: minutes(s), city: city(s) ?? e.city ?? "") else { continue }
                 facts.append(fact)
             }
             return TripPlannerShape.DayCount(
@@ -1445,7 +1457,8 @@ public actor TripPlanner: ToolExecutor {
             list.arrange(stops)
             let sight = list.stops.reduce(0) { $0 + $1.visitMinutes }
             let driving = Int((Double(list.stops.reduce(0) { $0 + ($1.legSeconds ?? 0) }) / 60).rounded())
-            for s in list.stops where !s.placed && !notFound.contains(s.place.name) { notFound.append(s.place.name) }
+            // F-15b §66 item 6 (T-040zs): a linked event with no venue was never looked up: not a map miss.
+            for s in list.stops where !s.placed && s.mapLookup && !notFound.contains(s.place.name) { notFound.append(s.place.name) }
             for (a, b) in zip(list.stops, list.stops.dropFirst()) where !a.placed || !b.placed {
                 unknown.append(.string("第\(d + 1)天：\(a.place.name)→\(b.place.name)"))
             }
@@ -1458,7 +1471,12 @@ public actor TripPlanner: ToolExecutor {
                 "driving_minutes": .int(Int64(driving)),
                 "total_minutes": .int(Int64(Self.dayMinutes(list))),
                 "budget_minutes": .int(Int64(budget)),
-                "stops": .array(list.stops.map { .object(["name": .string($0.place.name), "placed": .bool($0.placed)]) }),
+                "stops": .array(list.stops.map { s in
+                    var o: [String: JSONValue] = ["name": .string(s.place.name), "placed": .bool(s.placed)]
+                    // §66 item 6: as plan_text says it.
+                    if !s.mapLookup { o["venue"] = .string(TripEvent.venueMissing) }
+                    return .object(o)
+                }),
                 "hotel": hotel,
             ]))
         }

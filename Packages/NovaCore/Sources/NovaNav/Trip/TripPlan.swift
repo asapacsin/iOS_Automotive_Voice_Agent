@@ -565,9 +565,14 @@ public struct TripEvent: Sendable, Hashable, Codable {
     public var city: String?
     /// §66 item 8, live-info §44 item 8: the confirmed start time `HH:MM`; nil when the source states none.
     public var time: String?
+    /// §64 item 4 with §66 item 6: true when a linked event with no venue was left on a day outside its dates: the stop
+    /// is not an event (no event line, not sent to the planner as one) but is still never looked up (「场馆未找到」).
+    /// A linked event with a venue on such a day is saved as a plain stop at its hall instead (no `event`).
+    public var closedDay: Bool?
     public init(title: String, start: String, end: String, datesFound: Bool? = nil, imageURL: String? = nil,
                 imageNote: String? = nil, linked: Bool? = nil, venueFound: Bool? = nil, city: String? = nil,
-                time: String? = nil) {
+                time: String? = nil, closedDay: Bool? = nil) {
+        self.closedDay = closedDay
         self.title = title
         self.start = start
         self.end = end

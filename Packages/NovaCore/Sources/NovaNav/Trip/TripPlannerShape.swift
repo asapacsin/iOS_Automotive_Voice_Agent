@@ -179,11 +179,12 @@ public enum TripPlannerShape {
         public let by: String
     }
 
-    /// §66 item 1: the text compared: spaces and punctuation removed, then a leading 4-digit year.
+    /// §66 item 1: the text compared: spaces and punctuation removed, then a leading 4-digit year; Latin letters in
+    /// lower case (AIE / aie are one name).
     public static func linkKey(_ text: String) -> String {
         var kept = String(text.unicodeScalars.filter {
             !CharacterSet.whitespacesAndNewlines.contains($0) && !CharacterSet.punctuationCharacters.contains($0)
-        }.map(Character.init))
+        }.map(Character.init)).lowercased()
         if kept.count > 4, kept.prefix(4).allSatisfy({ $0.isASCII && $0.isNumber }) { kept = String(kept.dropFirst(4)) }
         return kept
     }
@@ -195,12 +196,15 @@ public enum TripPlannerShape {
         func matches(_ a: String, _ entry: String) -> Bool { !a.isEmpty && (a.contains(entry) || entry.contains(a)) }
         let name = linkKey(sight.name), title = sight.event.map { linkKey($0.title) } ?? ""
         var best: EventLink?
+        var bestLength = 0
         for entry in events {
             let e = linkKey(entry.name)
             guard !e.isEmpty else { continue }
             let by: String? = matches(name, e) ? "name" : matches(title, e) ? "title" : nil
-            guard let by, entry.name.count > (best?.entry.name.count ?? 0) else { continue }
+            // The longest name as compared (after `linkKey`), the first on a tie.
+            guard let by, e.count > bestLength else { continue }
             best = EventLink(entry: entry, by: by)
+            bestLength = e.count
         }
         return best
     }
@@ -266,12 +270,13 @@ public enum TripPlannerShape {
     public static let startSlackMinutes = 15
 
     /// §66 item 8 (§61 rule, facts only): an event stop with a start time. `before` are the day's stops before it, each
-    /// with its stop minutes and the drive into it (nil: unknown) and its city; `legIn` is the drive into the event stop.
+    /// with its stop minutes and the drive into it (nil: unknown) and its city (nil: not on the map); `legIn` is the drive
+    /// into the event stop; `city` the event stop's city (the map's, else the entry's).
     /// Arriving later than 15 minutes before the start: 「<title><HH:MM>开始，按行程<HH:MM>才到」. A drive time on the way
     /// unknown: 「<title><HH:MM>开始，到<city>的车程查不到」 (the city a leg with no time leads into, one across cities
     /// first). nil: on time, or no start time.
     public static func startFact(title: String, time: String, before: [(minutes: Int, legIn: Int?, city: String?)],
-                                 legIn: Int?, city: String?) -> String? {
+                                 legIn: Int?, city: String) -> String? {
         let parts = time.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2 else { return nil }
         let start = parts[0] * 60 + parts[1]
@@ -281,8 +286,9 @@ public enum TripPlannerShape {
             + (before.isEmpty ? [] : [(legIn, before.last?.city, city)])
         let unknown = legs.filter { $0.minutes == nil }
         if !unknown.isEmpty {
-            let leg = unknown.first { !sameCity($0.from, $0.to) } ?? unknown[0]
-            let to = leg.to.map { c in ["特别行政区", "市"].reduce(c) { $0.hasSuffix($1) ? String($0.dropLast($1.count)) : $0 } } ?? ""
+            // A leg across two known cities first; a leg into a stop not on the map (no city) names the event's city.
+            let leg = unknown.first { $0.from != nil && $0.to != nil && !sameCity($0.from, $0.to) } ?? unknown[0]
+            let to = ["特别行政区", "市"].reduce(leg.to ?? city) { $0.hasSuffix($1) ? String($0.dropLast($1.count)) : $0 }
             return "\(title)\(time)开始，到\(to)的车程查不到"
         }
         let arrive = dayStartMinutes + before.reduce(0) { $0 + $1.minutes } + legs.reduce(0) { $0 + ($1.minutes ?? 0) }
@@ -329,8 +335,8 @@ public enum TripPlannerShape {
                                               "minutes": .int(Int64(s.visitMinutes)), "地图": fact(s)]
                 // F-15b §67 item 1 (T-040zt): the looked-up text, when it is not the name.
                 if s.location != s.asked, !s.location.isEmpty { o["location"] = .string(s.location) }
-                // Review fix (§64 items 3, 6): a change keeps the plan's events.
-                if let e = s.event { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
+                // Review fix (§64 items 3, 6): a change keeps the plan's events (T-040zs: not one left off as an event).
+                if let e = s.shownEvent { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
                 sights.append(.object(o))
             }
             let stay: JSONValue = closing.map {

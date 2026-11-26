@@ -140,12 +140,13 @@ public enum TripScreen: Sendable, Hashable {
                      km: stop.placed ? stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 } : nil,
                      // F-18 §43 item 4: an event stop shows the event's picture (none: 「未找到图片」 in its place); a stop
                      // from a plan saved before §43 (no note) keeps the venue's photo.
-                     photoURL: stop.event.map { $0.imageNote == nil && $0.imageURL == nil ? stop.place.photoURL : $0.imageURL.flatMap(URL.init(string:)) }
+                     // T-040zs: a stop not placed as an event (closed that day) shows no event line or picture.
+                     photoURL: stop.shownEvent.map { $0.imageNote == nil && $0.imageURL == nil ? stop.place.photoURL : $0.imageURL.flatMap(URL.init(string:)) }
                         ?? stop.place.photoURL,
                      initial: String(stop.title.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
                      minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
                      tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed,
-                     event: stop.event?.cardText, imageNote: stop.event?.imageNote,
+                     event: stop.shownEvent?.cardText, imageNote: stop.shownEvent?.imageNote,
                      // §66 item 6: 「场馆未找到 · <city>」 where the venue's map name would be.
                      place: stop.event?.venueMissingText ?? (stop.placed && stop.title != stop.place.name ? stop.place.name : nil))
         })

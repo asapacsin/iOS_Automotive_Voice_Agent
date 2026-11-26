@@ -83,10 +83,59 @@ struct TripEventLinkTests {
         // One line per linked sight in the call (two rounds), the planner's name kept as `sight=`.
         #expect(r.line("trip event link ") == ["trip event link sight=2026横琴AI嘉年华 event=横琴AI嘉年华 venue=珠海国际会展中心7-8号馆 by=name"])
         // The text compared: spaces, punctuation and a leading year removed; the longest entry name wins.
-        #expect(TripPlannerShape.linkKey("2026 横琴·AI嘉年华！") == "横琴AI嘉年华")
+        #expect(TripPlannerShape.linkKey("2026 横琴·AI嘉年华！") == "横琴ai嘉年华")
         let short = entry("AI嘉年华", venue: "某馆", start: "2026-11-28", end: "2026-11-28")
         let won = TripPlannerShape.link(.init(name: "2026横琴AI嘉年华"), events: [short, carnival()])
         #expect(won?.entry.name == "横琴AI嘉年华" && won?.by == "name")
+        // Review fixes: Latin letters compared in lower case; the longest name as compared wins (not the raw text:
+        // 「2026 · AI嘉年华」 is longer as typed but only 「ai嘉年华」 after the key).
+        #expect(TripPlannerShape.linkKey("AIE电子展") == "aie电子展")
+        #expect(TripPlannerShape.link(.init(name: "aie电子展"), events: [aie])?.entry.name == "AIE电子展")
+        let padded = entry("2026 · AI嘉年华", venue: "某馆", start: "2026-11-28", end: "2026-11-28")
+        #expect(TripPlannerShape.link(.init(name: "横琴AI嘉年华"), events: [padded, carnival()])?.entry.name == "横琴AI嘉年华")
+    }
+
+    @Test("T-040zs F-15b §66 review fix (§64 item 4): a linked event left on a closed day is a plain stop titled by its hall, never the event's name; named in note")
+    func closedDayWithVenue() async throws {
+        let days: [[JSONValue]] = [[["name": "2026横琴AI嘉年华", "city": "珠海", "minutes": 120]],
+                                   [["name": "珠海渔女", "city": "珠海", "minutes": 60]]]
+        let r = await rig(days, events: [carnival()])
+        let result = await r.run(eventCall(start: "2026-11-27", days: 2))
+        #expect(result.ok, "\(result)")
+        let text = result.data["plan_text"]?.stringValue ?? ""
+        #expect(text.hasPrefix("第1天 · 11月27日 周五：珠海国际会展中心7-8号馆（珠海国际会展中心）"), "\(text)")
+        #expect(!text.contains("横琴AI嘉年华"), "\(text)")
+        #expect(result.data["note"]?.stringValue?.contains("横琴AI嘉年华的日期对不上，没排成活动") == true, "\(result)")
+        let plan = await r.planner.currentPlan
+        let stop = try #require(plan.days[0].stops.first)
+        #expect(stop.event == nil && stop.placed && stop.location == "珠海国际会展中心7-8号馆")
+        let card = try #require(cards(plan).first)
+        #expect(card.name == "珠海国际会展中心7-8号馆" && card.event == nil, "\(card)")
+        #expect(r.search.asked.allSatisfy { $0 != "2026横琴AI嘉年华" && $0 != "横琴AI嘉年华" })
+    }
+
+    @Test("T-040zs F-15b §66 review fix (§64 item 4 with item 6): a venue-less event on a closed day keeps 场馆未找到: no lookup, no retry, no event line")
+    func closedDayNoVenue() async throws {
+        let days: [[JSONValue]] = [[["name": "珠海渔女", "city": "珠海", "minutes": 60]],
+                                   [["name": "航展", "location": "珠海国际航展中心", "city": "珠海", "minutes": 180]]]
+        let r = await rig(days, events: [airshow])
+        let result = await r.run(eventCall(start: "2026-12-13", days: 2))
+        #expect(result.ok, "\(result)")
+        #expect(Set(r.search.asked) == ["珠海渔女"], "\(r.search.asked)")
+        let text = result.data["plan_text"]?.stringValue ?? ""
+        #expect(text.contains("第2天 · 12月14日 周一：第十六届中国航展（场馆未找到）") && !text.contains("没找到）"), "\(text)")
+        #expect(result.data["note"]?.stringValue?.contains("第十六届中国航展的日期对不上，没排成活动") == true, "\(result)")
+        let plan = await r.planner.currentPlan
+        let stop = try #require(plan.days[1].stops.last)
+        #expect(!stop.placed && !stop.mapLookup && stop.shownEvent == nil, "\(stop)")
+        let card = try #require(cards(plan, day: 1).last)
+        #expect(card.place == "场馆未找到 · 珠海" && card.district == nil && card.event == nil, "\(card)")
+        // Not sent to the planner as an event on a change; the marker survives the file.
+        #expect(!TripPlanJSON.text(TripPlannerShape.shape(plan)).contains("\"event\""))
+        let again = TripPlanFile.decode(TripPlanFile.encode(plan))
+        #expect(again.days[1].stops.last?.mapLookup == false && again.days[1].stops.last?.label == "第十六届中国航展（场馆未找到）")
+        await r.planner.retriesSettled()
+        #expect(Set(r.search.asked) == ["珠海渔女"])
     }
 
     @Test("T-040zs F-15b §66 row 309: sight {name 珠海国际会展中心7-8号馆, event title AI嘉年华}: linked by=title; the event's dates from the list")
@@ -165,6 +214,10 @@ struct TripEventLinkTests {
         #expect(r.search.asked.isEmpty)
         let next = await r.run(ToolCall(id: CallID("n1")!, name: "trip_next", arguments: [:]))
         #expect(!next.ok, "\(next)")
+        // Review fix: check_trip_plan does not list it as a map miss; its stop says 场馆未找到, as plan_text does.
+        let check = await r.run(ToolCall(id: CallID("c1")!, name: "check_trip_plan", arguments: [:]))
+        #expect(check.data["not_found"] == .array([]), "\(check)")
+        #expect(TripPlanJSON.text(check.data["days"] ?? .null).contains("\"venue\":\"场馆未找到\""), "\(check)")
         // No confirmed dates: 「日期未找到」, not checked against the day.
         let noDates = TripPlannerShape.linkedEvent(entry("某展", venue: "", start: "2026-12-01", end: "2026-12-02",
                                                         venueVia: "none", datesVia: "none"), hall: nil)
@@ -204,6 +257,9 @@ struct TripEventLinkTests {
         // No drive table for the whole day: the leg across the border is named.
         let none = [(minutes: 150, legIn: Int?.none, city: String?("珠海")), (minutes: 60, legIn: Int?.none, city: String?("珠海市"))]
         #expect(TripPlannerShape.startFact(title: t, time: "16:00", before: none, legIn: nil, city: "澳门特别行政区") == "横琴AI嘉年华16:00开始，到澳门的车程查不到")
+        // Review fix: a leg into a stop not on the map (no city) names the event's city, never 「到的」.
+        let unplaced = [(minutes: 150, legIn: Int?.none, city: String?("珠海")), (minutes: 60, legIn: Int?.none, city: String?.none)]
+        #expect(TripPlannerShape.startFact(title: t, time: "16:00", before: unplaced, legIn: 20, city: "珠海") == "横琴AI嘉年华16:00开始，到珠海的车程查不到")
         // 15 minutes before the start is on time; one minute later is counted.
         #expect(TripPlannerShape.startFact(title: t, time: "16:00", before: [(405, nil, "珠海")], legIn: 0, city: "珠海") == nil)
         #expect(TripPlannerShape.startFact(title: t, time: "16:00", before: [(406, nil, "珠海")], legIn: 0, city: "珠海") == "横琴AI嘉年华16:00开始，按行程15:46才到")
