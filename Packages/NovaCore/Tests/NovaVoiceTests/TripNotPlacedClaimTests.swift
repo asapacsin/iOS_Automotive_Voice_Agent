@@ -33,7 +33,9 @@ struct TripNotPlacedClaimTests {
         ok.close()
         ok.turn = ok.turn.next()
         ok.send(.turnOpened(ok.turn))
-        ok.say("行程排好了，不过大三巴牌坊地图没找到。")
+        // In two chunks, the name first: judged on the whole reply (review 2026-11-26).
+        ok.say("行程排好了，不过大三巴牌坊")
+        ok.say("地图没找到。")
         ok.close()
         ok.advance(by: .seconds(30))
         #expect(ok.corrections.isEmpty, "\(ok.out)")

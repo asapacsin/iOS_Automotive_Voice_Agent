@@ -484,11 +484,13 @@ public struct DriverTurnPipeline: Sendable {
     /// F-15b §70 item 3 (T-040zw): the names in a `not_placed` list (objects with `name`, or plain names).
     static func notPlacedNames(_ value: JSONValue?) -> [String] {
         guard case .array(let items)? = value else { return [] }
-        return items.compactMap { $0["name"]?.stringValue ?? $0.stringValue }.filter { !$0.isEmpty }
+        // The stop's name and, when it differs, what was looked up (`location`).
+        return items.flatMap { [$0["name"]?.stringValue ?? $0.stringValue, $0["location"]?.stringValue].compactMap { $0 } }
+            .filter { !$0.isEmpty }
     }
 
     /// §70 item 3: words saying a stop is not on the map; a reply with them names a not-placed stop honestly.
-    static let notPlacedWords = ["没找到", "找不到", "没有找到", "查不了", "没查完", "没查到", "没能", "没放", "没有放", "没加", "没有加", "未找到"]
+    static let notPlacedWords = ["没找到", "找不到", "没有找到", "查不了", "没查完", "没查到", "没能", "没放", "没有放", "没加", "没有加", "未找到", "搜不到", "没搜到", "找不着", "没排上", "没能放"]
 
     /// §70 item 3: her reply names a `not_placed` stop as planned (no word saying it is not on the map).
     static func namesNotPlaced(_ text: String, _ names: [String]) -> Bool {
@@ -498,7 +500,8 @@ public struct DriverTurnPipeline: Sendable {
     /// §58 items 1–3: nil when the reply says nothing about a trip change (judged as usual).
     private func tripVerdict(_ t: Turn, final: Bool) -> Verdict? {
         // F-15b §70 item 3 (T-040zw): a stop the map did not place, named in her reply as planned.
-        if tripLatestOk == true, Self.namesNotPlaced(t.text, tripNotPlaced) { return .disproven(.tripUnverifiedClaim) }
+        // Judged on the whole reply only: 「大三巴牌坊」 then 「地图没找到」 arrive as separate chunks.
+        if tripLatestOk == true, Self.namesNotPlaced(t.text, tripNotPlaced) { return final ? .disproven(.tripUnverifiedClaim) : .pending }
         if ClaimLexicon.tripInBackground(t.text, stops: tripNames), tripWrites.isEmpty {
             return .disproven(tripLatestOk == false ? .tripClaimAfterFailure : .tripUnverifiedClaim)
         }

@@ -857,7 +857,7 @@ public actor TripPlanner: ToolExecutor {
             }
         }
         // F-15b §71 item 3 (T-040zx): a mainland miss retried with no city keeps results in any of these.
-        lookupTripCities = byCity.compactMap(\.city)
+        lookupTripCities = Array(Set(byCity.compactMap(\.city) + [fallbackCity].compactMap { $0 }))
         var anyAbroad = false
         func isAbroad(_ a: TripArea??) -> Bool {
             if case .some(.some(let found)) = a { return !TripRegion.isChina(found.countryCode) }
