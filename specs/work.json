@@ -2838,13 +2838,17 @@
     },
     {
       "id": "T-040zs",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 0,
       "depends_on": [],
       "action": "F-15b §66 items 1-5: after the planner round, code links each sight to the events list (loose name/title match, year and punctuation removed, longest wins): event from the list, map lookup by the entry's venue, event name never looked up as a place; unmatched sights as written; plan_text shows 「event（venue，dates）」; record 'trip event link'; item 6: an entry with no confirmed venue (live-info §44) is never looked up, card 「场馆未找到」; item 7: several halls -> the hall in the stop's city; item 8: event start time vs planned arrival, facts-only counts line, unknown cross-border drive stated; rows 308-313c.",
       "notes": "Phone run 98eb278 2026-11-25: plans showed venues without the event (577804) or sent 「2026横琴AI嘉年华」 to the map (683676); code kept an event only on an exact title match. 2026-11-25: starts after T-046zg (§44 confirmed venue, item 6) and the trip items are merged.",
-      "evidence": []
+      "evidence": [
+        "b7074ec (§66 items 1-8, plus §67 item 7; rows 308-313c unit, TripEventLinkTests) + review fix f230a58 + merge fix (start-time check uses shownEvent)",
+        "spec-reviewer high 2026-11-26 FAIL (a linked event left on a closed day kept the event's name; venue-less lost its no-lookup marker) -> fixed f230a58; re-check medium PASS; gates green on merge-trial (NovaRealtime 88, NovaServices 120, spec-trace 198/0). Choices: an event with no list entry keeps title only (row 298 test changed); linked stop titled by the event name; day start 09:00 (row 313c); 去下一站 label names trip_next's stop. Spec risk for the owner: item 1's 'entry name contains the sight name' links a plain sight like 横琴 to 2026横琴马拉松"
+      ],
+      "blocked_by": "Row 313 device run"
     },
     {
       "id": "T-046zf",

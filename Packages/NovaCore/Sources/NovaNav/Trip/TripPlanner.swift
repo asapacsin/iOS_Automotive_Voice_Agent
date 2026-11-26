@@ -964,7 +964,7 @@ public actor TripPlanner: ToolExecutor {
             var facts = d < dayFacts.count ? dayFacts[d] : []
             func city(_ s: TripStop) -> String? { s.placed ? TripPlannerShape.cityOf(s.place) : nil }
             for (k, s) in list.enumerated() {
-                guard let e = s.event, e.linked == true, let time = e.time,
+                guard let e = s.shownEvent, e.linked == true, let time = e.time,
                       let fact = TripPlannerShape.startFact(title: e.title, time: time,
                                                             before: list[..<k].map { ($0.visitMinutes, minutes($0), city($0)) },
                                                             legIn: minutes(s), city: city(s) ?? e.city ?? "") else { continue }
