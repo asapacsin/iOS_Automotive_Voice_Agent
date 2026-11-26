@@ -228,7 +228,7 @@ struct QwenRealtimeProviderTests {
 
 @Suite("T-016r F-05 §15 Qwen voice endpoint")
 struct QwenEndpointTests {
-    @Test("T-016r F-05 rows 10, 16: Qwen connects to the fixed wss://dashscope.aliyuncs.com endpoint, never a saved workspace host")
+    @Test("T-016r F-05 §15 vendor facts: Qwen connects to the fixed wss://dashscope.aliyuncs.com endpoint, never a saved workspace host")
     func fixedEndpoint() {
         #expect(QwenRealtimeCodec.host == "dashscope.aliyuncs.com")
         #expect(QwenRealtimeCodec.url(model: "qwen-audio-3.1-realtime-plus")?.absoluteString

@@ -2188,15 +2188,17 @@
     },
     {
       "id": "T-016r",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 1,
       "action": "F-05 §15 (changed 2026-11-26): QwenRealtimeProvider connects to wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=<model> (fixed constant beside QwenRoute endpoints) instead of the saved 千问 voice API Host; VoiceModel.isAvailable/disabledReason need only the 百炼 key; update QwenRealtimeProviderTests URL expectation; rows 10 and 16.",
-      "depends_on": [
-        "T-016q"
-      ],
+      "depends_on": [],
       "notes": "Owner phone test 2026-11-26 (build 55f99fb): Qwen showed 出錯, session failed code=AUTH; the saved host was a Singapore workspace and the key is Beijing. PC handshake: dashscope.aliyuncs.com 101 with the Beijing key.",
-      "evidence": "Spec at the commit that changes F-05 §15 vendor facts and item 1."
+      "evidence": [
+        "a4ff0f2 (fixed wss://dashscope.aliyuncs.com endpoint; VoiceModel needs only the 百炼 key; row 10 unit VoiceModelTests.row10, QwenEndpointTests, QwenRealtimeProviderTests URL)",
+        "Gates green on a4ff0f2 clean checkout (spec-trace 203/0; one unrelated flaky EventNamePictureTests row 82 failure on the first run, passed 3/3 alone and on the full re-run). spec-reviewer high 2026-11-26 PASS; TTS path keeps the saved host"
+      ],
+      "blocked_by": "Row 16 device run: a Codemagic build of this branch, Qwen Audio 3.1 Flash connects without 出錯"
     },
     {
       "id": "T-017c",
