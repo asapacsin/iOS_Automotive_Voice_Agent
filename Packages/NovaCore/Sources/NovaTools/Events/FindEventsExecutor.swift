@@ -141,7 +141,7 @@ public actor EventFinder {
     /// §35 item 5 with §39 item 5: the app-open refresh of the car's (or the open trip's) cities not searched with the
     /// default kinds for today…+30, in the background. No line, no spinner.
     public func refresh(_ cities: [String]) async {
-        let stale = await store.stale(cities)
+        let stale = await store.stale(cities, verified: verified())
         guard !stale.isEmpty else { return }
         let today = await store.today
         _ = await search(EventRequest(cities: Array(stale.prefix(3)), from: today,
@@ -193,7 +193,8 @@ public actor EventFinder {
         do {
             let outcome = try await run(onProgress).run(r, known: await store.all)
             let v = verified()
-            await store.record(outcome.kept, searched: outcome.searched, from: from, to: to, verified: v)
+            await store.record(outcome.kept, searched: outcome.searched, from: from, to: to, verified: v,
+                               dropped: outcome.droppedNames)
             work?.clear(.handoff)
             return .searched(await store.events(cities: r.cities, from: from, to: to, verified: v), outcome)
         } catch {

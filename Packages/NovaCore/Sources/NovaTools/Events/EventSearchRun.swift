@@ -82,6 +82,8 @@ public struct EventSearchOutcome: Sendable, Hashable {
     public let searched: [SearchedPair]
     /// F-18 §46 item 7: events dropped because their dates, venue or hour were not sure.
     public var unsure: Int = 0
+    /// F-18 §46 items 0, 7: the names of the events this run dropped (they leave the store).
+    public var droppedNames: [String] = []
 }
 
 public struct SearchedPair: Sendable, Hashable {

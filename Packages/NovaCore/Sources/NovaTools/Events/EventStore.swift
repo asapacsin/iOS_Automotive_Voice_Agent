@@ -299,8 +299,8 @@ public actor EventStore {
         return oldest
     }
 
-    public func covers(cities: [String], kinds: [String], from: String, to: String) -> Bool {
-        age(cities: cities, kinds: kinds, from: from, to: to) != nil
+    public func covers(cities: [String], kinds: [String], from: String, to: String, verified: Bool = false) -> Bool {
+        age(cities: cities, kinds: kinds, from: from, to: to, verified: verified) != nil
     }
 
     /// The kept events of `cities` overlapping `from`…`to`, sorted by start.
@@ -311,18 +311,20 @@ public actor EventStore {
     }
 
     /// Item 5: the cities whose today…+30 window with the default kinds is not fresh (the app-open refresh).
-    public func stale(_ cities: [String]) -> [String] {
+    /// F-18 §46: `verified` on the Tavily path (only its windows count).
+    public func stale(_ cities: [String], verified: Bool = false) -> [String] {
         let from = today.description, to = today.adding(days: Self.refreshDays).description
-        return cities.filter { !covers(cities: [$0], kinds: EventSearchRun.defaultKinds, from: from, to: to) }
+        return cities.filter { !covers(cities: [$0], kinds: EventSearchRun.defaultKinds, from: from, to: to, verified: verified) }
     }
 
     /// §39 item 5: a search's kept events and the city × kind pairs it searched for `from`…`to`.
-    /// F-18 §46 items 0, 7 (`verified`): the run replaces every stored event of its cities in the window, so an event
-    /// dropped now (or one from an older path) is gone from the store.
-    public func record(_ entries: [EventEntry], searched: [SearchedPair], from: String, to: String, verified: Bool = false) {
+    /// F-18 §46 items 0, 7 (`verified`): in the run's cities and window, events from an older path and the events this
+    /// run dropped (`dropped`, by name) leave the store; other verified events (other kinds) stay.
+    public func record(_ entries: [EventEntry], searched: [SearchedPair], from: String, to: String, verified: Bool = false,
+                       dropped: [String] = []) {
         if verified {
-            let cities = Set(searched.map(\.city))
-            file.events.removeAll { cities.contains($0.city) && $0.start <= to && $0.end >= from }
+            let cities = Set(searched.map(\.city)).union(entries.map(\.city)), names = Set(dropped)
+            file.events.removeAll { cities.contains($0.city) && $0.start <= to && $0.end >= from && (!$0.verified || names.contains($0.name)) }
         }
         for e in entries {
             file.events.removeAll { $0.city == e.city && $0.name == e.name && $0.start == e.start }

@@ -311,6 +311,25 @@ struct TavilyEventsTests {
         #expect(again.map(\.name) == ["张敬轩 x 澳门中乐团 盛乐"])
     }
 
+    @Test("T-046zi F-18 §46 (re-check): a kinds-limited run keeps the other kinds' verified events; a named run does not mark the exhibitions searched")
+    func otherKindsStay() async throws {
+        let store = EventStore(storage: MemoryEventStorage(), now: { noon }, zone: { TimeZone(identifier: "Asia/Shanghai")! })
+        var expo = EventEntry(name: "澳门车展", start: "2026-12-10", end: "2026-12-12", datesText: "", venue: "x", city: "澳门",
+                              sourceURL: "u", sourceSite: "", fetchedAt: noon)
+        expo.datesVia = "source"
+        await store.record([expo], searched: [SearchedPair(city: "澳门", kind: "展览展会", kept: 1)], from: "2026-11-25",
+                           to: "2026-12-31", verified: true)
+        let lines = Lines()
+        var web: Web?, reader: Reader?
+        let out = try await fullRun(lines, web: &web, reader: &reader)
+        await store.record(out.kept, searched: [SearchedPair(city: "澳门", kind: "演唱会 演出", kept: 1)], from: "2026-11-25",
+                           to: "2026-12-31", verified: true, dropped: out.droppedNames)
+        #expect(await store.all.map(\.name).contains("澳门车展"))
+        #expect(out.droppedNames == ["AIE电子展"])
+        let named = TavilyEventRun.queries(request(name: "张敬轩")).flatMap(\.covers)
+        #expect(!named.contains("展览展会") && !named.contains("AI 科技展"))
+    }
+
     @Test("T-046zi F-18 §46 item 5: picture bytes: JPEG/PNG/GIF/WebP, 5 KB–4 MB only")
     func pictureBytes() {
         #expect(EventPoster.dataURL(picture("a"))?.hasPrefix("data:image/png;base64,") == true)

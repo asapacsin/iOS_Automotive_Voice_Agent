@@ -694,9 +694,14 @@ public struct TavilyEventRun: EventSearching {
         for d in drops { onLine("events drop name=\(d.name) reason=\(d.reason.rawValue)") }
         onProgress(m + 1, m + 1)
         kept.sort { ($0.start, $0.name) < ($1.start, $1.name) }
+        // Only the kinds the queries that answered covered are marked searched (a named query covers none).
+        var covered: [String] = []
+        for i in results.keys.sorted() { for k in queries[i].covers where !covered.contains(k) { covered.append(k) } }
         var pairs: [SearchedPair] = []
         for city in r.cities {
-            for kind in r.kindList { pairs.append(SearchedPair(city: city, kind: kind, kept: kept.filter { $0.city == city }.count)) }
+            for kind in r.kindList where covered.contains(kind) {
+                pairs.append(SearchedPair(city: city, kind: kind, kept: kept.filter { $0.city == city }.count))
+            }
         }
         let sites = kept.map(\.sourceSite).filter { !$0.isEmpty }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
         onLine("events search done ms=\((clock.now - started).milliseconds) queries=\(m) failed=\(m - results.count) "
@@ -704,6 +709,7 @@ public struct TavilyEventRun: EventSearching {
         var outcome = EventSearchOutcome(kept: kept, dropped: drops.count, sites: sites, queries: m, failed: m - results.count,
                                          cut: 0, tokens: reply.tokens ?? 0, searched: pairs)
         outcome.unsure = drops.filter(\.reason.unsure).count
+        outcome.droppedNames = drops.map(\.name)
         return outcome
     }
 
