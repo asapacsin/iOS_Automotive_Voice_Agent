@@ -1813,7 +1813,8 @@ final class AgentRuntime {
             // F-15b §62 item 9 (T-040zo): the planner's JSON and the counts message hold place names: the local record
             // only, never the log (as stop names today, I-8).
             // F-15b §68 item 3 (T-040zu): `trip lookup name=` names a place too: the record only.
-            if !line.hasPrefix("trip planner text "), !line.hasPrefix("trip lookup name=") {
+            // F-15b §66 item 5 (T-040zs): `trip event link ` names the event and its venue: the record only.
+            if !line.hasPrefix("trip planner text "), !line.hasPrefix("trip lookup name="), !line.hasPrefix("trip event link ") {
                 RuntimeLog.agent.notice("\(line, privacy: .public)")
             }
             tripSession.record()?.submit(.trip(line))

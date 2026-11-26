@@ -168,19 +168,133 @@ public enum TripPlannerShape {
         return "\n" + eventsHead + TripPlanJSON.text(list)
     }
 
-    /// §64 item 4: an event placed on a day, checked against the store; nil when it is right.
-    public static func eventFact(_ event: TripEvent, venue: String, date: EventDay?, store: [EventEntry]) -> String? {
-        guard let entry = store.first(where: { $0.name == event.title && (venue.contains($0.venue) || $0.venue.contains(venue) || $0.venue.isEmpty) })
-        else { return "\(event.title)=活动表里没有" }
-        guard let date else { return nil }
-        if date.description < entry.start || date.description > entry.end {
-            return "\(event.title)开放\(entry.start)～\(entry.end)，这天是\(date)"
+    /// §64 item 4: after the last round, a wrong event is a plain sight, named in `note` by code.
+    public static func eventNote(_ title: String) -> String { "\(title)的日期对不上，没排成活动" }
+
+    // MARK: Events linked by code (F-15b §66, T-040zs)
+
+    /// §66 item 1: a sight linked to an events-list entry, and which of the sight's texts matched (`name` or `title`).
+    public struct EventLink: Sendable, Hashable {
+        public let entry: EventEntry
+        public let by: String
+    }
+
+    /// §66 item 1: the text compared: spaces and punctuation removed, then a leading 4-digit year; Latin letters in
+    /// lower case (AIE / aie are one name).
+    public static func linkKey(_ text: String) -> String {
+        var kept = String(text.unicodeScalars.filter {
+            !CharacterSet.whitespacesAndNewlines.contains($0) && !CharacterSet.punctuationCharacters.contains($0)
+        }.map(Character.init)).lowercased()
+        if kept.count > 4, kept.prefix(4).allSatisfy({ $0.isASCII && $0.isNumber }) { kept = String(kept.dropFirst(4)) }
+        return kept
+    }
+
+    /// §66 item 1: the entry a sight matches: its `name` or `event.title` contains the entry's name or the entry's name
+    /// contains it (after `linkKey`). At most one entry; with several matches the longest entry name wins. nil: no match
+    /// (§66 item 2: the sight stays as written).
+    public static func link(_ sight: Sight, events: [EventEntry]) -> EventLink? {
+        func matches(_ a: String, _ entry: String) -> Bool { !a.isEmpty && (a.contains(entry) || entry.contains(a)) }
+        let name = linkKey(sight.name), title = sight.event.map { linkKey($0.title) } ?? ""
+        var best: EventLink?
+        var bestLength = 0
+        for entry in events {
+            let e = linkKey(entry.name)
+            guard !e.isEmpty else { continue }
+            let by: String? = matches(name, e) ? "name" : matches(title, e) ? "title" : nil
+            // The longest name as compared (after `linkKey`), the first on a tie.
+            guard let by, e.count > bestLength else { continue }
+            best = EventLink(entry: entry, by: by)
+            bestLength = e.count
+        }
+        return best
+    }
+
+    /// §66 item 7 (live-info §44 item 1a): the hall a linked stop is looked up by. One hall: it. Several: the planner's
+    /// `location` when it is one of the halls in the stop's city; else the hall in the stop's city; else the first hall.
+    /// `hallCity` is each hall's city from its map lookup (nil: not found). nil: no confirmed venue (§66 item 6).
+    public static func hall(for entry: EventEntry, location: String?, city: String?, hallCity: [String: String]) -> String? {
+        guard let venue = entry.confirmedVenue else { return nil }
+        let halls = EventSourceCheck.venueParts(venue)
+        guard halls.count > 1 else { return halls.first ?? venue }
+        let inCity = halls.filter { h in hallCity[h].map { sameCity($0, city) } == true }
+        if let location, let h = inCity.first(where: { linkKey($0) == linkKey(location) }) { return h }
+        return inCity.first ?? halls.first
+    }
+
+    /// §66 item 7, §68: a found place's city: 澳门 / 香港 from the adcode (82 / 81), else 高德's `city`.
+    public static func cityOf(_ place: Place) -> String? {
+        if let code = place.adcode {
+            if code.hasPrefix("82") { return "澳门" }
+            if code.hasPrefix("81") { return "香港" }
+        }
+        return place.city
+    }
+
+    /// Two city names are one city with or without 「市」 / 「特别行政区」.
+    public static func sameCity(_ a: String?, _ b: String?) -> Bool {
+        func bare(_ c: String?) -> String {
+            var s = c?.trimmingCharacters(in: .whitespaces) ?? ""
+            for suffix in ["特别行政区", "市"] where s.hasSuffix(suffix) { s = String(s.dropLast(suffix.count)) }
+            return s
+        }
+        let x = bare(a), y = bare(b)
+        return !x.isEmpty && x == y
+    }
+
+    /// §66 item 5: the record line of a linked sight (event and place names: the local record only, I-8).
+    public static func linkLine(sight: String, event: String, venue: String?, by: String) -> String {
+        "trip event link sight=\(sight) event=\(event) venue=\(venue ?? "none") by=\(by)"
+    }
+
+    /// §64 item 4 with §66: a linked event's confirmed dates checked against the day (none confirmed: not checked,
+    /// §66 item 6); an event with no list entry (§66 item 2) is the fact 「<title>=活动表里没有」 and is kept as written.
+    public static func eventFact(_ event: TripEvent, date: EventDay?) -> String? {
+        guard event.linked == true else { return "\(event.title)=活动表里没有" }
+        guard let date, event.datesFound == true else { return nil }
+        if date.description < event.start || date.description > event.end {
+            return "\(event.title)开放\(event.start)～\(event.end)，这天是\(date)"
         }
         return nil
     }
 
-    /// §64 item 4: after the last round, a wrong event is a plain sight, named in `note` by code.
-    public static func eventNote(_ title: String) -> String { "\(title)的日期对不上，没排成活动" }
+    /// §66 item 1: the stop's event, filled from the list entry (never the planner's title or dates).
+    public static func linkedEvent(_ entry: EventEntry, hall: String?) -> TripEvent {
+        TripEvent(title: entry.name, start: entry.start, end: entry.end, datesFound: entry.confirmedDates != nil,
+                  imageURL: entry.imageURL, imageNote: entry.imageLabel ?? entry.imageCardText, linked: true,
+                  venueFound: hall != nil, city: entry.city, time: entry.time.isEmpty ? nil : entry.time)
+    }
+
+    /// §66 item 8 (row 313c): the day starts at 09:00.
+    public static let dayStartMinutes = 9 * 60
+    /// §66 item 8: arriving later than this many minutes before the start is counted.
+    public static let startSlackMinutes = 15
+
+    /// §66 item 8 (§61 rule, facts only): an event stop with a start time. `before` are the day's stops before it, each
+    /// with its stop minutes and the drive into it (nil: unknown) and its city (nil: not on the map); `legIn` is the drive
+    /// into the event stop; `city` the event stop's city (the map's, else the entry's).
+    /// Arriving later than 15 minutes before the start: 「<title><HH:MM>开始，按行程<HH:MM>才到」. A drive time on the way
+    /// unknown: 「<title><HH:MM>开始，到<city>的车程查不到」 (the city a leg with no time leads into, one across cities
+    /// first). nil: on time, or no start time.
+    public static func startFact(title: String, time: String, before: [(minutes: Int, legIn: Int?, city: String?)],
+                                 legIn: Int?, city: String) -> String? {
+        let parts = time.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return nil }
+        let start = parts[0] * 60 + parts[1]
+        // The legs on the way: into each stop after the day's first, then into the event stop.
+        let legs: [(minutes: Int?, from: String?, to: String?)] =
+            before.indices.dropFirst().map { (before[$0].legIn, before[$0 - 1].city, before[$0].city) }
+            + (before.isEmpty ? [] : [(legIn, before.last?.city, city)])
+        let unknown = legs.filter { $0.minutes == nil }
+        if !unknown.isEmpty {
+            // A leg across two known cities first; a leg into a stop not on the map (no city) names the event's city.
+            let leg = unknown.first { $0.from != nil && $0.to != nil && !sameCity($0.from, $0.to) } ?? unknown[0]
+            let to = ["特别行政区", "市"].reduce(leg.to ?? city) { $0.hasSuffix($1) ? String($0.dropLast($1.count)) : $0 }
+            return "\(title)\(time)开始，到\(to)的车程查不到"
+        }
+        let arrive = dayStartMinutes + before.reduce(0) { $0 + $1.minutes } + legs.reduce(0) { $0 + ($1.minutes ?? 0) }
+        guard arrive > start - startSlackMinutes else { return nil }
+        return "\(title)\(time)开始，按行程" + String(format: "%02d:%02d", arrive / 60, arrive % 60) + "才到"
+    }
 
     /// §62 items 2-3: a change: the current plan in item 2's shape (with each stop's lookup facts), `asked` and
     /// 「司机要改：「<change>」」.
@@ -196,6 +310,8 @@ public enum TripPlannerShape {
     /// 「<found name>·<city><district>」 or 「没找到」.
     public static func shape(_ plan: TripPlan) -> JSONValue {
         func fact(_ s: TripStop) -> JSONValue {
+            // F-15b §66 item 6 (T-040zs): a linked event with no venue was not looked up.
+            guard s.mapLookup else { return .string(TripEvent.venueMissing) }
             guard s.placed else { return "没找到" }
             return .string(s.place.name + "·" + (s.place.city ?? "") + (s.place.district ?? ""))
         }
@@ -219,8 +335,8 @@ public enum TripPlannerShape {
                                               "minutes": .int(Int64(s.visitMinutes)), "地图": fact(s)]
                 // F-15b §67 item 1 (T-040zt): the looked-up text, when it is not the name.
                 if s.location != s.asked, !s.location.isEmpty { o["location"] = .string(s.location) }
-                // Review fix (§64 items 3, 6): a change keeps the plan's events.
-                if let e = s.event { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
+                // Review fix (§64 items 3, 6): a change keeps the plan's events (T-040zs: not one left off as an event).
+                if let e = s.shownEvent { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
                 sights.append(.object(o))
             }
             let stay: JSONValue = closing.map {
@@ -242,13 +358,17 @@ public enum TripPlannerShape {
         public var isStay: Bool
         /// Where the lookup searched (for a miss).
         public var range: String
-        public init(name: String, location: String? = nil, found: Place?, minutes: Int, isStay: Bool, range: String) {
+        /// F-15b §66 item 6 (T-040zs): a linked event with no confirmed venue: not looked up (「=场馆未找到」).
+        public var venueMissing: Bool
+        public init(name: String, location: String? = nil, found: Place?, minutes: Int, isStay: Bool, range: String,
+                    venueMissing: Bool = false) {
             self.name = name
             self.location = location
             self.found = found
             self.minutes = minutes
             self.isStay = isStay
             self.range = range
+            self.venueMissing = venueMissing
         }
     }
 
@@ -286,6 +406,8 @@ public enum TripPlannerShape {
             line += day.stops.map { s in
                 let head = (s.isStay ? "住" : "") + s.name
                 guard let p = s.found else {
+                    // §66 item 6: no venue in the events list: not looked up, so not 「地图没找到」.
+                    if s.venueMissing { return head + "=" + TripEvent.venueMissing }
                     // §67 item 4: a miss names what was looked up: 「地图没找到 <location>（<name>）」.
                     if let l = s.location, l != s.name { return head + "=" + notFound(location: l, name: s.name) + "（在\(s.range)找）" }
                     return head + "=地图没找到（在\(s.range)找）"

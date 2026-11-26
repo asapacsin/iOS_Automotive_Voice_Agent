@@ -55,7 +55,8 @@ public enum TripPlanJSON {
     public static func planText(_ plan: TripPlan) -> String {
         plan.days.enumerated().map { d, day in
             let names = day.stops.map { s in
-                let missing = s.placed ? "" : "（没找到）"
+                // F-15b §66 item 6 (T-040zs): an event with no venue was not looked up; its label says 「场馆未找到」.
+                let missing = s.placed || !s.mapLookup ? "" : "（没找到）"
                 // §63 item 4: a hotel merged with its sight is written once, with the time there.
                 if s.role == .hotel, s.visitMinutes > 0 {
                     return s.label + missing + "（玩约\(stayTime(s.visitMinutes))，住这里）"
