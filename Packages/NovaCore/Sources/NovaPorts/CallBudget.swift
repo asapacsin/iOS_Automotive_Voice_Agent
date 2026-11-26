@@ -15,12 +15,7 @@ public enum PaidRoute: String, Sendable, Hashable, CaseIterable {
     case qwenEvents = "qwen.events"
     case geminiVision = "gemini.vision"
     case glmVision = "glm.vision"
-    case qwenTTS = "qwen.tts"
-
-    /// Deviation from §32 item 1, recorded in specs/STATUS.md for the owner: `qwen.tts` voices every sentence she
-    /// says (and its warm-up repeats one fixed word), so the turn/session/day call caps and the repeat rule would
-    /// silence her. It is counted, recorded and covered by the quota breaker, but not capped.
-    public var capped: Bool { self != .qwenTTS }
+    // F-07 §18 item 2 (T-020e): `qwen.tts` and its uncapped exception are removed with the 千问 TTS source.
 }
 
 /// §32 item 4: `reason=` of `LIVE_INFO_UNAVAILABLE`.
@@ -170,11 +165,11 @@ public final class CallBudget: Sendable {
             var day = Self.today(&s, today)
             func refuse(_ r: BudgetReason) -> (BudgetDecision, String?) {
                 // A quota refusal leaves the turn open: the route's backup model is tried once (item 3).
-                if route.capped, r != .quota { s.turnClosed = true }
+                if r != .quota { s.turnClosed = true }
                 return (.refuse(r), "paid route=\(route.rawValue) model=\(model) refused=\(r.rawValue)")
             }
             if day.quotaModels.contains(model) { return refuse(.quota) }
-            if route.capped, limits.enforce {
+            if limits.enforce {
                 if s.turnClosed || s.turnCalls >= limits.perTurn || s.turnByRoute[route, default: 0] >= limits.perRoutePerTurn
                     || s.sessionCalls >= limits.perSession || day.calls >= limits.perDayCalls
                     || day.tokens >= limits.perDayTokens {
@@ -184,9 +179,6 @@ public final class CallBudget: Sendable {
                 if recent.count >= limits.repeatMax { return refuse(.repeat) }
                 s.sent[key] = recent + [at]
             }
-            // An uncapped route (qwen.tts) is recorded but uses none of the shared counters, so her voice can never
-            // use up the budget of search, picker, ground or vision.
-            guard route.capped else { return (.allow, nil) }
             s.turnCalls += 1
             s.turnByRoute[route, default: 0] += 1
             s.sessionCalls += 1

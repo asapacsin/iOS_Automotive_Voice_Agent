@@ -49,4 +49,16 @@ struct RetiredVoiceSettingsTests {
         #expect(CredentialWipe.wipe(store, settings: defaults()).isEmpty)
         #expect(store.retiredAccounts.isEmpty && store.storedKeys.isEmpty)
     }
+
+    @Test("T-020e review: a failed Keychain delete is still retried after the F-07 §18 cleanup ran")
+    func retryAfterVoiceSourceRemoval() {
+        let store = InMemoryCredentialStore(retiredAccounts: ["azure_speech_key"])
+        store.failRetiredRemoval(of: "azure_speech_key")
+        let settings = defaults()
+        RetiredVoiceSettings.run(credentials: store, settings: settings)
+        VoiceSourceRemoval.run(settings: settings)
+        store.failRetiredRemoval(of: "azure_speech_key", false)
+        RetiredVoiceSettings.run(credentials: store, settings: settings)
+        #expect(store.retiredAccounts.isEmpty && settings.bool("azure_removed_done") == true)
+    }
 }

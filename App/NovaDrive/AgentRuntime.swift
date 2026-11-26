@@ -328,14 +328,6 @@ struct RuntimeSink: AgentEffectSink {
             record?.submit(.voiceGemini(line))
         }
     }
-    func speak(_ clause: String) async {
-        // set_speech_output silent: keep listening and acting, voice nothing.
-        guard speechOutput.mode == .spoken else { return }
-        // F-07 §18 item 1 (T-020e): nothing revoices a reply (the session runs with revoicing off), so no clause
-        // is ever spoken here.
-        record?.submit(.spoke)
-    }
-
     func publish(_ view: AgentViewState) async {
         await MainActor.run {
             // F-24 §17 item 2: §14's 等待网络… wins while waiting.
@@ -362,6 +354,8 @@ struct RuntimeSink: AgentEffectSink {
         case .screenLine(let screen): record?.submit(.screen(screen))  // F-09b §16 item 9
         case .bargeIn(let qualified): record?.submit(.bargeIn(stopped: qualified))
         case .resumed: record?.submit(.session("reconnected"))
+        // F-05 §15 item 5 (T-016q review): `qwen reconnect fresh=yes`.
+        case .qwenReconnect: record?.submit(.qwen(event.logLine))
         // F-15b §62 item 12 (T-040zo): `handoff said tool=plan_trip ms=<from dispatch>`.
         case .handoffSaid: record?.submit(.trip(event.logLine))
         // F-24 §15 item 8 (T-016j): numbers and codes only, never the handle.
@@ -1224,7 +1218,7 @@ final class AgentRuntime {
                                                    style: SpeakingStyle.saved(in: settings))
         // F-09b §15 item 6 (T-031y): the setup's version and this session's fingerprint, from the same texts sent below.
         let agentSetup = AgentSetup(.init(style: SpeakingStyle.saved(in: settings), webSearch: webSearch))
-        RuntimeLog.agent.notice("\(agentSetup.logLine(), privacy: .public)")
+        RuntimeLog.agent.notice("\(agentSetup.logLine(model: voiceModel.modelID), privacy: .public)")
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
         let sessionStart = Date()
@@ -1244,7 +1238,7 @@ final class AgentRuntime {
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
             searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy,
             declaredTools: ToolCatalog.declarations(webSearch: webSearch).map(\.name),
-            agentLines: agentSetup.headerLines(), voiceModel: voiceModel.modelID))
+            agentLines: agentSetup.headerLines(model: voiceModel.modelID), voiceModel: voiceModel.modelID))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         voiceLines.record = record
         sessionRecord = record
@@ -1341,7 +1335,10 @@ final class AgentRuntime {
                                keepHandle: { [weak self, session] handle in await self?.keepResumption(handle, session: session) },
                                onExchange: { [weak self] exchange in Task { @MainActor in self?.keepExchange(exchange) } })
         // F-24 §15 item 5 (T-016j): a handle kept by the last give-up is sent once, then forgotten.
-        let resume = keptResumption.take(at: navigationClock.now)
+        // F-05 §15 item 5 (T-016q review): a kept handle is Gemini's; a Qwen session never sends one (it is still
+        // taken, so it is forgotten).
+        let kept = keptResumption.take(at: navigationClock.now)
+        let resume = voiceModel.resumes ? kept : nil
         // F-15b §65 item 1 (T-040zr): a new conversation starts without the trip line; a resumed one keeps it.
         if resume == nil { tripContext.reset() }
         // F-09b §6 item 2 (T-016p): a session without a handle gets the last exchanges, within 30 minutes.
@@ -1349,7 +1346,7 @@ final class AgentRuntime {
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors, background: background),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
-                                               resume: resume, revoicing: false,  // F-07 §18 item 1 (T-020e)
+                                               resume: resume,
                                                languageIdentifier: AppleLanguageIdentifier(),
                                                summary: summary,
                                                // F-05 §15 item 5 (T-016q): Qwen has no background tools and no resume;

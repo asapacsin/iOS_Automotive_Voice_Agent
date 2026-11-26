@@ -15,7 +15,8 @@ struct GeminiVoiceTests {
 
     static func gemini() -> Drive {
         var d = Drive()
-        d.state = AgentState(truthfulness: TruthfulnessTuning(), revoicing: false)
+        d.voiceText = false
+        d.state = AgentState(truthfulness: TruthfulnessTuning())
         d.connect()
         return d
     }
@@ -97,20 +98,4 @@ struct GeminiVoiceTests {
         #expect(d.effects.contains(.flushPlayback(Epoch(1))))
     }
 
-    @Test("T-020b row 13: with revoicing (Qwen) Gemini's audio is never played, as before")
-    func revoicingUnchanged() {
-        var d = Drive()
-        d.connect()
-        d.send(.speechStarted(recentSpeech: true))
-        d.send(.speechStopped)
-        let t1 = TurnID(1)
-        d.realtime(.userTranscript("讲个笑话", isFinal: true))
-        d.realtime(.responseStarted(t1))
-        d.realtime(.replyAudio(t1, Self.pcm))
-        d.realtime(.replyText(t1, "好的，有一只小猫。"))
-        d.realtime(.audioDone(t1))
-        d.realtime(.responseDone(t1, outcome: .completed))
-        #expect(Self.played(d.effects).isEmpty)
-        #expect(spoken(d.effects) == "好的，有一只小猫。")
-    }
 }

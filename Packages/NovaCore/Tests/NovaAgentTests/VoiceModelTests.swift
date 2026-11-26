@@ -37,7 +37,8 @@ private func responses(_ effects: [AgentEffect]) -> [ToolResponse] {
 /// A Qwen session: no background tools, fresh reconnects with the summary.
 private func qwenAsking(_ words: String) -> Drive {
     var d = Drive()
-    d.state = AgentState(truthfulness: TruthfulnessTuning(), revoicing: false, backgroundTools: false,
+    d.voiceText = false
+    d.state = AgentState(truthfulness: TruthfulnessTuning(), backgroundTools: false,
                          freshReconnect: ExchangeMemory())
     d.connect()
     d.send(.speechStarted(recentSpeech: true))
@@ -151,7 +152,8 @@ struct VoiceModelTests {
         let pcm = PCMBuffer(sampleRate: 24_000, samples: [1, 2, 3])
         for model in VoiceModel.allCases {
             var d = Drive()
-            d.state = AgentState(truthfulness: TruthfulnessTuning(), revoicing: false, backgroundTools: model.backgroundTools,
+            d.voiceText = false
+            d.state = AgentState(truthfulness: TruthfulnessTuning(), backgroundTools: model.backgroundTools,
                                  freshReconnect: model.resumes ? nil : ExchangeMemory())
             d.connect()
             #expect(!d.state.revoicing)
@@ -170,5 +172,45 @@ struct VoiceModelTests {
             #expect(line?.heldMs == 0)
             #expect(line?.source == (model.isQwen ? "qwen-realtime" : "gemini"))
         }
+    }
+
+    /// Review fix (T-016q blocking 1): plan_trip, the handoff answered, then a done claim. Returns what she said and
+    /// the texts sent to the model.
+    static func tripClaim(qwen: Bool) -> (spoken: String, texts: [String]) {
+        var d = Drive()
+        d.state = AgentState(truthfulness: TruthfulnessTuning(), backgroundTools: !qwen,
+                             freshReconnect: qwen ? ExchangeMemory() : nil)
+        d.connect()
+        d.send(.speechStarted(recentSpeech: true))
+        d.send(.speechStopped)
+        d.realtime(.userTranscript("把起点改成新千岁机场", isFinal: true))
+        d.realtime(.responseStarted(TurnID(1)))
+        let call = ToolCall(id: CallID("call_p")!, name: "plan_trip", arguments: ["change": "起点改成新千岁机场"])
+        d.realtime(.toolCalls(TurnID(1), [call]))
+        d.realtime(.replyText(TurnID(1), "好的，我已经为您将行程起点设为新千岁机场。"))
+        let done = d.realtime(.responseDone(TurnID(1), outcome: .completed))
+        let fired = d.fire(.correction)
+        return (spoken(d.effects), texts(done + fired + d.effects))
+    }
+
+    @Test("T-016q F-05 row 14 (review): the handoff result is no tool result; a done claim while plan_trip runs is held and corrected (TRIP_RESULT_PENDING) on Qwen as on Gemini")
+    func row14ClaimHeld() {
+        for qwen in [false, true] {
+            let r = Self.tripClaim(qwen: qwen)
+            #expect(!r.spoken.contains("已经为您将行程起点"), "qwen=\(qwen)")
+            #expect(r.texts.contains { $0.contains("TRIP_RESULT_PENDING") }, "qwen=\(qwen)")
+        }
+    }
+
+    @Test("T-016q F-05 row 14 (review): on Qwen the real plan_trip result reaches the claim pipeline and a superseded one is dropped")
+    func row14RealResult() {
+        var d = qwenAsking("帮我安排珠海两天")
+        let older = ToolCall(id: CallID("call_a")!, name: "plan_trip", arguments: ["asked": ["text": "珠海四天"]])
+        d.realtime(.toolCalls(TurnID(1), [older]))
+        d.realtime(.responseDone(TurnID(1), outcome: .completed))
+        let dropped = d.send(.toolFinished(TurnID(1), older, .failure(.superseded)))
+        #expect(dropped.contains(.diagnostic(.asyncResultDropped(tool: .planTrip, reason: .superseded))))
+        #expect(texts(dropped).isEmpty)
+        #expect(d.state.runningTools == 0)
     }
 }

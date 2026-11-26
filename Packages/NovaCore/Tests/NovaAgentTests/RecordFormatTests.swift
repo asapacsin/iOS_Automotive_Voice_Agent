@@ -72,6 +72,8 @@ enum RecordFormatSession {
         .events("events store hit cities=1 window=2026-11-28..2026-11-29"),
         .qiniu("search provider=qiniu job=live ms=2400 results=20 failed=no"),
         .qwen("qwen usage in=120,900 out=300,20"),
+        .qwen("qwen history turns=1"),
+        .qwen("qwen reconnect fresh=yes"),
         .toolResultLine("tool-result web_search dropped reason=superseded"),
         .turnEnded(.needMoreInput),
         .sessionResume(handle: true, result: SessionResumeResult.allCases[0]),
@@ -84,7 +86,8 @@ enum RecordFormatSession {
         let header = RecordHeader(appVersion: "0.1.0(1) abcdef0", comfortMode: "model", interruptible: false,
                                   speakingStyle: "default", webSearch: true, searchKey: true, startedBy: "tap",
                                   declaredTools: ["web_search", "set_volume"],
-                                  agentLines: ["agentVersion 1.0.0", "agentHash 0123456789ab", "model gemini-3.8-live"])
+                                  agentLines: ["agentVersion 1.0.0", "agentHash 0123456789ab", "model gemini-3.8-live"],
+                                  voiceModel: "gemini-3.8-live")
         var recorder = ConversationRecorder()
         var lines = [ConversationRecord.formatLine] + header.lines
         for (n, e) in events.enumerated() { lines += recorder.add(e, atMs: Int64(n) * 100) }

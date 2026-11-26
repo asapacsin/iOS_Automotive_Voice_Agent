@@ -3,6 +3,7 @@ app 0.1.0(1) abcdef0
 agentVersion 1.0.0
 agentHash 0123456789ab
 model gemini-3.8-live
+voiceModel gemini-3.8-live
 comfortMode model
 可以打断她 off
 speakingStyle default
@@ -59,9 +60,11 @@ tools declared=2 set_volume=yes
 4900 events store hit cities=1 window=2026-11-28..2026-11-29
 5000 search provider=qiniu job=live ms=2400 results=20 failed=no
 5100 qwen usage in=120,900 out=300,20
-5200 tool-result web_search dropped reason=superseded
-5300 turn-end reason=need_more_input
-5400 reply-out turn=2 not-spoken
-5400 session resume handle=yes result=resumed
-5500 session gave-up ms=3000 attempts=3 code=DISCONNECT
-5600 session closed code=1000 reason=test
+5200 qwen history turns=1
+5300 qwen reconnect fresh=yes
+5400 tool-result web_search dropped reason=superseded
+5500 turn-end reason=need_more_input
+5600 reply-out turn=2 not-spoken
+5600 session resume handle=yes result=resumed
+5700 session gave-up ms=3000 attempts=3 code=DISCONNECT
+5800 session closed code=1000 reason=test

@@ -33,8 +33,10 @@ struct VoiceSourceRemovalTests {
         VoiceSourceRemoval.run(settings: settings)
         #expect(settings.string("qwen_voice") == "later")
         #expect(settings.bool("voice_source_removed_done") == true)
-        // The F-07 §17 cleanup does not run again after this one.
+        // The F-07 §17 cleanup keeps its retry: it runs once more, deletes nothing else, and keeps the 百炼 key.
         RetiredVoiceSettings.run(credentials: store, settings: settings)
-        #expect(settings.bool(RetiredVoiceSettings.doneKey) == nil)
+        #expect(settings.bool(RetiredVoiceSettings.doneKey) == true)
+        #expect(try store.value(for: .qwenAPIKey) == "q")
+        #expect(settings.bool("voice_source_removed_done") == true)
     }
 }

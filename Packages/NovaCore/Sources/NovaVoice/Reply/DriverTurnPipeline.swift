@@ -79,9 +79,9 @@ public struct PipelineTimer: Sendable, Hashable {
 }
 
 public enum PipelineOutput: Sendable, Hashable {
-    /// Judged reply text: subtitle and the source of revoiced clauses.
+    /// Judged reply text: the subtitle.
     case speechText(TurnID, String)
-    /// Judged provider audio (only without revoicing).
+    /// Judged provider audio: her voice (F-07 §18 item 1).
     case speechAudio(TurnID, PCMBuffer)
     /// Everything held for this turn was dropped; the shell flushes playback to a new epoch.
     case voided(TurnID)
@@ -147,9 +147,6 @@ public struct DriverTurnPipeline: Sendable {
     }
 
     private let tuning: TruthfulnessTuning
-    /// F-07 §15 item 7 (T-020b, Gemini 原声 only): a clean chat turn releases its audio as it comes, like its text.
-    /// Proven and pending turns keep their holds; a claim found later is cut by the void (item 8).
-    private let streamsCleanAudio: Bool
     private var turn: Turn?
     private var navigation = NavigationPhase.idle
     private var musicPlaying = false
@@ -196,10 +193,9 @@ public struct DriverTurnPipeline: Sendable {
     private var timerEpoch = Epoch.initial
     private var timers: [PipelineTimer.Kind: Epoch] = [:]
 
-    public init(tuning: TruthfulnessTuning = TruthfulnessTuning(), streamsCleanAudio: Bool = false,
+    public init(tuning: TruthfulnessTuning = TruthfulnessTuning(),
                 detector: any LanguageIdentifier = NoLanguageIdentifier()) {
         self.tuning = tuning
-        self.streamsCleanAudio = streamsCleanAudio
         self.detector = detector
     }
 
@@ -594,9 +590,8 @@ public struct DriverTurnPipeline: Sendable {
             // unread claim may be on it, so only judged text goes out (L1, L3).
             return evidenceOutstanding(turn!) && !final ? releaseText() : release()
         case .clean:
-            // A clean chat turn releases judged text as it comes; its audio waits for the end, except with
-            // Gemini 原声, where it streams too (F-07 §15 item 7).
-            return final || streamsCleanAudio ? release() : releaseText()
+            // A clean chat turn releases judged text and audio as they come (F-07 §15 item 7, §18 item 1).
+            return release()
         case .pending:
             return []
         case .disproven(let reason):

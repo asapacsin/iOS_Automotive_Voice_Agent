@@ -189,8 +189,14 @@ def read_format_17(session: str, lines: list[str]) -> list[dict]:
 
 def read_format_16(session: str, lines: list[str]) -> list[dict]:
     """F-05 §15 items 5-6 (T-016q): as format 15; new `qwen usage …`, `qwen history turns=` and `qwen reconnect
-    fresh=yes` lines and the header's `voiceModel <id>`, kept as fields by the generic event reader."""
-    return read_format_15(session, lines)
+    fresh=yes` lines, kept as fields by the generic event reader. The header's `voiceModel <id>` is the model the
+    session talked to, so it fills each row's `model`."""
+    rows = read_format_15(session, lines)
+    voice = next((l.split(" ", 1)[1] for l in lines[:14] if l.startswith("voiceModel ")), None)
+    if voice:
+        for row in rows:
+            row["model"] = voice
+    return rows
 
 
 def read_format_15(session: str, lines: list[str]) -> list[dict]:
