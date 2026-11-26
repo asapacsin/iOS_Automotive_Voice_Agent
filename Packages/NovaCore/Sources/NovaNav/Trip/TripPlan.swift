@@ -556,18 +556,51 @@ public struct TripEvent: Sendable, Hashable, Codable {
     /// §43 item 4 / §44 item 3: 「网络图片」 under a picture from the image search, 「未找到图片」 in the picture's place
     /// when there is none; nil otherwise (and in a plan saved before §43).
     public var imageNote: String?
+    /// F-15b §66 item 1 (T-040zs): true when code filled the event from the events list (title, dates, venue); nil for
+    /// an event the planner wrote with no list entry (§66 item 2) and in a plan saved before §66.
+    public var linked: Bool?
+    /// §66 item 6: false when the list entry has no confirmed venue (the stop is never looked up on the map).
+    public var venueFound: Bool?
+    /// §66 item 6: the entry's city, shown with 「场馆未找到」.
+    public var city: String?
+    /// §66 item 8, live-info §44 item 8: the confirmed start time `HH:MM`; nil when the source states none.
+    public var time: String?
     public init(title: String, start: String, end: String, datesFound: Bool? = nil, imageURL: String? = nil,
-                imageNote: String? = nil) {
+                imageNote: String? = nil, linked: Bool? = nil, venueFound: Bool? = nil, city: String? = nil,
+                time: String? = nil) {
         self.title = title
         self.start = start
         self.end = end
         self.datesFound = datesFound
         self.imageURL = imageURL
         self.imageNote = imageNote
+        self.linked = linked
+        self.venueFound = venueFound
+        self.city = city
+        self.time = time
     }
     /// §64 item 6: 「<title> · <start>～<end>」 under the venue on its card; §44 item 3: 「<title> · 日期未找到」 when no
-    /// source states the dates.
-    public var cardText: String { datesFound == false ? "\(title) · 日期未找到" : "\(title) · \(start)～\(end)" }
+    /// source states the dates. F-15b §67 item 7 (T-040zs): an event with no list entry has no dates: the title only.
+    /// §66 item 8: 「 · <HH:MM>开始」 after it when the start time is known.
+    public var cardText: String {
+        var text = datesFound == false ? "\(title) · \(Self.datesMissing)"
+            : start.isEmpty && end.isEmpty ? title : "\(title) · \(start)～\(end)"
+        if let time, !time.isEmpty { text += " · \(time)开始" }
+        return text
+    }
+    /// §66 item 6: 「场馆未找到 · <city>」 on the card of a linked event with no confirmed venue; nil otherwise.
+    public var venueMissingText: String? {
+        guard linked == true, venueFound == false else { return nil }
+        return city.map { "\(Self.venueMissing) · \($0)" } ?? Self.venueMissing
+    }
+    public static let venueMissing = "场馆未找到"
+    public static let datesMissing = "日期未找到"
+    /// §66 item 4: 「11-28–11-29」 (month and day of `start` and `end`), or 「日期未找到」.
+    public var shortDates: String {
+        guard datesFound != false else { return Self.datesMissing }
+        func md(_ d: String) -> String { d.count == 10 ? String(d.dropFirst(5)) : d }
+        return "\(md(start))–\(md(end))"
+    }
 }
 
 /// §64 item 1: 「第1天 · 11月25日 周三」, or 「第1天」 without a start date.

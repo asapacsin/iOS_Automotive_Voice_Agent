@@ -85,7 +85,9 @@ struct TripCardsView: View {
                 HStack(spacing: 8) {
                     // F-15b §29 item 4: one button to the next stop not visited or skipped (`trip_next`); §57 item 2
                     // (T-040zj): with its icon, apart from the cards, and 「结束导航」 in the same spot while navigating.
-                    switch TripScreen.navButton(nextStop: model.tripList.stops.first(where: { $0.mark == nil })?.place.name,
+                    // F-15b §66 item 6 (T-040zs): named after the stop `trip_next` goes to (on the map; an event with no
+                    // venue offers no navigation).
+                    switch TripScreen.navButton(nextStop: model.tripList.stops.first(where: { $0.mark == nil && $0.placed })?.place.name,
                                                 navigating: model.nav.navigating) {
                     case .some(.next(let name)):
                         Button { Task { await runtime.tripTap(.next) } } label: {

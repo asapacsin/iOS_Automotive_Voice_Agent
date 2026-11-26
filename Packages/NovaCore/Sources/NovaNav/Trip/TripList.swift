@@ -95,7 +95,18 @@ public struct TripStop: Sendable, Hashable {
     public var title: String { pickedBy == .app || asked.isEmpty ? place.name : asked }
 
     /// §67 item 4: 「<name>（<place name>）」 when the map's name differs, else 「<name>」 (a stop not placed: the name).
-    public var label: String { placed && title != place.name ? "\(title)（\(place.name)）" : title }
+    /// F-15b §66 items 4, 6 (T-040zs): an event stop linked to the events list is 「<event>（<venue>，<start>–<end>）」,
+    /// 「场馆未找到」 / 「日期未找到」 in place of what no source confirmed.
+    public var label: String {
+        if let e = event, e.linked == true {
+            return "\(e.title)（\(e.venueFound == false ? TripEvent.venueMissing : location)，\(e.shortDates)）"
+        }
+        return placed && title != place.name ? "\(title)（\(place.name)）" : title
+    }
+
+    /// §66 item 6: false for a linked event with no confirmed venue: never looked up on the map (not by the event's
+    /// name, not by the planner's `location`), so never placed and no navigation.
+    public var mapLookup: Bool { !(event?.linked == true && event?.venueFound == false) }
 
     /// §49 item 1: importance is 1–3.
     public static func clampImportance(_ i: Int) -> Int { min(max(i, 1), 3) }

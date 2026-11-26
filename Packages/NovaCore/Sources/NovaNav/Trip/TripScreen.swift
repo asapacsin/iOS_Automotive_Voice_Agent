@@ -135,7 +135,8 @@ public enum TripScreen: Sendable, Hashable {
         return .cards(list.stops.map { stop in
             // F-15b §67 item 4 (T-040zt): the title is the stop's name; the map's name goes on the line under it.
             TripCard(index: stop.index, placeID: stop.place.id, name: stop.title,
-                     district: stop.placed ? stop.place.district : TripCard.unplacedText,
+                     // F-15b §66 item 6 (T-040zs): a linked event with no venue is not 「位置待确认」: it is never looked up.
+                     district: stop.placed ? stop.place.district : stop.mapLookup ? TripCard.unplacedText : nil,
                      km: stop.placed ? stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 } : nil,
                      // F-18 §43 item 4: an event stop shows the event's picture (none: 「未找到图片」 in its place); a stop
                      // from a plan saved before §43 (no note) keeps the venue's photo.
@@ -145,7 +146,8 @@ public enum TripScreen: Sendable, Hashable {
                      minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
                      tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed,
                      event: stop.event?.cardText, imageNote: stop.event?.imageNote,
-                     place: stop.placed && stop.title != stop.place.name ? stop.place.name : nil)
+                     // §66 item 6: 「场馆未找到 · <city>」 where the venue's map name would be.
+                     place: stop.event?.venueMissingText ?? (stop.placed && stop.title != stop.place.name ? stop.place.name : nil))
         })
     }
 }

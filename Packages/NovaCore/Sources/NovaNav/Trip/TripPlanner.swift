@@ -625,6 +625,8 @@ public actor TripPlanner: ToolExecutor {
         let model = plannerModel?.model ?? "none"
         var lookups: [String: Lookup] = [:]
         var areas: [String: TripArea?] = [:]
+        // F-15b §66 item 5 (T-040zs): one `trip event link` line per linked sight in this call (not one per round).
+        var linkLines = Set<String>()
         var last: (plan: TripPlannerShape.Plan, built: PlannerBuilt)?
         var rounds = 0
         for round in 1...TripPlannerShape.maxRounds {
@@ -641,7 +643,7 @@ public actor TripPlanner: ToolExecutor {
             }
             guard !Task.isCancelled else { return .failure(.optionsStale) }
             work?.step(WorkProgress.tripCounting(round))
-            let built = await buildPlanner(written, asked: asked, events: stored, lookups: &lookups, areas: &areas)
+            let built = await buildPlanner(written, asked: asked, events: stored, lookups: &lookups, areas: &areas, linkLines: &linkLines)
             guard !Task.isCancelled else { return .failure(.optionsStale) }
             if built.keyMissing {
                 return LookupReply.failed(.amapWebKeyMissing, what: "trip", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
@@ -778,7 +780,7 @@ public actor TripPlanner: ToolExecutor {
         var abroad: Bool
         var city: String?
         var keyMissing: Bool
-        /// F-15b §64 item 4: events whose title or dates did not match the store (saved as plain sights).
+        /// F-15b §64 item 4 with §66 (T-040zs): linked events on a day outside their confirmed dates (saved as plain sights).
         var badEvents: [String] = []
     }
 
@@ -787,12 +789,45 @@ public actor TripPlanner: ToolExecutor {
     /// visited that day and slept in, and the next day starts there. Then the day is timed (§48 `TripTimes`) and
     /// counted.
     private func buildPlanner(_ written: TripPlannerShape.Plan, asked: TripAsked, events: [EventEntry] = [],
-                              lookups: inout [String: Lookup], areas: inout [String: TripArea?]) async -> PlannerBuilt {
+                              lookups: inout [String: Lookup], areas: inout [String: TripArea?],
+                              linkLines: inout Set<String>) async -> PlannerBuilt {
         let fallbackCity = asked.city ?? plan.city
         func cityOf(_ c: String?) -> String? { c ?? fallbackCity }
         func key(_ name: String, _ city: String?) -> String { (city ?? "") + "|" + name }
-        // The stay of a day that is also one of its sights takes that sight's city (one place).
         var days = written.days
+        // F-15b §66 items 1, 3, 6, 7 (T-040zs): before any lookup, each sight is linked to the events list by code: the
+        // event (title, dates, start time, picture) comes from the entry, the map looks up only the entry's venue (the
+        // hall in the stop's city), never the event's name; an entry with no confirmed venue is not looked up at all.
+        let linkOf = days.map { $0.sights.map { TripPlannerShape.link($0, events: events) } }
+        var hallCity: [String: String] = [:]
+        var halls: [String] = []
+        for link in linkOf.joined().compactMap({ $0 }) {
+            let parts = link.entry.confirmedVenue.map(EventSourceCheck.venueParts) ?? []
+            if parts.count > 1 { for h in parts where !halls.contains(h) { halls.append(h) } }
+        }
+        if !halls.isEmpty {
+            // §66 item 7: each hall's city from its own map lookup (高德 nationwide; 82 澳门, 81 香港 by adcode, §68).
+            for (h, found) in zip(halls, await resolve(halls, city: nil)) {
+                if case .found(let p) = found, let c = TripPlannerShape.cityOf(p) { hallCity[h] = c }
+            }
+        }
+        for d in days.indices {
+            for i in days[d].sights.indices {
+                guard let link = linkOf[d][i] else { continue }
+                let s = days[d].sights[i]
+                let hall = TripPlannerShape.hall(for: link.entry, location: s.location, city: cityOf(s.city), hallCity: hallCity)
+                let line = TripPlannerShape.linkLine(sight: s.name, event: link.entry.name, venue: hall, by: link.by)
+                if linkLines.insert(line).inserted { onLine(line) }
+                days[d].sights[i] = TripPlannerShape.Sight(name: link.entry.name, location: hall,
+                                                           city: hall.flatMap { hallCity[$0] } ?? s.city, minutes: s.minutes,
+                                                           event: TripPlannerShape.linkedEvent(link.entry, hall: hall))
+            }
+        }
+        /// §66 item 6: the text a sight is looked up by; nil: a linked event with no venue (never looked up).
+        func lookupOf(_ s: TripPlannerShape.Sight) -> String? {
+            s.event?.linked == true && s.event?.venueFound == false ? nil : s.lookup
+        }
+        // The stay of a day that is also one of its sights takes that sight's city (one place).
         for d in days.indices {
             guard let stay = days[d].stay,
                   let sight = days[d].sights.first(where: { $0.name == stay.name || $0.lookup == stay.lookup }) else { continue }
@@ -802,7 +837,8 @@ public actor TripPlanner: ToolExecutor {
         // (else `name`) goes to the map.
         var byCity: [(city: String?, names: [String])] = []
         for day in days {
-            for (name, city) in day.sights.map({ ($0.lookup, cityOf($0.city)) }) + (day.stay.map { [($0.lookup, cityOf($0.city))] } ?? []) {
+            for (name, city) in day.sights.compactMap({ s in lookupOf(s).map { ($0, cityOf(s.city)) } })
+                + (day.stay.map { [($0.lookup, cityOf($0.city))] } ?? []) {
                 guard lookups[key(name, city)] == nil else { continue }
                 if let i = byCity.firstIndex(where: { $0.city == city }) {
                     if !byCity[i].names.contains(name) { byCity[i].names.append(name) }
@@ -842,23 +878,24 @@ public actor TripPlanner: ToolExecutor {
         // The stops: sights in order, the night's place last; the next day starts at it.
         var stopOf: [String: TripStop] = [:]
         var misses: [PlannerMiss] = []
-        func stop(_ name: String, location: String, _ city: String?, role: TripRole, minutes: Int?) -> TripStop {
+        func stop(_ name: String, location: String, _ city: String?, role: TripRole, minutes: Int?, lookedUp: Bool = true) -> TripStop {
             let k = key(location, city) + "|" + role.rawValue
             if role == .hotel, let made = stopOf[k] { return made }
             var place: Place?
-            switch lookups[key(location, city)] {
+            switch lookedUp ? lookups[key(location, city)] : nil {
             case .found(let p)?:
                 place = p
                 if city.map({ isAbroad(areas[$0]) }) == true { anyAbroad = true }
             case .keyMissing?: keyMissing = true
             default: break
             }
-            if place == nil, !misses.contains(where: { $0.name == name }) {
+            // §66 item 6: a stop never looked up is not a map miss.
+            if lookedUp, place == nil, !misses.contains(where: { $0.name == name }) {
                 misses.append(PlannerMiss(name: name, range: range(city), location: location,
                                           reason: Self.notPlacedReason(lookups[key(location, city)])))
             }
             let made = TripStop(index: 0, asked: name,
-                                place: place ?? Self.unplacedPlace(name, key: "\(revisionKey)|plan|\(location)"),
+                                place: place ?? Self.unplacedPlace(name, key: "\(revisionKey)|plan|\(lookedUp ? location : "event:" + name)"),
                                 distanceMeters: nil, role: role, minutes: minutes, placed: place != nil, pickedBy: .model,
                                 location: location)
             stopOf[k] = made
@@ -872,17 +909,21 @@ public actor TripPlanner: ToolExecutor {
         for (d, day) in days.enumerated() {
             var list: [TripStop] = morning.map { [$0] } ?? []
             for s in day.sights {
-                var made = stop(s.name, location: s.lookup, cityOf(s.city), role: .sight, minutes: s.minutes)
+                let lookup = lookupOf(s)
+                var made = stop(s.name, location: lookup ?? "", cityOf(s.city), role: .sight, minutes: s.minutes,
+                                lookedUp: lookup != nil)
                 if let e = s.event {
-                    if let fact = TripPlannerShape.eventFact(e, venue: s.lookup, date: asked.date(ofDay: d), store: events) {
-                        dayFacts[d].append(fact)
-                        if !badEvents.contains(e.title) { badEvents.append(e.title) }
-                    } else if let entry = events.first(where: { $0.name == e.title }) {
-                        // F-18 §43 item 4, §44 item 3 (T-046zf/zg): the card shows only confirmed dates, the event's picture
-                        // or 「未找到图片」, and 「网络图片」 under a searched picture.
-                        made.event = TripEvent(title: entry.name, start: entry.start, end: entry.end,
-                                               datesFound: entry.confirmedDates != nil, imageURL: entry.imageURL,
-                                               imageNote: entry.imageLabel ?? entry.imageCardText)
+                    // F-15b §64 item 4 with §66 (T-040zs): facts only. A linked event's confirmed dates are checked against
+                    // the day; one on a closed day after the last round is a plain sight named in `note`. F-18 §43 item 4,
+                    // §44 item 3: the event (from the list) carries only confirmed dates and the picture or 「未找到图片」.
+                    let fact = TripPlannerShape.eventFact(e, date: asked.date(ofDay: d))
+                    if let fact { dayFacts[d].append(fact) }
+                    if e.linked == true {
+                        if fact == nil { made.event = e } else if !badEvents.contains(e.title) { badEvents.append(e.title) }
+                    } else {
+                        // §66 item 2, §67 item 7: an event with no list entry keeps its title as written; the planner's
+                        // dates are guesses: not shown, not checked.
+                        made.event = TripEvent(title: e.title, start: "", end: "")
                     }
                 }
                 list.append(made)
@@ -905,14 +946,26 @@ public actor TripPlanner: ToolExecutor {
         let budget = plan.budgetMinutes ?? TripFitter.Pace.normal.budgetMinutes
         let counts: [TripPlannerShape.DayCount] = timed.enumerated().map { d, list in
             let ownStops = list.enumerated().filter { i, s in !(d > 0 && i == 0 && s.role == .hotel && s.visitMinutes == 0) }.map(\.element)
-            let legs: [Int?] = list.dropFirst().map { s in s.legSeconds.map { Int((Double($0) / 60).rounded()) } }
+            func minutes(_ s: TripStop) -> Int? { s.legSeconds.map { Int((Double($0) / 60).rounded()) } }
+            let legs: [Int?] = list.dropFirst().map(minutes)
+            // F-15b §66 item 8 (T-040zs): an event stop with a start time: the day's stop and drive minutes up to it.
+            var facts = d < dayFacts.count ? dayFacts[d] : []
+            func city(_ s: TripStop) -> String? { s.placed ? TripPlannerShape.cityOf(s.place) : nil }
+            for (k, s) in list.enumerated() {
+                guard let e = s.event, e.linked == true, let time = e.time,
+                      let fact = TripPlannerShape.startFact(title: e.title, time: time,
+                                                            before: list[..<k].map { ($0.visitMinutes, minutes($0), city($0)) },
+                                                            legIn: minutes(s), city: city(s) ?? e.city) else { continue }
+                facts.append(fact)
+            }
             return TripPlannerShape.DayCount(
                 stops: ownStops.map { s in
                     TripPlannerShape.StopCount(name: s.asked, location: s.location, found: s.placed ? s.place : nil, minutes: s.visitMinutes,
                                                isStay: s.role == .hotel,
-                                               range: misses.first { $0.name == s.asked }?.range ?? range(fallbackCity))
+                                               range: misses.first { $0.name == s.asked }?.range ?? range(fallbackCity),
+                                               venueMissing: !s.mapLookup)
                 },
-                legs: legs, budget: budget, facts: d < dayFacts.count ? dayFacts[d] : [])
+                legs: legs, budget: budget, facts: facts)
         }
         let city = days.lazy.flatMap(\.sights).compactMap(\.city).first ?? fallbackCity
         return PlannerBuilt(days: timed, counts: counts, notPlaced: misses, abroad: anyAbroad, city: city, keyMissing: keyMissing,
@@ -1513,7 +1566,8 @@ public actor TripPlanner: ToolExecutor {
     /// §52 item 4: each stop with `placed=false` is searched again, 3 tries 10 s apart; a found one is placed (its
     /// id, role and mark kept). `trip place-retry name=<stop id> try=N ok=yes|no` (the id, not the place text, I-8).
     private func retryUnplaced() {
-        guard plan.allStops.contains(where: { !$0.stop.placed }) else { return }
+        // F-15b §66 item 6 (T-040zs): a linked event with no venue is never looked up, so never retried.
+        guard plan.allStops.contains(where: { !$0.stop.placed && $0.stop.mapLookup }) else { return }
         retryTask?.cancel()
         retryTask = Task { [weak self] in
             guard let self else { return }
@@ -1544,7 +1598,7 @@ public actor TripPlanner: ToolExecutor {
     /// One try over every unplaced stop; true when none is left.
     private func retryOnce(_ attempt: Int) async -> Bool {
         var seen = Set<String>()
-        let targets = plan.allStops.map(\.stop).filter { !$0.placed && seen.insert($0.id).inserted }
+        let targets = plan.allStops.map(\.stop).filter { !$0.placed && $0.mapLookup && seen.insert($0.id).inserted }
         guard !targets.isEmpty else { return true }
         guard planWrites == 0 else { return false }
         // F-15b §67 item 2 (T-040zt): the retry looks up `location` too, never the name.
@@ -1561,7 +1615,7 @@ public actor TripPlanner: ToolExecutor {
             onLine("trip place-retry name=\(stop.id) try=\(attempt) ok=\(ok ? "yes" : "no")")
         }
         if any { changed() }
-        return !plan.allStops.contains { !$0.stop.placed }
+        return !plan.allStops.contains { !$0.stop.placed && $0.stop.mapLookup }
     }
 
     // MARK: Ordering (§26–§28, T-040n)

@@ -523,7 +523,7 @@ private let shanghaiZone = TimeZone(identifier: "Asia/Shanghai")!
 private let nov24 = Date(timeIntervalSince1970: 1_795_492_800)  // 2026-11-24 12:00 Asia/Shanghai
 private let carnival = EventEntry(name: "AI嘉年华", start: "2026-11-28", end: "2026-11-29", datesText: "11月28日-29日",
                                   venue: "珠海国际会展中心", city: "珠海", sourceURL: "https://zh.bendibao.com/a.shtm",
-                                  sourceSite: "zh.bendibao.com", fetchedAt: nov24)
+                                  sourceSite: "zh.bendibao.com", fetchedAt: nov24, venueVia: "page", datesVia: "page")
 private let zhAsked: JSONValue = ["text": "11月25号开始珠海四天游，酒店住珠海，这几天有展的话排进去", "days": 4, "city": "珠海",
                                   "start": "2026-11-25", "stay_city": "珠海", "notes": ["有展的话排进去"]]
 
@@ -578,7 +578,8 @@ struct TripEventPlanTests {
         #expect(day4.contains { $0.event?.title == "AI嘉年华" && $0.location == "珠海国际会展中心" }, "\(day4)")
         let text = r.data["plan_text"]?.stringValue ?? ""
         let counts = rig.model.calls.withLock { $0 }.last?.last?.content ?? ""
-        #expect(text.contains("AI嘉年华（珠海国际会展中心）") && !counts.contains("活动表里没有"), "\(text)\n\(counts)")
+        // F-15b §66 item 4 (T-040zs): a linked event stop is 「<event>（<venue>，<start>–<end>）」.
+        #expect(text.contains("AI嘉年华（珠海国际会展中心，11-28–11-29）") && !counts.contains("活动表里没有"), "\(text)\n\(counts)")
     }
 
     @Test("T-040zq F-15b row 297: the event on a closed day is counted with its dates; on an open day it is saved with event; cards show the dates")
@@ -605,7 +606,8 @@ struct TripEventPlanTests {
         let day4 = await rig.planner.currentPlan.days[3].stops
         #expect(day4.contains { $0.event?.title == "AI嘉年华" && $0.event?.start == "2026-11-28" && $0.event?.end == "2026-11-29" })
         let text = r.data["plan_text"]?.stringValue ?? ""
-        #expect(text.contains("第4天 · 11月28日 周六：") && text.contains("珠海国际会展中心（AI嘉年华）"), "\(text)")
+        // F-15b §66 items 1, 4 (T-040zs): linked by its title, the stop is the event at its venue.
+        #expect(text.contains("第4天 · 11月28日 周六：") && text.contains("AI嘉年华（珠海国际会展中心，11-28–11-29）"), "\(text)")
         #expect(text.hasPrefix("第1天 · 11月25日 周三："))
         #expect(ran.withLock { $0 } == 0)  // the store answered
         // The saved plan keeps start, stay_city and the event (read shape = write shape).
@@ -615,7 +617,7 @@ struct TripEventPlanTests {
         #expect(TripEvent(title: "AI嘉年华", start: "2026-11-28", end: "2026-11-29").cardText == "AI嘉年华 · 2026-11-28～2026-11-29")
     }
 
-    @Test("T-040zq F-15b row 298: an event not in the store: 「=活动表里没有」; kept to the end, saved as a plain sight and named in note")
+    @Test("T-040zq F-15b row 298 (with §66 item 2, §67 item 7): an event not in the store: 「=活动表里没有」 in the counts; kept as written with its title only, no note")
     func row298() async {
         let ran = Ran()
         let fake = TripEvent(title: "漫展SP", start: "2026-11-26", end: "2026-11-26")
@@ -626,7 +628,23 @@ struct TripEventPlanTests {
         let r = await rig.run(rawTrip("plan_trip", ["asked": zhAsked]))
         let counts = rig.model.calls.withLock { $0 }[1].last?.content ?? ""
         #expect(counts.contains("漫展SP=活动表里没有"), "\(counts)")
-        #expect(r.data["note"]?.stringValue?.contains("漫展SP的日期对不上，没排成活动") == true, "\(r)")
+        // T-040zs: §66 item 2 replaces §64 item 4's 「saved as a plain sight」 for an event with no list entry: it keeps its
+        // title; §67 item 7: its dates are the planner's guess, not shown.
+        #expect(r.data["note"]?.stringValue?.contains("漫展SP的日期对不上") == false, "\(r)")
+        let kept = await rig.planner.currentPlan.allStops.compactMap(\.stop.event)
+        #expect(kept.map(\.title) == ["漫展SP"] && kept.first?.cardText == "漫展SP", "\(kept)")
+    }
+
+    @Test("T-040zq F-15b row 297 note (with T-040zs §66): a linked event left on a closed day after the last round is a plain sight named in note")
+    func closedDayNote() async {
+        let ran = Ran()
+        let ev = TripEvent(title: "AI嘉年华", start: "2026-11-28", end: "2026-11-29")
+        let hotel = "珠海长隆横琴湾酒店"
+        let plan = zhAnswer([[("长隆海洋王国", nil)], [("珠海国际会展中心", ev)], [("日月贝", nil)], [("日月贝", nil)]], stays: [hotel, hotel, hotel], done: true)
+        let rig = await PlanTripRig([plan, plan], table: zhuhai)
+        await rig.planner.setEvents(await browser(fresh: true, ran: ran))
+        let r = await rig.run(rawTrip("plan_trip", ["asked": zhAsked]))
+        #expect(r.data["note"]?.stringValue?.contains("AI嘉年华的日期对不上，没排成活动") == true, "\(r)")
         #expect(await rig.planner.currentPlan.allStops.allSatisfy { $0.stop.event == nil })
     }
 
