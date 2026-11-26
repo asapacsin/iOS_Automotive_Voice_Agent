@@ -2972,13 +2972,11 @@
     },
     {
       "id": "T-040zw",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 1,
       "action": "F-15b §70: Macau/Hong Kong 高德 v3 results (no adcode) kept by pname/cityname 澳门/香港特别行政区; Place gains province; record line shows dropped/kept_by; her reply naming a not_placed stop gets UNVERIFIED_CLAIM tool=plan_trip; rows 329-334.",
-      "depends_on": [
-        "T-040zu"
-      ],
+      "depends_on": [],
       "quantified": {
         "options": [
           "Build as written (rows 329-334)",
@@ -2986,17 +2984,19 @@
         ]
       },
       "notes": "Owner 2026-11-26: Macau stops never placed (record 20261126-124858). PC: v3 gives Macau/HK POIs no adcode, so §68's 82/81 filter drops every right result; kept by province 16/16. Owner chose 高德 no-city + SAR filter after the PC test.",
-      "evidence": "Spec at the commit that adds F-15b §70."
+      "evidence": [
+        "e88b302 (§70 items 1-3; rows 329-332 unit: TripSARProvinceTests, TripNotPlacedClaimTests) + review fix f2ce2de",
+        "spec-reviewer high 2026-11-26 FAIL (not_placed claim check judged partial reply chunks) -> fixed (pending until final, two-chunk test); re-check medium PASS. Gates green on e88b302 clean checkout: NovaCore 1219, spec-trace 201/0; NovaCore 1219 green on f2ce2de. Non-blocking: v3 pname parse has no JSON-fixture test; 没能 in the not-found list is broad"
+      ],
+      "blocked_by": "Row 333 PC (16 names through AmapWebClient's v3 request, done 16/16 at spec time with the request shape, not re-run on this code); row 334 device run"
     },
     {
       "id": "T-040zx",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 1,
       "action": "F-15b §71: SAR lookups by city text aliases; 高德 no city + SAR keep, 「澳门」 retry, name check (高德 only, no Photon); mainland miss retries with no city; planner uses common simplified names; legs touching Macau/Hong Kong timed and guided on OSRM with GCJ-02→WGS-84; border legs flagged with the permit note; rows 335-345.",
-      "depends_on": [
-        "T-040zw"
-      ],
+      "depends_on": [],
       "quantified": {
         "options": [
           "Build as written (rows 335-345)",
@@ -3004,7 +3004,11 @@
         ]
       },
       "notes": "Owner 2026-11-26: Macau trips fail end to end. PC: 高德 refuses every Macau route; OSRM 14/14 legs (627 ms with the Clash DIRECT rule); lookups 91/144 with this rule vs 61 as built; planner city right for 211/211 Macau sights.",
-      "evidence": "Spec at the commit that adds F-15b §71."
+      "evidence": [
+        "e88b302 (§71 items 1-6; rows 335-343 unit: TripSARRouteTests) + f2ce2de (trip cities include the asked city)",
+        "spec-reviewer high 2026-11-26 PASS with non-blocking findings. Readings: name check = contains the core, a Latin core must start the result (item 2 'contain' vs row 337's toilet fixture); mainland retry keeping nothing keeps the city's results (item 7); GCJ->WGS in OsrmRouteSource only inside the Pearl River Delta box. Non-blocking: OSRM failure drops a SAR day's mainland legs too; no-city retries run outside LookupPace; item 1's location text not checked; guidance path has no unit test"
+      ],
+      "blocked_by": "Row 344 PC (18 names x 8 labels, OSRM 14 legs); row 345 device run with the phone VPN DIRECT rule for project-osrm.org"
     }
   ]
 }
