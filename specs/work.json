@@ -2195,6 +2195,18 @@
       "evidence": "Spec at the commit that changes F-05 §15 vendor facts and item 1."
     },
     {
+      "id": "T-020e",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-07 §18: remove 「她的声音」; her voice is always the voice model's own audio (Gemini 原声 path for every 语音模型); delete QwenSpeechClient, VoiceSource, Revoicer/RevoicerQueue, SpeechSynthesizer port and the settings section; one-time cleanup of voice_source, qwen_tts_host, qwen_voice; gate guard; rows 26-30.",
+      "depends_on": [
+        "T-016r"
+      ],
+      "notes": "Owner 2026-11-26 after phone test of 18a4e58: Qwen voice model replied with no sound (QWEN_TTS_AUTH from the 千问 TTS source on the Singapore host); owner: the setting is almost useless, remove it.",
+      "evidence": "Spec at the commit that adds F-07 §18."
+    },
+    {
       "id": "T-017c",
       "owner": "AUTONOMOUS",
       "status": "PASS",
