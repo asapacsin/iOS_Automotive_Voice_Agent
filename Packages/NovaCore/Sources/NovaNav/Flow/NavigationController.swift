@@ -195,6 +195,8 @@ public actor NavigationController: ToolExecutor {
     /// F-15b §47 item 1 (T-040s): the places on offer came from `navigate_to abroad` (or an `abroad` trip's
     /// `trip_next`), so their route request is marked `abroad` (OSRM). A home search clears it.
     private var routeAbroad = false
+    /// F-15b §71 item 5 (T-040zx): the trip stop routed is in Macau or Hong Kong (OSRM with the datum shift).
+    private var routeSar = false
     public func setAbroad(search: any PlaceSearch, center: @escaping @Sendable (String) async -> GeoCoordinate?,
                           area: @escaping @Sendable (String) async -> TripArea? = { _ in nil }) {
         abroadSearch = search
@@ -341,6 +343,7 @@ public actor NavigationController: ToolExecutor {
             snapshot.destination = nil
             snapshot.info = nil
             routeAbroad = false
+            routeSar = false
         }
         snapshot.places = places
         snapshot.explored = ExploredList(places: places, abouts: abouts, unlocated: unlocated)
@@ -619,6 +622,7 @@ public actor NavigationController: ToolExecutor {
         -> (result: ToolResult, found: Int, dropped: Int) {
         confirm = nil
         routeAbroad = false
+        routeSar = false
         endTripStop()
         let guiding = snapshot.navigating
         let generation: Generation
@@ -666,6 +670,7 @@ public actor NavigationController: ToolExecutor {
                               label: String) async -> (result: ToolResult, found: Int, dropped: Int) {
         confirm = nil
         routeAbroad = true
+        routeSar = false
         endTripStop()
         guard let abroadSearch else { return (Self.nearInvalid([:]), 0, 0) }
         let started = clock.now
@@ -739,6 +744,7 @@ public actor NavigationController: ToolExecutor {
     private func navigate(_ destination: String) async -> ToolResult {
         confirm = nil
         routeAbroad = false
+        routeSar = false
         // F-16: an unset 家/公司 is refused before anything changes (the trip stop guidance keeps going, I-14).
         if let saved, let slot = PlaceSlot.slot(for: destination), saved.place(slot) == nil {
             let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
@@ -1147,7 +1153,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.places = []
         publish()
         await engine.calculateRoutes(RouteRequest(destination: place.coordinate, destinationName: place.name,
-                                                  abroad: routeAbroad),
+                                                  abroad: routeAbroad, sar: routeSar),
                                      generation: generation)
         // A newer request took over while the engine was busy: its event is not ours to wait for.
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
@@ -1339,11 +1345,12 @@ public actor NavigationController: ToolExecutor {
     /// One plan stop as a normal single-destination route from here, started as a chosen `navigate_to` place
     /// (F-15a), with no place search. A running guidance is replaced. On `arrived` the arrival hook gets its id.
     /// `abroad`: the stop belongs to an `abroad` trip; its route then comes from OSRM (F-15b §47 item 1).
-    public func tripNext(_ place: Place, abroad: Bool = false) async -> ToolResult {
+    public func tripNext(_ place: Place, abroad: Bool = false, sar: Bool = false) async -> ToolResult {
         if startInFlight {
             return Self.notYet("starting")
         }
-        routeAbroad = abroad
+        routeAbroad = abroad || sar
+        routeSar = sar && !abroad
         forgetConfirmations()
         asked = nil
         // §29 item 1: replaces running guidance as 「换成X」 does: stop the old route first.

@@ -74,6 +74,8 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public var imageNote: String? = nil
     /// F-15b §67 item 4 (T-040zt): the map's place name under the title when it differs from the title; nil otherwise.
     public var place: String? = nil
+    /// F-15b §71 item 6 (T-040zx): 「过关时间未计入」 when the leg into this stop crosses the Macau/Hong Kong border.
+    public var border: String? = nil
 
     static func tag(_ stop: TripStop) -> String? {
         switch stop.role {
@@ -133,6 +135,15 @@ public enum TripScreen: Sendable, Hashable {
             return .strip(full.count <= stripLimit ? full : String(full.prefix(stripLimit - 1)) + "…")
         }
         return .cards(list.stops.map { stop in
+            // F-15b §71 item 6 (T-040zx): the leg from the placed stop before crosses the border.
+            let before = list.stops.last { $0.index < stop.index && $0.placed }
+            var card = card(stop)
+            if let before, TripSar.isBorder(before, stop) { card.border = TripSar.borderCardText }
+            return card
+        })
+    }
+
+    private static func card(_ stop: TripStop) -> TripCard {
             // F-15b §67 item 4 (T-040zt): the title is the stop's name; the map's name goes on the line under it.
             TripCard(index: stop.index, placeID: stop.place.id, name: stop.title,
                      // F-15b §66 item 6 (T-040zs): a linked event with no venue is not 「位置待确认」: it is never looked up.
@@ -149,7 +160,6 @@ public enum TripScreen: Sendable, Hashable {
                      event: stop.shownEvent?.cardText, imageNote: stop.shownEvent?.imageNote,
                      // §66 item 6: 「场馆未找到 · <city>」 where the venue's map name would be.
                      place: stop.event?.venueMissingText ?? (stop.placed && stop.title != stop.place.name ? stop.place.name : nil))
-        })
     }
 }
 

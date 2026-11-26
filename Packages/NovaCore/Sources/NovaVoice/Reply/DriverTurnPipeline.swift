@@ -164,6 +164,9 @@ public struct DriverTurnPipeline: Sendable {
     private var tripWrites: Set<CallID> = []
     /// §58 item 1: stop names the request's `set_trip_plan` calls wrote (a reply naming one is about the trip).
     private var tripNames: [String] = []
+    /// F-15b §70 item 3 (T-040zw): the `not_placed` names of the latest trip write result; a reply naming one as planned
+    /// gets `UNVERIFIED_CLAIM tool=plan_trip`. Replaced by the next trip write result.
+    private var tripNotPlaced: [String] = []
     private var musicConfirmed: Bool { musicPlaying && musicFresh }
     private var navigationConfirmed: Bool { navigation == .navigating && navigationFresh }
     private var lastUtterance = ""
@@ -265,7 +268,8 @@ public struct DriverTurnPipeline: Sendable {
             // Re-judged on the whole text each time: a later sentence may make a stronger claim.
             t.claims.formUnion(ClaimLexicon.claims(in: t.text))
             // F-15b §58 items 1, 3: a trip change or background trip work said is an action claim.
-            if ClaimLexicon.tripChanged(t.text, stops: tripNames) || ClaimLexicon.tripInBackground(t.text, stops: tripNames) {
+            if ClaimLexicon.tripChanged(t.text, stops: tripNames) || ClaimLexicon.tripInBackground(t.text, stops: tripNames)
+                || namesNotPlaced(t.text) {
                 t.claims.insert(.action)
             }
             turn = t
@@ -329,6 +333,11 @@ public struct DriverTurnPipeline: Sendable {
             if Self.tripWriteTools.contains(response.name) {
                 tripWrites.remove(response.id)
                 tripLatestOk = response.result.ok
+                if case .array(let missed)? = response.result.data["not_placed"] {
+                    tripNotPlaced = missed.compactMap { $0["name"]?.stringValue }.filter { !$0.isEmpty }
+                } else {
+                    tripNotPlaced = []
+                }
             }
             // The result may arrive after its own turn closed; it then proves the utterance's open turn.
             guard var t = turn, t.id == id || ofUtterance else { return [] }
@@ -477,8 +486,20 @@ public struct DriverTurnPipeline: Sendable {
         return pending ? .pending : .proven
     }
 
+    /// F-15b §70 item 3 (T-040zw): the reply names a `not_placed` stop of the latest trip result, and does not say it
+    /// was not found (saying so is the honest answer `next` asks for).
+    private func namesNotPlaced(_ text: String) -> Bool {
+        guard tripNotPlaced.contains(where: text.contains) else { return false }
+        return !(Self.saysNothing(text) || Self.notPlacedWords.contains(where: text.contains))
+    }
+
+    /// §70 item 3: the words that say a stop is not on the plan (§68 item 4's reasons and plain refusals).
+    static let notPlacedWords = ["查不了", "没查完", "没放上", "没有放", "不在行程", "没加上", "没有加", "没能"]
+
     /// §58 items 1–3: nil when the reply says nothing about a trip change (judged as usual).
     private func tripVerdict(_ t: Turn, final: Bool) -> Verdict? {
+        // F-15b §70 item 3 (T-040zw): a stop the map did not place, named in her reply as part of the plan.
+        if namesNotPlaced(t.text) { return .disproven(.tripUnverifiedClaim) }
         if ClaimLexicon.tripInBackground(t.text, stops: tripNames), tripWrites.isEmpty {
             return .disproven(tripLatestOk == false ? .tripClaimAfterFailure : .tripUnverifiedClaim)
         }
