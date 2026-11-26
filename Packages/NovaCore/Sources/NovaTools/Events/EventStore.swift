@@ -29,6 +29,12 @@ public struct EventEntry: Sendable, Hashable, Codable {
     public var ticket: [String]
     public var checkedOn: String?
     public var checkedAt: Date?
+    /// F-18 §46 items 6, 9 (T-046zi): `start` (a show or race) or `opening` (daily opening hours); the urls of the
+    /// sources that state the venue and the hour (empty: the poster); every picture reading of item 5 (its JSON text).
+    public var timeKind: String = "start"
+    public var venueURL: String = ""
+    public var timeURL: String = ""
+    public var readings: [String] = []
 
     public init(name: String, start: String, end: String, datesText: String, venue: String, city: String,
                 sourceURL: String, sourceSite: String, fetchedAt: Date,
@@ -69,6 +75,10 @@ public struct EventEntry: Sendable, Hashable, Codable {
         case time, ticket
         case checkedOn = "checked_on"
         case checkedAt = "checked_at"
+        case timeKind = "time_kind"
+        case venueURL = "venue_url"
+        case timeURL = "time_url"
+        case readings
     }
 
     /// An entry from an older store file has no picture fields.
@@ -93,6 +103,10 @@ public struct EventEntry: Sendable, Hashable, Codable {
         ticket = try c.decodeIfPresent([String].self, forKey: .ticket) ?? []
         checkedOn = try c.decodeIfPresent(String.self, forKey: .checkedOn)
         checkedAt = try c.decodeIfPresent(Date.self, forKey: .checkedAt)
+        timeKind = try c.decodeIfPresent(String.self, forKey: .timeKind) ?? "start"
+        venueURL = try c.decodeIfPresent(String.self, forKey: .venueURL) ?? ""
+        timeURL = try c.decodeIfPresent(String.self, forKey: .timeURL) ?? ""
+        readings = try c.decodeIfPresent([String].self, forKey: .readings) ?? []
     }
 
     /// §44 item 3: the venue (confirmed parts) and the dates, nil when not confirmed.
@@ -104,7 +118,8 @@ public struct EventEntry: Sendable, Hashable, Codable {
     public var factsText: String {
         var parts = ["场馆：\(confirmedVenue ?? Self.notFound)",
                      "日期：" + (confirmedDates.map { "\($0.start)–\($0.end)" } ?? Self.notFound)]
-        if !time.isEmpty { parts.append("开始：\(time)") }
+        // F-18 §46 item 8: 「开放：HH:MM」 for daily opening hours.
+        if !time.isEmpty { parts.append((timeKind == "opening" ? "开放：" : "开始：") + time) }
         if !ticket.isEmpty { parts.append("门票：" + ticket.joined(separator: "，")) }
         return parts.joined(separator: "；")
     }
@@ -201,6 +216,35 @@ public actor EventStore {
         var version = 2
         var events: [EventEntry] = []
         var windows: [SearchedWindow] = []
+        /// F-18 §46 items 6, 9: the source texts of earlier runs (kept 24 h).
+        var sources: [EventPoolSource] = []
+
+        init() {}
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 2
+            events = try c.decodeIfPresent([EventEntry].self, forKey: .events) ?? []
+            windows = try c.decodeIfPresent([SearchedWindow].self, forKey: .windows) ?? []
+            sources = try c.decodeIfPresent([EventPoolSource].self, forKey: .sources) ?? []
+        }
+    }
+
+    /// F-18 §46 item 9: source texts are kept this long.
+    public static let sourcesFor: TimeInterval = 24 * 3600
+
+    /// §46 item 6: the saved source texts of `cities` from the last 24 h.
+    public func sources(cities: [String]) -> [EventPoolSource] {
+        let t = now()
+        return file.sources.filter { t.timeIntervalSince($0.at) < Self.sourcesFor && !Set($0.cities).isDisjoint(with: cities) }
+    }
+
+    /// §46 item 9: adds a run's source texts (the same url replaced); older than 24 h dropped.
+    public func recordSources(_ new: [EventPoolSource]) {
+        let t = now()
+        let urls = Set(new.map(\.url).filter { !$0.isEmpty })
+        file.sources.removeAll { t.timeIntervalSince($0.at) >= Self.sourcesFor || urls.contains($0.url) }
+        file.sources.append(contentsOf: new)
+        save()
     }
 
     /// Item 2: a search that kept events answers from the store this long.
@@ -294,4 +338,20 @@ public actor EventStore {
         d.dateDecodingStrategy = .iso8601
         return d
     }()
+}
+
+/// F-18 §46 item 6: one source of the merged pool (a search result, a page or a picture-search result).
+public struct EventPoolSource: Sendable, Hashable, Codable {
+    public let url: String
+    public let title: String
+    public let text: String
+    public let cities: [String]
+    public let at: Date
+    public init(url: String, title: String, text: String, cities: [String], at: Date) {
+        self.url = url
+        self.title = title
+        self.text = text
+        self.cities = cities
+        self.at = at
+    }
 }

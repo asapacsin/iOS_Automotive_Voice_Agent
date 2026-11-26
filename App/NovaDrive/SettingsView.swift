@@ -132,10 +132,10 @@ struct SettingsView: View {
                     Toggle("联网搜索（实验）", isOn: $webSearch)
                     Text("需要阿里云百炼 key。问题会发到阿里云北京。")
                         .font(.footnote).foregroundStyle(.secondary)
-                    // F-18 §42 item 1 (T-046ze): write-only, Keychain `qiniu_api_key`.
-                    Text("七牛云 key").font(.subheadline)
-                    keyField(.qiniuAPIKey)
-                    Text("填了七牛云 key：搜索走七牛云，问题会发到七牛云。不填：和现在一样。")
+                    // F-18 §46 item 1 (T-046zi, replaces §42's Qiniu key): write-only, Keychain `tavily_api_key`.
+                    Text("Tavily key").font(.subheadline)
+                    keyField(.tavilyAPIKey)
+                    Text("填了 Tavily key：查活动走 Tavily，搜索词会发到 Tavily。不填：和现在一样。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("开：天气、新闻、营业时间这类信息由她联网查，答案可能不准。车辆操作不变，仍只通过车辆工具。关：和现在一样。下次开始对话时生效。")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -243,7 +243,7 @@ struct SettingsView: View {
     }
 
     private func refresh() {
-        saved = Set((keys.map(\.0) + [.qiniuAPIKey]).filter { SecretField.display($0, in: store) == .saved })
+        saved = Set((keys.map(\.0) + [.tavilyAPIKey]).filter { SecretField.display($0, in: store) == .saved })
         readiness = SettingsReadiness(credentials: store, settings: settings)
     }
 

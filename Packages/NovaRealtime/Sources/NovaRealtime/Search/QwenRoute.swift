@@ -112,9 +112,12 @@ public struct QwenRoute: Sendable, Hashable {
     private static let turbo = Search(strategy: "turbo", forced: true, enableSource: true)
     private static let maxSearch = Search(strategy: "max", forced: true, enableSource: true)
 
-    /// F-18 §40 item 3: the only five models any job may call.
+    /// F-18 §40 item 3: the only five models any job may call; F-18 §46 item 1 (T-046zi, owner 2026-11-26) adds
+    /// `qwen3.5-omni-flash` (poster reading, venue and hour, `QwenOmniReader`).
     public static let allowedModels: Set<String> = ["qwen3.8-max-0902", "deepseek-v4.1-flash", "deepseek-v4.1-flash-1017",
-                                                    "kimi-k3.1-pro", "qwen4-max"]
+                                                    "kimi-k3.1-pro", "qwen4-max", "qwen3.5-omni-flash"]
+    /// F-18 §46 item 1: the poster and venue/hour reader (`QwenOmniReader`), streamed, text out.
+    public static let omniModel = "qwen3.5-omni-flash"
     /// §40 item 2: the search jobs' list.
     static let searchModels = ["deepseek-v4.1-flash", "deepseek-v4.1-flash-1017", "qwen4-max"]
     /// §40 item 2: the jobs without search.

@@ -122,6 +122,11 @@ public struct QwenEventExtractor: EventExtractor {
         guard status == 200 else {
             throw EventExtractError.http(status: status, body: String(decoding: body.prefix(2000), as: UTF8.self))
         }
-        return EventModelReply(content: QwenTripPlannerClient.content(body) ?? "", tokens: QwenEventSearcher.tokens(body))
+        // F-18 §46 item 10: the model that answered and the prompt, completion tokens.
+        let v = try? JSONDecoder().decode(JSONValue.self, from: body)
+        return EventModelReply(content: QwenTripPlannerClient.content(body) ?? "", tokens: QwenEventSearcher.tokens(body),
+                               model: v?["model"]?.stringValue ?? route.model,
+                               promptTokens: v?["usage"]?["prompt_tokens"]?.intValue.map(Int.init),
+                               completionTokens: v?["usage"]?["completion_tokens"]?.intValue.map(Int.init))
     }
 }

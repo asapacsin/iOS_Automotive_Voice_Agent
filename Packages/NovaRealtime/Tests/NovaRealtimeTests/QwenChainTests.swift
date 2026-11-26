@@ -63,7 +63,8 @@ struct QwenChainTests {
             // Row 58: only item 3's five models.
             #expect(Set(r.chain.map(\.model)).isSubset(of: QwenRoute.allowedModels), "\(r.job)")
         }
-        #expect(QwenRoute.allowedModels == Set(text))
+        // F-18 §46 item 1 (T-046zi): plus qwen3.5-omni-flash, the poster and venue/hour reader.
+        #expect(QwenRoute.allowedModels == Set(text + ["qwen3.5-omni-flash"]))
     }
 
     @Test("T-046zc F-18 §40 row 59: 403 AllocationQuota.FreeTierOnly on the first planner model: the next answers; record fallback reason=quota")

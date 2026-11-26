@@ -12,6 +12,8 @@ public struct FindEventsExecutor: ToolExecutor {
     /// §39 item 6.
     public static let searchNext = "这些是网上查到的活动，日期以主办方为准。按日期跟司机说名字、日期、地点，一两句，提醒出发前核实；没有就说这几类在网上没查到，不要说一定没有。"
     public static func storeNext(minutes: Int) -> String { "这是\(minutes)分钟前查到的，" + searchNext }
+    /// F-18 §46 item 7.
+    public static func unsureNote(_ n: Int) -> String { "另有\(n)个活动时间或地点未确认，未列出" }
     public static let failedNext = "活动没查完，跟司机说现在查不到，等一下再试；不要说没有活动。"
     /// §39 item 7.
     public static let handoffLine = "好，我查一下这几天的活动，半分钟左右。"
@@ -74,7 +76,9 @@ public struct FindEventsExecutor: ToolExecutor {
             data["searched_minutes_ago"] = .int(Int64(minutes))
             return .success(data)
         case .searched(let events, let outcome):
-            return .success(Self.data(events, dropped: outcome.dropped, source: "search", next: Self.searchNext))
+            // F-18 §46 item 7: the unconfirmed events are counted, so she does not say there are none.
+            let next = Self.searchNext + (outcome.unsure > 0 ? Self.unsureNote(outcome.unsure) : "")
+            return .success(Self.data(events, dropped: outcome.dropped, source: "search", next: next))
         case .failed:
             return .failure(.eventsFailed, advice: Self.failedNext, data: ["next": .string(Self.failedNext)])
         }
@@ -97,7 +101,7 @@ public actor EventFinder {
     }
 
     public let store: EventStore
-    private let run: @Sendable (_ onProgress: @escaping @Sendable (Int, Int) -> Void) -> EventSearchRun
+    private let run: @Sendable (_ onProgress: @escaping @Sendable (Int, Int) -> Void) -> any EventSearching
     private let work: WorkProgressBoard?
     private let onLine: @Sendable (String) -> Void
     private var running = false
@@ -105,7 +109,7 @@ public actor EventFinder {
 
     /// `run` builds the search run with the progress callback the spinner reads; `work` is the spinner row (item 7).
     public init(store: EventStore, work: WorkProgressBoard?, onLine: @escaping @Sendable (String) -> Void = { _ in },
-                run: @escaping @Sendable (_ onProgress: @escaping @Sendable (Int, Int) -> Void) -> EventSearchRun) {
+                run: @escaping @Sendable (_ onProgress: @escaping @Sendable (Int, Int) -> Void) -> any EventSearching) {
         self.store = store
         self.work = work
         self.onLine = onLine

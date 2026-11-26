@@ -80,6 +80,8 @@ public struct EventSearchOutcome: Sendable, Hashable {
     public let tokens: Int
     /// §39 item 5: the kind queries that ran, with how many events each city × kind kept.
     public let searched: [SearchedPair]
+    /// F-18 §46 item 7: events dropped because their dates, venue or hour were not sure.
+    public var unsure: Int = 0
 }
 
 public struct SearchedPair: Sendable, Hashable {
@@ -537,7 +539,7 @@ public struct EventSearchRun: Sendable {
             func s(_ k: String) -> String { e[k]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
             return EventCandidate(name: s("name"), start: s("start"), end: s("end").isEmpty ? s("start") : s("end"),
                                   datesText: s("dates_text"), venue: s("venue"), city: s("city"), sourceURL: s("source_url"),
-                                  time: s("time"))
+                                  time: s("time").isEmpty ? s("start_time") : s("time"))
         }.filter { !$0.name.isEmpty }
     }
 

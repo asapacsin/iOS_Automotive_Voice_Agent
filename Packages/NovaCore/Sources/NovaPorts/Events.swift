@@ -45,9 +45,16 @@ public protocol EventWebSearcher: Sendable {
 public struct EventModelReply: Sendable, Hashable {
     public let content: String
     public let tokens: Int?
-    public init(content: String, tokens: Int? = nil) {
+    /// F-18 §46 item 10: the model that answered and `usage.prompt_tokens`, `completion_tokens`, when given.
+    public let model: String
+    public let promptTokens: Int?
+    public let completionTokens: Int?
+    public init(content: String, tokens: Int? = nil, model: String = "", promptTokens: Int? = nil, completionTokens: Int? = nil) {
         self.content = content
         self.tokens = tokens
+        self.model = model
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
     }
 }
 
@@ -79,4 +86,52 @@ public protocol EventPageSource: Sendable {
     func page(_ url: String) async -> String?
     /// §43 item 4b: one image search (§43 item 1's retry inside); throws when every try failed.
     func images(_ query: String) async throws -> [EventImageHit]
+}
+
+// MARK: F-18 §46 (T-046zi): Tavily search and pages, pictures and the venue/hour reading on qwen3.5-omni-flash
+
+/// §46 item 2 / item 5: one Tavily search's results (`title`, `url`, `content` as `snippet`, `published_date` as
+/// `date`), its `images` (urls, in order) and how many tries it took.
+public struct EventWebResults: Sendable, Hashable {
+    public let hits: [EventSearchHit]
+    public let images: [String]
+    public let attempts: Int
+    public init(hits: [EventSearchHit], images: [String] = [], attempts: Int = 1) {
+        self.hits = hits
+        self.images = images
+        self.attempts = attempts
+    }
+}
+
+/// §46 item 4: one page of Tavily Extract (`raw_content`, `images`).
+public struct EventPage: Sendable, Hashable {
+    public let url: String
+    public let title: String
+    public let rawContent: String
+    public let images: [String]
+    public init(url: String, title: String = "", rawContent: String, images: [String] = []) {
+        self.url = url
+        self.title = title
+        self.rawContent = rawContent
+        self.images = images
+    }
+}
+
+/// §46 items 2, 4, 5: Tavily (key in the adapter, never logged) and the picture download.
+public protocol EventWebSource: Sendable {
+    /// Item 2 (`images` false: `max_results` 20, `search_depth` basic, retried, then §41's search) or item 5's picture
+    /// search (`images` true: `max_results` 5, `include_images`, `include_image_descriptions`).
+    func search(_ query: String, images: Bool) async throws -> EventWebResults
+    /// Item 4: one Tavily Extract call for all urls.
+    func extract(_ urls: [String]) async throws -> [EventPage]
+    /// Item 5: GET the picture (`User-Agent: Mozilla/5.0`, 15 s); nil on a failure.
+    func download(_ url: String) async -> Data?
+}
+
+/// §46 items 1, 5, 6: `qwen3.5-omni-flash`, streamed, text out; the joined `delta.content`.
+public protocol EventReader: Sendable {
+    /// Item 5: one picture (a base64 `data:` URL) with the prompt.
+    func picture(_ dataURL: String, prompt: String) async throws -> String
+    /// Item 6: the venue/hour call.
+    func text(_ prompt: String) async throws -> String
 }

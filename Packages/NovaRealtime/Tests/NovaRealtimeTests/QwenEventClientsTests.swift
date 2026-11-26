@@ -47,7 +47,7 @@ struct QwenEventClientsTests {
         let answer = #"{"choices":[{"message":{"content":"{\"events\":[]}"}}],"usage":{"total_tokens":900}}"#
         let r = try await QwenEventExtractor(key: { "k" }, send: { _ in (200, Data(answer.utf8)) }, fallback: QwenFallback())
             .extract(system: "S", user: "U", timeout: .seconds(30))
-        #expect(r == EventModelReply(content: #"{"events":[]}"#, tokens: 900))
+        #expect(r == EventModelReply(content: #"{"events":[]}"#, tokens: 900, model: "qwen3.8-max-0902"))
     }
 
     @Test("T-046zb F-18 §39 item 3 (amended): a non-200 extraction answer throws its status and error body")

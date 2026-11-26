@@ -530,27 +530,22 @@ final class AgentRuntime {
             Task { @MainActor in self?.sessionRecord?.submit(.events(text)) }
         }
         let key: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
-        // F-18 §42 items 1, 4 (T-046ze): with a 七牛云 key, three Qiniu queries and the extraction on Qiniu's model; without
-        // one, §39/§41 unchanged. Decided per run. §43 item 1 (T-046zf): a failed Qiniu call is retried on Qiniu, then
-        // runs on §41 (§45). §43 item 4: each kept event's picture (its page's og:image, else one Qiniu image search). §44 items 1-2
-        // (T-046zg): venue and dates only as a source states them, one Qiniu search for what is missing, else 「未找到」.
-        let qiniuKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qiniuAPIKey) }
+        // F-18 §46 (T-046zi): with a Tavily key, three Tavily searches, the extraction on §40's text chain, Tavily Extract
+        // of the kept events' pages, posters and venue/hour on qwen3.5-omni-flash; an event without a sure venue, hour
+        // and dates is dropped. A Tavily search that failed every try runs once on §41's search. Item 11: with no Tavily
+        // key, §41's search and §39's extraction as before §42. Decided per run.
+        let tavilyKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .tavilyAPIKey) }
         return EventFinder(store: store, work: work, onLine: line) { onProgress in
-            if let k = qiniuKey(), !k.isEmpty {
-                // F-18 §45 (T-046zh): a query or the extraction that failed every Qiniu try runs on §41 (千问 key); the
-                // §44 item 2 search for what is missing stays Qiniu only.
-                return EventSearchRun(searcher: QiniuEventSearcher(key: qiniuKey, fallback: QwenEventSearcher(key: key), onLine: line),
-                                      extractor: QiniuEventExtractor(key: qiniuKey, fallback: QwenEventExtractor(key: key), onLine: line),
-                                      clock: SystemClock(), mode: .qiniu, pages: QiniuEventPages(key: qiniuKey, onLine: line),
-                                      fillSearcher: QiniuEventSearcher(key: qiniuKey, onLine: line),
-                                      fillExtractor: QiniuEventExtractor(key: qiniuKey, fallback: QwenEventExtractor(key: key),
-                                                                         useFallback: false, onLine: line),
+            if let k = tavilyKey(), !k.isEmpty {
+                return TavilyEventRun(web: TavilyClient(key: tavilyKey, fallback: QwenEventSearcher(key: key), onLine: line),
+                                      extractor: QwenEventExtractor(key: key), reader: QwenOmniReader(key: key),
+                                      clock: SystemClock(),
+                                      sources: { cities in await store.sources(cities: cities) },
+                                      saveSources: { await store.recordSources($0) },
                                       onProgress: onProgress, onLine: line)
             }
-            // F-18 §44 item 1 (T-046zg): the venue and dates are checked against each event's page on this path too (no
-            // image search and no §44 item 2 search without a 七牛云 key).
             return EventSearchRun(searcher: QwenEventSearcher(key: key), extractor: QwenEventExtractor(key: key), clock: SystemClock(),
-                                  pages: QiniuEventPages(key: qiniuKey, onLine: line), onProgress: onProgress, onLine: line)
+                                  onProgress: onProgress, onLine: line)
         }
     }()
 
@@ -1277,14 +1272,8 @@ final class AgentRuntime {
             let destinationName = currentDestination
             let lastWords = driverWords
             executors[WebSearchExecutor.tool] = WebSearchExecutor(
-                // F-18 §42 item 5 (T-046ze): Qiniu search + model with a 七牛云 key; §41 without one. §43 item 1 (T-046zf): a
-                // failed Qiniu call is retried on Qiniu (1 s, 3 s), then runs on §41 with the 千问 key (§45, T-046zh).
-                service: QiniuWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qiniuAPIKey) },
-                                              fallback: QwenWebSearchClient(key: qwenKey, onExchange: onExchange),
-                                              onLine: { line in
-                                                  RuntimeLog.agent.notice("\(line, privacy: .public)")
-                                                  record?.submit(.qiniu(line))
-                                              }),
+                // F-18 §46 item 12 (T-046zi): her answers go back to §41 (Qwen `web_search`); the Qiniu path is withdrawn.
+                service: QwenWebSearchClient(key: qwenKey, onExchange: onExchange),
                 clock: SystemClock(),
                 onOutcome: { outcome in
                 // F-18 §18 items 3, 8: the whole outcome goes to the local record; the log gets no words (I-8).
@@ -1883,10 +1872,8 @@ final class AgentRuntime {
                                   // §46 (T-040r): photos abroad from English Wikipedia, within 2 km of the stop.
                                   abroadPhotos: WikipediaPhotos(),
                                   // F-15b §50 items 1 and 9 (T-040v): Qwen `ground` route with web search, the F-18 key.
-                                  // F-18 §42 item 5 (T-046ze): Qiniu with a 七牛云 key, §41 without one; §43 item 1: retried on Qiniu.
-                                  grounder: QiniuTripGrounder(key: { try? KeychainCredentialStore().value(for: .qiniuAPIKey) },
-                                                              fallback: QwenTripGrounder(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
-                                                              onLine: tripLine),
+                                  // F-18 §46 item 12 (T-046zi): back to §41 (Qwen `web_search`).
+                                  grounder: QwenTripGrounder(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
                                   // §50 item 3: the city's centre and country; trip lookups stay inside its box.
                                   abroadArea: { city in await photon.area(city) },
                                   // F-15b §52 item 13 (T-040ze): clearing the whole trip waits for the driver's next turn.
@@ -1914,9 +1901,7 @@ final class AgentRuntime {
         await navigation.setExploreLine(tripLine)
         await planner.connectCards()
         // F-15b §21: the card introduction through the Qwen web search (its system text unchanged).
-        let intro = TripIntro(search: QiniuWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qiniuAPIKey) },
-                                                           fallback: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
-                                                           onLine: tripLine),
+        let intro = TripIntro(search: QwenWebSearchClient(key: { try? KeychainCredentialStore().value(for: .qwenAPIKey) }),
                               clock: navigationClock, onLine: tripLine)
         // F-15b §11 item 4: moving at ≥ 8 km/h or while 真实导航 runs; still after 3 s below 3 km/h; a stale fix's
         // speed is unknown. `trip strip moving=<yes|no>` on each change.
