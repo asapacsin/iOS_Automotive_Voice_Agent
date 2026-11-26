@@ -2996,13 +2996,11 @@
     },
     {
       "id": "T-040zw",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 1,
       "action": "F-15b §70: Macau/Hong Kong 高德 v3 results (no adcode) kept by pname/cityname 澳门/香港特别行政区; Place gains province; record line shows dropped/kept_by; her reply naming a not_placed stop gets UNVERIFIED_CLAIM tool=plan_trip; rows 329-334.",
-      "depends_on": [
-        "T-040zu"
-      ],
+      "depends_on": [],
       "quantified": {
         "options": [
           "Build as written (rows 329-334)",
@@ -3010,17 +3008,20 @@
         ]
       },
       "notes": "Owner 2026-11-26: Macau stops never placed (record 20261126-124858). PC: v3 gives Macau/HK POIs no adcode, so §68's 82/81 filter drops every right result; kept by province 16/16. Owner chose 高德 no-city + SAR filter after the PC test.",
-      "evidence": "Spec at the commit that adds F-15b §70."
+      "evidence": [
+        "Spec at the commit that adds F-15b §70.",
+        "76eb38a (§70 items 1-3; rows 329-332 unit) + review fix 034df80 (not_placed check only on the reply to the trip turn)",
+        "spec-reviewer high 2026-11-26 FAIL (T-040zw: not_placed list never cleared, later replies voided; T-040zx: small traditional table missed 遊漁碼媽閣) -> fixed; re-check medium PASS. Gates green on 8da5ac6: NovaCore 1219, NovaRealtime 82, NovaServices 114, spec-trace 204/0 (static secrets test fails only on untracked stale .claude/worktrees). Dependency on the device-run task dropped (order only). Non-blocking: near-word rule and QPS exclusion need spec text; SarRouteSource summary polyline stays WGS-84; mixed-day mainland legs keep OSRM times if 高德 fails; permit sentence repeats per result; no-Photon part of row 337 untested; whole-reply not-found exemption"
+      ],
+      "blocked_by": "Row 334 device run"
     },
     {
       "id": "T-040zx",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 1,
       "action": "F-15b §71: SAR lookups by city text aliases; 高德 no city + SAR keep, 「澳门」 retry, name check (高德 only, no Photon); mainland miss retries with no city; planner uses common simplified names; legs touching Macau/Hong Kong timed and guided on OSRM with GCJ-02→WGS-84; border legs flagged with the permit note; rows 335-345.",
-      "depends_on": [
-        "T-040zw"
-      ],
+      "depends_on": [],
       "quantified": {
         "options": [
           "Build as written (rows 335-345)",
@@ -3028,7 +3029,12 @@
         ]
       },
       "notes": "Owner 2026-11-26: Macau trips fail end to end. PC: 高德 refuses every Macau route; OSRM 14/14 legs (627 ms with the Clash DIRECT rule); lookups 91/144 with this rule vs 61 as built; planner city right for 211/211 Macau sights.",
-      "evidence": "Spec at the commit that adds F-15b §71."
+      "evidence": [
+        "Spec at the commit that adds F-15b §71.",
+        "27b3f51 (§71 items 1-6; rows 335-343 unit) + review fix 034df80 (names compared via Hant-Hans transform)",
+        "spec-reviewer high 2026-11-26 FAIL (T-040zw: not_placed list never cleared, later replies voided; T-040zx: small traditional table missed 遊漁碼媽閣) -> fixed; re-check medium PASS. Gates green on 8da5ac6: NovaCore 1219, NovaRealtime 82, NovaServices 114, spec-trace 204/0 (static secrets test fails only on untracked stale .claude/worktrees). Dependency on the device-run task dropped (order only). Non-blocking: near-word rule and QPS exclusion need spec text; SarRouteSource summary polyline stays WGS-84; mixed-day mainland legs keep OSRM times if 高德 fails; permit sentence repeats per result; no-Photon part of row 337 untested; whole-reply not-found exemption"
+      ],
+      "blocked_by": "Row 344 names part PC run (>=15/18 per SAR label, no recorded run); row 345 device run"
     }
   ]
 }
