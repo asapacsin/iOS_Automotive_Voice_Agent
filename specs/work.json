@@ -2167,7 +2167,7 @@
     {
       "id": "T-016q",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 2,
       "action": "F-05 §15: 设置 「语音模型」 Gemini 3.8 Live (default) / Qwen Audio 3.1 Flash / Plus; QwenRealtimeProvider behind RealtimeProvider (session.update with the app's instruction and tools, event mapping, tool results, fresh reconnect with summary, background tools as handoff + later text turn); record voiceModel and qwen usage; rows 9-16, row 9 PC before the build.",
       "depends_on": [
