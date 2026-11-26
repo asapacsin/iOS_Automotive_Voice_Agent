@@ -2187,6 +2187,18 @@
       "blocked_by": "Row 9 PC check (needs a working 百炼 key on the PC; must pass before the build); row 16 device run (Qwen Flash, VPN off)"
     },
     {
+      "id": "T-016r",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-05 §15 (changed 2026-11-26): QwenRealtimeProvider connects to wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=<model> (fixed constant beside QwenRoute endpoints) instead of the saved 千问 voice API Host; VoiceModel.isAvailable/disabledReason need only the 百炼 key; update QwenRealtimeProviderTests URL expectation; rows 10 and 16.",
+      "depends_on": [
+        "T-016q"
+      ],
+      "notes": "Owner phone test 2026-11-26 (build 55f99fb): Qwen showed 出錯, session failed code=AUTH; the saved host was a Singapore workspace and the key is Beijing. PC handshake: dashscope.aliyuncs.com 101 with the Beijing key.",
+      "evidence": "Spec at the commit that changes F-05 §15 vendor facts and item 1."
+    },
+    {
       "id": "T-017c",
       "owner": "AUTONOMOUS",
       "status": "PASS",
