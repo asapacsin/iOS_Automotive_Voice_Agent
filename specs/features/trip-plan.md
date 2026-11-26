@@ -3094,7 +3094,7 @@ result with a Macau adcode (82xxxx): 大三巴牌坊 820002, 议事亭前地广�
 alone it was found). She then said 「我们的地图工具目前不支持直接在行程中添加澳门的地点」 (record 165923 turn 30), a
 reason the record does not show. Apple Maps was not tested (no PC route).
 
-1. **Lookup.** *(Keep rule fixed by §70 item 1: v3 gives these results no adcode.)* When the city of a lookup is 澳门/澳门特别行政区 (or 香港/香港特别行政区), the 高德 text search is sent
+1. **Lookup.** *(Keep rule fixed by §70 item 1: v3 gives these results no adcode. Which lookups are SAR lookups, retries and the name check: §71 items 1–3.)* When the city of a lookup is 澳门/澳门特别行政区 (or 香港/香港特别行政区), the 高德 text search is sent
    without `region`/`city_limit` (and the iOS SDK search without its city restriction), and only results whose adcode
    starts with 82 (Macau) or 81 (Hong Kong) are kept. Other cities unchanged.
 2. **Pace.** 高德 lookups of one plan run at most 3 per second; a `CUQPS_HAS_EXCEEDED_THE_LIMIT` answer is tried once
@@ -3189,3 +3189,80 @@ once that point is shifted to GCJ-02, 605 m unshifted), so the app's existing co
 | Task | Scope | Status |
 |---|---|---|
 | T-040zw | §70 items 1–3; rows 329–334 | NOT_RUN |
+
+## 71. Macau and Hong Kong: places on 高德 without a city, drive times and guidance on OSRM (iOS, owner order 2026-11-26)
+
+**Why (records 20261125-164242, -165923, 20261126-124858; PC tests 2026-11-26 with `AMAP_WEB_KEY`).** Macau trips never
+worked end to end: stops were 「地图没找到」 (§70), and each Macau day's drive times went to 高德
+(`trip times vendor=amap … ms=0`), so the day showed 「开车 未知」 and 「下一站」 had nothing to route.
+- **高德 refuses every route touching Macau.** `/v3/direction/driving` answers `USER_ABROAD_DAILY_QUERY_OVER_LIMIT`
+  and `/v3/distance` answers `INSUFFICIENT_ABROAD_PRIVILEGES`, inside Macau and from Zhuhai into Macau (4/4 legs).
+- **OSRM answers all of them.** 14/14 legs (10 Macau places, 4 Zhuhai) on `router.project-osrm.org`, median 627 ms
+  with the owner's Clash rule `DOMAIN-SUFFIX,project-osrm.org,DIRECT` (1,093 ms through the proxy). The 高德 point must be
+  converted GCJ-02 → WGS-84 first: unconverted, 新葡京 → 澳门渔人码头 came out 10.4 km instead of 2.7 km.
+- **OSRM is not used on the mainland:** it has no traffic (珠海站 → 珠海渔女 9 min against 高德's 23; 广州塔 → 佛山祖庙
+  28 against 69) and answers about 5× slower than 高德 (~150 ms).
+- **Lookups, 144 cases (18 Macau names × 8 city labels).** As built (§68): 61/144; §70: 74; the rule below: 91.
+  高德 with no city, first result: 13/18 names right. Failures: names 高德 does not know (圣保禄教堂遗址), wrong places
+  (「Ruins of St. Paul's」 → a public toilet beside it; 「澳门威尼斯人度假村」 → 澳门上葡京; 「渔人码头」 → 长沙). With a
+  city 高德 does not understand (「氹仔」「珠海,澳门」) it silently searches nationwide. OpenStreetMap (Photon) found 9/18
+  (it knows traditional and Portuguese names, not simplified ones); as a fallback after 高德 it adds 「Ruins of St. Paul's」.
+- **The planner's city is right.** All 211 Macau sights in 78 recorded plans were labelled 澳门 (154) or
+  澳门特别行政区 (57); none 珠海. Names were sometimes English (record 165923: Macau Tower, Ruins of St. Paul's).
+- **No city as the default would break the mainland:** 15 Zhuhai names with the city: 15/15; with no city a Zhuhai
+  result in the top 10 for only 5/15 (人民公园 → 北京, 星巴克 → 廊坊, 博物馆 → 故宫).
+
+1. **When a lookup is a Macau or Hong Kong lookup.** The stop's `city` text (or its location's) contains one of
+   澳门 澳門 macau macao 氹仔 凼仔 路环 路環 路氹 (Macau) or 香港 hong kong 九龙 九龍 尖沙咀 新界 香港岛 (Hong Kong),
+   case-insensitive. A city text naming a SAR and a mainland city (「珠海,澳门」) keeps results in either. Replaces §68
+   item 1's exact list.
+2. **The lookup (extends §70 item 1).**
+   - **a.** 高德 text search with **no** `city`/`citylimit`; keep results in that SAR (adcode 82/81, else `pname`/
+     `cityname`, §70), plus the mainland city when item 1's text names one.
+   - **b.** Nothing kept: once more with the SAR name in front (「澳门」 + name, unless the name already starts with it).
+   - **c.** Nothing kept: Photon (§36 item 2b) inside the SAR's box (Macau 113.52,22.10,113.62,22.22; Hong Kong
+     113.82,22.15,114.45,22.57) with the name as written.
+   - **Name check on every kept result:** the result's name must contain the asked name's core: the asked name with
+     the SAR prefix (澳门/澳門/香港) and a generic tail (度假村, 酒店, 景区, 广场, 公园) removed, compared in simplified
+     form. Otherwise it is not kept (rejects 上葡京 for 威尼斯人度假村 and the toilet for Ruins of St. Paul's).
+3. **A mainland lookup that misses (second chance).** A lookup with a mainland city that finds nothing, finds only
+   results failing the name check, or gets any `…LIMIT` answer: once more with no city, keeping results in any of the
+   trip's cities (`asked.city` and the plan's stop cities) that pass the name check. Logged `trip lookup retry=nocity
+   kept=<n>`.
+4. **Planner names.** The planner's system text (§62) gains one line: 「澳门、香港的地方用地图上常用的简体中文名（如
+   大三巴牌坊、澳门旅游塔、澳门威尼斯人），不要用英文名或别名。」 (§61's catalog rule for `location` unchanged.)
+5. **Which router.** A found place is a SAR place when 高德 gives it adcode 82/81 or `pname`/`cityname` 澳门/香港特别行政区
+   (Photon: inside item 2c's box). A leg with a SAR place at either end, including Zhuhai ↔ Macau, gets its time from
+   OSRM (§36 item 2c's table, `TripTimes` abroad), with each 高德 point converted GCJ-02 → WGS-84 first; guidance to such
+   a stop is §47's in-app guidance on an OSRM route. Legs with both ends on the mainland stay on 高德. Logged `trip
+   times vendor=osrm reason=sar pairs=<n> ms=<ms>`.
+6. **Border legs say what OSRM does not know.** A leg between a SAR place and a mainland place carries `border: true`
+   in the trip result and on its card 「过关时间未计入」; the plan result's `next` adds 「跨境自驾需粤车南下等通行证，过关排队时间没算进去。」
+   once per plan. OSRM's route is used as it comes (its detour round 横琴口岸 is kept; the card shows the km).
+7. **Not changed.** Mainland lookups with a city that find a name-checked result; 高德 times and guidance on the mainland;
+   §70's province rule; Photon and OSRM for trips abroad (§36, §47); the GCJ-02 conversion code.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 335 | City texts 澳門, Macau, 氹仔, 「珠海,澳门」, 香港, 尖沙咀 | Each is a SAR lookup (item 1); 「珠海,澳门」 keeps 澳门 and 珠海 results | unit |
+| 336 | Fixture: 渔人码头 no-city answer with only 长沙/唐山 results; then 澳门渔人码头 with a Macau result | First pass keeps nothing; item 2b finds and keeps 澳门渔人码头 | unit |
+| 337 | Fixtures: 澳门威尼斯人度假村 → 澳门上葡京综合度假村; Ruins of St. Paul's → Public Toilet near Ruins of St. Paul's | Both rejected by the name check; Photon fallback keeps 大三巴牌坊 Ruínas de São Paulo for the second | unit |
+| 338 | Lookup 人民公园, city 珠海 | City search as today; no retry | unit |
+| 339 | Lookup 大三巴, city 珠海; city search returns 大三巴茶餐厅(华发峰尚店) | Name check passes only if the core matches; here it does, kept as today (documented limit: a similar mainland name wins when the city is wrong) | unit |
+| 340 | Lookup with city 珠海 answering `USER_ABROAD_DAILY_QUERY_OVER_LIMIT` | Item 3 retry with no city; `retry=nocity` | unit |
+| 341 | Day 澳门旅游塔 → 新葡京 → 澳门渔人码头 (fixture points GCJ-02) | Times from OSRM with WGS-84 points (fake OSRM sees the converted coordinates); `vendor=osrm reason=sar` | unit |
+| 342 | Day 珠海站 → 大三巴牌坊 → 珠海长隆海洋王国 | Both legs OSRM, both `border: true`; `next` has the permit sentence once | unit |
+| 343 | Day 珠海渔女 → 圆明新园 | 高德 times as today | unit |
+| 344 | PC: item 2 on the 18 names × 8 city labels; OSRM on the 14 legs | ≥ 15/18 names right for each SAR city label; 14/14 legs routed (done 2026-11-26 for the legs: 14/14, 627 ms) | PC |
+| 345 | Device, phone VPN with `DOMAIN-SUFFIX,project-osrm.org,DIRECT`: 「周日去澳门，大三巴、旅游塔和威尼斯人，从珠海出发」, then 「开始第一天」 | All stops placed, drive times known, border note said once; in-app guidance to the first Macau stop | D |
+
+**Not verified.** OSRM's times in Macau against real driving; whether the phone's VPN app has the DIRECT rule (the PC's
+Clash Verge does).
+
+**Trace gate.** Add `T-040zx: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zx.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zx | §71 items 1–6; rows 335–345 | NOT_RUN |

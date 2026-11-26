@@ -2987,6 +2987,24 @@
       },
       "notes": "Owner 2026-11-26: Macau stops never placed (record 20261126-124858). PC: v3 gives Macau/HK POIs no adcode, so §68's 82/81 filter drops every right result; kept by province 16/16. Owner chose 高德 no-city + SAR filter after the PC test.",
       "evidence": "Spec at the commit that adds F-15b §70."
+    },
+    {
+      "id": "T-040zx",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-15b §71: SAR lookups by city text aliases; 高德 no city + SAR keep, 「澳门」 retry, Photon fallback, name check; mainland miss retries with no city; planner uses common simplified names; legs touching Macau/Hong Kong timed and guided on OSRM with GCJ-02→WGS-84; border legs flagged with the permit note; rows 335-345.",
+      "depends_on": [
+        "T-040zw"
+      ],
+      "quantified": {
+        "options": [
+          "Build as written (rows 335-345)",
+          "Change the spec first"
+        ]
+      },
+      "notes": "Owner 2026-11-26: Macau trips fail end to end. PC: 高德 refuses every Macau route; OSRM 14/14 legs (627 ms with the Clash DIRECT rule); lookups 91/144 with this rule vs 61 as built; planner city right for 211/211 Macau sights.",
+      "evidence": "Spec at the commit that adds F-15b §71."
     }
   ]
 }
