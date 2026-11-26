@@ -261,3 +261,39 @@ public struct QwenOmniReader: EventReader {
 
     public func text(_ prompt: String) async throws -> String { try await call(.string(prompt)) }
 }
+
+/// F-18 §46 item 1 (review 2026-11-26): the extraction on the Tavily path with item 1's retry: a 429, 5xx or timeout
+/// is tried again after 5, 10, 20 s (4 tries). Any other answer, and a cancelled call, is not.
+public struct RetryingEventExtractor: EventExtractor {
+    private let base: any EventExtractor
+    private let sleep: TavilyClient.Sleep
+    private let onLine: @Sendable (String) -> Void
+
+    public init(_ base: any EventExtractor,
+                sleep: @escaping TavilyClient.Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0.milliseconds)) * 1_000_000) },
+                onLine: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.base = base
+        self.sleep = sleep
+        self.onLine = onLine
+    }
+
+    static func retryable(_ error: any Error) -> Bool {
+        if case EventExtractError.http(let status, _) = error { return status == 429 || status >= 500 }
+        if let e = error as? WebSearchError, e == .timeout { return true }
+        return (error as? URLError)?.code == .timedOut
+    }
+
+    public func extract(system: String, user: String, timeout: NovaDuration) async throws -> EventModelReply {
+        var attempt = 0
+        while true {
+            do {
+                return try await base.extract(system: system, user: user, timeout: timeout)
+            } catch {
+                guard Self.retryable(error), attempt < QwenOmniReader.retryDelays.count, !Task.isCancelled else { throw error }
+                onLine("events extract retry attempt=\(attempt + 2)")
+                try await sleep(QwenOmniReader.retryDelays[attempt])
+                attempt += 1
+            }
+        }
+    }
+}

@@ -96,3 +96,36 @@ struct TavilyClientTests {
         #expect(sent.all[1].url?.absoluteString == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
     }
 }
+
+@Suite("F-18 §46 item 1 extraction retry")
+struct TavilyExtractRetryTests {
+    final class Flaky: EventExtractor, Sendable {
+        let errors: Mutex<[any Error]>
+        let calls = Mutex(0)
+        init(_ e: [any Error]) { errors = Mutex(e) }
+        func extract(system: String, user: String, timeout: NovaDuration) async throws -> EventModelReply {
+            calls.withLock { $0 += 1 }
+            if let e = errors.withLock({ $0.isEmpty ? nil : $0.removeFirst() }) { throw e }
+            return EventModelReply(content: "{}")
+        }
+    }
+
+    @Test("T-046zi F-18 §46 item 1: extraction 503, timeout, 429 then answers after 5, 10, 20 s; a 400 is not retried; 4 tries at most")
+    func retry() async throws {
+        let waits = Mutex<[Int64]>([])
+        let f = Flaky([EventExtractError.http(status: 503, body: ""), URLError(.timedOut), EventExtractError.http(status: 429, body: "")])
+        _ = try await RetryingEventExtractor(f, sleep: { d in waits.withLock { $0.append(d.milliseconds) } })
+            .extract(system: "S", user: "U", timeout: .seconds(60))
+        #expect(waits.withLock { $0 } == [5000, 10000, 20000] && f.calls.withLock { $0 } == 4)
+        let bad = Flaky([EventExtractError.http(status: 400, body: "")])
+        await #expect(throws: EventExtractError.self) {
+            try await RetryingEventExtractor(bad, sleep: { _ in }).extract(system: "S", user: "U", timeout: .seconds(60))
+        }
+        #expect(bad.calls.withLock { $0 } == 1)
+        let down = Flaky(Array(repeating: EventExtractError.http(status: 500, body: ""), count: 5))
+        await #expect(throws: EventExtractError.self) {
+            try await RetryingEventExtractor(down, sleep: { _ in }).extract(system: "S", user: "U", timeout: .seconds(60))
+        }
+        #expect(down.calls.withLock { $0 } == 4)
+    }
+}

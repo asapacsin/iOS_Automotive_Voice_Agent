@@ -535,10 +535,12 @@ final class AgentRuntime {
         // and dates is dropped. A Tavily search that failed every try runs once on §41's search. Item 11: with no Tavily
         // key, §41's search and §39's extraction as before §42. Decided per run.
         let tavilyKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .tavilyAPIKey) }
-        return EventFinder(store: store, work: work, onLine: line) { onProgress in
+        // §46 items 0, 7: on the Tavily path only verified events and Tavily windows answer; a run replaces its cities'
+        // events in the window (an event dropped now is gone).
+        return EventFinder(store: store, work: work, onLine: line, verified: { tavilyKey()?.isEmpty == false }) { onProgress in
             if let k = tavilyKey(), !k.isEmpty {
                 return TavilyEventRun(web: TavilyClient(key: tavilyKey, fallback: QwenEventSearcher(key: key), onLine: line),
-                                      extractor: QwenEventExtractor(key: key), reader: QwenOmniReader(key: key),
+                                      extractor: RetryingEventExtractor(QwenEventExtractor(key: key), onLine: line), reader: QwenOmniReader(key: key),
                                       clock: SystemClock(),
                                       sources: { cities in await store.sources(cities: cities) },
                                       saveSources: { await store.recordSources($0) },

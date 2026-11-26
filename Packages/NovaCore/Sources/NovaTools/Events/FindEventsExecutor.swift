@@ -104,15 +104,20 @@ public actor EventFinder {
     private let run: @Sendable (_ onProgress: @escaping @Sendable (Int, Int) -> Void) -> any EventSearching
     private let work: WorkProgressBoard?
     private let onLine: @Sendable (String) -> Void
+    /// F-18 §46 (T-046zi): true while the runs are on the Tavily path (a Tavily key saved): only verified events and
+    /// Tavily windows answer, and a run replaces its cities' events in the window.
+    private let verified: @Sendable () -> Bool
     private var running = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     /// `run` builds the search run with the progress callback the spinner reads; `work` is the spinner row (item 7).
     public init(store: EventStore, work: WorkProgressBoard?, onLine: @escaping @Sendable (String) -> Void = { _ in },
+                verified: @escaping @Sendable () -> Bool = { false },
                 run: @escaping @Sendable (_ onProgress: @escaping @Sendable (Int, Int) -> Void) -> any EventSearching) {
         self.store = store
         self.work = work
         self.onLine = onLine
+        self.verified = verified
         self.run = run
     }
 
@@ -157,8 +162,9 @@ public actor EventFinder {
     /// The store's events and age when it covers `r` (and, with `name`, has the named event); nil otherwise.
     private func covered(_ r: EventRequest) async -> (events: [EventEntry], age: TimeInterval)? {
         let from = r.from.description, to = r.to.description
-        guard let age = await store.age(cities: r.cities, kinds: r.kindList, from: from, to: to) else { return nil }
-        let events = await store.events(cities: r.cities, from: from, to: to)
+        let v = verified()
+        guard let age = await store.age(cities: r.cities, kinds: r.kindList, from: from, to: to, verified: v) else { return nil }
+        let events = await store.events(cities: r.cities, from: from, to: to, verified: v)
         return Self.names(events, r.name) ? (events, age) : nil
     }
 
@@ -186,9 +192,10 @@ public actor EventFinder {
         let onProgress: @Sendable (Int, Int) -> Void = { n, m in work?.step(FindEventsExecutor.stepProgress(done: n, of: m)) }
         do {
             let outcome = try await run(onProgress).run(r, known: await store.all)
-            await store.record(outcome.kept, searched: outcome.searched, from: from, to: to)
+            let v = verified()
+            await store.record(outcome.kept, searched: outcome.searched, from: from, to: to, verified: v)
             work?.clear(.handoff)
-            return .searched(await store.events(cities: r.cities, from: from, to: to), outcome)
+            return .searched(await store.events(cities: r.cities, from: from, to: to, verified: v), outcome)
         } catch {
             work?.finish("活动没查完", failed: true)
             return .failed(error)

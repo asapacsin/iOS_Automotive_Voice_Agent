@@ -38,7 +38,7 @@ public enum EventText {
     /// §46 item 5: every Latin word of 3+ letters and every Han run of 2+ characters of the name, after the removals.
     public static func keys(_ name: String) -> [String] {
         var s = norm(name)
-        for w in removedWords.map(norm) { s = s.replacingOccurrences(of: w, with: " ") }
+        for w in removedWords.map(norm) { s = s.replacingOccurrences(of: w, with: "") }
         var out: [String] = []
         var run = "", latin = ""
         func flush() {
@@ -84,7 +84,6 @@ public enum EventText {
 public enum EventDates {
     static let english = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
                           "november", "december"]
-    static let short = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 
     /// §46 item 0 row 4: the forms a day is written in (spaces removed).
     static func forms(_ d: EventDay) -> [String] {
@@ -92,10 +91,8 @@ public enum EventDates {
         let mm = m < 10 ? "0\(m)" : "\(m)", dd = day < 10 ? "0\(day)" : "\(day)"
         var f = ["\(m)月\(day)日", "\(m)月\(day)号", "\(m)月\(day)號", "\(m).\(day)", "\(mm).\(dd)", "\(m)/\(day)", "\(mm)-\(dd)",
                  "\(y).\(mm).\(dd)", "\(y)-\(mm)-\(dd)", "\(y)年\(m)月\(day)日"]
-        for name in [english[m - 1], short[m - 1]] {
-            f.append("\(name)\(day)")
-            f.append("\(day)\(name)")
-        }
+        f.append("\(english[m - 1]) \(day)")
+        f.append("\(day) \(english[m - 1])")
         return f
     }
 
@@ -130,7 +127,16 @@ public enum EventDates {
 
     /// §46 item 0 row 4: the start day (and, when `end` ≠ `start`, the end day) written in `excerpt`.
     public static func confirmed(start: EventDay, end: EventDay, in excerpt: String) -> Bool {
-        let t = Array(EventText.norm(excerpt).filter { !$0.isWhitespace })
+        // Spaces collapsed: every run of white space becomes one space, and none is kept next to a Han character.
+        var t: [Character] = []
+        for c in EventText.norm(excerpt) {
+            if c.isWhitespace {
+                if let last = t.last, last != " ", !EventText.isHan(last) { t.append(" ") }
+            } else {
+                if t.last == " ", EventText.isHan(c) || t.count < 2 || EventText.isHan(t[t.count - 2]) { t.removeLast() }
+                t.append(c)
+            }
+        }
         let starts = forms(start).flatMap { matches($0, in: t) }.filter { yearFits(t, before: $0.lowerBound, year: start.year) }
         guard !starts.isEmpty else { return false }
         if end == start { return true }
@@ -234,7 +240,11 @@ public enum EventFacts {
         var total = 0
         for (i, s) in pool.enumerated() {
             guard total <= maxChars else { break }
+            let original = Array(s.title + "\n" + s.text)
             let t = Array(EventText.norm(s.title + "\n" + s.text))
+            // The windows are cut from the source's own text (the model reads it as written); positions found on the
+            // normalised text, which keeps one character per character.
+            let cut = original.count == t.count ? original : t
             var hits: [Int] = []
             for m in mentions {
                 let f = Array(m)
@@ -255,7 +265,7 @@ public enum EventFacts {
                     ranges.append(r)
                 }
             }
-            let windows = ranges.map { String(t[$0]) }
+            let windows = ranges.map { String(cut[$0]) }
             total += windows.reduce(0) { $0 + $1.count }
             out.append(Excerpt(source: i + 1, windows: windows))
         }
@@ -381,6 +391,16 @@ public struct TavilyEventRun: EventSearching {
             out = [named] + out.dropFirst(given.isEmpty ? 1 : 0)
         }
         return Array(out.prefix(3))
+    }
+
+    static func sameURL(_ a: String, _ b: String) -> Bool {
+        func f(_ s: String) -> String {
+            var t = s.lowercased()
+            for p in ["https://", "http://", "www."] where t.hasPrefix(p) { t.removeFirst(p.count) }
+            while t.hasSuffix("/") { t.removeLast() }
+            return t
+        }
+        return f(a) == f(b)
     }
 
     /// Item 3: the results in query order, deduplicated by url, one per line.
@@ -572,7 +592,7 @@ public struct TavilyEventRun: EventSearching {
         var fresh: [Pre] = []
         for p in pres {
             if let k = known.first(where: { $0.city == p.city && $0.name == p.candidate.name && $0.start == p.candidate.start }),
-               k.checkedOn == today {
+               k.verified, k.checkedOn == today {
                 kept.append(k)
             } else {
                 fresh.append(p)
@@ -585,6 +605,10 @@ public struct TavilyEventRun: EventSearching {
         let urls = Array(Set(pres.map(\.source.url))).sorted()
         if !urls.isEmpty, let got = try? await web.extract(urls) {
             for p in got { pages[p.url] = p }
+            for p in got where !urls.contains(p.url) {
+                // A redirected or re-spelled url: matched to the asked one by its form without a trailing slash.
+                if let u = urls.first(where: { Self.sameURL($0, p.url) }), pages[u] == nil { pages[u] = p }
+            }
         }
 
         // Item 5: the posters (4 events at once).
@@ -620,7 +644,7 @@ public struct TavilyEventRun: EventSearching {
             pool.append(EventPoolSource(url: url, title: title, text: text, cities: r.cities, at: at))
         }
         for h in used.flatMap(\.hits) { add(h.url, h.title, h.snippet) }
-        for u in urls { if let pg = pages[u] { add(pg.url, pg.title, pg.rawContent) } }
+        for pg in pages.values.sorted(by: { $0.url < $1.url }) { add(pg.url, pg.title, pg.rawContent) }
         for i in pres.indices { for h in posters[i]?.searchHits ?? [] { add(h.url, h.title, h.snippet) } }
         let saved = pool
         for s in await sources(r.cities) { add(s.url, s.title, s.text) }

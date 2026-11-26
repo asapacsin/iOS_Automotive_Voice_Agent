@@ -127,7 +127,11 @@ struct TavilyEventsTests {
         #expect(!wrong.matches(keys: keys, start: day("2026-12-24"), end: day("2026-12-31")))
         #expect(right.matches(keys: keys, start: day("2026-12-24"), end: day("2026-12-31")))
         // Traditional text is converted first (item 0).
-        #expect(EventText.names("橫琴馬拉松 2026", keys: EventText.keys("2026横琴马拉松")) || EventText.keys("2026横琴马拉松").contains("马拉松"))
+        #expect(EventText.keys("2026横琴马拉松") == ["马拉松"])
+        #expect(EventText.names("橫琴馬拉松 2026", keys: ["马拉松"]))
+        #expect(!EventText.names("橫琴馬拉松", keys: ["世界杯"]))
+        // Removed words are deleted, so the rest stays one key.
+        #expect(EventText.keys("张学友演唱会世界巡回") == ["张学友世界"])
     }
 
     @Test("T-046zi F-18 §46 row 112: a venue quote not in that source's excerpt is not sure; one that is, is sure")
@@ -162,7 +166,9 @@ struct TavilyEventsTests {
         #expect(!EventDates.confirmed(start: day("2026-12-28"), end: day("2026-12-28"), in: "比赛时间：2026年12月27日（星期日）07:30"))
         #expect(EventDates.confirmed(start: day("2026-12-03"), end: day("2026-12-05"), in: "将于12月3日至5日在澳门举办"))
         #expect(!EventDates.confirmed(start: day("2026-12-03"), end: day("2026-12-06"), in: "将于12月3日至5日在澳门举办"))
-        #expect(EventDates.confirmed(start: day("2026-12-12"), end: day("2026-12-12"), in: "Dec 12, 2026 Galaxy Arena"))
+        #expect(EventDates.confirmed(start: day("2026-12-12"), end: day("2026-12-12"), in: "December 12, 2026 Galaxy Arena"))
+        #expect(EventDates.confirmed(start: day("2026-12-01"), end: day("2026-12-01"), in: "December  1 2026, Arena"))
+        #expect(!EventDates.confirmed(start: day("2026-12-12"), end: day("2026-12-12"), in: "Dec 12"))
         // A different year just before the day does not count.
         #expect(!EventDates.confirmed(start: day("2026-11-28"), end: day("2026-11-28"), in: "2025年11月28日在伦敦人综艺馆"))
         // 11-2 is not inside 11-25.
@@ -270,6 +276,39 @@ struct TavilyEventsTests {
         await store.record(out.kept, searched: out.searched, from: "2026-11-25", to: "2026-12-31")
         #expect(await store.all.map(\.name).contains("AIE电子展") == false)
         #expect(FindEventsExecutor.unsureNote(out.unsure) == "另有1个活动时间或地点未确认，未列出")
+    }
+
+    @Test("T-046zi F-18 §46 row 114 (review): with older events stored (an unverified one, a verified one dropped now) only this run's verified events are shown; an old window does not answer")
+    func storeOnTavilyPath() async throws {
+        let store = EventStore(storage: MemoryEventStorage(), now: { noon }, zone: { TimeZone(identifier: "Asia/Shanghai")! })
+        var oldQiniu = EventEntry(name: "旧活动", start: "2026-12-01", end: "2026-12-01", datesText: "", venue: "", city: "澳门",
+                                  sourceURL: "u", sourceSite: "", fetchedAt: noon)
+        oldQiniu.checkedOn = "2026-11-24"
+        var aie = EventEntry(name: "AIE电子展", start: "2026-12-03", end: "2026-12-05", datesText: "", venue: "x", city: "澳门",
+                             sourceURL: "u", sourceSite: "", fetchedAt: noon)
+        aie.datesVia = "source"
+        await store.record([oldQiniu, aie], searched: [SearchedPair(city: "澳门", kind: "展览展会", kept: 2)],
+                           from: "2026-11-25", to: "2026-12-31")
+        let lines = Lines()
+        var web: Web?, reader: Reader?
+        _ = try await fullRun(lines, web: &web, reader: &reader)
+        let w = web!, rd = reader!
+        let json = #"{"events": [{"name": "张敬轩 x 澳门中乐团 盛乐", "start": "2026-12-24", "end": "2026-12-24", "start_time": "", "venue": "", "city": "澳门", "ticket": "", "source_url": "1"}, {"name": "AIE电子展", "start": "2026-12-03", "end": "2026-12-05", "start_time": "", "venue": "", "city": "澳门", "ticket": "", "source_url": "3"}]}"#
+        let finder = EventFinder(store: store, work: nil, verified: { true }) { _ in
+            TavilyEventRun(web: w, extractor: Extract(json), reader: rd, clock: ManualClock(), now: { noon })
+        }
+        let r = request(["澳门"], kinds: "展览展会")
+        guard case .searched(let shown, _) = await finder.find(r, onMiss: { _ in }) else {
+            Issue.record("the old window answered")
+            return
+        }
+        #expect(shown.map(\.name) == ["张敬轩 x 澳门中乐团 盛乐"])
+        #expect(await store.all.map(\.name) == ["张敬轩 x 澳门中乐团 盛乐"])
+        guard case .store(let again, _) = await finder.find(r, onMiss: { _ in }) else {
+            Issue.record("the verified window did not answer")
+            return
+        }
+        #expect(again.map(\.name) == ["张敬轩 x 澳门中乐团 盛乐"])
     }
 
     @Test("T-046zi F-18 §46 item 5: picture bytes: JPEG/PNG/GIF/WebP, 5 KB–4 MB only")

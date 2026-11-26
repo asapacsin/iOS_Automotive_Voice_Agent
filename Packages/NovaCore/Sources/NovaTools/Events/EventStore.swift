@@ -110,6 +110,9 @@ public struct EventEntry: Sendable, Hashable, Codable {
     }
 
     /// §44 item 3: the venue (confirmed parts) and the dates, nil when not confirmed.
+    /// F-18 §46 (T-046zi): verified on the Tavily path (every required row of item 0 passed).
+    public var verified: Bool { datesVia == "source" }
+
     public var confirmedVenue: String? { venueVia == "none" || venue.isEmpty ? nil : venue }
     public var confirmedDates: (start: String, end: String)? { datesVia == "none" ? nil : (start, end) }
 
@@ -160,8 +163,11 @@ public struct SearchedWindow: Sendable, Hashable, Codable {
     public let to: String
     public let at: Date
     public let kept: Int
+    /// F-18 §46 (T-046zi): searched on the Tavily path; only these answer that path from the store.
+    public var verified: Bool = false
 
-    public init(city: String, kind: String, from: String, to: String, at: Date, kept: Int) {
+    public init(city: String, kind: String, from: String, to: String, at: Date, kept: Int, verified: Bool = false) {
+        self.verified = verified
         self.city = city
         self.kind = kind
         self.from = from
@@ -178,6 +184,7 @@ public struct SearchedWindow: Sendable, Hashable, Codable {
         to = try c.decode(String.self, forKey: .to)
         at = try c.decode(Date.self, forKey: .at)
         kept = try c.decodeIfPresent(Int.self, forKey: .kept) ?? 0
+        verified = try c.decodeIfPresent(Bool.self, forKey: .verified) ?? false
     }
 
     /// How long it answers from the store.
@@ -275,12 +282,14 @@ public actor EventStore {
 
     /// §39 item 5: a store hit only when every city × kind was searched for a window covering `from`…`to` and is still
     /// fresh. The age in seconds of the oldest of those (each pair's newest covering search); nil: a miss.
-    public func age(cities: [String], kinds: [String], from: String, to: String) -> TimeInterval? {
+    /// F-18 §46: with `verified`, only Tavily-path windows count.
+    public func age(cities: [String], kinds: [String], from: String, to: String, verified: Bool = false) -> TimeInterval? {
         let t = now()
         var oldest: TimeInterval = 0
         for city in cities {
             for kind in kinds {
-                let ages = file.windows.filter { $0.city == city && $0.kind == kind && $0.from <= from && $0.to >= to }
+                let ages = file.windows.filter { $0.city == city && $0.kind == kind && $0.from <= from && $0.to >= to
+                    && (!verified || $0.verified) }
                     .map { (age: t.timeIntervalSince($0.at), fresh: $0.freshFor) }
                     .filter { $0.age < $0.fresh }.map(\.age)
                 guard let newest = ages.min() else { return nil }
@@ -295,8 +304,9 @@ public actor EventStore {
     }
 
     /// The kept events of `cities` overlapping `from`…`to`, sorted by start.
-    public func events(cities: [String], from: String, to: String) -> [EventEntry] {
-        file.events.filter { cities.contains($0.city) && $0.start <= to && $0.end >= from }
+    /// F-18 §46 items 0, 7: with `verified`, only events every required row passed for (never an older path's).
+    public func events(cities: [String], from: String, to: String, verified: Bool = false) -> [EventEntry] {
+        file.events.filter { cities.contains($0.city) && $0.start <= to && $0.end >= from && (!verified || $0.verified) }
             .sorted { ($0.start, $0.name) < ($1.start, $1.name) }
     }
 
@@ -307,7 +317,13 @@ public actor EventStore {
     }
 
     /// §39 item 5: a search's kept events and the city × kind pairs it searched for `from`…`to`.
-    public func record(_ entries: [EventEntry], searched: [SearchedPair], from: String, to: String) {
+    /// F-18 §46 items 0, 7 (`verified`): the run replaces every stored event of its cities in the window, so an event
+    /// dropped now (or one from an older path) is gone from the store.
+    public func record(_ entries: [EventEntry], searched: [SearchedPair], from: String, to: String, verified: Bool = false) {
+        if verified {
+            let cities = Set(searched.map(\.city))
+            file.events.removeAll { cities.contains($0.city) && $0.start <= to && $0.end >= from }
+        }
         for e in entries {
             file.events.removeAll { $0.city == e.city && $0.name == e.name && $0.start == e.start }
             file.events.append(e)
@@ -315,7 +331,7 @@ public actor EventStore {
         let at = now()
         for p in searched {
             file.windows.removeAll { $0.city == p.city && $0.kind == p.kind && $0.from >= from && $0.to <= to }
-            file.windows.append(SearchedWindow(city: p.city, kind: p.kind, from: from, to: to, at: at, kept: p.kept))
+            file.windows.append(SearchedWindow(city: p.city, kind: p.kind, from: from, to: to, at: at, kept: p.kept, verified: verified))
         }
         save()
     }
