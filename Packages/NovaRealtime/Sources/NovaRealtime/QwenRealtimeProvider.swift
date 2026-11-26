@@ -4,7 +4,6 @@ import FoundationNetworking
 #endif
 import NovaKit
 import NovaPorts
-import NovaVoice
 import Synchronization
 
 /// What the app's audio path calls on the voice model beyond `RealtimeProvider`: Gemini's manual activity marks and
@@ -29,15 +28,11 @@ public final class QwenRealtimeProvider: LiveVoiceProvider {
     /// an utterance's end is followed by this much silence (PROPOSED, F-05 §15 item 3).
     public static let endSilenceFrames = 60
 
-    /// Vendor facts: `wss://<workspace host>/api-ws/v1/realtime?model=<model>`; nil for an invalid host.
-    public static func endpoint(host: String, model: String) -> URL? {
-        guard VoiceHostCheck.isValid(host) else { return nil }
-        var components = URLComponents()
-        components.scheme = "wss"
-        components.host = host
-        components.path = "/api-ws/v1/realtime"
-        components.queryItems = [URLQueryItem(name: "model", value: model)]
-        return components.url
+    /// F-05 §15 vendor facts (T-016r): `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=<model>`, fixed.
+    public static func endpoint(model: String) -> URL? {
+        var components = URLComponents(string: QwenRoute.realtimeEndpoint)
+        components?.queryItems = [URLQueryItem(name: "model", value: model)]
+        return components?.url
     }
 
     public let capabilities = RealtimeCapabilities(serverSpeechEvents: false, clientCancel: true, verbatimRelay: false)
@@ -140,7 +135,8 @@ public final class QwenRealtimeProvider: LiveVoiceProvider {
     }
 
     /// `endpoint`: the socket URL for a model id (nil: no usable endpoint, a terminal credential failure).
-    public init(credentials: any RealtimeCredentialSource, endpoint: @escaping @Sendable (String) -> URL?,
+    public init(credentials: any RealtimeCredentialSource,
+                endpoint: @escaping @Sendable (String) -> URL? = { QwenRealtimeProvider.endpoint(model: $0) },
                 connector: any WebSocketConnector = URLSessionWebSocketConnector(), tuning: RealtimeTuning = RealtimeTuning(),
                 onClose: (@Sendable (SessionClosedLine) -> Void)? = nil, onLine: (@Sendable (String) -> Void)? = nil) {
         self.credentials = credentials

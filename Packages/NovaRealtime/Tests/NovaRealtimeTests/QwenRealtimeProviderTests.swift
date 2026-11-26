@@ -81,9 +81,7 @@ final class LineBox: Sendable {
 }
 
 private func provider(_ server: FakeQwenServer, lines: LineBox? = nil) -> QwenRealtimeProvider {
-    QwenRealtimeProvider(credentials: KeyCredentials(),
-                         endpoint: { QwenRealtimeProvider.endpoint(host: "ws.example-beijing.aliyuncs.com", model: $0) },
-                         connector: server, onLine: { line in lines?.lines.withLock { $0.append(line) } })
+    QwenRealtimeProvider(credentials: KeyCredentials(), connector: server, onLine: { line in lines?.lines.withLock { $0.append(line) } })
 }
 
 /// Reads events until `count` are in or the socket ends.
@@ -111,8 +109,9 @@ struct QwenRealtimeProviderTests {
         #expect(events == [RealtimeEvent.setupComplete])
         let socket = try #require(server.opened.withLock { $0.first })
         #expect(socket.request.value(forHTTPHeaderField: "Authorization") == "Bearer test-key")
+        // T-016r: the fixed Beijing endpoint, never the saved 千问 voice API Host.
         #expect(socket.request.url?.absoluteString
-            == "wss://ws.example-beijing.aliyuncs.com/api-ws/v1/realtime?model=qwen-audio-3.1-realtime-flash")
+            == "wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen-audio-3.1-realtime-flash")
         let first = try #require(socket.messages.first)
         #expect(first["type"] == "session.update")
         let session = try #require(first["session"])
@@ -178,6 +177,13 @@ struct QwenRealtimeProviderTests {
         #expect(events == expected)
         #expect(lines.all.prefix(2) == ["qwen usage in=120,900 out=300,20", "qwen history turns=1"])
         #expect(!events.contains { if case .resumptionHandle = $0 { true } else if case .goAway = $0 { true } else { false } })
+    }
+
+    @Test("T-016r F-05 §15 vendor facts (row 16 precondition): the voice model connects to wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=<model>")
+    func t016rEndpoint() {
+        #expect(QwenRoute.realtimeEndpoint == "wss://dashscope.aliyuncs.com/api-ws/v1/realtime")
+        #expect(QwenRealtimeProvider.endpoint(model: "qwen-audio-3.1-realtime-plus")?.absoluteString
+            == "wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen-audio-3.1-realtime-plus")
     }
 
     @Test("T-016q F-05 row 12: error and socket failures map to the session's codes")

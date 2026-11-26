@@ -49,6 +49,15 @@ private func qwenAsking(_ words: String) -> Drive {
 
 @Suite("T-016q F-05 §15 voice model choice")
 struct VoiceModelTests {
+    @Test("T-016r F-05 row 10: a Qwen choice needs only the 百炼 key (no API Host)")
+    func t016rRow10() {
+        #expect(VoiceModel.qwenFlash.isAvailable(qwenKeySaved: true))
+        #expect(VoiceModel.qwenFlash.disabledReason(qwenKeySaved: true) == nil)
+        #expect(VoiceModel.qwenPlus.disabledReason(qwenKeySaved: false) == "先在设置里填百炼 key")
+        let saved = VoiceTestSettings([SettingsKey.voiceModel: VoiceModel.qwenFlash.rawValue, SettingsKey.qwenTTSHost: ""])
+        #expect(VoiceModel.effective(in: saved, qwenKeySaved: true) == .qwenFlash)
+    }
+
     @Test("T-016q F-05 row 10: three choices, Gemini default; Qwen disabled without the 百炼 key; change note 下次连接时生效")
     func row10() {
         #expect(VoiceModel.allCases.map(\.label) == ["Gemini 3.8 Live", "Qwen Audio 3.1 Flash", "Qwen Audio 3.1 Plus"])
@@ -56,12 +65,12 @@ struct VoiceModelTests {
             == ["gemini-3.8-live", "qwen-audio-3.1-realtime-flash", "qwen-audio-3.1-realtime-plus"])
         #expect(VoiceModel.saved(in: VoiceTestSettings()) == .geminiLive)
         #expect(VoiceModel.saved(in: VoiceTestSettings([SettingsKey.voiceModel: "nonsense"])) == .geminiLive)
-        #expect(VoiceModel.geminiLive.disabledReason(qwenKeySaved: false, qwenHostSaved: false) == nil)
-        #expect(VoiceModel.qwenFlash.disabledReason(qwenKeySaved: false, qwenHostSaved: true) == "先在设置里填百炼 key")
-        #expect(VoiceModel.qwenPlus.isAvailable(qwenKeySaved: true, qwenHostSaved: true))
+        #expect(VoiceModel.geminiLive.disabledReason(qwenKeySaved: false) == nil)
+        #expect(VoiceModel.qwenFlash.disabledReason(qwenKeySaved: false) == "先在设置里填百炼 key")
+        #expect(VoiceModel.qwenPlus.isAvailable(qwenKeySaved: true))
         let saved = VoiceTestSettings([SettingsKey.voiceModel: VoiceModel.qwenPlus.rawValue])
-        #expect(VoiceModel.effective(in: saved, qwenKeySaved: true, qwenHostSaved: true) == .qwenPlus)
-        #expect(VoiceModel.effective(in: saved, qwenKeySaved: false, qwenHostSaved: true) == .geminiLive)
+        #expect(VoiceModel.effective(in: saved, qwenKeySaved: true) == .qwenPlus)
+        #expect(VoiceModel.effective(in: saved, qwenKeySaved: false) == .geminiLive)
         #expect(VoiceModel.nextConnectNote == "下次连接时生效")
         // Item 6: the record header names the voice model.
         let header = RecordHeader(appVersion: "0.1.0(1) abc1234", comfortMode: "model", interruptible: true,

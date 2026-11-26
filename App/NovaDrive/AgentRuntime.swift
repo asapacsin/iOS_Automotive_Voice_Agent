@@ -1032,9 +1032,7 @@ final class AgentRuntime {
         // F-24 §16 item 3 (T-020b): why each socket closed; the code and 80 characters of the reason only.
         // F-05 §15 items 1-2 (T-016q): the saved 「语音模型」, read at session start; one provider per choice.
         let qwenKeySaved = ((try? store.value(for: .qwenAPIKey)) ?? nil)?.isEmpty == false
-        let qwenHost = defaults.string(forKey: SettingsKey.qwenTTSHost) ?? ""
-        let voiceModel = VoiceModel.effective(in: DefaultsSettingsStore(), qwenKeySaved: qwenKeySaved,
-                                              qwenHostSaved: VoiceHostCheck.isValid(qwenHost))
+        let voiceModel = VoiceModel.effective(in: DefaultsSettingsStore(), qwenKeySaved: qwenKeySaved)
         RuntimeLog.agent.notice("voiceModel \(voiceModel.modelID, privacy: .public)")
         let connector = URLSessionWebSocketConnector(onDuplicate: { site in
             RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
@@ -1045,9 +1043,8 @@ final class AgentRuntime {
             voiceLines.record?.submit(.sessionClosed(line))
         }
         let provider: any LiveVoiceProvider = voiceModel.isQwen
-            ? QwenRealtimeProvider(credentials: KeychainQwenRealtimeCredentials(),
-                                   endpoint: { QwenRealtimeProvider.endpoint(host: qwenHost, model: $0) },
-                                   connector: connector, onClose: onClose, onLine: { line in
+            // T-016r: the fixed Beijing endpoint (`QwenRoute.realtimeEndpoint`), not the saved 千问 voice API Host.
+            ? QwenRealtimeProvider(credentials: KeychainQwenRealtimeCredentials(), connector: connector, onClose: onClose, onLine: { line in
                                        // F-05 §15 items 5-6: numbers only (I-8).
                                        RuntimeLog.agent.notice("\(line, privacy: .public)")
                                        voiceLines.record?.submit(.qwen(line))

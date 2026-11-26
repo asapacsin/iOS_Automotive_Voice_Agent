@@ -30,14 +30,14 @@ public enum VoiceModel: String, Sendable, Hashable, CaseIterable {
     /// The model id sent to the provider and written as the record header's `voiceModel` (item 6).
     public var modelID: String { rawValue }
 
-    /// Item 1: Gemini always; a Qwen choice only with the 百炼 key and its workspace host saved.
-    public func isAvailable(qwenKeySaved: Bool, qwenHostSaved: Bool) -> Bool {
-        !isQwen || (qwenKeySaved && qwenHostSaved)
+    /// Item 1 (T-016r): Gemini always; a Qwen choice only with the 百炼 key saved (no API Host is used or needed).
+    public func isAvailable(qwenKeySaved: Bool) -> Bool {
+        !isQwen || qwenKeySaved
     }
 
     /// The disabled row's text, or nil when the choice can be picked.
-    public func disabledReason(qwenKeySaved: Bool, qwenHostSaved: Bool) -> String? {
-        isAvailable(qwenKeySaved: qwenKeySaved, qwenHostSaved: qwenHostSaved) ? nil : Self.qwenKeyMissingMessage
+    public func disabledReason(qwenKeySaved: Bool) -> String? {
+        isAvailable(qwenKeySaved: qwenKeySaved) ? nil : Self.qwenKeyMissingMessage
     }
 
     /// The saved choice; unset or unknown reads as the default.
@@ -47,8 +47,8 @@ public enum VoiceModel: String, Sendable, Hashable, CaseIterable {
 
     /// The model a session connects with: the saved choice, or Gemini when a saved Qwen choice is no longer available
     /// (its key was removed after it was picked).
-    public static func effective(in settings: any SettingsStore, qwenKeySaved: Bool, qwenHostSaved: Bool) -> VoiceModel {
+    public static func effective(in settings: any SettingsStore, qwenKeySaved: Bool) -> VoiceModel {
         let choice = saved(in: settings)
-        return choice.isAvailable(qwenKeySaved: qwenKeySaved, qwenHostSaved: qwenHostSaved) ? choice : .default
+        return choice.isAvailable(qwenKeySaved: qwenKeySaved) ? choice : .default
     }
 }
