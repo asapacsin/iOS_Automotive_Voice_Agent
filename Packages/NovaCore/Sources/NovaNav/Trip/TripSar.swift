@@ -101,17 +101,10 @@ public enum TripSar {
         return !nearWords.contains { name.contains($0) && !askedText.contains($0) }
     }
 
-    /// Traditional characters of Macau and Hong Kong names → simplified; Latin letters lower case.
-    static let simple: [Character: Character] = [
-        "門": "门", "環": "环", "龍": "龙", "島": "岛", "廣": "广", "場": "场", "灣": "湾", "東": "东", "華": "华", "馬": "马",
-        "會": "会", "館": "馆", "園": "园", "灘": "滩", "頭": "头", "廟": "庙", "觀": "观", "開": "开", "陽": "阳", "樓": "楼",
-        "鳥": "鸟", "藝": "艺", "術": "术", "遺": "遗", "蹟": "迹", "跡": "迹", "聖": "圣", "臺": "台", "國": "国", "際": "际",
-        "業": "业", "賽": "赛", "車": "车", "學": "学", "電": "电", "發": "发", "寶": "宝", "葉": "叶", "壽": "寿", "爐": "炉",
-        "砲": "炮", "噴": "喷", "總": "总", "區": "区", "麗": "丽", "興": "兴", "號": "号", "築": "筑", "塔": "塔", "橋": "桥",
-    ]
-
+    /// §71 item 2: compared in simplified form (Foundation's Hant-Hans transform; works on Linux too); Latin letters
+    /// lower case.
     static func simplified(_ text: String) -> String {
-        String(text.lowercased().map { simple[$0] ?? $0 })
+        (text.applyingTransform(StringTransform("Hant-Hans"), reverse: false) ?? text).lowercased()
     }
 
     // MARK: Items 5-6: which router, border legs

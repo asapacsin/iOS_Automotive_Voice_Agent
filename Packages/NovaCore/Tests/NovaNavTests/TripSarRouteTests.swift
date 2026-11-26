@@ -100,7 +100,10 @@ struct TripSarRouteTests {
         #expect(TripSar.nameMatches(asked: "澳门威尼斯人度假村", found: "澳门威尼斯人"))
         #expect(!TripSar.nameMatches(asked: "Ruins of St. Paul's", found: "Public Toilet near Ruins of St. Paul's"))
         #expect(TripSar.nameMatches(asked: "大三巴牌坊", found: "大三巴牌坊"))
-        #expect(TripSar.nameMatches(asked: "澳門旅遊塔", found: "澳门旅遊塔会展娱乐中心"))
+        #expect(TripSar.nameMatches(asked: "澳門旅遊塔", found: "澳门旅游塔会展娱乐中心"))
+        // Review: characters outside any small table (遊 漁 碼 媽 閣) compare in simplified form too.
+        #expect(TripSar.nameMatches(asked: "漁人碼頭", found: "澳门渔人码头"))
+        #expect(TripSar.nameMatches(asked: "媽閣廟", found: "妈阁庙"))
         let search = AmapLookupSearch([
             "澳门威尼斯人度假村": [macau("澳门上葡京综合度假村", 22.15)],
             "Ruins of St. Paul's": [macau("Public Toilet near Ruins of St. Paul's", 22.197)],

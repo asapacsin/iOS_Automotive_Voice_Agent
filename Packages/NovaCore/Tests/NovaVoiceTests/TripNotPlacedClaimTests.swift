@@ -45,4 +45,22 @@ struct TripNotPlacedClaimTests {
         honest.advance(by: .seconds(30))
         #expect(honest.corrections.isEmpty, "\(honest.out)")
     }
+
+    @Test("T-040zw F-15b §70 item 3 (review): on the driver's next turn a reply naming the stop (navigation to it) is not voided")
+    func nextTurnNotChecked() {
+        var h = PipelineHarness()
+        h.driver("周日去澳门，大三巴和旅游塔")
+        let plan = h.call("t1", "plan_trip")
+        h.result(plan, "plan_trip", withMiss)
+        h.say("排好了澳门旅游塔；大三巴牌坊地图没找到。")
+        h.close()
+        h.advance(by: .seconds(30))
+        h.driver("那导航去大三巴牌坊")
+        let nav = h.call("t2", "navigate_to")
+        h.result(nav, "navigate_to", .success(["status": "ok"]))
+        h.say("好的，开始导航去大三巴牌坊。")
+        h.close()
+        h.advance(by: .seconds(30))
+        #expect(!h.corrections.contains(.tripUnverifiedClaim), "\(h.out)")
+    }
 }

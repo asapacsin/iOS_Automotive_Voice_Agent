@@ -225,6 +225,8 @@ public struct DriverTurnPipeline: Sendable {
             lastUtterance = text
             tripLatestOk = nil
             tripNames = []
+            // F-15b §70 item 3 (review): only the reply to the turn that got the trip result is checked.
+            tripNotPlaced = []
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
             wrongLanguageAsked = false
             awaitingReaskReply = false
