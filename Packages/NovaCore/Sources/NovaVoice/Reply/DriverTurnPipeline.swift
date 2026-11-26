@@ -164,6 +164,8 @@ public struct DriverTurnPipeline: Sendable {
     private var tripWrites: Set<CallID> = []
     /// §58 item 1: stop names the request's `set_trip_plan` calls wrote (a reply naming one is about the trip).
     private var tripNames: [String] = []
+    /// F-15b §70 item 3 (T-040zw): the `not_placed` stop names of the latest ok trip write since the driver's last words.
+    private var tripNotPlaced: [String] = []
     private var musicConfirmed: Bool { musicPlaying && musicFresh }
     private var navigationConfirmed: Bool { navigation == .navigating && navigationFresh }
     private var lastUtterance = ""
@@ -222,6 +224,7 @@ public struct DriverTurnPipeline: Sendable {
             lastUtterance = text
             tripLatestOk = nil
             tripNames = []
+            tripNotPlaced = []
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
             wrongLanguageAsked = false
             awaitingReaskReply = false
@@ -329,6 +332,7 @@ public struct DriverTurnPipeline: Sendable {
             if Self.tripWriteTools.contains(response.name) {
                 tripWrites.remove(response.id)
                 tripLatestOk = response.result.ok
+                tripNotPlaced = response.result.ok ? Self.notPlacedNames(response.result.data["not_placed"]) : []
             }
             // The result may arrive after its own turn closed; it then proves the utterance's open turn.
             guard var t = turn, t.id == id || ofUtterance else { return [] }
@@ -477,8 +481,24 @@ public struct DriverTurnPipeline: Sendable {
         return pending ? .pending : .proven
     }
 
+    /// F-15b §70 item 3 (T-040zw): the names in a `not_placed` list (objects with `name`, or plain names).
+    static func notPlacedNames(_ value: JSONValue?) -> [String] {
+        guard case .array(let items)? = value else { return [] }
+        return items.compactMap { $0["name"]?.stringValue ?? $0.stringValue }.filter { !$0.isEmpty }
+    }
+
+    /// §70 item 3: words saying a stop is not on the map; a reply with them names a not-placed stop honestly.
+    static let notPlacedWords = ["没找到", "找不到", "没有找到", "查不了", "没查完", "没查到", "没能", "没放", "没有放", "没加", "没有加", "未找到"]
+
+    /// §70 item 3: her reply names a `not_placed` stop as planned (no word saying it is not on the map).
+    static func namesNotPlaced(_ text: String, _ names: [String]) -> Bool {
+        names.contains(where: text.contains) && !notPlacedWords.contains(where: text.contains)
+    }
+
     /// §58 items 1–3: nil when the reply says nothing about a trip change (judged as usual).
     private func tripVerdict(_ t: Turn, final: Bool) -> Verdict? {
+        // F-15b §70 item 3 (T-040zw): a stop the map did not place, named in her reply as planned.
+        if tripLatestOk == true, Self.namesNotPlaced(t.text, tripNotPlaced) { return .disproven(.tripUnverifiedClaim) }
         if ClaimLexicon.tripInBackground(t.text, stops: tripNames), tripWrites.isEmpty {
             return .disproven(tripLatestOk == false ? .tripClaimAfterFailure : .tripUnverifiedClaim)
         }

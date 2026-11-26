@@ -74,6 +74,9 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     public var imageNote: String? = nil
     /// F-15b §67 item 4 (T-040zt): the map's place name under the title when it differs from the title; nil otherwise.
     public var place: String? = nil
+    /// F-15b §71 item 6 (T-040zx): the drive into this stop crosses between Macau/Hong Kong and the mainland.
+    public var border = false
+    public static let borderText = "过关时间未计入"
 
     static func tag(_ stop: TripStop) -> String? {
         switch stop.role {
@@ -148,7 +151,8 @@ public enum TripScreen: Sendable, Hashable {
                      tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed,
                      event: stop.shownEvent?.cardText, imageNote: stop.shownEvent?.imageNote,
                      // §66 item 6: 「场馆未找到 · <city>」 where the venue's map name would be.
-                     place: stop.event?.venueMissingText ?? (stop.placed && stop.title != stop.place.name ? stop.place.name : nil))
+                     place: stop.event?.venueMissingText ?? (stop.placed && stop.title != stop.place.name ? stop.place.name : nil),
+                     border: list.isBorderLeg(stop))
         })
     }
 }

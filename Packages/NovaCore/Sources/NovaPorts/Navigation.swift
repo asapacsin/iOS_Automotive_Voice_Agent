@@ -247,10 +247,14 @@ public struct Place: Sendable, Hashable {
     public let kind: PlaceKind?
     /// F-15b §68 item 1 (T-040zu): 高德's `adcode` (82xxxx Macau, 81xxxx Hong Kong); nil when unknown.
     public let adcode: String?
+    /// F-15b §70 item 1 (T-040zw): 高德's `pname` (澳门特别行政区 for Macau, where v3 gives no adcode); nil when unknown.
+    public let province: String?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
                 openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil,
-                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil, adcode: String? = nil) {
+                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil, adcode: String? = nil,
+                province: String? = nil) {
+        self.province = province
         self.kind = kind
         self.adcode = adcode
         self.photoURL = photoURL
@@ -272,7 +276,7 @@ extension Place {
     public func with(photoURL: URL?) -> Place {
         Place(id: id, name: name, address: address, coordinate: coordinate, distanceMeters: distanceMeters,
               openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL, countryCode: countryCode,
-              kind: kind, adcode: adcode)
+              kind: kind, adcode: adcode, province: province)
     }
 }
 
@@ -385,18 +389,100 @@ public protocol PlaceInfoSearch: PlaceSearch {
     func textInfo(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place]
 }
 
-/// F-15b §68 item 1 (T-040zu): a lookup city in Macau or Hong Kong is searched without 高德's city limit; only results
-/// with these adcode prefixes are kept (82 Macau, 81 Hong Kong). nil for any other city.
+/// F-15b §68 item 1 (T-040zu), §70 (T-040zw), §71 (T-040zx): Macau and Hong Kong lookups. A SAR lookup goes to 高德 with no
+/// city; a result is kept when it is in the SAR asked (adcode 82/81, else, with no adcode, its province 澳门/香港特别行政区),
+/// or in the mainland city the city text also names, and its name passes the name check.
 public enum SpecialRegion {
-    public static let adcodePrefixes = ["82", "81"]
-    public static let cities: Set<String> = ["澳门", "澳门特别行政区", "香港", "香港特别行政区"]
-    public static func isSpecial(_ city: String?) -> Bool {
-        guard let c = city?.trimmingCharacters(in: .whitespaces) else { return false }
-        return cities.contains(c)
+    public enum Region: String, Sendable, Hashable, CaseIterable {
+        case macau, hongKong
+        public var adcodePrefix: String { self == .macau ? "82" : "81" }
+        public var province: String { self == .macau ? "澳门特别行政区" : "香港特别行政区" }
+        /// §71 item 2b: the name put in front of a second lookup.
+        public var shortName: String { self == .macau ? "澳门" : "香港" }
+        /// §71 item 1: city texts naming this SAR (case-insensitive).
+        public var aliases: [String] {
+            self == .macau ? ["澳门", "澳門", "macau", "macao", "氹仔", "凼仔", "路环", "路環", "路氹"]
+                           : ["香港", "hong kong", "九龙", "九龍", "尖沙咀", "新界", "香港岛"]
+        }
     }
-    public static func keeps(_ place: Place) -> Bool {
-        guard let code = place.adcode else { return false }
-        return adcodePrefixes.contains { code.hasPrefix($0) }
+
+    /// §70 item 2: how a kept result was kept.
+    public enum KeptBy: String, Sendable { case adcode, province }
+
+    public static let adcodePrefixes = ["82", "81"]
+
+    /// §71 item 1: the SARs a city text names, and the mainland cities it also names (「珠海,澳门」 → [澳门], [珠海]).
+    public struct Lookup: Sendable, Hashable {
+        public let regions: [Region]
+        public let mainland: [String]
+    }
+
+    public static func lookup(_ city: String?) -> Lookup? {
+        guard let city = city?.trimmingCharacters(in: .whitespaces), !city.isEmpty else { return nil }
+        let lower = city.lowercased()
+        let regions = Region.allCases.filter { r in r.aliases.contains { lower.contains($0) } }
+        guard !regions.isEmpty else { return nil }
+        let separators = CharacterSet(charactersIn: ",，、/;；|")
+        let mainland = city.components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { part in !part.isEmpty && !Region.allCases.contains { r in r.aliases.contains { part.lowercased().contains($0) } } }
+            .map { $0.hasSuffix("市") ? String($0.dropLast()) : $0 }
+        return Lookup(regions: regions, mainland: mainland)
+    }
+
+    public static func isSpecial(_ city: String?) -> Bool { lookup(city) != nil }
+
+    /// §71 item 5: the SAR a found place is in (adcode 82/81, else province or city 澳门/香港特别行政区).
+    public static func region(of place: Place) -> Region? {
+        if let code = place.adcode, !code.isEmpty {
+            return Region.allCases.first { code.hasPrefix($0.adcodePrefix) }
+        }
+        for name in [place.province, place.city].compactMap({ $0 }) {
+            if let r = Region.allCases.first(where: { $0.province == name }) { return r }
+        }
+        return nil
+    }
+
+    /// §70 item 1: how `place` is kept for `region`; nil when it is not in that SAR.
+    public static func keptBy(_ place: Place, in region: Region) -> KeptBy? {
+        if let code = place.adcode, !code.isEmpty { return code.hasPrefix(region.adcodePrefix) ? .adcode : nil }
+        let name = place.province ?? place.city
+        return name == region.province ? .province : nil
+    }
+
+    /// §71 item 5 (T-040zx): the Pearl River Delta box (Macau, Hong Kong and the mainland cities around them), where
+    /// a 高德 GCJ-02 point is converted to WGS-84 for OSRM. Points elsewhere go to OSRM as they are (abroad, §36 item 5).
+    public static func inDeltaBox(_ c: GeoCoordinate) -> Bool {
+        (21.5...23.6).contains(c.latitude) && (112.5...115.0).contains(c.longitude)
+    }
+
+    /// §68 item 1 as extended by §70: in Macau or Hong Kong.
+    public static func keeps(_ place: Place) -> Bool { region(of: place) != nil }
+
+    /// §71 item 2: the asked name's core: SAR prefix and a generic tail removed, simplified, lower case.
+    public static let prefixes = ["澳门", "澳門", "香港"]
+    static let tails = ["度假村", "酒店", "景区", "广场", "公园"]
+    public static func simplified(_ s: String) -> String {
+        (s.applyingTransform(StringTransform("Hant-Hans"), reverse: false) ?? s).lowercased()
+            .trimmingCharacters(in: .whitespaces)
+    }
+    public static func core(_ name: String) -> String {
+        var n = simplified(name)
+        for p in prefixes.map(simplified) where n.hasPrefix(p) && n.count > p.count { n = String(n.dropFirst(p.count)); break }
+        for t in tails where n.hasSuffix(t) && n.count > t.count { n = String(n.dropLast(t.count)); break }
+        return n.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// §71 item 2 name check: the result's name, simplified, contains the asked name's core. A core in Latin letters
+    /// must start the result's name (its SAR prefix removed): 「Public Toilet near Ruins of St. Paul's」 contains the
+    /// core of 「Ruins of St. Paul's」 and row 337 rejects it.
+    public static func nameMatches(asked: String, found: String) -> Bool {
+        let c = core(asked)
+        guard !c.isEmpty else { return false }
+        var f = simplified(found)
+        guard c.unicodeScalars.contains(where: { $0.value < 0x2E80 && CharacterSet.letters.contains($0) }) else { return f.contains(c) }
+        for p in prefixes.map(simplified) where f.hasPrefix(p) { f = String(f.dropFirst(p.count)); break }
+        return f.trimmingCharacters(in: .whitespaces).hasPrefix(c)
     }
 }
 

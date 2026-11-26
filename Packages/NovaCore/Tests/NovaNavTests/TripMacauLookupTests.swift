@@ -84,7 +84,8 @@ struct TripMacauLookupTests {
         let r2 = await rig2.run(planCall("周日去澳门", city: "澳门"))
         guard case .array(let missed2)? = r2.data["not_placed"] else { Issue.record("no not_placed: \(r2)"); return }
         #expect(missed2.first?["reason"] == "not_found")
-        #expect(rig2.line("trip lookup name=") == ["trip lookup name=大三巴牌坊 city=澳门 info=none"])
+        // F-15b §70 item 2 (T-040zw): the line also says what the filter dropped.
+        #expect(rig2.line("trip lookup name=") == ["trip lookup name=大三巴牌坊 city=澳门 info=none dropped=1 kept_by=none"])
     }
 
     @Test("T-040zu F-15b §68 row 323: a result with not_placed: must_not has invent; next names only the reason")

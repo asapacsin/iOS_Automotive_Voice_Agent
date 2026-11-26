@@ -139,6 +139,7 @@ public enum TripPlannerShape {
     // MARK: Prompt texts (§62 item 3)
 
     /// §62 item 3: the planner's system text as used in the PoC, plus §61 item 3a's line for a named place not found.
+    /// F-15b §71 item 4 (T-040zx): the line on Macau and Hong Kong names.
     public static let system = """
     你是行程规划师。司机的要求由语音助手转给你，你只输出 JSON，不要其他文字。JSON 格式：{"days": [ {"sights": [{"name": "司机怎么叫它", "location": "地图上要搜的地点全名", "city": "所在城市", "minutes": 停留分钟, "event": {"title": "活动名", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} 只有活动才写}], "stay": {"name": "当晚住的地方全名", "city": "城市"} 或 null } ], "done": true/false, "note": "给司机的一句话：没做到的要说"}
     要求：
@@ -146,6 +147,7 @@ public enum TripPlannerShape {
     - 每天一般 3 到 4 个景点，景点时间加开车时间一天 6 到 8 小时；整天的地方（主题乐园、度假村玩一整天）可以单独一天。
     - 每晚写 stay；度假村、酒店式景区本身能住，就直接住那里，不要再加别的酒店。最后一天 stay 写 null。
     - name 写司机怎么叫它；location 写能在地图上搜到的地点全名（活动、演出这类不是地点的，写它的场馆）；name 本身就是地点时 location 可以不写。city 写它真正所在的城市。
+    - 澳门、香港的地方用地图上常用的简体中文名（如大三巴牌坊、澳门旅游塔、澳门威尼斯人），不要用英文名或别名。
     - 每次你会收到程序核对的数字（地图找到的地点、开车时间、每天总时间）。按这些数字自己判断合不合理，不合理就改好整份再输出，done=false；都合理了输出最终行程，done=true。
     - 司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。
     - 只在某几天开放的活动，name 写活动名，location 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。
@@ -223,10 +225,8 @@ public enum TripPlannerShape {
 
     /// §66 item 7, §68: a found place's city: 澳门 / 香港 from the adcode (82 / 81), else 高德's `city`.
     public static func cityOf(_ place: Place) -> String? {
-        if let code = place.adcode {
-            if code.hasPrefix("82") { return "澳门" }
-            if code.hasPrefix("81") { return "香港" }
-        }
+        // F-15b §70 (T-040zw): adcode 82/81, else the province 高德 v3 gives Macau and Hong Kong.
+        if let sar = SpecialRegion.region(of: place) { return sar.shortName }
         return place.city
     }
 
