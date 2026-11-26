@@ -3220,8 +3220,8 @@ worked end to end: stops were 「地图没找到」 (§70), and each Macau day's
    - **a.** 高德 text search with **no** `city`/`citylimit`; keep results in that SAR (adcode 82/81, else `pname`/
      `cityname`, §70), plus the mainland city when item 1's text names one.
    - **b.** Nothing kept: once more with the SAR name in front (「澳门」 + name, unless the name already starts with it).
-   - **c.** Nothing kept: Photon (§36 item 2b) inside the SAR's box (Macau 113.52,22.10,113.62,22.22; Hong Kong
-     113.82,22.15,114.45,22.57) with the name as written.
+   - No OpenStreetMap (Photon) lookup for SAR places (owner 2026-11-26: 高德 only for places; it found 13/18 names,
+     Photon 9/18). A place still not found is `not_found` (§68 item 4).
    - **Name check on every kept result:** the result's name must contain the asked name's core: the asked name with
      the SAR prefix (澳门/澳門/香港) and a generic tail (度假村, 酒店, 景区, 广场, 公园) removed, compared in simplified
      form. Otherwise it is not kept (rejects 上葡京 for 威尼斯人度假村 and the toilet for Ruins of St. Paul's).
@@ -3230,9 +3230,9 @@ worked end to end: stops were 「地图没找到」 (§70), and each Macau day's
    trip's cities (`asked.city` and the plan's stop cities) that pass the name check. Logged `trip lookup retry=nocity
    kept=<n>`.
 4. **Planner names.** The planner's system text (§62) gains one line: 「澳门、香港的地方用地图上常用的简体中文名（如
-   大三巴牌坊、澳门旅游塔、澳门威尼斯人），不要用英文名或别名。」 (§61's catalog rule for `location` unchanged.)
-5. **Which router.** A found place is a SAR place when 高德 gives it adcode 82/81 or `pname`/`cityname` 澳门/香港特别行政区
-   (Photon: inside item 2c's box). A leg with a SAR place at either end, including Zhuhai ↔ Macau, gets its time from
+   大三巴牌坊、澳门旅游塔、澳门威尼斯人），不要用英文名或别名。」 With 高德 only, this is what keeps 「Ruins of St. Paul's」 out. (§61's catalog rule for `location` unchanged.)
+5. **Which router.** A found place is a SAR place when 高德 gives it adcode 82/81 or `pname`/`cityname` 澳门/香港特别行政区.
+   A leg with a SAR place at either end, including Zhuhai ↔ Macau, gets its time from
    OSRM (§36 item 2c's table, `TripTimes` abroad), with each 高德 point converted GCJ-02 → WGS-84 first; guidance to such
    a stop is §47's in-app guidance on an OSRM route. Legs with both ends on the mainland stay on 高德. Logged `trip
    times vendor=osrm reason=sar pairs=<n> ms=<ms>`.
@@ -3248,7 +3248,7 @@ worked end to end: stops were 「地图没找到」 (§70), and each Macau day's
 |---|---|---|---|
 | 335 | City texts 澳門, Macau, 氹仔, 「珠海,澳门」, 香港, 尖沙咀 | Each is a SAR lookup (item 1); 「珠海,澳门」 keeps 澳门 and 珠海 results | unit |
 | 336 | Fixture: 渔人码头 no-city answer with only 长沙/唐山 results; then 澳门渔人码头 with a Macau result | First pass keeps nothing; item 2b finds and keeps 澳门渔人码头 | unit |
-| 337 | Fixtures: 澳门威尼斯人度假村 → 澳门上葡京综合度假村; Ruins of St. Paul's → Public Toilet near Ruins of St. Paul's | Both rejected by the name check; Photon fallback keeps 大三巴牌坊 Ruínas de São Paulo for the second | unit |
+| 337 | Fixtures: 澳门威尼斯人度假村 → 澳门上葡京综合度假村; Ruins of St. Paul's → Public Toilet near Ruins of St. Paul's | Both rejected by the name check; the second ends `not_found` (no Photon lookup) | unit |
 | 338 | Lookup 人民公园, city 珠海 | City search as today; no retry | unit |
 | 339 | Lookup 大三巴, city 珠海; city search returns 大三巴茶餐厅(华发峰尚店) | Name check passes only if the core matches; here it does, kept as today (documented limit: a similar mainland name wins when the city is wrong) | unit |
 | 340 | Lookup with city 珠海 answering `USER_ABROAD_DAILY_QUERY_OVER_LIMIT` | Item 3 retry with no city; `retry=nocity` | unit |
