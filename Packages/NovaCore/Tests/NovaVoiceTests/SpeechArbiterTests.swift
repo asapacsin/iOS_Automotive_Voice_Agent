@@ -15,25 +15,6 @@ struct SpeechArbiterTests {
         #expect(a.epoch == e && !a.replyPlaying)
     }
 
-    @Test("F-08 W2 end to end with fakes: clause 3 of the old epoch is never played")
-    func bargeInWithRevoicer() {
-        var a = SpeechArbiter()
-        var q = RevoicerQueue(epoch: a.epoch)
-        let pcm = PCMBuffer(sampleRate: 24_000, samples: [0])
-        let old = q.epoch
-        for c in ["一。", "二。", "三。"] { _ = q.handle(.clause(c)) }
-        _ = q.handle(.synthesized(epoch: old, sequence: 0, .success(pcm)))
-        _ = a.handle(.replyPlaying(true))
-        var played: [RevoicerOutput] = []
-        for effect in a.handle(.stopPhrase) {
-            if case .cancelRevoicing(let e) = effect { played += q.handle(.cancel(newEpoch: e)) }
-        }
-        played += q.handle(.synthesized(epoch: old, sequence: 1, .success(pcm)))
-        played += q.handle(.synthesized(epoch: old, sequence: 2, .success(pcm)))
-        #expect(!played.contains { if case .play = $0 { true } else { false } })
-        #expect(q.epoch == a.epoch)
-    }
-
     @Test("F-08 owner rule 2026-10-28: sound over playback never stops her, even confirmed speech")
     func unqualified() {
         var a = SpeechArbiter()

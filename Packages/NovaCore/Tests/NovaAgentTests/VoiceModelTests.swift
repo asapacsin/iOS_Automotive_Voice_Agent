@@ -54,7 +54,7 @@ struct VoiceModelTests {
         #expect(VoiceModel.qwenFlash.isAvailable(qwenKeySaved: true))
         #expect(VoiceModel.qwenFlash.disabledReason(qwenKeySaved: true) == nil)
         #expect(VoiceModel.qwenPlus.disabledReason(qwenKeySaved: false) == "先在设置里填百炼 key")
-        let saved = VoiceTestSettings([SettingsKey.voiceModel: VoiceModel.qwenFlash.rawValue, SettingsKey.qwenTTSHost: ""])
+        let saved = VoiceTestSettings([SettingsKey.voiceModel: VoiceModel.qwenFlash.rawValue])
         #expect(VoiceModel.effective(in: saved, qwenKeySaved: true) == .qwenFlash)
     }
 
@@ -144,5 +144,31 @@ struct VoiceModelTests {
         d.realtime(.failed(RealtimeError(.connectionClosed)))
         let timer = d.effects.compactMap { if case .schedule(.session(let t), _) = $0, t.kind == .reconnectDelay { t } else { nil } }
         #expect(!d.send(.timer(.session(timer.last!))).contains(.diagnostic(.qwenReconnect)))
+    }
+
+    @Test("T-020e F-07 row 28: session start with each 语音模型: revoicing false, no TTS clause, a clean turn's audio released as it arrives (held_ms 0)")
+    func t020eRow28() {
+        let pcm = PCMBuffer(sampleRate: 24_000, samples: [1, 2, 3])
+        for model in VoiceModel.allCases {
+            var d = Drive()
+            d.state = AgentState(truthfulness: TruthfulnessTuning(), revoicing: false, backgroundTools: model.backgroundTools,
+                                 freshReconnect: model.resumes ? nil : ExchangeMemory())
+            d.connect()
+            #expect(!d.state.revoicing)
+            d.send(.speechStarted(recentSpeech: true))
+            d.send(.speechStopped)
+            let t1 = TurnID(1)
+            d.realtime(.userTranscript("讲个笑话", isFinal: true))
+            d.realtime(.responseStarted(t1))
+            d.realtime(.replyText(t1, "好的，有一只小猫。"))
+            let out = d.realtime(.replyAudio(t1, pcm))
+            #expect(out.contains(.playReplyAudio(t1, pcm)))
+            #expect(spoken(d.effects).isEmpty)
+            var timing = GeminiVoiceTiming(source: model.timingSource)
+            timing.audioReceived(turn: 1, at: d.now)
+            let line = timing.audioPlayed(turn: 1, at: d.now)
+            #expect(line?.heldMs == 0)
+            #expect(line?.source == (model.isQwen ? "qwen-realtime" : "gemini"))
+        }
     }
 }

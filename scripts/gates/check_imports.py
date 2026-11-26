@@ -41,6 +41,11 @@ REMOVED = ("OfflineSenseVoice", "MultilingualModelStore", "多语言识别")
 RETIRED_NAME = "azure"
 RETIRED_ALLOWED = {"Packages/NovaCore/Sources/NovaAgent/Settings/RetiredVoiceSettings.swift",
                    "Packages/NovaServices/Tests/NovaServicesTests/RetiredVoiceSettingsTests.swift"}
+# F-07 §18 item 6 (T-020e): 「她的声音」 and the revoicing code are removed. No file under App/ or Packages/ may name
+# these (exact text), except the item 4 one-time cleanup that must name the retired keys and its test.
+VOICE_REMOVED = ("QwenSpeechClient", "Revoicer", "qwen_tts_host", "VoiceSourceKind")
+VOICE_REMOVED_ALLOWED = {"Packages/NovaCore/Sources/NovaAgent/Settings/VoiceSourceRemoval.swift",
+                         "Packages/NovaServices/Tests/NovaServicesTests/VoiceSourceRemovalTests.swift"}
 # Build output, generated projects and fetched model packs are not source; files over 2 MB are model data.
 RETIRED_SKIP_DIRS = {".build", ".swiftpm", "DerivedData", "xcuserdata", "SherpaModels"}
 RETIRED_MAX_BYTES = 2_000_000
@@ -147,6 +152,27 @@ def retired_name_failures(root: pathlib.Path) -> list[str]:
     return failures
 
 
+def voice_removed_failures(root: pathlib.Path) -> list[str]:
+    """F-07 §18 item 6: as `retired_name_failures`, for the removed 千问 TTS source and revoicing names."""
+    failures = []
+    for d in ("App", "Packages"):
+        for path in sorted((root / d).rglob("*")):
+            rel = path.relative_to(root)
+            if (RETIRED_SKIP_DIRS & set(rel.parts) or any(p.endswith(".xcodeproj") for p in rel.parts)
+                    or not path.is_file() or rel.as_posix() in VOICE_REMOVED_ALLOWED):
+                continue
+            if path.stat().st_size > RETIRED_MAX_BYTES:
+                continue
+            try:
+                text = path.read_bytes().decode("utf-8")
+            except UnicodeDecodeError:
+                continue  # binary resources
+            for name in VOICE_REMOVED:
+                if name in str(rel) or name in text:
+                    failures.append(f"{rel}: names {name}, which was removed (F-07 §18)")
+    return failures
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(argv[0]).resolve() if argv else ROOT
     failures = []
@@ -169,6 +195,7 @@ def main(argv: list[str]) -> int:
             elif module in OWNERS and owner not in OWNERS[module]:
                 failures.append(f"{rel}: {module} is owned by {sorted(OWNERS[module])}, not {owner}")
     failures += retired_name_failures(root)
+    failures += voice_removed_failures(root)
     for failure in failures:
         print(f"IMPORTS FAIL {failure}")
     print(f"imports: {len(files)} files, {len(failures)} violations")

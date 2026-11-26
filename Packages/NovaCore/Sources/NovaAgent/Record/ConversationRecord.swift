@@ -60,11 +60,8 @@ public enum RecordEvent: Sendable, Hashable {
     case speakerCheck(SpeakerCheckLine)
     /// F-16 §14 item 9 (T-042c): `dest-search destination= step= n= top= score= km= check=`.
     case destSearch(DestinationSearchLine)
-    /// F-07 §14 item 8 (T-020a): `voice source= chars= first_ms= ms= attempt=`.
-    case voiceClause(VoiceClauseLine)
-    /// F-07 §14 item 7: `voice-failed turn= source= code=`.
-    case voiceFailed(VoiceFailedLine)
-    /// F-07 §15 item 5 (T-020b): `voice source=gemini turn= held_ms= first_ms=`.
+    /// F-07 §15 item 5 (T-020b): `voice source=gemini turn= held_ms= first_ms=`; F-07 §18 item 5 (T-020e): the one
+    /// timing line for both voice models (`source=qwen-realtime` with Qwen). The TTS `voice`/`voice-failed` lines are gone.
     case voiceGemini(GeminiVoiceLine)
     /// F-24 §16 item 3 (T-020b): `session closed code= reason=`.
     case sessionClosed(SessionClosedLine)
@@ -277,8 +274,6 @@ public struct ConversationRecorder: Sendable {
         case .wakeUnused: return ["\(ms) wake-unused"]
         case .speakerCheck(let check): return [line("speaker-check", check.fields)]
         case .destSearch(let search): return [line("dest-search", search.fields)]
-        case .voiceClause(let v): return [line("voice", v.fields)]
-        case .voiceFailed(let v): return [line("voice-failed", v.fields)]
         case .voiceGemini(let v): return [line("voice", v.fields)]
         case .claimCut(let turn, let played): return [line("claim-cut", "turn=\(turn) played_ms=\(played)")]
         case .stateNote(let reason): return [line("state-note", "reason=\(reason.rawValue)")]
@@ -455,7 +450,7 @@ public final class ConversationRecord: Sendable {
     public static let capacity = 2000
     /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
     /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
-    public static let formatVersion = 16
+    public static let formatVersion = 17
     /// §21 item 1: the first line of every new file. A file without it is format 0.
     public static var formatLine: String { "recordFormat \(formatVersion)" }
 

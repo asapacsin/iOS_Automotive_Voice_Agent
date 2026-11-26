@@ -1,5 +1,6 @@
 import NovaKit
 import NovaPorts
+import NovaVoice
 
 /// F-05 §15 item 1 (T-016q): 设置 「语音模型」, the realtime model her session talks to. Stored on the phone; it takes
 /// effect at the next connect. Gemini is the default; a Qwen choice needs the 百炼 key saved for search (F-18 §40).
@@ -26,6 +27,13 @@ public enum VoiceModel: String, Sendable, Hashable, CaseIterable {
     }
 
     public var isQwen: Bool { self != .geminiLive }
+
+    /// F-05 §15 item 5: Gemini runs background tools (NON_BLOCKING); Qwen has none.
+    public var backgroundTools: Bool { !isQwen }
+    /// F-05 §15 item 5: Gemini resumes a dropped session; Qwen reconnects fresh with the summary note.
+    public var resumes: Bool { !isQwen }
+    /// F-07 §18 item 5 (T-020e): the `voice source=` of the timing line.
+    public var timingSource: String { isQwen ? GeminiVoiceLine.qwenSource : GeminiVoiceLine.geminiSource }
 
     /// The model id sent to the provider and written as the record header's `voiceModel` (item 6).
     public var modelID: String { rawValue }
