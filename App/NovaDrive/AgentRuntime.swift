@@ -237,7 +237,8 @@ struct DemoLocation: LocationProvider, LocationUpdates {
 
 /// Applies AgentCore effects to the real provider, revoicer, playback and screen.
 struct RuntimeSink: AgentEffectSink {
-    let realtime: GeminiLiveProvider
+    /// F-05 §15 item 2 (T-016q): Gemini Live or Qwen-Audio realtime, from 设置 「语音模型」.
+    let realtime: any LiveSessionProvider
     /// F-12 §17: the test record, nil when the setting is off.
     let record: ConversationRecord?
     let config: SessionConfig
@@ -347,6 +348,7 @@ struct RuntimeSink: AgentEffectSink {
         case .claimCut(let turn, let ms): record?.submit(.claimCut(turn: turn, playedMs: ms))  // F-07 §15 item 8
         case .asyncToolDropped(let tool): record?.submit(.toolDropped(tool))  // F-18 §27 item 4
         case .asyncResultDropped, .asyncResultViaText: record?.submit(.toolResultLine(event.logLine))  // F-18 §37
+        case .qwenReconnectFresh, .qwenHistory: record?.submit(.qwen(event.logLine))  // F-05 §15 item 5 (T-016q)
         case .stateNote(let reason): record?.submit(.stateNote(reason))  // F-09b §8
         case .summaryNote(let n, let age): record?.submit(.summaryNote(exchanges: n, ageS: age))  // F-09b §8
         case .contextNote(let fields): record?.submit(.nowNote(fields: fields))  // F-09b §14 item 8
@@ -1019,13 +1021,26 @@ final class AgentRuntime {
         // F-13a §3 item 3 (T-032g): the saved media and voice levels are the engine's lane gains from the start.
         AppVolume.shared.output.attach(audio)
         // F-24 §16 item 3 (T-020b): why each socket closed; the code and 80 characters of the reason only.
-        let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
-                                          connector: URLSessionWebSocketConnector(onDuplicate: { site in
+        let connector = URLSessionWebSocketConnector(onDuplicate: { site in
             RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
-        }), onClose: { line in
+        })
+        let onClose: @Sendable (SessionClosedLine) -> Void = { line in
             RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
             voiceLines.record?.submit(.sessionClosed(line))
-        })
+        }
+        // F-05 §15 items 1-2 (T-016q): the voice model chosen in 设置, read at this connect; a Qwen choice whose key or
+        // workspace host is gone falls back to Gemini.
+        let qwenKey: @Sendable () -> String? = { try? KeychainCredentialStore().value(for: .qwenAPIKey) }
+        let workspaceHost = defaults.string(forKey: SettingsKey.qwenTTSHost)
+        let voiceModel = VoiceModel.resolved(in: DefaultsSettingsStore(), qwenKey: qwenKey(), workspaceHost: workspaceHost)
+        let provider: any LiveSessionProvider = voiceModel.isQwen
+            ? QwenRealtimeProvider(key: qwenKey, host: workspaceHost ?? "", model: voiceModel.modelID, connector: connector,
+                                   onUsage: { usage in
+                                       // Item 6: tokens only (I-8).
+                                       RuntimeLog.agent.notice("\(usage.logLine, privacy: .public)")
+                                       voiceLines.record?.submit(.qwen(usage.logLine))
+                                   }, onClose: onClose)
+            : GeminiLiveProvider(credentials: KeychainRealtimeCredentials(), connector: connector, onClose: onClose)
         let revoicer = synthesizer.map { synthesizer in
             Revoicer(synthesizer: synthesizer, playback: audio, onFailure: { code in
                 let line = VoiceFailedLine(turn: voiceLines.turn, source: voiceSource, code: code)
@@ -1238,7 +1253,7 @@ final class AgentRuntime {
                                                    style: SpeakingStyle.saved(in: settings))
         // F-09b §15 item 6 (T-031y): the setup's version and this session's fingerprint, from the same texts sent below.
         let agentSetup = AgentSetup(.init(style: SpeakingStyle.saved(in: settings), webSearch: webSearch))
-        RuntimeLog.agent.notice("\(agentSetup.logLine(), privacy: .public)")
+        RuntimeLog.agent.notice("\(agentSetup.logLine(model: voiceModel.modelID), privacy: .public)")
         // F-12 §17 (T-031f): off by default; when off nothing is created and nothing below changes.
         let info = Bundle.main.infoDictionary
         let sessionStart = Date()
@@ -1258,7 +1273,7 @@ final class AgentRuntime {
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
             searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy,
             declaredTools: ToolCatalog.declarations(webSearch: webSearch).map(\.name),
-            agentLines: agentSetup.headerLines()))
+            agentLines: agentSetup.headerLines(model: voiceModel.modelID), voiceModel: voiceModel.modelID))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         voiceLines.record = record
         sessionRecord = record
@@ -1363,7 +1378,7 @@ final class AgentRuntime {
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
                                                resume: resume, revoicing: decision.revoicing,
                                                languageIdentifier: AppleLanguageIdentifier(),
-                                               summary: summary))
+                                               summary: summary, capabilities: provider.capabilities))
         ended.core = core
         carState.core = core
         // F-09b §5 item 2: the state at start (the connect note), then every 5 s for the speed and the music;
