@@ -3094,7 +3094,7 @@ result with a Macau adcode (82xxxx): 大三巴牌坊 820002, 议事亭前地广�
 alone it was found). She then said 「我们的地图工具目前不支持直接在行程中添加澳门的地点」 (record 165923 turn 30), a
 reason the record does not show. Apple Maps was not tested (no PC route).
 
-1. **Lookup.** When the city of a lookup is 澳门/澳门特别行政区 (or 香港/香港特别行政区), the 高德 text search is sent
+1. **Lookup.** *(Keep rule fixed by §70 item 1: v3 gives these results no adcode.)* When the city of a lookup is 澳门/澳门特别行政区 (or 香港/香港特别行政区), the 高德 text search is sent
    without `region`/`city_limit` (and the iOS SDK search without its city restriction), and only results whose adcode
    starts with 82 (Macau) or 81 (Hong Kong) are kept. Other cities unchanged.
 2. **Pace.** 高德 lookups of one plan run at most 3 per second; a `CUQPS_HAS_EXCEEDED_THE_LIMIT` answer is tried once
@@ -3140,3 +3140,52 @@ later (157849 … 258304), each an older version of the request, and she read ea
 | Task | Scope | Status |
 |---|---|---|
 | T-040zv | §69 items 1–3; rows 326–328 | NOT_RUN |
+
+## 70. Macau and Hong Kong results are kept by their province name, since 高德 v3 gives them no adcode (iOS, owner order 2026-11-26)
+
+**Why (phone run c251735, record 20261126-124858; PC 2026-11-26, `AMAP_WEB_KEY`).** §68 is built, yet every Macau stop
+of the plan was still 「地图没找到（在澳门找）」: 大三巴牌坊, 议事亭前地, 澳门旅游塔, 澳门威尼斯人度假村, in all three rounds,
+`trip lookup … city=澳门 info=none`. The app sends §68's lookup to 高德 **v3** `/v3/place/text` (`AmapWebClient.textInfo`)
+with no city, as §68 item 1 says, and 高德 answers OK. But v3 gives Macau and Hong Kong POIs **no `adcode`**, and no
+`citycode`, while `pname`/`cityname` say 「澳门特别行政区」. `SpecialRegion.keeps` keeps only results whose adcode starts with
+82 or 81, so it drops every right result, and the lookup ends `nomatch` (`info=none`). §68's PC check (row 324) used
+**v5** `/v5/place/text`, which does give `adcode` 820002, so the gap never showed.
+
+PC check, 2026-11-26, 16 names (12 Macau, 4 Hong Kong), first result kept:
+
+| Lookup | Right place |
+|---|---|
+| v3 with `city=澳门`/`香港` + `citylimit` (before §68) | 0/16 (`USER_ABROAD_DAILY_QUERY_OVER_LIMIT`) |
+| v3 with no city, kept by `cityname` 澳门/香港特别行政区 | **16/16**, 0.2–1.7 s |
+| Photon (OpenStreetMap), English name, inside the SAR box | 13/16 by hand (a different museum for 大赛车博物馆, a public toilet for 澳门科学馆) |
+
+Coordinates: 高德's Macau and Hong Kong points are GCJ-02 as on the mainland (大三巴牌坊 15 m from OpenStreetMap's point
+once that point is shifted to GCJ-02, 605 m unshifted), so the app's existing conversion stays.
+
+1. **Kept by province when there is no adcode (changes §68 item 1).** `SpecialRegion.keeps` keeps a result whose
+   `adcode` starts with 82/81, **or**, when `adcode` is empty, whose province (`pname`, else `cityname`) is
+   澳门特别行政区 / 香港特别行政区. `AmapWebClient` gives `Place` the `pname` (new optional field `province`) next to `city`.
+   The kept result must be the SAR the lookup asked for (澳门 → Macau only, 香港 → Hong Kong only).
+2. **A lookup that 高德 answered but nothing was kept** logs `trip lookup name=<…> city=<…> info=none dropped=<n>
+   kept_by=<adcode|province|none>`, so a filter that drops everything shows in the record.
+3. **She says only what was placed (changes §58's claim check for `plan_trip`).** The `plan_trip` result's `next`
+   already says not to name what is not in the plan; code also checks her reply: a stop name from `not_placed` in a
+   reply after that result gets the existing `UNVERIFIED_CLAIM tool=plan_trip` correction (record 124858 turn 8 named
+   all four unplaced Macau stops).
+4. **Not changed.** Mainland lookups (city + `citylimit`), §68 items 2–4, Photon abroad, the GCJ-02 conversion.
+   Macau and Hong Kong stay 高德 (no OpenStreetMap, no English names needed).
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 329 | v3 fixture: 大三巴牌坊 with no `adcode`, `pname` 澳门特别行政区; a 珠海 result with adcode 440402 | Macau result kept (`kept_by=province`), 珠海 dropped | unit |
+| 330 | Lookup city 澳门; v3 fixture with only a 香港特别行政区 result | Not kept; `nomatch`; record line with `dropped=1 kept_by=none` | unit |
+| 331 | v5-style result with adcode 820002 | Kept (`kept_by=adcode`), as §68 | unit |
+| 332 | `plan_trip` result with `not_placed` 大三巴牌坊; her reply names 大三巴牌坊 as planned | `UNVERIFIED_CLAIM tool=plan_trip` correction | unit |
+| 333 | PC: the 16 names through `AmapWebClient`'s exact v3 request and the new keep rule | ≥ 15/16 right place (done 2026-11-26 with the request shape: 16/16) | PC |
+| 334 | Device: 「周日去澳门，大三巴和威尼斯人」 | Both stops on the map with drive times; she names only placed stops | D |
+
+**Trace gate.** Add `T-040zw: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zw.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zw | §70 items 1–3; rows 329–334 | NOT_RUN |
