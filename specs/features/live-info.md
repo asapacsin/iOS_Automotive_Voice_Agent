@@ -1794,6 +1794,8 @@ shows sources. §40's PC check said `enable_search` returned sources; it does no
 
 ## 42. Search through the 七牛云 (Qiniu) web search API; a model reads the results (iOS, owner order 2026-11-25)
 
+**Superseded 2026-11-26 by §46:** Qiniu is removed; events use Tavily (§46), `live`/`ground` use §41 again.
+
 **Why (2026-11-25).** §41's Aliyun `web_search` lets the model search 3–14 times inside one request: 48–123K tokens
 and 24–51 s per events question, events found swinging 2–5 of 7 run to run. In one afternoon of tests the free quota of
 `deepseek-v4.1-flash` ran out and `deepseek-v4.1-flash-1017` fell to 290K. The owner chose Qiniu's search API, which
@@ -1870,6 +1872,8 @@ returns plain results (no model tokens), and three searches per events question.
 | T-046ze | §42 items 1–7; rows 66–77; rows 74–76 on the PC before the build | NOT_RUN |
 
 ## 43. Qiniu retries instead of falling back; a named event is searched by name; dropped events are logged; event pictures (iOS, owner order 2026-11-25)
+
+**Superseded in part 2026-11-26 by §46:** items 1–3 and 5 stay for Tavily as §46 says; items 4, 6, 7 are withdrawn.
 
 **Why (phone run 2026-11-25, build 98eb278, records `20261125-164242.txt`, `20261125-165923.txt`).**
 - 388037–398073: the Qiniu model call for `live` failed (`reason=network`), the §42 fallback to §41 was cancelled after
@@ -1967,6 +1971,8 @@ NOT_RUN until then.
 | T-046zf | §43 items 1–4; rows 78–86 (85, 85a passed on the PC) | NOT_RUN |
 
 ## 44. An event's venue and dates are shown only when a source states them; one search for what is missing; otherwise 「未找到」 (iOS, owner order 2026-11-25)
+
+**Superseded in part 2026-11-26 by §46:** items 3–4 stay; items 1, 2, 5–9 are replaced or withdrawn as §46 lists.
 
 **Why.** Owner 2026-11-25: event results must be reliable on location, time and picture, and 「show not found rather than
 hallucinate」; but a venue that one search finds (AIE) must not be 「未找到」. The events are searched once, kept as
@@ -2081,6 +2087,8 @@ AIE (stdaily.com) none; 韦礼安 page's 「门票火速售罄」 (another conce
 
 ## 45. When Qiniu still fails, the job runs on the Qwen (百炼) API (iOS, owner order 2026-11-25)
 
+**Superseded 2026-11-26 by §46:** no Qiniu; only §46 item 2's search fallback to §41 remains.
+
 **Why.** The owner (2026-11-25): 「if the 七牛 fail you should use the qwen api instead」. §43 item 1 retries Qiniu and
 then fails the call; the driver then hears that nothing was found although the 千问 key (设置 「阿里云百炼 key」) could
 still answer. The owner's 百炼 console (screenshot 2026-11-25) shows the free quotas left: `kimi-k3.1-pro` 995.84K / 1M
@@ -2123,3 +2131,189 @@ still answer. The owner's 百炼 console (screenshot 2026-11-25) shows the free 
 | Task | Scope | Status |
 |---|---|---|
 | T-046zh | §45 items 1–4; rows 100–106 | NOT_RUN |
+
+
+## 46. Events through Tavily search and Qwen; an event is kept only with a quoted venue and hour; a poster only when its own name and date are printed on it (iOS, owner order 2026-11-26)
+
+**Why (owner, 2026-11-26).** Qiniu is dead (§43: every search 429 `trial_quota_exhausted`, real-name check never passed);
+「千牛 already dead you need to use the qwen again」. The owner gave a Tavily key and asked for 「a proven way to fill the
+data we want」: name, location, time, picture. Rules from the owner: three searches only (18 cost too much); 「make sure
+the poster is matching, otherwise … drop the poster and show not found … if the location or the time is not sure just
+drop the event」; and every search result is merged into one local set that all fields are read from. This section is
+the workflow as run on the PC on 2026-11-26, step by step; nothing here was added after the test except where marked
+**(not tested)**.
+
+**PC test (2026-11-26; scripts `scripts/eval/event_search_replica.py --tavily`, `tavily_recall.py`,
+`event_verify_poc.py`; every request and response kept in `D:/ndlogs/search-raw/`; the 7 confirmed events of
+`events_reference_2026-11.json`, window 2026-11-25…12-31, today 11-24).**
+- **Searches.** Recall in the results before extraction (`tavily_recall.py`): today's §42 wording 4/7; five other
+  three-search wordings 4–5/7; wording G (item 2) 7/7 on two tries. 18 searches also reach 7/7 (owner: too costly).
+  G was written after seeing which events the others missed (「FANCON」, 「电音节」, 「马拉松」), so it may fit this month's
+  events better than another month's: row 118 checks a fresh month.
+- **Search + extraction, 2 runs** (`20261126-095037-tavily_G_extract.txt`): 6/7 reference events kept each run
+  (LINGORM was in the results, not extracted); 9 events kept; 3 searches 1.5–2.7 s at once; extraction 17.2–17.5 s,
+  16.2K prompt tokens on `qwen3.8-max-0902`; 18.8–20.2 s per run; 3 Tavily credits per run.
+- **Verify, on run 1's 9 events** (`20261126-102659-event_verify.txt`, `-events.json`): 101 sources in the pool; 6 kept
+  with a quoted venue and hour (VAC 14:30 「演出时间14:30-22:30」, 韦礼安 20:00 「晚上8時」, UAU 18:00 「晚上6時正」,
+  JuniorMark 17:00, 张敬轩 21:30 「晚上9:30」, 横琴马拉松 07:30 「比赛时间：2026年12月27日（星期日）07:30」); 3 dropped,
+  all exhibitions with no hour in any source (横琴AI嘉年华, AIE, 航展). Posters accepted: 8, looked at one by one: 7 the
+  event's own; 1 wrong: AIE got the poster of 「澳门智趣机器人嘉年华」, an AIE side event, matched on the 「AIE」 logo
+  (AIE was dropped, so it was not shown). The earlier one-call picker (8 pictures in one call) had given 张敬轩
+  韦礼安's poster; item 5's one-picture-per-call reading with code matching gave 张敬轩 his own. 45 s for the 9 events,
+  4 at once; about 9 Tavily credits for picture searches; 9 text calls and about 50 picture calls on
+  `qwen3.5-omni-flash`.
+- **Before the merge** (venue and hour from each event's one page only): 5 kept; UAU's 「晚上6時」 and VAC's hour were in
+  other saved results and were not used. Hence item 6's pool.
+- **Date check (item 0, row 117b; offline on the saved pool, no calls, output
+  `D:/ndlogs/search-raw/20261126-dates_check.txt`):** all 9 extracted events' dates confirmed from a source excerpt;
+  4 planted wrong dates (韦礼安 12-13, 横琴马拉松 12-28, JuniorMark 12-20, UAU 12-11) all rejected; the name row 9/9 with
+  traditional→simplified first (8/9 without).
+
+0. **Output contract: what a kept event must have, checked by code, in this order.** The models only read and quote;
+   code decides. An event is shown, stored for the planner or spoken only when **every required row passes**. The first
+   failing row is the drop reason. There is no partial event: a required field that fails drops the whole event,
+   never shows 「未找到」.
+
+   **Every text comparison in this table and items 5–6** first converts both sides from traditional to simplified
+   Chinese (iOS: `applyingTransform(StringTransform("Hant-Hans"), reverse: false)`; PC: OpenCC `t2s`), then lower-cases;
+   where a row says "spaces and punctuation removed", that too. Without it the name row dropped 横琴马拉松 (its source
+   writes 「橫琴馬拉松」): 8/9 names passed; with it 9/9, and 张敬轩's event with 韦礼安's page as source still fails
+   (same output file).
+
+   | Field | Required | Deterministic check (code) | On fail |
+   |---|---|---|---|
+   | name | yes | Not empty, and at least one of its key names (item 5) appears in its source result's `title`+`content` (§43 item 5's name match) | drop `no_source` |
+   | city | yes | One of the call's cities, or 横琴 when 珠海 is one | drop `city` |
+   | start, end | yes | Both parse as `YYYY-MM-DD`; end ≥ start; start…end overlaps the window; end ≥ today; one event per name + start (§39 item 4) | drop `no_date` / `end_before_start` / `outside_window` / `past` / `duplicate` |
+   | dates confirmed | yes | In one excerpt of item 6's pool (so next to a key name): the start day as one of 「M月D日」 「M月D号」 「M月D號」 「M.D」 「MM.DD」 「M/D」 「MM-DD」 「YYYY.MM.DD」 「YYYY-MM-DD」 「YYYY年M月D日」 「<English month> D」 「D <English month>」 (spaces collapsed). When end ≠ start, also the end day in one of those forms in the same excerpt, or within 20 characters after the start-day match a range sign (`-–—~～至到`) followed by the end's day number. **(not tested)** A year written within 20 characters before the start-day match must be the start's year, else that match does not count | drop `dates_not_sure` |
+   | venue | yes | Item 6: the model's `venue_quote`, spaces and punctuation removed, is inside excerpt `venue_source`; the venue's first 4 characters (same normalising) are in the quote, or the quote is inside the venue. Else the matched poster's printed `venue` (item 5), if not empty | drop `venue_not_sure` |
+   | hour | yes | Matches `HH:MM` with HH 00–23 and MM 00–59, and item 6: `time_quote` inside excerpt `time_source` with 「H:MM」/「HH:MM」 (「：」 read as 「:」), or the hour on a 12-hour clock (hour − 12 from 13:00, else the hour) with one of 晚 下午 pm PM 點 点 時 时. Else the matched poster's first printed time, if it matches `HH:MM` | drop `time_not_sure` |
+   | poster | no | Item 5: a key name in the picture's printed text **and** one of its printed dates within start…end | no poster: 「未找到图片」; the event stays |
+
+   Not part of the output (not shown, not given to the planner): the extracted `start_time`, `venue`, `ticket`, and any
+   field a model wrote that no row above checked.
+
+1. **Key and models.**
+   - 设置 「七牛云 key」 is replaced by 「Tavily key」 under 联网 (Keychain `tavily_api_key`, write-only like the other
+     keys, never in logs). The Qiniu clients, the `api.qnaigc.com` routes and `deepseek/deepseek-v4-flash-20260731` are
+     removed (§42 items 1–3, §43 item 7, §45 withdrawn).
+   - Extraction: §40's text chain (`qwen3.8-max-0902` first), compatible mode, `response_format` `json_object`,
+     `enable_thinking: false`, not streamed, 60 s.
+   - Poster reading and venue/hour: `qwen3.5-omni-flash` on the Beijing compatible-mode endpoint with the 千问 key,
+     `"modalities": ["text"]`, `"stream": true`, `"stream_options": {"include_usage": true}`, 120 s; the text is the
+     joined `delta.content`. Allowed by the owner 2026-11-26: it joins §40 item 3's list and `check_qwen_models.py`.
+     **OWNER, before the build:** confirm in the 百炼 console that `qwen3.5-omni-flash` has quota and Stop-on-Exhaust on.
+   - A failed Qwen call (429, 5xx, timeout) is tried again after 5, 10, 20 s (4 tries), as the test did.
+2. **Three searches (`find_events`).** `POST https://api.tavily.com/search`, `Authorization: Bearer <Tavily key>`, body
+   `{"query": <q>, "max_results": 20, "search_depth": "basic"}`, 30 s, all three at once. `<months>` is §42 item 4's
+   「<YYYY>年<M>月[ <M>月…]」. With 珠海 among the call's cities, 「横琴」 is added after 珠海.
+   - q1: 「<all cities> <months> 展览展会 AI 科技展 航展」
+   - q2: 「<the cities among 澳门、香港> <months> 演唱会 演出时间表 FANCON」
+   - q3: 「<the other cities> <months> 演唱会 嘉年华 电音节 马拉松」
+   Tested only as 珠海+澳门 (q1 「珠海 横琴 澳门 2026年11月 12月 展览展会 AI 科技展 航展」, q2 「澳门 2026年11月 12月 演唱会
+   演出时间表 FANCON」, q3 「珠海 横琴 2026年11月 12月 演唱会 嘉年华 电音节 马拉松」). **(not tested)** With no city of q2's group,
+   q2 uses all cities; with no other city, q3 does. §43 item 2's `name` (the first query becomes
+   「<name> <cities> <months>」, at most 3) and §42 item 4's `kinds` rule are kept on these queries **(not tested with
+   Tavily)**. A failed search is retried per §43 item 1 (1 s, 3 s) and then sent once on §41's `QwenEventSearcher` per
+   §45 item 1 **(not tested with Tavily)**.
+3. **Extraction.** One call. System text, exactly:
+   `Extract the event information. Answer in JSON.\n{"events": [{"name": "", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "start_time": "HH:MM or empty", "venue": "", "city": "", "ticket": "", "source_url": ""}]}\ntoday: <YYYY-MM-DD>\nfrom: <YYYY-MM-DD>\nto: <YYYY-MM-DD>`
+   (no cities line: §43 item 6 is withdrawn, see item 3's city rule). User message: the results of the three searches in
+   query order, deduplicated by url, one per line `[n] <published_date or empty> <title> — <content, first 300
+   characters> (<url>)`. A `source_url` that is a result number becomes that result's url. Checks as §39 item 4 (dates
+   parse, end ≥ start, overlaps the window, end ≥ today, city is one of the call's cities or 横琴 when 珠海 is one, the source
+   is a result url else §43 item 5's name match, one event per name+start), each drop logged per §43 item 3. The
+   extracted `start_time`, `venue` and `ticket` are not used: item 6 decides venue and hour.
+4. **Pages.** One `POST https://api.tavily.com/extract` for all kept events' `source_url`s:
+   `{"urls": [...], "include_images": true, "extract_depth": "basic", "format": "markdown"}`, 60 s. Each page gives
+   `raw_content` and `images`.
+5. **Poster, per kept event (before item 6; up to 4 events at once).**
+   - Candidates: the page's first 8 `images`; only if none of them matches, one Tavily search
+     `{"query": "<event name> 海报", "max_results": 5, "include_images": true, "include_image_descriptions": true}` and
+     its first 6 `images`.
+   - Each candidate is downloaded (GET, `User-Agent: Mozilla/5.0`, 15 s); kept only when 5 KB–4 MB and JPEG, PNG, GIF
+     or WebP by its first bytes. It is sent alone, as a base64 `data:` URL, with exactly:
+     `Read this picture. Answer in JSON only: {"text": "all text printed on it, converted to simplified Chinese", "dates": ["MM-DD for each date printed on it"], "times": ["HH:MM for each time of day printed on it"], "venue": "venue printed on it, else empty"}. Only what is printed on the picture; empty when nothing is.`
+   - **Code decides** (the model only reads). Key names of the event: its name lower-cased, with these words removed:
+     2026, 2027, 演唱会, 演唱會, 巡回, 巡迴, 澳门站, 澳門站, 澳门, 澳門, 珠海, 横琴, 橫琴, 中国, 中國, 国际, 國際, 全球, 第十六届,
+     荣誉呈献, 荣誉, 呈献, 独家呈现, 秋季, fancon, in, macau, macao, x; then every Latin word of 3+ letters and every Han
+     run of 2+ characters. The picture's name matches when its text (spaces and punctuation removed, lower-cased)
+     contains a Latin key, a Han key of ≤ 6 characters, or any 4 characters in a row of a longer Han key. Its date
+     matches when one of its `dates` (month-day) falls within the event's start…end. The first candidate matching
+     **both** is the poster; none → no poster, shown as 「未找到图片」.
+   - Every candidate's reading is kept in the store; a poster's printed `venue` and first `times` entry are item 6's
+     last resort.
+   - Known gap: a logo word is enough for the name (AIE side-event poster, PC test). Not fixed here.
+6. **Venue and hour, from the merged pool (after item 5).**
+   - **Pool:** every result of this call's three searches (`title` + `content`), every item 4 page (`title` +
+     `raw_content`), every item 5 picture-search result (`title` + `content`). **(not tested)** Results the store kept
+     from earlier calls for the same cities in the last 24 h are added too (owner: one stable local data set).
+   - **Excerpts:** in each source, every mention of a key name (item 5's keys; Han keys over 6 characters by their first
+     4) gives the text 700 characters before to 700 after, at most 3 mentions per source, overlaps joined; sources in pool
+     order, stopping once the excerpts pass 16,000 characters. Each excerpt is marked `[S<source number>]`.
+   - **One call** on `qwen3.5-omni-flash` with exactly:
+     `Event: <name> (<start> to <end>).\nBelow are excerpts from several web sources, each marked [S<number>]. Using only them, give this event's venue and its start time of day. For an exhibition or fair with daily opening hours, give the opening time and set time_kind to "opening"; for a show or race, the start time and time_kind "start". Each answer needs the exact text of the source that states it for THIS event, copied word for word, and that source's number. Empty when no source states it for this event. Answer in JSON only: {"venue": "", "venue_quote": "", "venue_source": 0, "start_time": "HH:MM", "time_kind": "start", "time_quote": "", "time_source": 0}\n\n<excerpts, blank line between>`
+   - **Sure (code):** the quote, with spaces and punctuation removed, is inside that source's excerpt (so it is next to
+     the event's name), and: venue: the first 4 characters of the venue (same normalising) are in the quote, or the
+     quote is inside the venue; hour: the quote has 「H:MM」/「HH:MM」 (「：」 read as 「:」), or the hour on a 12-hour clock
+     (hour − 12 from 13:00, else the hour) together with one of 晚, 下午, pm, PM, 點, 点, 時, 时. Not sure → the poster's
+     printed venue / first time if there is a poster; else not sure.
+   - Order: in the test the venue/hour call read a pool that already held the picture-search results (saved from the
+     run before); running item 5 first gives it the same data.
+7. **Kept or dropped.** An event is kept only when every required row of item 0 passes. A dropped event is not in the
+   `find_events` result, the store's event list for the planner, or on screen. Known effect (PC test): exhibitions
+   with no published hour (航展, 横琴AI嘉年华, AIE) are dropped. **(not tested)** The `find_events` result ends with
+   「另有N个活动时间或地点未确认，未列出」 when N > 0, so she does not say there are none.
+8. **What the driver sees and the planner reads.** Each kept event: name, dates (§44 item 3's 「日期：」), 「场馆：<venue>」,
+   「开始：HH:MM」 (time_kind start) or 「开放：HH:MM」 (opening), the poster or 「未找到图片」 (§44 item 3, `未找到这个活动的图片`
+   when asked). §44 item 4 (no map lookup by an event's name; only the venue goes to the map) and trip-plan §64/§66 stay;
+   the venue is stored as a list split at 「；」「;」「、」「/」 and line breaks, for trip-plan §66 item 7's hall by city.
+9. **Store (replaces §44 item 5's fields).** Per event: `name`, `city`, `start`, `end`, `venue` (list) with its source
+   url, `time`, `time_kind` with its source url, `image_url` with `page`/`search`, every picture reading, and the
+   source texts (kept 24 h). Items 4–6 run at most once per event per day.
+10. **Record.**
+    - `events search provider=tavily q=<1|2|3> ms= results= attempt=`
+    - `events extract model= ms= tokens=<prompt>,<completion>`
+    - `events verify name=<name> venue=<S<n>|poster|none> time=<S<n>|poster|none> kind=<start|opening> poster=<page|search|none> pictures=<n> kept=<yes|no>`
+    - `events drop name=<name> reason=<no_source|city|no_date|end_before_start|outside_window|past|duplicate|dates_not_sure|venue_not_sure|time_not_sure>` (item 0's first failing row)
+11. **No Tavily key.** `find_events` runs §41's search and §39's extraction as before §42, with no items 4–7
+    **(not tested)**.
+12. **Her answers and trip grounding (`live`, `ground`)** go back to §41 (Qwen `web_search`), as before §42; §42 item 5's
+    Qiniu path is withdrawn. Not changed by Tavily.
+13. **PC scripts.** `event_search_replica.py --tavily` (items 2–3) and `event_verify_poc.py` (items 4–7) are the
+    reference; every Tavily and model response is kept in `D:/ndlogs/search-raw/` (owner rule 2026-11-26).
+
+**Not carried over (in the old sections, not in the tested workflow; owner to say if any must come back).**
+§43 item 4 (og:image, Qiniu image search with title/date/shop filters: replaced by item 5); §43 item 6 (cities line);
+§43 item 7 (Qiniu reasoning); §44 item 1a and item 8 (regex venue and hour checks: replaced by item 6's quotes);
+§44 items 1b and 7 (dates checked against the source text: the test used the extracted dates with §39's checks
+only); §44 item 2 (one search for what is missing: replaced by the pool and the picture search); §44 item 9 (ticket
+note from the source text: not shown now); §45 (Qiniu → Qwen fallback, apart from item 2's search fallback).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 107 | 设置 | 「Tavily key」 field, write-only, Keychain `tavily_api_key`; no 「七牛云 key」; no `api.qnaigc.com` in the source | unit, gate |
+| 108 | `find_events` 珠海+澳门, window 11-25…12-31, Tavily key saved | The three item 2 queries exactly (珠海 横琴 澳门 …), body as item 2, Bearer Tavily key, sent at once | unit |
+| 109 | Fixture Tavily results (two queries share a url) | Extraction user message as item 3, deduplicated; system text exactly item 3's; `[n]` source becomes the url | unit |
+| 110 | Picture readings: 「2026 韦礼安 HI WE1 演唱会 12-12」 for event 张敬轩 x 澳门中乐团 12-24…12-31; then 「张敬轩 × 澳门中乐团 盛乐 12-24」 | First rejected (name and date); second is the poster | unit |
+| 111 | Page pictures none match | One picture search 「<name> 海报」, first 6 images read one per call | unit |
+| 112 | Venue/hour answer with a quote not in that source's excerpt; then one that is | Not sure; sure | unit |
+| 113 | Quote 「晚上6時正」 with 18:00; 「13:30–17:30」 with 13:30 from another event's excerpt | Sure; not sure | unit |
+| 114 | Hour not sure, no poster time | Event dropped: not in the result, the store list or on screen; `events drop … reason=time_not_sure` | unit |
+| 115 | Model list | `qwen3.5-omni-flash` allowed; requests streamed with `modalities` text | unit, gate |
+| 116 | App build | Builds on Codemagic | build |
+| 117 | PC: `event_search_replica.py 2 --tavily` | ≥ 3/7 reference events each run (passed 2026-11-26: 6/7, 6/7) | PC |
+| 117a | PC: `event_verify_poc.py` on run 1's events, every poster looked at | Every kept event's venue and hour match its quoted source; no kept event shows another event's poster (passed 2026-11-26: 6 kept, all right; 7/8 posters right, the wrong one on a dropped event) | PC |
+| 118 | PC: a fresh month or city pair (a new reference list confirmed by hand first) | ≥ 3 of its reference events kept with right venue and hour; posters looked at | PC (NOT_RUN) |
+| 117b | PC: item 0's date and name rows on the saved pool, plus planted wrong dates and a wrong source | All 9 real dates confirmed and 9/9 names found (traditional→simplified first); planted 韦礼安 12-13, 横琴马拉松 12-28, JuniorMark 12-20, UAU 12-11 and 张敬轩 with 韦礼安's page rejected | PC (passed 2026-11-26) |
+| 120 | Item 0, one fixture per row: name not in its source; city 深圳; end before start; dates only in another event's excerpt; venue quote not in the excerpt; hour 25:00; hour quote from another event | Each dropped with that row's reason, in item 0's order; nothing of it shown or stored | unit |
+| 121 | Event passes every required row, poster fails | Kept; 「未找到图片」 | unit |
+| 119 | Device: 「最近珠海澳门有什么活动」 | Only events with venue and hour; posters right or 「未找到图片」; record `provider=tavily`, `events verify` lines | D |
+
+**Trace gate.** Add `T-046zi: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zi.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zi | §46 items 0–13; rows 107–121 (117, 117a, 117b passed on the PC; 118 before the build) | NOT_RUN |
