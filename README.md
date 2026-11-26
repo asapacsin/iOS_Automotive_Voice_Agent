@@ -84,6 +84,32 @@ The owner writes what the product should do; AI agents do the rest, and nothing 
 The workflow tooling comes from [ai-native-engineering](tools/ai-native/README.md) (executor plus end-state
 reviewer). Results are logged in `specs/STATUS.md`.
 
+## Getting the API keys (the main setup step)
+
+小诺 talks to several online services, and each needs your own key. No key is built into the app. Open
+设置 on the phone, paste each key into its row, and it is stored in the iPhone Keychain (write-only: the app never
+shows it again, and keys never appear in logs). Start with the two **required** rows; add the others for the features
+you want.
+
+| Row in 设置 | Needed for | Where to get it | Notes |
+|---|---|---|---|
+| **Gemini API key** | **Required.** The voice conversation (Gemini Live) | [Google AI Studio](https://aistudio.google.com/apikey) → Create API key | Free tier available. Google blocks mainland China: the phone needs a VPN for Gemini |
+| **高德 iOS SDK key** | **Required for the map and navigation** | [高德开放平台 console](https://console.amap.com/dev/key/app) → 应用管理 → 创建应用 → 添加 Key, platform **iOS SDK** | The Bundle ID you enter must match the installed app's bundle id exactly, or the map stays blank |
+| 高德 Web 服务 key | Place search, routes and live info | Same console, add a second key with platform **Web服务** | Free daily quota for personal developers |
+| 阿里云百炼 key | Web search, the Qwen voice model, trip planning | [阿里云百炼 console](https://bailian.console.aliyun.com/) → API-KEY | Use the **Beijing (华北2)** region. A key from the Singapore (international) site does not work with the Beijing services, and the reverse; this mismatch caused 出错 in testing |
+| 和风天气 API Host + API KEY | Weather | [和风天气 console](https://console.qweather.com/) → 项目管理 → create a project and a credential | The API Host is personal to your account (设置 → 开发者信息); enter it without `https://` |
+| 智谱 key（视觉，推荐） | Camera questions (「前面那是什么车？」) | [智谱开放平台](https://open.bigmodel.cn/usercenter/apikeys) → API keys | GLM-4.6V-Flash is free |
+| Tavily key | Event and news search (`find_events`) | [Tavily](https://app.tavily.com/) → API keys | Optional; free monthly credits |
+| 千帆 key（可选，视觉备用） | Backup for camera questions | [百度千帆 console](https://console.bce.baidu.com/qianfan/) | Optional |
+| 讯飞 APPID + APIKey + APISecret | Wake word 「你好小诺」 | [讯飞开放平台](https://console.xfyun.cn/) → 创建应用 → AIKit 离线唤醒 | All three come from the same app page. Without them, tap the screen to talk |
+
+Tips:
+- Free quotas run out. When a feature suddenly says it cannot answer, check that service's console for quota or
+  billing first.
+- Keep each provider's keys in one region (all Beijing for 阿里云).
+- Building the app yourself also needs a [Codemagic](https://codemagic.io/) account (cloud Mac build) and a free Apple
+  ID to sign and install it on your iPhone; see `.claude/skills/phone-test/SKILL.md`.
+
 ## Where to start
 
 | You want to | Read |
