@@ -315,7 +315,16 @@ public struct AgentState: Sendable {
     /// §37 item 3: background calls that were running when the socket was replaced; they keep running.
     private var carriedCalls: [CallID: (tool: AsyncTool, at: NovaInstant)] = [:]
     /// §37 item 3: their results, sent as a text turn when she is idle.
-    private var lateResults: [(tool: AsyncTool, call: ToolCall, result: ToolResult, at: NovaInstant)] = []
+    private var lateResults: [(tool: AsyncTool, call: ToolCall, result: ToolResult, at: NovaInstant, reason: ViaTextReason)] = []
+    /// F-05 §15 item 5 (T-016q): what the provider lacks (Qwen): no resumption, no background tools.
+    private var freshReconnects = false
+    private var handoffTools = false
+    /// Item 5: background calls answered at once with the handoff result; their final result goes as a text turn.
+    private var handedOff: Set<CallID> = []
+    /// Item 5: sockets opened this session, the exchanges for a fresh reconnect's summary, and turns on this socket.
+    private var sockets = 0
+    private var memory = ExchangeMemory()
+    private var socketTurns = 0
     /// §37 item 4: a background result older than this is not spoken.
     public static let staleResultMs = 600_000
     /// The `now` of the event being handled (the 现在 note's 已过 seconds).
@@ -396,8 +405,10 @@ public struct AgentState: Sendable {
     /// `summary`: F-09b §6 (T-016p), the earlier exchanges for a session started without a handle (nil: none).
     public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
                 revoicing: Bool = true, languageIdentifier: any LanguageIdentifier = NoLanguageIdentifier(),
-                summary: SessionSummary? = nil) {
+                summary: SessionSummary? = nil, capabilities: RealtimeCapabilities? = nil) {
         self.summary = resume == nil ? summary : nil
+        freshReconnects = capabilities?.resumption == false
+        handoffTools = capabilities?.backgroundTools == false
         pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing, detector: languageIdentifier)
         detector = languageIdentifier
         self.revoicing = revoicing
@@ -440,7 +451,7 @@ public struct AgentState: Sendable {
         let text = "（刚才\(late.call.name)的结果：\(Self.payloadJSON(body))）" + next
         answerOwed = true
         return [.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)),
-                .diagnostic(.asyncResultViaText(tool: late.tool))]
+                .diagnostic(.asyncResultViaText(tool: late.tool, reason: late.reason))]
     }
 
     /// A result as the JSON the model reads in a text turn (`ok`, `data`, `code`, `advice`).
@@ -704,9 +715,11 @@ public struct AgentState: Sendable {
                 // Review fix: the pipeline no longer counts it as running (RESULT_PENDING ends).
                 pipeline.callsEnded([call.id])
                 if now.milliseconds - carried.at.milliseconds > Int64(Self.staleResultMs) {
+                    handedOff.remove(call.id)
                     return [.diagnostic(.asyncResultDropped(tool: carried.tool, reason: .stale))]
                 }
-                lateResults.append((carried.tool, call, result, carried.at))
+                let reason: ViaTextReason = handedOff.remove(call.id) != nil ? .handoff : .reconnected
+                lateResults.append((carried.tool, call, result, carried.at, reason))
                 return []
             }
             if call.name == "web_search", searchCalls[call.id] == nil {
@@ -1128,6 +1141,13 @@ public struct AgentState: Sendable {
         relayTurns = [:]
         effects += dropAsyncCalls()
         unclassified = nil
+        // F-05 §15 item 5 (T-016q): no resumption: every socket after the first starts fresh with the summary note.
+        sockets += 1
+        socketTurns = 0
+        if freshReconnects, sockets > 1 {
+            if summary == nil { summary = memory.summary(at: now) }
+            effects.append(.diagnostic(.qwenReconnectFresh))
+        }
         if let waiting = waitingFallback {
             waitingFallback = nil
             effects.append(.speakGuidance(waiting.text, waiting.id))
@@ -1432,6 +1452,7 @@ public struct AgentState: Sendable {
             var effects = pipeline(.toolCalls(turn, calls), at: now)
             // F-18 §15 item 8: refused below as UNKNOWN_TOOL like any undeclared name; only noted here.
             if calls.contains(where: { $0.name == "google_search" }) { effects.append(.diagnostic(.webSearchAsFunction)) }
+            var handoffs: [ToolResponse] = []
             for call in calls {
                 // F-05a §6, F-09b §7 item 1: the guards read state and turn counts only, never the transcript.
                 let guardContext = GuardContext(turn: speechOnsets, closedTurns: closedTurns, now: now,
@@ -1440,6 +1461,19 @@ public struct AgentState: Sendable {
                                                 listOpen: navigation.listOpen)
                 switch dispatcher.decide(call, context: guardContext) {
                 case .execute(let running):
+                    // F-05 §15 item 5 (T-016q): no background tools on this provider: the handoff result now, the
+                    // final result later as a text turn (F-18 §37 item 3's path, reason=handoff).
+                    if handoffTools, let tool = AsyncTool(name: running.name) {
+                        carriedCalls[running.id] = (tool, now)
+                        handedOff.insert(running.id)
+                        if tool == .findEvents || tool == .planTrip, contextNow != nil { contextPending = true }
+                        effects.append(.startTool(turn, running))
+                        if tool == .planTrip { effects += handoff(running) }
+                        let next = tool == .planTrip ? AsyncTool.handoffNextSilent : AsyncTool.handoffNext
+                        handoffs.append(ToolResponse(id: running.id, name: running.name, result: .success([
+                            "status": .string(AsyncTool.handoffStatus), "next": .string(next)])))
+                        continue
+                    }
                     runningTools += 1
                     if running.name == "web_search" {
                         // F-18 §37 item 1 (T-046z): every running search is superseded by this newer one.
@@ -1460,6 +1494,11 @@ public struct AgentState: Sendable {
                 case .refuse(let result):
                     effects += refuse(turn, call, result, at: now)
                 }
+            }
+            if !handoffs.isEmpty {
+                answerOwed = true
+                effects.append(.provider(.toolResponses(handoffs)))
+                for response in handoffs { effects += pipeline(.toolResult(turn, response), at: now) }
             }
             return effects
         case .toolCallCancellation(let ids):
@@ -1515,9 +1554,18 @@ public struct AgentState: Sendable {
             }
             // F-09b §6 item 1: a completed exchange; her text is the judged subtitle the screen showed.
             if outcome == .completed, open, !silenced.contains(turn), !view.subtitle.isEmpty || !exchangeTools.isEmpty {
-                effects.append(.exchange(ConversationExchange(driver: view.driverLine, reply: view.subtitle,
-                                                              tools: exchangeTools)))
+                let exchange = ConversationExchange(driver: view.driverLine, reply: view.subtitle, tools: exchangeTools)
+                effects.append(.exchange(exchange))
+                // F-05 §15 item 5 (T-016q): kept for a fresh reconnect's summary note.
+                if freshReconnects {
+                    if exchange.tools.contains("end_conversation ok") { memory.clear() } else { memory.add(exchange, at: now) }
+                }
                 exchangeTools = []
+            }
+            // Item 5 "Short memory": the turns this socket has seen (the server keeps 50).
+            if freshReconnects {
+                socketTurns += 1
+                effects.append(.diagnostic(.qwenHistory(turns: socketTurns)))
             }
             return effects
         case .setupComplete, .resumptionHandle, .goAway, .failed, .closed, .turnEnded:

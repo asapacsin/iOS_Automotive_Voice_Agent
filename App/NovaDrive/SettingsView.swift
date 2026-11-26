@@ -86,6 +86,7 @@ struct SettingsView: View {
                 }
                 // F-07 §14 item 2 (T-020a).
                 VoiceSettingsSection(onChange: refresh)
+                VoiceModelSection()
                 // F-01 §14 item 6 (T-060a).
                 Section("唤醒词") {
                     Toggle("唤醒词", isOn: $wakeWord)

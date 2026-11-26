@@ -71,7 +71,12 @@ public enum DiagnosticEvent: Sendable, Hashable {
     /// `stale` (older than 10 minutes).
     case asyncResultDropped(tool: AsyncTool, reason: AsyncDropReason)
     /// F-18 §37 item 3 (T-046z): a result of a call from before a reconnect, sent as a text turn.
-    case asyncResultViaText(tool: AsyncTool)
+    /// F-05 §15 item 5 (T-016q): `reason=handoff`, a Qwen session answered the call at once with the handoff result.
+    case asyncResultViaText(tool: AsyncTool, reason: ViaTextReason = .reconnected)
+    /// F-05 §15 item 5 (T-016q): a provider without resumption (Qwen) reconnected fresh; the summary note follows.
+    case qwenReconnectFresh
+    /// F-05 §15 item 5: the completed turns this Qwen socket has kept as context (the server keeps at most 50).
+    case qwenHistory(turns: Int)
     /// F-09b §8 (T-031j): a car-state note went to the model, and why. No values (I-8).
     case stateNote(reason: StateNoteReason)
     /// F-09b §8 (T-016p): a summary of earlier exchanges went to the model. Numbers only, no words (I-8, I-7).
@@ -87,6 +92,11 @@ public enum ContextNoteField: String, Sendable, Hashable, CaseIterable {
     case place, highway, time
     /// F-15b §52 item 2 (T-040zb): the trip line (the whole plan).
     case trip
+}
+
+/// F-18 §37 item 3 / F-05 §15 item 5: why a background result went as a text turn.
+public enum ViaTextReason: String, Sendable, Hashable, CaseIterable {
+    case reconnected, handoff
 }
 
 /// F-09b §5 item 2 (T-031j): why a car-state note is sent.
@@ -116,6 +126,12 @@ public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     public static let tripPendingNext = "结果还没回来，不要说已经做好"
     /// The `scheduling` their response carries (F-18 §27 item 3).
     public static let scheduling = "WHEN_IDLE"
+    /// F-05 §15 item 5 (T-016q): on a provider without background tools (Qwen) the call is answered at once with this
+    /// handoff result; the final result follows later as a text turn (F-18 §37 item 3's path).
+    public static let handoffStatus = "running"
+    public static let handoffNext = "后台在查，跟司机说在查，好了告诉他。结果稍后会发来；" + tripPendingNext
+    /// `plan_trip`: the app says the handoff line itself (F-15b §62 item 12), so she says nothing.
+    public static let handoffNextSilent = "交接的话已经说过了，不要再说话，等结果；" + tripPendingNext
 }
 
 /// F-18 §37 (T-046z): why a background result was not sent.
@@ -179,6 +195,8 @@ extension DiagnosticEvent {
         case asyncToolDropped
         case asyncResultDropped
         case asyncResultViaText
+        case qwenReconnectFresh
+        case qwenHistory
         case stateNote
         case summaryNote
         case contextNote
@@ -230,6 +248,8 @@ extension DiagnosticEvent {
         case .asyncToolDropped: .asyncToolDropped
         case .asyncResultDropped: .asyncResultDropped
         case .asyncResultViaText: .asyncResultViaText
+        case .qwenReconnectFresh: .qwenReconnectFresh
+        case .qwenHistory: .qwenHistory
         case .stateNote: .stateNote
         case .summaryNote: .summaryNote
         case .contextNote: .contextNote
@@ -267,7 +287,9 @@ extension DiagnosticEvent {
         case .claimCut(let turn, let ms): "claim-cut turn=\(turn) played_ms=\(ms)"
         case .asyncToolDropped(let tool): "tool-result \(tool.rawValue) dropped reason=reconnect"
         case .asyncResultDropped(let tool, let reason): "tool-result \(tool.rawValue) dropped reason=\(reason.rawValue)"
-        case .asyncResultViaText(let tool): "tool-result \(tool.rawValue) via=text reason=reconnected"
+        case .asyncResultViaText(let tool, let reason): "tool-result \(tool.rawValue) via=text reason=\(reason.rawValue)"
+        case .qwenReconnectFresh: "qwen reconnect fresh=yes"
+        case .qwenHistory(let n): "qwen history turns=\(n)"
         case .stateNote(let reason): "state-note reason=\(reason.rawValue)"
         case .summaryNote(let n, let age): "summary-note exchanges=\(n) age_s=\(age)"
         case .contextNote(let fields): "contextNote fields=\(fields.map(\.rawValue).joined(separator: ","))"

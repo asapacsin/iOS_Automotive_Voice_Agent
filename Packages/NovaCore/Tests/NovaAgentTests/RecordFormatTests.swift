@@ -78,6 +78,8 @@ enum RecordFormatSession {
         .sessionResume(handle: true, result: SessionResumeResult.allCases[0]),
         .sessionGaveUp(ms: 3000, attempts: 3, code: RetryableErrorCode.allCases[0]),
         .sessionClosed(SessionClosedLine(code: 1000, reason: "test")),
+        // F-05 §15 items 5-6 (T-016q, format 16).
+        .qwen("qwen usage in=120,30 out=400,25"),
     ]
 
     /// The whole file text: format line, header, every event's lines, the closing lines.
@@ -85,7 +87,8 @@ enum RecordFormatSession {
         let header = RecordHeader(appVersion: "0.1.0(1) abcdef0", comfortMode: "model", interruptible: false,
                                   speakingStyle: "default", webSearch: true, searchKey: true, startedBy: "tap",
                                   declaredTools: ["web_search", "set_volume"],
-                                  agentLines: ["agentVersion 1.0.0", "agentHash 0123456789ab", "model gemini-3.8-live"])
+                                  agentLines: ["agentVersion 1.0.0", "agentHash 0123456789ab", "model gemini-3.8-live"],
+                                  voiceModel: "gemini-3.8-live")
         var recorder = ConversationRecorder()
         var lines = [ConversationRecord.formatLine] + header.lines
         for (n, e) in events.enumerated() { lines += recorder.add(e, atMs: Int64(n) * 100) }
@@ -128,8 +131,8 @@ struct RecordFormatTests {
         let w = MemoryWriter()
         record.drain(to: w)
         let lines = w.lines.withLock { $0 }
-        #expect(ConversationRecord.formatVersion == 15)
-        #expect(Array(lines.prefix(2)) == ["recordFormat 15", "app 0.1.0(1) abcdef0"])
+        #expect(ConversationRecord.formatVersion == 16)
+        #expect(Array(lines.prefix(2)) == ["recordFormat 16", "app 0.1.0(1) abcdef0"])
     }
 
     @Test("T-031u F-12 §21 rows 2-3: the fixed session encodes exactly to record-format-<formatVersion>.txt")

@@ -92,6 +92,9 @@ public enum RecordEvent: Sendable, Hashable {
     case undo(String)
     /// F-15b §7 (T-040i): `trip list …`, `trip lookup …`, `trip route …`, `trip stop-passed …`; codes and numbers only.
     case trip(String)
+    /// F-05 §15 items 5-6 (T-016q): `qwen reconnect fresh=yes`, `qwen history turns=<n>`, `qwen usage in=… out=…`.
+    /// Numbers only (I-8).
+    case qwen(String)
     /// F-18 §30 item 5 (T-046s): `weather source= ok= reason= view= lookup= attempts= ms=`; codes and numbers only.
     case weather(String)
     /// F-18 §35 item 9 (T-046x): `events store hit|miss …`, `events query …`, `events extract …`, `events search done …` (§39 item 8);
@@ -120,9 +123,13 @@ public struct RecordHeader: Sendable, Hashable {
     public let declaredTools: [String]?
     /// F-09b §15 item 6 (T-031y): `agentVersion`, `agentHash`, `model` right after the `app` line; empty writes none.
     public let agentLines: [String]
+    /// F-05 §15 item 6 (T-016q): `voiceModel <model id>`; nil writes no line.
+    public let voiceModel: String?
 
     public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false,
-                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil, agentLines: [String] = []) {
+                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil, agentLines: [String] = [],
+                voiceModel: String? = nil) {
+        self.voiceModel = voiceModel
         self.agentLines = agentLines
         self.startedBy = startedBy
         self.declaredTools = declaredTools
@@ -137,6 +144,7 @@ public struct RecordHeader: Sendable, Hashable {
     public var lines: [String] {
         var out = ["app \(appVersion)"]
         out += agentLines
+        if let voiceModel { out.append("voiceModel \(voiceModel)") }
         out += ["comfortMode \(comfortMode)", "可以打断她 \(interruptible ? "on" : "off")",
                 "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
         if let searchKey { out.append("searchKey \(searchKey ? "saved" : "missing")") }
@@ -281,6 +289,7 @@ public struct ConversationRecorder: Sendable {
         case .panelCloseTap(let panel): return ["\(ms) panel close tap \(panel.rawValue)"]
         case .undo(let text): return ["\(ms) \(text)"]
         case .trip(let text): return ["\(ms) \(text)"]
+        case .qwen(let text): return ["\(ms) \(text)"]
         case .volume(let text), .audio(let text): return ["\(ms) \(text)"]
         case .weather(let text): return ["\(ms) \(text)"]
         case .events(let text): return ["\(ms) \(text)"]
@@ -446,7 +455,7 @@ public final class ConversationRecord: Sendable {
     public static let capacity = 2000
     /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
     /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
-    public static let formatVersion = 15
+    public static let formatVersion = 16
     /// §21 item 1: the first line of every new file. A file without it is format 0.
     public static var formatLine: String { "recordFormat \(formatVersion)" }
 
