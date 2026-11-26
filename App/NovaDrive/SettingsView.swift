@@ -33,7 +33,7 @@ struct SettingsView: View {
         (.qweatherHost, "和风天气 API Host"),
         (.qweatherKey, "和风天气 API KEY"),
         (.zhipuKey, "智谱 key（视觉，推荐）"),
-        (.qwenAPIKey, "阿里云百炼 key（她的声音、联网搜索）"),
+        (.qwenAPIKey, "阿里云百炼 key（联网搜索、Qwen 语音模型）"),
         (.qianfanKey, "千帆 key（可选，视觉备用）"),
         (.iflytekAppID, "讯飞 APPID（唤醒词）"),
         (.iflytekAPIKey, "讯飞 APIKey"),
@@ -84,8 +84,9 @@ struct SettingsView: View {
                 ForEach(keys, id: \.0) { key, title in
                     Section(title) { keyField(key) }
                 }
-                // F-07 §14 item 2 (T-020a).
-                VoiceSettingsSection(onChange: refresh)
+                // F-05 §15 item 1 (T-016q).
+                VoiceModelSection(qwenKeySaved: saved.contains(.qwenAPIKey))
+                // F-07 §18 item 3 (T-020e): 「她的声音」 is removed; her voice is the voice model's own.
                 // F-01 §14 item 6 (T-060a).
                 Section("唤醒词") {
                     Toggle("唤醒词", isOn: $wakeWord)
@@ -222,7 +223,6 @@ struct SettingsView: View {
         Section("状态") {
             statusRow("Gemini key", ready.geminiKey)
             statusRow("Gemini 同意", ready.geminiConsent)
-            statusRow("她的声音", ready.voice)
             statusRow("高德 Web key", ready.amapWebKey)
             statusRow("和风天气", ready.qweather)
             statusRow("视觉 key", ready.vision)

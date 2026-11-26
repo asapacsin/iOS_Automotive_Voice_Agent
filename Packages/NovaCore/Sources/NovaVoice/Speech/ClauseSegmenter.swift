@@ -55,7 +55,7 @@ public struct ClauseSegmenter: Sendable {
     }
 }
 
-/// `speakableText` (`AssistantVoiceRevoicer.kt:491`): the provider sometimes sends a placeholder
+/// `speakableText` (Android assistant voice, line 491): the provider sometimes sends a placeholder
 /// instead of words (`<no speech>{pause}`); the voice must never read markup aloud. Nil when nothing
 /// speakable is left.
 public func speakableText(_ raw: String) -> String? {

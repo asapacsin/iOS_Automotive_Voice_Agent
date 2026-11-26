@@ -85,14 +85,14 @@ struct SettingsTests {
         #expect(SettingsReadiness(credentials: store, settings: settings).sessionBlocker == .geminiKeyMissing)
     }
 
-    @Test("F-22 revoicing needs the 千问 key and API Host (source 千问)")
+    @Test("T-020e F-07 row 28: revoicing is false whatever is saved (her voice is the voice model's own)")
     func revoicing() throws {
         let store = InMemoryCredentialStore([.qwenAPIKey: "k"])
         let settings = defaults()
-        #expect(!SettingsReadiness(credentials: store, settings: settings).revoicing)  // F-07 §15: no choice is Gemini 原声
-        settings.set("qwen", for: SettingsKey.voiceSource)
         #expect(!SettingsReadiness(credentials: store, settings: settings).revoicing)
-        settings.set("ws-x.ap-southeast-1.maas.aliyuncs.com", for: SettingsKey.qwenTTSHost)
-        #expect(SettingsReadiness(credentials: store, settings: settings).revoicing)
+        for model in VoiceModel.allCases {
+            settings.set(model.rawValue, for: SettingsKey.voiceModel)
+            #expect(!SettingsReadiness(credentials: store, settings: settings).revoicing)
+        }
     }
 }

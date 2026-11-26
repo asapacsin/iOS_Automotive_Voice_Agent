@@ -49,8 +49,6 @@ enum RecordFormatSession {
         .held,
         .spoke,
         .flushed,
-        .voiceClause(VoiceClauseLine(source: .qwen, chars: 3, firstMs: 300, ms: 600, attempt: 1)),
-        .voiceFailed(VoiceFailedLine(turn: 1, source: .qwen, code: "QWEN_TTS_TIMEOUT")),
         .voiceGemini(GeminiVoiceLine(turn: 1, heldMs: 0, firstMs: 500)),
         .playbackStarted,
         .claimCut(turn: 1, playedMs: 200),
@@ -73,6 +71,7 @@ enum RecordFormatSession {
         .weather("ok"),
         .events("events store hit cities=1 window=2026-11-28..2026-11-29"),
         .qiniu("search provider=qiniu job=live ms=2400 results=20 failed=no"),
+        .qwen("qwen usage in=120,900 out=300,20"),
         .toolResultLine("tool-result web_search dropped reason=superseded"),
         .turnEnded(.needMoreInput),
         .sessionResume(handle: true, result: SessionResumeResult.allCases[0]),
@@ -128,8 +127,8 @@ struct RecordFormatTests {
         let w = MemoryWriter()
         record.drain(to: w)
         let lines = w.lines.withLock { $0 }
-        #expect(ConversationRecord.formatVersion == 15)
-        #expect(Array(lines.prefix(2)) == ["recordFormat 15", "app 0.1.0(1) abcdef0"])
+        #expect(ConversationRecord.formatVersion == 17)
+        #expect(Array(lines.prefix(2)) == ["recordFormat 17", "app 0.1.0(1) abcdef0"])
     }
 
     @Test("T-031u F-12 §21 rows 2-3: the fixed session encodes exactly to record-format-<formatVersion>.txt")
@@ -218,7 +217,7 @@ struct RecordOneLineTests {
         #expect(r.add(.toolResult(name: "web_search", ok: true, code: nil, data: ["answer": "x"], elapsedMs: nil), atMs: 4)
                     .allSatisfy { !$0.contains("\n") })
         let all = RecordFormatSession.encoded().split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-        let header = Set(["recordFormat 15", "app 0.1.0(1) abcdef0"])
+        let header = Set(["recordFormat 17", "app 0.1.0(1) abcdef0"])
         #expect(all.allSatisfy { !$0.contains("\r") })
         // Every line after the header starts with its time (row 23's check, on the fixed session).
         let events = all.drop { !($0.first?.isNumber ?? false) || header.contains(String($0)) }

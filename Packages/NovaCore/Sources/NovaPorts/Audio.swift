@@ -90,27 +90,6 @@ public enum SpeakingStyle: String, Sendable, Hashable, CaseIterable {
     case `default`, sweet, tsundere, gentle, lively
 }
 
-/// Why a clause was not synthesised. Codes only (I-8): `QWEN_TTS_AUTH`, `QWEN_TTS_TIMEOUT`, ...
-public struct SpeechSynthesisError: Error, Sendable, Hashable {
-    public let code: String
-    public init(_ code: String) { self.code = code }
-}
-
-/// Her voice (Qwen-Audio TTS, F-07 §14): one clause to 24 kHz PCM. Throws `SpeechSynthesisError` or `CancellationError`.
-public protocol SpeechSynthesizer: Sendable {
-    func synthesize(_ text: String, deadline: NovaDuration) async throws -> PCMBuffer
-    /// One minimal request so the synthesis path is warm; at most once per 15 s. Never played.
-    func warmUp() async
-}
-
-/// F-07 §14 item 8 (T-020a): a synthesizer that also says when its first audio arrived, for the
-/// `voice … first_ms=` line. One that cannot tell is timed as a whole.
-public protocol FirstAudioTimedSynthesizer: SpeechSynthesizer {
-    /// The clause's audio and the milliseconds from the request to its first audio bytes.
-    func synthesizeTimed(_ text: String, deadline: NovaDuration) async throws
-        -> (pcm: PCMBuffer, firstMs: Int)
-}
-
 /// Speaks a guidance sentence when the relay falls back (OQ-IOS-10).
 public protocol FallbackGuidanceVoice: Sendable {
     func render(_ text: String) async throws -> PCMBuffer

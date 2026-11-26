@@ -214,6 +214,16 @@ struct KeychainRealtimeCredentials: RealtimeCredentialSource {
     }
 }
 
+/// F-05 §15 (T-016q): the 百炼 key (saved for search, F-18 §40) for the Qwen voice model. Never logged (I-7).
+struct KeychainQwenRealtimeCredentials: RealtimeCredentialSource {
+    func credential() async throws -> RealtimeCredential {
+        guard let key = try KeychainCredentialStore().value(for: .qwenAPIKey), !key.isEmpty else {
+            throw RealtimeError(.credential)
+        }
+        return .apiKey(key)
+    }
+}
+
 /// The demo start point stands in for the car's position.
 struct DemoLocation: LocationProvider, LocationUpdates {
     /// The navigation flow's own clock: a fix is judged fresh against it (F-16 §3).
@@ -235,14 +245,14 @@ struct DemoLocation: LocationProvider, LocationUpdates {
     }
 }
 
-/// Applies AgentCore effects to the real provider, revoicer, playback and screen.
+/// Applies AgentCore effects to the real provider, playback and screen.
 struct RuntimeSink: AgentEffectSink {
-    let realtime: GeminiLiveProvider
+    /// F-05 §15 item 2 (T-016q): Gemini Live or Qwen-Audio realtime, by 「语音模型」.
+    let realtime: any LiveVoiceProvider
     /// F-12 §17: the test record, nil when the setting is off.
     let record: ConversationRecord?
     let config: SessionConfig
-    /// Nil for Gemini 原声 (F-07 §15 item 3); then `direct` plays Gemini's judged audio.
-    let revoicer: Revoicer?
+    /// F-07 §18 item 1 (T-020e): the voice model's judged audio, the only voice she has.
     let direct: DirectReplyLane?
     let audio: LiveAudio
     let model: DriveModel
@@ -306,11 +316,9 @@ struct RuntimeSink: AgentEffectSink {
     }
     func cancelRevoicing(_ epoch: Epoch) async {
         direct?.flushed(to: epoch)
-        await revoicer?.cancel(newEpoch: epoch)
     }
     func newReply() async {
         audio.replyBegan()  // F-13a §7 (T-032h): the duck lines' ms count from here
-        await revoicer?.newReply()
     }
     /// F-07 §15 items 3, 5: Gemini's judged audio to the reply lane, and the turn's timing line once.
     func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async {
@@ -323,8 +331,9 @@ struct RuntimeSink: AgentEffectSink {
     func speak(_ clause: String) async {
         // set_speech_output silent: keep listening and acting, voice nothing.
         guard speechOutput.mode == .spoken else { return }
+        // F-07 §18 item 1 (T-020e): nothing revoices a reply (the session runs with revoicing off), so no clause
+        // is ever spoken here.
         record?.submit(.spoke)
-        await revoicer?.speak(clause)
     }
 
     func publish(_ view: AgentViewState) async {
@@ -919,8 +928,6 @@ final class AgentRuntime {
         if BackgroundDecision.decide(scene: scene, listening: state, navigating: navigating).keepSocket == false { stop() }
     }
 
-    /// Speaks a line in her voice while a session runs (set in `start()`, cleared in `stop()`).
-    private var speakLine: (@Sendable (String) async -> Void)?
     /// The running session's record (F-05a §13 item 5, camera lines); nil with no session or the record off.
     private var sessionRecord: ConversationRecord?
 
@@ -934,8 +941,8 @@ final class AgentRuntime {
         return shown.line
     }
 
-    /// 问一下: the fixed question. The answer shows as her bubble and on the window, and is spoken in her
-    /// voice while a session runs; with no session it is shown only (F-20a §7 as amended).
+    /// 问一下: the fixed question. The answer shows as her bubble and on the window (F-20a §7 as amended). F-07 §18
+    /// (T-020e): the 千问 TTS that could read it out is removed; as with Gemini 原声 before, it is shown only.
     func tapAsk() async {
         let result = await askCamera(CameraQuestionHandler.tapQuestion)
         // Window closed meanwhile (or a newer question): say nothing.
@@ -945,7 +952,6 @@ final class AgentRuntime {
             ?? CameraQuestionHandler.screenLine(result) ?? ScreenLanguage.cameraFallback
         model.cameraAnswer = line
         model.view.subtitle = line
-        await speakLine?(line)
     }
 
     func start(by origin: SessionOrigin = .tap) async {
@@ -983,57 +989,37 @@ final class AgentRuntime {
         case nil:
             break
         }
-        // F-07 §14 item 5 (T-020a), §15 item 3 (T-020b): the chosen source of her voice, read at session start.
-        let defaults = UserDefaults.standard
-        let voiceSource: VoiceSourceKind
-        let baseSynthesizer: (any SpeechSynthesizer)?
-        let decision = VoiceSource.resolve(choice: defaults.string(forKey: SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:)),
-                                           qwenKey: (try? store.value(for: .qwenAPIKey)) ?? nil,
-                                           qwenHost: defaults.string(forKey: SettingsKey.qwenTTSHost))
-        switch decision {
-        case .blocked(let message):
-            model.notice = message
-            return
-        case .gemini:
-            // Gemini Live's own voice: no Revoicer, no TTS warm-up, no Qwen connection.
-            voiceSource = .gemini
-            baseSynthesizer = nil
-        case .qwen(let key, let host):
-            let voice = defaults.string(forKey: SettingsKey.qwenVoice) ?? QwenVoiceOption.defaultID
-            voiceSource = .qwen
-            // Item 3 "One connection": this client and its URLSession live for this session.
-            baseSynthesizer = QwenSpeechClient(config: QwenSpeechConfig(key: key, host: host, voice: voice), budget: .shared)
-        }
+        // F-07 §18 item 1 (T-020e): her voice is the voice model's own audio; there is no source to choose.
         model.notice = nil
-        // F-07 §14 items 6-8: one retry for the TTS source; timing and failure lines (numbers and codes only, I-8).
         let voiceLines = VoiceLineSink()
-        let synthesizer = baseSynthesizer.map { base in
-            RetryingSpeechSynthesizer(base, source: voiceSource, onClause: { line in
-                RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
-                voiceLines.record?.submit(.voiceClause(line))
-            })
-        }
 
         let model = model
         let audio = LiveAudio()
         // F-13a §3 item 3 (T-032g): the saved media and voice levels are the engine's lane gains from the start.
         AppVolume.shared.output.attach(audio)
-        // F-24 §16 item 3 (T-020b): why each socket closed; the code and 80 characters of the reason only.
-        let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
-                                          connector: URLSessionWebSocketConnector(onDuplicate: { site in
+        // F-05 §15 items 1-2 (T-016q): the saved 「语音模型」, read at session start; one provider per choice.
+        let qwenKeySaved = ((try? store.value(for: .qwenAPIKey)) ?? nil)?.isEmpty == false
+        let voiceModel = VoiceModel.effective(in: DefaultsSettingsStore(), qwenKeySaved: qwenKeySaved)
+        RuntimeLog.agent.notice("voiceModel \(voiceModel.modelID, privacy: .public)")
+        let connector = URLSessionWebSocketConnector(onDuplicate: { site in
             RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
-        }), onClose: { line in
+        })
+        // F-24 §16 item 3 (T-020b): why each socket closed; the code and 80 characters of the reason only.
+        let onClose: @Sendable (SessionClosedLine) -> Void = { line in
             RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
             voiceLines.record?.submit(.sessionClosed(line))
-        })
-        let revoicer = synthesizer.map { synthesizer in
-            Revoicer(synthesizer: synthesizer, playback: audio, onFailure: { code in
-                let line = VoiceFailedLine(turn: voiceLines.turn, source: voiceSource, code: code)
-                RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
-                voiceLines.record?.submit(.voiceFailed(line))
-            })
         }
-        let direct = decision.revoicing ? nil : DirectReplyLane()
+        let provider: any LiveVoiceProvider = voiceModel.isQwen
+            // T-016r: the fixed Beijing endpoint (`QwenRoute.realtimeEndpoint`), not the saved 千问 voice API Host.
+            ? QwenRealtimeProvider(credentials: KeychainQwenRealtimeCredentials(), connector: connector, onClose: onClose, onLine: { line in
+                                       // F-05 §15 items 5-6: numbers only (I-8).
+                                       RuntimeLog.agent.notice("\(line, privacy: .public)")
+                                       voiceLines.record?.submit(.qwen(line))
+                                   })
+            : GeminiLiveProvider(credentials: KeychainRealtimeCredentials(), connector: connector, onClose: onClose)
+        // F-07 §18 items 1, 5 (T-020e): the model's judged audio plays on the reply lane for every voice model; the
+        // timing line reads `source=gemini` or `source=qwen-realtime`.
+        let direct: DirectReplyLane? = DirectReplyLane(source: voiceModel.timingSource)
         let navigationClock = self.navigationClock
         let device = deviceLocation
         // F-16a: read per request, so switching 位置来源 in 设置 applies to the next question.
@@ -1258,7 +1244,7 @@ final class AgentRuntime {
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
             searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy,
             declaredTools: ToolCatalog.declarations(webSearch: webSearch).map(\.name),
-            agentLines: agentSetup.headerLines()))
+            agentLines: agentSetup.headerLines(), voiceModel: voiceModel.modelID))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         voiceLines.record = record
         sessionRecord = record
@@ -1341,12 +1327,14 @@ final class AgentRuntime {
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(webSearch: webSearch),
                                    thinkingLevel: nil)
+        // F-05 §15 item 2 (T-016q): the same instruction and tools; only the model id differs.
+        if voiceModel.isQwen { config.model = voiceModel.modelID }
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
         // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
         config.activityDetection = .novaDrive
         let manual = config.activityDetection.manual
         let ended = CoreRelay()
-        let sink = RuntimeSink(realtime: provider, record: record, config: config, revoicer: revoicer, direct: direct, audio: audio, model: model,
+        let sink = RuntimeSink(realtime: provider, record: record, config: config, direct: direct, audio: audio, model: model,
                                speechOutput: speechOutput, fallbackVoice: SystemSpeechGuidanceVoice(), gate: gate,
                                guidanceEnded: { id in await ended.send(.playback(.guidanceEnded(id))) },
                                offlineEnded: { [weak self] in await self?.endedOffline() }, wakeWatch: wakeWatch,
@@ -1361,9 +1349,14 @@ final class AgentRuntime {
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors, background: background),
                              state: AgentState(truthfulness: .session(webSearch: webSearch),
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
-                                               resume: resume, revoicing: decision.revoicing,
+                                               resume: resume, revoicing: false,  // F-07 §18 item 1 (T-020e)
                                                languageIdentifier: AppleLanguageIdentifier(),
-                                               summary: summary))
+                                               summary: summary,
+                                               // F-05 §15 item 5 (T-016q): Qwen has no background tools and no resume;
+                                               // the core keeps this session's exchanges on its own clock for the
+                                               // reconnect's summary note.
+                                               backgroundTools: voiceModel.backgroundTools,
+                                               freshReconnect: voiceModel.resumes ? nil : ExchangeMemory()))
         ended.core = core
         carState.core = core
         // F-09b §5 item 2: the state at start (the connect note), then every 5 s for the speed and the music;
@@ -1498,11 +1491,6 @@ final class AgentRuntime {
             for await input in transcriptInputs.stream { await transcript.handle(input) }
         })
         self.audio = audio
-        speakLine = { line in
-            if let pcm = try? await baseSynthesizer?.synthesize(line, deadline: .seconds(6)) {
-                audio.playGuidance(pcm, id: GuidanceID(UInt64(abs(line.hashValue % 1_000_000))))
-            }
-        }
         model.climate = await vehicle.climateState()
         model.cabin = await vehicle.cabinState()
 
@@ -1561,8 +1549,8 @@ final class AgentRuntime {
                     model.stopHint = hint
                 }
                 await core.send(.playback(event))
-                // F-14: a fallback waits until nothing of her reply is left, at the revoicer or on the lane.
-                if case .replyFinished(let epoch) = event, await (revoicer?.pendingClauses ?? 0) == 0 {
+                // F-14: a fallback waits until nothing of her reply is left on the lane.
+                if case .replyFinished(let epoch) = event {
                     gate.setPlaying(reply: false)
                     gate.muteEnded(epoch)
                     gate.herTurnEnded()  // F-08 §17 item 5: her words are forgotten echoWindow after playback ends
@@ -1751,7 +1739,6 @@ final class AgentRuntime {
         let format = audio.playbackFormat.line
         RuntimeLog.agent.notice("\(format, privacy: .public)")
         sessionRecord?.submit(.session(format))
-        Task { await synthesizer?.warmUp() }
         await core.send(.start)
         model.running = true
     }
@@ -2013,7 +2000,6 @@ final class AgentRuntime {
         model.previewCard = nil
         // F-09b §19 item 5 (T-031zd): the map pin goes with the session.
         model.mapPin = nil
-        speakLine = nil
         sessionRecord = nil
         exitTap = nil
         AppVolume.shared.records.record = nil
@@ -2486,7 +2472,7 @@ final class CoreRelay: @unchecked Sendable {
     func send(_ event: AgentEvent) async { await core?.send(event) }
 }
 
-/// F-07 §14 item 7 (T-020a): the record (made after the revoicer) and the current turn, for her voice's lines.
+/// F-07 §14 item 7 (T-020a): the record (made after the provider) and the current turn, for the provider's lines.
 final class VoiceLineSink: @unchecked Sendable {
     private let lock = NSLock()
     private var _record: ConversationRecord?
@@ -2572,7 +2558,10 @@ final class DirectReplyLane: @unchecked Sendable {
     private let clock = SystemClock()
     private var epoch = Epoch.initial
     private var sequence = 0
-    private var timing = GeminiVoiceTiming()
+    private var timing: GeminiVoiceTiming
+
+    /// `source`: the timing line's `source=` (F-07 §18 item 5).
+    init(source: String = GeminiVoiceLine.geminiSource) { timing = GeminiVoiceTiming(source: source) }
 
     func flushed(to newEpoch: Epoch) {
         lock.withLock {

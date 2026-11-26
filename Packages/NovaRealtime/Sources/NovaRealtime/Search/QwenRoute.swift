@@ -153,6 +153,10 @@ public struct QwenRoute: Sendable, Hashable {
     /// F-18 §41 item 1: the Responses API, Beijing; the search jobs send here.
     public static let responsesEndpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/responses"
 
+    /// F-05 §15 vendor facts (T-016r): the Qwen-Audio realtime voice model, Beijing public endpoint, the same key;
+    /// `?model=<model>` is added per session. Not the saved 千问 voice API Host (a Singapore workspace got AUTH).
+    public static let realtimeEndpoint = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+
     /// §41 item 1: the route sends a search (the Responses `web_search` tool) instead of a plain call.
     public var usesResponses: Bool { search != nil }
 

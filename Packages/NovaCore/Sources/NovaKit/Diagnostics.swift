@@ -80,6 +80,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case contextNote(fields: [ContextNoteField])
     /// F-09b §16 item 9 (T-031z): a `屏幕` line was sent; the record line is `ScreenState.recordLine` (codes only).
     case screenLine(ScreenState)
+    /// F-05 §15 item 5 (T-016q): a Qwen voice-model session reconnected without resumption; the summary note follows.
+    case qwenReconnect
 }
 
 /// F-09b §14 item 8 (T-031p): the field names a `现在` note carries (names only, never values).
@@ -183,6 +185,7 @@ extension DiagnosticEvent {
         case summaryNote
         case contextNote
         case screenLine
+        case qwenReconnect
     }
 
     public var kind: Kind {
@@ -234,6 +237,7 @@ extension DiagnosticEvent {
         case .summaryNote: .summaryNote
         case .contextNote: .contextNote
         case .screenLine: .screenLine
+        case .qwenReconnect: .qwenReconnect
         }
     }
 }
@@ -272,6 +276,7 @@ extension DiagnosticEvent {
         case .summaryNote(let n, let age): "summary-note exchanges=\(n) age_s=\(age)"
         case .contextNote(let fields): "contextNote fields=\(fields.map(\.rawValue).joined(separator: ","))"
         case .screenLine(let screen): screen.recordLine
+        case .qwenReconnect: "qwen reconnect fresh=yes"
         default: "diagnostic \(self)"
         }
     }

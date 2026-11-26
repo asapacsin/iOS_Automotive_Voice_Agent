@@ -8,11 +8,8 @@ public enum SettingsKey {
     public static let geminiConsentAccepted = "gemini_consent_accepted"
     public static let geminiModel = "gemini_model"
     public static let personaStyle = "persona_style"
-    /// F-07 §14 item 2 (T-020a): `gemini` or `qwen`; unset reads as Gemini 原声.
-    public static let voiceSource = "voice_source"
-    /// F-07 §14 item 2: the 百炼 workspace API Host (not a secret).
-    public static let qwenTTSHost = "qwen_tts_host"
-    public static let qwenVoice = "qwen_voice"
+    /// F-05 §15 item 1 (T-016q): 「语音模型」, a `VoiceModel` raw value; unset reads as Gemini.
+    public static let voiceModel = "voice_model"
 }
 
 /// A write-only secret field (F-22 §10 row 1): the stored value is never shown again, and saving a
@@ -60,10 +57,6 @@ public enum CredentialWipe {
 public struct SettingsReadiness: Sendable, Hashable {
     public var geminiKey: Bool
     public var geminiConsent: Bool
-    /// F-07 §14 item 5: the chosen source of her voice is ready (「她的声音」).
-    public var voice: Bool
-    /// F-07 §15: the source the session will use.
-    public var source: VoiceSourceKind
     public var amapSDKKey: Bool
     public var amapWebKey: Bool
     /// F-18 §31 item 1: 和风天气 host and key both saved.
@@ -75,12 +68,6 @@ public struct SettingsReadiness: Sendable, Hashable {
         func has(_ key: CredentialKey) -> Bool { SecretField.display(key, in: credentials) == .saved }
         geminiKey = has(.geminiAPIKey)
         geminiConsent = settings.bool(SettingsKey.geminiConsentAccepted) == true
-        let choice = settings.string(SettingsKey.voiceSource).flatMap(VoiceSourceKind.init(rawValue:))
-        source = VoiceSource.effectiveChoice(choice)
-        switch source {
-        case .gemini: voice = true  // F-07 §15 item 3: always ready (the Gemini key is checked by sessionBlocker)
-        case .qwen: voice = has(.qwenAPIKey) && VoiceHostCheck.isValid(settings.string(SettingsKey.qwenTTSHost) ?? "")
-        }
         amapSDKKey = has(.amapSDKKey)
         amapWebKey = has(.amapWebKey)
         qweather = has(.qweatherHost) && has(.qweatherKey)
@@ -95,20 +82,9 @@ public struct SettingsReadiness: Sendable, Hashable {
         return nil
     }
 
-    /// Replies are revoiced only by a configured Qwen source (ADR-016, F-07 §14 item 5); Gemini 原声 plays
-    /// Gemini's own audio through the claim gate (F-07 §15 item 3).
-    public var revoicing: Bool { source != .gemini && voice }
-}
-
-/// F-07 §15 item 2 (T-020b): on the first launch of this build, an install with no saved choice or with 千问 saved
-/// moves to Gemini 原声, once; the move is remembered, so any choice saved after it is kept.
-public enum VoiceSourceMigration {
-    public static func run(_ settings: any SettingsStore) {
-        let done = settings.bool(VoiceSource.migrationKey) == true
-        guard let choice = VoiceSource.migrated(saved: settings.string(SettingsKey.voiceSource), done: done) else { return }
-        settings.set(choice.rawValue, for: SettingsKey.voiceSource)
-        settings.set(true, for: VoiceSource.migrationKey)
-    }
+    /// F-07 §18 item 1 (T-020e): her voice is always the voice model's own audio through the claim gate; nothing
+    /// revoices a reply.
+    public var revoicing: Bool { false }
 }
 
 /// F-18 §31 item 1 (T-046t): `https://abc.qweatherapi.com/` → `abc.qweatherapi.com`.

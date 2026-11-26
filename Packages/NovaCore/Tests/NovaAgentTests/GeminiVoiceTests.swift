@@ -34,7 +34,7 @@ struct GeminiVoiceTests {
         #expect(Self.played(d.realtime(.replyText(t1, "好的，有一只小猫。"))) == [t1])
         #expect(Self.played(d.realtime(.replyAudio(t1, Self.pcm))) == [t1])
         #expect(Self.played(d.realtime(.audioDone(t1)) + d.realtime(.responseDone(t1, outcome: .completed))).isEmpty)
-        #expect(spoken(d.effects).isEmpty)   // no Revoicer clause at all
+        #expect(spoken(d.effects).isEmpty)   // no TTS clause at all
         #expect(d.state.view.subtitle == "好的，有一只小猫。")
     }
 
