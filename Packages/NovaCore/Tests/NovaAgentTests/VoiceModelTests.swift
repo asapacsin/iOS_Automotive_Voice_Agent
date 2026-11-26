@@ -163,4 +163,18 @@ struct VoiceModelTests {
         #expect(!RecordHeader(appVersion: "a", comfortMode: "m", interruptible: true, speakingStyle: "s").lines
             .contains { $0.hasPrefix("voiceModel") })
     }
+
+    @Test("T-016q F-05 §15 item 5 review: on Qwen, find_events handed off still running: 「没有找到活动」 gets RESULT_PENDING")
+    func pendingAfterHandoff() {
+        var d = qwenAsking("这周末珠海有什么展")
+        let call = ToolCall(id: CallID("call_e")!, name: "find_events",
+                            arguments: ["cities": ["珠海"], "from": "2026-11-28", "to": "2026-11-29"])
+        #expect(AsyncToolTests.responses(d.realtime(.toolCalls(TurnID(1), [call]))).count == 1)
+        d.realtime(.responseDone(TurnID(1), outcome: .completed))
+        d.realtime(.responseStarted(TurnID(2)))
+        let out = d.realtime(.replyText(TurnID(2), "抱歉，没有找到活动。"))
+            + d.realtime(.responseDone(TurnID(2), outcome: .completed))
+        let corrected = out + d.fire(.correction)
+        #expect(texts(corrected).contains { $0.0.contains("RESULT_PENDING tool=find_events") })
+    }
 }

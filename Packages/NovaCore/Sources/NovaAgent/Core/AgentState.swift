@@ -1497,8 +1497,8 @@ public struct AgentState: Sendable {
             }
             if !handoffs.isEmpty {
                 answerOwed = true
+                // The pipeline is not told: the call still runs until its real result (RESULT_PENDING stays armed).
                 effects.append(.provider(.toolResponses(handoffs)))
-                for response in handoffs { effects += pipeline(.toolResult(turn, response), at: now) }
             }
             return effects
         case .toolCallCancellation(let ids):
