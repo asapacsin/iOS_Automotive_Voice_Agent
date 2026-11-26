@@ -45,3 +45,18 @@ struct AmapTripLookupTests {
         await #expect(throws: AmapWebError.quota) { try await client.text("x", city: nil) }
     }
 }
+
+/// F-15b §70 item 1 (T-040zw): v3 gives Macau/Hong Kong POIs no adcode; `pname` becomes `Place.province`.
+@Suite("T-040zw F-15b §70 高德 v3 pname on Place")
+struct AmapProvinceTests {
+    @Test("T-040zw F-15b §70 row 329: a v3 POI with adcode [] and pname 澳门特别行政区 gives province, no adcode; kept by province")
+    func row329Province() async throws {
+        let t = StubTransport()
+        t.body = Data(#"{"status":"1","info":"OK","pois":[{"id":"B1","name":"大三巴牌坊","location":"113.540,22.197","adcode":[],"citycode":[],"pname":"澳门特别行政区","cityname":"澳门特别行政区"},{"id":"B2","name":"大三巴牌坊(珠海店)","location":"113.57,22.27","adcode":"440402","pname":"广东省","cityname":"珠海市"}]}"#.utf8)
+        let client = AmapWebClient(key: { "k" }, transport: t)
+        let places = try await client.textInfo("大三巴牌坊", city: nil, cityLimit: false)
+        #expect(places.first?.adcode == nil && places.first?.province == "澳门特别行政区")
+        #expect(places.filter(SpecialRegion.macau.keeps).map(\.id) == ["B1"])
+        #expect(SpecialRegion.keptBy(places[0])?.by == "province")
+    }
+}

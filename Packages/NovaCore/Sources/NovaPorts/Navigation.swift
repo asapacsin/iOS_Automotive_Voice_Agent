@@ -247,10 +247,14 @@ public struct Place: Sendable, Hashable {
     public let kind: PlaceKind?
     /// F-15b §68 item 1 (T-040zu): 高德's `adcode` (82xxxx Macau, 81xxxx Hong Kong); nil when unknown.
     public let adcode: String?
+    /// F-15b §70 item 1 (T-040zw): 高德's `pname` (v3 gives Macau/Hong Kong POIs no adcode, only this); nil when unknown.
+    public let province: String?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
                 openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil,
-                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil, adcode: String? = nil) {
+                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil, adcode: String? = nil,
+                province: String? = nil) {
+        self.province = province
         self.kind = kind
         self.adcode = adcode
         self.photoURL = photoURL
@@ -272,7 +276,7 @@ extension Place {
     public func with(photoURL: URL?) -> Place {
         Place(id: id, name: name, address: address, coordinate: coordinate, distanceMeters: distanceMeters,
               openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL, countryCode: countryCode,
-              kind: kind, adcode: adcode)
+              kind: kind, adcode: adcode, province: province)
     }
 }
 
@@ -386,18 +390,41 @@ public protocol PlaceInfoSearch: PlaceSearch {
 }
 
 /// F-15b §68 item 1 (T-040zu): a lookup city in Macau or Hong Kong is searched without 高德's city limit; only results
-/// with these adcode prefixes are kept (82 Macau, 81 Hong Kong). nil for any other city.
-public enum SpecialRegion {
+/// in that SAR are kept. F-15b §70 item 1 (T-040zw): by adcode (82 Macau, 81 Hong Kong), or, with no adcode (高德 v3),
+/// by the province (`pname`, else `cityname`) 澳门特别行政区 / 香港特别行政区.
+public enum SpecialRegion: String, Sendable, Hashable, CaseIterable {
+    case macau, hongKong
+
     public static let adcodePrefixes = ["82", "81"]
     public static let cities: Set<String> = ["澳门", "澳门特别行政区", "香港", "香港特别行政区"]
-    public static func isSpecial(_ city: String?) -> Bool {
-        guard let c = city?.trimmingCharacters(in: .whitespaces) else { return false }
-        return cities.contains(c)
+
+    public var adcodePrefix: String { self == .macau ? "82" : "81" }
+    public var provinceName: String { self == .macau ? "澳门特别行政区" : "香港特别行政区" }
+    /// The short name put in front of a retried lookup (§71 item 2b).
+    public var shortName: String { self == .macau ? "澳门" : "香港" }
+
+    public static func isSpecial(_ city: String?) -> Bool { region(ofCity: city) != nil }
+
+    /// The SAR a lookup city names exactly (§68's list); nil for any other city.
+    public static func region(ofCity city: String?) -> SpecialRegion? {
+        guard let c = city?.trimmingCharacters(in: .whitespaces), cities.contains(c) else { return nil }
+        return c.hasPrefix("澳门") ? .macau : .hongKong
     }
-    public static func keeps(_ place: Place) -> Bool {
-        guard let code = place.adcode else { return false }
-        return adcodePrefixes.contains { code.hasPrefix($0) }
+
+    /// §70 item 1: how a place is in a SAR (`adcode` or `province`); nil when it is in neither.
+    public static func keptBy(_ place: Place) -> (region: SpecialRegion, by: String)? {
+        if let code = place.adcode, !code.isEmpty {
+            return allCases.first { code.hasPrefix($0.adcodePrefix) }.map { ($0, "adcode") }
+        }
+        let province = [place.province, place.city].compactMap { $0?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
+        return allCases.first { $0.provinceName == province }.map { ($0, "province") }
     }
+
+    /// The place is in this SAR (§70 item 1: 澳门 keeps only Macau, 香港 only Hong Kong).
+    public func keeps(_ place: Place) -> Bool { Self.keptBy(place)?.region == self }
+
+    /// The place is in either SAR.
+    public static func keeps(_ place: Place) -> Bool { keptBy(place) != nil }
 }
 
 public extension PlaceSearch {

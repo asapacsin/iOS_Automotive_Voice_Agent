@@ -866,7 +866,7 @@ public actor TripPlanner: ToolExecutor {
                 lookups[key(name, group.city)] = found[i]
                 // F-15b §68 item 3 (T-040zu): a failed lookup names what was looked up, its city and 高德's info.
                 if case .missing(let reason) = found[i] {
-                    onLine("trip lookup name=\(name) city=\(group.city ?? "-") info=\(Self.limitInfo(reason) ?? (reason == Self.qpsReason ? AmapWebFailure.qpsInfo : "none"))")
+                    onLine(Self.lookupMissLine(name: name, city: group.city, reason: reason))
                 }
             }
         }
@@ -2462,13 +2462,24 @@ public actor TripPlanner: ToolExecutor {
         }
         for attempt in 0..<2 {
             // §52 item 11: `slow` (Photon out of its own tries, ~12 s) is not tried again here.
-            guard case .missing(let reason) = result.0, reason != "nomatch", reason != "country", reason != "area",
+            guard case .missing(let reason) = result.0, reason != "nomatch", sarDropped(reason) == nil, reason != "country", reason != "area",
                   reason != "slow", Self.limitInfo(reason) == nil, !Task.isCancelled else { return result }
             try? await Task.sleep(for: .milliseconds(retryDelay.milliseconds << attempt))
             if Task.isCancelled { return result }
             result = await once()
         }
         return result
+    }
+
+    /// F-15b §70 item 2 (T-040zw): a SAR lookup 高德 answered with nothing kept: 「sarnone|<dropped>」 (not tried again).
+    static func sarNoneReason(dropped: Int) -> String { "sarnone|\(dropped)" }
+    static func sarDropped(_ reason: String) -> Int? { reason.hasPrefix("sarnone|") ? Int(reason.dropFirst(8)) : nil }
+
+    /// §68 item 3, §70 item 2: the record line of a failed lookup.
+    static func lookupMissLine(name: String, city: String?, reason: String) -> String {
+        let info = limitInfo(reason) ?? (reason == qpsReason ? AmapWebFailure.qpsInfo : "none")
+        let sar = sarDropped(reason).map { " dropped=\($0) kept_by=none" } ?? ""
+        return "trip lookup name=\(name) city=\(city ?? "-") info=\(info)\(sar)"
     }
 
     /// F-15b §68 (T-040zu): a lookup answered `CUQPS_HAS_EXCEEDED_THE_LIMIT` (tried once more).
@@ -2502,9 +2513,11 @@ public actor TripPlanner: ToolExecutor {
         do {
             var places: [Place]
             // F-15b §68 item 1 (T-040zu): a Macau or Hong Kong lookup goes without 高德's city limit; only 82/81 results.
-            if area == nil, region == nil, SpecialRegion.isSpecial(city) {
-                places = try await textWithInfo(search, name, city: nil, cityLimit: false).filter(SpecialRegion.keeps)
-                guard !places.isEmpty else { return (.missing("nomatch"), 0) }
+            // F-15b §70 item 1 (T-040zw): kept by adcode, else by province, and only in the SAR asked for.
+            if area == nil, region == nil, let sar = SpecialRegion.region(ofCity: city) {
+                let all = try await textWithInfo(search, name, city: nil, cityLimit: false)
+                places = all.filter(sar.keeps)
+                guard !places.isEmpty else { return (.missing(sarNoneReason(dropped: all.count)), 0) }
                 return (.candidates(Array(places.prefix(max(kept, 1)))), 0)
             }
             if let area {
