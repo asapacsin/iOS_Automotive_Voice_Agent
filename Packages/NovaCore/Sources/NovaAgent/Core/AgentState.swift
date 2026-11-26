@@ -385,6 +385,14 @@ public struct AgentState: Sendable {
     private var summary: SessionSummary?
     /// F-09b §6 item 1: the tool results of the exchange in progress (`name ok` or `name CODE`).
     private var exchangeTools: [String] = []
+    /// F-05 §15 item 5 (T-016q): false on a voice model without background tools (Qwen): a background tool answers at
+    /// once with the handoff result and its final result goes later as a text turn (the F-18 §37 item 3 path).
+    private var backgroundTools = true
+    /// F-05 §15 item 5: on a voice model without resumption (Qwen), the exchanges so far, so a reconnect without a
+    /// handle starts fresh with the summary note (F-09b §6). nil: the provider resumes (Gemini).
+    private var freshReconnect: ExchangeMemory?
+    /// Connects asked for by this session; a later one without a handle is a fresh reconnect.
+    private var connects = 0
 
     public init() {}
 
@@ -396,8 +404,10 @@ public struct AgentState: Sendable {
     /// `summary`: F-09b §6 (T-016p), the earlier exchanges for a session started without a handle (nil: none).
     public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
                 revoicing: Bool = true, languageIdentifier: any LanguageIdentifier = NoLanguageIdentifier(),
-                summary: SessionSummary? = nil) {
+                summary: SessionSummary? = nil, backgroundTools: Bool = true, freshReconnect: ExchangeMemory? = nil) {
         self.summary = resume == nil ? summary : nil
+        self.backgroundTools = backgroundTools
+        self.freshReconnect = freshReconnect
         pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing, detector: languageIdentifier)
         detector = languageIdentifier
         self.revoicing = revoicing
@@ -441,6 +451,17 @@ public struct AgentState: Sendable {
         answerOwed = true
         return [.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)),
                 .diagnostic(.asyncResultViaText(tool: late.tool))]
+    }
+
+    /// F-05 §15 item 5 (T-016q): the immediate result of a background tool on a voice model without background tools.
+    /// `plan_trip` and `find_events` have their handoff line said by the app, so she says nothing; for the others she says
+    /// it is being looked up (no sentence is scripted, F-09b §13 item 8).
+    public static func handoffResult(_ tool: AsyncTool) -> ToolResult {
+        let next = switch tool {
+        case .planTrip, .findEvents: "已经交给后台去做，系统会告诉司机。现在不用说话，结果稍后发给你。"
+        case .webSearch, .queryLiveInfo, .showPlace: "已经在后台查，结果稍后发给你。告诉司机在查，好了告诉他。"
+        }
+        return ToolResult.success(["status": "running", "next": .string(next + AsyncTool.tripPendingNext)])
     }
 
     /// A result as the JSON the model reads in a text turn (`ok`, `data`, `code`, `advice`).
@@ -1095,6 +1116,13 @@ public struct AgentState: Sendable {
             case .keepHandle(let handle):
                 effects.append(.keepResumption(handle))
             case .connect(let connection, let resume):
+                connects += 1
+                // F-05 §15 item 5 (T-016q): no resume on Qwen; the reconnect gets the summary note as its first text.
+                if connects > 1, resume == nil, var memory = freshReconnect {
+                    summary = memory.summary(at: now)
+                    freshReconnect = memory
+                    effects.append(.diagnostic(.qwenReconnect))
+                }
                 effects += newSocket(at: now)
                 effects.append(.provider(.connect(connection: connection, resume: resume)))
             case .close:
@@ -1450,12 +1478,28 @@ public struct AgentState: Sendable {
                         }
                         searchCalls[running.id] = turn
                     }
+                    var handoffResponse: ToolResponse?
                     if let tool = AsyncTool(name: running.name) {
-                        asyncCalls[running.id] = (tool, now)
+                        if backgroundTools {
+                            asyncCalls[running.id] = (tool, now)
+                        } else {
+                            // F-05 §15 item 5 (T-016q): no background tools on Qwen. The handoff result answers at
+                            // once; the call runs on as a carried call whose result goes as a text turn when idle.
+                            runningTools = max(runningTools - 1, 0)
+                            searchCalls[running.id] = nil
+                            carriedCalls[running.id] = (tool, now)
+                            handoffResponse = ToolResponse(id: running.id, name: running.name,
+                                                           result: Self.handoffResult(tool))
+                        }
                         // §37 item 2: the 现在 note says what runs in the background.
                         if tool == .findEvents || tool == .planTrip, contextNow != nil { contextPending = true }
                     }
                     effects.append(.startTool(turn, running))
+                    if let response = handoffResponse {
+                        answerOwed = true
+                        effects.append(.provider(.toolResponses([response])))
+                        effects += pipeline(.toolResult(turn, response), at: now)
+                    }
                     if running.name == AsyncTool.planTrip.rawValue { effects += handoff(running) }
                 case .refuse(let result):
                     effects += refuse(turn, call, result, at: now)
@@ -1515,8 +1559,9 @@ public struct AgentState: Sendable {
             }
             // F-09b §6 item 1: a completed exchange; her text is the judged subtitle the screen showed.
             if outcome == .completed, open, !silenced.contains(turn), !view.subtitle.isEmpty || !exchangeTools.isEmpty {
-                effects.append(.exchange(ConversationExchange(driver: view.driverLine, reply: view.subtitle,
-                                                              tools: exchangeTools)))
+                let exchange = ConversationExchange(driver: view.driverLine, reply: view.subtitle, tools: exchangeTools)
+                freshReconnect?.add(exchange, at: now)
+                effects.append(.exchange(exchange))
                 exchangeTools = []
             }
             return effects

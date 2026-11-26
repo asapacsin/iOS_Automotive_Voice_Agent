@@ -13,6 +13,8 @@ public enum SettingsKey {
     /// F-07 §14 item 2: the 百炼 workspace API Host (not a secret).
     public static let qwenTTSHost = "qwen_tts_host"
     public static let qwenVoice = "qwen_voice"
+    /// F-05 §15 item 1 (T-016q): 「语音模型」, a `VoiceModel` raw value; unset reads as Gemini.
+    public static let voiceModel = "voice_model"
 }
 
 /// A write-only secret field (F-22 §10 row 1): the stored value is never shown again, and saving a

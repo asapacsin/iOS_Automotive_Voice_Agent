@@ -214,6 +214,16 @@ struct KeychainRealtimeCredentials: RealtimeCredentialSource {
     }
 }
 
+/// F-05 §15 (T-016q): the 百炼 key (saved for search, F-18 §40) for the Qwen voice model. Never logged (I-7).
+struct KeychainQwenRealtimeCredentials: RealtimeCredentialSource {
+    func credential() async throws -> RealtimeCredential {
+        guard let key = try KeychainCredentialStore().value(for: .qwenAPIKey), !key.isEmpty else {
+            throw RealtimeError(.credential)
+        }
+        return .apiKey(key)
+    }
+}
+
 /// The demo start point stands in for the car's position.
 struct DemoLocation: LocationProvider, LocationUpdates {
     /// The navigation flow's own clock: a fix is judged fresh against it (F-16 §3).
@@ -237,7 +247,8 @@ struct DemoLocation: LocationProvider, LocationUpdates {
 
 /// Applies AgentCore effects to the real provider, revoicer, playback and screen.
 struct RuntimeSink: AgentEffectSink {
-    let realtime: GeminiLiveProvider
+    /// F-05 §15 item 2 (T-016q): Gemini Live or Qwen-Audio realtime, by 「语音模型」.
+    let realtime: any LiveVoiceProvider
     /// F-12 §17: the test record, nil when the setting is off.
     let record: ConversationRecord?
     let config: SessionConfig
@@ -1019,13 +1030,29 @@ final class AgentRuntime {
         // F-13a §3 item 3 (T-032g): the saved media and voice levels are the engine's lane gains from the start.
         AppVolume.shared.output.attach(audio)
         // F-24 §16 item 3 (T-020b): why each socket closed; the code and 80 characters of the reason only.
-        let provider = GeminiLiveProvider(credentials: KeychainRealtimeCredentials(),
-                                          connector: URLSessionWebSocketConnector(onDuplicate: { site in
+        // F-05 §15 items 1-2 (T-016q): the saved 「语音模型」, read at session start; one provider per choice.
+        let qwenKeySaved = ((try? store.value(for: .qwenAPIKey)) ?? nil)?.isEmpty == false
+        let qwenHost = defaults.string(forKey: SettingsKey.qwenTTSHost) ?? ""
+        let voiceModel = VoiceModel.effective(in: DefaultsSettingsStore(), qwenKeySaved: qwenKeySaved,
+                                              qwenHostSaved: VoiceHostCheck.isValid(qwenHost))
+        RuntimeLog.agent.notice("voiceModel \(voiceModel.modelID, privacy: .public)")
+        let connector = URLSessionWebSocketConnector(onDuplicate: { site in
             RuntimeLog.agent.notice("\(site.logLine, privacy: .public)")
-        }), onClose: { line in
+        })
+        // F-24 §16 item 3 (T-020b): why each socket closed; the code and 80 characters of the reason only.
+        let onClose: @Sendable (SessionClosedLine) -> Void = { line in
             RuntimeLog.agent.notice("\(line.logLine, privacy: .public)")
             voiceLines.record?.submit(.sessionClosed(line))
-        })
+        }
+        let provider: any LiveVoiceProvider = voiceModel.isQwen
+            ? QwenRealtimeProvider(credentials: KeychainQwenRealtimeCredentials(),
+                                   endpoint: { QwenRealtimeProvider.endpoint(host: qwenHost, model: $0) },
+                                   connector: connector, onClose: onClose, onLine: { line in
+                                       // F-05 §15 items 5-6: numbers only (I-8).
+                                       RuntimeLog.agent.notice("\(line, privacy: .public)")
+                                       voiceLines.record?.submit(.qwen(line))
+                                   })
+            : GeminiLiveProvider(credentials: KeychainRealtimeCredentials(), connector: connector, onClose: onClose)
         let revoicer = synthesizer.map { synthesizer in
             Revoicer(synthesizer: synthesizer, playback: audio, onFailure: { code in
                 let line = VoiceFailedLine(turn: voiceLines.turn, source: voiceSource, code: code)
@@ -1258,7 +1285,7 @@ final class AgentRuntime {
             speakingStyle: SpeakingStyle.saved(in: settings).rawValue, webSearch: webSearch,
             searchKey: webSearch ? searchKeySaved : nil, startedBy: origin.startedBy,
             declaredTools: ToolCatalog.declarations(webSearch: webSearch).map(\.name),
-            agentLines: agentSetup.headerLines()))
+            agentLines: agentSetup.headerLines(), voiceModel: voiceModel.modelID))
         if let record, let recordFile { tasks.append(ConversationRecordFile.drainLoop(record, to: recordFile)) }
         voiceLines.record = record
         sessionRecord = record
@@ -1341,6 +1368,8 @@ final class AgentRuntime {
         // The live model closes 1007 "Thinking level is not supported for this model." for any level (fixture close1007).
         var config = SessionConfig(systemInstruction: instruction, tools: ToolCatalog.declarations(webSearch: webSearch),
                                    thinkingLevel: nil)
+        // F-05 §15 item 2 (T-016q): the same instruction and tools; only the model id differs.
+        if voiceModel.isQwen { config.model = voiceModel.modelID }
         // gemini-3.8-live does no server-side speech detection: the local gate marks each utterance.
         // F-08 §15 item 1: manual detection, and an activityStart cancels her reply (only the stop's empty one can).
         config.activityDetection = .novaDrive
@@ -1363,7 +1392,12 @@ final class AgentRuntime {
                                                destinationNotes: webSearch && DriveSettings.destinationNotes,
                                                resume: resume, revoicing: decision.revoicing,
                                                languageIdentifier: AppleLanguageIdentifier(),
-                                               summary: summary))
+                                               summary: summary,
+                                               // F-05 §15 item 5 (T-016q): Qwen has no background tools and no resume;
+                                               // the core keeps this session's exchanges on its own clock for the
+                                               // reconnect's summary note.
+                                               backgroundTools: !voiceModel.isQwen,
+                                               freshReconnect: voiceModel.isQwen ? ExchangeMemory() : nil))
         ended.core = core
         carState.core = core
         // F-09b §5 item 2: the state at start (the connect note), then every 5 s for the speed and the music;

@@ -84,6 +84,8 @@ struct SettingsView: View {
                 ForEach(keys, id: \.0) { key, title in
                     Section(title) { keyField(key) }
                 }
+                // F-05 §15 item 1 (T-016q).
+                VoiceModelSection(qwenKeySaved: saved.contains(.qwenAPIKey))
                 // F-07 §14 item 2 (T-020a).
                 VoiceSettingsSection(onChange: refresh)
                 // F-01 §14 item 6 (T-060a).

@@ -102,6 +102,9 @@ public enum RecordEvent: Sendable, Hashable {
     case qiniu(String)
     /// F-03 §14 item 4 (T-021q): `audio interrupted`, `audio interruption-ended resume=…`, `audio resumed …`.
     case audio(String)
+    /// F-05 §15 items 5-6 (T-016q): `qwen usage in=<audio>,<text> out=<audio>,<text>`, `qwen history turns=<n>`,
+    /// `qwen reconnect fresh=yes`; numbers only (I-8).
+    case qwen(String)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -120,9 +123,13 @@ public struct RecordHeader: Sendable, Hashable {
     public let declaredTools: [String]?
     /// F-09b §15 item 6 (T-031y): `agentVersion`, `agentHash`, `model` right after the `app` line; empty writes none.
     public let agentLines: [String]
+    /// F-05 §15 item 6 (T-016q): the voice model's id (`voiceModel gemini-3.8-live`); nil writes no line.
+    public let voiceModel: String?
 
     public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false,
-                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil, agentLines: [String] = []) {
+                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil, agentLines: [String] = [],
+                voiceModel: String? = nil) {
+        self.voiceModel = voiceModel
         self.agentLines = agentLines
         self.startedBy = startedBy
         self.declaredTools = declaredTools
@@ -137,6 +144,7 @@ public struct RecordHeader: Sendable, Hashable {
     public var lines: [String] {
         var out = ["app \(appVersion)"]
         out += agentLines
+        if let voiceModel { out.append("voiceModel \(voiceModel)") }
         out += ["comfortMode \(comfortMode)", "可以打断她 \(interruptible ? "on" : "off")",
                 "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
         if let searchKey { out.append("searchKey \(searchKey ? "saved" : "missing")") }
@@ -285,6 +293,7 @@ public struct ConversationRecorder: Sendable {
         case .weather(let text): return ["\(ms) \(text)"]
         case .events(let text): return ["\(ms) \(text)"]
         case .qiniu(let text): return ["\(ms) \(text)"]
+        case .qwen(let text): return ["\(ms) \(text)"]
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]
@@ -446,7 +455,7 @@ public final class ConversationRecord: Sendable {
     public static let capacity = 2000
     /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
     /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
-    public static let formatVersion = 15
+    public static let formatVersion = 16
     /// §21 item 1: the first line of every new file. A file without it is format 0.
     public static var formatLine: String { "recordFormat \(formatVersion)" }
 
