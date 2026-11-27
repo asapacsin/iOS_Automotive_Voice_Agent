@@ -3076,11 +3076,11 @@
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
       "priority": 1,
-      "action": "F-15b §73: each sight and stay gains a hidden map-search word query (shortest common map name, no city, no brackets); only query goes to the 高德 lookup and the §71 name check; fallback location, then name; never shown to the driver or her; planner system text gains the query field and one line; record lookup query= and picker candidates; rows 353-360.",
+      "action": "F-15b §73: each sight and stay gains a hidden map-search word query (shortest common map name, no city, no brackets); only query goes to the 高德 lookup and the §71 name check; fallback location, then name; never shown to the driver or her; planner system text gains the query field and one line; item 2b: an unplaced query is looked up once more by the driver's name, picked by the picker; record lookup query=, fallback and picker candidates; rows 353-363.",
       "depends_on": [
         "T-040zx"
       ],
-      "notes": "Owner 2026-11-27: record 20261127-133824 (533bfd0): 长隆海洋王国 and 珠海大剧院 not placed; the planner wrote location 珠海长隆海洋王国 (system text asks for the 全名) and the name check strips only 澳门/香港. Owner: keep what the driver sees, add a hidden word a person would type into a map app.",
+      "notes": "Owner 2026-11-27: record 20261127-133824 (533bfd0): 长隆海洋王国 and 珠海大剧院 not placed; the planner wrote location 珠海长隆海洋王国 (system text asks for the 全名) and the name check strips only 澳门/香港. Owner: keep what the driver sees, add a hidden word a person would type into a map app. PoC 2026-11-27 (planner, 高德 before/after, picker): query fixes 长隆海洋王国; 日月贝 needs the name fallback (owner chose it over a planner retry).",
       "evidence": "Spec at the commit that adds F-15b §73."
     }
   ]
