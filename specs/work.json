@@ -1914,14 +1914,17 @@
     {
       "id": "T-013n",
       "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "status": "RUNNING",
       "priority": 1,
       "action": "F-04b §19: item 0 echo-aware VAD: while she plays, SpeechUplinkGate counts a frame voiced only above echoCoupling x loudest playback RMS in the last 200 ms (Geigel double-talk detection; coupling measured by the EchoSpike trial, default 0.5); items 1-6 rolling voiceprint check every 1.0 s, first accepted window stops her and splits the utterance, all-rejected echo cut at her reply end; rows 72a-79.",
       "depends_on": [
         "T-013m"
       ],
       "notes": "Owner 2026-11-27: could not interrupt her on Qwen Flash (record 20261127-095719: one early check -1.435 on her own echo, utterance open 20 s, driver never scored on his own). Owner: use VAD the proper way.",
-      "evidence": "Spec at the commit that adds F-04b §19."
+      "evidence": [
+        "Spec at the commit that adds F-04b §19.",
+        "43e06b6 (§19 items 0-7; rows 72a, 72b, 73-77 unit: RollingSpeakerCheckTests; record format 18). Gates green on a clean checkout of 43e06b6 (spec-trace 204/0). spec-reviewer high: pending"
+      ]
     },
     {
       "id": "T-021q",
