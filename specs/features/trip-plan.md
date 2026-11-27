@@ -3434,4 +3434,4 @@ not compared).
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040zz | §73 items 1–8 and 2b; rows 353–363 | NOT_RUN |
+| T-040zz | §73 items 1–8 and 2b; rows 353–363 | Code PASS (3bf95bd); row 360 device NOT_VERIFIED |
