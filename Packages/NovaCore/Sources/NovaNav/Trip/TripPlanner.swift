@@ -885,11 +885,14 @@ public actor TripPlanner: ToolExecutor {
                 }
             }
         }
-        // F-15b §73 item 2b (T-040zz): a plain sight whose `query` lookup ended not found, with a `name` that differs,
+        // F-15b §73 item 2b (T-040zz): a plain sight or stay whose `query` lookup ended not found, with a `name` that differs,
         // is looked up once more by `name` (same city rules and name check, one more picker call per city).
         var byName: [String: Lookup] = [:]
-        var again: [(city: String?, sights: [TripPlannerShape.Sight])] = []
-        for s in days.flatMap(\.sights) where s.event == nil {
+        var again: [(city: String?, sights: [(name: String, lookup: String, city: String?)])] = []
+        // Sights without an event (§66-linked sights carry one) and stays; abroad keeps its own search (out of §73).
+        let plain: [(name: String, lookup: String, city: String?)] = days.flatMap { d in d.sights.filter { $0.event == nil }.map { ($0.name, $0.lookup, $0.city) }
+            + (d.stay.map { [($0.name, $0.lookup, $0.city)] } ?? []) }
+        for s in plain {
             let city = cityOf(s.city)
             guard s.name != s.lookup, Self.notPlacedReason(lookups[key(s.lookup, city)]) == "not_found",
                   case .missing? = lookups[key(s.lookup, city)] else { continue }

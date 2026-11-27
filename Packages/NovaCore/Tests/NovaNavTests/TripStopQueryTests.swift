@@ -89,6 +89,7 @@ struct TripStopQueryTests {
         #expect(rig.line("trip pick candidates query=珠海大剧院 n=2 names=长隆剧院｜华发中演大剧院").count >= 1, "\(rig.lines.withLock { $0 })")
         #expect(TripPlanner.lookupMissLine(name: "日月贝", query: "珠海大剧院", city: "珠海", reason: "none")
             == "trip lookup name=日月贝 query=珠海大剧院 city=珠海 info=none")
+        #expect(rig.line("trip lookup name=日月贝 query=珠海大剧院 city=珠海 info=none").count >= 1)
         let many = (1...7).map { mapPlace("P\($0)", 22, city: "珠海市") }
         #expect(TripPlanner.pickCandidatesLine(query: "Q", places: many) == "trip pick candidates query=Q n=7 names=P1｜P2｜P3｜P4｜P5")
     }
@@ -143,5 +144,24 @@ struct TripStopQueryTests {
             _ = await rig.run(planCall())
             #expect(!search.asked.contains("灯光节") && rig.line("trip lookup fallback=").isEmpty, "\(search.asked)")
         }
+    }
+
+    @Test("T-040zz F-15b §73 item 2b: a stay whose query is not placed is looked up once more by its name")
+    func stayFallback() async {
+        let answer: ScriptPlanner.Answer = .text(TripPlanJSON.text(.object([
+            "days": .array([
+                .object(["sights": .array([["name": "珠海渔女", "city": "珠海", "minutes": 60]]),
+                         "stay": ["name": "日月贝", "query": "珠海大剧院", "city": "珠海"]]),
+                .object(["sights": .array([["name": "珠海渔女", "city": "珠海", "minutes": 60]]), "stay": .null]),
+            ]),
+            "done": true, "note": "",
+        ])))
+        var table = riyuebei
+        table["珠海渔女"] = [mapPlace("珠海渔女", 22.28, city: "珠海市")]
+        let rig = await LookupRig([answer, answer], search: AmapLookupSearch(table), picker: FakePicker(["珠海大剧院": nil, "日月贝": 1]))
+        _ = await rig.run(planCall("珠海两天", days: 2))
+        let hotel = await rig.planner.currentPlan.allStops.map(\.stop).first { $0.role == .hotel }
+        #expect(hotel?.placed == true && hotel?.place.name == "珠海日月贝", "\(String(describing: hotel))")
+        #expect(rig.line("trip lookup fallback=name name=日月贝 query=珠海大剧院 found=yes").count >= 1)
     }
 }
