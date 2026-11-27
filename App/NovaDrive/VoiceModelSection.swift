@@ -1,36 +1,32 @@
 import NovaAgent
-import NovaServices
-import NovaPorts
 import SwiftUI
 
-/// F-05 §15 item 1 (T-016q): 「语音模型」 — Gemini 3.8 Live (default), Qwen Audio 3.1 Flash / Plus. A Qwen choice needs
-/// only the 百炼 key (T-016r); without it it is disabled. The choice applies at the next connect.
+/// F-05 §15 item 1 (T-016q): 「语音模型」, Gemini 3.8 Live (default) or Qwen Audio 3.1 Flash / Plus. A Qwen choice is
+/// disabled without the 百炼 key (T-016r: no API Host needed); a change applies at the next connect (a running session is not switched).
 struct VoiceModelSection: View {
-    @AppStorage(VoiceModel.settingsKey) private var saved = VoiceModel.defaultModel.rawValue
-    @State private var changed = false
+    @AppStorage(SettingsKey.voiceModel) private var savedModel = VoiceModel.default.rawValue
+    let qwenKeySaved: Bool
 
-    private var key: String? { (try? KeychainCredentialStore().value(for: .qwenAPIKey)) ?? nil }
+    private var selection: Binding<VoiceModel> {
+        Binding(get: { VoiceModel(rawValue: savedModel) ?? .default },
+                set: { model in
+                    guard model.isAvailable(qwenKeySaved: qwenKeySaved) else { return }
+                    savedModel = model.rawValue
+                })
+    }
 
     var body: some View {
-        Section(VoiceModel.title) {
-            ForEach(VoiceModel.allCases, id: \.self) { model in
-                let reason = model.disabledReason(qwenKey: key)
-                Button {
-                    saved = model.rawValue
-                    changed = true
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(model.label)
-                            if let reason { Text(reason).font(.footnote).foregroundStyle(.secondary) }
-                        }
-                        Spacer()
-                        if (VoiceModel(rawValue: saved) ?? VoiceModel.defaultModel) == model { Image(systemName: "checkmark") }
-                    }
+        Section("语音模型") {
+            Picker("语音模型", selection: selection) {
+                ForEach(VoiceModel.allCases, id: \.rawValue) { model in
+                    Text(model.label).tag(model)
+                        .disabled(!model.isAvailable(qwenKeySaved: qwenKeySaved))
                 }
-                .disabled(reason != nil)
             }
-            if changed { Text(VoiceModel.nextConnectNote).font(.footnote).foregroundStyle(.secondary) }
+            if let reason = VoiceModel.qwenFlash.disabledReason(qwenKeySaved: qwenKeySaved) {
+                Text("Qwen：" + reason).font(.footnote).foregroundStyle(.secondary)
+            }
+            Text(VoiceModel.nextConnectNote).font(.footnote).foregroundStyle(.secondary)
         }
     }
 }

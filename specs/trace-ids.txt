@@ -115,8 +115,6 @@ T-031n: F-09b
 T-031o: F-09b
 T-031p: F-09b
 T-016p: F-09b
-T-016q: F-05
-T-016r: F-05
 T-040i: F-15b
 T-040j: F-15b
 T-040l: F-15b
@@ -176,11 +174,14 @@ T-040zr: F-15b
 T-040zs: F-15b
 T-040zt: F-15b
 T-040zu: F-15b
+T-040zv: F-15b
 T-040zw: F-15b
 T-040zx: F-15b
-T-040zv: F-15b
 T-031zd: F-09b
 T-031ze: F-09b
 T-031zf: F-09b
 T-031zg: F-09b
 T-046zi: F-18
+T-016q: F-05
+T-016r: F-05
+T-020e: F-07

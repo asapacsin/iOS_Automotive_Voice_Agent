@@ -4,7 +4,6 @@ import FoundationNetworking
 #endif
 import NovaKit
 import NovaPorts
-import NovaNav
 
 /// F-15b §47 item 2: at most one OSRM demo-server request per second, shared by the route service and the §36 item
 /// 2c table (usage policy: github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy).
@@ -45,8 +44,7 @@ public final class OsrmRouteSource: RouteSource, @unchecked Sendable {
     public var attribution: String? { Self.attributionText }
 
     public func routes(from: GeoCoordinate, to: GeoCoordinate, destinationName: String) async throws -> [PlannedRoute] {
-        // F-15b §71 item 5 (T-040zx): a 高德 (GCJ-02) point in Macau/Hong Kong goes to OSRM as WGS-84; abroad unchanged.
-        let path = [from, to].map { SpecialRegion.inDeltaBox($0) ? CoordinateConverter.wgs84($0) : $0 }.map { String(format: "%.6f,%.6f", $0.longitude, $0.latitude) }.joined(separator: ";")
+        let path = [from, to].map { String(format: "%.6f,%.6f", $0.longitude, $0.latitude) }.joined(separator: ";")
         guard var components = URLComponents(string: Self.host + path) else { throw AmapWebError.failed }
         components.queryItems = [
             URLQueryItem(name: "steps", value: "true"),
@@ -93,10 +91,7 @@ public final class OsrmRouteSource: RouteSource, @unchecked Sendable {
                     for pair in coordinates {
                         guard pair.count >= 2, let lng = (pair[0] as? NSNumber)?.doubleValue,
                               let lat = (pair[1] as? NSNumber)?.doubleValue else { continue }
-                        // §71 item 5: back to GCJ-02 for the map inside China's box (unchanged abroad).
-                        let p = GeoCoordinate(latitude: lat, longitude: lng, datum: .wgs84)
-                        points.append(SpecialRegion.inDeltaBox(p) ? CoordinateConverter.gcj02(p)
-                                      : GeoCoordinate(latitude: lat, longitude: lng, datum: .gcj02))
+                        points.append(GeoCoordinate(latitude: lat, longitude: lng, datum: .gcj02))
                     }
                 }
             }

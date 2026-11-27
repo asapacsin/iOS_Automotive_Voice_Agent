@@ -118,20 +118,11 @@ public struct RealtimeCapabilities: Sendable, Hashable {
     public let serverSpeechEvents: Bool
     public let clientCancel: Bool
     public let verbatimRelay: Bool
-    /// F-05 §15 item 5 (T-016q): false when the provider has no session resumption (Qwen): a reconnect is fresh and
-    /// gets the conversation summary note.
-    public let resumption: Bool
-    /// F-05 §15 item 5: false when the provider has no asynchronous (non-blocking) tools (Qwen): a background tool is
-    /// answered at once with the handoff result, and its final result goes later as a text turn.
-    public let backgroundTools: Bool
 
-    public init(serverSpeechEvents: Bool, clientCancel: Bool, verbatimRelay: Bool, resumption: Bool = true,
-                backgroundTools: Bool = true) {
+    public init(serverSpeechEvents: Bool, clientCancel: Bool, verbatimRelay: Bool) {
         self.serverSpeechEvents = serverSpeechEvents
         self.clientCancel = clientCancel
         self.verbatimRelay = verbatimRelay
-        self.resumption = resumption
-        self.backgroundTools = backgroundTools
     }
 }
 
@@ -197,7 +188,7 @@ public enum RealtimeEvent: Sendable, Hashable {
     case userTranscript(String, isFinal: Bool)
     case responseStarted(TurnID)
     case replyText(TurnID, String)
-    /// Dropped inside the adapter while revoicing.
+    /// Her voice: the voice model's own audio (F-07 §18 item 1), played after the claim gate.
     case replyAudio(TurnID, PCMBuffer)
     case toolCalls(TurnID, [ToolCall])
     case toolCallCancellation([CallID])

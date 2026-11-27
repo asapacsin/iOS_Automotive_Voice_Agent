@@ -133,8 +133,11 @@ struct TripModelPlanTests {
         #expect(stops.map(\.place.name) == ["新天地", "西湖"] && stops.allSatisfy { !$0.placed })
         #expect(issues(r2).isEmpty && r2.data["facts"]?["not_placed_range"] == "杭州", "\(r2)")
         #expect(strings(r2.data["facts"]?["not_placed"]) == ["新天地", "西湖"])
-        // F-15b §71 item 3 (T-040zx): a miss is tried once with no city; 北京新天地 is not in the trip's city, so not kept.
-        #expect(other.requests.withLock { $0 }.filter { !$0.hasSuffix("|city=杭州&citylimit=true") }.allSatisfy { $0.hasSuffix("|city=&citylimit=false") })
+        // F-15b §71 item 3 (T-040zx): a miss in the city is asked once more with no city; 北京新天地 is outside the
+        // trip's cities, so it is still not kept.
+        let sent = other.requests.withLock { $0 }
+        #expect(sent.filter { !$0.hasSuffix("|city=杭州&citylimit=true") }.count == 2, "\(sent)")
+        #expect(rig2.lines.withLock { $0 }.filter { $0 == "trip lookup retry=nocity kept=0" }.count == 2)
         #expect(!"\(r2.data)".contains("北京新天地"))
     }
 

@@ -233,7 +233,7 @@ public struct AmapWebClient: PlaceInfoSearch, ReverseGeocoder, PlaceLookup, Driv
                          kind: PlaceKindMap.amap(type: text(poi["type"])),
                          // F-15b §68 item 1 (T-040zu): the adcode keeps Macau (82) and Hong Kong (81) results.
                          adcode: text(poi["adcode"]),
-                         // F-15b §70 item 1 (T-040zw): v3 gives Macau/Hong Kong no adcode; `pname` names the SAR.
+                         // F-15b §70 item 1 (T-040zw): `pname`, which keeps v3 Macau/Hong Kong results (no adcode).
                          province: text(poi["pname"]))
         }
     }

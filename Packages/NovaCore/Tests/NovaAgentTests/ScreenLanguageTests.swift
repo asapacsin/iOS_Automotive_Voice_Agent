@@ -89,20 +89,8 @@ struct ScreenLanguageTests {
         #expect(words == "la vecina")
     }
 
-    @Test("Row 8: a hidden guidance reading shows the engine's sentence and is still spoken; a hidden camera answer becomes the fallback")
+    @Test("Row 8: a hidden camera answer becomes the fallback (F-07 §18: guidance is never read by the voice model)")
     func guidanceAndCamera() {
-        var d = Drive()
-        d.connect()
-        d.send(.navigation(NavigationFlags(navigating: true, guidanceRunning: true)))
-        d.send(.guidancePrompt("前方300米右转", GuidanceID(1)))
-        let t = TurnID(1)
-        d.realtime(.responseStarted(t))
-        let out = d.realtime(.replyText(t, "전방 300미터"))
-        #expect(subtitles(out).last == "前方300米右转")
-        #expect(hidden(out) == [.screenHidden(.guidance, "전방 300미터")])
-        // Display only: her reading still goes through the relay unchanged (F-14), and the hidden text stays hidden.
-        let done = d.realtime(.responseDone(t, outcome: .completed))
-        #expect(subtitles(done).allSatisfy { $0 == "前方300米右转" } && hidden(done).isEmpty)
         let ru = ScreenLanguage.cameraLine("Это машина")
         #expect(ru.line == "刚才没看清楚，再问我一次吧。" && ru.hidden)
         let zh = ScreenLanguage.cameraLine("前面是一辆白色的车。")

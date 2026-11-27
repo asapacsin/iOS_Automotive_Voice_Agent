@@ -20,41 +20,6 @@ private extension Drive {
 
 @Suite("T-051/T-052 W5 guidance relay and arbitration through AgentCore")
 struct GuidanceWalkthroughTests {
-    @Test("W5 relay: the sentence goes to the model verbatim, she reads it, Amap's voice stays silent")
-    func relayed() {
-        var d = Drive()
-        d.connect()
-        d.navigate()
-        let g = GuidanceID(1)
-        let out = d.send(.guidancePrompt("前方300米右转", g))
-        #expect(sentText(out) == [GuidanceRelay.prompt(for: "前方300米右转")])
-        d.now = NovaInstant(milliseconds: 500)
-        let t = TurnID(1)
-        d.realtime(.responseStarted(t))
-        d.realtime(.replyText(t, "前方300米右转。"))
-        d.realtime(.responseDone(t, outcome: .completed))
-        #expect(spoken(d.effects) == "前方300米右转。")
-        #expect(guidance(d.effects).isEmpty)
-        #expect(!d.state.relay.busy && d.state.relay.fidelityStrikes == 0)
-    }
-
-    @Test("W5 deadline: a reading that has not started in 1.2 s is given to the fallback voice; her late turn is never heard")
-    func deadline() {
-        var d = Drive()
-        d.connect()
-        d.navigate()
-        let g = GuidanceID(1)
-        d.send(.guidancePrompt("前方300米右转", g))
-        d.now = NovaInstant(milliseconds: 1200)
-        let out = d.send(.timer(.guidance(g)))
-        #expect(guidance(out) == ["前方300米右转"])
-        let t = TurnID(1)
-        d.realtime(.responseStarted(t))
-        d.realtime(.replyText(t, "前方300米右转。"))
-        d.realtime(.responseDone(t, outcome: .completed))
-        #expect(spoken(d.effects).isEmpty)
-    }
-
     @Test("W5 disconnected: guidance falls back immediately and nothing is sent to the model")
     func disconnected() {
         var d = Drive()
@@ -142,34 +107,6 @@ struct GuidanceWalkthroughTests {
         #expect(spoken(out).isEmpty)
     }
 
-    @Test("W5 her reading heard back through the microphone does not become a driver utterance")
-    func echoDropped() {
-        var d = Drive()
-        d.connect()
-        d.navigate()
-        d.send(.guidancePrompt("前方300米右转", GuidanceID(1)))
-        let t = TurnID(1)
-        d.realtime(.responseStarted(t))
-        d.realtime(.replyText(t, "前方300米右转"))
-        d.realtime(.responseDone(t, outcome: .completed))
-        d.now = NovaInstant(milliseconds: 3000)
-        let out = d.realtime(.userTranscript("前方300米右转。", isFinal: true))
-        #expect(out.isEmpty)
-    }
-
-    @Test("W5 a guidance reading never acts: its tool calls are refused and nothing runs")
-    func readingNeverActs() {
-        var d = Drive()
-        d.connect()
-        d.navigate()
-        d.send(.guidancePrompt("前方右转", GuidanceID(1)))
-        let t = TurnID(1)
-        d.realtime(.responseStarted(t))
-        let out = d.realtime(.toolCalls(t, [climateOn()]))
-        #expect(!out.contains { if case .startTool = $0 { true } else { false } })
-        #expect(out.contains { if case .provider(.toolResponses) = $0 { true } else { false } })
-    }
-
     @Test("W5 R6: while navigating an unprompted model reply is not spoken")
     func unpromptedDropped() {
         var d = Drive()
@@ -205,26 +142,6 @@ struct GuidanceWalkthroughTests {
         d.realtime(.replyText(t2, "空调已经打开了。"))
         d.realtime(.responseDone(t2, outcome: .completed))
         #expect(spoken(d.effects) == "空调已经打开了。")
-    }
-
-    @Test("W5 re-review B2: the driver speaking after the prompt does not turn her reading into the answer")
-    func driverAfterPrompt() {
-        var d = Drive()
-        d.connect()
-        d.navigate()
-        d.send(.guidancePrompt("前方右转", GuidanceID(1)))
-        d.send(.speechStarted(recentSpeech: true))
-        d.realtime(.userTranscript("打开空调", isFinal: true))
-        d.send(.speechStopped)
-        let reading = TurnID(1)
-        d.realtime(.responseStarted(reading))
-        d.realtime(.replyText(reading, "前方右转。"))
-        d.realtime(.responseDone(reading, outcome: .completed))
-        #expect(d.state.relay.fidelityStrikes == 0 && !d.state.relay.busy)
-        let answer = TurnID(2)
-        d.realtime(.responseStarted(answer))
-        let calls = d.realtime(.toolCalls(answer, [climateOn()]))
-        #expect(calls.contains(.startTool(answer, climateOn())))
     }
 
     @Test("W5 round 3: a fallback after the reply closed waits for her audio to drain, at most 4 s, never overlapping")
@@ -272,41 +189,6 @@ struct GuidanceWalkthroughTests {
         #expect(flush != nil && speak != nil && flush! < speak!)
     }
 
-    @Test("W5 round 3: when Gemini drops the reading because the driver spoke, their answer is not silenced")
-    func droppedReading() {
-        var d = Drive()
-        d.connect()
-        d.navigate()
-        let g = GuidanceID(1)
-        d.send(.guidancePrompt("前方右转", g))
-        d.send(.speechStarted(recentSpeech: true))
-        d.realtime(.userTranscript("打开空调", isFinal: true))
-        d.send(.speechStopped)
-        d.now = NovaInstant(milliseconds: 1200)
-        #expect(guidance(d.send(.timer(.guidance(g)))) == ["前方右转"])
-        let answer = TurnID(1)
-        d.realtime(.responseStarted(answer))
-        let calls = d.realtime(.toolCalls(answer, [climateOn()]))
-        #expect(calls.contains(.startTool(answer, climateOn())))
-    }
-
-    @Test("W5 round 3: a turn after the prompt whose words are the sentence is the reading")
-    func classifiedReading() {
-        var d = Drive()
-        d.connect()
-        d.navigate()
-        d.send(.guidancePrompt("前方300米右转", GuidanceID(1)))
-        d.send(.speechStarted(recentSpeech: true))
-        d.realtime(.userTranscript("嗯", isFinal: true))
-        d.send(.speechStopped)
-        let t = TurnID(1)
-        d.realtime(.responseStarted(t))
-        d.realtime(.replyText(t, "前方300米"))
-        d.realtime(.replyText(t, "右转。"))
-        d.realtime(.responseDone(t, outcome: .completed))
-        #expect(spoken(d.effects) == "前方300米右转。")
-        #expect(!d.state.relay.busy && d.state.relay.fidelityStrikes == 0)
-    }
 }
 
 @Suite("T-047 F-25 taps through AgentCore (I-6)")

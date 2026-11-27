@@ -23,15 +23,14 @@ public enum CoordinateConverter {
         return GeoCoordinate(latitude: c.latitude + dLat, longitude: c.longitude + dLng, datum: .gcj02)
     }
 
-    /// F-15b §71 item 5 (T-040zx): GCJ-02 (高德) → WGS-84 (OSRM), the inverse of `gcj02` by iteration (under 1 m).
-    /// A WGS-84 coordinate, or one outside mainland China's box, is returned unchanged (datum set to WGS-84).
+    /// F-15b §71 item 5 (T-040zx): GCJ-02 (高德) → WGS-84 (OSRM), by inverting `gcj02` (a few fixed-point steps, well
+    /// under a metre). A WGS-84 point and one outside China come back with the same numbers.
     public static func wgs84(_ c: GeoCoordinate) -> GeoCoordinate {
-        guard c.datum == .gcj02 else { return c }
-        guard !outOfChina(c.latitude, c.longitude) else {
+        guard c.datum == .gcj02, !outOfChina(c.latitude, c.longitude) else {
             return GeoCoordinate(latitude: c.latitude, longitude: c.longitude, datum: .wgs84)
         }
         var lat = c.latitude, lng = c.longitude
-        for _ in 0..<5 {
+        for _ in 0..<6 {
             let shifted = gcj02(GeoCoordinate(latitude: lat, longitude: lng, datum: .wgs84))
             lat -= shifted.latitude - c.latitude
             lng -= shifted.longitude - c.longitude

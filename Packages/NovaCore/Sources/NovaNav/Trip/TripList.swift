@@ -154,14 +154,6 @@ public struct TripList: Sendable, Hashable {
     public init() {}
 
     public var count: Int { stops.count }
-
-    /// F-15b §71 item 6 (T-040zx): the drive into `stop` is a border leg: it and the placed stop before it are one in
-    /// Macau/Hong Kong and one on the mainland.
-    public func isBorderLeg(_ stop: TripStop) -> Bool {
-        guard stop.placed, let i = stops.firstIndex(where: { $0.id == stop.id && $0.index == stop.index }),
-              let before = stops[..<i].last(where: \.placed) else { return false }
-        return TripBorder.isBorder(before.place, stop.place)
-    }
     public var isEmpty: Bool { stops.isEmpty }
 
     /// The whole list replaced.
@@ -315,12 +307,4 @@ public struct TripList: Sendable, Hashable {
         stops = stops.enumerated().map { $0.element.renumbered($0.offset + 1) }
         generation += 1
     }
-}
-
-/// F-15b §71 items 5–6 (T-040zx): Macau/Hong Kong legs go to OSRM; one between a SAR and the mainland is a border leg.
-public enum TripBorder {
-    public static func isSAR(_ place: Place) -> Bool { SpecialRegion.region(of: place) != nil }
-    public static func isBorder(_ a: Place, _ b: Place) -> Bool { isSAR(a) != isSAR(b) }
-    /// §71 item 6: said once per plan in the plan result's `next`.
-    public static let permitNext = "跨境自驾需粤车南下等通行证，过关排队时间没算进去。"
 }

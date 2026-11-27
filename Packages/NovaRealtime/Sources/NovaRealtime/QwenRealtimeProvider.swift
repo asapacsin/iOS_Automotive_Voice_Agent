@@ -6,53 +6,65 @@ import NovaKit
 import NovaPorts
 import Synchronization
 
-/// The Gemini-only controls the runtime drives besides `RealtimeProvider` (manual activity, the stop's cut, the held
-/// audio). F-05 §15 item 2 (T-016q): both providers offer them, so the runtime holds either one.
-public protocol LiveSessionProvider: RealtimeProvider {
+/// What the app's audio path calls on the voice model beyond `RealtimeProvider`: Gemini's manual activity marks and
+/// the 100 ms audio piece. `QwenRealtimeProvider` answers them in its own terms (F-05 §15 item 3).
+public protocol LiveVoiceProvider: RealtimeProvider {
+    func flushAudio()
     func sendActivityStart()
     func sendActivityEnd()
-    func flushAudio()
+    /// F-08 §15 item 1: stop her reply now (the stop phrase).
     func sendEmptyActivity()
 }
 
-extension GeminiLiveProvider: LiveSessionProvider {}
+extension GeminiLiveProvider: LiveVoiceProvider {}
 
-/// F-05 §15 items 3-5 (T-016q): Qwen-Audio realtime (百炼, Beijing) behind `RealtimeProvider`. One socket at a time;
-/// the first message is `session.update`; a single writer keeps client messages in order; a single reader maps server
-/// events (`QwenEventMapper`). A socket ends with exactly one `.failed` or `.closed`. No resumption, no `goAway`, no
-/// tool-call cancellation, no background tools (the core handles those, item 5).
-public final class QwenRealtimeProvider: LiveSessionProvider {
-    public let capabilities = RealtimeCapabilities(serverSpeechEvents: false, clientCancel: false, verbatimRelay: false,
-                                                   resumption: false, backgroundTools: false)
+/// F-05 §15 (T-016q): the Qwen-Audio realtime voice model behind `RealtimeProvider`. One socket at a time; the first
+/// message is `session.update`; a single reader owns the assembler and a single writer keeps client messages in order.
+/// A socket ends with exactly one `.failed` or `.closed`. No resumption: every connect is fresh (item 5).
+public final class QwenRealtimeProvider: LiveVoiceProvider {
+    /// Item 3: the capture's 10 ms frames go up as 40 ms appends.
+    public static let framesPerAppend = 4
+    /// The local gate sends audio only while the driver speaks; the server's turn detection needs to hear the end, so
+    /// an utterance's end is followed by this much silence (PROPOSED, F-05 §15 item 3).
+    public static let endSilenceFrames = 60
+
+    /// F-05 §15 vendor facts (T-016r): `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=<model>`, fixed.
+    public static func endpoint(model: String) -> URL? {
+        var components = URLComponents(string: QwenRoute.realtimeEndpoint)
+        components?.queryItems = [URLQueryItem(name: "model", value: model)]
+        return components?.url
+    }
+
+    public let capabilities = RealtimeCapabilities(serverSpeechEvents: false, clientCancel: true, verbatimRelay: false)
     public let events: AsyncStream<ProviderEvent>
 
-    /// Item 3 `sendAudio`: frames go out in 40 ms messages (the capture's 10 ms frames, 4 at a time).
-    public static let framesPerMessage = 4
-    /// PROPOSED: the gate sends audio only while the driver speaks; this much silence after her utterance lets the
-    /// server's turn detection see its end.
-    public static let trailingSilenceFrames = 50
-
     private let continuation: AsyncStream<ProviderEvent>.Continuation
-    private let key: @Sendable () -> String?
-    private let model: String
+    private let credentials: any RealtimeCredentialSource
     private let connector: any WebSocketConnector
-    private let onUsage: (@Sendable (QwenUsage) -> Void)?
+    private let endpoint: @Sendable (String) -> URL?
+    private let tuning: RealtimeTuning
     private let onClose: (@Sendable (SessionClosedLine) -> Void)?
+    /// Item 6: `qwen usage …` and `qwen history turns=<n>` (numbers only, I-8).
+    private let onLine: (@Sendable (String) -> Void)?
     private let state = Mutex<(socket: Socket?, attempt: UInt64, held: [PCMFrame16k])>((nil, 0, []))
 
     private final class Socket: Sendable {
         let connection: any WebSocketConnection
         let generation: Generation
         let outbox: AsyncStream<String>.Continuation
+        private let pending = Mutex(0)
+        private let pendingLimit: Int
         private let sink: AsyncStream<ProviderEvent>.Continuation
         private let onClose: (@Sendable (SessionClosedLine) -> Void)?
         private let ended = Mutex(false)
         private let tasks = Mutex<[Task<Void, Never>]>([])
 
-        init(connection: any WebSocketConnection, generation: Generation, outbox: AsyncStream<String>.Continuation,
-             sink: AsyncStream<ProviderEvent>.Continuation, onClose: (@Sendable (SessionClosedLine) -> Void)?) {
+        init(connection: any WebSocketConnection, generation: Generation, pendingLimit: Int,
+             outbox: AsyncStream<String>.Continuation, sink: AsyncStream<ProviderEvent>.Continuation,
+             onClose: (@Sendable (SessionClosedLine) -> Void)?) {
             self.connection = connection
             self.generation = generation
+            self.pendingLimit = pendingLimit
             self.outbox = outbox
             self.sink = sink
             self.onClose = onClose
@@ -61,9 +73,20 @@ public final class QwenRealtimeProvider: LiveSessionProvider {
         var isEnded: Bool { ended.withLock { $0 } }
 
         func enqueue(_ message: JSONValue) {
-            guard let data = try? GeminiCodec.encode(message) else { return }
+            guard let data = try? QwenRealtimeCodec.encode(message) else { return }
+            let overflow = pending.withLock { n -> Bool in
+                guard n < pendingLimit else { return true }
+                n += 1
+                return false
+            }
+            if overflow {
+                end(.failed(RealtimeError(.wsFailed)))
+                return
+            }
             outbox.yield(String(decoding: data, as: UTF8.self))
         }
+
+        func written() { pending.withLock { $0 -= 1 } }
 
         func emit(_ event: RealtimeEvent) {
             ended.withLock { done in
@@ -87,19 +110,23 @@ public final class QwenRealtimeProvider: LiveSessionProvider {
             }
         }
 
-        /// Item 4: a socket failure as `failed` with its code; a normal close as `closed`.
+        /// Item 4: a refused upgrade by its status; a close by its reason; a normal close is `closed`.
         func fail(_ error: Error) {
             guard let closed = error as? WebSocketClosed else {
                 end(.failed(RealtimeError(.wsFailed)))
                 return
             }
             let line = SessionClosedLine(code: closed.code, reason: closed.reason)
-            if closed.code == 1000, closed.httpStatus == nil {
+            if let status = closed.httpStatus {
+                end(.failed(RealtimeError(QwenRealtimeCodec.classify(handshakeStatus: status))), closedBy: line)
+            } else if closed.code == 1000 {
                 end(.closed, closedBy: line)
-                return
+            } else {
+                end(.failed(RealtimeError(QwenRealtimeCodec.classify(closed.reason))), closedBy: line)
             }
-            end(.failed(RealtimeError(QwenRealtimeCodec.classify(code: closed.reason, status: closed.httpStatus))), closedBy: line)
         }
+
+        func stop() { end(nil) }
 
         func own(_ started: [Task<Void, Never>]) {
             tasks.withLock { $0 += started }
@@ -107,34 +134,41 @@ public final class QwenRealtimeProvider: LiveSessionProvider {
         }
     }
 
-    /// `key`: the 百炼 key (Keychain), read at each connect; `model`: item 1's id. The endpoint is fixed (T-016r).
-    public init(key: @escaping @Sendable () -> String?, model: String,
+    /// `endpoint`: the socket URL for a model id (nil: no usable endpoint, a terminal credential failure).
+    public init(credentials: any RealtimeCredentialSource,
+                endpoint: @escaping @Sendable (String) -> URL? = { QwenRealtimeProvider.endpoint(model: $0) },
                 connector: any WebSocketConnector = URLSessionWebSocketConnector(), tuning: RealtimeTuning = RealtimeTuning(),
-                onUsage: (@Sendable (QwenUsage) -> Void)? = nil, onClose: (@Sendable (SessionClosedLine) -> Void)? = nil) {
-        self.key = key
-        self.model = model
+                onClose: (@Sendable (SessionClosedLine) -> Void)? = nil, onLine: (@Sendable (String) -> Void)? = nil) {
+        self.credentials = credentials
+        self.endpoint = endpoint
         self.connector = connector
-        self.onUsage = onUsage
+        self.tuning = tuning
         self.onClose = onClose
+        self.onLine = onLine
         (events, continuation) = AsyncStream.makeStream(of: ProviderEvent.self,
                                                         bufferingPolicy: .bufferingNewest(tuning.eventBufferLimit))
     }
 
-    /// Item 5: `handle` is ignored (Qwen has no resumption; the core never has one to send).
+    /// Item 5: `handle` is ignored; Qwen has no resumption.
     public func connect(_ config: SessionConfig, resume handle: String?, connection generation: Generation) async {
         let attempt = state.withLock { s -> UInt64 in
-            s.socket?.end(nil)
+            s.socket?.stop()
             s.socket = nil
             s.held = []
             s.attempt += 1
             return s.attempt
         }
-        guard let key = key(), !key.isEmpty, let url = QwenRealtimeCodec.url(model: model) else {
+        let request: URLRequest
+        do {
+            guard case .apiKey(let key) = try await credentials.credential(), !key.isEmpty,
+                  let url = endpoint(config.model) else { throw RealtimeError(.credential) }
+            var r = URLRequest(url: url)
+            r.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            request = r
+        } catch {
             yieldIfCurrent(attempt, ProviderEvent(connection: generation, event: .failed(RealtimeError(.credential))))
             return
         }
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         let connection: any WebSocketConnection
         do {
             connection = try await connector.open(request)
@@ -143,9 +177,9 @@ public final class QwenRealtimeProvider: LiveSessionProvider {
             return
         }
         let (outbox, outboxContinuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .unbounded)
-        let socket = Socket(connection: connection, generation: generation, outbox: outboxContinuation,
-                            sink: continuation, onClose: onClose)
-        // The session update is queued before the socket becomes reachable: no client message precedes it.
+        let socket = Socket(connection: connection, generation: generation, pendingLimit: tuning.outboxLimit,
+                            outbox: outboxContinuation, sink: continuation, onClose: onClose)
+        // Item 3: `session.update` is queued before the socket is reachable, so nothing can precede it.
         socket.enqueue(QwenRealtimeCodec.sessionUpdate(config))
         let installed = state.withLock { s -> Bool in
             guard s.attempt == attempt else { return false }
@@ -162,74 +196,95 @@ public final class QwenRealtimeProvider: LiveSessionProvider {
                     socket.fail(error)
                     return
                 }
+                socket.written()
             }
         }
-        let onUsage = self.onUsage
+        let onLine = self.onLine
         let reader = Task {
-            var mapper = QwenEventMapper()
+            var assembler = QwenRealtimeAssembler()
             while !Task.isCancelled {
                 let frame: Data
                 do { frame = try await connection.receive() } catch {
                     socket.fail(error)
                     return
                 }
-                guard let (type, body) = QwenRealtimeCodec.decode(frame) else { continue }
-                let (events, usage) = mapper.consume(type: type, body: body)
-                if let usage { onUsage?(usage) }
-                for event in events {
-                    if case .failed = event { socket.end(event); return }
-                    socket.emit(event)
+                guard let event = QwenRealtimeCodec.decode(frame) else { continue }
+                let out = assembler.consume(event)
+                for e in out.events { socket.emit(e) }
+                for line in out.lines { onLine?(line) }
+                if let code = out.failure {
+                    socket.end(.failed(RealtimeError(code)))
+                    return
                 }
             }
         }
-        socket.own([writer, reader])
+        let interval = tuning.pingInterval, pongWait = tuning.pongTimeout
+        let pinger = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(interval.milliseconds))
+                if Task.isCancelled { return }
+                if await !GeminiLiveProvider.ping(connection, within: pongWait) {
+                    socket.fail(WebSocketClosed(code: 1006, reason: "ping"))
+                    return
+                }
+            }
+        }
+        socket.own([writer, reader, pinger])
+        state.withLock { s in if s.socket === socket, socket.isEnded { s.socket = nil } }
     }
 
+    /// Item 3: `input_audio_buffer.append`, 40 ms at a time.
     public func sendAudio(_ frame: PCMFrame16k) {
         state.withLock { s in
             s.held.append(frame)
-            guard s.held.count >= Self.framesPerMessage else { return }
-            Self.flush(&s)
+            guard s.held.count >= Self.framesPerAppend else { return }
+            s.socket?.enqueue(QwenRealtimeCodec.append(s.held))
+            s.held = []
         }
     }
 
-    public func flushAudio() { state.withLock { Self.flush(&$0) } }
+    public func flushAudio() {
+        state.withLock { s in Self.flush(&s) }
+    }
 
     private static func flush(_ s: inout (socket: Socket?, attempt: UInt64, held: [PCMFrame16k])) {
         guard !s.held.isEmpty else { return }
-        s.socket?.enqueue(QwenRealtimeCodec.audio(s.held))
+        s.socket?.enqueue(QwenRealtimeCodec.append(s.held))
         s.held = []
     }
 
-    /// Server turn detection: nothing to send for the start.
+    /// The server detects turns itself (`smart_turn_v2`): no stream end and no start mark.
+    public func sendAudioStreamEnd() async {}
     public func sendActivityStart() {}
 
-    /// The utterance ended at the local gate: held audio, then trailing silence so the server's detection ends it.
+    /// The utterance ended at the local gate: held audio, then silence so the server's turn detection hears the end.
     public func sendActivityEnd() {
-        guard let silence = PCMFrame16k(samples: [Int16](repeating: 0, count: PCMFrame16k.samplesPerFrame)) else { return }
         state.withLock { s in
             Self.flush(&s)
-            let frames = [PCMFrame16k](repeating: silence, count: Self.trailingSilenceFrames)
-            stride(from: 0, to: frames.count, by: Self.framesPerMessage).forEach { i in
-                s.socket?.enqueue(QwenRealtimeCodec.audio(Array(frames[i..<min(i + Self.framesPerMessage, frames.count)])))
+            let silence = Array(repeating: PCMFrame16k.silence, count: Self.framesPerAppend)
+            for _ in 0..<(Self.endSilenceFrames / Self.framesPerAppend) {
+                s.socket?.enqueue(QwenRealtimeCodec.append(silence))
             }
         }
     }
 
-    public func sendAudioStreamEnd() async { flushAudio() }
-
-    /// The stop phrase cuts her reply.
+    /// The stop phrase: the vendor's `response.cancel` (F-08 §15 item 1 on Gemini sends an empty activity).
     public func sendEmptyActivity() { send([QwenRealtimeCodec.responseCancel]) }
 
-    public func sendToolResponses(_ responses: [ToolResponse]) async { send(QwenRealtimeCodec.toolResponses(responses)) }
+    /// Item 3: one `function_call_output` per result, then one `response.create`.
+    public func sendToolResponses(_ responses: [ToolResponse]) async {
+        guard !responses.isEmpty else { return }
+        send(responses.map(QwenRealtimeCodec.functionOutput) + [QwenRealtimeCodec.responseCreate])
+    }
 
+    /// Item 3: each turn a user message; `response.create` when the turn is complete.
     public func sendText(_ turns: [TextTurn], turnComplete: Bool) async {
-        send(QwenRealtimeCodec.text(turns, turnComplete: turnComplete))
+        send(turns.map(QwenRealtimeCodec.message) + (turnComplete ? [QwenRealtimeCodec.responseCreate] : []))
     }
 
     public func close() async {
         state.withLock { s in
-            s.socket?.end(nil)
+            s.socket?.stop()
             s.socket = nil
             s.held = []
             s.attempt += 1
@@ -239,7 +294,7 @@ public final class QwenRealtimeProvider: LiveSessionProvider {
     private func send(_ messages: [JSONValue]) {
         state.withLock { s in
             Self.flush(&s)
-            for message in messages { s.socket?.enqueue(message) }
+            for m in messages { s.socket?.enqueue(m) }
         }
     }
 

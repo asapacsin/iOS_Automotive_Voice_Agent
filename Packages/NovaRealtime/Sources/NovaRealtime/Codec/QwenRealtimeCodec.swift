@@ -2,53 +2,41 @@ import Foundation
 import NovaKit
 import NovaPorts
 
-/// F-05 §15 items 3-4 (T-016q): the Qwen-Audio realtime WebSocket messages (Alibaba Model Studio, client and server
-/// events, read 2026-11-26). Client messages are built here; server events become `RealtimeEvent`s in
-/// `QwenEventMapper`. Pure.
+/// F-05 §15 items 3-4 (T-016q): the Qwen-Audio realtime wire format (Alibaba Model Studio WebSocket API, the client and
+/// server events the spec copies). Client messages are built as `JSONValue` and encoded canonically.
 public enum QwenRealtimeCodec {
-    /// F-05 §15 vendor facts as changed 2026-11-26 (T-016r): the Beijing public endpoint, fixed in the app like the
-    /// other 百炼 calls in `QwenRoute`; never the saved 千问 voice API Host (a Singapore workspace host refused the
-    /// Beijing key with AUTH).
-    public static let host = "dashscope.aliyuncs.com"
-
-    /// `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=<model>`.
-    public static func url(model: String) -> URL? {
-        var components = URLComponents()
-        components.scheme = "wss"
-        components.host = host
-        components.path = "/api-ws/v1/realtime"
-        components.queryItems = [URLQueryItem(name: "model", value: model)]
-        return components.url
-    }
-
-    /// The 3.1 models' default voice (first `session.update` only).
+    /// Vendor default voice of the 3.1 models (first `session.update` only).
     public static let defaultVoice = "longanqian_v3.1"
-    /// Item 3: the server keeps at most 50 turns; the app asks for all of them.
+    /// Item 3: the most turns the server keeps (1–50).
     public static let maxHistoryTurns = 50
-    /// Item 3: the recommended turn detection.
-    public static let turnDetection = "smart_turn_v2"
 
-    /// Item 3 `connect`: the first `session.update` with the app's instruction and every declared tool.
+    // MARK: Client → server
+
+    /// Item 3: the first `session.update`: the app's instruction, the declared tools in the OpenAI function shape,
+    /// `smart_turn_v2`, 50 history turns, the default voice, text and audio out.
     public static func sessionUpdate(_ config: SessionConfig) -> JSONValue {
-        let tools: [JSONValue] = config.tools.map { tool in
-            ["type": "function", "function": [
-                "name": .string(tool.name),
-                "description": .string(tool.description),
-                "parameters": tool.parametersJSONSchema,
-            ]]
-        }
-        return ["type": "session.update", "session": [
+        var session: [String: JSONValue] = [
             "instructions": .string(config.systemInstruction),
             "voice": .string(defaultVoice),
-            "modalities": ["text", "audio"],
-            "turn_detection": ["type": .string(turnDetection)],
+            "turn_detection": ["type": "smart_turn_v2"],
             "max_history_turns": .int(Int64(maxHistoryTurns)),
-            "tools": .array(tools),
+            "modalities": ["text", "audio"],
+        ]
+        if !config.tools.isEmpty { session["tools"] = .array(config.tools.map(tool)) }
+        return ["type": "session.update", "session": .object(session)]
+    }
+
+    /// One declared tool as `{"type":"function","function":{name, description, parameters}}`, the same schema.
+    public static func tool(_ declaration: ToolDeclaration) -> JSONValue {
+        ["type": "function", "function": [
+            "name": .string(declaration.name),
+            "description": .string(declaration.description),
+            "parameters": declaration.parametersJSONSchema,
         ]]
     }
 
-    /// Item 3 `sendAudio`: 16 kHz mono 16-bit PCM, little-endian, base64.
-    public static func audio(_ frames: [PCMFrame16k]) -> JSONValue {
+    /// 16 kHz mono PCM16, little-endian, base64.
+    public static func append(_ frames: [PCMFrame16k]) -> JSONValue {
         var bytes = Data(capacity: frames.count * PCMFrame16k.byteCount)
         for frame in frames {
             for sample in frame.samples { withUnsafeBytes(of: sample.littleEndian) { bytes.append(contentsOf: $0) } }
@@ -56,154 +44,189 @@ public enum QwenRealtimeCodec {
         return ["type": "input_audio_buffer.append", "audio": .string(bytes.base64EncodedString())]
     }
 
-    /// Item 3 `sendToolResponses`: one `function_call_output` per result, then one `response.create`.
-    public static func toolResponses(_ responses: [ToolResponse]) -> [JSONValue] {
-        guard !responses.isEmpty else { return [] }
-        let outputs: [JSONValue] = responses.map { r in
-            let output = (try? GeminiCodec.encode(GeminiCodec.payload(r.result))).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
-            return ["type": "conversation.item.create", "item": [
-                "type": "function_call_output", "call_id": .string(r.id.rawValue), "output": .string(output),
-            ]]
-        }
-        return outputs + [responseCreate]
+    /// Item 3: one `function_call_output` item per result; the output is the result JSON the model reads.
+    public static func functionOutput(_ response: ToolResponse) -> JSONValue {
+        let output = (try? encode(GeminiCodec.payload(response.result))).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        return ["type": "conversation.item.create", "item": [
+            "type": "function_call_output", "call_id": .string(response.id.rawValue), "output": .string(output),
+        ]]
     }
 
-    /// Item 3 `sendText`: each turn as a user `message` with `input_text`; `response.create` when `turnComplete`.
-    public static func text(_ turns: [TextTurn], turnComplete: Bool) -> [JSONValue] {
-        let items: [JSONValue] = turns.map { turn in
-            ["type": "conversation.item.create", "item": [
-                "type": "message", "role": "user",
-                "content": [["type": "input_text", "text": .string(turn.text)]],
-            ]]
-        }
-        return items + (turnComplete ? [responseCreate] : [])
+    /// Item 3: a text turn as a user `message` item with `input_text`.
+    public static func message(_ turn: TextTurn) -> JSONValue {
+        ["type": "conversation.item.create", "item": [
+            "type": "message", "role": "user", "content": [["type": "input_text", "text": .string(turn.text)]],
+        ]]
     }
 
     public static var responseCreate: JSONValue { ["type": "response.create"] }
-    /// The stop phrase cuts her reply (F-08 §15 item 1's empty activity on Gemini). PROPOSED: the realtime API's
-    /// `response.cancel`.
     public static var responseCancel: JSONValue { ["type": "response.cancel"] }
 
-    /// Server frames are JSON objects with a `type`; anything else is nil.
-    public static func decode(_ frame: Data) -> (type: String, body: JSONValue)? {
-        guard let value = try? JSONDecoder().decode(JSONValue.self, from: frame), let type = value["type"]?.stringValue else {
-            return nil
-        }
-        return (type, value)
+    public static func encode(_ message: JSONValue) throws -> Data {
+        try JSONValue.canonicalEncoder().encode(message)
     }
 
-    /// Item 4: `error` codes and socket statuses as `RealtimeErrorCode` (401/403 → auth, quota or `Arrearage` → quota,
-    /// 429 → rateLimited, else connectionClosed).
-    public static func classify(code: String?, status: Int?) -> RealtimeErrorCode {
-        let text = (code ?? "").lowercased()
-        if status == 401 || status == 403 || text.contains("401") || text.contains("403") || text.contains("invalidapikey")
-            || text.contains("accessdenied") || text.contains("unauthorized") {
-            return .auth
+    // MARK: Server → client
+
+    /// Token counts of one `response.done` (item 6, numbers only).
+    public struct Usage: Sendable, Hashable {
+        public var inAudio = 0, inText = 0, outAudio = 0, outText = 0
+        public init(inAudio: Int = 0, inText: Int = 0, outAudio: Int = 0, outText: Int = 0) {
+            self.inAudio = inAudio
+            self.inText = inText
+            self.outAudio = outAudio
+            self.outText = outText
         }
-        if text.contains("quota") || text.contains("arrearage") { return .quota }
-        if status == 429 || text.contains("429") || text.contains("throttl") || text.contains("ratelimit") { return .rateLimited }
+
+        public var logLine: String { "qwen usage in=\(inAudio),\(inText) out=\(outAudio),\(outText)" }
+    }
+
+    /// One server event, as much of it as the provider reads.
+    public enum ServerEvent: Sendable, Hashable {
+        case sessionUpdated
+        case inputTranscriptDelta(String)
+        case inputTranscriptCompleted(String)
+        case speechStarted
+        case responseCreated
+        case transcriptDelta(String)
+        case audioDelta(PCMBuffer)
+        case audioDone
+        case functionCall(ToolCall)
+        /// `status` completed or not; `turnDetected`: cancelled by the server's turn detection.
+        case responseDone(completed: Bool, turnDetected: Bool, usage: Usage?)
+        case error(type: String, code: String)
+        case other
+    }
+
+    /// nil when the frame is not a JSON object with a `type`.
+    public static func decode(_ frame: Data) -> ServerEvent? {
+        guard let value = try? JSONDecoder().decode(JSONValue.self, from: frame), case .object(let msg) = value,
+              let type = msg["type"]?.stringValue else { return nil }
+        switch type {
+        case "session.updated": return .sessionUpdated
+        case "conversation.item.input_audio_transcription.delta":
+            return .inputTranscriptDelta(msg["delta"]?.stringValue ?? "")
+        case "conversation.item.input_audio_transcription.completed":
+            return .inputTranscriptCompleted(msg["transcript"]?.stringValue ?? "")
+        case "input_audio_buffer.speech_started": return .speechStarted
+        case "response.created": return .responseCreated
+        case "response.audio_transcript.delta": return .transcriptDelta(msg["delta"]?.stringValue ?? "")
+        case "response.audio.delta":
+            guard let pcm = msg["delta"]?.stringValue.flatMap(GeminiCodec.pcm24k(base64:)) else { return .other }
+            return .audioDelta(pcm)
+        case "response.audio.done": return .audioDone
+        case "response.function_call_arguments.done":
+            guard let id = msg["call_id"]?.stringValue.flatMap(CallID.init), let name = msg["name"]?.stringValue else {
+                return .other
+            }
+            let raw = msg["arguments"]?.stringValue ?? "{}"
+            let arguments = (try? JSONDecoder().decode(JSONValue.self, from: Data(raw.utf8))) ?? .object([:])
+            return .functionCall(ToolCall(id: id, name: name, arguments: arguments))
+        case "response.done":
+            let response = msg["response"]
+            let status = response?["status"]?.stringValue ?? "completed"
+            let reason = response?["status_details"]?["reason"]?.stringValue
+            return .responseDone(completed: status == "completed", turnDetected: status == "cancelled" && reason == "turn_detected",
+                                 usage: response?["usage"].map(usage))
+        case "error":
+            let error = msg["error"]
+            return .error(type: error?["type"]?.stringValue ?? "", code: error?["code"]?.stringValue ?? "")
+        default: return .other
+        }
+    }
+
+    static func usage(_ value: JSONValue) -> Usage {
+        func n(_ v: JSONValue?) -> Int { Int(v?.intValue ?? 0) }
+        return Usage(inAudio: n(value["input_token_details"]?["audio_tokens"]), inText: n(value["input_token_details"]?["text_tokens"]),
+                     outAudio: n(value["output_token_details"]?["audio_tokens"]), outText: n(value["output_token_details"]?["text_tokens"]))
+    }
+
+    /// Item 4: a server `error` code or close text → the session's code (401/403 auth, quota or Arrearage quota,
+    /// 429 rate limited, else connection closed).
+    public static func classify(_ text: String) -> RealtimeErrorCode {
+        let t = text.lowercased()
+        if t.contains("arrearage") || t.contains("quota") { return .quota }
+        if t.contains("401") || t.contains("403") || t.contains("invalidapikey") || t.contains("unauthorized")
+            || t.contains("access denied") || t.contains("accessdenied") { return .auth }
+        if t.contains("429") || t.contains("throttl") || t.contains("ratelimit") || t.contains("rate limit") { return .rateLimited }
         return .connectionClosed
     }
-}
 
-/// F-05 §15 item 6 (T-016q): tokens of one `response.done` (numbers only, I-8).
-public struct QwenUsage: Sendable, Hashable {
-    public let inAudio: Int
-    public let inText: Int
-    public let outAudio: Int
-    public let outText: Int
-
-    public init(inAudio: Int, inText: Int, outAudio: Int, outText: Int) {
-        self.inAudio = inAudio
-        self.inText = inText
-        self.outAudio = outAudio
-        self.outText = outText
-    }
-
-    public var logLine: String { "qwen usage in=\(inAudio),\(inText) out=\(outAudio),\(outText)" }
-
-    static func parse(_ usage: JSONValue?) -> QwenUsage? {
-        guard let usage, case .object = usage else { return nil }
-        func n(_ details: String, _ key: String) -> Int { Int(usage[details]?[key]?.intValue ?? 0) }
-        return QwenUsage(inAudio: n("input_token_details", "audio_tokens"), inText: n("input_token_details", "text_tokens"),
-                         outAudio: n("output_token_details", "audio_tokens"), outText: n("output_token_details", "text_tokens"))
+    /// Item 4: a refused upgrade by its HTTP status.
+    public static func classify(handshakeStatus status: Int) -> RealtimeErrorCode {
+        switch status {
+        case 401, 403: .auth
+        case 429: .rateLimited
+        default: .connectionClosed
+        }
     }
 }
 
-/// Item 4: server events → `RealtimeEvent`s, in order. One mapper per socket; the reader owns it.
-public struct QwenEventMapper: Sendable {
+/// F-05 §15 item 4 (T-016q): server events → `RealtimeEvent`s. One per socket; the reader task owns it. Never emits
+/// `resumptionHandle`, `goAway` or `toolCallCancellation`.
+public struct QwenRealtimeAssembler: Sendable {
     private var nextTurn = TurnID.initial
     private var openTurn: TurnID?
-    private var interruptedTurn = false
     private var calls: [ToolCall] = []
+    private var interrupted = false
     private var setupDone = false
+    /// Responses done on this socket (`qwen history turns=<n>`, item 5).
+    public private(set) var turns = 0
 
     public init() {}
 
-    /// The events of one server frame, and the usage when it was a `response.done` that carried one.
-    public mutating func consume(type: String, body: JSONValue) -> (events: [RealtimeEvent], usage: QwenUsage?) {
-        switch type {
-        case "session.updated":
-            guard !setupDone else { return ([], nil) }
+    /// The events, a record line for the usage and history of a finished response, and a terminal failure.
+    public mutating func consume(_ event: QwenRealtimeCodec.ServerEvent) -> (events: [RealtimeEvent], lines: [String], failure: RealtimeErrorCode?) {
+        switch event {
+        case .sessionUpdated:
+            guard !setupDone else { return ([], [], nil) }
             setupDone = true
-            return ([.setupComplete], nil)
-        case "conversation.item.input_audio_transcription.delta":
-            guard let text = (body["delta"] ?? body["text"])?.stringValue, !text.isEmpty else { return ([], nil) }
-            return ([.userTranscript(text, isFinal: false)], nil)
-        case "conversation.item.input_audio_transcription.completed":
-            guard let text = body["transcript"]?.stringValue else { return ([], nil) }
-            return ([.userTranscript(text, isFinal: true)], nil)
-        case "response.created":
+            return ([.setupComplete], [], nil)
+        case .inputTranscriptDelta(let text):
+            return (text.isEmpty ? [] : [.userTranscript(text, isFinal: false)], [], nil)
+        case .inputTranscriptCompleted(let text):
+            return ([.userTranscript(text, isFinal: true)], [], nil)
+        case .speechStarted:
+            guard let turn = openTurn, !interrupted else { return ([], [], nil) }
+            interrupted = true
+            return ([.interrupted(turn, reason: .serverVAD)], [], nil)
+        case .responseCreated:
             nextTurn = nextTurn.next()
             openTurn = nextTurn
-            interruptedTurn = false
             calls = []
-            return ([.responseStarted(nextTurn)], nil)
-        case "response.audio_transcript.delta":
-            guard let turn = openTurn, let text = body["delta"]?.stringValue, !text.isEmpty else { return ([], nil) }
-            return ([.replyText(turn, text)], nil)
-        case "response.audio.delta":
-            guard let turn = openTurn, let base64 = body["delta"]?.stringValue, let pcm = GeminiCodec.pcm24k(base64: base64) else {
-                return ([], nil)
-            }
-            return ([.replyAudio(turn, pcm)], nil)
-        case "response.function_call_arguments.done":
-            guard openTurn != nil, let id = body["call_id"]?.stringValue.flatMap(CallID.init),
-                  let name = body["name"]?.stringValue else { return ([], nil) }
-            let raw = body["arguments"]?.stringValue ?? "{}"
-            let arguments = (try? JSONDecoder().decode(JSONValue.self, from: Data(raw.utf8))) ?? .object([:])
-            calls.append(ToolCall(id: id, name: name, arguments: arguments))
-            return ([], nil)
-        case "response.audio.done":
-            guard let turn = openTurn else { return ([], nil) }
-            return ([.audioDone(turn)], nil)
-        case "input_audio_buffer.speech_started":
-            guard let turn = openTurn, !interruptedTurn else { return ([], nil) }
-            interruptedTurn = true
-            return ([.interrupted(turn, reason: .serverVAD)], nil)
-        case "response.done":
-            let response = body["response"]
-            let usage = QwenUsage.parse(response?["usage"])
-            guard let turn = openTurn else { return ([], usage) }
+            interrupted = false
+            return ([.responseStarted(nextTurn)], [], nil)
+        case .transcriptDelta(let text):
+            guard let turn = openTurn, !text.isEmpty else { return ([], [], nil) }
+            return ([.replyText(turn, text)], [], nil)
+        case .audioDelta(let pcm):
+            guard let turn = openTurn else { return ([], [], nil) }
+            return ([.replyAudio(turn, pcm)], [], nil)
+        case .audioDone:
+            guard let turn = openTurn else { return ([], [], nil) }
+            return ([.audioDone(turn)], [], nil)
+        case .functionCall(let call):
+            calls.append(call)
+            return ([], [], nil)
+        case .responseDone(let completed, let turnDetected, let usage):
+            guard let turn = openTurn else { return ([], [], nil) }
             var events: [RealtimeEvent] = []
-            // All function calls of one response → one `toolCalls`.
             if !calls.isEmpty { events.append(.toolCalls(turn, calls)) }
-            let status = response?["status"]?.stringValue ?? "completed"
-            let reason = response?["status_details"]?["reason"]?.stringValue
-            if status == "cancelled", reason == "turn_detected", !interruptedTurn {
-                events.append(.interrupted(turn, reason: .serverVAD))
-            }
-            events.append(.responseDone(turn, outcome: status == "completed" ? .completed : .cancelled))
+            if turnDetected, !interrupted { events.append(.interrupted(turn, reason: .serverVAD)) }
+            events.append(.responseDone(turn, outcome: completed ? .completed : .cancelled))
             openTurn = nil
             calls = []
-            interruptedTurn = false
-            return (events, usage)
-        case "error":
-            let error = body["error"]
-            guard error?["type"]?.stringValue == "server_error" else { return ([], nil) }
-            return ([.failed(RealtimeError(QwenRealtimeCodec.classify(code: error?["code"]?.stringValue, status: nil)))], nil)
-        default:
-            return ([], nil)
+            interrupted = false
+            turns += 1
+            var lines: [String] = []
+            if let usage { lines.append(usage.logLine) }
+            lines.append("qwen history turns=\(turns)")
+            return (events, lines, nil)
+        case .error(let type, let code):
+            guard type == "server_error" else { return ([], [], nil) }
+            return ([], [], QwenRealtimeCodec.classify(code))
+        case .other:
+            return ([], [], nil)
         }
     }
 }

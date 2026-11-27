@@ -22,8 +22,6 @@ public struct GuidanceConditions: Sendable, Hashable {
     /// `nova_guidance_relay/assistant_speaks_guidance`.
     public var enabled: Bool
     public var connected: Bool
-    /// The provider can read a sentence back (revoicing on, text turns accepted).
-    public var capable: Bool
     public var driverSpeaking: Bool
     /// A model reply is open (her voice is busy with something else).
     public var responseOpen: Bool
@@ -32,11 +30,10 @@ public struct GuidanceConditions: Sendable, Hashable {
     /// Audio focus is held (no interruption, route present).
     public var focusHeld: Bool
 
-    public init(enabled: Bool = true, connected: Bool = true, capable: Bool = true, driverSpeaking: Bool = false,
+    public init(enabled: Bool = true, connected: Bool = true, driverSpeaking: Bool = false,
                 responseOpen: Bool = false, workPending: Bool = false, focusHeld: Bool = true) {
         self.enabled = enabled
         self.connected = connected
-        self.capable = capable
         self.driverSpeaking = driverSpeaking
         self.responseOpen = responseOpen
         self.workPending = workPending
@@ -45,8 +42,6 @@ public struct GuidanceConditions: Sendable, Hashable {
 }
 
 public enum GuidanceRelayOutput: Sendable, Hashable {
-    /// Send `prompt` as a user text turn; the next model turn reads the sentence (ASSISTANT path).
-    case sendToModel(GuidanceID, prompt: String)
     /// Speak `text` with the fallback voice on the guidance lane.
     case speakFallback(GuidanceID, text: String, reason: GuidanceFallbackReason)
     /// The model turn reading `id` must not be heard any more (it came too late): stop and silence it.
@@ -223,28 +218,17 @@ public struct GuidanceRelay: Sendable {
     private mutating func next(at now: NovaInstant, conditions: GuidanceConditions) -> [GuidanceRelayOutput] {
         guard current == nil, !queue.isEmpty else { return [] }
         let item = queue.removeFirst()
-        if let reason = fallbackReason(for: item, at: now, conditions: conditions) {
-            current = (item, .fallback)
-            return [.speakFallback(item.id, text: item.text, reason: reason)]
-        }
-        current = (item, .pending(enqueued: item.enqueued))
-        return [.sendToModel(item.id, prompt: Self.prompt(for: item.text)),
-                .schedule(item.id, at: item.enqueued + tuning.deadline)]
+        // F-07 §18 (T-020e): no voice model reads a sentence back; every sentence takes the fallback voice.
+        current = (item, .fallback)
+        return [.speakFallback(item.id, text: item.text, reason: fallbackReason(for: item, at: now, conditions: conditions))]
     }
 
     private func fallbackReason(for item: Item, at now: NovaInstant,
-                                conditions: GuidanceConditions) -> GuidanceFallbackReason? {
+                                conditions: GuidanceConditions) -> GuidanceFallbackReason {
         if !conditions.enabled { return .disabled }
         if now >= item.enqueued + tuning.deadline { return .expired }
         if !conditions.connected { return .notConnected }
-        if !conditions.capable { return .noCapability }
-        if fidelityStrikes >= tuning.fidelityStrikeLimit { return .fidelityStrikes }
-        if let until = cooldownUntil, now < until { return .cooldown }
-        if !conditions.focusHeld { return .focus }
-        if conditions.driverSpeaking { return .driverSpeaking }
-        if conditions.responseOpen { return .responseOpen }
-        if conditions.workPending { return .workPending }
-        return nil
+        return .noCapability
     }
 
     private mutating func finishAssistant(_ item: Item, at now: NovaInstant, conditions: GuidanceConditions,

@@ -199,8 +199,8 @@ public actor TripPlanner: ToolExecutor {
     /// §4 item 7: places already found this launch, by city and asked name (高德 quota and per-second limits:
     /// re-adding or re-making a plan costs no lookup). At most `cacheLimit` entries, oldest dropped.
     private var foundCache: [String: Place] = [:]
-    /// F-15b §71 item 3 (T-040zx): the cities of the trip being placed (the asked city and the stops' cities).
-    private var lookupTripCities: [String] = []
+    /// F-15b §71 item 3 (T-040zx): the cities of the plan being built (asked city and its stops' cities).
+    private var lookupCities: [String] = []
     /// F-15b §68 item 2 (T-040zu): the start times of 高德 trip lookups.
     private let pace = LookupPace()
     private var cacheOrder: [String] = []
@@ -711,14 +711,9 @@ public actor TripPlanner: ToolExecutor {
             data["must_not"] = .array([.string(ReplyMustNot.invent.rawValue)])
             data["next"] = .string(TripPlannerShape.savedNext + Self.notPlacedNext(built.notPlaced.map(\.reason)))
         }
-        // F-15b §71 item 6 (T-040zx): legs between Macau/Hong Kong and the mainland carry `border: true`; `next` says
-        // the permit and the border wait once per plan.
-        let borders = Self.borderLegs(plan)
-        if !borders.isEmpty {
-            data["border_legs"] = .array(borders)
-            data["next"] = .string((data["next"]?.stringValue ?? TripPlannerShape.savedNext) + TripBorder.permitNext)
-        }
         if change != nil, !removed.isEmpty { data["removed"] = .array(removed.map(JSONValue.string)) }
+        // F-15b §71 item 6 (T-040zx): border legs, and the permit sentence once per plan.
+        Self.addBorder(&data, plan: plan)
         onLine("trip planner saved rounds=\(rounds) days=\(plan.dayCount) stops=\(plan.stopCount) not_placed=\(built.notPlaced.count) new_plan=\(change == nil ? "yes" : "no") ms=\(ms(since: started))")
         return .success(data)
     }
@@ -856,8 +851,11 @@ public actor TripPlanner: ToolExecutor {
                 }
             }
         }
-        // F-15b §71 item 3 (T-040zx): a mainland miss retried with no city keeps results in any of these.
-        lookupTripCities = Array(Set(byCity.compactMap(\.city) + [fallbackCity].compactMap { $0 }))
+        // §71 item 3: a no-city retry keeps results in any of the trip's cities.
+        lookupCities = ([asked.city, plan.city] + byCity.map(\.city)).compactMap { $0 }.reduce(into: [String]()) {
+            if !$0.contains($1) { $0.append($1) }
+        }
+        defer { lookupCities = [] }
         var anyAbroad = false
         func isAbroad(_ a: TripArea??) -> Bool {
             if case .some(.some(let found)) = a { return !TripRegion.isChina(found.countryCode) }
@@ -877,9 +875,7 @@ public actor TripPlanner: ToolExecutor {
                 lookups[key(name, group.city)] = found[i]
                 // F-15b §68 item 3 (T-040zu): a failed lookup names what was looked up, its city and 高德's info.
                 if case .missing(let reason) = found[i] {
-                    // F-15b §70 item 2 (T-040zw): a SAR lookup 高德 answered with nothing kept says what it dropped.
-                    let sar = Self.sarDropped(reason).map { " dropped=\($0) kept_by=none" } ?? ""
-                    onLine("trip lookup name=\(name) city=\(group.city ?? "-") info=\(Self.limitInfo(reason) ?? (reason == Self.qpsReason ? AmapWebFailure.qpsInfo : "none"))\(sar)")
+                    onLine(Self.lookupMissLine(name: name, city: group.city, reason: reason))
                 }
             }
         }
@@ -1416,8 +1412,28 @@ public actor TripPlanner: ToolExecutor {
         data["plan_text"] = .string(TripPlanJSON.planText(plan))
         data["next"] = .string((requestSaves >= Self.stopRevisingFrom ? Self.stopRevisingNext : Self.reviewNext)
                                + (notPlaced.isEmpty ? "" : Self.notPlacedNext(reasons)))
+        // F-15b §71 item 6 (T-040zx): border legs, and the permit sentence once per plan.
+        Self.addBorder(&data, plan: plan)
         log(true)
         return .success(data)
+    }
+
+    /// F-15b §71 item 6 (T-040zx): `border: true` and `border_legs` (day, from, to) when a leg joins a SAR place and a
+    /// mainland place; `next` then ends with the permit sentence, once.
+    static func addBorder(_ data: inout [String: JSONValue], plan: TripPlan) {
+        var legs: [JSONValue] = []
+        for (d, day) in plan.days.enumerated() {
+            let stops = day.stops.filter(\.placed)
+            for i in stops.indices.dropFirst() where TripSar.isBorder(stops[i - 1], stops[i]) {
+                legs.append(["day": .int(Int64(d + 1)), "from": .string(stops[i - 1].title), "to": .string(stops[i].title),
+                             "border": true])
+            }
+        }
+        guard !legs.isEmpty else { return }
+        data["border"] = true
+        data["border_legs"] = .array(legs)
+        let next = data["next"]?.stringValue ?? ""
+        if !next.contains(TripSar.permitNext) { data["next"] = .string(next + TripSar.permitNext) }
     }
 
     /// F-15b §61 item 2 (T-040zn): `check_trip_plan`, the counting assistant. No arguments: the plan in hand. `days` in
@@ -1580,56 +1596,45 @@ public actor TripPlanner: ToolExecutor {
             let placed = out[d].indices.filter { out[d][$0].placed }
             guard placed.count > 1 else { continue }
             let nodes = placed.map { TripTimes.Node(key: out[d][$0].place.id, coordinate: out[d][$0].place.coordinate) }
+            // F-15b §71 item 5 (T-040zx): a day with a leg touching Macau or Hong Kong is timed on OSRM (高德 refuses
+            // those routes), each 高德 point converted GCJ-02 → WGS-84 first; its mainland-only legs stay on 高德.
+            let sar = placed.map { TripSar.isSarPlace(out[d][$0].place) }
+            if !abroad, let abroadTimes, sar.contains(true) {
+                let asked = clock.now
+                if showStep { work?.step(WorkProgress.tripTimes) }
+                let converted = placed.map {
+                    TripTimes.Node(key: out[d][$0].place.id, coordinate: CoordinateConverter.wgs84(out[d][$0].place.coordinate))
+                }
+                let table = await abroadTimes.table(start: nil, stops: converted)
+                onLine("trip times vendor=osrm reason=sar pairs=\(table?.pairs ?? 0) ms=\(ms(since: asked))")
+                if let table { for (n, i) in placed.enumerated() where n > 0 { out[d][i].legSeconds = table.time(n - 1, n) } }
+                let mainlandLegs = (1..<placed.count).filter { !sar[$0 - 1] && !sar[$0] }
+                if let times, !mainlandLegs.isEmpty {
+                    var picked: [Int] = []
+                    for n in mainlandLegs { for m in [n - 1, n] where !picked.contains(m) { picked.append(m) } }
+                    let started = clock.now
+                    let home = await times.table(start: nil, stops: picked.map { nodes[$0] })
+                    onLine("trip times vendor=amap pairs=\(home?.pairs ?? 0) ms=\(ms(since: started))")
+                    if let home {
+                        for n in mainlandLegs {
+                            out[d][placed[n]].legSeconds = home.time(picked.firstIndex(of: n - 1)!, picked.firstIndex(of: n)!)
+                        }
+                    }
+                }
+                continue
+            }
             guard !Set(nodes.map(\.key)).isEmpty, tableTimes != nil || abroad else { continue }
             let asked = clock.now
             if showStep { work?.step(WorkProgress.tripTimes) }
-            // F-15b §71 item 5 (T-040zx): a day touching Macau/Hong Kong is timed on OSRM (mainland pairs on 高德).
-            let sarKeys = Set(placed.map { out[d][$0].place }.filter(TripBorder.isSAR).map(\.id))
-            var table: TripTimes.Table?
-            if !abroad, !sarKeys.isEmpty, abroadTimes != nil {
-                table = await sarTable(start: nil, stops: nodes, sarKeys: sarKeys)
-                onLine("trip times vendor=osrm reason=sar pairs=\(table?.pairs ?? 0) ms=\(ms(since: asked))")
-            } else {
-                table = await tableTimes?.table(start: nil, stops: nodes)
-                if table == nil, abroad { table = TripTimes.estimate(start: nil, stops: nodes) }
-                let vendor = table?.estimated == true ? "estimate" : abroad && abroadTimes != nil ? "osrm" : "amap"
-                onLine("trip times vendor=\(vendor) pairs=\(table?.pairs ?? 0) ms=\(ms(since: asked))")
-            }
+            var table = await tableTimes?.table(start: nil, stops: nodes)
+            if table == nil, abroad { table = TripTimes.estimate(start: nil, stops: nodes) }
+            let vendor = table?.estimated == true ? "estimate" : abroad && abroadTimes != nil ? "osrm" : "amap"
+            onLine("trip times vendor=\(vendor) pairs=\(table?.pairs ?? 0) ms=\(ms(since: asked))")
             guard let table else { continue }
             if table.estimated { estimated = true }
             for (n, i) in placed.enumerated() where n > 0 { out[d][i].legSeconds = table.time(n - 1, n) }
         }
         return (out, estimated)
-    }
-
-    /// F-15b §71 item 6 (T-040zx): each day's legs between consecutive placed stops that cross the SAR border.
-    static func borderLegs(_ plan: TripPlan) -> [JSONValue] {
-        var out: [JSONValue] = []
-        for (d, day) in plan.days.enumerated() {
-            let placed = day.stops.filter(\.placed)
-            for (a, b) in zip(placed, placed.dropFirst()) where TripBorder.isBorder(a.place, b.place) {
-                out.append(["day": .int(Int64(d + 1)), "from": .string(a.title), "to": .string(b.title), "border": true])
-            }
-        }
-        return out
-    }
-
-    /// F-15b §71 item 5 (T-040zx): the table of a start and stops touching Macau/Hong Kong: every pair from OSRM with
-    /// each point converted GCJ-02 → WGS-84; the pairs with both ends on the mainland from 高德 when it answers.
-    /// nil when OSRM fails (no estimate: a SAR leg has no 高德 time either).
-    private func sarTable(start: TripTimes.Node?, stops: [TripTimes.Node], sarKeys: Set<String>) async -> TripTimes.Table? {
-        guard let abroadTimes else { return nil }
-        let nodes = (start.map { [$0] } ?? []) + stops
-        let converted = nodes.map { TripTimes.Node(key: $0.key, coordinate: CoordinateConverter.wgs84($0.coordinate)) }
-        guard let osrm = await abroadTimes.table(start: nil, stops: converted) else { return nil }
-        var seconds = osrm.seconds, requests = osrm.requests, cached = osrm.cached
-        let mainland = nodes.indices.filter { !sarKeys.contains(nodes[$0].key) }
-        if mainland.count > 1, let times, let amap = await times.table(start: nil, stops: mainland.map { nodes[$0] }) {
-            for (a, i) in mainland.enumerated() { for (b, j) in mainland.enumerated() where a != b { seconds[i][j] = amap.seconds[a][b] } }
-            requests += amap.requests
-            cached += amap.cached
-        }
-        return TripTimes.Table(seconds: seconds, requests: requests, cached: cached)
     }
 
     /// §52 item 4: each stop with `placed=false` is searched again, 3 tries 10 s apart; a found one is placed (its
@@ -1786,7 +1791,7 @@ public actor TripPlanner: ToolExecutor {
         }
         // §36 item 2c: abroad the table is OSRM's, else the straight-line estimate; at home 高德's (§26 item 4).
         let tableTimes = abroad ? (abroadTimes ?? times) : times
-        guard abroad || tableTimes != nil || abroadTimes != nil else {
+        guard abroad || tableTimes != nil else {
             log(false)
             return .failed(.routeTimesUnavailable)
         }
@@ -1814,18 +1819,9 @@ public actor TripPlanner: ToolExecutor {
         if let dropoffStop { addNode(dropoffStop) }
         anyHotel.forEach(addNode)
         // §42: `trip times vendor=<amap|osrm|estimate> pairs= ms=` after each table.
-        // F-15b §71 item 5 (T-040zx): the places in Macau/Hong Kong (their pairs are timed on OSRM).
-        let sarKeys = Set(((first.map { [$0] } ?? []) + pending + extras.map(\.stop) + [endStop, pickupStop, dropoffStop, startStop].compactMap { $0 } + anyHotel)
-            .map(\.place).filter(TripBorder.isSAR).map(\.id))
         func timeTable(_ start: TripTimes.Node?, _ list: [TripTimes.Node]) async -> TripTimes.Table? {
             let asked = clock.now
             work?.step(WorkProgress.tripTimes)
-            let touched = ((start.map { [$0] } ?? []) + list).contains { sarKeys.contains($0.key) }
-            if !abroad, touched, abroadTimes != nil {
-                let got = await sarTable(start: start, stops: list, sarKeys: sarKeys)
-                onLine("trip times vendor=osrm reason=sar pairs=\(got?.pairs ?? 0) ms=\(ms(since: asked))")
-                return got
-            }
             var got = await tableTimes?.table(start: start, stops: list)
             if got == nil, abroad { got = TripTimes.estimate(start: start, stops: list) }
             let vendor = got?.estimated == true ? "estimate" : abroad && abroadTimes != nil ? "osrm" : "amap"
@@ -2143,8 +2139,8 @@ public actor TripPlanner: ToolExecutor {
             return Self.alreadyNavigating(target.place.name)
         }
         // §47 item 1 (T-040s): an `abroad` trip's stop is routed by OSRM inside the app.
-        // F-15b §71 item 5 (T-040zx): a stop in Macau/Hong Kong too (高德 refuses those routes).
-        let result = await navigation.tripNext(target.place, abroad: plan.abroad || TripBorder.isSAR(target.place))
+        // F-15b §71 item 5 (T-040zx): a stop in Macau or Hong Kong is guided in the app on an OSRM route too.
+        let result = await navigation.tripNext(target.place, abroad: plan.abroad, sar: TripSar.isSarPlace(target.place))
         onLine("trip next index=\(target.index) day=\(plan.currentDay) ok=\(result.ok ? "yes" : "no") code=\(result.code?.rawValue ?? "none")")
         if !result.ok, let handed = await handoff(target, after: result) { return handed }
         guard result.ok else { return result }
@@ -2431,10 +2427,11 @@ public actor TripPlanner: ToolExecutor {
         let limit = max(1, parallel ?? tuning.parallelLookups), clock = clock, retry = tuning.retryDelay, kept = tuning.candidates
         let paced = pace.map { Paced(pace: $0, count: tuning.paceCount, window: tuning.paceWindow, qpsRetry: tuning.qpsRetry) }
         let nameLimit = tuning.nameLimit
-        let tripCities = lookupTripCities, log = onLine
         let region = near.map { ($0, tuning.abroadRegionMeters) }
         // §50 item 3: only trip lookups abroad (the country guard on) stay inside the area.
         let inside: AreaCheck? = guardCountry ? area.map { AreaCheck(area: $0, km: tuning.areaKm, limit: tuning.areaLimit) } : nil
+        // F-15b §71 item 3 (T-040zx): the trip's cities a no-city retry keeps results in; its record line.
+        let context = LookupContext(trip: lookupCities.isEmpty ? [plan.city, city].compactMap { $0 } : lookupCities, log: onLine)
         let (stream, feed) = AsyncStream.makeStream(of: (Int, Lookup, Int)?.self)
         let work = Task {
             await withTaskGroup(of: Void.self) { group in
@@ -2448,7 +2445,7 @@ public actor TripPlanner: ToolExecutor {
                         let (lookup, dropped) = await Self.limited(clock: clock, limit: nameLimit) {
                             await Self.lookup(names[i], city: city, search: search, retryDelay: retry, kept: kept,
                                               guardCountry: guardCountry, region: region, area: inside, paced: paced,
-                                              tripCities: tripCities, log: log)
+                                              context: context)
                         }
                         feed.yield((i, lookup, dropped))
                     }
@@ -2507,12 +2504,12 @@ public actor TripPlanner: ToolExecutor {
 
     private static func lookup(_ name: String, city: String?, search: any PlaceSearch, retryDelay: NovaDuration,
                                kept: Int, guardCountry: Bool = false, region: (GeoCoordinate, Int)? = nil,
-                               area: AreaCheck? = nil, paced: Paced? = nil, tripCities: [String] = [],
-                               log: (@Sendable (String) -> Void)? = nil) async -> (Lookup, Int) {
+                               area: AreaCheck? = nil, paced: Paced? = nil,
+                               context: LookupContext = LookupContext()) async -> (Lookup, Int) {
         func once() async -> (Lookup, Int) {
             if let paced { await paced.pace.wait(count: paced.count, window: paced.window) }
             return await lookupOnce(name, city: city, search: search, kept: kept, guardCountry: guardCountry, region: region,
-                                    area: area, tripCities: tripCities, log: log)
+                                    area: area, paced: paced, context: context)
         }
         // §4 item 7: up to 2 retries, waiting retryDelay then twice that (高德 rejects requests over the per-second
         // limit and answers those within it).
@@ -2527,13 +2524,24 @@ public actor TripPlanner: ToolExecutor {
         }
         for attempt in 0..<2 {
             // §52 item 11: `slow` (Photon out of its own tries, ~12 s) is not tried again here.
-            guard case .missing(let reason) = result.0, !reason.hasPrefix("nomatch"), reason != "country", reason != "area",
+            guard case .missing(let reason) = result.0, reason != "nomatch", sarDropped(reason) == nil, reason != "country", reason != "area",
                   reason != "slow", Self.limitInfo(reason) == nil, !Task.isCancelled else { return result }
             try? await Task.sleep(for: .milliseconds(retryDelay.milliseconds << attempt))
             if Task.isCancelled { return result }
             result = await once()
         }
         return result
+    }
+
+    /// F-15b §70 item 2 (T-040zw): a SAR lookup 高德 answered with nothing kept: 「sarnone|<dropped>」 (not tried again).
+    static func sarNoneReason(dropped: Int) -> String { "sarnone|\(dropped)" }
+    static func sarDropped(_ reason: String) -> Int? { reason.hasPrefix("sarnone|") ? Int(reason.dropFirst(8)) : nil }
+
+    /// §68 item 3, §70 item 2: the record line of a failed lookup.
+    static func lookupMissLine(name: String, city: String?, reason: String) -> String {
+        let info = limitInfo(reason) ?? (reason == qpsReason ? AmapWebFailure.qpsInfo : "none")
+        let sar = sarDropped(reason).map { " dropped=\($0) kept_by=none" } ?? ""
+        return "trip lookup name=\(name) city=\(city ?? "-") info=\(info)\(sar)"
     }
 
     /// F-15b §68 (T-040zu): a lookup answered `CUQPS_HAS_EXCEEDED_THE_LIMIT` (tried once more).
@@ -2562,54 +2570,62 @@ public actor TripPlanner: ToolExecutor {
         return "not_placed 里的地方，" + parts.joined(separator: "；") + "。原因只照 reason 说，不要说别的原因。"
     }
 
-    /// F-15b §70 item 2 (T-040zw): a SAR lookup 高德 answered with nothing kept: `nomatch|sar|<dropped>`.
-    static func sarMissReason(_ dropped: Int) -> String { "nomatch|sar|\(dropped)" }
-    static func sarDropped(_ reason: String) -> Int? {
-        reason.hasPrefix("nomatch|sar|") ? Int(reason.dropFirst("nomatch|sar|".count)) : nil
-    }
-
-    /// F-15b §71 item 2 (T-040zx): a Macau or Hong Kong lookup: 高德 with no city, kept in the SAR asked (§70: adcode,
-    /// else province) or the mainland city the text also names, name-checked; nothing kept → once more with the SAR
-    /// name in front. No Photon.
-    static func sarLookup(_ name: String, _ sar: SpecialRegion.Lookup, search: any PlaceSearch, kept: Int) async throws -> (Lookup, Int) {
-        func keep(_ places: [Place]) -> [Place] {
-            places.filter { p in
-                let inSAR = sar.regions.contains { SpecialRegion.keptBy(p, in: $0) != nil }
-                let inMainland = SpecialRegion.region(of: p) == nil
-                    && sar.mainland.contains { m in TripPlannerShape.sameCity(p.city, m) || (p.city ?? "").hasPrefix(m) }
-                return (inSAR || inMainland) && SpecialRegion.nameMatches(asked: name, found: p.name)
-            }
-        }
-        var answered = try await textWithInfo(search, name, city: nil, cityLimit: false)
-        var places = keep(answered)
-        var dropped = answered.count - places.count
-        if places.isEmpty, let first = sar.regions.first,
-           !SpecialRegion.prefixes.contains(where: { name.hasPrefix($0) }) {
-            answered = try await textWithInfo(search, first.shortName + name, city: nil, cityLimit: false)
-            places = keep(answered)
-            dropped += answered.count - places.count
-        }
-        guard !places.isEmpty else { return (.missing(sarMissReason(dropped)), 0) }
-        return (.candidates(Array(places.prefix(max(kept, 1)))), 0)
-    }
-
-    /// F-15b §71 item 3 (T-040zx): a place in one of the trip's cities (a SAR by region, else by 高德's city name).
-    static func inTripCities(_ place: Place, _ cities: [String]) -> Bool {
-        cities.contains { c in
-            if let sar = SpecialRegion.lookup(c) { return SpecialRegion.region(of: place).map(sar.regions.contains) ?? false }
-            let bare = c.hasSuffix("市") ? String(c.dropLast()) : c
-            return !bare.isEmpty && (place.city ?? "").hasPrefix(bare)
-        }
+    /// F-15b §71 item 3 (T-040zx): what a 高德 lookup knows of its trip: the cities a no-city retry keeps, and the record.
+    struct LookupContext: Sendable {
+        var trip: [String] = []
+        var log: @Sendable (String) -> Void = { _ in }
     }
 
     private static func lookupOnce(_ name: String, city: String?, search: any PlaceSearch, kept: Int, guardCountry: Bool,
-                                   region: (GeoCoordinate, Int)?, area: AreaCheck? = nil, tripCities: [String] = [],
-                                   log: (@Sendable (String) -> Void)? = nil) async -> (Lookup, Int) {
+                                   region: (GeoCoordinate, Int)?, area: AreaCheck? = nil, paced: Paced? = nil,
+                                   context: LookupContext = LookupContext()) async -> (Lookup, Int) {
+        func pace() async { if let paced { await paced.pace.wait(count: paced.count, window: paced.window) } }
         do {
             var places: [Place]
-            // F-15b §68 item 1, §70, §71 item 2 (T-040zu, T-040zw, T-040zx): a Macau or Hong Kong lookup.
-            if area == nil, region == nil, let sar = SpecialRegion.lookup(city) {
-                return try await sarLookup(name, sar, search: search, kept: kept)
+            // F-15b §68 item 1 (T-040zu): a Macau or Hong Kong lookup goes without 高德's city limit.
+            // F-15b §70 item 1 (T-040zw): kept by adcode, else by province, and only in the SAR asked for.
+            // F-15b §71 items 1-2 (T-040zx): a SAR lookup by its city text; results in that SAR (or a mainland city the
+            // text names) whose name passes the name check; nothing kept: once more with the SAR's name in front.
+            // 高德 only: no Photon lookup for SAR places.
+            if area == nil, region == nil, let sar = TripSar.lookup(city: city) {
+                func keep(_ all: [Place]) -> [Place] {
+                    all.filter { TripSar.keeps($0, sar) && TripSar.nameMatches(asked: name, found: $0.name) }
+                }
+                let all = try await textWithInfo(search, name, city: nil, cityLimit: false)
+                places = keep(all)
+                var dropped = all.count - places.count
+                if places.isEmpty, let again = sar.regions.first.flatMap({ TripSar.prefixed(name, $0) }), !Task.isCancelled {
+                    await pace()
+                    let second = try await textWithInfo(search, again, city: nil, cityLimit: false)
+                    places = keep(second)
+                    dropped += second.count - places.count
+                }
+                guard !places.isEmpty else { return (.missing(sarNoneReason(dropped: dropped)), 0) }
+                return (.candidates(Array(places.prefix(max(kept, 1)))), 0)
+            }
+            // F-15b §71 item 3 (T-040zx): a mainland city lookup that misses (nothing, nothing that passes the name
+            // check, or a daily `…LIMIT`): once more with no city, kept in the trip's cities and by the name check.
+            if area == nil, region == nil, !guardCountry, let city, !city.isEmpty {
+                var first: [Place] = []
+                var refusal: AmapWebFailure?
+                do {
+                    first = try await textWithInfo(search, name, city: city, cityLimit: true)
+                } catch let failure as AmapWebFailure where failure.isLimit && failure.info != AmapWebFailure.qpsInfo {
+                    refusal = failure
+                }
+                if refusal == nil, first.contains(where: { TripSar.nameMatches(asked: name, found: $0.name) }) {
+                    return (.candidates(Array(first.prefix(max(kept, 1)))), 0)
+                }
+                guard !Task.isCancelled else { return (.missing("timeout"), 0) }
+                await pace()
+                let trip = context.trip.isEmpty ? [city] : context.trip
+                let retried = (try? await textWithInfo(search, name, city: nil, cityLimit: false)) ?? []
+                let kept2 = retried.filter { TripSar.inTrip($0, cities: trip) && TripSar.nameMatches(asked: name, found: $0.name) }
+                context.log("trip lookup retry=nocity kept=\(kept2.count)")
+                if !kept2.isEmpty { return (.candidates(Array(kept2.prefix(max(kept, 1)))), 0) }
+                if let refusal { throw refusal }
+                guard !first.isEmpty else { return (.missing("nomatch"), 0) }
+                return (.candidates(Array(first.prefix(max(kept, 1)))), 0)
             }
             if let area {
                 // §50 item 3: Photon's `bbox` restricts the search; the country and 50 km checks cover the rest.
@@ -2625,22 +2641,8 @@ public actor TripPlanner: ToolExecutor {
             }
             if let (center, radius) = region {
                 places = try await search.around(name, center: center, radiusMeters: radius, sort: .weight)
-            } else if let city {
-                // F-15b §71 item 3 (T-040zx): a mainland lookup that finds nothing, only results failing the name
-                // check, or a `…LIMIT` (not the per-second one, §68 item 2): once more with no city, kept in the
-                // trip's cities and name-checked. Nothing kept: as before (the city's results, or the failure).
-                var limit: AmapWebFailure?
-                do { places = try await textWithInfo(search, name, city: city, cityLimit: true) }
-                catch let f as AmapWebFailure where f.isLimit && f.info != AmapWebFailure.qpsInfo { limit = f; places = [] }
-                if limit != nil || !places.contains(where: { SpecialRegion.nameMatches(asked: name, found: $0.name) }) {
-                    let cities = tripCities.isEmpty ? [city] : tripCities
-                    let retried = (try? await textWithInfo(search, name, city: nil, cityLimit: false)) ?? []
-                    let keptNoCity = retried.filter { inTripCities($0, cities) && SpecialRegion.nameMatches(asked: name, found: $0.name) }
-                    log?("trip lookup retry=nocity kept=\(keptNoCity.count)")
-                    if !keptNoCity.isEmpty { places = keptNoCity } else if let limit { throw limit }
-                }
             } else {
-                places = try await textWithInfo(search, name, city: city, cityLimit: false)
+                places = try await textWithInfo(search, name, city: city, cityLimit: city != nil)
             }
             guard !places.isEmpty else { return (.missing("nomatch"), 0) }
             var dropped = 0
@@ -2704,6 +2706,10 @@ public actor TripPlanner: ToolExecutor {
                 // §37 item 2: the frame's stops say what they are; a picked hotel says so.
                 if stop.role != .sight { o["role"] = .string(stop.role.rawValue) }
                 if stop.picked { o["picked"] = .bool(true) }
+                // F-15b §71 item 6 (T-040zx): the leg into this stop crosses the border.
+                if let before = list.stops.last(where: { $0.index < stop.index && $0.placed }), TripSar.isBorder(before, stop) {
+                    o["border"] = .bool(true)
+                }
                 // §48 item 8 (T-040t): the visit minutes counted.
                 o["minutes"] = .int(Int64(stop.visitMinutes))
                 o["distance_km"] = stop.distanceMeters.map { .double(NavigationController.km($0)) } ?? .null

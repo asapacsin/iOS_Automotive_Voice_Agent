@@ -67,6 +67,20 @@ class RecordScriptsTests(unittest.TestCase):
             n = int(f.stem.rsplit("-", 1)[1])
             self.assertIn(n, read.READERS, f"read.py has no reader for format {n}")
 
+    def test_t016q_voice_model_header_fills_model(self):
+        """T-016q F-05 §15 item 6 (review): the header's `voiceModel` is the session's model in every row."""
+        rows = read.read(FIX / "record-format-17.txt")
+        self.assertTrue(rows and all(r["model"] == "gemini-3.8-live" for r in rows))
+        text = (FIX / "record-format-17.txt").read_text(encoding="utf-8").replace(
+            "voiceModel gemini-3.8-live", "voiceModel qwen-audio-3.1-realtime-flash")
+        with tempfile.TemporaryDirectory() as tmp:
+            f = pathlib.Path(tmp) / "20261126-180000.txt"
+            f.write_text(text, encoding="utf-8")
+            rows = read.read(f)
+        self.assertTrue(all(r["model"] == "qwen-audio-3.1-realtime-flash" for r in rows))
+        self.assertTrue(any(r["fields"].startswith("reconnect fresh=yes") or "reconnect fresh=yes" in r["fields"]
+                            for r in rows))
+
     def test_t046w_row22_format5_bodies_unescape_exactly(self):
         """T-046w F-18 §34 row 22 (format 5): read.py gives the search bodies of the fixture back exactly."""
         rows = read.read(FIX / "record-format-5.txt")

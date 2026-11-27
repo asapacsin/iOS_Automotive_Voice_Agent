@@ -4,14 +4,13 @@ import NovaTools
 import NovaVoice
 import Synchronization
 
-/// Where the effects of `AgentState` go. Production wires the real provider, revoicer and playback;
+/// Where the effects of `AgentState` go. Production wires the real provider and playback;
 /// tests record. Called in effect order by the AgentCore drainer.
 public protocol AgentEffectSink: Sendable {
     func provider(_ command: ProviderCommand) async
     func flushPlayback(to epoch: Epoch)
     func cancelRevoicing(_ epoch: Epoch) async
     func newReply() async
-    func speak(_ clause: String) async
     /// F-07 §15 item 3: judged Gemini audio for the reply lane (Gemini 原声 only).
     func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async
     func publish(_ view: AgentViewState) async
@@ -153,7 +152,6 @@ public actor AgentCore {
         case .flushPlayback(let epoch): sink.flushPlayback(to: epoch)
         case .cancelRevoicing(let epoch): await sink.cancelRevoicing(epoch)
         case .newReply: await sink.newReply()
-        case .speak(let clause): await sink.speak(clause)
         case .playReplyAudio(let turn, let pcm): await sink.playReplyAudio(pcm, turn: turn)
         case .startTool(let turn, let call):
             tools.start(call, turn: turn, epoch: toolEpoch) { [weak self] result in await self?.send(.toolFinished(turn, call, result)) }

@@ -85,7 +85,7 @@ struct CallBudgetTests {
         #expect(b.ask(.qwenLive, model: "m", key: k) == .allow)
     }
 
-    @Test("T-046u F-18 §32 row 5 (budget side): a quota error refuses that model until local midnight; tts counted, not capped")
+    @Test("T-046u F-18 §32 row 5 (budget side): a quota error refuses that model until local midnight")
     func row5() {
         let now = Now(noon)
         let store = MemoryBudgetStore()
@@ -99,10 +99,8 @@ struct CallBudgetTests {
         #expect(budget(store, now: now).ask(.qwenLive, model: "m1", key: "c") == .refuse(.quota))  // restart
         now.set(noon.addingTimeInterval(86_400))
         #expect(budget(store, now: now).ask(.qwenLive, model: "m1", key: "c") == .allow)
-        let t = budget()
-        for _ in 0..<400 { #expect(t.ask(.qwenTTS, model: "tts", key: "") == .allow) }
-        // Her voice uses none of the shared counters: a search is still allowed after 400 tts calls.
-        #expect(t.ask(.qwenLive, model: "m", key: "a") == .allow)
+        // F-07 §18 (T-020e): the uncapped `qwen.tts` route is gone; every paid route is capped.
+        #expect(!PaidRoute.allCases.map(\.rawValue).contains("qwen.tts"))
     }
 
     @Test("T-046u F-18 §32 row 7 (budget side): after a refusal the same turn makes no further paid call")

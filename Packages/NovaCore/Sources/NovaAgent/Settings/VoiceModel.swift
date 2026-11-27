@@ -2,24 +2,22 @@ import NovaKit
 import NovaPorts
 import NovaVoice
 
-/// F-05 §15 item 1 (T-016q): 设置 「语音模型」, the model the voice session talks to. Stored on the phone; read at the
-/// next connect (a running session is not switched). Pure.
+/// F-05 §15 item 1 (T-016q): 设置 「语音模型」, the realtime model her session talks to. Stored on the phone; it takes
+/// effect at the next connect. Gemini is the default; a Qwen choice needs the 百炼 key saved for search (F-18 §40).
+/// Pure.
 public enum VoiceModel: String, Sendable, Hashable, CaseIterable {
     case geminiLive = "gemini-3.8-live"
     case qwenFlash = "qwen-audio-3.1-realtime-flash"
     case qwenPlus = "qwen-audio-3.1-realtime-plus"
 
-    public static let settingsKey = "voice_model"
-    public static let defaultModel = VoiceModel.geminiLive
-    public static let title = "语音模型"
-    /// Item 1: shown under the row; the choice applies at the next connect.
+    public static let settingsKey = SettingsKey.voiceModel
+    public static let `default` = VoiceModel.geminiLive
+    /// Item 1: the row says a change applies from the next connect.
     public static let nextConnectNote = "下次连接时生效"
-    /// Item 1: a Qwen choice without the 百炼 key.
-    public static let qwenKeyMissing = "先在设置里填百炼 key"
+    /// Item 1: why a Qwen choice is shown disabled.
+    public static let qwenKeyMissingMessage = "先在设置里填百炼 key"
 
-    /// The model id sent to the provider (and written in the record header, item 6).
-    public var modelID: String { rawValue }
-
+    /// The 设置 label.
     public var label: String {
         switch self {
         case .geminiLive: "Gemini 3.8 Live"
@@ -30,30 +28,35 @@ public enum VoiceModel: String, Sendable, Hashable, CaseIterable {
 
     public var isQwen: Bool { self != .geminiLive }
 
-    /// Item 1 (changed 2026-11-26, T-016r): a Qwen choice needs only the 百炼 key; the saved 千问 voice API Host is
-    /// not used.
-    public func isAvailable(qwenKey: String?) -> Bool {
-        guard isQwen else { return true }
-        return qwenKey?.isEmpty == false
+    /// F-05 §15 item 5: Gemini runs background tools (NON_BLOCKING); Qwen has none.
+    public var backgroundTools: Bool { !isQwen }
+    /// F-05 §15 item 5: Gemini resumes a dropped session; Qwen reconnects fresh with the summary note.
+    public var resumes: Bool { !isQwen }
+    /// F-07 §18 item 5 (T-020e): the `voice source=` of the timing line.
+    public var timingSource: String { isQwen ? GeminiVoiceLine.qwenSource : GeminiVoiceLine.geminiSource }
+
+    /// The model id sent to the provider and written as the record header's `voiceModel` (item 6).
+    public var modelID: String { rawValue }
+
+    /// Item 1 (T-016r): Gemini always; a Qwen choice only with the 百炼 key saved (no API Host is used or needed).
+    public func isAvailable(qwenKeySaved: Bool) -> Bool {
+        !isQwen || qwenKeySaved
     }
 
-    /// The disabled reason for the picker row; nil when the choice can be made.
-    public func disabledReason(qwenKey: String?) -> String? {
-        isAvailable(qwenKey: qwenKey) ? nil : Self.qwenKeyMissing
+    /// The disabled row's text, or nil when the choice can be picked.
+    public func disabledReason(qwenKeySaved: Bool) -> String? {
+        isAvailable(qwenKeySaved: qwenKeySaved) ? nil : Self.qwenKeyMissingMessage
     }
 
-    /// The stored choice; unset or unknown reads as Gemini (the default).
+    /// The saved choice; unset or unknown reads as the default.
     public static func saved(in settings: any SettingsStore) -> VoiceModel {
-        settings.string(settingsKey).flatMap(VoiceModel.init(rawValue:)) ?? defaultModel
+        settings.string(settingsKey).flatMap(VoiceModel.init(rawValue:)) ?? .default
     }
 
-    /// The model the next connect uses: a Qwen choice whose key has gone falls back to Gemini.
-    public static func resolved(in settings: any SettingsStore, qwenKey: String?) -> VoiceModel {
-        let model = saved(in: settings)
-        return model.isAvailable(qwenKey: qwenKey) ? model : defaultModel
-    }
-
-    public static func save(_ model: VoiceModel, in settings: any SettingsStore) {
-        settings.set(model.rawValue, for: settingsKey)
+    /// The model a session connects with: the saved choice, or Gemini when a saved Qwen choice is no longer available
+    /// (its key was removed after it was picked).
+    public static func effective(in settings: any SettingsStore, qwenKeySaved: Bool) -> VoiceModel {
+        let choice = saved(in: settings)
+        return choice.isAvailable(qwenKeySaved: qwenKeySaved) ? choice : .default
     }
 }

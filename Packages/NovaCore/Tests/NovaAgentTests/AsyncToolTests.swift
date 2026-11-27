@@ -13,9 +13,10 @@ func liveInfoCall(_ id: String = "call_w") -> ToolCall {
 /// F-18 §27 rows 2–4 (T-020c), the core side. The codec rows (1–3 wire format) are in NovaRealtime.
 @Suite("T-020c F-18 §27 background search")
 struct AsyncToolTests {
-    static func asking(_ words: String = "现在天气怎么样", revoicing: Bool = false) -> Drive {
+    static func asking(_ words: String = "现在天气怎么样") -> Drive {
         var d = Drive()
-        d.state = AgentState(truthfulness: TruthfulnessTuning(), revoicing: revoicing)
+        d.voiceText = false
+        d.state = AgentState(truthfulness: TruthfulnessTuning())
         d.connect()
         d.send(.speechStarted(recentSpeech: true))
         d.send(.speechStopped)
@@ -78,7 +79,7 @@ struct AsyncToolTests {
 
     @Test("Item 4: a barge-in does not cancel a running search; its result is still sent")
     func bargeInKeepsSearch() {
-        var d = Self.asking("今天油价多少", revoicing: true)
+        var d = Self.asking("今天油价多少")
         let call = searchCall()
         d.realtime(.toolCalls(TurnID(1), [call]))
         d.realtime(.replyText(TurnID(1), "我查一下。"))
@@ -141,7 +142,7 @@ struct ReplyAudioKeeperTests {
 struct AsyncToolReviewTests {
     @Test("A later turn of an utterance whose call was blocking is still held whole (I-1, I-5)")
     func laterTurnHeld() {
-        var p = DriverTurnPipeline(streamsCleanAudio: true)
+        var p = DriverTurnPipeline()
         let now = NovaInstant.zero
         _ = p.handle(.driverUtterance("我有点冷"), at: now)
         _ = p.handle(.turnOpened(TurnID(1)), at: now)

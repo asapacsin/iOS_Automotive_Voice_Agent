@@ -79,9 +79,9 @@ public struct PipelineTimer: Sendable, Hashable {
 }
 
 public enum PipelineOutput: Sendable, Hashable {
-    /// Judged reply text: subtitle and the source of revoiced clauses.
+    /// Judged reply text: the subtitle.
     case speechText(TurnID, String)
-    /// Judged provider audio (only without revoicing).
+    /// Judged provider audio: her voice (F-07 §18 item 1).
     case speechAudio(TurnID, PCMBuffer)
     /// Everything held for this turn was dropped; the shell flushes playback to a new epoch.
     case voided(TurnID)
@@ -147,9 +147,6 @@ public struct DriverTurnPipeline: Sendable {
     }
 
     private let tuning: TruthfulnessTuning
-    /// F-07 §15 item 7 (T-020b, Gemini 原声 only): a clean chat turn releases its audio as it comes, like its text.
-    /// Proven and pending turns keep their holds; a claim found later is cut by the void (item 8).
-    private let streamsCleanAudio: Bool
     private var turn: Turn?
     private var navigation = NavigationPhase.idle
     private var musicPlaying = false
@@ -164,7 +161,8 @@ public struct DriverTurnPipeline: Sendable {
     private var tripWrites: Set<CallID> = []
     /// §58 item 1: stop names the request's `set_trip_plan` calls wrote (a reply naming one is about the trip).
     private var tripNames: [String] = []
-    /// F-15b §70 item 3 (T-040zw): the `not_placed` stop names of the latest ok trip write since the driver's last words.
+    /// F-15b §70 item 3 (T-040zw): the `not_placed` names of the latest trip write result; a reply naming one as planned
+    /// gets `UNVERIFIED_CLAIM tool=plan_trip`. Replaced by the next trip write result.
     private var tripNotPlaced: [String] = []
     private var musicConfirmed: Bool { musicPlaying && musicFresh }
     private var navigationConfirmed: Bool { navigation == .navigating && navigationFresh }
@@ -195,10 +193,9 @@ public struct DriverTurnPipeline: Sendable {
     private var timerEpoch = Epoch.initial
     private var timers: [PipelineTimer.Kind: Epoch] = [:]
 
-    public init(tuning: TruthfulnessTuning = TruthfulnessTuning(), streamsCleanAudio: Bool = false,
+    public init(tuning: TruthfulnessTuning = TruthfulnessTuning(),
                 detector: any LanguageIdentifier = NoLanguageIdentifier()) {
         self.tuning = tuning
-        self.streamsCleanAudio = streamsCleanAudio
         self.detector = detector
     }
 
@@ -224,6 +221,7 @@ public struct DriverTurnPipeline: Sendable {
             lastUtterance = text
             tripLatestOk = nil
             tripNames = []
+            // F-15b §70 item 3 (review): only the reply to the turn that got the trip result is checked.
             tripNotPlaced = []
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
             wrongLanguageAsked = false
@@ -268,7 +266,8 @@ public struct DriverTurnPipeline: Sendable {
             // Re-judged on the whole text each time: a later sentence may make a stronger claim.
             t.claims.formUnion(ClaimLexicon.claims(in: t.text))
             // F-15b §58 items 1, 3: a trip change or background trip work said is an action claim.
-            if ClaimLexicon.tripChanged(t.text, stops: tripNames) || ClaimLexicon.tripInBackground(t.text, stops: tripNames) {
+            if ClaimLexicon.tripChanged(t.text, stops: tripNames) || ClaimLexicon.tripInBackground(t.text, stops: tripNames)
+                || namesNotPlaced(t.text) {
                 t.claims.insert(.action)
             }
             turn = t
@@ -332,7 +331,11 @@ public struct DriverTurnPipeline: Sendable {
             if Self.tripWriteTools.contains(response.name) {
                 tripWrites.remove(response.id)
                 tripLatestOk = response.result.ok
-                tripNotPlaced = response.result.ok ? Self.notPlacedNames(response.result.data["not_placed"]) : []
+                if case .array(let missed)? = response.result.data["not_placed"] {
+                    tripNotPlaced = missed.compactMap { $0["name"]?.stringValue }.filter { !$0.isEmpty }
+                } else {
+                    tripNotPlaced = []
+                }
             }
             // The result may arrive after its own turn closed; it then proves the utterance's open turn.
             guard var t = turn, t.id == id || ofUtterance else { return [] }
@@ -481,27 +484,20 @@ public struct DriverTurnPipeline: Sendable {
         return pending ? .pending : .proven
     }
 
-    /// F-15b §70 item 3 (T-040zw): the names in a `not_placed` list (objects with `name`, or plain names).
-    static func notPlacedNames(_ value: JSONValue?) -> [String] {
-        guard case .array(let items)? = value else { return [] }
-        // The stop's name and, when it differs, what was looked up (`location`).
-        return items.flatMap { [$0["name"]?.stringValue ?? $0.stringValue, $0["location"]?.stringValue].compactMap { $0 } }
-            .filter { !$0.isEmpty }
+    /// F-15b §70 item 3 (T-040zw): the reply names a `not_placed` stop of the latest trip result, and does not say it
+    /// was not found (saying so is the honest answer `next` asks for).
+    private func namesNotPlaced(_ text: String) -> Bool {
+        guard tripNotPlaced.contains(where: text.contains) else { return false }
+        return !(Self.saysNothing(text) || Self.notPlacedWords.contains(where: text.contains))
     }
 
-    /// §70 item 3: words saying a stop is not on the map; a reply with them names a not-placed stop honestly.
-    static let notPlacedWords = ["没找到", "找不到", "没有找到", "查不了", "没查完", "没查到", "没能", "没放", "没有放", "没加", "没有加", "未找到", "搜不到", "没搜到", "找不着", "没排上", "没能放"]
-
-    /// §70 item 3: her reply names a `not_placed` stop as planned (no word saying it is not on the map).
-    static func namesNotPlaced(_ text: String, _ names: [String]) -> Bool {
-        names.contains(where: text.contains) && !notPlacedWords.contains(where: text.contains)
-    }
+    /// §70 item 3: the words that say a stop is not on the plan (§68 item 4's reasons and plain refusals).
+    static let notPlacedWords = ["查不了", "没查完", "没放上", "没有放", "不在行程", "没加上", "没有加", "没能"]
 
     /// §58 items 1–3: nil when the reply says nothing about a trip change (judged as usual).
     private func tripVerdict(_ t: Turn, final: Bool) -> Verdict? {
-        // F-15b §70 item 3 (T-040zw): a stop the map did not place, named in her reply as planned.
-        // Judged on the whole reply only: 「大三巴牌坊」 then 「地图没找到」 arrive as separate chunks.
-        if tripLatestOk == true, Self.namesNotPlaced(t.text, tripNotPlaced) { return final ? .disproven(.tripUnverifiedClaim) : .pending }
+        // F-15b §70 item 3 (T-040zw): a stop the map did not place, named in her reply as part of the plan.
+        if namesNotPlaced(t.text) { return .disproven(.tripUnverifiedClaim) }
         if ClaimLexicon.tripInBackground(t.text, stops: tripNames), tripWrites.isEmpty {
             return .disproven(tripLatestOk == false ? .tripClaimAfterFailure : .tripUnverifiedClaim)
         }
@@ -594,9 +590,8 @@ public struct DriverTurnPipeline: Sendable {
             // unread claim may be on it, so only judged text goes out (L1, L3).
             return evidenceOutstanding(turn!) && !final ? releaseText() : release()
         case .clean:
-            // A clean chat turn releases judged text as it comes; its audio waits for the end, except with
-            // Gemini 原声, where it streams too (F-07 §15 item 7).
-            return final || streamsCleanAudio ? release() : releaseText()
+            // A clean chat turn releases judged text and audio as they come (F-07 §15 item 7, §18 item 1).
+            return release()
         case .pending:
             return []
         case .disproven(let reason):

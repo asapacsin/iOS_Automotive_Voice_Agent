@@ -59,10 +59,12 @@ tools declared=2 set_volume=yes
 4800 ok
 4900 events store hit cities=1 window=2026-11-28..2026-11-29
 5000 search provider=qiniu job=live ms=2400 results=20 failed=no
-5100 tool-result web_search dropped reason=superseded
-5200 turn-end reason=need_more_input
-5300 reply-out turn=2 not-spoken
-5300 session resume handle=yes result=resumed
-5400 session gave-up ms=3000 attempts=3 code=DISCONNECT
-5500 session closed code=1000 reason=test
-5600 qwen usage in=120,30 out=400,25
+5100 qwen usage in=120,900 out=300,20
+5200 qwen history turns=1
+5300 qwen reconnect fresh=yes
+5400 tool-result web_search dropped reason=superseded
+5500 turn-end reason=need_more_input
+5600 reply-out turn=2 not-spoken
+5600 session resume handle=yes result=resumed
+5700 session gave-up ms=3000 attempts=3 code=DISCONNECT
+5800 session closed code=1000 reason=test
