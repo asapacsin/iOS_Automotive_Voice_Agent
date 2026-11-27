@@ -3091,14 +3091,16 @@
     },
     {
       "id": "T-040zza",
-      "owner": "AUTONOMOUS",
-      "status": "NOT_RUN",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 1,
       "action": "F-15b §74: find_events gives one id per event and per hall of a multi-hall event; plan_trip.asked gains events (ids) and when (driver's date words); tested catalog line; code resolves when to start; an id fixes the event's entry and hall (hall city wins); store read without start; every city in the text; a two-hall event without a hall id turned back once; linked-hall name check by a 6-character shared start; no guessed dates; record lines; a chosen event closed on every trip day returns EVENT_CLOSED without planning; rows 364-377.",
       "depends_on": [
         "T-040zz"
       ],
-      "notes": "Owner 2026-11-27: AIE planned at the 珠海 hall with invented 2025 dates although find_events had both halls and the driver said 威尼斯 (record 20261127-151819, build ee5c143). PoC gemini-3.8-live: today's tools 0/3, items 1-3 3/3; controls 3/3."
+      "notes": "Owner 2026-11-27: AIE planned at the 珠海 hall with invented 2025 dates although find_events had both halls and the driver said 威尼斯 (record 20261127-151819, build ee5c143). PoC gemini-3.8-live: today's tools 0/3, items 1-3 3/3; controls 3/3.",
+      "evidence": "Code PASS: gates run_all.sh green on f15e4a6 (Swift 6.1.2 Linux, clean checkout); spec-reviewer high FAIL (ids saved with plan; turn-back not per driver request) -> fixed 5c35361 -> medium FAIL (choice kept after set_trip_plan/clear) -> fixed 05eb498 -> medium FAIL (kept after open) -> fixed f15e4a6 -> medium PASS. Rows 364-373, 376-377 unit (TripEventIDTests); 374 PC done 2026-11-27; row 375 device NOT_VERIFIED. Agent setup 14.0.0.",
+      "blocked_by": "Phone run only: F-15b row 375 (D) NOT_VERIFIED"
     }
   ]
 }

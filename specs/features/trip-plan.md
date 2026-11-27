@@ -3535,4 +3535,4 @@ planner's day choice with a fixed venue; OSRM guidance into Macau on the phone (
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040zza | §74 items 1–12; rows 364–377 | NOT_RUN |
+| T-040zza | §74 items 1–12; rows 364–377 | Code PASS (f15e4a6); row 375 device NOT_VERIFIED |
