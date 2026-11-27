@@ -120,6 +120,9 @@ struct TripEventIDTests {
                                           ("12月5号", "2026-12-05"), ("过几天", nil), ("周末", "2026-11-28"), ("下星期六", "2026-12-05")]
         for (text, want) in cases { #expect(TripWhen.resolve(text, today: fri)?.description == want, "\(text)") }
         #expect(TripWhen.resolve("这周末", today: sun)?.description == "2026-11-28")
+        // Review fix: only the listed forms; a week form wins over a later 明天.
+        #expect(TripWhen.resolve("大后天", today: fri) == nil && TripWhen.resolve("下下周末", today: fri) == nil)
+        #expect(TripWhen.resolve("下周六，明天不行", today: fri)?.description == "2026-12-05")
         // A date already past is next year's.
         #expect(TripWhen.resolve("1月3日", today: fri)?.description == "2027-01-03")
     }
@@ -218,5 +221,18 @@ struct TripEventIDTests {
         let counts = r.model.calls.withLock { $0.last?.last?.content ?? "" }
         #expect(counts.contains("AIE电子展开放2026-12-03～2026-12-05，这天是2026-12-06"), "\(counts)")
         #expect(!counts.contains("这天是2026-12-05"), "\(counts)")
+    }
+
+    @Test("T-040zza F-15b §74 review fix: ids are not saved with the plan; a change call after the ids reset keeps the chosen venue")
+    func changeAfterReset() async throws {
+        let (r, f) = await rig([plannerAnswer(aieAtP), plannerAnswer(aieAtP), plannerAnswer(aieAtP), plannerAnswer(aieAtP)])
+        let made = await r.run(call(["text": "去AIE电子展", "days": 2, "city": "珠海", "events": ["e2b"], "when": "下个星期周末"]))
+        #expect(made.ok, "\(made)")
+        #expect(await r.planner.currentPlan.asked?.events == [])
+        await f.ids.reset()
+        _ = await f.ids.ids(for: carnival)  // e1 is now another entry
+        let changed = await r.run(ToolCall(id: CallID("chg")!, name: "plan_trip", arguments: ["change": "第二天加个咖啡馆"]))
+        #expect(changed.ok, "\(changed)")
+        #expect(await r.planner.currentPlan.days[0].stops.first?.location == "澳门威尼斯人金光会展中心")
     }
 }

@@ -12,10 +12,12 @@ public enum TripWhen {
     public static func resolve(_ text: String, today: EventDay) -> EventDay? {
         let t = text.filter { !$0.isWhitespace }
         guard !t.isEmpty else { return nil }
+        // Review fix: only the listed forms; 大后天 and 下下周 are not among them (her `start` is kept).
+        if t.contains("大后天") || t.contains("下下") { return nil }
         if let d = explicitDate(t, today: today) { return d }
-        for (word, n) in [("今天", 0), ("明天", 1), ("后天", 2)] where t.contains(word) { return today.adding(days: n) }
         let monday = today.adding(days: 1 - weekday(today))
         if let (week, day) = weekForm(t) { return monday.adding(days: week * 7 + day - 1) }
+        for (word, n) in [("今天", 0), ("明天", 1), ("后天", 2)] where t.contains(word) { return today.adding(days: n) }
         if t.contains("周末") { return monday.adding(days: 5) }
         return nil
     }

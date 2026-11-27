@@ -252,6 +252,11 @@ public actor TripPlanner: ToolExecutor {
     private var linkedVenues: Set<String> = []
     /// §74 item 8: multi-venue entries already turned back once in this driver request (cleared when a plan is saved).
     private var turnedBack: Set<String> = []
+    /// §74 item 8: the driver turn `turnedBack` belongs to (a new driver request gets its own turn-back).
+    private var turnedBackTurn: Int?
+    /// §74 item 5 (review fix): the entries and venues chosen by id for the current plan, resolved when it was made.
+    /// Ids live only for one conversation, so a change call reuses these, never the ids (not saved to disk).
+    private var planChosen: [EventIDs.Chosen] = []
     /// F-15b §68 item 2 (T-040zu): the start times of 高德 trip lookups.
     private let pace = LookupPace()
     private var cacheOrder: [String] = []
@@ -668,14 +673,22 @@ public actor TripPlanner: ToolExecutor {
         }
         let before = plan.allStops.map(\.stop.place.name)
         // F-15b §74 item 5 (T-040zza): each known id fixes its entry and venue; an unknown one is dropped.
-        var chosen: [EventIDs.Chosen] = []
-        for id in asked.events {
-            if let c = await events?.ids.chosen(id) { chosen.append(c) } else { onLine("trip events id=\(id) known=no") }
+        var chosen: [EventIDs.Chosen] = askedArg == nil ? planChosen : []
+        for id in askedArg?.events ?? [] {
+            if let c = await events?.ids.chosen(id) {
+                // Two venues of one entry chosen: the first said wins (one venue per entry).
+                if !chosen.contains(where: { Self.sameEntry($0.entry, c.entry) }) { chosen.append(c) }
+            } else { onLine("trip events id=\(id) known=no") }
         }
         // §74 item 12: a chosen event closed on every trip day: no planner call.
         if let closed = closedEvent(chosen, asked: asked) { return closed }
         let stored = await tripEvents(asked, chosen: chosen)
         // §74 item 8: a new plan naming a multi-venue entry without one of its ids is turned back once.
+        let turn = await driverTurns?()
+        if let turn, turn != turnedBackTurn {
+            turnedBack = []
+            turnedBackTurn = turn
+        }
         if change == nil, let events {
             for e in stored where EventIDs.venues(e).count > 1 && TripPlannerShape.names(asked, e)
                 && !chosen.contains(where: { Self.sameEntry($0.entry, e) }) {
@@ -751,8 +764,11 @@ public actor TripPlanner: ToolExecutor {
             plan.budgetMinutes = TripFitter.Pace.normal.budgetMinutes
             area = nil
         }
-        if let askedArg { plan.asked = askedArg } else if change == nil { plan.asked = asked }
-        turnedBack = []
+        // §74 item 5 (review fix): the ids are not saved with the plan; the resolved choices are kept instead.
+        var keptAsked = askedArg ?? (change == nil ? asked : nil)
+        keptAsked?.events = []
+        if let keptAsked { plan.asked = keptAsked }
+        planChosen = chosen
         onLine("trip asked must=\(asked.must.count) days=\(asked.days.map(String.init) ?? "-") notes=\(asked.notes.count)")
         changed()
         retryUnplaced()
