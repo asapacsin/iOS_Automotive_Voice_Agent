@@ -494,14 +494,34 @@ public struct TripAsked: Sendable, Hashable, Codable {
     public var start: String?
     /// §64 item 1: where the driver wants to sleep.
     public var stayCity: String?
+    /// F-15b §74 item 2 (T-040zza): the ids of the `find_events` items the driver chose (max 5).
+    public var events: [String] = []
+    /// §74 item 2: the driver's date words, copied; code resolves them (item 4).
+    public var when: String?
 
     enum CodingKeys: String, CodingKey {
-        case text, must, days, city, notes, start
+        case text, must, days, city, notes, start, events, when
         case stayCity = "stay_city"
     }
 
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decode(String.self, forKey: .text)
+        must = try c.decodeIfPresent([String].self, forKey: .must) ?? []
+        days = try c.decodeIfPresent(Int.self, forKey: .days)
+        city = try c.decodeIfPresent(String.self, forKey: .city)
+        notes = try c.decodeIfPresent([String].self, forKey: .notes) ?? []
+        start = try c.decodeIfPresent(String.self, forKey: .start)
+        stayCity = try c.decodeIfPresent(String.self, forKey: .stayCity)
+        // A plan saved before §74 has neither.
+        events = try c.decodeIfPresent([String].self, forKey: .events) ?? []
+        when = try c.decodeIfPresent(String.self, forKey: .when)
+    }
+
     public init(text: String, must: [String] = [], days: Int? = nil, city: String? = nil, notes: [String] = [],
-                start: String? = nil, stayCity: String? = nil) {
+                start: String? = nil, stayCity: String? = nil, events: [String] = [], when: String? = nil) {
+        self.events = events
+        self.when = when
         self.text = text
         self.must = must
         self.days = days
@@ -524,7 +544,9 @@ public struct TripAsked: Sendable, Hashable, Codable {
         }
         self.init(text: t, must: list("must"), days: value["days"]?.intValue.map { Int($0) },
                   city: value["city"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, notes: list("notes"),
-                  start: value["start"]?.stringValue, stayCity: value["stay_city"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
+                  start: value["start"]?.stringValue, stayCity: value["stay_city"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 },
+                  events: Array(list("events").prefix(5)),
+                  when: value["when"]?.stringValue.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     /// The same shape as written.
@@ -535,6 +557,8 @@ public struct TripAsked: Sendable, Hashable, Codable {
         if let city { o["city"] = .string(city) }
         if let start { o["start"] = .string(start) }
         if let stayCity { o["stay_city"] = .string(stayCity) }
+        if !events.isEmpty { o["events"] = .array(events.map(JSONValue.string)) }
+        if let when { o["when"] = .string(when) }
         return .object(o)
     }
 

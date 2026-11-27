@@ -180,19 +180,66 @@ public actor TripPlanner: ToolExecutor {
     public static let eventsStep = "正在查活动"
 
     /// §64 item 2: with `start` and an event wish, the events open in the trip's cities on its dates.
-    private func tripEvents(_ asked: TripAsked) async -> [EventEntry] {
-        guard let events, asked.wantsEvents, let first = asked.start.flatMap(EventDay.init) else { return [] }
-        var cities: [String] = []
-        for c in [asked.city, asked.stayCity, plan.city].compactMap({ $0 }) {
-            if let city = EventCity.from(address: c), !cities.contains(city) { cities.append(city) }
+    /// F-15b §74 items 5-7, 11 (T-040zza): also with a `must` item or an id; without `start` the store only (entries
+    /// ending today or later); every chosen entry is added whatever its dates or city; the record line.
+    private func tripEvents(_ asked: TripAsked, chosen: [EventIDs.Chosen] = []) async -> [EventEntry] {
+        guard let events, asked.wantsEvents || !asked.must.isEmpty || !chosen.isEmpty else { return [] }
+        let cities = Self.tripCities(asked, planCity: plan.city, storeCities: await events.store.cityNames)
+        let first = asked.start.flatMap(EventDay.init)
+        var out: [EventEntry] = []
+        if !cities.isEmpty {
+            if let first {
+                work?.step(Self.eventsStep)
+                let last = first.adding(days: max((asked.days ?? max(plan.dayCount, 1)) - 1, 0))
+                let today = await events.store.today
+                // F-18 §39 item 5: the default kinds, the ones the app-open refresh searches, so a refreshed store answers.
+                let r = EventRequest(cities: cities, from: max(first, today), to: max(last, today), kinds: "", today: today)
+                out = await events.events(for: r) ?? []
+            } else {
+                out = await events.stored(cities: cities)
+            }
         }
-        guard !cities.isEmpty else { return [] }
-        work?.step(Self.eventsStep)
-        let last = first.adding(days: max((asked.days ?? max(plan.dayCount, 1)) - 1, 0))
-        let today = await events.store.today
-        // F-18 §39 item 5: the default kinds, the ones the app-open refresh searches, so a refreshed store answers.
-        let r = EventRequest(cities: Array(cities.prefix(3)), from: max(first, today), to: max(last, today), kinds: "", today: today)
-        return await events.events(for: r) ?? []
+        for c in chosen where !out.contains(where: { Self.sameEntry($0, c.entry) }) { out.append(c.entry) }
+        onLine("trip events read start=\(first?.description ?? "none") cities=\(cities.joined(separator: ",")) entries=\(out.count) ids=\(chosen.count)")
+        return out
+    }
+
+    static func sameEntry(_ a: EventEntry, _ b: EventEntry) -> Bool { a.name == b.name && a.city == b.city }
+
+    /// §74 item 5: a venue's city when its map lookup gave none: a SAR or direct-administered city its name starts with.
+    static func venueCity(_ venue: String) -> String? {
+        ["澳门", "香港", "北京", "上海", "天津", "重庆"].first { venue.hasPrefix($0) || venue.hasPrefix("中国" + $0) }
+    }
+
+    /// §74 item 7: each store city name contained in `asked.city`, `asked.stay_city`, the plan's city or `asked.text`,
+    /// in that order (within one text, in text order); then `EventCity.from(address:)` when none; at most 3.
+    static func tripCities(_ asked: TripAsked, planCity: String?, storeCities: [String]) -> [String] {
+        var cities: [String] = []
+        let fields = [asked.city, asked.stayCity, planCity, asked.text].compactMap { $0 }
+        for f in fields {
+            let found = storeCities.compactMap { c in f.range(of: c).map { (c, $0.lowerBound) } }.sorted { $0.1 < $1.1 }
+            for (c, _) in found where !cities.contains(c) { cities.append(c) }
+        }
+        if cities.isEmpty {
+            for c in [asked.city, asked.stayCity, planCity].compactMap({ $0 }) {
+                if let city = EventCity.from(address: c), !cities.contains(city) { cities.append(city) }
+            }
+        }
+        return Array(cities.prefix(3))
+    }
+
+    /// §74 item 4: today for the date words (the 现在 note's date: the store's day, else the device's).
+    private func today() async -> EventDay {
+        if let events { return await events.store.today }
+        return EventDay(now(), zone: .current)
+    }
+
+    /// §74 item 4: `when` resolved by code replaces her `start`; anything else keeps hers. The record line.
+    private func resolvedWhen(_ asked: TripAsked?) async -> TripAsked? {
+        guard var asked, let when = asked.when else { return asked }
+        if let d = TripWhen.resolve(when, today: await today()) { asked.start = d.description }
+        onLine("trip when text=\(when) start=\(asked.start ?? "none")")
+        return asked
     }
     /// §15: the current plan; `list` is its current day.
     private var plan = TripPlan()
@@ -201,6 +248,10 @@ public actor TripPlanner: ToolExecutor {
     private var foundCache: [String: Place] = [:]
     /// F-15b §71 item 3 (T-040zx): the cities of the plan being built (asked city and its stops' cities).
     private var lookupCities: [String] = []
+    /// F-15b §74 item 9 (T-040zza): the venues of the linked stops of the plan being built.
+    private var linkedVenues: Set<String> = []
+    /// §74 item 8: multi-venue entries already turned back once in this driver request (cleared when a plan is saved).
+    private var turnedBack: Set<String> = []
     /// F-15b §68 item 2 (T-040zu): the start times of 高德 trip lookups.
     private let pace = LookupPace()
     private var cacheOrder: [String] = []
@@ -610,13 +661,33 @@ public actor TripPlanner: ToolExecutor {
         defer { planWrites -= 1 }
         let started = clock.now
         let change = Self.planTripChange(ToolCall(id: CallID("plan")!, name: "plan_trip", arguments: args))
-        let askedArg = TripAsked(args["asked"])
+        let askedArg = await resolvedWhen(TripAsked(args["asked"]))
         if change != nil, plan.isEmpty { return failure(.noTripList) }
         guard let asked = askedArg ?? (change != nil ? plan.asked : nil) ?? change.map({ TripAsked(text: $0) }) else {
             return failure(.invalidFields)
         }
         let before = plan.allStops.map(\.stop.place.name)
-        let stored = await tripEvents(asked)
+        // F-15b §74 item 5 (T-040zza): each known id fixes its entry and venue; an unknown one is dropped.
+        var chosen: [EventIDs.Chosen] = []
+        for id in asked.events {
+            if let c = await events?.ids.chosen(id) { chosen.append(c) } else { onLine("trip events id=\(id) known=no") }
+        }
+        // §74 item 12: a chosen event closed on every trip day: no planner call.
+        if let closed = closedEvent(chosen, asked: asked) { return closed }
+        let stored = await tripEvents(asked, chosen: chosen)
+        // §74 item 8: a new plan naming a multi-venue entry without one of its ids is turned back once.
+        if change == nil, let events {
+            for e in stored where EventIDs.venues(e).count > 1 && TripPlannerShape.names(asked, e)
+                && !chosen.contains(where: { Self.sameEntry($0.entry, e) }) {
+                let key = e.city + "|" + e.name
+                guard turnedBack.insert(key).inserted else { continue }
+                let ids = await events.ids.ids(for: e)
+                let next = TripPlannerShape.venueMissingNext(name: e.name, venues: Array(zip(ids, EventIDs.venues(e))))
+                onLine("trip events venue missing event=\(e.name) venues=\(ids.count)")
+                return ToolResult(ok: false, code: .invalidArgument,
+                                  data: ["field": "asked.events", "next": .string(next), "saved": false], advice: nil)
+            }
+        }
         let first: String = if let change {
             TripPlannerShape.changeRequest(plan: TripPlannerShape.shape(plan), asked: askedArg ?? plan.asked, change: change)
                 + TripPlannerShape.eventsLine(stored)
@@ -645,7 +716,8 @@ public actor TripPlanner: ToolExecutor {
             }
             guard !Task.isCancelled else { return .failure(.optionsStale) }
             work?.step(WorkProgress.tripCounting(round))
-            let built = await buildPlanner(written, asked: asked, events: stored, lookups: &lookups, areas: &areas, linkLines: &linkLines)
+            let built = await buildPlanner(written, asked: asked, events: stored, chosen: chosen, lookups: &lookups, areas: &areas,
+                                           linkLines: &linkLines)
             guard !Task.isCancelled else { return .failure(.optionsStale) }
             if built.keyMissing {
                 return LookupReply.failed(.amapWebKeyMissing, what: "trip", cause: .keyMissing, facts: ["changed": false], mustNot: [.claimDone])
@@ -680,6 +752,7 @@ public actor TripPlanner: ToolExecutor {
             area = nil
         }
         if let askedArg { plan.asked = askedArg } else if change == nil { plan.asked = asked }
+        turnedBack = []
         onLine("trip asked must=\(asked.must.count) days=\(asked.days.map(String.init) ?? "-") notes=\(asked.notes.count)")
         changed()
         retryUnplaced()
@@ -792,7 +865,25 @@ public actor TripPlanner: ToolExecutor {
     /// already made in this call is not made again). A stay that is a sight of the same day is that place: one lookup,
     /// visited that day and slept in, and the next day starts there. Then the day is timed (§48 `TripTimes`) and
     /// counted.
+    /// F-15b §74 item 12 (T-040zza): `EVENT_CLOSED` when the trip has dates and an entry chosen by id has confirmed
+    /// dates that miss every trip day; nil otherwise.
+    private func closedEvent(_ chosen: [EventIDs.Chosen], asked: TripAsked) -> ToolResult? {
+        guard let first = asked.start.flatMap(EventDay.init) else { return nil }
+        let last = first.adding(days: max((asked.days ?? max(plan.dayCount, 1)) - 1, 0))
+        for c in chosen {
+            guard let d = c.entry.confirmedDates, d.end < first.description || d.start > last.description else { continue }
+            let open = "\(d.start)～\(d.end)", trip = "\(first)～\(last)"
+            onLine("trip event closed event=\(c.entry.name) open=\(d.start)~\(d.end) trip=\(first)~\(last)")
+            return ToolResult(ok: false, code: .eventClosed,
+                              data: ["event": .string(c.entry.name), "open": .string(open), "trip": .string(trip), "saved": false,
+                                     "next": .string(TripPlannerShape.eventClosedNext(name: c.entry.name, open: open, trip: trip))],
+                              advice: nil)
+        }
+        return nil
+    }
+
     private func buildPlanner(_ written: TripPlannerShape.Plan, asked: TripAsked, events: [EventEntry] = [],
+                              chosen: [EventIDs.Chosen] = [],
                               lookups: inout [String: Lookup], areas: inout [String: TripArea?],
                               linkLines: inout Set<String>) async -> PlannerBuilt {
         let fallbackCity = asked.city ?? plan.city
@@ -819,14 +910,25 @@ public actor TripPlanner: ToolExecutor {
             for i in days[d].sights.indices {
                 guard let link = linkOf[d][i] else { continue }
                 let s = days[d].sights[i]
-                let hall = TripPlannerShape.hall(for: link.entry, location: s.location, city: cityOf(s.city), hallCity: hallCity)
+                // F-15b §74 item 5 (T-040zza): an entry chosen by id is looked up at that venue, in that venue's city,
+                // whatever the planner wrote (its `query` is not used: the venue is the driver's).
+                let pick = chosen.first { Self.sameEntry($0.entry, link.entry) }
+                let (hall, by): (String?, String) = if let pick {
+                    (pick.venue, "id")
+                } else {
+                    TripPlannerShape.hallChoice(for: link.entry, location: s.location, city: cityOf(s.city), hallCity: hallCity)
+                }
                 let line = TripPlannerShape.linkLine(sight: s.name, event: link.entry.name, venue: hall, by: link.by)
                 if linkLines.insert(line).inserted { onLine(line) }
+                let hallLine = TripPlannerShape.hallLine(sight: s.name, hall: hall, by: by)
+                if linkLines.insert(hallLine).inserted { onLine(hallLine) }
+                let city = pick != nil ? hall.flatMap { hallCity[$0] ?? Self.venueCity($0) } ?? link.entry.city
+                    : hall.flatMap { hallCity[$0] } ?? s.city
+                if let hall { linkedVenues.insert(hall) }
                 // F-15b §73 item 2 (T-040zz): the sight's own `query` when the planner wrote one, else the venue.
-                days[d].sights[i] = TripPlannerShape.Sight(name: link.entry.name, location: hall,
-                                                           city: hall.flatMap { hallCity[$0] } ?? s.city, minutes: s.minutes,
+                days[d].sights[i] = TripPlannerShape.Sight(name: link.entry.name, location: hall, city: city, minutes: s.minutes,
                                                            event: TripPlannerShape.linkedEvent(link.entry, hall: hall),
-                                                           query: hall == nil ? nil : s.query)
+                                                           query: hall == nil || pick != nil ? nil : s.query)
             }
         }
         /// §66 item 6: the text a sight is looked up by; nil: a linked event with no venue (never looked up).
@@ -861,7 +963,10 @@ public actor TripPlanner: ToolExecutor {
         lookupCities = ([asked.city, plan.city] + byCity.map(\.city)).compactMap { $0 }.reduce(into: [String]()) {
             if !$0.contains($1) { $0.append($1) }
         }
-        defer { lookupCities = [] }
+        defer {
+            lookupCities = []
+            linkedVenues = []
+        }
         var anyAbroad = false
         func isAbroad(_ a: TripArea??) -> Bool {
             if case .some(.some(let found)) = a { return !TripRegion.isChina(found.countryCode) }
@@ -2480,7 +2585,8 @@ public actor TripPlanner: ToolExecutor {
         // §50 item 3: only trip lookups abroad (the country guard on) stay inside the area.
         let inside: AreaCheck? = guardCountry ? area.map { AreaCheck(area: $0, km: tuning.areaKm, limit: tuning.areaLimit) } : nil
         // F-15b §71 item 3 (T-040zx): the trip's cities a no-city retry keeps results in; its record line.
-        let context = LookupContext(trip: lookupCities.isEmpty ? [plan.city, city].compactMap { $0 } : lookupCities, log: onLine)
+        let context = LookupContext(trip: lookupCities.isEmpty ? [plan.city, city].compactMap { $0 } : lookupCities, log: onLine,
+                                    linked: linkedVenues)
         let (stream, feed) = AsyncStream.makeStream(of: (Int, Lookup, Int)?.self)
         let work = Task {
             await withTaskGroup(of: Void.self) { group in
@@ -2624,6 +2730,16 @@ public actor TripPlanner: ToolExecutor {
     struct LookupContext: Sendable {
         var trip: [String] = []
         var log: @Sendable (String) -> Void = { _ in }
+        /// F-15b §74 item 9 (T-040zza): the venues of linked event stops (their halls pass `TripSar.hallMatches`).
+        var linked: Set<String> = []
+
+        /// §71 item 2's name check; for a linked venue with no result passing it, the first hall (§74 item 9).
+        func named(_ name: String, _ places: [Place]) -> [Place] {
+            let strict = places.filter { TripSar.nameMatches(asked: name, found: $0.name) }
+            guard strict.isEmpty, linked.contains(name),
+                  let hall = places.first(where: { TripSar.hallMatches(venue: name, found: $0.name) }) else { return strict }
+            return [hall]
+        }
     }
 
     private static func lookupOnce(_ name: String, city: String?, search: any PlaceSearch, kept: Int, guardCountry: Bool,
@@ -2638,9 +2754,7 @@ public actor TripPlanner: ToolExecutor {
             // text names) whose name passes the name check; nothing kept: once more with the SAR's name in front.
             // 高德 only: no Photon lookup for SAR places.
             if area == nil, region == nil, let sar = TripSar.lookup(city: city) {
-                func keep(_ all: [Place]) -> [Place] {
-                    all.filter { TripSar.keeps($0, sar) && TripSar.nameMatches(asked: name, found: $0.name) }
-                }
+                func keep(_ all: [Place]) -> [Place] { context.named(name, all.filter { TripSar.keeps($0, sar) }) }
                 let all = try await textWithInfo(search, name, city: nil, cityLimit: false)
                 places = keep(all)
                 var dropped = all.count - places.count
@@ -2666,11 +2780,13 @@ public actor TripPlanner: ToolExecutor {
                 if refusal == nil, first.contains(where: { TripSar.nameMatches(asked: name, found: $0.name) }) {
                     return (.candidates(Array(first.prefix(max(kept, 1)))), 0)
                 }
+                // §74 item 9: a linked venue's first hall.
+                if refusal == nil, let hall = context.named(name, first).first { return (.candidates([hall]), 0) }
                 guard !Task.isCancelled else { return (.missing("timeout"), 0) }
                 await pace()
                 let trip = context.trip.isEmpty ? [city] : context.trip
                 let retried = (try? await textWithInfo(search, name, city: nil, cityLimit: false)) ?? []
-                let kept2 = retried.filter { TripSar.inTrip($0, cities: trip) && TripSar.nameMatches(asked: name, found: $0.name) }
+                let kept2 = context.named(name, retried.filter { TripSar.inTrip($0, cities: trip) })
                 context.log("trip lookup retry=nocity kept=\(kept2.count)")
                 if !kept2.isEmpty { return (.candidates(Array(kept2.prefix(max(kept, 1)))), 0) }
                 if let refusal { throw refusal }

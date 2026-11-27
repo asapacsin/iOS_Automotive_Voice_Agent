@@ -118,8 +118,11 @@ public struct EventEntry: Sendable, Hashable, Codable {
 
     /// §44 item 3: 「场馆：<venue>」 or 「场馆：未找到」, 「日期：<start>–<end>」 or 「日期：未找到」 (always both), then
     /// 「开始：HH:MM」 and 「门票：…」 when kept (item 8, item 9).
-    public var factsText: String {
-        var parts = ["场馆：\(confirmedVenue ?? Self.notFound)",
+    public var factsText: String { factsText(venue: nil) }
+
+    /// F-15b §74 item 1 (T-040zza): with `venue`, the facts of one venue of a multi-venue entry.
+    public func factsText(venue one: String?) -> String {
+        var parts = ["场馆：\(one ?? confirmedVenue ?? Self.notFound)",
                      "日期：" + (confirmedDates.map { "\($0.start)–\($0.end)" } ?? Self.notFound)]
         // F-18 §46 item 8: 「开放：HH:MM」 for daily opening hours.
         if !time.isEmpty { parts.append((timeKind == "opening" ? "开放：" : "开始：") + time) }
@@ -308,6 +311,11 @@ public actor EventStore {
     public func events(cities: [String], from: String, to: String, verified: Bool = false) -> [EventEntry] {
         file.events.filter { cities.contains($0.city) && $0.start <= to && $0.end >= from && (!verified || $0.verified) }
             .sorted { ($0.start, $0.name) < ($1.start, $1.name) }
+    }
+
+    /// F-15b §74 items 6-7 (T-040zza): every city name the store holds an event or a searched window for.
+    public var cityNames: [String] {
+        (file.events.map(\.city) + file.windows.map(\.city)).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
     }
 
     /// Item 5: the cities whose today…+30 window with the default kinds is not fresh (the app-open refresh).

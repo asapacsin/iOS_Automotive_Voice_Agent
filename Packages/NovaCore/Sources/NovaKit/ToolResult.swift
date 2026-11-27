@@ -48,6 +48,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case plannerFailed = "PLANNER_FAILED"
     /// F-18 §39 item 6 (T-046zb): every events search failed, or the extraction failed.
     case eventsFailed = "EVENTS_FAILED"
+    /// F-15b §74 item 12 (T-040zza): an event the driver chose by id is closed on every trip day; nothing planned.
+    case eventClosed = "EVENT_CLOSED"
     /// F-15b §56 item 4 (T-040zi): the same refused `set_trip_plan` call again in one driver request; not run.
     case repeatedFailure = "REPEATED_FAILURE"
     /// F-15b §57 item 3 (T-040zj): `trip_next` toward the stop already guided to; no new route.

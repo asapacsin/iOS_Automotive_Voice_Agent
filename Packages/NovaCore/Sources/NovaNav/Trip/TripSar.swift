@@ -101,6 +101,15 @@ public enum TripSar {
         return !nearWords.contains { name.contains($0) && !askedText.contains($0) }
     }
 
+    /// F-15b §74 item 9 (T-040zza): a linked venue's hall: the result's name and the venue's core (SAR prefix removed,
+    /// as item 2) start with the same 6 or more characters.
+    public static let hallStart = 6
+    public static func hallMatches(venue: String, found: String) -> Bool {
+        let a = Array(core(venue)), b = Array(core(found))
+        guard a.count >= hallStart, b.count >= hallStart else { return false }
+        return a.prefix(hallStart) == b.prefix(hallStart)
+    }
+
     /// §71 item 2: compared in simplified form (Foundation's Hant-Hans transform; works on Linux too); Latin letters
     /// lower case.
     static func simplified(_ text: String) -> String {

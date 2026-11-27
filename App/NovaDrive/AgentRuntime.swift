@@ -1340,7 +1340,12 @@ final class AgentRuntime {
         let kept = keptResumption.take(at: navigationClock.now)
         let resume = voiceModel.resumes ? kept : nil
         // F-15b §65 item 1 (T-040zr): a new conversation starts without the trip line; a resumed one keeps it.
-        if resume == nil { tripContext.reset() }
+        // F-15b §74 item 1 (T-040zza): so do the find_events ids (a new conversation starts at e1).
+        if resume == nil {
+            tripContext.reset()
+            let ids = events.ids
+            Task { await ids.reset() }
+        }
         // F-09b §6 item 2 (T-016p): a session without a handle gets the last exchanges, within 30 minutes.
         let summary = resume == nil ? exchanges.summary(at: navigationClock.now) : nil
         let core = AgentCore(clock: SystemClock(), sink: sink, tools: ToolRunner(executors: executors, background: background),

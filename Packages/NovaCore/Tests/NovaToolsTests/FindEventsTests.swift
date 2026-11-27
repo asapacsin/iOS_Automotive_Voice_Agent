@@ -119,7 +119,7 @@ struct FindEventsTests {
         #expect(r.ok && r.data["source"] == "search" && r.data["dropped"] == 4, "\(r)")
         guard case .array(let list)? = r.data["events"] else { Issue.record("no events"); return }
         #expect(list.count == 1 && list.first?["source_url"] == "https://zh.example.com/acg")
-        #expect(r.data["next"]?.stringValue == FindEventsExecutor.searchNext)
+        #expect(r.data["next"]?.stringValue == FindEventsExecutor.searchNext + FindEventsExecutor.idsNext)
         #expect(r.data["sites"] == JSONValue.array([.string("zh.example.com")]))
         // Item 8's lines.
         let all = lines.all
@@ -159,7 +159,7 @@ struct FindEventsTests {
         at.withLock { $0 = noon.addingTimeInterval(10 * 60) }
         let second = await tool.execute(findCall(args))
         #expect(second.ok && second.data["source"] == "store" && second.data["searched_minutes_ago"] == 10)
-        #expect(second.data["next"]?.stringValue == "这是10分钟前查到的，" + FindEventsExecutor.searchNext)
+        #expect(second.data["next"]?.stringValue == "这是10分钟前查到的，" + FindEventsExecutor.searchNext + FindEventsExecutor.idsNext)
         #expect(searcher.queries.count == 2 && said.withLock { $0 } == [FindEventsExecutor.handoffLine])
         at.withLock { $0 = noon.addingTimeInterval(40 * 60) }
         let third = await tool.execute(findCall(args))

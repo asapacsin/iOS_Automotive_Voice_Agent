@@ -225,12 +225,45 @@ public enum TripPlannerShape {
     /// `location` when it is one of the halls in the stop's city; else the hall in the stop's city; else the first hall.
     /// `hallCity` is each hall's city from its map lookup (nil: not found). nil: no confirmed venue (§66 item 6).
     public static func hall(for entry: EventEntry, location: String?, city: String?, hallCity: [String: String]) -> String? {
-        guard let venue = entry.confirmedVenue else { return nil }
+        hallChoice(for: entry, location: location, city: city, hallCity: hallCity).hall
+    }
+
+    /// F-15b §74 item 11 (T-040zza): the hall and how it was chosen: `city` (a hall in the stop's city) or `first`.
+    public static func hallChoice(for entry: EventEntry, location: String?, city: String?,
+                                  hallCity: [String: String]) -> (hall: String?, by: String) {
+        guard let venue = entry.confirmedVenue else { return (nil, "first") }
         let halls = EventSourceCheck.venueParts(venue)
-        guard halls.count > 1 else { return halls.first ?? venue }
+        guard halls.count > 1 else { return (halls.first ?? venue, "first") }
         let inCity = halls.filter { h in hallCity[h].map { sameCity($0, city) } == true }
-        if let location, let h = inCity.first(where: { linkKey($0) == linkKey(location) }) { return h }
-        return inCity.first ?? halls.first
+        if let location, let h = inCity.first(where: { linkKey($0) == linkKey(location) }) { return (h, "city") }
+        if let h = inCity.first { return (h, "city") }
+        return (halls.first, "first")
+    }
+
+    /// §74 item 11: `trip event hall sight=<name> hall=<venue> by=<id|city|first>` (local record only, I-8).
+    public static func hallLine(sight: String, hall: String?, by: String) -> String {
+        "trip event hall sight=\(sight) hall=\(hall ?? "none") by=\(by)"
+    }
+
+    /// §74 item 8: a new-plan call naming a multi-venue entry (§66 item 1's comparison) in `must` or `text`.
+    public static func names(_ asked: TripAsked, _ entry: EventEntry) -> Bool {
+        let e = linkKey(entry.name)
+        guard !e.isEmpty else { return false }
+        return (asked.must + [asked.text]).contains { t in
+            let k = linkKey(t)
+            return !k.isEmpty && (k.contains(e) || e.contains(k))
+        }
+    }
+
+    /// §74 item 8's `next`.
+    public static func venueMissingNext(name: String, venues: [(id: String, venue: String)]) -> String {
+        "asked.events 没填：\(name)有\(venues.count)个场馆（" + venues.map { "\($0.id) \($0.venue)" }.joined(separator: "，")
+            + "），填司机说的那个场馆的 id；司机没说就问他去哪个。"
+    }
+
+    /// §74 item 12's `next`.
+    public static func eventClosedNext(name: String, open: String, trip: String) -> String {
+        "\(name)开放\(open)，行程是\(trip)，对不上。跟司机说这两个日期，问他是把行程改到活动开放的日子，还是不去这个活动。"
     }
 
     /// §66 item 7, §68: a found place's city: 澳门 / 香港 from the adcode (82 / 81), else 高德's `city`.

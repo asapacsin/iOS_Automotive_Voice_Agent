@@ -14,6 +14,8 @@ public struct FindEventsExecutor: ToolExecutor {
     public static func storeNext(minutes: Int) -> String { "这是\(minutes)分钟前查到的，" + searchNext }
     /// F-18 §46 item 7.
     public static func unsureNote(_ n: Int) -> String { "另有\(n)个活动时间或地点未确认，未列出" }
+    /// F-15b §74 item 1 (T-040zza): the end of every listed result's `next`.
+    public static let idsNext = "同一个活动有几个场馆时分开列出，每个场馆一个 id。"
     public static let failedNext = "活动没查完，跟司机说现在查不到，等一下再试；不要说没有活动。"
     /// §39 item 7.
     public static let handoffLine = "好，我查一下这几天的活动，半分钟左右。"
@@ -72,22 +74,24 @@ public struct FindEventsExecutor: ToolExecutor {
                                    name: call.arguments["name"]?.stringValue ?? "")
         switch await finder.find(request, onMiss: onHandoff) {
         case .store(let events, let minutes):
-            var data = Self.data(events, dropped: 0, source: "store", next: Self.storeNext(minutes: minutes))
+            var data = await Self.data(events, dropped: 0, source: "store", next: Self.storeNext(minutes: minutes), ids: finder.ids)
             data["searched_minutes_ago"] = .int(Int64(minutes))
             return .success(data)
         case .searched(let events, let outcome):
             // F-18 §46 item 7: the unconfirmed events are counted, so she does not say there are none.
             let next = Self.searchNext + (outcome.unsure > 0 ? Self.unsureNote(outcome.unsure) : "")
-            return .success(Self.data(events, dropped: outcome.dropped, source: "search", next: next))
+            return .success(await Self.data(events, dropped: outcome.dropped, source: "search", next: next, ids: finder.ids))
         case .failed:
             return .failure(.eventsFailed, advice: Self.failedNext, data: ["next": .string(Self.failedNext)])
         }
     }
 
-    static func data(_ events: [EventEntry], dropped: Int, source: String, next: String) -> [String: JSONValue] {
+    /// F-15b §74 item 1 (T-040zza): each item with its id (one per venue of a multi-venue entry); `next` ends with
+    /// `idsNext`.
+    static func data(_ events: [EventEntry], dropped: Int, source: String, next: String, ids: EventIDs) async -> [String: JSONValue] {
         let sites = events.map(\.sourceSite).filter { !$0.isEmpty }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-        return ["events": .array(events.map(\.json)), "dropped": .int(Int64(dropped)),
-                "sites": .array(sites.map { .string($0) }), "source": .string(source), "next": .string(next)]
+        return ["events": .array(await ids.items(events)), "dropped": .int(Int64(dropped)),
+                "sites": .array(sites.map { .string($0) }), "source": .string(source), "next": .string(next + idsNext)]
     }
 }
 
@@ -101,6 +105,8 @@ public actor EventFinder {
     }
 
     public let store: EventStore
+    /// F-15b §74 item 1 (T-040zza): the ids of this conversation's `find_events` items (`plan_trip` reads them).
+    public let ids = EventIDs()
     private let run: @Sendable (_ onProgress: @escaping @Sendable (Int, Int) -> Void) -> any EventSearching
     private let work: WorkProgressBoard?
     private let onLine: @Sendable (String) -> Void
@@ -136,6 +142,13 @@ public actor EventFinder {
         case .store(let e, _), .searched(let e, _): return e
         case .failed: return nil
         }
+    }
+
+    /// F-15b §74 item 6 (T-040zza): `plan_trip` without `start`: the store's entries of `cities` whose end is today or
+    /// later (no search).
+    public func stored(cities: [String]) async -> [EventEntry] {
+        let today = await store.today.description
+        return await store.events(cities: cities, from: today, to: "9999-12-31", verified: verified())
     }
 
     /// §35 item 5 with §39 item 5: the app-open refresh of the car's (or the open trip's) cities not searched with the
