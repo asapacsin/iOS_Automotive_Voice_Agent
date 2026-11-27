@@ -24,7 +24,7 @@ CALLS = 0
 SEARCH_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/responses"
 CHAT_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 SEARCH_MODEL, EXTRACT_MODEL = "deepseek-v4.1-flash", "qwen3.8-max-0902"
-CITIES, FROM, TO, TODAY = ["珠海", "澳门"], "2026-11-25", "2026-12-31", "2026-11-24"
+CITIES, FROM, TO, TODAY = ["珠海", "澳门", "横琴"], "2026-11-25", "2026-12-31", "2026-11-24"
 DEFAULT_KINDS = ["展览展会", "漫展 ACG", "演唱会 演出", "AI 科技展", "节庆活动"]
 ENGLISH = {"澳门": "Macau", "香港": "Hong Kong"}
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
@@ -46,6 +46,13 @@ def queries(cities, frm, to, kinds=DEFAULT_KINDS):
 
 
 QINIU = "--qiniu" in ARGS
+TAVILY = "--tavily" in ARGS  # PoC 2026-11-26: the §42 three searches on Tavily, extraction on the Beijing text model
+TAVILY_URL = "https://api.tavily.com/search"
+# Wording G of tavily_recall.py (7/7 reference events in the results on two tries, 2026-11-26).
+TAVILY_QUERIES = ["珠海 横琴 澳门 2026年11月 12月 展览展会 AI 科技展 航展", "澳门 2026年11月 12月 演唱会 演出时间表 FANCON",
+                  "珠海 横琴 2026年11月 12月 演唱会 嘉年华 电音节 马拉松"]
+SHAPE_T = ('{"events": [{"name": "", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "start_time": "HH:MM or empty", '
+           '"venue": "", "city": "", "ticket": "", "source_url": ""}]}')
 QINIU_SEARCH_URL = "https://api.qnaigc.com/v1/search/web"
 QINIU_CHAT_URL = "https://api.qnaigc.com/v1/chat/completions"
 QINIU_MODEL = "deepseek/deepseek-v4-flash-20260731"
@@ -77,6 +84,35 @@ def qiniu_search(q, key):
     return {"text": "\n".join(s["title"] + " " + s["content"] for s in sources), "sources": sources, "tokens": 0, "ms": ms}
 
 
+def tavily_search(q, key):
+    """Same output shape as qiniu_search: Tavily results, 20 at most, basic depth."""
+    t0 = time.time()
+    r = post(TAVILY_URL, {"query": q, "max_results": 20, "search_depth": "basic"}, key, 30)
+    sources = [{"title": x.get("title", ""), "url": x["url"], "content": x.get("content", ""), "date": x.get("published_date") or ""}
+               for x in r.get("results", []) if x.get("url")]
+    ms = int((time.time() - t0) * 1000)
+    print(f"  search ms={ms} results={len(sources)} q={q}")
+    return {"text": "\n".join(s["title"] + " " + s["content"] for s in sources), "sources": sources, "tokens": 0, "ms": ms}
+
+
+def tavily_extract(answers, key):
+    """The §42 extraction (numbered results, json_object) on the Beijing text model."""
+    system = f"Extract the event information. Answer in JSON.\n{SHAPE}\ntoday: {TODAY}\nfrom: {FROM}\nto: {TO}"
+    nums = qiniu_numbered(answers)
+    user = "\n".join(f"[{n + 1}] {s['date']} {s['title']} — {s['content'][:300]} ({s['url']})" for n, s in enumerate(nums))
+    t0 = time.time()
+    r = post(CHAT_URL, {"model": EXTRACT_MODEL, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                        "response_format": {"type": "json_object"}, "enable_thinking": False, "stream": False}, os.environ["DASHSCOPE_API_KEY_CN"].strip(), 60)
+    u = r.get("usage", {})
+    print(f"  extract ms={int((time.time() - t0) * 1000)} tokens={u.get('prompt_tokens', 0)},{u.get('completion_tokens', 0)}")
+    events = json.loads(r["choices"][0]["message"]["content"]).get("events", [])
+    for e in events:
+        d = str(e.get("source_url", "")).strip("[] ")
+        if d.isdigit() and 1 <= int(d) <= len(nums):
+            e["source_url"] = nums[int(d) - 1]["url"]
+    return events, u.get("total_tokens", 0)
+
+
 def qiniu_numbered(answers):
     seen, out = set(), []
     for _, a in answers:
@@ -105,6 +141,18 @@ def qiniu_extract(answers, key):
     return events, u.get("total_tokens", 0)
 
 
+RAW_DIR = pathlib.Path(os.environ.get("NOVA_RAW_DIR", "D:/ndlogs/search-raw"))
+RAW_FILE = RAW_DIR / f"{dt.datetime.now():%Y%m%d-%H%M%S}-event_search_replica.jsonl"
+
+
+def keep_raw(url, body, response):
+    """Owner rule 2026-11-26: every paid call's request (no key) and full response is kept on disk."""
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    with RAW_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"at": dt.datetime.now().isoformat(timespec="seconds"), "url": url, "request": body,
+                            "response": response}, ensure_ascii=False) + "\n")
+
+
 def post(url, body, key, timeout):
     global CALLS
     if CALLS >= MAX_CALLS:
@@ -112,9 +160,12 @@ def post(url, body, key, timeout):
     CALLS += 1
     req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
     try:
-        return json.load(urllib.request.urlopen(req, timeout=timeout))
+        r = json.load(urllib.request.urlopen(req, timeout=timeout))
+        keep_raw(url, body, r)
+        return r
     except urllib.error.HTTPError as e:
         text = e.read().decode("utf-8", "ignore")
+        keep_raw(url, body, {"http_status": e.code, "body": text})
         # §39 item 3 (amended 2026-11-25): print the error body of a non-200 answer.
         print(f"{'events extract' if url == CHAT_URL else 'events query'} failed status={e.code} body={text[:300]}")
         if e.code == 429 or "Quota" in text:
@@ -185,17 +236,17 @@ def main():
     confirmed = [e for e in ref["events"] if e.get("confirmed")]
     if not confirmed:
         raise SystemExit("no confirmed reference event: confirm events_reference_2026-11.json by hand first (row 55)")
-    qs, cut = qiniu_queries(CITIES, FROM, TO) if QINIU else queries(CITIES, FROM, TO)
+    qs, cut = ([(q, CITIES[0], None) for q in TAVILY_QUERIES], 0) if TAVILY else qiniu_queries(CITIES, FROM, TO) if QINIU else queries(CITIES, FROM, TO)
     planned = RUNS * (len(qs) + 1)
     print(f"planned paid calls: {planned} ({RUNS} runs x {len(qs)} searches + 1 extraction); --max-calls {MAX_CALLS}")
     if "--yes" not in ARGS and input("start? [y/N] ").strip().lower() != "y":
         return 1
-    key = os.environ["QINIU_API_KEY" if QINIU else "DASHSCOPE_API_KEY_CN"].strip()
-    do_search, do_extract = (qiniu_search, qiniu_extract) if QINIU else (search, extract)
+    key = os.environ["TAVILY_API_KEY" if TAVILY else "QINIU_API_KEY" if QINIU else "DASHSCOPE_API_KEY_CN"].strip()
+    do_search, do_extract = (tavily_search, tavily_extract) if TAVILY else (qiniu_search, qiniu_extract) if QINIU else (search, extract)
     results = []
     for run in range(RUNS):
         t0 = time.time()
-        with cf.ThreadPoolExecutor(len(qs) if QINIU else 4) as pool:
+        with cf.ThreadPoolExecutor(len(qs) if QINIU or TAVILY else 4) as pool:
             futs = {pool.submit(do_search, q, key): q for q, _, _ in qs}
             answers, failed = [], 0
             for f in cf.as_completed(futs):
@@ -219,10 +270,10 @@ def main():
         print(f"run {run + 1}: queries={len(qs)} cut={cut} failed={failed} kept={len(kept)} dropped={dropped} "
               f"recall={recall:.0%} ({len(found)}/{len(confirmed)}) outside={len(outside)} s={secs:.1f} tokens={tokens}")
         for k in kept:
-            print(f"  {k['start']}..{k['end']} {k['city']} {k['name']} {k['source_url']}")
+            print(f"  {k['start']}..{k['end']} {k.get('start_time') or '-'} {k['city']} {k['name']} @ {k.get('venue') or '-'} | {k.get('ticket') or '-'} | {k['source_url']}")
     med_s = statistics.median(x[1] for x in results)
     med_t = statistics.median(x[2] for x in results)
-    if QINIU:
+    if QINIU or TAVILY:
         ok = all(x[5] >= 3 and x[4] <= 60 for x in results)
         print("ROW 74", "PASS" if ok else "FAIL", f"median s={med_s:.1f}", f"median tokens={med_t}")
         return 0 if ok else 1

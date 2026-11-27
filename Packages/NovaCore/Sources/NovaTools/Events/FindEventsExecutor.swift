@@ -106,7 +106,7 @@ public actor EventFinder {
 
     public let store: EventStore
     /// F-15b §74 item 1 (T-040zza): the ids of this conversation's `find_events` items (`plan_trip` reads them).
-    public let ids = EventIDs()
+    public nonisolated let ids = EventIDs()
     private let run: @Sendable (_ onProgress: @escaping @Sendable (Int, Int) -> Void) -> any EventSearching
     private let work: WorkProgressBoard?
     private let onLine: @Sendable (String) -> Void
