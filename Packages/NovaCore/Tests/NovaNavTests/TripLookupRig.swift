@@ -89,7 +89,8 @@ struct LookupRig {
     let search: AmapLookupSearch
     let lines = TripLines()
     let clock = ManualClock()
-    init(_ answers: [ScriptPlanner.Answer], search: AmapLookupSearch, tuning: TripTuning = TripTuning()) async {
+    init(_ answers: [ScriptPlanner.Answer], search: AmapLookupSearch, tuning: TripTuning = TripTuning(),
+         picker: (any PlacePicker)? = nil) async {
         let lines = self.lines
         self.search = search
         let model = ScriptPlanner(answers)
@@ -98,7 +99,7 @@ struct LookupRig {
                                        location: NoLocation(), clock: clock, onTripLine: { lines.append($0) })
         await nav.start()
         planner = TripPlanner(search: search, navigation: nav, origin: { GeoCoordinate(latitude: 22.27, longitude: 113.5, datum: .gcj02) },
-                              clock: clock, tuning: tuning, onLine: { lines.append($0) }, plannerModel: model)
+                              clock: clock, tuning: tuning, picker: picker, onLine: { lines.append($0) }, plannerModel: model)
         await planner.connectCards()
     }
     func run(_ call: ToolCall) async -> ToolResult { await planner.execute(call) }

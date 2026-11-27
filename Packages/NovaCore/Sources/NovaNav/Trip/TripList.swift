@@ -62,14 +62,18 @@ public struct TripStop: Sendable, Hashable {
     /// F-15b §67 item 3 (T-040zt): the text looked up on the map (the planner's `location`); `asked` keeps its `name`.
     /// Equals `asked` when the planner gave no `location` and for stops from before §67.
     public var location: String
+    /// F-15b §73 item 5 (T-040zz): the hidden map-search word that was looked up; never shown. Equals `location` when
+    /// the planner gave none and for stops from before §73.
+    public var query: String
 
     public init(index: Int, asked: String, place: Place, distanceMeters: Int?, mark: TripMark? = nil,
                 legSeconds: Int? = nil, role: TripRole = .sight, picked: Bool = false,
                 minutes: Int? = nil, optional: Bool = false, importance: Int? = nil,
                 id: String = "", placed: Bool = true, pickedBy: TripPickedBy? = nil, event: TripEvent? = nil,
-                location: String? = nil) {
+                location: String? = nil, query: String? = nil) {
         self.event = event
         self.location = location ?? asked
+        self.query = query ?? location ?? asked
         self.id = id
         self.placed = placed
         self.pickedBy = pickedBy ?? (picked ? .app : .model)
@@ -87,7 +91,7 @@ public struct TripStop: Sendable, Hashable {
     func renumbered(_ index: Int) -> TripStop {
         TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds,
                  role: role, minutes: minutes, importance: importance, id: id, placed: placed, pickedBy: pickedBy, event: event,
-                 location: location)
+                 location: location, query: query)
     }
 
     /// F-15b §67 item 4 (T-040zt): the card title: what the driver calls the stop (`asked`); the map's name for a stop
@@ -287,7 +291,7 @@ public struct TripList: Sendable, Hashable {
             ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters,
                        mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role,
                        minutes: $0.minutes, importance: $0.importance, id: $0.id, placed: $0.placed, pickedBy: $0.pickedBy,
-                       event: $0.event, location: $0.location)
+                       event: $0.event, location: $0.location, query: $0.query)
             : $0 }
     }
 

@@ -77,13 +77,14 @@ struct TripStopLocationTests {
         let missed: JSONValue? = if case .array(let a)? = r.data["not_placed"] { a.first } else { nil }
         #expect(missed?["name"] == "动漫游园会" && missed?["location"] == "香山文化艺术中心")
         #expect(missed?["map"] == "地图没找到 香山文化艺术中心（动漫游园会）", "\(r)")
-        #expect(Set(rig.search.asked) == ["香山文化艺术中心"])
+        // F-15b §73 item 2b (T-040zz): an unplaced stop is looked up once more by its name.
+        #expect(Set(rig.search.asked) == ["香山文化艺术中心", "动漫游园会"])
     }
 
-    @Test("T-040zt F-15b §67 item 5: the planner system text has exactly item 5's three changes")
+    @Test("T-040zt F-15b §67 item 5: the planner system text has exactly item 5's three changes (format line with §73's query)")
     func item5() {
         let s = TripPlannerShape.system
-        #expect(s.contains(#"{"name": "司机怎么叫它", "location": "地图上要搜的地点全名", "city": "所在城市", "minutes": 停留分钟, "event": {"title": "活动名", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} 只有活动才写}"#))
+        #expect(s.contains(#"{"name": "司机怎么叫它", "location": "地图上要搜的地点全名", "query": "在地图App搜索框里会输入的最短地点名", "city": "所在城市", "minutes": 停留分钟, "event": {"title": "活动名", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} 只有活动才写}"#))
         #expect(s.contains("- name 写司机怎么叫它；location 写能在地图上搜到的地点全名（活动、演出这类不是地点的，写它的场馆）；name 本身就是地点时 location 可以不写。city 写它真正所在的城市。"))
         #expect(s.contains("- 只在某几天开放的活动，name 写活动名，location 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。"))
         #expect(!s.contains("地点写能在地图上搜到的全名"))

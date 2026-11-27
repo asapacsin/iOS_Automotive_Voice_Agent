@@ -822,9 +822,11 @@ public actor TripPlanner: ToolExecutor {
                 let hall = TripPlannerShape.hall(for: link.entry, location: s.location, city: cityOf(s.city), hallCity: hallCity)
                 let line = TripPlannerShape.linkLine(sight: s.name, event: link.entry.name, venue: hall, by: link.by)
                 if linkLines.insert(line).inserted { onLine(line) }
+                // F-15b §73 item 2 (T-040zz): the sight's own `query` when the planner wrote one, else the venue.
                 days[d].sights[i] = TripPlannerShape.Sight(name: link.entry.name, location: hall,
                                                            city: hall.flatMap { hallCity[$0] } ?? s.city, minutes: s.minutes,
-                                                           event: TripPlannerShape.linkedEvent(link.entry, hall: hall))
+                                                           event: TripPlannerShape.linkedEvent(link.entry, hall: hall),
+                                                           query: hall == nil ? nil : s.query)
             }
         }
         /// §66 item 6: the text a sight is looked up by; nil: a linked event with no venue (never looked up).
@@ -835,14 +837,18 @@ public actor TripPlanner: ToolExecutor {
         for d in days.indices {
             guard let stay = days[d].stay,
                   let sight = days[d].sights.first(where: { $0.name == stay.name || $0.lookup == stay.lookup }) else { continue }
-            days[d].stay = TripPlannerShape.Stay(name: stay.name, location: stay.location ?? sight.location, city: sight.city ?? stay.city)
+            days[d].stay = TripPlannerShape.Stay(name: stay.name, location: stay.location ?? sight.location, city: sight.city ?? stay.city,
+                                                 query: stay.query ?? (stay.location == nil ? sight.query : nil))
         }
-        // The names to look up, grouped by city, in first-seen order. F-15b §67 item 2 (T-040zt): only `location`
-        // (else `name`) goes to the map.
+        // The names to look up, grouped by city, in first-seen order. F-15b §67 item 2 (T-040zt), §73 item 2
+        // (T-040zz): only `query` (else `location`, else `name`) goes to the map.
         var byCity: [(city: String?, names: [String])] = []
+        /// §73 item 7: the driver's name of each looked-up text (for the record line).
+        var nameOf: [String: String] = [:]
         for day in days {
-            for (name, city) in day.sights.compactMap({ s in lookupOf(s).map { ($0, cityOf(s.city)) } })
-                + (day.stay.map { [($0.lookup, cityOf($0.city))] } ?? []) {
+            for (name, city, asked) in day.sights.compactMap({ s in lookupOf(s).map { ($0, cityOf(s.city), s.name) } })
+                + (day.stay.map { [($0.lookup, cityOf($0.city), $0.name)] } ?? []) {
+                if nameOf[key(name, city)] == nil { nameOf[key(name, city)] = asked }
                 guard lookups[key(name, city)] == nil else { continue }
                 if let i = byCity.firstIndex(where: { $0.city == city }) {
                     if !byCity[i].names.contains(name) { byCity[i].names.append(name) }
@@ -875,8 +881,36 @@ public actor TripPlanner: ToolExecutor {
                 lookups[key(name, group.city)] = found[i]
                 // F-15b §68 item 3 (T-040zu): a failed lookup names what was looked up, its city and 高德's info.
                 if case .missing(let reason) = found[i] {
-                    onLine(Self.lookupMissLine(name: name, city: group.city, reason: reason))
+                    onLine(Self.lookupMissLine(name: nameOf[key(name, group.city)] ?? name, query: name, city: group.city, reason: reason))
                 }
+            }
+        }
+        // F-15b §73 item 2b (T-040zz): a plain sight whose `query` lookup ended not found, with a `name` that differs,
+        // is looked up once more by `name` (same city rules and name check, one more picker call per city).
+        var byName: [String: Lookup] = [:]
+        var again: [(city: String?, sights: [TripPlannerShape.Sight])] = []
+        for s in days.flatMap(\.sights) where s.event == nil {
+            let city = cityOf(s.city)
+            guard s.name != s.lookup, Self.notPlacedReason(lookups[key(s.lookup, city)]) == "not_found",
+                  case .missing? = lookups[key(s.lookup, city)] else { continue }
+            if let i = again.firstIndex(where: { $0.city == city }) {
+                if !again[i].sights.contains(where: { $0.name == s.name && $0.lookup == s.lookup }) { again[i].sights.append(s) }
+            } else {
+                again.append((city, [s]))
+            }
+        }
+        for group in again where !Task.isCancelled {
+            if let c = group.city, isAbroad(areas[c]) { continue }
+            let names = group.sights.map(\.name).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+            let found = await resolve(names, city: group.city)
+            for s in group.sights {
+                guard let i = names.firstIndex(of: s.name), i < found.count else { continue }
+                var hit = false
+                if case .found = found[i] {
+                    byName[key(s.lookup, group.city) + "|" + s.name] = found[i]
+                    hit = true
+                }
+                onLine("trip lookup fallback=name name=\(s.name) query=\(s.lookup) found=\(hit ? "yes" : "no")")
             }
         }
         var keyMissing = false
@@ -887,11 +921,13 @@ public actor TripPlanner: ToolExecutor {
         // The stops: sights in order, the night's place last; the next day starts at it.
         var stopOf: [String: TripStop] = [:]
         var misses: [PlannerMiss] = []
-        func stop(_ name: String, location: String, _ city: String?, role: TripRole, minutes: Int?, lookedUp: Bool = true) -> TripStop {
-            let k = key(location, city) + "|" + role.rawValue
+        func stop(_ name: String, location: String, query: String? = nil, _ city: String?, role: TripRole, minutes: Int?,
+                  lookedUp: Bool = true) -> TripStop {
+            let query = query ?? location
+            let k = key(query, city) + "|" + role.rawValue
             if role == .hotel, let made = stopOf[k] { return made }
             var place: Place?
-            switch lookedUp ? lookups[key(location, city)] : nil {
+            switch lookedUp ? byName[key(query, city) + "|" + name] ?? lookups[key(query, city)] : nil {
             case .found(let p)?:
                 place = p
                 if city.map({ isAbroad(areas[$0]) }) == true { anyAbroad = true }
@@ -901,12 +937,12 @@ public actor TripPlanner: ToolExecutor {
             // §66 item 6: a stop never looked up is not a map miss.
             if lookedUp, place == nil, !misses.contains(where: { $0.name == name }) {
                 misses.append(PlannerMiss(name: name, range: range(city), location: location,
-                                          reason: Self.notPlacedReason(lookups[key(location, city)])))
+                                          reason: Self.notPlacedReason(lookups[key(query, city)])))
             }
             let made = TripStop(index: 0, asked: name,
                                 place: place ?? Self.unplacedPlace(name, key: "\(revisionKey)|plan|\(lookedUp ? location : "event:" + name)"),
                                 distanceMeters: nil, role: role, minutes: minutes, placed: place != nil, pickedBy: .model,
-                                location: location)
+                                location: location, query: query)
             stopOf[k] = made
             return made
         }
@@ -924,8 +960,10 @@ public actor TripPlanner: ToolExecutor {
                 // name), or, with no venue, still never looked up and shown 「场馆未找到」.
                 let fact = s.event.flatMap { TripPlannerShape.eventFact($0, date: asked.date(ofDay: d)) }
                 let closed = s.event?.linked == true && fact != nil
-                var made = stop(closed ? lookup ?? s.name : s.name, location: lookup ?? "", cityOf(s.city), role: .sight,
-                                minutes: s.minutes, lookedUp: lookup != nil)
+                // §73 item 4: a closed-day event is titled by its hall (`location`), never by the hidden `query`.
+                let shown = lookup == nil ? nil : s.location ?? s.name
+                var made = stop(closed ? shown ?? s.name : s.name, location: shown ?? "", query: lookup ?? "", cityOf(s.city),
+                                role: .sight, minutes: s.minutes, lookedUp: lookup != nil)
                 if let e = s.event {
                     // F-18 §43 item 4, §44 item 3: the event (from the list) carries only confirmed dates and the
                     // picture or 「未找到图片」.
@@ -951,7 +989,8 @@ public actor TripPlanner: ToolExecutor {
             }
             morning = nil
             if d < days.count - 1, let stay = day.stay {
-                let hotel = stop(stay.name, location: stay.lookup, cityOf(stay.city), role: .hotel, minutes: nil)
+                let hotel = stop(stay.name, location: stay.location ?? stay.name, query: stay.lookup, cityOf(stay.city), role: .hotel,
+                                 minutes: nil)
                 if let want = asked.stayCity, hotel.placed, let c = hotel.place.city {
                     let city = c.hasSuffix("市") ? String(c.dropLast()) : c
                     dayFacts[d].append(c.contains(want) || want.contains(city) ? "住\(city)" : "住\(city)（要求住\(want)）")
@@ -1675,8 +1714,8 @@ public actor TripPlanner: ToolExecutor {
         let targets = plan.allStops.map(\.stop).filter { !$0.placed && $0.mapLookup && seen.insert($0.id).inserted }
         guard !targets.isEmpty else { return true }
         guard planWrites == 0 else { return false }
-        // F-15b §67 item 2 (T-040zt): the retry looks up `location` too, never the name.
-        let lookups = await resolve(targets.map(\.location), city: plan.abroad ? nil : plan.city, abroad: plan.abroad, near: regionHint())
+        // F-15b §67 item 2 (T-040zt), §73 item 2 (T-040zz): the retry looks up `query` too, never the name.
+        let lookups = await resolve(targets.map(\.query), city: plan.abroad ? nil : plan.city, abroad: plan.abroad, near: regionHint())
         guard !Task.isCancelled else { return true }
         guard planWrites == 0 else { return false }
         var any = false
@@ -2365,6 +2404,8 @@ public actor TripPlanner: ToolExecutor {
             return (out, sure)
         }
         pickerNames += open.count
+        // F-15b §73 item 7 (T-040zz): what 高德 offered for each name that reaches the picker.
+        for slot in open { onLine(Self.pickCandidatesLine(query: names[slot.index], places: slot.places)) }
         let choices = open.map { PlaceChoice(asked: names[$0.index], city: city, candidates: $0.places) }
         let (stream, feed) = AsyncStream.makeStream(of: PickAnswer.self)
         let work = Task {
@@ -2407,6 +2448,11 @@ public actor TripPlanner: ToolExecutor {
         }
         onLine("trip pick names=\(open.count) none=\(none) ok=yes ms=\(elapsed) model=\(picker.model)")
         return (out, sure)
+    }
+
+    /// §73 item 7: `trip pick candidates query=<query> n=<n> names=<first 5 result names, ｜-separated>`.
+    static func pickCandidatesLine(query: String, places: [Place]) -> String {
+        "trip pick candidates query=\(query) n=\(places.count) names=" + places.prefix(5).map(\.name).joined(separator: "｜")
     }
 
     private enum PickAnswer: Sendable {
@@ -2538,10 +2584,11 @@ public actor TripPlanner: ToolExecutor {
     static func sarDropped(_ reason: String) -> Int? { reason.hasPrefix("sarnone|") ? Int(reason.dropFirst(8)) : nil }
 
     /// §68 item 3, §70 item 2: the record line of a failed lookup.
-    static func lookupMissLine(name: String, city: String?, reason: String) -> String {
+    static func lookupMissLine(name: String, query: String? = nil, city: String?, reason: String) -> String {
         let info = limitInfo(reason) ?? (reason == qpsReason ? AmapWebFailure.qpsInfo : "none")
         let sar = sarDropped(reason).map { " dropped=\($0) kept_by=none" } ?? ""
-        return "trip lookup name=\(name) city=\(city ?? "-") info=\(info)\(sar)"
+        // F-15b §73 item 7 (T-040zz): the driver's name and the looked-up word.
+        return "trip lookup name=\(name) query=\(query ?? name) city=\(city ?? "-") info=\(info)\(sar)"
     }
 
     /// F-15b §68 (T-040zu): a lookup answered `CUQPS_HAS_EXCEEDED_THE_LIMIT` (tried once more).

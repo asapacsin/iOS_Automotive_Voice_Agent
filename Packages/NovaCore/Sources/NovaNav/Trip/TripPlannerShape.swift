@@ -16,15 +16,19 @@ public enum TripPlannerShape {
         public var minutes: Int?
         /// F-15b §64 item 3 (T-040zq): a time-limited event at this venue (`location`).
         public var event: TripEvent?
-        public init(name: String, location: String? = nil, city: String? = nil, minutes: Int? = nil, event: TripEvent? = nil) {
+        /// F-15b §73 item 1 (T-040zz): the hidden map-search word; nil when the planner left it out.
+        public var query: String?
+        public init(name: String, location: String? = nil, city: String? = nil, minutes: Int? = nil, event: TripEvent? = nil,
+                    query: String? = nil) {
             self.name = name
             self.location = location
+            self.query = query
             self.city = city
             self.minutes = minutes
             self.event = event
         }
-        /// §67 item 2: the only text that goes to the map.
-        public var lookup: String { location ?? name }
+        /// §67 item 2, §73 item 2: the only text that goes to the map: `query`, else `location`, else `name`.
+        public var lookup: String { query ?? location ?? name }
     }
 
     public struct Stay: Sendable, Hashable {
@@ -32,12 +36,15 @@ public enum TripPlannerShape {
         /// §67 item 1: as a sight's `location`.
         public var location: String?
         public var city: String?
-        public init(name: String, location: String? = nil, city: String? = nil) {
+        /// F-15b §73 item 1 (T-040zz): as a sight's `query`.
+        public var query: String?
+        public init(name: String, location: String? = nil, city: String? = nil, query: String? = nil) {
             self.name = name
             self.location = location
             self.city = city
+            self.query = query
         }
-        public var lookup: String { location ?? name }
+        public var lookup: String { query ?? location ?? name }
     }
 
     public struct Day: Sendable, Hashable {
@@ -71,6 +78,7 @@ public enum TripPlannerShape {
                         "sights": .array(d.sights.map { s in
                             var o: [String: JSONValue] = ["name": .string(s.name)]
                             if let l = s.location { o["location"] = .string(l) }
+                            if let q = s.query { o["query"] = .string(q) }
                             if let c = s.city { o["city"] = .string(c) }
                             if let m = s.minutes { o["minutes"] = .int(Int64(m)) }
                             if let e = s.event { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
@@ -79,6 +87,7 @@ public enum TripPlannerShape {
                         "stay": d.stay.map { s in
                             var o: [String: JSONValue] = ["name": .string(s.name)]
                             if let l = s.location { o["location"] = .string(l) }
+                            if let q = s.query { o["query"] = .string(q) }
                             if let c = s.city { o["city"] = .string(c) }
                             return .object(o)
                         } ?? .null,
@@ -123,12 +132,13 @@ public enum TripPlannerShape {
                     }
                     // §67 item 1: `location` equal to `name` is the same as none.
                     let location = string(s["location"]).flatMap { $0 == name ? nil : $0 }
-                    sights.append(Sight(name: name, location: location, city: string(s["city"]), minutes: minutes, event: event))
+                    sights.append(Sight(name: name, location: location, city: string(s["city"]), minutes: minutes, event: event,
+                                        query: string(s["query"])))
                 }
             }
             let stay = string(day["stay"]?["name"]).map { name in
                 Stay(name: name, location: string(day["stay"]?["location"]).flatMap { $0 == name ? nil : $0 },
-                     city: string(day["stay"]?["city"]))
+                     city: string(day["stay"]?["city"]), query: string(day["stay"]?["query"]))
             }
             return Day(sights: sights, stay: stay)
         }
@@ -140,12 +150,13 @@ public enum TripPlannerShape {
 
     /// §62 item 3: the planner's system text as used in the PoC, plus §61 item 3a's line for a named place not found.
     public static let system = """
-    你是行程规划师。司机的要求由语音助手转给你，你只输出 JSON，不要其他文字。JSON 格式：{"days": [ {"sights": [{"name": "司机怎么叫它", "location": "地图上要搜的地点全名", "city": "所在城市", "minutes": 停留分钟, "event": {"title": "活动名", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} 只有活动才写}], "stay": {"name": "当晚住的地方全名", "city": "城市"} 或 null } ], "done": true/false, "note": "给司机的一句话：没做到的要说"}
+    你是行程规划师。司机的要求由语音助手转给你，你只输出 JSON，不要其他文字。JSON 格式：{"days": [ {"sights": [{"name": "司机怎么叫它", "location": "地图上要搜的地点全名", "query": "在地图App搜索框里会输入的最短地点名", "city": "所在城市", "minutes": 停留分钟, "event": {"title": "活动名", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} 只有活动才写}], "stay": {"name": "当晚住的地方全名", "query": "在地图App搜索框里会输入的最短地点名", "city": "城市"} 或 null } ], "done": true/false, "note": "给司机的一句话：没做到的要说"}
     要求：
     - 天数按司机说的；司机点名的地点必须放进去。
     - 每天一般 3 到 4 个景点，景点时间加开车时间一天 6 到 8 小时；整天的地方（主题乐园、度假村玩一整天）可以单独一天。
     - 每晚写 stay；度假村、酒店式景区本身能住，就直接住那里，不要再加别的酒店。最后一天 stay 写 null。
     - name 写司机怎么叫它；location 写能在地图上搜到的地点全名（活动、演出这类不是地点的，写它的场馆）；name 本身就是地点时 location 可以不写。city 写它真正所在的城市。
+    - query 写人在地图App里搜这个地方会输入的词：最短的常用名，不带城市、括号和说明，城市写在 city；它只用来搜地图，不给司机看。
     - 澳门、香港的地方用地图上常用的简体中文名（如大三巴牌坊、澳门旅游塔、澳门威尼斯人），不要用英文名或别名。
     - 每次你会收到程序核对的数字（地图找到的地点、开车时间、每天总时间）。按这些数字自己判断合不合理，不合理就改好整份再输出，done=false；都合理了输出最终行程，done=true。
     - 司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。
@@ -336,12 +347,17 @@ public enum TripPlannerShape {
                                               "minutes": .int(Int64(s.visitMinutes)), "地图": fact(s)]
                 // F-15b §67 item 1 (T-040zt): the looked-up text, when it is not the name.
                 if s.location != s.asked, !s.location.isEmpty { o["location"] = .string(s.location) }
+                // F-15b §73 item 5 (T-040zz): the planner gets back its own `query` (never shown to the driver).
+                if s.query != s.location, !s.query.isEmpty { o["query"] = .string(s.query) }
                 // Review fix (§64 items 3, 6): a change keeps the plan's events (T-040zs: not one left off as an event).
                 if let e = s.shownEvent { o["event"] = ["title": .string(e.title), "start": .string(e.start), "end": .string(e.end)] }
                 sights.append(.object(o))
             }
             let stay: JSONValue = closing.map {
-                .object(["name": .string($0.asked.isEmpty ? $0.place.name : $0.asked), "city": city($0), "地图": fact($0)])
+                var o: [String: JSONValue] = ["name": .string($0.asked.isEmpty ? $0.place.name : $0.asked), "city": city($0),
+                                              "地图": fact($0)]
+                if $0.query != $0.asked, $0.query != $0.location, !$0.query.isEmpty { o["query"] = .string($0.query) }
+                return .object(o)
             } ?? .null
             return .object(["sights": .array(sights), "stay": stay])
         })])
