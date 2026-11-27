@@ -1913,8 +1913,8 @@
     },
     {
       "id": "T-013n",
-      "owner": "AUTONOMOUS",
-      "status": "RUNNING",
+      "owner": "EXTERNAL_RESOURCE",
+      "status": "BLOCKED_EXTERNAL",
       "priority": 1,
       "action": "F-04b §19: item 0 echo-aware VAD: while she plays, SpeechUplinkGate counts a frame voiced only above echoCoupling x loudest playback RMS in the last 200 ms (Geigel double-talk detection; coupling measured by the EchoSpike trial, default 0.5); items 1-6 rolling voiceprint check every 1.0 s, first accepted window stops her and splits the utterance, all-rejected echo cut at her reply end; rows 72a-79.",
       "depends_on": [
@@ -1923,8 +1923,10 @@
       "notes": "Owner 2026-11-27: could not interrupt her on Qwen Flash (record 20261127-095719: one early check -1.435 on her own echo, utterance open 20 s, driver never scored on his own). Owner: use VAD the proper way.",
       "evidence": [
         "Spec at the commit that adds F-04b §19.",
-        "43e06b6 (§19 items 0-7; rows 72a, 72b, 73-77 unit: RollingSpeakerCheckTests; record format 18). Gates green on a clean checkout of 43e06b6 (spec-trace 204/0). spec-reviewer high: pending"
-      ]
+        "43e06b6 (§19 items 0-7; rows 72a, 72b, 73-77 unit: RollingSpeakerCheckTests; record format 18) + review fixes ca9eea2, 2e84195",
+        "spec-reviewer high 2026-11-27 FAIL (candidate not latched past BargeInLive's wouldStop/8 s cap; accepted window could not stop her without a words-check stop; any 音频测试 run overwrote the coupling) -> fixed ca9eea2; re-check medium FAIL (voiceprint stop fallback could send a stop-phrase utterance) -> fixed 2e84195; re-check medium PASS. Gates green on a clean checkout of 2e84195: NovaCore, NovaRealtime 82, NovaServices 115, spec-trace 205/0. Non-blocking: playback tap is before reply.volume (dip not applied), levels stamped on arrival, 480-frame tap; a window in flight at the cut is not split; stop phrase spotted after an accepted window can still send the utterance (pre-existing race with wouldStop); local transcript of a split utterance keeps her echo words"
+      ],
+      "blocked_by": "Codemagic build of this branch; row 78 device run (Qwen Flash and Gemini Live, 10 long replies each); row 79 echo trial on the owner's iPhone at car volume"
     },
     {
       "id": "T-021q",
