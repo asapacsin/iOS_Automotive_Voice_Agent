@@ -142,3 +142,14 @@ permission. Everything else is in 设置.
 - **VPN.** Gemini needs a VPN from mainland China; Qwen (Beijing) does not. With Clash in TUN mode, route
   `maas.aliyuncs.com` DIRECT (`DOMAIN-SUFFIX,maas.aliyuncs.com,DIRECT`): TUN mode catches the name lookup even when
   no proxy is set.
+
+## License
+
+You may use, publish, copy and modify this software, alone or as part of your own work, on one condition: name the
+source. Any copy, published version or modified version must say that it comes from NovaDrive by asapacsin and link to
+https://github.com/asapacsin/iOS_Automotive_Voice_Agent, and a modified version must say that it was changed.
+
+本软件可以自由使用、发布、复制和修改，条件是注明出处：任何副本、发布版本或修改版本都要写明来自 asapacsin 的 NovaDrive，并附上
+https://github.com/asapacsin/iOS_Automotive_Voice_Agent 链接；修改过的版本还要说明已修改。
+
+The software is provided as is, without warranty of any kind. 本软件按原样提供，不作任何保证。
