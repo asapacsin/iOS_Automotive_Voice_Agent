@@ -1916,7 +1916,7 @@
       "owner": "AUTONOMOUS",
       "status": "NOT_RUN",
       "priority": 1,
-      "action": "F-04b §19: while her reply plays, SpeakerHold re-scores the latest 1.0 s every rollingStep (1.0 s) until accepted or her reply+echoTail ends; a rejected window no longer ends checking; the first accepted window stops her and splits the utterance (frames before split minus preRoll dropped as echo); an all-rejected utterance is cut at her reply end and dropped; record kind=early window=, speaker-split, speaker-echo; rows 73-78.",
+      "action": "F-04b §19: item 0 echo-aware VAD: while she plays, SpeechUplinkGate counts a frame voiced only above echoCoupling x loudest playback RMS in the last 200 ms (Geigel double-talk detection; coupling measured by the EchoSpike trial, default 0.5); items 1-6 rolling voiceprint check every 1.0 s, first accepted window stops her and splits the utterance, all-rejected echo cut at her reply end; rows 72a-79.",
       "depends_on": [
         "T-013m"
       ],
