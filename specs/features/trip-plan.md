@@ -3266,3 +3266,172 @@ Clash Verge does).
 | Task | Scope | Status |
 |---|---|---|
 | T-040zx | §71 items 1–6; rows 335–345 | NOT_RUN |
+
+## 72. 「打开行程」 works again: `trip_plans` action `show`; the saved trip is always in her state line (iOS, owner order 2026-11-27)
+
+**Why (device 2026-11-27, build 86765b9, Qwen Audio 3.1 Flash).**
+- **Record `20261127-091754.txt`.** A 2-day 珠海+澳门 plan was saved at 09:10. In this new conversation the trip line was
+  off (§65: `contextNote fields=place,time`); she had only the summary of the last six exchanges. 「这两边的景点还有活动」
+  got 「好呀，我帮你规划一下…」 and 「行程呢」 got 「行程正在规划中」 with no tool call. The driver opened the trip by touch
+  (75394, `trip context on reason=touch`) and closed it with × (82856, `trip cards hidden=yes`). 「你给我看一下吧」 then
+  got 「好呀，我把行程给你列出来看看」 and nothing opened: no tool can show the current trip.
+- **The show path was lost.** §51 item 2 showed the cards with `edit_trip_list action=read` (「司机说「打开行程」「看看行程」时用
+  action=read」). `edit_trip_list` has since left the catalog (§52 `set_trip_plan`, then `plan_trip`); the 28 tools of
+  agent setup 13.0.0 have no action that shows the current plan. `trip_plans open` needs the `name` of a saved plan;
+  the current plan usually has none, so `open` answers `PLAN_NOT_FOUND`. The `TRIP_HIDDEN` result still tells her
+  「要用行程请说「打开行程」」 (`show_command`), a command nothing carries out.
+- **§65 hid the state, not only the old request.** §65 fixed a copied `asked` (「两天嘛，你怎么四天了？」) by leaving the whole
+  trip out of a new conversation. The copy came from `asked` being in the note; the trip itself is state she needs to
+  answer 「行程呢」.
+- **PC test, real model, fake tools** (`scripts/eval/qwen_tool_pick.py`, agent setup 13.0.0 `gentle.search` =
+  `380a168060a3`, sentences sent as text; raw in `D:/ndlogs/search-raw/`):
+  - `--show` (`show` added to `trip_plans` with the item 2 text; the screen closed; a planned trip as a state line or
+    only as the summary): `trip_plans action=show` first in **20/20** (Flash 10/10, Plus 10/10;
+    `20261127-094034-…flash…`, `20261127-094402-…plus…`).
+  - `--mix` (plan or show is right; Flash, 3 runs): **17/17** right, 1 run lost to a test timeout
+    (`20261127-101546-…flash…`). 「重新规划一个吧，改去广州玩一天」 with a trip present → `plan_trip` 3/3; 「把刚才那个行程打开
+    给我看看」 with only the summary → `show` 3/3.
+  - Without `show` (`20261127-093113`, `-093158`): 「行程呢」「给我看一下行程」 → `trip_plans open` with an invented name
+    (「珠海+澳门 2 天」), which fails on the phone.
+
+1. **`trip_plans` action `show`.** No arguments (`name` ignored).
+   - **A current plan with stops:** the cards are shown (`cardsHidden` false, exactly as a tap on 「行程」, §13), the trip
+     screen opens on day 1 (`tripScreen on`), and the trip line turns on (§65 item 2, `trip context on
+     reason=tool:trip_plans`). Result `ok` with `shown: true`, `days`, `stops`, and the plan as every trip result
+     (§52 item 2, `withPlan`). No lookups, no model call.
+   - **No current plan, or no stops:** `NO_TRIP_LIST` (`ok=false`); nothing opens.
+   - **A `plan_trip` run still working:** the screen opens on the working state as at a `plan_trip` call (the cards and
+     `working` panel); the result says `working: true`, so she says it is still being planned.
+   - **Navigating:** shown as a tap shows it today; guidance goes on.
+   - `show` is not blocked while the cards are hidden (§51 item 2 lists it with the actions that show the cards).
+2. **Catalog text.** `tripPlansDescription` starts with the tested line
+   「司机要看现在这份行程（「行程呢」「给我看一下行程」「把行程打开」）→show，不填 name；」; the `action` enum gains `show` first.
+   The `TRIP_HIDDEN` `next` (§51 item 2) becomes 「行程收起来了。司机要看就调用 trip_plans action=show；只说一句。」 and its
+   `show_command` fact is dropped.
+3. **Trip state line (changes §65 item 1).** At each new conversation, when a plan with stops is saved, the first
+   context note carries one state line instead of no trip at all:
+   「[系统] 已保存行程：<n> 天，<start> 起。第1天：<stop names>，住<hotel>；第2天：…。行程屏幕：<已打开|已关闭>。这句不用回答」
+   - Stop and hotel names only: no `asked`, no times, no coordinates. `asked` stays out until §65 item 2 turns the full
+     trip line on, so an old request cannot be copied into a new one (the §65 cause).
+   - After §65 item 2 turns the full line on, the state line is not sent again in that conversation.
+   - The screen state comes from `cardsHidden` and the screen panel, as the `[系统] 屏幕` note.
+4. **Record** (numbers and enums only, I-8). §17's `trip plan action=` line gains `show`: `trip plan action=show ok=<yes|no>
+   days=<n> stops=<n> working=<yes|no>`. `contextNote fields=` shows `tripState` while item 3's line is sent.
+5. **Not changed:** `plan_trip` and the planner; `trip_plans` `save`, `open`, `list`, `delete`, `rename`; §65 item 2's
+   triggers for the full trip line; §51's blocking of `trip_next` and route tools while hidden; F-09b's claim checks.
+
+**Not in this section.** A reply that promises planning or showing with no tool call (09:17 turns 8–9: 「行程正在规划中」 with
+no `plan_trip`) is the claim check's job (F-06 / F-09b); it needs its own spec. The PC test shows the model calls
+`plan_trip` for these requests (`--mix` M1, M3–M5), but Flash also once answered a plan request with words only
+(`20261127-093054`, S1).
+
+**Not verified.** Spoken input (the PC test sent text); 「行程呢」 with no saved trip (needs item 1's `NO_TRIP_LIST`); how
+she words a `working: true` answer.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 346 | A 2-day plan, cards hidden; `trip_plans {"action":"show"}` | Cards shown, `tripScreen on` day 1, `trip context on reason=tool:trip_plans`; result `ok`, `shown: true`, `days` 2, the plan; `trip plan action=show ok=yes` | unit |
+| 347 | No current plan; `show` | `NO_TRIP_LIST`, nothing opens | unit |
+| 348 | `plan_trip` running; `show` | Screen opens on the working state; `working: true` | unit |
+| 349 | A saved plan; a new conversation starts | First note has the item 3 line with day stops and hotel, no `asked`; `fields` has `tripState`, not `trip`; after a `plan_trip` result the full line replaces it | unit |
+| 350 | Catalog | `action` enum starts with `show`; description starts with the item 2 line; `TRIP_HIDDEN` `next` as item 2, no `show_command` | unit |
+| 351 | PC: `qwen_tool_pick.py --show` and `--mix` on Flash with the built catalog text | `show` and `plan_trip` picked as expected in at least 19 of 20 and 17 of 18 (done 2026-11-27 on the test text: 20/20, 17/17) | PC |
+| 352 | Device, Qwen Flash: a trip planned, closed with ×; new conversation; 「行程呢」; then 「重新规划一个，去广州玩一天」 | The trip screen opens after her `trip_plans action=show` call; the second request calls `plan_trip` and makes a new plan | D |
+
+**Trace gate.** Add `T-040zy: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zy.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zy | §72 items 1–5; rows 346–352 | NOT_RUN |
+
+## 73. Each stop carries a hidden map-search word, `query`; only it goes to the map (iOS, owner order 2026-11-27)
+
+**Why (record `20261127-133824.txt`, build 533bfd0, Qwen Audio 3.1 Plus).** A 2-day 珠海 trip ended with two stops on
+「地图没找到」: 长隆海洋王国 (`trip planner saved … not_placed=2`) and 珠海大剧院 (`not_placed=1` from the first change on).
+- The planner wrote `"name":"长隆海洋王国","location":"珠海长隆海洋王国"`. Its system text asks three times for the
+  「全名」 (§62 format line, §67 item 5's `location` line, the event line), and nothing says to leave the city out, so it
+  put the city in front.
+- The lookup searches `location`. §71 item 2's name check strips only 澳门/澳門/香港 from the front, so the core
+  「珠海长隆海洋王国」 is not contained in a 高德 result named 「长隆海洋王国」; the no-city retry fails the same check
+  (`trip lookup retry=nocity kept=0`); the unmatched results go to the picker, which answered none (`trip pick names=2
+  none=2`), so both stops stayed unplaced.
+- **Replayed on the PC (2026-11-27, owner's 高德 Web key, `/v3/place/text` city 珠海市 `citylimit=true`):**
+  「珠海长隆海洋王国」 gives 长隆海洋王国 and its parts (售票处, 游客服务中心, 北极熊馆…); only the parts pass the name check,
+  so the park itself is never kept. 「长隆海洋王国」 gives the park first. 「珠海大剧院」 is not on 高德 at all (长隆剧院,
+  华发中演大剧院…); the driver's own word 「日月贝」 gives 珠海日月贝. The phone's picker answer for 珠海长隆海洋王国 (none)
+  was not reproduced: the record does not keep the candidates it saw (item 7).
+- **Owner (2026-11-27):** keep what the driver sees as it is; add a separate word that a person would type into a map app,
+  hidden from the driver, used only to search the map.
+
+1. **Shape (adds to §67 item 1).** Each sight and stay gains `query`:
+   `{"name": <what the driver calls it>, "location": <as §67>, "query": <the map-search word>, "city", "minutes", "event"?}`.
+   `query` is what a person types into a map app's search box for this place: the shortest common map name, no city in
+   front unless it is part of the place's own name (珠海渔女, 澳门旅游塔 keep it), no brackets, no description
+   (长隆海洋王国, 日月贝, 大三巴牌坊, 横琴国际会展中心). The city stays in `city`.
+   `name` and `location` keep their meaning and every place they are shown.
+2. **Map.** Only `query` is looked up, with `city` as today (mainland city lookup, §71 item 3 retry, §68–§71 for
+   Macau/Hong Kong). `query` missing or empty: `location`, else `name` (as §67). §66's link: a linked sight's `query` is
+   the sight's own `query` when the planner wrote one, else the list entry's `venue`.
+2b. **Fallback to the driver's words (owner 2026-11-27).** When a stop's `query` lookup ends unplaced (nothing found,
+   nothing that passes the name check after §71 item 3's retry, or the picker answers none) and its `name` differs from
+   `query`, `name` is looked up once the same way (same city rules, name check against `name`, §71 item 3 retry). Its
+   candidates go to the picker together in one more picker call (after the first picker answer). A pick places the stop;
+   otherwise it stays `not_found` and 「地图没找到」 names `location` as today. Not for a sight with `event` (its `name` is
+   an event, not a place) or a §66-linked sight. Once per stop per planner round. The planner is not told which word
+   found it; the counts show the map's place name as for any found stop.
+3. **Name check (§71 item 2).** It compares the result's name with `query` (the looked-up text), unchanged otherwise.
+   A short `query` is contained in both 「长隆海洋王国」 and 「珠海长隆海洋王国」.
+4. **Hidden.** `query` is never on a card, in the trip line or state line (§72 item 3), in `plan_text`, in a tool result
+   she gets, or in what she says. 「地图没找到」 still names `location` (§67 item 4).
+5. **Stop and saved plans.** `TripStop` keeps the looked-up `query`; saved plans without it load with `query` =
+   `location`. The planner gets back its own `query` in each next round (the plan JSON it wrote), not in the counts text.
+6. **Planner text.** In `TripPlannerShape.system` exactly two changes, nothing else:
+   - the format line's sight and stay gain `"query": "在地图App搜索框里会输入的最短地点名"` after `location` (stay: after
+     `name`);
+   - one line after the `name`/`location` line: 「query 写人在地图App里搜这个地方会输入的词：最短的常用名，不带城市、括号和
+     说明，城市写在 city；它只用来搜地图，不给司机看。」
+7. **Record (I-8: place names are already in these lines).** `trip lookup name=<name> query=<query> city=<city> info=…`;
+   the counts line's not-found text stays §67's. A new line per lookup that reaches the picker:
+   `trip pick candidates query=<query> n=<n> names=<first 5 result names, ｜-separated>`, so the next miss shows what 高德
+   offered. Item 2b: `trip lookup fallback=name name=<name> query=<query> found=<yes|no>`.
+8. **Not changed:** the cards, her replies and the trip line; §66's event linking; §68–§71's SAR rules; the picker and
+   its instruction; routing and times.
+
+**PoC (PC 2026-11-27, `qwen3.8-max-0902`, Beijing, thinking off; one run each; raw in `D:/ndlogs/search-raw/20261127-poc73-*`,
+`-amap73-*`, `-llm73-*`).**
+- **Planner with item 6's text** (3 one-day cases, 2,145 tokens, json_object): 长隆海洋王国 → `location` 珠海长隆海洋王国,
+  `query` 长隆海洋王国; 日月贝 → `query` 珠海大剧院 (the official name, not on 高德); 珠海渔女, 情侣路, 圆明新园, 珠海度假村酒店,
+  大三巴牌坊, 议事亭前地, 澳门旅游塔, 澳门威尼斯人 as their map names. No brackets; no city added that is not part of the name.
+- **高德 before/after:** 长隆海洋王国 placed only with the new word (above); the other stops found by both words.
+- **Picker on 高德's top 10** (app instruction and question format, sent to the compatible endpoint; 968 tokens):
+  日月贝 → 珠海日月贝 (not 日月贝(公交站), listed first); 长隆海洋王国 → 长隆海洋王国; 珠海长隆海洋王国 → 长隆海洋王国.
+- **Planner round 2 instead of item 2b** (rejected): with today's counts line (「日月贝=地图没找到 珠海大剧院（日月贝）」) it kept
+  `query` 珠海大剧院 and answered `done: true` with an empty `note`; with 高德's hits for 「日月贝」 added to that line it
+  changed `query` to 珠海日月贝. Item 2b gets the same place without a planner round (about 1,100 tokens a miss).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 353 | Sight `{"name":"长隆海洋王国","location":"珠海长隆海洋王国","query":"长隆海洋王国","city":"珠海市"}`; 高德 fixture returns 「珠海长隆海洋王国」 | Looks up 长隆海洋王国 with city 珠海市; name check passes; placed | unit |
+| 354 | Same sight without `query` | Looks up `location` (today's behaviour) | unit |
+| 355 | Saved plan from before §73 | Loads; `query` = `location` | unit |
+| 356 | A plan with `query` on every stop | No card, trip line, state line, `plan_text` or tool result contains a `query` that differs from `name`/`location` | unit |
+| 357 | Lookup reaching the picker | `trip lookup … query=…` and `trip pick candidates …` lines as item 7 | unit |
+| 358 | `TripPlannerShape.system` | Exactly item 6's two changes over the previous text | unit |
+| 359 | PC: planner on `qwen3.8-max-0902`, 3 cases, 1 run each (长隆海洋王国; 日月贝; 大三巴), ~2,400 tokens | No `query` adds a city that is not part of the name, none has brackets; each found on 高德 in its city directly or by item 2b (done 2026-11-27: 11/11 stops, 日月贝 by item 2b's picker) | PC |
+| 360 | Device: 「这周末珠海两天，景点和活动，第一天加长隆海洋王国，第二天去日月贝」 | Every stop placed (`not_placed=0`); cards show the same names as before §73 | D |
+| 361 | Sight `{"name":"日月贝","location":"珠海大剧院","query":"珠海大剧院"}`; 高德 fixture: 「珠海大剧院」 → 长隆剧院, 华发中演大剧院; 「日月贝」 → 日月贝(公交站), 珠海日月贝; fake picker picks option 2 | Second lookup of 日月贝; placed at 珠海日月贝; `trip lookup fallback=name … found=yes` | unit |
+| 362 | Same as 361, fake picker answers none for 日月贝 | `not_found`; 「地图没找到 珠海大剧院（日月贝）」; `found=no` | unit |
+| 363 | Unplaced sight with `event`, or `name` = `query` | No fallback lookup | unit |
+
+**Not verified.** The picker's answers beyond one run each; the phone's 高德 answers (same key and endpoint as the PC test, but
+not compared).
+
+**Trace gate.** Add `T-040zz: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zz.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zz | §73 items 1–8 and 2b; rows 353–363 | NOT_RUN |
