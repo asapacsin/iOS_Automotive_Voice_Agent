@@ -3435,3 +3435,104 @@ not compared).
 | Task | Scope | Status |
 |---|---|---|
 | T-040zz | §73 items 1–8 and 2b; rows 353–363 | Code PASS (3bf95bd); row 360 device NOT_VERIFIED |
+
+## 74. Facts the driver chose reach the planner by id and by his own words, never by her retelling (iOS, owner order 2026-11-27)
+
+**Rule.** What the driver chose from a tool's list (an event, and which of its venues) and the date he said are facts.
+She does not retell them in `plan_trip`'s free text; she passes the list item's id and copies his date words. Code turns
+both into data (the store's entry, a date) and gives that data to the planner and the map. The planner only plans;
+it never supplies an event's venue or dates.
+
+**Why (example: record `20261127-151819.txt`, build ee5c143).** Events are searched once and stored as structured data
+(F-18 §35, live-info §44); the trip is planned from that data. In the example the data never reached the planner:
+- The stored event had two venues (珠海国际会展中心, 澳门威尼斯人金光会展中心) and dates 12-03 to 12-05; she read both
+  venues out. The driver chose one (「那个在威尼斯的」) and gave a relative date (「下个星期周末」).
+- Her `plan_trip` carried only the event's name: `asked` has no field for a venue choice, and `start` is optional with
+  only 「这周末」 as an example. Both facts were lost in her retelling.
+- §64 item 2 reads the store only with `start`, so the planner got no events line, nothing linked (§66 item 1), and the
+  planner chose the venue itself (the other one) and invented dates (2025-01-01..2025-12-31).
+- 「澳门珠海」 in `asked.city` was read as one city (`EventCity.from(address:)` takes the first).
+
+**PoC (PC 2026-11-27, `scripts/eval/event_hall_poc.py`, `gemini-3.8-live` with the app's 13.0.0 instructions and tools,
+driver lines sent as text turn by turn, fake tool results; raw in `D:/ndlogs/search-raw/`, `20261127-1[67]*-event_hall_poc*`).**
+
+| Case | Today's tools | Items 1–3 |
+|---|---|---|
+| F: an event with two venues, the driver names one, relative date (the record) | 0/3: no venue in any call (date missing in 1) | 3/3: the named venue's id and the date words |
+| C1: an event with one venue, 「这周末」 | passed before (phone) | 3/3: its id, 这周末 |
+| C2: no event, two named places (row 360) | passed before (phone) | 3/3: places in `must`, date kept, no ids |
+
+Without item 3's first sentence she called `plan_trip` when the driver only said he liked an event (gemini-3.8-live
+1/1, gemini-3.6-flash 1/1). 高德 (`/v3/place/text`, no city, §71 item 2a) lists a multi-hall venue by its halls
+(「澳门威尼斯人金光会展中心」 → 「澳门威尼斯人金光会展E馆」, 「金光会展-展馆A(…)」), so §71's containment check keeps none of them.
+
+1. **Every item in `find_events`' result has an id, one per venue (amends live-info §35 item 1's result).** `e<n>` in
+   result order; an entry with several venues (live-info §44 item 1a) is listed once per venue, `e<n>a`, `e<n>b`, … in
+   the entry's venue order, each with 「场馆：<that venue>」 in `facts`. `next` adds 「同一个活动有几个场馆时分开列出，每个场馆一个
+   id。」. Code keeps id → (entry, venue) for the conversation (across a reconnect); a new conversation starts at `e1`.
+2. **`plan_trip.asked` gains `events` and `when`.** `events`: ids from that result (max 5, each 1–8 characters).
+   `when`: the driver's date words, copied (1–30 characters). Both optional; a trip with neither works as today.
+3. **Her catalog text for `plan_trip`** gains, before 「调用后不用说话」, exactly the tested line:
+   「司机说喜欢或问某个活动时只回答，不调用；司机要你做行程时，行程里有 find_events 查到的活动，asked.events 填那个活动的 id；
+   同一个活动有几个场馆时，填司机说的那个场馆的 id，司机没说哪个场馆就先问他。asked.when 照司机说日期的原话写（比如「下个星期周末」
+   「这周六」），没说就不写。」
+4. **Code resolves `when` to `start` (no model).** Against the 现在 note's date, by these forms only: a weekend or a
+   weekday of this week or next week (这/本/下/下个/下星期 + 周末/周六/周日/星期六/星期天…; a bare 周末 = this weekend;
+   this weekend on a Saturday or Sunday is that weekend), 今天/明天/后天, an explicit date (M月D日/号, this year or the
+   next when already past). The first day of a weekend is its Saturday. Resolved → `start` (replaces hers). Anything
+   else (「过几天」) → her `start`, else none. Record `trip when text=<when> start=<date|none>`.
+5. **An id fixes the entry and its venue (before §66 item 7).** Each known id adds its entry to the events line (§64
+   item 3) regardless of the trip's dates or cities, and makes that venue the driver's: the stop linked to the entry
+   (§66 item 1) is looked up at that venue, and its `city` is that venue's city, whatever the planner wrote. Without an
+   id, §66 item 7 decides as today. An unknown id is dropped (record `trip events id=<id> known=no`).
+6. **The store is read without `start` too (amends §64 item 2).** With an event wish, a `must` item or an id: with
+   `start`, the trip's dates as today; without, every stored entry for the trip's cities whose `end` is today or later
+   (store only; §35's search loop runs only with `start`).
+7. **Every city named in the text counts (amends §64 item 2's city list).** The trip's cities are each store city name
+   contained in `asked.city`, `asked.stay_city`, the plan's city or `asked.text`, in that order; then
+   `EventCity.from(address:)` when none; at most 3.
+8. **A multi-venue entry without a venue is turned back once.** A new-plan call whose `must` or `text` names a stored
+   entry with several venues (§66 item 1's comparison) and whose `events` has none of its ids: `INVALID_ARGUMENT`,
+   `field: asked.events`, `next` 「asked.events 没填：<name>有<n>个场馆（<id> <venue>，…），填司机说的那个场馆的 id；司机没说就问他去哪个。」.
+   Once per driver request; a second call without one is planned with §66 item 7.
+9. **A venue's map lookup accepts its halls (amends §71 item 2's name check, linked venues only).** A kept result also
+   passes when its name and the venue's core (SAR prefix removed, as §71) start with the same 6 or more characters; the
+   first such result is placed. Other lookups keep §71's containment check.
+10. **The planner never supplies an event's dates.** A linked stop's dates are the entry's (§66 item 1); without
+    `start`, cards and `plan_text` give no day dates.
+11. **Record.** `trip events read start=<date|none> cities=<a,b> entries=<n> ids=<n>` before the planner's first round;
+    `trip event hall sight=<name> hall=<venue> by=<id|city|first>` for each linked stop (local record only, I-8).
+12. **A chosen event closed on every trip day is not planned around (amends §64 item 4 for ids).** When the trip has
+    dates (`start`) and an entry chosen by id has confirmed dates that miss every trip day, `plan_trip` does not call the
+    planner: `EVENT_CLOSED`, data `{"event": <name>, "open": "<start>～<end>", "trip": "<first>～<last>"}`, `next`
+    「<name>开放<start>～<end>，行程是<first>～<last>，对不上。跟司机说这两个日期，问他是把行程改到活动开放的日子，还是不去这个活动。」.
+    His answer is a new `plan_trip` call. An entry open on some trip days is planned as today (only on its open days,
+    §64 item 4). Record `trip event closed event=<name> open=<start>~<end> trip=<first>~<last>`.
+
+**Acceptance (iOS).** Fixtures use the example's names; each row tests the general rule.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 364 | Store: entry X with one venue, entry Y with venues P (city A) and Q (city B); `find_events` | X `e1`; Y `e2a` P, `e2b` Q, each `facts` with its own venue; `next` ends with item 1's sentence | unit |
+| 365 | `plan_trip` with `events` `["e2b"]`, `when` 下个星期周末, today Fri 2026-11-27; planner puts Y on a day in city A at P | `start` 2026-12-05; events line has Y; stop looked up at Q, city B; `trip event hall … by=id` | unit |
+| 366 | `when` 这周末 / 下周末 / 下个星期周末 / 这周六 / 下周日 / 明天 / 12月5号 / 过几天, today Fri 2026-11-27; and 这周末 on Sun 2026-11-29 | 11-28 / 12-05 / 12-05 / 11-28 / 12-06 / 11-28 / 2026-12-05 / none (her `start` kept); 11-28 | unit |
+| 367 | Same as 365 with `events` `["e9"]` (unknown) and `must` Y's name | `trip events id=e9 known=no`; item 8 turns it back once, naming `e2a`, `e2b` | unit |
+| 368 | Second call after item 8 still without a Y id | Planned; venue by §66 item 7 | unit |
+| 369 | No `start`, no `when`; Y in `must`; store has Y | Events line has Y; dates from the entry; no day dates on cards | unit |
+| 370 | `asked.city` 「澳门珠海」, 「珠海、澳门」, 「广东省珠海市」 | Cities 澳门,珠海; 珠海,澳门; 珠海 | unit |
+| 371 | 高德 fixture from the PoC (「澳门威尼斯人金光会展E馆」, 「金光会展-展馆A(…)」, 「金光会展-展馆B(…)」) for linked venue 澳门威尼斯人金光会展中心 | Placed at the E馆; the same name as a plain sight (not linked) still fails §71's check | unit |
+| 372 | A trip with no event and no date words (「帮我规划珠海两天」) | Call valid; no rejection; behaviour as before §74 | unit |
+| 373 | Catalog text of `plan_trip` | Contains item 3's line exactly, before 「调用后不用说话」 | unit |
+| 374 | PC: `event_hall_poc.py` on `gemini-3.8-live`, cases F, C1, C2 with items 1–3, 3 runs each | F 3/3; C1 3/3; C2 3/3 (done 2026-11-27) | PC |
+| 375 | Device: ask for events in two cities; say which venue of a multi-venue event you like; ask for a trip with a relative date that includes it | The stop at the named venue, placed on the map, the entry's dates on the card, day dates from the resolved date; no 「活动表里没有」 | D |
+| 376 | Entry Y open 2026-12-03..12-05 chosen by id; `when` 这周末, today Fri 2026-11-27 (trip 11-28..11-29) | No planner call; `EVENT_CLOSED` with open 12-03～12-05, trip 11-28～11-29 and item 12's `next`; record line | unit |
+| 377 | Same entry; `when` 下个星期周末 (trip 12-05..12-06) | Planned; Y only on 12-05 (12-06 gives §64 item 4's fact) | unit |
+
+**Not verified.** The Qwen voice models (their free quota on the PC key is used up: `AllocationQuota.FreeTierOnly`); the
+planner's day choice with a fixed venue; OSRM guidance into Macau on the phone (§71, NOT_VERIFIED).
+
+**Trace gate.** Add `T-040zza: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zza.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zza | §74 items 1–12; rows 364–377 | NOT_RUN |
