@@ -111,3 +111,38 @@ command stays open more than 3 s in a normal room or parked car.
 |---|---|---|
 | T-004i | §14 items 1–7: one send decision carried on the gate event; drop everything together; cut at unmute; mute read at the frame; never muted before her first audio (find the 7565bcf cause); your-turn indicator; per-utterance log line. Replaces the T-040f mute (`GateBox.toModel`, `AgentState.utteranceCounts` / `modelUplinkMuted`) | unit (rows 1–6), build, D (rows 4, 6–9) |
 | T-004j | §14 late end of speech: from the T-004i log of a device run, fix what keeps the gate open | unit, D |
+
+## 15. Background work is always on screen (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 6e72c92).** Searches and trip writes run in the background (async tool
+calls) while the status caption says 「待命」 or 「请说」. Nothing on screen says work is running, so the driver does not
+know whether she is doing anything. Owner: "some process is running in the back and no one knows".
+
+1. **The caption shows running work.** Next to the status caption (item 4 of §14: 未开始 / 待命 / 思考中 / 请说 / 说话中),
+   a second caption shows while any tool call is running, from the moment the call starts until its result returns:
+   - `web_search`: 「正在搜索…」; `query_live_info`: 「正在查天气…」 (kind weather) or 「正在查…」;
+   - `set_trip_plan`: 「正在改行程…」; any other tool: 「正在处理…」.
+   With two or more running, the newest one's text with 「等 N 项」 (N = how many run).
+2. **Driven by the running calls only.** The caption is on exactly while the call list is not empty: on at the tool
+   call, off at its result (ok, refused, timed out or cancelled). No minimum time, no keep time, no other timer.
+   A session end or reconnect empties the list.
+3. **Independent of who is talking.** It shows while she speaks, while the driver speaks and while idle; the status
+   caption keeps its own state.
+4. **In the screen state.** `backgroundWork` on/off (F-09b §16 rule: on/off only), equal to the caption; the record gets
+   `panel backgroundWork on|off` at each change.
+5. **Code.** The tool dispatcher keeps the running calls (id, tool, kind); `DriveView` reads it for the caption;
+   the screen state and the record read the same list.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 10 | Async `web_search` starts, she says one sentence, result returns 6 s later | 「正在搜索…」 from the call to the result, also while she speaks; off at the result | unit, build |
+| 11 | `set_trip_plan` refused at once | Caption on at the call, off at the refusal | unit |
+| 12 | Search and trip write running together | 「正在改行程… 等 2 项」, then the remaining one's text, then off | unit |
+| 13 | Session ends with a call running | Caption off; `panel backgroundWork off` | unit |
+| 14 | Device: 「查一下明天汕头天气」 | The caption shows 「正在查天气…」 until she has the answer | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-004k | §15 items 1–5 (background-work caption from the running tool calls; screen state and record); rows 10–14 | NOT_RUN |

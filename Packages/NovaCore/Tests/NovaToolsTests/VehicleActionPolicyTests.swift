@@ -58,8 +58,8 @@ struct VehicleActionPolicyTests {
         #expect(names.contains("get_vehicle_state") && names.contains("undo_last_change"))
         let generated = Set(ToolCatalog.generatedSpecs.map(\.name)).subtracting(["run_scenario"])
         #expect(Set(names) == generated.union(["set_volume", "get_vehicle_state", "undo_last_change",
-                                                        "make_trip_list", "edit_trip_list", "set_trip_plan", "trip_next", "trip_plans",
-                                                        "show_place"]))
+                                                        "plan_trip", "trip_next", "check_trip_plan", "trip_plans",
+                                                        "show_place", "show_on_map"]))
         let climate = ToolCatalog.declarations.first { $0.name == "control_climate" }!
         #expect(!climate.description.contains("run_scenario"))
         #expect(!climate.description.contains("有点热"))

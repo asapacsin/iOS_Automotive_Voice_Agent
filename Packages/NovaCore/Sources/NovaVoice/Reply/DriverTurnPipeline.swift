@@ -13,6 +13,16 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
     case wrongLanguage = "WRONG_LANGUAGE"
     /// F-15b §52 item 12 (T-040ze): a "done" claim while a trip tool's result has not come back.
     case tripResultPending = "TRIP_RESULT_PENDING"
+    /// F-18 §37 item 2 (T-046z, generalises TRIP_RESULT_PENDING): a reply says there is nothing (no result, no event,
+    /// expired) while `find_events` still runs.
+    case eventsResultPending = "RESULT_PENDING tool=find_events"
+    /// F-18 §33 item 7 (T-046v): after `LIVE_INFO_UNAVAILABLE` the reply blames the network, which is false.
+    case networkBlamed = "NETWORK_BLAMED"
+    /// F-15b §58 items 2–3 (T-040zk): a trip change claimed after a refused or failed trip write (no ok one after it),
+    /// or background work claimed with none running. F-15b §62 (T-040zo): the trip write is `plan_trip`.
+    case tripClaimAfterFailure = "CLAIM_AFTER_FAILURE tool=plan_trip"
+    /// §58 items 1, 3: a trip change claimed with no ok `plan_trip` since the driver's last words.
+    case tripUnverifiedClaim = "UNVERIFIED_CLAIM tool=plan_trip"
 
     /// Sent to the model as a text turn. Code decides when; the sentence only explains (I-11).
     public var instruction: String {
@@ -27,6 +37,11 @@ public enum CorrectionReason: String, Sendable, Hashable, CaseIterable {
         // F-05a §15 item 4 as changed by §16 item 5 (T-016n): never with the driver's words.
         case .wrongLanguage: "[系统] WRONG_LANGUAGE：刚才的回答不是中文、英文或日语，已作废。请用中文简短地请司机再说一遍。"
         case .tripResultPending: "[系统] TRIP_RESULT_PENDING：\(AsyncTool.tripPendingNext)。"
+        case .eventsResultPending: "[系统] RESULT_PENDING tool=find_events：活动还在查，跟司机说还在查，好了告诉他。"
+        case .networkBlamed: "[系统] NETWORK_BLAMED：网络没有问题，只是现在查不了网上的信息。请如实这样说，不要说网络有问题或连不上网。"
+        // §58 item 2's correction, exactly as §58 gives it.
+        case .tripClaimAfterFailure: "[系统] 行程没有改成，原因在上一个工具结果的 problems 里。如实告诉司机没改成和原因，不要说已经加了。"
+        case .tripUnverifiedClaim: "[系统] 行程还没有改：没有成功的 plan_trip 结果。先调用 plan_trip，或如实告诉司机还没改。"
         }
     }
 
@@ -64,9 +79,9 @@ public struct PipelineTimer: Sendable, Hashable {
 }
 
 public enum PipelineOutput: Sendable, Hashable {
-    /// Judged reply text: subtitle and the source of revoiced clauses.
+    /// Judged reply text: the subtitle.
     case speechText(TurnID, String)
-    /// Judged provider audio (only without revoicing).
+    /// Judged provider audio: her voice (F-07 §18 item 1).
     case speechAudio(TurnID, PCMBuffer)
     /// Everything held for this turn was dropped; the shell flushes playback to a new epoch.
     case voided(TurnID)
@@ -132,9 +147,6 @@ public struct DriverTurnPipeline: Sendable {
     }
 
     private let tuning: TruthfulnessTuning
-    /// F-07 §15 item 7 (T-020b, Gemini 原声 only): a clean chat turn releases its audio as it comes, like its text.
-    /// Proven and pending turns keep their holds; a claim found later is cut by the void (item 8).
-    private let streamsCleanAudio: Bool
     private var turn: Turn?
     private var navigation = NavigationPhase.idle
     private var musicPlaying = false
@@ -142,6 +154,16 @@ public struct DriverTurnPipeline: Sendable {
     /// playback or NAVIGATING state stale until a fresh report arrives after it (review 6).
     private var musicFresh = true
     private var navigationFresh = true
+    /// F-15b §58 items 1–2 (T-040zk): the last `set_trip_plan` result since the driver's last words: true ok, false
+    /// refused or failed, nil none. Reset by the next driver utterance.
+    private var tripLatestOk: Bool?
+    /// §58 item 3: `set_trip_plan` calls running right now (any request).
+    private var tripWrites: Set<CallID> = []
+    /// §58 item 1: stop names the request's `set_trip_plan` calls wrote (a reply naming one is about the trip).
+    private var tripNames: [String] = []
+    /// F-15b §70 item 3 (T-040zw): the `not_placed` names of the latest trip write result; a reply naming one as planned
+    /// gets `UNVERIFIED_CLAIM tool=plan_trip`. Replaced by the next trip write result.
+    private var tripNotPlaced: [String] = []
     private var musicConfirmed: Bool { musicPlaying && musicFresh }
     private var navigationConfirmed: Bool { navigation == .navigating && navigationFresh }
     private var lastUtterance = ""
@@ -171,17 +193,36 @@ public struct DriverTurnPipeline: Sendable {
     private var timerEpoch = Epoch.initial
     private var timers: [PipelineTimer.Kind: Epoch] = [:]
 
-    public init(tuning: TruthfulnessTuning = TruthfulnessTuning(), streamsCleanAudio: Bool = false,
+    public init(tuning: TruthfulnessTuning = TruthfulnessTuning(),
                 detector: any LanguageIdentifier = NoLanguageIdentifier()) {
         self.tuning = tuning
-        self.streamsCleanAudio = streamsCleanAudio
         self.detector = detector
     }
+
+    /// §58 item 3 (review): a call cancelled or dropped at a reconnect never sends a result; it is no longer running,
+    /// so it stops allowing a background claim (a write still running across a new utterance still does).
+    public mutating func callsEnded(_ ids: some Sequence<CallID>) {
+        tripWrites.subtract(ids)
+        runningEvents.subtract(ids)
+        runningTrips.subtract(ids)
+    }
+
+    /// F-18 §37 item 2 (T-046z): `find_events` and `plan_trip` calls of the session still running, whatever the
+    /// utterance that started them.
+    private var runningEvents: Set<CallID> = []
+    private var runningTrips: Set<CallID> = []
+    /// §37 item 2: a reply that says there is nothing, or that something expired.
+    static let nothingWords = ["没有找到", "没找到", "找不到", "查不到", "没查到", "没有活动", "暂无", "过期", "已结束", "没有结果"]
+    static func saysNothing(_ text: String) -> Bool { nothingWords.contains(where: text.contains) }
 
     public mutating func handle(_ input: PipelineInput, at now: NovaInstant) -> [PipelineOutput] {
         switch input {
         case .driverUtterance(let text):
             lastUtterance = text
+            tripLatestOk = nil
+            tripNames = []
+            // F-15b §70 item 3 (review): only the reply to the turn that got the trip result is checked.
+            tripNotPlaced = []
             // F-05a §15 items 4-5: a new utterance has its own re-ask, and cancels a fallback line not yet said.
             wrongLanguageAsked = false
             awaitingReaskReply = false
@@ -224,6 +265,11 @@ public struct DriverTurnPipeline: Sendable {
             t.text += text
             // Re-judged on the whole text each time: a later sentence may make a stronger claim.
             t.claims.formUnion(ClaimLexicon.claims(in: t.text))
+            // F-15b §58 items 1, 3: a trip change or background trip work said is an action claim.
+            if ClaimLexicon.tripChanged(t.text, stops: tripNames) || ClaimLexicon.tripInBackground(t.text, stops: tripNames)
+                || namesNotPlaced(t.text) {
+                t.claims.insert(.action)
+            }
             turn = t
             var out = modelResponded() + (t.voided ? [] : replyArrived())
             // F-05a §15 item 2: Chinese, English or Japanese only, checked in code before she says it.
@@ -253,6 +299,20 @@ public struct DriverTurnPipeline: Sendable {
             utterancePending.formUnion(calls.map(\.id))
             utteranceBackground.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
             utteranceTrip.formUnion(calls.filter { AsyncTool(name: $0.name)?.isTrip == true }.map(\.id))
+            runningEvents.formUnion(calls.filter { $0.name == AsyncTool.findEvents.rawValue }.map(\.id))
+            runningTrips.formUnion(calls.filter { AsyncTool(name: $0.name)?.isTrip == true }.map(\.id))
+            for call in calls where Self.tripWriteTools.contains(call.name) {
+                tripWrites.insert(call.id)
+                if case .array(let days)? = call.arguments["days"] {
+                    for case .array(let stops) in days {
+                        for stop in stops { if let n = stop["name"]?.stringValue, !tripNames.contains(n) { tripNames.append(n) } }
+                    }
+                }
+                // F-15b §62 item 1 (T-040zo): `plan_trip` names the places the driver asked for in `asked.must`.
+                if case .array(let must)? = call.arguments["asked"]?["must"] {
+                    for n in must.compactMap(\.stringValue) where !tripNames.contains(n) { tripNames.append(n) }
+                }
+            }
             guard var t = current(id) else { return [] }
             t.pendingCalls.formUnion(calls.map(\.id))
             t.backgroundCalls.formUnion(calls.filter { AsyncTool(name: $0.name) != nil }.map(\.id))
@@ -265,7 +325,18 @@ public struct DriverTurnPipeline: Sendable {
             return modelResponded() + cancel(.correction)
         case .toolResult(let id, let response):
             let ofUtterance = utterancePending.remove(response.id) != nil
+            runningEvents.remove(response.id)
+            runningTrips.remove(response.id)
             if ofUtterance { utteranceResults.append(response) }
+            if Self.tripWriteTools.contains(response.name) {
+                tripWrites.remove(response.id)
+                tripLatestOk = response.result.ok
+                if case .array(let missed)? = response.result.data["not_placed"] {
+                    tripNotPlaced = missed.compactMap { $0["name"]?.stringValue }.filter { !$0.isEmpty }
+                } else {
+                    tripNotPlaced = []
+                }
+            }
             // The result may arrive after its own turn closed; it then proves the utterance's open turn.
             guard var t = turn, t.id == id || ofUtterance else { return [] }
             t.pendingCalls.remove(response.id)
@@ -328,6 +399,10 @@ public struct DriverTurnPipeline: Sendable {
     /// Tools whose ok result is not yet evidence: navigation is proven by the phase, music by playback.
     static let evidenceTools: Set<String> = ["navigate_to", "choose_navigation_option", "control_music", "play_music"]
 
+    /// F-18 §33 item 7: network wording a reply must not use after `LIVE_INFO_UNAVAILABLE`.
+    static let networkWords = ["网络", "连不上网", "联网", "断网", "上不了网", "没有网", "没网"]
+    static func blamesNetwork(_ text: String) -> Bool { networkWords.contains(where: text.contains) }
+
     static let questionWords = ["吗", "多久", "多远", "什么", "哪", "几", "?", "？", "怎么样"]
     static let navigationRequest = ["导航", "带我去", "带我到", "回家", "去公司", "开过去"]
     static let musicRequest = ["放首", "放歌", "播放", "音乐", "听歌", "来首", "放一首"]
@@ -353,16 +428,38 @@ public struct DriverTurnPipeline: Sendable {
         }
     }
 
+    /// F-15b §62 item 1 (T-040zo): the trip writes: `plan_trip` (and the internal `set_trip_plan`).
+    static let tripWriteTools: Set<String> = ["plan_trip", "set_trip_plan"]
+
     private func verdict(_ t: Turn, final: Bool) -> Verdict {
-        let acting = t.results.filter(acts)
+        // F-15b §62 item 8 (T-040zo): trip claims are judged only by §58's trip verdict over the latest trip result:
+        // with an ok one latest, the refused or failed trip writes before it never reach the generic
+        // CLAIM_AFTER_FAILURE, whatever words she uses (「做好了」 included); `not_placed` never makes it a failure.
+        let acting = t.results.filter(acts).filter {
+            !(tripLatestOk == true && Self.tripWriteTools.contains($0.name) && !$0.result.ok)
+        }
         let failed = acting.filter { !$0.result.ok }
         if t.results.contains(where: { !$0.result.ok && $0.result.code == .ambiguousReferent }) {
             // An honest clarification question is heard; a claim on top of the ambiguity is not.
             if t.claims.isEmpty { return final ? .clean : .pending }
             return .disproven(.clarifyReferent)
         }
+        // F-18 §33 item 7 (T-046v): blaming the network after LIVE_INFO_UNAVAILABLE is drift.
+        if Self.blamesNetwork(t.text),
+           (t.results + utteranceResults).contains(where: { !$0.result.ok && $0.result.code == .liveInfoUnavailable }) {
+            return .disproven(.networkBlamed)
+        }
         // F-15b §52 item 12 (T-040ze): "done" before a trip tool's result is drift, whatever else proved.
         if !t.claims.isEmpty, !t.tripPending.isEmpty { return .disproven(.tripResultPending) }
+        // F-18 §37 item 2 (T-046z): 「没有找到」「已过期」 while the work that would answer still runs.
+        if Self.saysNothing(t.text) {
+            if !runningEvents.isEmpty { return .disproven(.eventsResultPending) }
+            if !runningTrips.isEmpty { return .disproven(.tripResultPending) }
+        }
+        // F-15b §58 items 1–3 (T-040zk): a trip change is proven only by an ok `set_trip_plan` since the driver's last
+        // words; a refused one with no ok after it disproves it; background work is claimed only while one runs.
+        // F-15b §61 item 6 (T-040zn): §55 item 10's drift while issues are open is removed (no critics, no rounds).
+        if let trip = tripVerdict(t, final: final) { return trip }
         if !t.claims.isEmpty, acting.contains(where: { $0.result.ok && $0.result.data["partial"] == .bool(true) }) {
             return .disproven(.partialScenario)
         }
@@ -385,6 +482,37 @@ public struct DriverTurnPipeline: Sendable {
             }
         }
         return pending ? .pending : .proven
+    }
+
+    /// F-15b §70 item 3 (T-040zw): the reply names a `not_placed` stop of the latest trip result, and does not say it
+    /// was not found (saying so is the honest answer `next` asks for).
+    private func namesNotPlaced(_ text: String) -> Bool {
+        guard tripNotPlaced.contains(where: text.contains) else { return false }
+        return !(Self.saysNothing(text) || Self.notPlacedWords.contains(where: text.contains))
+    }
+
+    /// §70 item 3: the words that say a stop is not on the plan (§68 item 4's reasons and plain refusals).
+    static let notPlacedWords = ["查不了", "没查完", "没放上", "没有放", "不在行程", "没加上", "没有加", "没能"]
+
+    /// §58 items 1–3: nil when the reply says nothing about a trip change (judged as usual).
+    private func tripVerdict(_ t: Turn, final: Bool) -> Verdict? {
+        // F-15b §70 item 3 (T-040zw): a stop the map did not place, named in her reply as part of the plan.
+        if namesNotPlaced(t.text) { return .disproven(.tripUnverifiedClaim) }
+        if ClaimLexicon.tripInBackground(t.text, stops: tripNames), tripWrites.isEmpty {
+            return .disproven(tripLatestOk == false ? .tripClaimAfterFailure : .tripUnverifiedClaim)
+        }
+        guard ClaimLexicon.tripChanged(t.text, stops: tripNames) else { return nil }
+        switch tripLatestOk {
+        case false?: return .disproven(.tripClaimAfterFailure)
+        case nil:
+            // A write still running may prove it (§52 item 12 already holds a claim made while one runs).
+            return final && tripWrites.isEmpty ? .disproven(.tripUnverifiedClaim) : .pending
+        case true?:
+            // Proven by the trip's own result; any other claim in the reply is judged as usual (failed trip writes
+            // before the ok one no longer count).
+            if ClaimLexicon.claims(in: t.text).subtracting([.action]).isEmpty { return .proven }
+            return nil
+        }
     }
 
     private func verdict(of claim: ClaimKind, _ t: Turn, acting: [ToolResponse], failed: [ToolResponse],
@@ -462,9 +590,8 @@ public struct DriverTurnPipeline: Sendable {
             // unread claim may be on it, so only judged text goes out (L1, L3).
             return evidenceOutstanding(turn!) && !final ? releaseText() : release()
         case .clean:
-            // A clean chat turn releases judged text as it comes; its audio waits for the end, except with
-            // Gemini 原声, where it streams too (F-07 §15 item 7).
-            return final || streamsCleanAudio ? release() : releaseText()
+            // A clean chat turn releases judged text and audio as they come (F-07 §15 item 7, §18 item 1).
+            return release()
         case .pending:
             return []
         case .disproven(let reason):

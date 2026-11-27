@@ -24,7 +24,33 @@ public struct UplinkGateTuning: Sendable, Hashable {
     public var echoTail = NovaDuration.milliseconds(800)
     /// F-04a: speech confirmation by the sound classifier; nil = 抗噪 off (F-04 rules only).
     public var speechConfirm: SpeechConfirmTuning? = SpeechConfirmTuning()
+    /// F-04b §19 item 0 (T-013n): while her reply plays and through its echo tail, a frame is voiced only above
+    /// `echoCoupling × ` the loudest playback frame of the last `echoWindow` (Geigel double-talk detection).
+    public var echoWindow = NovaDuration.milliseconds(200)
+    /// Measured by the 音频测试 echo trial (`EchoCoupling.measured`); nil until the phone has one (then
+    /// `defaultEchoCoupling`, and the record says `coupling=default`).
+    public var echoCoupling: Double?
+    public static let defaultEchoCoupling = 0.5
     public init() {}
+}
+
+/// F-04b §19 item 0 (T-013n): the echo-path coupling from the echo trial (the driver silent while a loud reply plays):
+/// the highest captured/played peak ratio over the trials times 2 (a 6 dB margin over the measured echo return loss).
+public enum EchoCoupling {
+    public static let margin = 2.0
+
+    /// nil without a trial (the default applies).
+    public static func measured(ratios: [Double]) -> Double? {
+        let finite = ratios.filter { $0.isFinite && $0 >= 0 }
+        guard let top = finite.max() else { return nil }
+        return top * margin
+    }
+
+    /// `coupling=<value|default>` as the record writes it.
+    public static func label(_ coupling: Double?) -> String {
+        guard let coupling else { return "default" }
+        return String((coupling * 1000).rounded() / 1000)
+    }
 }
 
 /// F-04a §4: onset → open needs `required` of the last `window` classifier results at or above

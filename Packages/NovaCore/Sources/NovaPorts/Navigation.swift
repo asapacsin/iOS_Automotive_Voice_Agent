@@ -31,11 +31,15 @@ public struct RouteRequest: Sendable, Hashable {
     /// F-15b §47 item 1 (T-040s): from an `abroad` trip or `navigate_to abroad=true`; the route then comes from
     /// OSRM instead of 高德.
     public let abroad: Bool
+    /// F-15b §71 item 5 (T-040zx): a stop in Macau or Hong Kong routed on OSRM: its GCJ-02 points (and the car's) go
+    /// to OSRM as WGS-84, and the route comes back as GCJ-02. Only with `abroad`.
+    public let sar: Bool
 
-    public init(destination: GeoCoordinate, destinationName: String, abroad: Bool = false) {
+    public init(destination: GeoCoordinate, destinationName: String, abroad: Bool = false, sar: Bool = false) {
         self.destination = destination
         self.destinationName = destinationName
-        self.abroad = abroad
+        self.abroad = abroad || sar
+        self.sar = sar
     }
 }
 
@@ -245,11 +249,18 @@ public struct Place: Sendable, Hashable {
     public let countryCode: String?
     /// F-15b §46 item 6 (T-040r): the kind of place, from Photon's `osm_key`/`osm_value` or 高德's `type`; nil when unknown.
     public let kind: PlaceKind?
+    /// F-15b §68 item 1 (T-040zu): 高德's `adcode` (82xxxx Macau, 81xxxx Hong Kong); nil when unknown.
+    public let adcode: String?
+    /// F-15b §70 item 1 (T-040zw): 高德's `pname` (v3 gives Macau/Hong Kong POIs no adcode, only this); nil when unknown.
+    public let province: String?
 
     public init(id: String, name: String, address: String?, coordinate: GeoCoordinate, distanceMeters: Int?,
                 openingHours: String? = nil, phone: String? = nil, city: String? = nil, district: String? = nil,
-                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil) {
+                photoURL: URL? = nil, countryCode: String? = nil, kind: PlaceKind? = nil, adcode: String? = nil,
+                province: String? = nil) {
+        self.province = province
         self.kind = kind
+        self.adcode = adcode
         self.photoURL = photoURL
         self.countryCode = countryCode
         self.city = city
@@ -269,7 +280,7 @@ extension Place {
     public func with(photoURL: URL?) -> Place {
         Place(id: id, name: name, address: address, coordinate: coordinate, distanceMeters: distanceMeters,
               openingHours: openingHours, phone: phone, city: city, district: district, photoURL: photoURL, countryCode: countryCode,
-              kind: kind)
+              kind: kind, adcode: adcode, province: province)
     }
 }
 
@@ -327,6 +338,12 @@ public protocol PlacePicker: Sendable {
     /// One answer per choice, in order: the 0-based candidate index, or nil for none of them. Throws when there is
     /// no usable answer.
     func pick(_ choices: [PlaceChoice]) async throws -> [Int?]
+    /// F-15b §59 item 3 (T-040zl): the model id written on every `trip pick` line.
+    var model: String { get }
+}
+
+public extension PlacePicker {
+    var model: String { "unknown" }
 }
 
 /// F-15b §36 (T-040o): which place search a trip uses. China here is the mainland, Hong Kong, Macau and Taiwan
@@ -353,6 +370,65 @@ public protocol PlaceSearch: Sendable {
     func text(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place]
     /// F-16 §14 item 1: `/v3/place/around` only, with no nationwide fallback when nothing is in the radius.
     func aroundOnly(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place]
+}
+
+/// F-15b §68 items 1, 3 (T-040zu): a 高德 error with its `info` (e.g. `USER_ABROAD_DAILY_QUERY_OVER_LIMIT`), for the trip
+/// lookup's record line and its `not_placed` reason. `info` is nil when 高德 gave none (a transport error).
+public struct AmapWebFailure: Error, Sendable, Hashable {
+    public let error: AmapWebError
+    public let info: String?
+    public init(_ error: AmapWebError, info: String?) {
+        self.error = error
+        self.info = info
+    }
+    /// §68 item 4: any `…LIMIT` info is the map's own limit (`map_limit`).
+    public var isLimit: Bool { info?.hasSuffix("LIMIT") == true }
+    /// §68 item 2: 高德's per-second limit.
+    public static let qpsInfo = "CUQPS_HAS_EXCEEDED_THE_LIMIT"
+}
+
+/// F-15b §68 (T-040zu): `/v3/place/text` as `text(_:city:cityLimit:)`, throwing `AmapWebFailure` (the error with 高德's
+/// `info`) instead of a bare `AmapWebError`.
+public protocol PlaceInfoSearch: PlaceSearch {
+    func textInfo(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place]
+}
+
+/// F-15b §68 item 1 (T-040zu): a lookup city in Macau or Hong Kong is searched without 高德's city limit; only results
+/// in that SAR are kept. F-15b §70 item 1 (T-040zw): by adcode (82 Macau, 81 Hong Kong), or, with no adcode (高德 v3),
+/// by the province (`pname`, else `cityname`) 澳门特别行政区 / 香港特别行政区.
+public enum SpecialRegion: String, Sendable, Hashable, CaseIterable {
+    case macau, hongKong
+
+    public static let adcodePrefixes = ["82", "81"]
+    public static let cities: Set<String> = ["澳门", "澳门特别行政区", "香港", "香港特别行政区"]
+
+    public var adcodePrefix: String { self == .macau ? "82" : "81" }
+    public var provinceName: String { self == .macau ? "澳门特别行政区" : "香港特别行政区" }
+    /// The short name put in front of a retried lookup (§71 item 2b).
+    public var shortName: String { self == .macau ? "澳门" : "香港" }
+
+    public static func isSpecial(_ city: String?) -> Bool { region(ofCity: city) != nil }
+
+    /// The SAR a lookup city names exactly (§68's list); nil for any other city.
+    public static func region(ofCity city: String?) -> SpecialRegion? {
+        guard let c = city?.trimmingCharacters(in: .whitespaces), cities.contains(c) else { return nil }
+        return c.hasPrefix("澳门") ? .macau : .hongKong
+    }
+
+    /// §70 item 1: how a place is in a SAR (`adcode` or `province`); nil when it is in neither.
+    public static func keptBy(_ place: Place) -> (region: SpecialRegion, by: String)? {
+        if let code = place.adcode, !code.isEmpty {
+            return allCases.first { code.hasPrefix($0.adcodePrefix) }.map { ($0, "adcode") }
+        }
+        let province = [place.province, place.city].compactMap { $0?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
+        return allCases.first { $0.provinceName == province }.map { ($0, "province") }
+    }
+
+    /// The place is in this SAR (§70 item 1: 澳门 keeps only Macau, 香港 only Hong Kong).
+    public func keeps(_ place: Place) -> Bool { Self.keptBy(place)?.region == self }
+
+    /// The place is in either SAR.
+    public static func keeps(_ place: Place) -> Bool { keptBy(place) != nil }
 }
 
 public extension PlaceSearch {
@@ -606,4 +682,28 @@ public enum AmapWebError: Error, Sendable, Hashable {
     case failed
     /// F-15b §52 item 11 (T-040zd): the lookup ran out of tries (`search_slow`); never "the place does not exist".
     case slow
+}
+
+/// F-15b §62 items 2, 10 (T-040zo): the planner model that writes and reviews a trip plan (`QwenRoute.planner`'s chain, its client
+/// in NovaRealtime). One chat completion per round: the system text, then the conversation so far; the answer is the
+/// model's text (JSON asked for). Throws `TripPlannerModelError` on an HTTP error; the client moves along `QwenRoute.planner`'s chain on a quota or rate error (F-18 §36, §40).
+public protocol TripPlannerModel: Sendable {
+    func complete(system: String, messages: [TripPlannerMessage]) async throws -> String
+    /// The model id written on every `trip planner round=` line.
+    var model: String { get }
+}
+
+public struct TripPlannerMessage: Sendable, Hashable {
+    public enum Role: String, Sendable, Hashable { case user, assistant }
+    public let role: Role
+    public let content: String
+    public init(role: Role, content: String) {
+        self.role = role
+        self.content = content
+    }
+}
+
+public enum TripPlannerModelError: Error, Equatable {
+    case http(Int)
+    case notConfigured
 }

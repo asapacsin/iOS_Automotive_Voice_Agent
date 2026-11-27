@@ -16,7 +16,7 @@ FIX = ROOT / "scripts" / "fixtures" / "records"
 
 class RecordScriptsTests(unittest.TestCase):
     def test_t031u_row6_collect_archives_indexes_skips_and_reports(self):
-        """T-031u F-12 §21 row 6: 3 files archived under their commits, copy skipped, format 9 reader=none."""
+        """T-031u F-12 §21 row 6: 3 files archived under their commits, copy skipped, format 99 reader=none."""
         with tempfile.TemporaryDirectory() as tmp:
             src, arc = pathlib.Path(tmp) / "src", pathlib.Path(tmp) / "arc"
             src.mkdir()
@@ -25,11 +25,11 @@ class RecordScriptsTests(unittest.TestCase):
                                                      encoding="utf-8")
             (src / "20261120-090000.txt").write_text(one, encoding="utf-8")
             (src / "20261120-090500.txt").write_text(one, encoding="utf-8")  # a copy
-            (src / "20261120-100000.txt").write_text("recordFormat 9\napp 0.1.0(1) 1234567\n0 x y\n", encoding="utf-8")
+            (src / "20261120-100000.txt").write_text("recordFormat 99\napp 0.1.0(1) 1234567\n0 x y\n", encoding="utf-8")
             with contextlib.redirect_stdout(io.StringIO()) as out:
                 code = collect.main(["--from", str(src), "--archive", str(arc)])
             self.assertEqual(code, 1)
-            self.assertIn("unknown recordFormat 9 in 1234567", out.getvalue())
+            self.assertIn("unknown recordFormat 99 in 1234567", out.getvalue())
             with (arc / "index.csv").open(encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
             self.assertEqual(len(rows), 3)
@@ -55,7 +55,7 @@ class RecordScriptsTests(unittest.TestCase):
         self.assertEqual(set(one[0].keys()), set(read.FIELDS))
         with tempfile.TemporaryDirectory() as tmp:
             bad = pathlib.Path(tmp) / "x.txt"
-            bad.write_text("recordFormat 9\n", encoding="utf-8")
+            bad.write_text("recordFormat 99\n", encoding="utf-8")
             with self.assertRaises(read.UnknownFormat):
                 read.read(bad)
 
@@ -66,6 +66,50 @@ class RecordScriptsTests(unittest.TestCase):
             self.assertEqual((FIX / f.name).read_bytes(), f.read_bytes(), f.name)
             n = int(f.stem.rsplit("-", 1)[1])
             self.assertIn(n, read.READERS, f"read.py has no reader for format {n}")
+
+    def test_t016q_voice_model_header_fills_model(self):
+        """T-016q F-05 §15 item 6 (review): the header's `voiceModel` is the session's model in every row."""
+        rows = read.read(FIX / "record-format-17.txt")
+        self.assertTrue(rows and all(r["model"] == "gemini-3.8-live" for r in rows))
+        text = (FIX / "record-format-17.txt").read_text(encoding="utf-8").replace(
+            "voiceModel gemini-3.8-live", "voiceModel qwen-audio-3.1-realtime-flash")
+        with tempfile.TemporaryDirectory() as tmp:
+            f = pathlib.Path(tmp) / "20261126-180000.txt"
+            f.write_text(text, encoding="utf-8")
+            rows = read.read(f)
+        self.assertTrue(all(r["model"] == "qwen-audio-3.1-realtime-flash" for r in rows))
+        self.assertTrue(any(r["fields"].startswith("reconnect fresh=yes") or "reconnect fresh=yes" in r["fields"]
+                            for r in rows))
+
+    def test_t046w_row22_format5_bodies_unescape_exactly(self):
+        """T-046w F-18 §34 row 22 (format 5): read.py gives the search bodies of the fixture back exactly."""
+        rows = read.read(FIX / "record-format-5.txt")
+        req = next(r for r in rows if r["kind"] == "search-request")
+        res = next(r for r in rows if r["kind"] == "search-response")
+        self.assertEqual(read.body(req), '{"input":{"messages":[{"content":"第一行\\n第二行"}]},"system":"规则一\n规则二"}')
+        self.assertEqual(read.body(res), 'id:1\nevent:result\n:HTTP_STATUS/200\ndata:{"text":"七块\tC:\\\\path"}\n\nid:2\r\ndata:{}\n\n')
+        self.assertEqual({r["legacy"] for r in rows}, {"false"})
+        self.assertEqual(read.unescape_body("a\\\\nb\\nc\\td\\re"), "a\\nb\nc\td\re")
+        # Every line after the header starts with its time (F-18 §34 row 23's check, on the fixture).
+        lines = (FIX / "record-format-5.txt").read_bytes().decode("utf-8").split("\n")[:-1]
+        events = [l for l in lines if l[:1].isdigit()]
+        self.assertEqual(len(events), len(rows))
+        self.assertNotIn("\r", "".join(lines))
+
+    def test_t046w_row22_format4_multiline_search_body_is_one_legacy_row(self):
+        """T-046w F-18 §34 row 22 (format 4): a raw search body over many lines is one search-response row, legacy=true."""
+        body = "id:1\nevent:result\n:HTTP_STATUS/200\ndata:{\"a\":1}\n\nid:2\ndata:{}"
+        text = ("recordFormat 4\napp 0.1.0(1) abcdef0\n100 search-request attempt=1 body={}\n"
+                f"200 search-response attempt=1 status=200 body={body}\n300 search-result ok ms=1\n")
+        with tempfile.TemporaryDirectory() as d:
+            f = pathlib.Path(d) / "20261123-101517.txt"
+            f.write_text(text, encoding="utf-8")
+            rows = read.read(f)
+        self.assertEqual([r["kind"] for r in rows], ["search-request", "search-response", "search-result"])
+        res = rows[1]
+        self.assertEqual(read.body(res), body)
+        self.assertEqual(res["legacy"], "true")
+        self.assertEqual({rows[0]["legacy"], rows[2]["legacy"]}, {"false"})
 
     def test_t031y_row7_agent_fields_index_and_unregistered(self):
         """T-031y F-09b §15 row 7: rows carry agentVersion/agentHash/model; index has the columns; unknown hash flagged."""

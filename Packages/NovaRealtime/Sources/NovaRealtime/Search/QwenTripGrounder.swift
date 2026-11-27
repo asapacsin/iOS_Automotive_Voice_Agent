@@ -68,35 +68,23 @@ public struct QwenTripGrounder: TripGrounder {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// F-18 §41 item 2: the same messages as before, on the Responses API with the `web_search` tool.
     public func request(_ r: TripGroundRequest, key: String, route: QwenRoute = Self.route) -> URLRequest {
-        var request = URLRequest(url: URL(string: QwenRoute.endpoint)!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if route.stream { request.setValue("enable", forHTTPHeaderField: "X-DashScope-SSE") }
         let date = now(), zone = zone()
-        var extra: [String: JSONValue] = [:]
-        if Self.sendsJSONMode { extra["response_format"] = ["type": "json_object"] }
-        let body: JSONValue = [
-            "model": .string(route.model),
-            "input": ["messages": [
-                ["role": "system", "content": [["text": .string(Self.searchSystem + " " + Self.jsonSystem)]]],
-                // F-18 §24: the date turn, so opening hours and seasonal places fit the trip dates.
-                ["role": "user", "content": [["text": .string(QwenWebSearchClient.dateQuestion)]]],
-                ["role": "assistant", "content": [["text": .string(QwenWebSearchClient.dateAnswer(now: date, zone: zone))]]],
-                ["role": "user", "content": [["text": .string(Self.input(r))]]],
-            ]],
-            "parameters": route.parameters(extra),
-        ]
-        request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
-        return request
+        return route.responsesRequest([
+            ("system", Self.searchSystem + " " + Self.jsonSystem),
+            // F-18 §24: the date turn, so opening hours and seasonal places fit the trip dates.
+            ("user", QwenWebSearchClient.dateQuestion),
+            ("assistant", QwenWebSearchClient.dateAnswer(now: date, zone: zone)),
+            ("user", Self.input(r)),
+        ], key: key)
     }
 
     public func ground(_ r: TripGroundRequest) async throws -> TripGroundAnswer {
         guard let key = key(), !key.isEmpty else { throw TripGroundError.notConfigured }
         let status: Int, body: Data
         do {
-            // §50 item 10 (T-040x): a 429 or a quota 403 switches once to `route.backupModel` with `turbo`.
+            // §50 item 10 (T-040x): a 429 or a quota 403 switches once to the next model with the same `web_search` body (§41).
             (status, body) = try await fallback.run(Self.route, request: Self.input(r)) { route, timeout in
                 var req = request(r, key: key, route: route)
                 req.limit(timeout)
@@ -110,7 +98,8 @@ public struct QwenTripGrounder: TripGrounder {
         return try Self.answer(body)
     }
 
-    /// The streamed body checked: an error chunk is `failed`, no search result `nosearch`, wrong fields `json`.
+    /// The body checked: an error is `failed`, no source (§41 item 3: the search ran = at least one source) `nosearch`,
+    /// wrong fields `json`.
     public static func answer(_ body: Data) throws -> TripGroundAnswer {
         let parsed = QwenWebSearchClient.parse(body)
         if parsed.code != nil { throw TripGroundError.failed }

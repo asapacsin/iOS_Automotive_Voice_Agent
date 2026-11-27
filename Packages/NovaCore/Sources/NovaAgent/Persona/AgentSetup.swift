@@ -10,7 +10,7 @@ import NovaVoice
 /// Not in it: audio, UI, network and log code, keys (item 1).
 public struct AgentSetup: Sendable, Hashable {
     /// Item 3: equals the newest row of specs/contracts/agent-versions.md.
-    public static let version = "5.2.0"
+    public static let version = "14.0.0"
 
     /// One session's settings that change what is sent (item 1). Comfort mode has one value ("model"); the language
     /// has no setting (F-05a: she follows the driver), so neither is a dimension.
@@ -102,10 +102,13 @@ public struct AgentSetup: Sendable, Hashable {
         out.append(("tripArrivedHotel", TripPlanner.arrivedHotelNote(name: "<name>", nextDay: "<day>")))
         out.append(("tripArrivedDayDone", TripPlanner.arrivedDayDoneNote(index: "<n>", name: "<name>")))
         for (name, what) in [("Opened", TripPlanner.editOpened("<name>")), ("Removed", TripPlanner.editRemoved("<n>", "<name>")),
-                             ("Moved", TripPlanner.editMoved("<from>", "<to>")), ("Next", TripPlanner.editNext("<name>")),
+                             ("Moved", TripPlanner.editMoved("<from>", "<to>")),
                              ("Added", TripPlanner.editAdded("<name>"))] {
             out.append(("tripScreenEdit\(name)", TripPlanner.screenEditNote(what: what, count: "<count>")))
         }
+        // F-15b §57 item 5 (T-040zj): the navigation button taps (replace the 去下一站 screen-edit note).
+        out.append(("navTapNext", TripPlanner.nextTapLine))
+        out.append(("navTapStop", NavigationController.stopTapLine))
         return out
     }
 

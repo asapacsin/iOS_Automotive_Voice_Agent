@@ -217,3 +217,46 @@ struct MapCameraPolicyTests {
         #expect(p.handle(.position(demo, at: t0 + .milliseconds(1_100))) == .center(demoPoint, spanMeters: 1500))
     }
 }
+
+@Suite("T-031zd F-09b §19 item 4 the camera with a show_on_map pin")
+struct MapPinCameraTests {
+    func seen(_ c: GeoCoordinate) -> GeoCoordinate { CoordinateConverter.gcj02(GeoCoordinate(
+        latitude: c.latitude, longitude: c.longitude, datum: .wgs84)) }
+
+    @Test("T-031zd F-09b row 7: car 150 km away frames both; car unknown or pin 400 km away: pin alone at 5 km; navigating: no camera command; no auto-recenter while the pin shows")
+    func row7() {
+        let car = seen(zhuhai)
+        // Car known, pin 150 km north: both framed; following stops and the 15 s recenter does not run.
+        var p = MapCameraPolicy()
+        _ = p.handle(.position(position(fix()), at: t0))
+        let near = north(car, 150_000)
+        #expect(p.handle(.mapPin(near, at: t0 + .seconds(1))) == .frame([car, near]))
+        #expect(p.handle(.tick(at: t0 + .seconds(60))) == nil)
+        #expect(p.handle(.position(position(fix(north(zhuhai, 500)), now: t0 + .seconds(61)), at: t0 + .seconds(61))) == nil)
+        // 回到我的位置 still works.
+        if case .center? = p.handle(.locateMe(at: t0 + .seconds(62))) {} else { Issue.record("locate did not recenter") }
+        // Car unknown: the pin alone at 5 km.
+        var unknown = MapCameraPolicy()
+        #expect(unknown.handle(.mapPin(near, at: t0)) == .center(near, spanMeters: 5_000))
+        // Pin 400 km away: alone at 5 km.
+        var far = MapCameraPolicy()
+        _ = far.handle(.position(position(fix()), at: t0))
+        let distant = north(car, 400_000)
+        #expect(far.handle(.mapPin(distant, at: t0 + .seconds(1))) == .center(distant, spanMeters: 5_000))
+        // Navigating: drawn, the camera does not move.
+        var nav = MapCameraPolicy()
+        _ = nav.handle(.position(position(fix()), at: t0))
+        _ = nav.handle(.framing(.navigating, at: t0))
+        #expect(nav.handle(.mapPin(near, at: t0 + .seconds(1))) == nil)
+        // A pin shown before guidance started does not stop the in-car recenter while navigating.
+        var later = MapCameraPolicy()
+        _ = later.handle(.position(position(fix()), at: t0))
+        _ = later.handle(.mapPin(near, at: t0 + .seconds(1)))
+        _ = later.handle(.framing(.navigating, at: t0 + .seconds(2)))
+        #expect(later.handle(.tick(at: t0 + .seconds(30))) != nil)
+        // The pin going away lets the auto-recenter run again.
+        _ = p.handle(.userGesture(at: t0 + .seconds(70)))
+        _ = p.handle(.mapPin(nil, at: t0 + .seconds(71)))
+        #expect(p.handle(.tick(at: t0 + .seconds(90))) != nil)
+    }
+}

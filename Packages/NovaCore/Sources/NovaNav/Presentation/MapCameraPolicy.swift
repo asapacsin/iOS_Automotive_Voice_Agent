@@ -13,7 +13,13 @@ public struct MapCameraPolicy: Sendable {
         case center(GeoCoordinate, spanMeters: Double)
         /// Frame the routes or listed places (T-044 framing).
         case fitContent
+        /// F-09b §19 item 4 (T-031zd): frame these points together (the car and the pin), the `fitContent` margin.
+        case frame([GeoCoordinate])
     }
+
+    /// §19 item 4: the pin alone is shown at this span; over `pinFarMeters` from the car the pin is shown alone.
+    public static let pinSpanMeters = 5_000.0
+    public static let pinFarMeters = 300_000.0
 
     public enum Event: Sendable, Hashable {
         case position(SelfPosition, at: NovaInstant)
@@ -24,12 +30,16 @@ public struct MapCameraPolicy: Sendable {
         /// Every `reevaluateEvery`, and at the last touch + `autoRecenterAfter`.
         case tick(at: NovaInstant)
         case sourceChanged
+        /// F-09b §19 item 4: `show_on_map` drew a pin (nil: the pin went away).
+        case mapPin(GeoCoordinate?, at: NovaInstant)
     }
 
     public let tuning: MapPositionTuning
     public private(set) var mode = Mode.awaitingFirstFix
     public private(set) var framing = Framing.open
     private var marker: GeoCoordinate?
+    /// §19 item 4: while a pin is shown the 15 s auto-recenter does not run.
+    public private(set) var pin: GeoCoordinate?
     private var lastCenter: (point: GeoCoordinate, at: NovaInstant)?
 
     public init(tuning: MapPositionTuning = MapPositionTuning()) {
@@ -75,7 +85,7 @@ public struct MapCameraPolicy: Sendable {
             return nil
         case .tick(let now):
             // C8: the in-car return after no touch.
-            guard case .free(let lastTouch) = mode, now - lastTouch >= tuning.autoRecenterAfter,
+            guard pin == nil || framing == .navigating, case .free(let lastTouch) = mode, now - lastTouch >= tuning.autoRecenterAfter,
                   framing != .lists, let point = marker else { return nil }
             mode = .following
             return center(point, at: now)
@@ -83,6 +93,14 @@ public struct MapCameraPolicy: Sendable {
             guard let point = marker else { return nil }  // C10: the view runs the LocateAction
             mode = .following  // C9: at once, no throttle
             return center(point, at: now)
+        case .mapPin(let point, let now):
+            pin = point
+            // Navigating: the pin is drawn, the route view stays.
+            guard let point, framing != .navigating else { return nil }
+            // Following stops while the pin is shown, as a driver pan (C7).
+            mode = .free(lastTouch: now)
+            if let car = marker, SelfPosition.distanceMeters(car, point) <= Self.pinFarMeters { return .frame([car, point]) }
+            return .center(point, spanMeters: Self.pinSpanMeters)
         case .sourceChanged:
             mode = .awaitingFirstFix  // C11
             marker = nil

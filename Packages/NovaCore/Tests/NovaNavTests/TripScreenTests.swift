@@ -49,7 +49,7 @@ struct PhotoRig {
     }
 
     func make(_ places: [String]) async {
-        _ = await planner.execute(trip("make_trip_list", ["places": names(places)]))
+        _ = await planner.execute(planCall(["places": names(places)]))
         await planner.photosSettled()
     }
 }

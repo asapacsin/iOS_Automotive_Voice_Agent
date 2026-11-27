@@ -88,7 +88,7 @@ private struct NearRig {
         let planner = TripPlanner(search: TripSearch(tokyo), navigation: nav, origin: { tokyoCentre }, clock: ManualClock(),
                                   abroadSearch: FakeApple(tokyo))
         await planner.connectCards()
-        let made = await planner.execute(trip("make_trip_list", ["places": names(["浅草寺", "东京塔"]), "abroad": true,
+        let made = await planner.execute(planCall(["places": names(["浅草寺", "东京塔"]), "abroad": true,
                                                                  "city": "Tokyo, Japan"]))
         #expect(made.ok)
         #expect(await planner.cardsHidden == false)
@@ -517,7 +517,7 @@ struct TripHereTests {
         let planner = await rig.tokyoTrip()
         let stops = await planner.nearTrip()?.stops ?? []
         #expect(stops.count == 2)
-        _ = await planner.execute(trip("edit_trip_list", ["action": "visited", "index": .int(1)]))
+        await planner.markForTests(index: 1, .visited)
         #expect(await planner.nearTrip()?.next?.name == stops.last?.name)
     }
 

@@ -4,14 +4,13 @@ import NovaTools
 import NovaVoice
 import Synchronization
 
-/// Where the effects of `AgentState` go. Production wires the real provider, revoicer and playback;
+/// Where the effects of `AgentState` go. Production wires the real provider and playback;
 /// tests record. Called in effect order by the AgentCore drainer.
 public protocol AgentEffectSink: Sendable {
     func provider(_ command: ProviderCommand) async
     func flushPlayback(to epoch: Epoch)
     func cancelRevoicing(_ epoch: Epoch) async
     func newReply() async
-    func speak(_ clause: String) async
     /// F-07 §15 item 3: judged Gemini audio for the reply lane (Gemini 原声 only).
     func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async
     func publish(_ view: AgentViewState) async
@@ -44,20 +43,27 @@ public final class ToolRunner: Sendable {
     private let executors: [String: any ToolExecutor]
     private let fallback: any ToolExecutor
     private let running = Mutex<[CallID: Task<Void, Never>]>([:])
+    /// F-04 §15 item 5 (T-004k): the running calls (id, tool, kind) the background-work caption shows.
+    public let background: BackgroundWorkBoard
 
-    public init(executors: [String: any ToolExecutor], fallback: any ToolExecutor = NotYetExecutor()) {
+    public init(executors: [String: any ToolExecutor], fallback: any ToolExecutor = NotYetExecutor(),
+                background: BackgroundWorkBoard = BackgroundWorkBoard()) {
         self.executors = executors
         self.fallback = fallback
+        self.background = background
     }
 
     /// `turn`: the model turn the call belongs to, visible to the executor as `ToolTurn.current` (F-09b §4 item 2).
     public func start(_ call: ToolCall, turn: TurnID? = nil, epoch: UInt64 = 0, onFinish: @escaping @Sendable (ToolResult) async -> Void) {
         let executor = executors[call.name] ?? fallback
+        // §15 item 2: on at the call, off at its result (any result) or its cancel.
+        background.start(BackgroundWork.Call(id: call.id, tool: call.name, kind: call.arguments["kind"]?.stringValue))
         // Registered under the lock before it can finish, so its own removal always finds it.
         running.withLock { tasks in
             tasks[call.id] = Task { [self] in
                 let result = await ToolTurn.$current.withValue(turn.map { ToolTurn.key(epoch: epoch, turn: $0.value) }) { await executor.execute(call) }
                 let current = running.withLock { $0.removeValue(forKey: call.id) != nil }
+                background.end(call.id)
                 // `toolCallCancellation`: the result of a cancelled call is never sent.
                 guard current, !Task.isCancelled else { return }
                 await onFinish(result)
@@ -65,7 +71,13 @@ public final class ToolRunner: Sendable {
         }
     }
 
-    public func cancel(_ id: CallID) { running.withLock { $0.removeValue(forKey: id) }?.cancel() }
+    public func cancel(_ id: CallID) {
+        running.withLock { $0.removeValue(forKey: id) }?.cancel()
+        background.end(id)
+    }
+
+    /// F-04 §15 item 2 (T-004k): a session end or reconnect empties the caption's list (a late result changes nothing).
+    public func clearBackground() { background.clear() }
 }
 
 /// Turns timer effects into `.timer` events on the injected clock (ios-architecture §5.5).
@@ -131,12 +143,15 @@ public actor AgentCore {
     private func run(_ effect: AgentEffect) async {
         switch effect {
         case .provider(let command):
-            if case .connect = command { toolEpoch = ToolTurn.newEpoch() }
+            if case .connect = command {
+                toolEpoch = ToolTurn.newEpoch()
+                // F-04 §15 item 2 (T-004k): a reconnect empties the background-work list.
+                tools.clearBackground()
+            }
             await sink.provider(command)
         case .flushPlayback(let epoch): sink.flushPlayback(to: epoch)
         case .cancelRevoicing(let epoch): await sink.cancelRevoicing(epoch)
         case .newReply: await sink.newReply()
-        case .speak(let clause): await sink.speak(clause)
         case .playReplyAudio(let turn, let pcm): await sink.playReplyAudio(pcm, turn: turn)
         case .startTool(let turn, let call):
             tools.start(call, turn: turn, epoch: toolEpoch) { [weak self] result in await self?.send(.toolFinished(turn, call, result)) }

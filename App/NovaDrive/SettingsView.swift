@@ -2,6 +2,7 @@ import NovaAgent
 import NovaNav
 import NovaPlatform
 import NovaPorts
+import NovaRealtime
 import NovaServices
 import NovaTools
 import NovaVoice
@@ -32,7 +33,7 @@ struct SettingsView: View {
         (.qweatherHost, "和风天气 API Host"),
         (.qweatherKey, "和风天气 API KEY"),
         (.zhipuKey, "智谱 key（视觉，推荐）"),
-        (.qwenAPIKey, "阿里云百炼 key（她的声音、联网搜索）"),
+        (.qwenAPIKey, "阿里云百炼 key（联网搜索、Qwen 语音模型）"),
         (.qianfanKey, "千帆 key（可选，视觉备用）"),
         (.iflytekAppID, "讯飞 APPID（唤醒词）"),
         (.iflytekAPIKey, "讯飞 APIKey"),
@@ -60,6 +61,18 @@ struct SettingsView: View {
     @AppStorage(DriveSettings.navigationMode) private var navigationMode = NavigationModeSetting.default.rawValue
     @StateObject private var locationPermission = LocationPermission()
 
+    /// A write-only key field (H-keys): never shows a saved value.
+    @ViewBuilder private func keyField(_ key: CredentialKey) -> some View {
+        SecureField(saved.contains(key) ? "已保存，输入可替换" : "未设置", text: binding(key))
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        HStack {
+            Button("保存") { save(key) }.disabled((drafts[key] ?? "").isEmpty)
+            Spacer()
+            if saved.contains(key) { Button("删除", role: .destructive) { remove(key) } }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -69,19 +82,11 @@ struct SettingsView: View {
                     Text("开始对话后，你的语音会发送到 Google Gemini 处理。").font(.footnote).foregroundStyle(.secondary)
                 }
                 ForEach(keys, id: \.0) { key, title in
-                    Section(title) {
-                        SecureField(saved.contains(key) ? "已保存，输入可替换" : "未设置", text: binding(key))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        HStack {
-                            Button("保存") { save(key) }.disabled((drafts[key] ?? "").isEmpty)
-                            Spacer()
-                            if saved.contains(key) { Button("删除", role: .destructive) { remove(key) } }
-                        }
-                    }
+                    Section(title) { keyField(key) }
                 }
-                // F-07 §14 item 2 (T-020a).
-                VoiceSettingsSection(onChange: refresh)
+                // F-05 §15 item 1 (T-016q).
+                VoiceModelSection(qwenKeySaved: saved.contains(.qwenAPIKey))
+                // F-07 §18 item 3 (T-020e): 「她的声音」 is removed; her voice is the voice model's own.
                 // F-01 §14 item 6 (T-060a).
                 Section("唤醒词") {
                     Toggle("唤醒词", isOn: $wakeWord)
@@ -126,9 +131,18 @@ struct SettingsView: View {
                 }
                 Section("联网") {
                     Toggle("联网搜索（实验）", isOn: $webSearch)
-                    Text("需要阿里云百炼 key。问题会发到阿里云新加坡。")
+                    Text("需要阿里云百炼 key。问题会发到阿里云北京。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    // F-18 §46 item 1 (T-046zi, replaces §42's Qiniu key): write-only, Keychain `tavily_api_key`.
+                    Text("Tavily key").font(.subheadline)
+                    keyField(.tavilyAPIKey)
+                    Text("填了 Tavily key：查活动走 Tavily，搜索词会发到 Tavily。不填：和现在一样。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("开：天气、新闻、营业时间这类信息由她联网查，答案可能不准。车辆操作不变，仍只通过车辆工具。关：和现在一样。下次开始对话时生效。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    // F-18 §36 item 4 (T-046y): Qwen models marked used up (quota 403) until 24 h pass or the app restarts.
+                    let usedUp = QwenFallback.shared.usedUpModels()
+                    Text(usedUp.isEmpty ? "千问额度：正常" : "千问额度用完：" + usedUp.joined(separator: "、"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 // F-07 §16 item 1 (T-020c).
@@ -209,7 +223,6 @@ struct SettingsView: View {
         Section("状态") {
             statusRow("Gemini key", ready.geminiKey)
             statusRow("Gemini 同意", ready.geminiConsent)
-            statusRow("她的声音", ready.voice)
             statusRow("高德 Web key", ready.amapWebKey)
             statusRow("和风天气", ready.qweather)
             statusRow("视觉 key", ready.vision)
@@ -230,7 +243,7 @@ struct SettingsView: View {
     }
 
     private func refresh() {
-        saved = Set(keys.map(\.0).filter { SecretField.display($0, in: store) == .saved })
+        saved = Set((keys.map(\.0) + [.tavilyAPIKey]).filter { SecretField.display($0, in: store) == .saved })
         readiness = SettingsReadiness(credentials: store, settings: settings)
     }
 

@@ -641,7 +641,7 @@ New error codes (`ToolErrorCode`): `NO_TRIP_LIST`, `TRIP_TOO_LONG`, `TRIP_TOO_SH
 | 44 | Device: 「帮我准备一个澳门两天游」, then 「加上路环的安德鲁」 | Every stop found; 安德鲁饼店 added | D |
 | 45 | Picker fails, has no key, or answers after 2.5 s (manual clock) | Every name takes 高德's first result; `trip pick ... ok=no` | unit |
 | 46 | A name with one result, and a cached name | No picker call for them | unit |
-| 47 | `QwenPlacePicker` request and parse (fake send) | Body: `qwen3.7-flash`, `enable_search=false`, the copied EntGPT prompt with the candidates; answer lines parsed, `0` → none, unreadable → error | unit |
+| 47 | `QwenPlacePicker` request and parse (fake send) | Body: `qwen3.8-flash` (§59), `enable_search=false`, the copied EntGPT prompt with the candidates; answer lines parsed, `0` → none, unreadable → error | unit |
 | 48 | `make_trip_list` and `edit_trip_list` declarations and responses | `NON_BLOCKING`; responses carry `WHEN_IDLE` | unit |
 | 49 | `route_trip` called while `make_trip_list` still waits on its lookups | The route runs after the list is made, on the new list; the list is not `OPTIONS_STALE` | unit |
 | 50 | Device: 「规划北京一日游，去故宫和陈家祠…」 style request, then 「串成路线」 | She says one line, keeps talking, explains the list when quiet; 故宫博物院 listed; the route uses the finished list | D |
@@ -1623,7 +1623,7 @@ practice.
      | Route | Model | Search | Thinking | Time budget | Backup (item 10) |
      |---|---|---|---|---|---|
      | `live` | `qwen3.7-flash` (unchanged) | on, `turbo`, `forced_search`, `enable_source` (unchanged) | off | as today | `qwen3.8-flash`, same options |
-     | `picker` | `qwen3.7-flash` (unchanged) | off | off | 2.5 s (unchanged) | `qwen3.8-flash`, same options |
+     | `picker` | `qwen3.8-flash` (§59, T-040zl) | off | off | 2.5 s (unchanged) | none (§59 item 2) |
      | `ground` | **`qwen3.7-plus`** | on, **`agent`**, `forced_search`, `enable_source` | off | **30 s** (`TripTuning.groundTimeout`, was 20 s) | `qwen3.7-flash` with `turbo` |
 
    - **Why these.**
@@ -1663,7 +1663,7 @@ practice.
 | 151 | Device: 「东京三天自驾，成田机场进出，一定要去浅草寺，酒店要靠近新宿站」 | Within ~60 s: 3 days, 浅草寺 on one, a real hotel within 1 km of 新宿站 (real name), day 1 成田 → 租 → … → 住; no place outside Japan; she said one line first and one summary at the end; steps were on screen | D |
 | 152 | Device: then 「第二天太赶了」 | Day 2 lighter; steps shown; she says what changed | D |
 | 153 | Device: 「东京天气怎么样」 | 「正在查天气…」 while waiting, then the answer | D |
-| 154 | `QwenRoute` table and request bodies (fake send) | `live` and `picker` bodies unchanged from today's tests; `ground`: `qwen3.7-plus`, `agent`, `forced_search`, `enable_source`, thinking off, streamed, date turn; no model name outside `QwenRoute` | unit |
+| 154 | `QwenRoute` table and request bodies (fake send) | `live` body unchanged from today's tests, `picker` on `qwen3.8-flash` with no backup (§59); `ground`: `qwen3.7-plus`, `agent`, `forced_search`, `enable_source`, thinking off, streamed, date turn; no model name outside `QwenRoute` | unit |
 | 155 | `ground` answer with no search result; one with a missing `places` field | Model's places used; `ok=fallback reason=nosearch` / `reason=json` | unit |
 | 156 | `live`: first request 429 before any answer | One request to `qwen3.8-flash`, same body except `model`; its answer used; `qwen fallback … reason=429 ok=yes`; next call within 60 s goes to the backup first | unit |
 | 157 | `picker`: 403 with a `…Quota…` code; separately 403 `InvalidApiKey`, 401, 500, timeout | Quota: backup used, primary skipped until restart. Others: no switch, existing failure path | unit |
@@ -2104,3 +2104,1435 @@ each together with the first `@Test` that names it.
 | Task | Scope | Status |
 |---|---|---|
 | T-040zf | §53 items 1–6 (pool for N days, catalog text, thin-day rule, record counts, agent 5.2.0); rows 208–217 | PASS; rows 216 eval, 217 device NOT_VERIFIED |
+
+## 54. A trip to a new place is a new plan, not an edit of the old one (owner request 2026-11-21)
+
+**Why (owner phone test 2026-11-21, build 97a14cb, screenshot IMG_0651).** With a Tokyo trip saved, the driver said
+「规划澳门两天」. The trip strip then showed 「1 关闸 (Border Gate) · 2 Sensō-ji (浅草寺) · 3 Roppon…」: a Macau start
+on the old Tokyo plan. She answered 「抱歉，我听不清您的指令…」. Most likely, not yet confirmed by the record: the model
+called `set_trip_plan` (an edit, §52 item 3) instead of `make_trip_list` (which replaces the plan), kept the Tokyo
+stops by id and wrote 关闸 as the new start. Causes in the setup, not in the request:
+- Since §52 item 2 the whole plan with ids is in every trip result and in the 现在 note, so a 「规划X」 is read as a
+  change to the plan in hand.
+- The `set_trip_plan` description says what it does (「修改行程：把整份行程…改好后整份传回」) but not when it is the
+  wrong tool; the `make_trip_list` text says 「会替换旧清单」 but not that a new place means a new plan.
+- `set_trip_plan` checks only the plan's shape (§52 item 5), not that its places belong to one trip.
+
+**Published practice this copies.** Tool descriptions are the model's only definition of a tool: say when to use it
+and when not, and make similar tools unambiguous (Anthropic, "Writing effective tools for agents",
+anthropic.com/engineering/writing-tools-for-agents: "clearly define … when it should be used"; OpenAI function
+calling guide, platform.openai.com/docs/guides/function-calling: "explicitly describe … when (and when not) to use
+each function"). A check in code backs the text, because a description makes the right choice likely, not certain
+(product invariants are code-enforced, AGENTS.md).
+
+1. **`make_trip_list` text.** 「会替换旧清单。」 becomes
+   「会替换旧清单。司机说去一个新地方、规划新的行程（比如有东京的行程时说「规划澳门两天」），就用这个，不要用 set_trip_plan 改旧行程。」
+2. **`set_trip_plan` text.** 「修改行程：」 becomes
+   「修改行程：只用来改屏幕上这份行程（加减地点、换酒店、调顺序）；司机要规划去别的城市或国家，用 make_trip_list。」
+3. **Code check: one trip, one area.** After `set_trip_plan`'s lookups (§52 item 4) and before anything is saved:
+   1. A new name not found near the trip is searched once more without the trip's area, only to learn where it is;
+      this result is not used as a stop. Abroad: Photon then 高德. At home (the first lookup was already nationwide
+      高德): Photon only.
+   2. A new stop is **foreign** to the plan when it is in another country group than the kept placed stops (China:
+      CN/HK/MO/TW as `TripRegion.isChina`, versus each other country code), or, for a trip abroad only, more than
+      300 km (`TripTuning.newTripKilometres`) from every kept placed stop. At home the distance part is off: home
+      lookups have no area, so a common name (人民公园) can resolve to another city and must not throw the trip away
+      (review 2026-11-21). A new trip inside China is left to the tool texts (items 1–2).
+   3. When any new stop is foreign: the result is `PLAN_CHECK` with `new_trip: true`, `plan_kept: true`, the problem
+      line 「<名字>不在这份行程的地方，这是新的行程」, and `next`: 「先不要跟司机说话，调用 make_trip_list 规划新的行程，会替换旧行程。」.
+      Nothing is changed or saved; it does not count toward §52 item 5's fix rounds.
+   4. A plan with no kept placed stop (every stop new) is never foreign: it is the model writing a new plan in full.
+4. **Record.** `trip set … check=new_trip` (the check field gains the value `new_trip`). Numbers and enums only (I-8).
+5. **Agent version.** Items 1–2 change tool descriptions: minor bump (5.3.0) with a row in agent-versions.md.
+6. **Code.** `ToolCatalog` (both texts); `TripPlanner.setPlan` (the second search and the foreign check);
+   `TripTuning.newTripKilometres = 300`; `AgentSetup.version`.
+
+**Not covered here.** Her 「我听不清」 after acting is the reply check missing a claim with no tool result; it is left to
+F-09b (reply check) once the record confirms what was called.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 218 | `make_trip_list` and `set_trip_plan` descriptions | Contain the item 1 and item 2 sentences | unit |
+| 219 | Tokyo plan (abroad, JP); `set_trip_plan` keeps the Tokyo ids and adds 关闸 as `start` (found in Macau) | `PLAN_CHECK`, `new_trip: true`, plan unchanged, nothing saved; `next` says make_trip_list; `trip set … check=new_trip` | unit |
+| 220 | Same, 关闸 not found near Tokyo; the second search finds it in Macau | Same as 219 | unit |
+| 221 | Guangzhou plan; `set_trip_plan` adds 佛山祖庙 (about 20 km), or a 人民公园 that 高德 finds 1,000 km away | Saved as an edit (not foreign) | unit |
+| 222 | Tokyo plan; `set_trip_plan` with every stop new (no ids) in Macau | Saved (item 3.4) | unit |
+| 223 | Eval: Tokyo plan in context, 「规划澳门两天」 | `make_trip_list`, not `set_trip_plan` | eval |
+| 224 | Device: Tokyo trip saved, 「规划澳门两天」 | Macau-only plan replaces Tokyo; no Tokyo stop on the strip | D |
+
+**Trace gate.** Add `T-040zg: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zg | §54 items 1–6 (both tool texts, one-area check with a second search, `check=new_trip`, agent 5.3.0); rows 218–224 | PASS; rows 223 eval, 224 device NOT_VERIFIED |
+
+## 55. The model writes every plan, new or changed; code places and checks, never splits (owner request 2026-11-22)
+
+**Why (owner phone test 2026-11-22, build bdc1e2a, record 20261122-211727).** 「帮我规划一下上海五天的行程」:
+- The model called `make_trip_list` with a flat pool of 14 places and `day_count: 5`, no city and no start.
+- Code splits a pool into days only from a start point (§48 item 4, `TripPlanner` ordering). There was none:
+  `trip order ok=no … start=none`, `order: NO_START`. All 14 places stayed on day 1 and days 2–5 were empty
+  (`sights_per_day:[14,0,0,0,0]`). The result still said `ok=true`, and she said 「我为您规划好了上海五天的行程」.
+- No city was sent, so the search had no area (`center=no`): 新天地 was placed as 「北京新天地」.
+
+**Cause: the design, not the model.** §52 made the plan one data structure the model writes (`set_trip_plan`), but
+only for changes. A new trip still goes through `make_trip_list`, where the model may not write days: §53 item 1 makes
+it send a pool that code splits, and §54 items 1–2 tell it never to use `set_trip_plan` for a new place (§54 item 3
+refuses one). So the plan is not under the model's control exactly when it is made, and the code that took over
+cannot do the job without a start point. This contradicts the owner's rule (2026-11-21): the plan is a plain data
+structure; the model decides what is in it; code only places names on the map and checks the edit.
+
+**Published practice this copies (as §49 and §52).** The itinerary is a structured object the LLM writes, one entry
+per day with a hotel slot (TravelPlanner, Xie et al., ICML 2024; ChinaTravel, arXiv 2412.13682). Code critics check
+the plan and send all failed checks back to the LLM, which revises (LLM-Modulo, Kambhampati et al., ICML 2024;
+Google Research 2025 trip planning, research.google/blog/optimizing-llm-based-trip-planning). Neither lets code
+redistribute the plan's days.
+
+**What changes.**
+1. **One tool makes and changes the plan: `set_trip_plan`.** A new trip is a `set_trip_plan` call whose stops are all
+   new (`{"name",…}`, no `id`). The model writes every day: which sights on which day, `start`/`end` when the driver
+   named them, a `hotel` for each night. A check-in list (「把这些地方存下来」) is a one-day plan.
+2. **New field `city`** (string): the trip's city, or the province/region for a trip across cities (as
+   `make_trip_list.city` today). Required when the call keeps no `id` (a new plan); otherwise the plan's city is kept.
+   `abroad` is derived from where `city` is (§36), not sent.
+3. **A new plan replaces the old one.** A call with no kept `id` replaces the plan in hand, as `make_trip_list` did
+   (no `CONFIRM_CLEAR`: §52 item 13 is for clearing without a new plan). §54 item 3 (the foreign-stop refusal,
+   `new_trip`) is removed.
+4. **New names are looked up inside the city.** At home: 高德 with `city=<city>` and `citylimit=true` (§4 item 6),
+   then the Qwen picker as today. Abroad: the box around the city centre (§50 item 3) and the Qwen grounding of §50
+   item 1. A name not found inside the city is kept with `placed=false` (§52 item 4) and gets a `not_found` issue
+   (item 8). Never a nationwide guess.
+5. **Code never moves stops between days.** The days are the model's. Within a day the model's order is kept;
+   `optimise: true` reorders between the day's fixed ends (§52 item 8). The pool fill (§48 item 4 steps 2–3, §49 item
+   3) and `day_count` are removed.
+6. **No start point is not an error.** Without a `start`, day 1 begins at its first stop and times are counted from
+   there. `NO_START` is never returned for a written plan; the result may carry `may: ask_start` after the plan is
+   saved.
+7. **Hotels.** A hotel stop is `{"name","role":"hotel"}` (the driver's or a named one) or
+   `{"role":"hotel","near":"<place>"}` (the driver said 「住在X附近」): code picks the closest hotel to `near` as §50
+   item 2 and the stop is `picked_by=app`. A night with no hotel stop gets a `hotel` issue (item 8); the app no longer
+   fills it silently (§52 item 6's app pick applies only to `near`).
+8. **Checks after every write (the critics).** Shape errors stay a refusal (`PLAN_CHECK`, §52 item 5; nothing saved).
+   A plan of the right shape is saved and shown, then checked; every failed check is one line in `issues`:
+   - `empty`: a day with no sight → 「第N天没有安排，把第M天的一部分挪过来或者加几个地方」 (M = the fullest day);
+   - `over`: a day's minutes (stops plus driving) above 1.25 × budget B (§48 item 3) → 「第N天大约X小时，太满了，挪一部分到第M天」
+     (M = the emptiest day); a day with a sight of 360 minutes or more is over only when its other sights add more than
+     B on top;
+   - `under`: §53 item 3 (thin day), its line unchanged;
+   - `driving`: §49 item 4, unchanged;
+   - `not_found`: item 4, 「<名字>在<city>没找到，换一个或者去掉」;
+   - `hotel`: a night without a hotel stop, for plans of 2 days or more → 「第N晚还没有酒店，写一个酒店或者 near」.
+9. **She fixes before she speaks.** When `issues` is not empty the result is `status: trip_needs_fix` with `round`
+   (1 or 2), `issues`, the whole plan, and `next`: 「先不要跟司机说话，按 issues 改好整份行程，再调用 set_trip_plan。」 At most
+   2 rounds per driver request; after round 2, or when all checks pass, the result is `trip_list` and any issue still
+   failing goes into `next` (「…跟司机说还有这些问题：…」) as §49 item 6.
+10. **No done-claim while the plan has issues (code, not prompt).** While the last trip result is `trip_needs_fix`
+    with a round left, a reply that says the plan is done (「规划好了」「安排好了」) is drift for the reply check
+    (F-05a §4 item 4, as §52 item 12). A result whose plan has an `empty` or `over` day carries `facts.ready: false`.
+11. **Removed.** `make_trip_list` (with `places`, `day_count`, `days`, `day`, `wishes`, `hotel_near`), `edit_trip_list`
+    (its `read`: the plan is in every result and in the 现在 note, §52 item 2), the pool fill, `NO_START` for plans,
+    and §54 items 1–3. `trip_next` and the trip screen stay. §53 items 1–2 (the pool example) are void; §53 item 3
+    (thin day) stays as the `under` check. `pace` stays on `set_trip_plan` (it sets B).
+12. **Catalog text (`set_trip_plan`).** 「做行程或改行程，都用这个：把整份行程（每天的地点）写好后整份传回。新行程：每个地点写 name，加 city（城市，
+    跨城市就写省或地区）。改行程：已有的地点只写 id，新地点写 name。每天的景点你自己安排好：一般每天3到4个，一天6到8小时，整天的地方（比如迪士尼）单独一天。
+    role：start 出发点（司机说了才写，第一天第一个）、end 终点（最后一天最后一个）、hotel 酒店（每晚一个：当天最后一个、第二天第一个；司机说了住哪就写那个，
+    说住在某处附近就写 {role:\"hotel\",near:\"某处\"}）、sight 景点。去掉的地点不写。例：「规划广州两天」→city=\"广州\"，days=[[{name:\"广州塔\"},
+    {name:\"陈家祠\"},{name:\"沙面\"},{name:\"珠江夜游\"},{role:\"hotel\",near:\"北京路\"}],[{role:\"hotel\",near:\"北京路\"},
+    {name:\"长隆野生动物世界\",minutes:480},{role:\"hotel\",near:\"北京路\"}]]。结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。结果稍后回来：\(tripWorkingLine)」
+    - Day 2 of the example is a theme-park day with nothing else, so item 8's 360-minute exemption applies.
+    - `trip_next`'s text and the 现在 note are unchanged.
+13. **Agent version.** A tool removed and a tool text changed: major bump (6.0.0) with a row in agent-versions.md.
+14. **Record.** `trip set days=N stops=M kept=K new=X removed=R not_placed=P new_plan=yes|no check=ok|fail
+    issues=<n> round=<0|1|2> ms=…` (replaces §52's line; `check=new_trip` is gone); `trip check round=…` as §49 item
+    11 with `empty=<n>` added. Numbers and enums only (I-8).
+15. **Code.** `ToolCatalog` (`set_trip_plan` schema with `city` and hotel `near`, its text; `make_trip_list` and
+    `edit_trip_list` removed); `TripPlanner.setPlan` (new plan when no kept id, city-limited lookups, no day moves,
+    no `NO_START`, hotel `near`, checks and rounds); `TripChecks` (`empty`, `over` at 1.25 × B, `hotel`); the reply
+    check's done-claim rule; `AgentSetup.version`. Tests that exercise `make_trip_list` move to `set_trip_plan` or go.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 225 | `set_trip_plan` with city 上海, 5 days, 14 sights all on day 1, days 2–5 empty, no start | Saved and shown as written (no day moves); `trip_needs_fix round=1`; `issues` has `over` for day 1 and `empty` for days 2–5; `facts.ready: false`; no `NO_START` | unit |
+| 226 | Same, then a fixed plan (3–4 sights a day, a hotel each night) | All checks pass → `trip_list`; `trip set … new_plan=no issues=0` | unit |
+| 227 | Checks still failing after round 2 | No round 3: `trip_list` with the remaining issues in `next` | unit |
+| 228 | Reply 「我为您规划好了」 while the last result is `trip_needs_fix` with a round left | Counted as drift by the reply check | unit |
+| 229 | New plan (no ids) for 上海 while a Sapporo plan is saved | Replaces it; no `PLAN_CHECK new_trip`; the Sapporo stops are gone | unit |
+| 230 | City 上海, name 新天地 (高德 fake: 上海新天地 inside the city, 北京新天地 outside) | Request has `city=上海&citylimit=true`; placed as 上海新天地; with no in-city answer the stop is `placed=false` with a `not_found` issue | unit |
+| 231 | A new plan without `city` | `PLAN_CHECK` (city missing); nothing saved | unit |
+| 232 | Hotel `{"role":"hotel","near":"新宿站"}` on nights 1–2 | One hotel near 新宿站 picked (`picked_by=app`) for both nights; a night with no hotel stop gets a `hotel` issue | unit |
+| 233 | A day with one 480-min sight and nothing else | No `over`, no `under` | unit |
+| 234 | Tool catalog | No `make_trip_list`, no `edit_trip_list`; `set_trip_plan` text has the item 12 sentences and `city`; agent 6.0.0 | unit |
+| 235 | Eval: 「规划上海五天的行程」 on the live model with the app's tools | One `set_trip_plan` with `city`, 5 days, 3 or more sights a day (a full-day sight excepted), a hotel each night | eval |
+| 236 | Device: 「规划上海五天的行程」, then 「三天，去跟回来都是新千岁机场，住桥本酒店」 | Shanghai: every day has sights, no day over about 9 h, no stop outside Shanghai; then Sapporo replaces it: airport first and last, Hotel Hashimoto every night | D |
+
+**Not verified.** Whether the live voice model writes a full 5-day plan well in one call (row 235 measures it). If it
+does not, the same tool can have a text model write the plan behind it (owner's idea 2026-11-22); that is a separate
+decision and not part of this section.
+
+**Trace gate.** Add `T-040zh: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zh | §55 items 1–15 (set_trip_plan makes and changes plans; city; new plan replaces; city-limited lookups; no day moves; no NO_START; hotel near; checks empty/over/under/driving/not_found/hotel; trip_needs_fix rounds; no done-claim with issues; make_trip_list and edit_trip_list removed; agent 6.0.0; record); rows 225–236 | NOT_RUN |
+
+## 56. What a trip result shows, set_trip_plan accepts; a refusal says what is wrong (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, record 20261123-095148).** 「想带爸妈去厦门玩三天，别太累」:
+- Her first plan came back `PLAN_CHECK` (a hotel not written as the next day's first stop). She fixed it by sending the
+  plan back as the result shows it: every stop `{"id","name","minutes","role"}`.
+- `set_trip_plan` refused it with `INVALID_FIELDS {}` three times in 3 s. The validator (`ToolCatalog`, §55 item 7)
+  accepts a stop with exactly one of `id`, `name` and `near`; a stop with `id` and `name` is refused, and the refusal
+  carries no reason.
+- She gave up on the plan, tried `web_search`, and the trip was never fixed. The conversation then drifted (a misheard
+  「感冒」) and her next trip words were taken as climate requests.
+
+**Cause.** The plan she reads (§52 item 2: `{"id","name","role","placed","picked_by","minutes"}` per stop) is not a plan
+she may write (§52 item 3, §55 item 7). Copying the result, the obvious move, always fails, and the empty refusal gives
+her nothing to fix. Owner (2026-11-23): delete the over-strict check rather than teach the model around it.
+
+**Published practice this copies.** Be liberal in what you accept from others (robustness principle, RFC 1122 §1.2.2;
+RFC 9413 on its limits: accept what is unambiguous, refuse what is not). Tool errors should say what was wrong and how
+to fix it, in words the model can act on (Anthropic, "Writing effective tools for agents",
+anthropic.com/engineering/writing-tools-for-agents: "prompt-engineer your error responses to clearly communicate
+specific and actionable improvements"). A repeated identical failing call is stopped (OpenRouter loop guide, as F-18
+§32 item 2).
+
+1. **Read shape is write shape.** A stop may carry any field a trip result shows, plus `near` and `importance`:
+   `id`, `name`, `role`, `minutes`, `importance`, `placed`, `picked_by`, `near`.
+   - **With `id`:** the stop keeps its place, photo, times and mark (§52 item 4). `role` and `minutes` are applied when
+     they differ (a change). `name`, `placed`, `picked_by` and `near` are ignored: an id stop is never searched again,
+     whatever name it carries.
+   - **Without `id`:** `name` (a new stop, §52 item 4) or, for a hotel, `near` (§55 item 7). With both, `name` wins and
+     `near` is ignored. `placed` and `picked_by` are ignored.
+   - **Other keys** in a stop are ignored, not refused, and listed once in facts (`ignored_fields`).
+   - Replaces §55 item 7's "exactly one of `id`, `name` and `near`" and the stop forms of §52 item 3.
+2. **Checks that still refuse.** Only these, each with its line (item 3):
+   - `days` missing, not 1–5 days, or a day with more than `maxTripStops + 4` stops;
+   - a stop with none of `id`, `name`, `near` (for `near`, `role` must be `hotel`);
+   - `id` or `name` empty or longer than its limit; `role` not one of start, sight, hotel, end, rental_pickup,
+     rental_return; `minutes` not a whole number from 0 to 720;
+   - a new plan (no kept `id`) without `city` (§55 item 2); `pace` not one of relaxed, normal, packed.
+   The plan rules of §52 item 5 (`PLAN_CHECK`) are unchanged.
+3. **A refusal says what is wrong.** `INVALID_FIELDS` from `set_trip_plan` carries `problems`, one line per problem,
+   with the day and the stop's place in it and the field: 「第2天第3个地点：role 只能是 start、sight、hotel、end」,
+   「第1天第4个地点：要写 id、name 或者 near」, 「新行程要写 city」. `next`: 「先不要跟司机说话，按 problems 改好整份行程，再调用 set_trip_plan。」
+   An empty `INVALID_FIELDS {}` is never returned by this tool.
+4. **The same failed call is not run twice.** Within one driver request, a `set_trip_plan` call whose arguments equal
+   (after JSON normalisation) a previous call that was refused (`INVALID_FIELDS` or `PLAN_CHECK`) is not run again. The
+   result is `REPEATED_FAILURE` with the earlier `problems` and `next`: 「这份行程刚才已经被拒绝了，原因在 problems 里。按它改，
+   改不了就告诉司机行程没改成和原因，不要再传同样的内容。」 A changed call runs normally.
+5. **Catalog text.** §55 item 12's 「改行程：已有的地点只写 id，新地点写 name。」 becomes 「改行程：把结果里的行程照着改，已有的地点保留 id
+   （其他字段可以照抄），新地点写 name。」 A tool text change: minor agent-version bump with a row in agent-versions.md.
+6. **Record.** `tool-result … code=INVALID_FIELDS problems=<n>` (the count, never the lines); `trip set … ignored=<n>`
+   (keys ignored); `trip repeat-blocked code=<code>`. Numbers and codes only (I-8).
+7. **Code.** `ToolCatalog` (the `set_trip_plan` validation of items 1–2 and the `problems` lines); the result builder for
+   `INVALID_FIELDS` with `problems`; `TripPlanner.setPlan` (id stops ignore name/placed/picked_by/near, `ignored_fields`,
+   the repeat check per driver request); the catalog text; `AgentSetup.version`.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 237 | The plan of a trip result sent back unchanged (every stop with all its shown fields) | Saved; `kept` = every stop; no lookup; no `INVALID_FIELDS` | unit |
+| 238 | The record's call (20261123-095148, t=19612: id stops with name, minutes, role; `pace: relaxed`) | Accepted; places kept by id; the hotel stops' role applied | unit |
+| 239 | Stop `{"id":"s5","name":"另一个名字","role":"hotel"}` | Place of s5 kept, not searched; role set to hotel; name ignored | unit |
+| 240 | Stop `{"id":"s5","minutes":150}` and a stop with an unknown key `"note"` | Minutes applied; `note` ignored and listed in `ignored_fields` | unit |
+| 241 | A stop with role `museum`; a stop with none of id, name, near; a new plan without city | `INVALID_FIELDS` with one `problems` line each, naming day, stop and field; never `{}` | unit |
+| 242 | The same refused call twice in one driver request; then a changed call | Second: `REPEATED_FAILURE` with the earlier problems, not run; the changed call runs | unit |
+| 243 | Catalog | `set_trip_plan` text has the item 5 sentence; agent version bumped | unit |
+| 244 | Device: 「想带爸妈去厦门玩三天，别太累」, then 「第二天好像有点赶」 | The plan is saved and shown; the day-2 change is made in one call; no `INVALID_FIELDS` in the record | D |
+
+**Trace gate.** Add `T-040zi: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zi | §56 items 1–7 (read shape is write shape, the checks that still refuse, `problems` on every refusal, no repeat of a refused call, catalog text, record); rows 237–244 | NOT_RUN |
+
+## 57. A stop-navigation button wherever navigation can start; both buttons in the screen state (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, records 20261123-101517, -101941; device 2026-11-21, a367539).**
+- The trip screen has one navigation button, 「去下一站：<名字>」 (§29 item 4, `trip_next`), right under the cards. On
+  2026-11-21 a tap meant for the cards started navigation (`trip tap action=next`).
+- The app has no button that stops navigation. `exit_navigation_mode` is voice only, and on 2026-11-23 「停止导航」
+  was heard as 「新手导航」: she called `trip_next` and navigation started again instead of stopping. The driver
+  could not stop it with a tap.
+- She cannot tell which buttons the driver sees: F-09b §16's screen state lists panels, not buttons, so a tap on the
+  start button and the button itself are invisible to her.
+
+**Owner (2026-11-23).** A button that starts navigation needs a button that stops it; and the navigation buttons go
+into the state. F-09b §16's rule stands: each key is only `on` / `off`, from what the display really shows.
+
+**Published practice this copies.** In-car and phone navigation apps always show an end control on the guidance
+screen (Google Maps: "Exit" on the navigation screen, support.google.com/maps/answer/3273406; Apple Maps: "End
+Route", support.apple.com/guide/iphone/get-driving-directions-iph8b72eadf). Distraction guidelines ask for few,
+large, clearly separated touch targets while driving (NHTSA Visual-Manual Driver Distraction Guidelines, 2013).
+
+1. **Stop button.** While `navigation`, `routePicking` or `routeCalculating` is `on`, the screen shows 「结束导航」 (a
+   red bordered button, at least 44 × 44 pt, in the guidance panel's top row). A tap does what `exit_navigation_mode`
+   does (the guidance stops, the route panels close, a trip in progress keeps its plan and marks). It works while
+   moving, needs no confirmation, and is never hidden behind another panel.
+2. **The start button cannot be mistaken for a card.** 「去下一站：<名字>」 gets a navigation icon, sits at least 12 pt below
+   the card row, and while navigation runs its place shows 「结束导航」 instead (the same spot toggles). A card tap only
+   opens the card (§21), unchanged.
+3. **No restart of what is already running.** `trip_next` (voice or tap) while `navigation` is `on` toward that same
+   stop does not plan a new route: the result is `ALREADY_NAVIGATING` with `next`: 「已经在去<名字>的路上了。司机要是想停，调用
+   exit_navigation_mode。」. Toward a different stop it runs as today.
+4. **Both buttons in the screen state (amends F-09b §16 item 1).** Two keys, reported by the button views'
+   `onAppear` / `onDisappear` like every panel (F-09b §16 item 2):
+
+   | Key | On when the display shows |
+   |---|---|
+   | `tripNextButton` | 「去下一站：<名字>」 |
+   | `stopNavigationButton` | 「结束导航」 |
+
+   The keys go in the screen line after `navigation`, in that order. No name or count is added (F-09b §16 rule).
+5. **A tap on either button reaches her.** One line, queued like the screen line (F-09b §16 item 4: never during her
+   reply): 「[系统] 司机点了「去下一站」。这句不用回答。」 or 「[系统] 司机点了「结束导航」。这句不用回答。」.
+6. **Record.** `nav tap action=next|stop` per tap; `trip next … code=ALREADY_NAVIGATING`; the screen line gains the two
+   keys. Codes only (I-8).
+7. **Code.** `TripCardsView` (start button: icon, spacing, toggle); the guidance panel in `DriveView` (stop button);
+   `AgentRuntime` (stop tap → the `exit_navigation_mode` path; the tap lines); `ScreenState` and the screen line (two
+   keys); `TripPlanner.next` (`ALREADY_NAVIGATING`).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 245 | Navigation on (guidance, route picking or calculating) | 「结束导航」 shown; `stopNavigationButton on` in the screen line | unit, build |
+| 246 | Tap 「结束导航」 while moving | Guidance stops; `navigation`, `routePicking`, `routeCalculating` off; trip plan and marks kept; `nav tap action=stop`; her tap line queued | unit |
+| 247 | Trip screen, not navigating | 「去下一站」 shown with its icon, `tripNextButton on`; navigation on → the same spot shows 「结束导航」, `tripNextButton off` | unit, build |
+| 248 | `trip_next` while guiding to that same stop | No new route; `ALREADY_NAVIGATING`; `next` names exit_navigation_mode | unit |
+| 249 | `trip_next` while guiding to another stop | Runs as today | unit |
+| 250 | Screen line | Has `tripNextButton` and `stopNavigationButton` after `navigation`; only on/off | unit |
+| 251 | Device: start a trip stop with 「去下一站」, then tap 「结束导航」; tap a card | Navigation starts and stops by tap; the card tap only opens the card; the record has both `nav tap` lines | D |
+
+**Trace gate.** Add `T-040zj: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zj | §57 items 1–7 (stop button, start button apart from the cards, no restart of the same stop, two screen-state keys, tap lines, record); rows 245–251 | NOT_RUN |
+
+## 58. She says a trip change is done only after it is on the plan; while it runs she says she is doing it and the screen shows it (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, record 20261123-102422).** 「给我安排一个咖啡的行程，我第二天想喝点咖啡」:
+- `set_trip_plan` was refused `INVALID_FIELDS {}` at once (the §56 bug), so nothing was added. She then called
+  `web_search` (「厦门沙坡尾附近最好的咖啡馆」 → 「BAMN Coffee」, ok) and said 「我已经在您第二天游玩沙坡尾时加入了BAMN Coffee」.
+- 「没看到」 → `set_trip_plan` refused again, another `web_search`, then 「抱歉，我已经在后台更新了行程，可能稍后就会同步到您的屏幕上」.
+  There is no such background work. The café never appeared on the trip cards.
+- The screen showed nothing while she worked and nothing when the change failed.
+
+**Causes, from the code at d0a0797.**
+1. The reply check (`DriverTurnPipeline.verdict`, `.action`) counts any ok result of an acting tool as proof of an
+   action claim, and asks for a tool's own ok only for windows, climate, fan and music (F-12 §14 item 12). A trip
+   claim is "proven" by the ok `web_search`.
+2. A failure disproves a claim only when it is in the same model turn. The refused `set_trip_plan` was in an earlier
+   model turn of the same driver request, so 「加入了」 was not counted as a claim after a failure.
+3. Nothing stops a claim that work is running in the background when no trip write is running.
+4. The work panel (§50 item 6) has steps for a new plan, not for an edit, and shows nothing for a refused one.
+
+**Published practice this copies.** Tell the user what the system is doing, and confirm only what happened
+(Nielsen, "Visibility of system status", nngroup.com/articles/visibility-system-status; Google Material, progress
+indicators, m3.material.io/components/progress-indicators). A voice reply about an action is checked against that
+action's own result (the claim rules of F-06 and F-12 §14 item 12, extended to the trip here).
+
+1. **A trip claim needs the trip's own result.** A reply that says the plan was changed (`ClaimLexicon.tripChanged`:
+   加入了, 加上了, 加了, 放进, 安排好, 安排在, 改好, 换成, 删掉了, 去掉了, 更新了 with 行程, 第N天 or a stop name; the list lives
+   in code with a fixture of the record's sentences) is proven only by an ok `set_trip_plan` result (status
+   `trip_list` or `trip_needs_fix`) since the driver's last words. Another tool's ok result never proves it.
+2. **A refused trip write disproves it for the whole driver request.** A `set_trip_plan` refused (`INVALID_FIELDS`,
+   `PLAN_CHECK`, `REPEATED_FAILURE` of §56) in any model turn since the driver's last words, with no ok
+   `set_trip_plan` after it, makes a trip claim drift: `CLAIM_AFTER_FAILURE` with the correction 「行程没有改成，原因在上一个工具结果的
+   problems 里。如实告诉司机没改成和原因，不要说已经加了。」.
+3. **No invented background work.** A reply that says the trip is being updated in the background or will show later
+   (后台, 稍后, 等一下就会, 会同步, 马上显示, with 行程 or a stop name) is drift unless a `set_trip_plan` call is running
+   right now; with none running it is `CLAIM_AFTER_FAILURE` (item 2's correction) or `UNVERIFIED_CLAIM`.
+4. **While a trip write runs, she says she is doing it.** The immediate result of an async `set_trip_plan` (§4 item 9)
+   carries `next`: 「先只说一句：好，我在改行程，好了告诉你。然后不要说话，等结果。」 (for a new plan, §50 item 5's sentence stays).
+   §52 item 12 (no "done" before the result) is unchanged.
+5. **Progress on screen for every trip write.** The work panel (§50 item 6) gets steps for an edit:
+   - 「正在改行程」 while `set_trip_plan` runs; 「正在找<名字>」 for each new name being looked up;
+   - on an ok result the cards update and the panel shows 「已加入<名字>」 / 「已改好」 for 3 s;
+   - on a refusal the cards stay as they were and the panel shows 「没改成：<first problems line>」 until the next step or 5 s,
+     so the driver sees it failed even when she says nothing.
+   Place names in steps follow §50 item 6's rule (names that are or will be on the trip cards only).
+6. **Record.** `correction CLAIM_AFTER_FAILURE tool=set_trip_plan` / `correction UNVERIFIED_CLAIM tool=set_trip_plan`;
+   `work step=trip_edit state=running|done|failed`. Codes only (I-8).
+7. **Code.** `ClaimLexicon` (`tripChanged`, the background phrases); `DriverTurnPipeline` (trip claims need an ok
+   `set_trip_plan`; refusals counted over the driver request; background claims); the async `next` of
+   `set_trip_plan`; `WorkProgress` trip-edit steps and the failure line; `TripPlanner` feeding the steps.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 252 | Record replay (20261123-102422): `set_trip_plan` refused, `web_search` ok, reply 「我已经…加入了BAMN Coffee」 | Drift `CLAIM_AFTER_FAILURE`; the correction is sent; the claim is not spoken as done | unit |
+| 253 | Reply 「我已经在后台更新了行程，可能稍后就会同步」 with no `set_trip_plan` running | Drift; correction sent | unit |
+| 254 | Same words while a `set_trip_plan` is running | Not drift | unit |
+| 255 | `set_trip_plan` ok with the café on day 2, reply 「已经加在第二天了」 | Proven; spoken | unit |
+| 256 | Async `set_trip_plan` started | Immediate result's `next` has 「我在改行程」; no done claim allowed until the result | unit |
+| 257 | Work panel during an edit; then an ok result; then a refused one | 「正在改行程」 / 「正在找<名字>」; 「已加入<名字>」 3 s with the card shown; 「没改成：<line>」 with the cards unchanged | unit, build |
+| 258 | Device: 「第二天想喝点咖啡，加个咖啡馆」 | She says she is adding it; the panel shows the steps; the café card appears on day 2, then she says it is added | D |
+
+**Trace gate.** Add `T-040zk: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zk | §58 items 1–7 (trip claims need an ok set_trip_plan, refusals over the driver request, no invented background work, "doing it" sentence, work-panel steps for edits and failures, record); rows 252–258 | NOT_RUN |
+
+## 59. The picker runs on `qwen3.8-flash`; `qwen3.7-flash` answers "none" for every place (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 7442737, record 20261123-130852).** 「带爸妈去厦门玩三天」, then 海南 and 深圳:
+`make_trip_list` returned `NO_CANDIDATES` three times (`trip pick names=8 none=8 ok=yes`, then Photon found nothing),
+and she said she could not get the places. Only 三亚 (6 names) went through.
+
+**Cause, found on the PC the same day (real 高德 `v3/place/text` results, `citylimit=true`, then the picker question
+of §4 item 6 byte for byte, `QwenPlacePicker.question`).** 22 names in 厦门, 深圳 and 三亚; 高德's first result was the
+asked place for every name:
+
+| Model | 厦门 (8) | 深圳 (8) | 三亚 (6) |
+|---|---|---|---|
+| `qwen3.7-flash-2026-07-15` (picker today, §50 item 9) | `0` for all 8 | `0` for all 8 | `0` for all 6 |
+| `qwen3.8-flash` (its backup today) | 8 correct (鼓浪屿 → 鼓浪屿, 南普陀寺 → 南普陀寺 …) | 8 correct | 6 correct |
+
+`0` is "None of the above", so every name became `missing("none")`. The 三亚 success on the phone was most likely
+answered by the backup after a 429 cooldown (§50 item 10); the record does not say which model answered. Row 160
+(2026-11-19) checked only that `qwen3.8-flash` answers the picker with HTTP 200, not that either model picks right.
+
+1. **Picker model.** `QwenRoute.picker` uses `qwen3.8-flash` (search off, thinking off, not streamed, 2.5 s budget
+   unchanged). The prompt (§4 item 6, EntGPT form) is unchanged.
+2. **No backup model for the picker.** On a 429 or quota 403 the picker does not try `qwen3.7-flash`; the pick fails
+   (`reason=failed`) and every open name takes 高德's first result (§4 item 6, row 45). `live` and `ground` keep their
+   backups.
+3. **Record.** `trip pick … model=<model id>` on every pick line, so a record shows which model answered.
+4. **Code.** `QwenRoute.picker` (model, no backup); `QwenFallback` skips the backup for a route without one;
+   the `trip pick` line; §50 item 9's table and row 47/154 expectations updated to `qwen3.8-flash`.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 259 | `QwenRoute.picker` and its request body (fake send) | `model` `qwen3.8-flash`, `enable_search=false`, `enable_thinking=false`, not streamed; no backup route | unit |
+| 260 | Picker gets HTTP 429 (fake send) | One call only; every open name takes 高德's first result; `trip pick … ok=no reason=failed model=qwen3.8-flash` | unit |
+| 261 | PC: the 2026-11-23 replay (22 names, real 高德 results) on `qwen3.8-flash` | Every name picks the asked place (done 2026-11-23, table above) | PC |
+| 262 | Device: 「带爸妈去厦门玩三天，别太累」 | The plan shows the asked places; `trip pick … none=0 model=qwen3.8-flash` in the record | D |
+
+**Trace gate.** Add `T-040zl: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zl | §59 items 1–4 (picker on `qwen3.8-flash`, no picker backup, model on the pick line); rows 259–262 | NOT_RUN |
+
+## 60. The trip work panel is on only while a trip write runs (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 6e72c92, record 20261123-141523).** The 中山 plan: `set_trip_plan` returned
+`trip_needs_fix` twice (443879, 461536) and the model sent no further fix. The work panel went on at 428929 and was
+never turned off (no `panel working off` after it); the cards already showed the plan. Earlier in the same record,
+every `trip_needs_fix` (21094, 54173, 311113, …) left the panel spinning while the cards were updated and she talked.
+
+**Cause (`TripPlanner.tracked`, T-040zk).** A `trip_needs_fix` result returns before the panel is finished or
+cleared ("a fix round keeps the steps"); with no fix round the panel stays until `WorkProgress.maxOpen` (120 s) or
+until the trip screen closes. The panel follows its own timers, not the screen state.
+
+**Owner rule (2026-11-23).** The panel belongs to the trip screen state: when the trip work ends or the trip card
+closes, the panel closes too. Nothing more complicated.
+
+1. **On only while a write runs.** The trip work panel shows while a `set_trip_plan` call is running, and goes off
+   when that call returns, with any result (`trip_list`, `trip_needs_fix`, a refusal). A fix round is a new call: it
+   shows the panel again while it runs. No carry-over between calls (`continueTrip` and the `trip_needs_fix` early
+   return are removed).
+2. **The result line.** On return the panel may show the §58 item 5 line (「已改好」/「已加入…」/「没改成：…」) for its keep time,
+   then goes off. `trip_needs_fix` shows no line (the cards show the plan).
+3. **Closes with the trip screen.** When `tripScreen` goes off, the trip work panel goes off at once.
+4. **In the screen state.** `working` in the screen state (F-09b §16, on/off) is on exactly while the panel shows;
+   the record gets `panel working on` and `panel working off` every time.
+5. **No timers for this.** `WorkProgress.maxOpen` is not used for trip work (a running call always returns, §52 item 11
+   limits it).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 263 | `set_trip_plan` returns `trip_needs_fix`, no further call | Panel off at the return; `panel working off` in the record | unit |
+| 264 | `trip_needs_fix`, then a fix call | Panel off at the first return, on again while the fix runs, off at its return | unit |
+| 265 | Trip screen closed while the panel shows | Panel off at once; `working=off` in the screen state | unit, build |
+| 266 | Ok edit; refused edit | 「已改好」 3 s / 「没改成：…」 5 s, then off | unit |
+| 267 | Device: 「规划中山两天」 and wait | The panel is gone once the cards show the plan | D |
+
+**Trace gate.** Add `T-040zm: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zm | §60 items 1–5 (panel only while a set_trip_plan call runs; off on any result and when the trip screen closes; screen state and record); rows 263–267 | NOT_RUN |
+
+## 61. The model checks its own plan with a counting tool and judges success itself; code counts, never judges (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 416bff7, record 20261123-181633).** 「…来个什么广东几天游，然后包含这个景点」,
+the place being 九龙湖公主酒店, which `show_on_map` had found in 广州花都区 at 84370:
+- 333563: a new plan, `city` 「广州与中山」, refused `PLAN_CHECK` (hotel order). The refusal carried the old 中山 plan,
+  and the next calls edited that plan.
+- 339308, round 1: the lookup searched 中山 only (`trip lookup index=1 ok=no reason=nomatch`); issue
+  「广州九龙湖公主酒店在中山没找到，换一个或者去掉」.
+- 342067, round 2: she put 中山温泉宾馆 in its place; `removed: [广州九龙湖公主酒店]`.
+- 344967, round 3: she put 「中山市的酒店」 in its place. Result `ok=true`, `removed: [中山温泉宾馆]` only,
+  `work step=trip_edit state=done`, `next` 「用自己的话简短地说。…跟司机说还有这些问题：…」.
+- 345557: she said 「我为您规划了包含九龙湖公主酒店的广东多日游行程」. The plan had no 九龙湖. Driver: 「好像没有包含这个九龙湖吧」.
+
+**Causes (code at 416bff7).**
+1. **The checks run inside the write and push orders back.** Every `set_trip_plan` runs the critics (§55 item 8) and
+   returns `trip_needs_fix` with 「先不要跟司机说话，按 issues 改好…」 (§55 item 9). The model does not ask for a check; it
+   is driven through rounds by code-written lines.
+2. **The issue lines decide for her.** 「换一个或者去掉」 and 「在<区名>附近加1到2个」 are choices about a plan the model owns
+   (§55). The first one dropped the place the driver had named.
+3. **Code declares success.** `ok=true`, `state=done` and the panel's 「已改好」 (§58 item 5, §60 item 2) mean only that a
+   write was saved, yet each reads as "done". Nothing asks her to compare the plan with what the driver asked.
+4. **`removed` covers one write.** The driver's place was removed one write before the last, so the result she spoke
+   from did not name it.
+
+**Owner rule (2026-11-23).** The LLM plans. Counting (minutes, driving, budget, which names were found) is a tool the
+LLM calls to verify that its plan works; it is not code running inside the write and sending orders back. Whether the
+result is what the driver asked for (the "success") is judged and approved by the LLM, never by code.
+
+**Published practice this copies.** The planning agent calls its own information and counting tools and decides
+when the plan is done (TravelPlanner, Xie et al., ICML 2024: the agent calls `DistanceMatrix`, `CitySearch` and the
+other tools itself; ReAct, Yao et al., ICLR 2023). A tool reports what it did; an error flag means the call itself
+failed, and the model reads the result to decide what follows (Model Context Protocol, Tools, "Error Handling",
+`isError`, modelcontextprotocol.io/specification/2025-06-18/server/tools; Anthropic tool use, `is_error`). This
+replaces the code-pushed critic rounds of §49 items 5–6 and §55 items 8–10.
+
+1. **`set_trip_plan` saves and reports; it does not check.** It keeps its input, lookups and placing (§52, §55 items
+   1–7) and returns `saved` (`true`: the cards show the written plan; `false`: refused for shape, `INVALID_FIELDS`,
+   `PLAN_CHECK`, `REPEATED_FAILURE`, nothing saved, §56), the whole plan, `not_placed` with the range searched, and
+   `removed` (item 4). For this tool the generic `ok` equals `saved` and means only that. No critics run in it: no
+   `issues`, no `trip_needs_fix`, no rounds.
+2. **New read-only tool `check_trip_plan`: the counting assistant.** Arguments: none (the plan in hand), or `days` in
+   `set_trip_plan`'s shape (a draft: new names looked up as `set_trip_plan` does, nothing saved, cards unchanged).
+   Result, numbers and facts only:
+   - per day: `sight_minutes`, `driving_minutes` (高德 driving times between placed stops, §48), `total_minutes`,
+     `budget_minutes` (B from `pace`, §48 item 3), `stops` (name, `placed`), `hotel` (the night's hotel name or none);
+   - `not_found`: each name not found, with the range searched (the city, or the box abroad);
+   - `unknown_driving`: legs not counted because a stop is not placed.
+   No verdict, no advice, no thresholds applied: no 「太满」, 「换」, 「去掉」, 「加」 lines. She compares the numbers with B
+   and with what the driver said. She may call it any time: after a write, before one with a draft, or when the
+   driver asks 「第二天会不会太赶」.
+3. **The driver's request is saved with the plan (the trip's context).** Root cause, owner 2026-11-23: what the
+   driver asked for (「广东几天游，包含九龙湖」) lived only in the conversation, never in the plan, so every rewrite could
+   lose it and no result put it next to the plan.
+   - New `set_trip_plan` field `asked`, written by the model in the driver's terms: `{"text": "<the request in one
+     sentence>", "must": ["<place the driver named>", …], "days": N, "city": "<as said>", "notes": ["<other wishes:
+     别太累, 住市区, …>"]}`. Required for a new plan (no kept `id`), like `city`; on a change it is kept when not
+     sent and replaced when sent (she adds to it when the driver adds a wish: 「再加个咖啡馆」 → `must` gains it).
+   - `asked` is part of `TripPlan`: saved with the plan, kept in 我的行程 saved plans, restored with them, shown at the
+     top of every trip result and in the trip part of the 现在 note (F-09b §14), in the same shape she writes it
+     (read shape = write shape).
+   - Code stores and shows `asked`; it never compares it with the stops (no code judgement, item 7).
+   - Record: `trip asked must=n days=N notes=n` on every write that sets it (names in the local record only, as stop
+     names today).
+3a. **She reviews her plan against `asked` and revises before she speaks.** The model can see an empty day, a day
+   that is too full or too thin, a wrong split between days and a missing `must` place in the plan itself; the review
+   is hers, not code's (owner 2026-11-23). Every saved `set_trip_plan` result's `next`:
+   「行程已存上，先别跟司机说话，对照 asked 自己检查一遍 plan：1. must 里的地点、天数、城市、notes 都做到没有；2. 有没有空的一天；3. 每天的安排合不合理（时间、路程要核对就调用 check_trip_plan）。有问题就自己改好，再调用 set_trip_plan。都没问题了再跟司机说：简短说安排了什么；没做到的说哪个、为什么，问司机怎么办。must 里的地点没找到，不要自己换掉或去掉，问司机。plan 里没有的不要说有。」
+   - **The plan she reviews is readable.** The result shows the plan as she wrote it, one line per day with the stop
+     names in order, ahead of the JSON (`plan_text`, e.g. 「第1天：孙中山故居纪念馆、翠亨古村、住中山市的酒店（没找到）」), so a missing
+     place or an empty day is seen without reading ids.
+   - **Revisions are bounded, not judged.** Code counts saved writes since the driver's last words. From the third
+     save on, `next` is 「已经改了几次了，别再改，照 plan 跟司机说：安排了什么，还有哪些没做到、为什么。」 Code never decides whether a
+     revision was needed.
+   - Code never forces a `check_trip_plan` call and never blocks a reply for not calling it.
+4. **`removed` over the driver request.** `removed` (§52 item 7) lists every stop of the plan as it stood at the
+   driver's last words that is not in the plan now, on every saved result, not only the stops this write dropped. New
+   driver words start a new count.
+5. **Panel and record say what happened.** The §58 item 5 / §60 item 2 lines become 「行程已更新」 (was 「已改好」),
+   「已加入<名字>」 (unchanged: the name is on the cards), 「没保存：<first problems line>」 (was 「没改成：…」). While
+   `check_trip_plan` runs the panel shows 「正在核对行程」 (on/off as §60). Record: `work step=trip_edit
+   state=running|saved|refused`; `trip set … saved=yes|no` (the `check=`, `issues=` and `round=` fields go);
+   `trip check-call draft=yes|no days=N not_found=n unknown_driving=n ms=…`. Record format bump with its fixture and
+   record-format.md row.
+6. **Removed.** §55 items 8–10 (critics in the write, `trip_needs_fix`, the code done-claim drift while issues are
+   open, `facts.ready`), §49 items 5–6 (rounds), and the issue-line texts of §49 item 4, §53 item 3 and §55 item 8.
+   The counting code (`TripChecks`, `TripTimes`, the budget B) stays and serves `check_trip_plan`.
+7. **§58 stays; no code reads her words against the plan.** §58 item 1 still needs a saved write behind a change
+   claim (no write, no change). No check compares what she says, or `asked`, with the plan's contents (owner
+   2026-11-23, as the no-word-gate rule of F-09b §7); that judgement is hers (items 3, 3a).
+8. **Catalog text.** `set_trip_plan`: drop 「结果是 trip_needs_fix 时先不要说话，按 issues 改好再传。」; add
+   「结果里的 ok 只表示行程存上了，不表示做到了司机要的。新行程要写 asked（司机要什么：text、must 点名的地点、days、city、notes），司机加了要求就更新 asked。存上后先对照 asked 自己检查 plan（must 在不在、有没有空的一天、每天合不合理，需要时用 check_trip_plan 核对），有问题自己改好再传，然后才跟司机说。」
+   `check_trip_plan`: 「核对行程：算每天景点时间、开车时间、合计和预算，列出没找到的地点和没有酒店的晚上。不传参数就核对当前行程；传 days（和 set_trip_plan 一样的写法）就核对草稿，不保存。只给数字，不给建议，怎么改你自己决定。」
+   A new tool: major agent version bump per F-09b §15, with its agent-versions.md row and regenerated parts and hash.
+   `check_trip_plan` goes into the tool and panel registries the gates read (`check_panel_tools.py`).
+9. **Code.** `TripPlan.asked` (stored, saved with 我的行程, in results and the 现在 note); `TripPlanner.setPlan` (no checks, `saved`, `plan_text`, `removed` over the request, the review `next`
+   and the save count per driver request); the `check_trip_plan`
+   declaration and handler over `TripChecks` / `TripTimes` (numbers only); `WorkProgress` lines; record lines;
+   catalog texts.
+
+**Not in this section** (same record; separate sections when the owner asks): the lookup for a trip across cities
+(「广州与中山」 searched 中山 only); reusing a place `show_on_map` / `show_place` found this session; a refused new plan
+that hands back the old plan as the one to edit; every stop of the old 中山 plan `placed=false`, every place-retry
+failing.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 268 | Saved `set_trip_plan` whose plan would fail every old check (empty, over, under, driving, not_found, hotel) | `saved=true`; no `issues`, no `trip_needs_fix`; `next` is item 3's text; no trip text holds 改好, 规划好, 安排好, 完成 or 成功 (fixture over every trip text) | unit |
+| 269 | Refused `set_trip_plan` (`PLAN_CHECK`) | `saved=false`, `ok=false`; panel 「没保存：<line>」 | unit |
+| 270 | `check_trip_plan` with no arguments on a 2-day plan; then with a draft `days` | Per-day numbers equal `TripTimes` and B; `not_found` with the range; the draft is not saved and the cards are unchanged; no advice words (换, 去掉, 加, 挪, 太满, 考虑) | unit |
+| 271 | One driver request, three writes; place X dropped in write 2 | Write 3's `removed` lists X; after new driver words, `removed` starts empty | unit |
+| 272 | Record of rows 268–270 | `trip_edit state=saved` / `refused`; `trip set … saved=`; `trip check-call …`; record format fixture passes | unit |
+| 273 | Eval: replay 20261123-181633 from 333563, the 九龙湖 lookup failing as recorded | She does not say 九龙湖 is in the plan; she says it was not found and asks the driver; she does not replace it on her own | eval |
+| 274 | Device: 「帮我安排广东三天，要包含九龙湖公主酒店」, then 「第二天会不会太赶」 | She says what is and is not on the cards; for the second line she calls `check_trip_plan` and answers from its numbers | D |
+| 275 | Saved result: `plan_text` and `next` | `plan_text` has one line per day with names in order and 「（没找到）」 on unplaced stops, ahead of the JSON; `next` is item 3's review text; from the 3rd save in one driver request `next` is the stop-revising text | unit |
+| 276 | Eval: she writes a 3-day plan with day 2 empty and day 1 holding 6 sights (scripted first call) | Before speaking she revises with a second `set_trip_plan` that fills day 2 from day 1; then she speaks | eval |
+| 277 | `set_trip_plan` new plan without `asked`; then a change without `asked`; then one with `asked` | First refused `PLAN_CHECK` naming `asked`; second keeps the saved `asked`; third replaces it; `asked` at the top of every result and in the 现在 note; kept after saving and reopening the plan in 我的行程 | unit |
+| 278 | Eval: replay 20261123-181633 from 333563 with `asked.must` = [九龙湖公主酒店] and the lookup failing | Every later write keeps 九龙湖 or she asks the driver; she never says it is in the plan when it is not | eval |
+
+**Trace gate.** Add `T-040zn: F-15b` to `specs/trace-ids.txt`, together with the first `@Test` that names it.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zn | §61 items 1–9 (set_trip_plan saves without checks; check_trip_plan counting tool the model calls; the driver's request saved with the plan as `asked` (in results, saved plans and the 现在 note); she reviews her plan against `asked` and revises before speaking (plan_text, review next, bound from the 3rd save); removed over the request; panel and record words; catalog texts and major agent version); rows 268–278 | NOT_RUN |
+
+## 62. The voice model hands the request to a planner model; the planner writes and reviews the plan from code's counts (owner request 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build 791335a, record 20261123-213534).** 「搞一个广东四天游，然后把这个（九龙湖旅游度假村）放进去」:
+- 60518–75245: she wrote four `set_trip_plan` calls; two were refused (`INVALID_FIELDS`, `PLAN_CHECK` hotel order). Her
+  plan had one sight a day (广州塔 / 九龙湖旅游度假村 480 min / 从化温泉景区 / 沙面岛), day 1 used 244 of 480 minutes,
+  and a separate hotel 「near 广州花都区」 next to the resort, which itself has rooms.
+- `city` was 「广东」 (the province). The lookup turned 广州塔 into 广州塔-韶关分塔 (韶关, 300 km), 九龙湖旅游度假村 into
+  肇庆九龙湖度假山庄, 沙面岛 into 十里银滩, and the hotel into 蜗艾蜗家艾公馆 for every night; 陈家祠 was not found three
+  times. `show_on_map` had found the right 九龙湖旅游度假村 (广州市花都区) at 35452 in the same session.
+- 82261: the plan saved (`ok=true`, `not_placed: [陈家祠]`). She began 「行程已经帮您做好了…陈家祠没有找到，您想换一个…」;
+  84364 the reply checker sent `CLAIM_AFTER_FAILURE` and she said 「由于无法找到陈家祠，未能帮您成功创建行程」, which was
+  false. Cause: 「做好了」 is not in `ClaimLexicon.tripChangeVerbs`, so the reply fell to the generic action verdict,
+  which counted the refused write of 74404 that §58's trip verdict already ignores after an ok one.
+- §61 item 3a's self-review did not happen: `plan_text` showed 韶关分塔 and 肇庆 and she called it done; she never
+  called `check_trip_plan`.
+
+**PoC on the PC (2026-11-23, scratchpad scripts `plan_poc.py`, `planner_loop.py`).**
+- The live model with the app's 9.0.0 setup, the two requests above as text, 9 runs: 4 had empty days, 1 had 5 days
+  for 4 asked, 1 had nameless stops; the usable ones had 1–2 sights a day. The plan is bad before any app code runs.
+- `qwen3.8-flash` as planner, with item 3's prompt and code counting by 高德 (place search, driving times), 6 runs:
+  6 sensible plans (right day count, no empty day, every place in 广州, the named place in, whole days for 长隆 and
+  the resort, 4.5–9.5 h days), 8 s per round, done in 1–3 rounds. Weak: the review rounds seldom changed anything
+  (one 585-minute day was left), and two names matched the wrong place (陈家祠 → 陈家祠(地铁站), 「九龙湖度假区」 →
+  中旅·阿那亚·九龙湖度假区).
+
+**Owner rule (2026-11-23).** The voice model only takes the driver's request and hands it on, then tells the driver
+the result. A stronger text model writes the plan. Code counts time and driving and gives the numbers back; the
+planner model reviews them and revises. §61's rule stands: code counts, never judges; success is the model's call.
+
+**Published practice this copies.** A conversational agent hands a task to a worker model and reports its result
+(Anthropic, "Building effective agents", 2024-12, *orchestrator-workers*); a planner LLM revises its plan from
+external verifiers' feedback in a bounded loop (Kambhampati et al., "LLMs Can't Plan, But Can Help Planning in
+LLM-Modulo Frameworks", ICML 2024; Gundawar et al., "Robust Planning with LLM-Modulo Framework: Case Study in Travel
+Planning", 2024, on TravelPlanner); the generator and the evaluator loop until the evaluator accepts (Anthropic,
+same article, *evaluator-optimizer*), here the counts come from code and the acceptance from the planner.
+
+1. **The voice model's trip tool is `plan_trip`; it carries the request, not the plan.** Arguments: `asked` (§61
+   item 3's shape: `text`, `must`, `days`, `city`, `notes`; required for a new plan) and `change` (the driver's words
+   for a change to the plan on the cards, 「第二天去掉沙面」, 「再加个咖啡馆」, as said; with `change` an `asked` sent
+   replaces the saved one, else it is kept). Exactly one of: a new plan (`asked`, no plan open or the driver asks for
+   a new one, §54), or a change (`change`, a plan open). `NON_BLOCKING`, result `WHEN_IDLE`, her working lines
+   unchanged (「好，我规划一下，大概半分钟。」 / 「好，我在改行程，好了告诉你。」). `set_trip_plan` leaves the catalog;
+   `check_trip_plan` (§61 item 2) stays for her questions (「第二天会不会太赶」). Screen edits (§46) are unchanged.
+2. **The planner writes the plan in its own shape, which is also the shape it reads back.**
+   `{"days": [{"sights": [{"name", "city", "minutes"}], "stay": {"name", "city"} | null}], "done": bool, "note": "<one
+   sentence for the driver: what was not done and why>"}`. `city` is the real city of that place (never a province).
+   `stay` is that night's place; the last day's is `null`. **A stay may be a sight of the same day** (a resort, a
+   hotel with grounds): code makes it one place, visited that day and slept in, with no other hotel that night
+   (owner 2026-11-23). On a change the planner gets the current plan in this shape (with each stop's lookup facts,
+   item 4), the saved `asked` and the `change` words.
+3. **The planner's system text, as used in the PoC:**
+   「你是行程规划师。司机的要求由语音助手转给你，你只输出 JSON，不要其他文字。JSON 格式：{"days": [ {"sights": [{"name": "地点全名", "city": "所在城市", "minutes": 停留分钟}], "stay": {"name": "当晚住的地方全名", "city": "城市"} 或 null } ], "done": true/false, "note": "给司机的一句话：没做到的要说"}
+   要求：
+   - 天数按司机说的；司机点名的地点必须放进去。
+   - 每天一般 3 到 4 个景点，景点时间加开车时间一天 6 到 8 小时；整天的地方（主题乐园、度假村玩一整天）可以单独一天。
+   - 每晚写 stay；度假村、酒店式景区本身能住，就直接住那里，不要再加别的酒店。最后一天 stay 写 null。
+   - 地点写能在地图上搜到的全名，city 写它真正所在的城市。
+   - 每次你会收到程序核对的数字（地图找到的地点、开车时间、每天总时间）。按这些数字自己判断合不合理，不合理就改好整份再输出，done=false；都合理了输出最终行程，done=true。」
+   plus one line added for §61 item 3a's rule: 「司机点名的地点没找到，不要换掉或去掉，留着，在 note 里说没找到。」
+   The user message is 「司机说：「<asked.text>」」 with `asked` as JSON (new plan), or the current plan, `asked` and
+   「司机要改：「<change>」」 (change).
+4. **Code counts and returns numbers, every round, with no verdict.** For each stop: look it up with the planner's
+   `name` and `city` (高德 inside China, the §50 vendor rule abroad; the city, not the province, is the search
+   range); the picker (§59) as today. The counts message is one line per day:
+   「第<n>天：<k>个景点；景点<s>分＋开车<d>分（各段[…]）＝<t>分，预算<B>分。<name>=地图:<found name>·<city><district>，停<m>分；…；住<name>=地图:…」,
+   「=地图没找到（在<range>找）」 for a miss, then 「（只有数字，怎么改你决定。）」. Driving from §48's `TripTimes`,
+   B from §48 item 3. No thresholds applied, no advice words (换, 去掉, 加, 挪, 太满, 考虑), as §61 item 2.
+5. **The loop is bounded, not judged.** Round 1: the planner writes; code counts; the counts go back. The planner
+   returns a revised plan (`done=false`) or the final one (`done=true`). A `done=true` in round 1 still gets one
+   counts round (the PoC planner marked done before seeing numbers). Code stops at `done=true` from round 2 on, or
+   after round 3, and saves the last plan. Code never decides whether a revision was needed.
+6. **What `plan_trip` returns to the voice model.** `saved`, `asked`, `plan_text` (§61 item 3a, from the saved plan,
+   「（没找到）」 on unplaced stops), the planner's `note`, `not_placed` with the range, `removed` over the driver
+   request (§61 item 4), `rounds`, and `next`:
+   「行程已经存上了。照 plan_text 跟司机说，一两句：每天去哪、住哪。note 里没做到的要说，问司机怎么办。plan 里没有的不要说有。」
+   She does not revise; a new request from the driver is a new `plan_trip` call. §61 item 3a's review `next` and its
+   save count go (the planner reviews, item 5).
+7. **Failures are said, not hidden; no fallback planner.** The planner call fails (HTTP error, timeout 30 s, or not
+   JSON twice in a round): `saved=false`, `code=PLANNER_FAILED`, the plan on the cards unchanged, `next`
+   「规划没做成，跟司机说现在规划不了，等一下再试。不要说网络有问题。」 No other model writes the plan instead (as §59
+   item 3, no picker backup).
+8. **A saved trip result is never a failure claim's evidence.** The reply checker judges trip claims only by §58's
+   trip verdict over the latest trip result: refused or failed trip writes before an ok one never reach the generic
+   `CLAIM_AFTER_FAILURE`, whatever words she uses (「做好了」 included); `not_placed` stops never make a saved result
+   a failure. Fixes the 84364 false retraction.
+9. **Panel and record.** Panel (§60) while `plan_trip` runs: 「正在规划行程」, then 「正在核对路线（第<n>轮）」 during
+   each counts round; result lines as §61 item 5. Record: `trip planner round=<n> ms=<ms> done=yes|no days=<n>
+   stops=<n> model=qwen3.8-flash`, `trip planner failed reason=http|timeout|json`, the counts message and planner
+   JSON in the local record only (names, as stop names today); record format bump with its fixture and
+   record-format.md row.
+10. **Model, endpoint and code layout.** `qwen3.8-flash`, DashScope international compatible-mode chat endpoint (as
+    the picker), `response_format: json_object`, `enable_thinking: false`, the saved search key. The HTTP client in
+    `Packages/NovaRealtime` next to `QwenPlacePicker` (vendor adapters, ios-architecture §3.2); the loop, the shape
+    conversion (item 2's shape ↔ `TripPlan`, stay-as-sight), the counts text, the prompt texts and `plan_trip` in
+    `Packages/NovaCore` (no network). Catalog change: major agent version bump per F-09b §15, its agent-versions.md
+    row, regenerated parts and hash; `plan_trip` replaces `set_trip_plan` in `AsyncTool`, the panel registry and
+    `check_panel_tools.py`.
+12. **Handing work over is said and shown by code, every time (owner 2026-11-23).** Owner: when she says she is
+    working or the work runs in the background, nothing shows on the screen, and sometimes she never says she handed
+    it over. The record had `panel backgroundWork on` (8875, 28073, …) and `panel working on` (60590, 64999) while the
+    owner saw nothing, and in record 20261123-211725 she said nothing for every `web_search`.
+    - **Spoken by code.** When `plan_trip` is dispatched, the app says the handoff line itself through the
+      guidance voice (the path of F-05a §15 item 5's fallback line, with its subtitle): new plan
+      「好，我交给规划助手了，大概半分钟，好了告诉你。」, change 「好，我交给规划助手改行程，好了告诉你。」. Her catalog text
+      no longer asks her to say a working line; it says 「调用后不用说话，系统会告诉司机已经交给规划助手，等结果。」 (no
+      double line). The line is not cut by her audio; a driver's barge-in stops it as any guidance line.
+    - **Shown on screen: a spinner with one line of text that follows the backend (owner 2026-11-23, as the 豆包 app
+      shows its thinking and search).** A small row: a turning circle and, next to it, one line naming the step the
+      backend is on now; the text changes when the step changes. Steps for `plan_trip`: 「已交给规划助手」 →
+      「正在规划行程」 → 「正在核对路线（第<n>轮）」 (item 9) → 「正在修改行程（第<n>轮）」 when the planner revises; on the
+      result the circle stops and the line shows the result line for its keep time (§60 item 2), then the row goes.
+      It sits on top of whatever is showing (map, trip cards, pin, nothing) and is not covered by the trip cards or
+      the map sheet; it does not close when the trip screen closes (the work still runs). It replaces §60's trip work
+      panel for `plan_trip`; `working` in the screen state is on exactly while the row shows. No published
+      description of 豆包's progress row was found (reviews 2026-11-23 describe only its 思考→搜索 rounds); the source is
+      the owner's description and sketch (2026-11-23): the turning circle on the left, the progress text to its right.
+    - **Other background tools.** `web_search`, `query_live_info` and `show_place` show the same row with
+      「正在查：<query or name>」 while they run; no spoken line (they return in 2–4 s).
+    - Record: `handoff said tool=plan_trip ms=<from dispatch>`, and `panel working on|off` as today.
+13. **Removed.** The voice model writing `days` (`set_trip_plan`, §52 items 1–3 as her tool, §55 items 1–2 as her
+    write path); §61 item 3a's review `next`, save count and stop-revising text. Kept: `TripPlan`, lookups, placing,
+    `TripTimes`, budget B, `asked`, `check_trip_plan`, saved plans, screen edits, §58.
+
+**Not in this section** (same record; separate sections when the owner asks): the place pick choosing a metro
+station or a namesake (陈家祠(地铁站), 中旅·阿那亚) when the planner gave the right name and city; reusing a place
+`show_on_map` found this session; the search prompt answering its own example (`web_search` 「陈家祠」 at 97268 sent
+「question: 什么叫激情?」 and the answer was about 激情, F-18).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 279 | `plan_trip` new plan, fake planner: round 1 `done=false`, round 2 `done=true` | Each stop looked up with its own `city`; one counts message per round in item 4's form; round 2's plan saved; result has `saved`, `asked`, `plan_text`, `note`, `rounds=2` and item 6's `next` | unit |
+| 280 | Fake planner never says done; and one that says done in round 1 | Never done: stops after round 3 and saves round 3's plan. Done in round 1: one counts round is still sent; no verdict or advice word in any counts message | unit |
+| 281 | Day 2 has sight 九龙湖旅游度假村 and stay 九龙湖旅游度假村 | One place, looked up once; that night's hotel is it; day 3 starts there; no other hotel that night; `plan_text` 「…九龙湖旅游度假村、住九龙湖旅游度假村」 | unit |
+| 282 | Planner HTTP error; timeout; not JSON twice | `saved=false`, `PLANNER_FAILED`, cards unchanged, item 7's `next`; no other planner called; record `trip planner failed reason=` | unit |
+| 283 | `plan_trip` with `change` 「第二天去掉沙面」 on an open plan | The planner gets the plan in item 2's shape with lookup facts, the saved `asked` and the change words; saved; `removed` lists 沙面; `asked` kept | unit |
+| 284 | Replay of 74404–84364: refused write, then a saved one with `not_placed`, reply 「行程已经帮您做好了…陈家祠没有找到」 | No correction sent; no `CLAIM_AFTER_FAILURE` | unit |
+| 285 | Catalog | `plan_trip` declared `NON_BLOCKING`; `set_trip_plan` absent; `check_trip_plan` kept; major agent version row; `check_panel_tools.py` passes | unit |
+| 286 | PC eval, `qwen3.8-flash` with item 3's text and 高德 counts: 「帮我安排一个广东四天游，把九龙湖旅游度假村放进去」, 「帮我安排广东三天，要包含九龙湖公主酒店」, 「帮我安排上海两天」, 「帮我安排大阪三天，要去环球影城」, 5 runs each | ≥ 18 of 20: day count as asked, no empty day, every `must` in the plan or named in `note`, every found stop in the asked city or region, ≥ 2 sights on each day that is not one whole-day place | eval |
+| 287 | Device: 「帮我安排一个广东四天游，把九龙湖旅游度假村放进去」 | Cards: 4 days, all stops in 广州 or nearby, the resort day slept at the resort; she speaks within 45 s of the request, in ≤ 2 sentences, saying what was not found | D |
+| 288 | Record of rows 279–282 | `trip planner round=… model=qwen3.8-flash` per round; `failed reason=`; record format fixture passes | unit |
+| 289 | `plan_trip` dispatched (new, change); she says nothing | The app says item 12's line within 1 s of dispatch with its subtitle; the spinner row is on with 「已交给规划助手」, its text changing with each step; `working` on; record `handoff said`; her catalog text has no working line | unit |
+| 290 | Trip screen closed while `plan_trip` runs; a `web_search` runs | The row stays on until the result; `web_search` shows the spinner with 「正在查：…」 and no spoken line | unit |
+| 291 | Device: a trip request on the map screen, then a search question | The driver hears the handoff line every time and sees the turning circle with the step text changing (已交给规划助手 → 正在规划行程 → 正在核对路线…) until the result, readable from the seat; for the search the row shows while it runs | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zo | §62 items 1–13 (`plan_trip` carries the request; `qwen3.8-flash` planner writes and reviews in its own shape, stay may be a sight; code counts every round, no verdict; bounded 3 rounds; result and `next` for the voice model; `PLANNER_FAILED`, no fallback; trip claims judged only by §58's verdict; panel and record; catalog and major agent version; the handoff line said by code and a spinner with step text shown); rows 279–291 | NOT_RUN |
+
+## 63. The same place twice in a row is one stop (owner request 2026-11-24)
+
+**Why (owner phone test 2026-11-24, build 6512033, record 20261124-100527).** 「广东四天游，其中大概两天住在佛山绿湖温泉度假酒店」:
+- 326885: the planner wrote day 1 as sights 长鹿旅游休博园 (240 min), 佛山绿湖温泉度假酒店 (120 min) and stay
+  佛山绿湖温泉度假酒店. §62 item 2's shape gives minutes only to sights, so the planner listed the resort as a sight to
+  count its time there, and again as the stay.
+- 326892: the saved plan held them as two stops, `s317` (sight) and `s318` (hotel), next to each other; the cards
+  showed the resort twice and `plan_text` read 「长鹿旅游休博园、佛山绿湖温泉度假酒店、住佛山绿湖温泉度假酒店」. Row 281
+  of §62 had asked for that text.
+- 316421, 347268: the driver asked why; she said 「酒店重复显示是为了记录住宿时间」 and 「系统记录了您入住的时间」, which
+  nothing in the app does.
+
+**Owner rule (2026-11-24).** The same place never shows twice in a row. Code merges it, whatever the planner writes;
+the planner's prompt does not change.
+
+1. **One rule, applied by code to every saved plan.** Within each day, a stop that is the same place as the stop right
+   before it is merged into that stop. Same place: the same `Place.id`, or the same found name (高德's name after the
+   lookup). The rule runs in the one function that saves a `TripPlan`, so `plan_trip` (§62), screen edits (§46) and a
+   reopened saved plan all get it.
+2. **What the merged stop keeps.** If either of the two is the night's hotel, the merged stop is the hotel (the night
+   is never lost) and keeps the sight's `minutes` as time spent there that day; the day's time count (§48 `TripTimes`,
+   budget B) counts those minutes once. Two sights merge into one with the larger `minutes`. The merged stop keeps the
+   first stop's position.
+3. **Not merged.** A day's first stop being the previous night's hotel and its last stop being the same hotel again
+   (day 2 of the record: start and night at the resort, other sights between) are not next to each other and both
+   stay. The same place on two different days stays on each day.
+4. **Everything the driver sees and hears uses the merged plan:** the cards, the map pins and lines, `plan_text`, and
+   the counts sent to the planner (§62 item 4). `plan_text` writes a merged hotel stop once:
+   「…佛山绿湖温泉度假酒店（玩约2小时，住这里）」; a hotel with no sight minutes stays 「住<name>」.
+5. **Replaces** §62 row 281's `plan_text` 「…九龙湖旅游度假村、住九龙湖旅游度假村」 (now 「…九龙湖旅游度假村（玩约<m>分钟，住这里）」
+   with hours when ≥ 60 min, as item 4).
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 292 | Replay of 326885's plan (record 20261124-100527) through the save | Day 1 has 2 stops: 长鹿旅游休博园, then 佛山绿湖温泉度假酒店 as the hotel with 120 min; day 1's count includes those 120 min once; `plan_text` day 1 「长鹿旅游休博园、佛山绿湖温泉度假酒店（玩约2小时，住这里）」; day 2 still starts and ends at the resort | unit |
+| 293 | Two sights with the same `Place.id` next to each other; two with the same found name and different ids; the same place on day 1 and day 2 | First two: one stop each, the larger `minutes`; the third: kept on both days | unit |
+| 294 | Screen edit (§46) moves a stop next to the same place; a saved plan with such a pair is reopened | Merged on save in both; no day in any saved plan has the same place twice in a row | unit |
+| 295 | §62 row 281 with item 5's text | Passes with the merged `plan_text` | unit |
+| 296 | Device: 「广东四天游，其中大概两天住在佛山绿湖温泉度假酒店」 | No day's cards show the same place twice in a row; the resort day shows one resort card marked as that night's stay | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zp | §63 items 1–5 (adjacent same place merged by code on every save; hotel wins and keeps the sight minutes, counted once; start/end hotel of a day kept; cards, pins, `plan_text` and planner counts use the merged plan; §62 row 281 text replaced); rows 292–296 | NOT_RUN |
+
+## 64. Trips can include time-limited events on the days they are open; the trip's dates and the asked stay city are kept (owner request 2026-11-24)
+
+**Why (owner 2026-11-24).** The driver wants trips built around temporary events (展览, 漫展, cosplay, AI), not only fixed
+sights. PoC on the PC (2026-11-24, `qwen3.8-flash` planner with §62 item 3's text plus an event line, events from the
+search, trip 2026-11-25…28 珠海 with 长隆海洋王国, 3 runs): every event the planner placed was on a day inside the dates
+it stated; with no dated event it placed none and said so. Faults: run 1 wrote an end date (2026-12-31) the search
+never gave; run 3 moved a night's hotel to 深圳 although the driver said 「酒店住珠海」. Events come from F-18 §35.
+
+1. **`asked` gains `start` (`YYYY-MM-DD`, optional) and `stay_city` (optional).** With `start`, day n has date
+   start+n−1, shown on the cards (「第1天 · 11月25日 周三」) and in `plan_text`. Her catalog text: give `start` when the
+   driver names a date or 「这周末」 (resolved from the 现在 note's date), `stay_city` when he says where to sleep.
+2. **Events come from the event store (F-18 §35).** With `start` and an event wish in `asked` (`notes` or `text`),
+   `plan_trip` first reads the store for the trip's cities and dates; on a miss it runs §35's loop inside its own
+   background run (spinner 「正在查活动」 before 「正在规划行程」), within §35's limits.
+3. **The planner gets the events and may place them.** The user message adds 「这几天开放的活动（只能排在开放的日子）：」
+   with each stored event {name, venue, city, start, end}, written as live-info §44 item 3 gives it (「场馆：未找到」,
+   「日期：未找到」, 「开始：HH:MM」, 「门票：…」 from §44 items 8–9). The planner shape (§62 item 2) gains an optional `event`
+   on a sight: `{"title", "start", "end"}`, `name` being the venue. §62 item 3's system text gains one line:
+   「只在某几天开放的活动，name 写场馆全名，event 写活动名和开放日期，照给你的活动表写；只能排在开放的那天。」
+4. **Code checks, every round, with facts only (§61 rule).** An `event` whose title is not a store entry for that venue,
+   or a day date outside its `start`…`end`: the counts line gives 「<title>=活动表里没有」 or
+   「<title>开放<start>～<end>，这天是<date>」, no advice word. After the last round, such an event is saved as a plain
+   sight without `event` and named in `note` by code (「<title>的日期对不上，没排成活动」).
+5. **`stay_city` is counted.** The counts line per day adds 「住<city>」 from the lookup of that night's stay; a night
+   outside `stay_city` gives 「住<city>（要求住<stay_city>）」. Facts only; the planner revises.
+6. **Saved and shown.** An event stop keeps `event` in `TripPlan`; its card shows 「<title> · <start>～<end>」 under the
+   venue. Reopened plans keep `start`, `stay_city` and events. `plan_text` writes 「<venue>（<title>）」.
+
+**Acceptance.**
+
+| # | Check | Pass | Type |
+|---|---|---|---|
+| 297 | `plan_trip` with `start` 2026-11-25, store holding AI嘉年华 (11-28…11-29, 珠海国际会展中心); fake planner places it on day 3 (11-27), then day 4 | Round 1 counts 「…开放2026-11-28～2026-11-29，这天是2026-11-27」; round 2 saved on day 4 with `event`; card shows the dates | unit |
+| 298 | Fake planner writes an event not in the store | Counts 「=活动表里没有」; if kept to the end, saved as a plain sight and named in `note` | unit |
+| 299 | `stay_city` 珠海, one night planned in 深圳 | Counts 「住深圳（要求住珠海）」 that round | unit |
+| 300 | Store miss with an event wish | §35's loop runs first inside `plan_trip`; spinner 「正在查活动」 then 「正在规划行程」 | unit |
+| 301 | PC eval: 「11月25号开始珠海四天游，要去长隆海洋王国，酒店住珠海，这几天有展的话排进去」 with the store filled by F-18 §35's eval, 5 runs | ≥ 4/5: every event on an open day; all nights in 珠海; 长隆海洋王国 in | eval |
+| 302 | Device: the row 301 request | Cards show dates per day and the event card with its dates; she names the event in her answer | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zq | §64 items 1–6 (`asked.start` and `stay_city`, events from the F-18 §35 store, planner `event` field and line, code date/store checks in the counts, stay city counted, saved and shown); rows 297–302 | NOT_RUN |
+
+## 65. A trip from an earlier conversation is not in her context until it is used (iOS, owner order 2026-11-25)
+
+**Why (phone run 2026-11-25, build 98eb278, record `20261125-164242.txt`).** The driver said 「这周末我想在这个珠海这里澳门游一游，
+帮我安排一下行程。」 (62502). She called `plan_trip` with `{"days":4, "start":"2026-11-28", "text":"安排一个珠海和澳门的旅行，
+大概玩四天。"}`: `start` is the right Saturday, but `days` and `text` are word for word the `asked` of the trip saved in the
+morning's test (record 8f4fc7b `20261125-130922.txt`, the row-60 four-day request). That trip reached her through the
+`[系统] 现在` note: every note carries the whole saved plan, `asked` included (`TripPlanJSON.noteLine`, sent from
+`AgentRuntime` with each context snapshot, F-15b §52 item 2). The driver: 「两天嘛，你怎么四天了？」
+
+1. **Off at the start of a conversation.** At each new conversation (`session connected`), the context note carries no
+   trip line (`ContextSnapshot.tripPlan` nil, `fields` without `trip`), even when a plan is saved. The plan stays saved
+   on the phone; nothing is deleted.
+2. **On once the trip is used in this conversation.** The trip line comes back (as today, the whole plan) from the first
+   of these in the conversation, and stays on until it ends:
+   - a `plan_trip` or `set_trip_plan` result in this conversation (a new plan or a change);
+   - a trip tool that reads the saved plan (`trip_next`, opening the trip screen, `exit_navigation_mode` on
+     `tripScreen`, any tool whose result carries `plan_kept`);
+   - the driver opening the trip screen or a trip card by touch.
+3. **Code, not prompt.** The on/off is a flag in the app's context code (`AgentRuntime` where the snapshot
+   is built, or a NovaCore type it asks); no prompt text changes. Trip tools read the saved plan directly as now, so
+   「去下一站」 and 「打开我的行程」 work in a new conversation with the line off.
+4. **Record.** `contextNote fields=` shows `trip` only while the line is on (already so); add one line
+   `trip context on reason=<plan_trip|set_trip_plan|tool:<name>|touch>` when it turns on.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 303 | A plan saved; a new conversation starts | First context note has no trip line; `fields` without `trip` | unit |
+| 304 | Same; then a `plan_trip` result | Next note carries the trip line; record `trip context on reason=plan_trip` | unit |
+| 305 | Same; then `trip_next` (no `plan_trip` before) | `trip_next` works from the saved plan; the next note carries the trip line, `reason=tool:trip_next` | unit |
+| 306 | Trip line on; the conversation ends and a new one starts | Off again | unit |
+| 307 | Device: a saved 4-day trip from an earlier conversation; new conversation, 「这周末去珠海澳门玩，帮我安排行程」 | `plan_trip` `days` is not 4 and `text` is not the old request; record shows no `trip` in `contextNote fields` before the call | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zr | §65 items 1–4; rows 303–307 | NOT_RUN |
+
+## 66. An event stop keeps the event and its venue apart, filled by code from the events list (iOS, owner order 2026-11-25)
+
+**Why (phone run 2026-11-25, build 98eb278, record `20261125-164242.txt`).** A stop already has `asked` (the planner's
+name, looked up on the map), `place` (what the map found) and an optional `event` (§64: title, start, end); the card shows
+the event in a purple line. But the planner model fills them, and code keeps an `event` only when its title equals an
+events-list name exactly (`TripPlanner`, §64 item 3). In the run:
+- Saved plans had `{"name":"珠海香山文化艺术中心"}` and `{"name":"珠海国际会展中心7-8号馆"}` with no `event`
+  (577804); the event names (动漫游园会, 横琴AI嘉年华) were only in the plan's `note`, so the cards showed buildings.
+- One plan had `{"name":"2026横琴AI嘉年华"}` (683676): the event name went to the map, 「地图没找到」.
+- She mixed which day and which place the event was on (turns 27–28).
+
+1. **Link by code.** After the planner's round and before the map lookups, for each sight code looks in the events list
+   the call used (§64 item 2, the F-18 store): a sight matches an entry when, after removing spaces, punctuation and a
+   leading 4-digit year, the sight's `name` or `event.title` contains the entry's `name` or the entry's `name` contains
+   it. On a match: `event` = the entry's name, start, end (not the planner's); the name looked up on the map = the
+   entry's `venue`; the planner's `name` is kept only as `asked` for the record. At most one entry per sight; with
+   several matches, the longest entry name wins.
+2. **No match.** The sight stays as the planner wrote it (`name` looked up; `event` kept if the planner gave one). An
+   `event.title` with no list entry is kept as written (an event the driver named, e.g. 动漫游园会), and the planner's
+   `name` is its venue.
+3. **An event never goes to the map as a place.** A sight whose `name` matched an entry is never looked up by that name;
+   only the venue is.
+4. **What she and the cards get.** The plan JSON she reads (`plan_text`, the trip line) gives each event stop as
+   「<event>（<venue>，<start>–<end>）」; the card shows the venue's map name and the event line (as now, always filled
+   after item 1).
+5. **Record.** One line per linked sight: `trip event link sight=<asked> event=<name> venue=<venue> by=<name|title>`;
+   none for unlinked sights.
+6. **A linked event with no venue (live-info §44).** When the list entry has no confirmed venue, the stop is not looked
+   up on the map (not by the event name, not by the planner's `location`, §67 item 2) and offers no navigation; the card
+   shows the event line and 「场馆未找到」 with the city; `plan_text`/trip line give 「<event>（场馆未找到，<start>–<end>）」.
+   An entry with no confirmed dates gives 「日期未找到」 and is not checked against the day (as §67 item 7).
+7. **An event with several halls (live-info §44 item 1a: AIE 珠海国际会展中心 + 澳门威尼斯人金光会展中心).** Each hall's city
+   comes from its map lookup (adcode 4404 珠海, 82 澳门, §68). The stop's `location` is the planner's `location` when it is
+   one of the entry's halls in the stop's city; else the entry's hall in the stop's city; else its first hall.
+8. **Start time fits the day (code, facts only, §61 rule).** For an event stop with a start time (live-info §44 item 8),
+   code adds the day's stop minutes and drive minutes up to that stop from the day's start; arriving later than 15
+   minutes before the start gives the counts line 「<title><HH:MM>开始，按行程<HH:MM>才到」. When a drive time on the way
+   is unknown (高德 gives no route across the 澳门 border: `USER_ABROAD_DAILY_QUERY_OVER_LIMIT`, PC 2026-11-25), the line is
+   「<title><HH:MM>开始，到澳门的车程查不到」, no guess. The card shows 「<HH:MM>开始」 in the event line.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 308 | Events list has 横琴AI嘉年华 (venue 珠海国际会展中心7-8号馆, 11-28…29); planner sight `{"name":"2026横琴AI嘉年华"}` | `event` = 横琴AI嘉年华 11-28…29; map looks up 「珠海国际会展中心7-8号馆」, never 「2026横琴AI嘉年华」; record line `by=name` | unit |
+| 309 | Same list; sight `{"name":"珠海国际会展中心7-8号馆","event":{"title":"AI嘉年华"}}` | Linked (`by=title`); `event` dates from the list | unit |
+| 310 | Sight `{"name":"珠海香山文化艺术中心","event":{"title":"动漫游园会"}}`, no list entry | Kept as written; card shows the venue and 动漫游园会 | unit |
+| 311 | Sight `{"name":"珠海渔女"}`, no match | Unchanged, no record line | unit |
+| 312 | Plan with a linked stop | `plan_text`/trip line shows 「横琴AI嘉年华（珠海国际会展中心7-8号馆，11-28–11-29）」 | unit |
+| 313 | Device: find events, then 「把AI嘉年华排进周日」 | Card shows the venue and the event line; she names the event and the venue for the same day | D |
+| 313a | Events list has 第十六届中国航展 with no venue (live-info §44 found none); sight `{"name":"航展","location":"珠海国际航展中心"}` | Linked; no map call; card 「场馆未找到」 + 珠海; trip line 「第十六届中国航展（场馆未找到，12-07–12-13）」 | unit |
+| 313b | AIE entry with both halls; sight city 澳门 with `location` 珠海国际会展中心; another sight city 珠海 with `location` 横琴 | 澳门威尼斯人金光会展中心; 珠海国际会展中心 | unit |
+| 313c | Day from 09:00: one 150-min stop, 23-min drive, then an event at 16:00; then six 90-min stops before it; then a leg into 澳门 with no drive time | No line; 「…16:00开始，按行程…才到」; 「…16:00开始，到澳门的车程查不到」 | unit |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zs | §66 items 1–8; rows 308–313c | NOT_RUN |
+
+## 67. Every stop has a name and a location; only the location goes to the map (iOS, owner order 2026-11-25)
+
+**Why.** §66 separates the event from its venue only for events in the events list. A stop the planner writes is still one
+`name`, used both as what the driver hears and sees and as what the map looks up; an event the driver named (动漫游园会)
+or a place inside a larger one goes to the map by the wrong word, or the card shows a building instead of what the
+driver asked for (phone run 98eb278, §66 Why).
+
+1. **Shape (amends §62/§64 planner sight).** Each sight and stay is
+   `{"name": <what the driver calls it>, "location": <what the map looks up>, "city", "minutes", "event"?}`.
+   `location` is required when `name` is an event, a show or anything that is not itself a place on a map; otherwise it
+   may be left out and equals `name`.
+2. **Map.** Only `location` is looked up (§68 for Macau/Hong Kong). `name` never goes to the map. §66's link overrides:
+   a linked sight's `location` is the list entry's `venue`, its `name` the entry's name.
+3. **Stop.** `TripStop.asked` keeps `name`; a new `TripStop.location` keeps the looked-up text; `place` stays what the
+   map found. Saved plans without `location` load with `location` = `asked`.
+4. **What she and the cards get.** The card title is `name`; the line under it is the map's place name (and the event
+   line, §66). `plan_text`/trip line give 「<name>（<place name>）」 when they differ, else 「<name>」. 「地图没找到」
+   names `location`: 「地图没找到 <location>（<name>）」.
+5. **Planner text (PoC-tested, see below).** In `TripPlannerShape.system` exactly three changes, nothing else:
+   - the JSON format's sight becomes `{"name": "司机怎么叫它", "location": "地图上要搜的地点全名", "city": "所在城市",
+     "minutes": 停留分钟, "event": {"title": "活动名", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} 只有活动才写}`;
+   - the line 「地点写能在地图上搜到的全名，city 写它真正所在的城市。」 becomes 「name 写司机怎么叫它；location 写能在地图上
+     搜到的地点全名（活动、演出这类不是地点的，写它的场馆）；name 本身就是地点时 location 可以不写。city 写它真正所在的城市。」;
+   - the event line becomes 「只在某几天开放的活动，name 写活动名，location 写场馆全名，event 写活动名和开放日期，照给你的
+     活动表写；只能排在开放的那天。」
+7. **Dates of an event not in the list.** An `event` with no events-list entry (§66 item 2) keeps its `title`; its
+   `start`/`end` are not shown or checked (the model guesses them: PoC case A wrote 11-28…11-29 for a one-day 动漫游园会).
+   The card shows the title only.
+
+**PoC (PC 2026-11-25, `qwen3.8-max-0902`, Beijing, `json_object`, thinking off; script kept in the session scratchpad,
+the request shape as `TripPlannerShape.newRequest`).** Case A: 「这周末两天，周六去香山文化艺术中心的动漫游园会，再逛逛珠海；
+周日去澳门，大三巴和威尼斯人。」 (no events list). Case B: 「这周末珠海两天，周日去AI嘉年华。」 with the events list
+(横琴AI嘉年华, venue 珠海国际会展中心7-8号馆, 11-28…29). With item 5's text, 5 runs (3 without and 2 with the `event`
+shape): every run wrote 动漫游园会 → `location` 香山文化艺术中心, 横琴AI嘉年华/AI嘉年华 → `location` 珠海国际会展中心7-8号馆
+with `event` from the list, 大三巴 → 大三巴牌坊, 威尼斯人 → 澳门威尼斯人, plain places `location` = `name`. With the `event`
+shape in the format line, 4/4 runs wrote `event` as `{title, start, end}` (without it, 3/3 wrote a string). 3.4–6.1 s,
+658–802 tokens per call. The locations it wrote are all found on 高德 (§68 PoC, and 珠海国际会展中心7-8号馆 → 珠海国际会展中心).
+6. **Record.** `trip planner text plan=` already shows both; `trip planner text counts` names `location` for not-found
+   stops.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 314 | Sight `{"name":"动漫游园会","location":"香山文化艺术中心"}` | Map looks up 香山文化艺术中心 only; card title 动漫游园会, line 香山文化艺术中心 | unit |
+| 315 | Sight `{"name":"珠海渔女"}` | `location` = 珠海渔女; unchanged behaviour | unit |
+| 316 | Saved plan from before §67 | Loads; `location` = `asked` | unit |
+| 317 | `location` not found | Counts and she see 「地图没找到 香山文化艺术中心（动漫游园会）」 | unit |
+| 318 | Device: a trip with an event the driver names | Card shows the event as title and the venue under it; navigation goes to the venue | D |
+| 318a | PC: the PoC's two cases, 3 runs each, with item 5's text | Every event has `location` = its venue and `event` as `{title,start,end}`; places `location` found on 高德 | PC (passed 2026-11-25) |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zt | §67 items 1–7; rows 314–318a (with or after T-040zs) | NOT_RUN |
+
+## 68. Macau and Hong Kong places are looked up without 高德's city limit; she does not invent why a place is missing (iOS, owner order 2026-11-25)
+
+**Why (phone run 98eb278; PC 2026-11-25, 高德 web key `AMAP_WEB_KEY`).** Every trip stop in Macau was 「地图没找到」
+(大三巴牌坊, 议事亭前地, 澳门旅游塔, 威尼斯人, The Venetian Macao, both records, every plan). 高德 v5 `place/text` with
+`region=澳门&city_limit=true` answers `info=USER_ABROAD_DAILY_QUERY_OVER_LIMIT` (it counts Hong Kong and Macau as
+abroad, with its own daily quota, used up). The same names **without** `region`/`city_limit`: 13/13 found, each first
+result with a Macau adcode (82xxxx): 大三巴牌坊 820002, 议事亭前地广场 820004, 澳门旅游塔 820004, 澳门威尼斯人 820007,
+澳门威尼斯人金光会展E馆 820007, 官也街 820006, North-The Venetian macao 820007, 妈阁庙 820005, 新濠天地 820007,
+澳门渔人码头 820004. Zhuhai names come back 4404xx. Back-to-back calls hit `CUQPS_HAS_EXCEEDED_THE_LIMIT` once (妈阁庙;
+alone it was found). She then said 「我们的地图工具目前不支持直接在行程中添加澳门的地点」 (record 165923 turn 30), a
+reason the record does not show. Apple Maps was not tested (no PC route).
+
+1. **Lookup.** *(Keep rule fixed by §70 item 1: v3 gives these results no adcode. Which lookups are SAR lookups, retries and the name check: §71 items 1–3.)* When the city of a lookup is 澳门/澳门特别行政区 (or 香港/香港特别行政区), the 高德 text search is sent
+   without `region`/`city_limit` (and the iOS SDK search without its city restriction), and only results whose adcode
+   starts with 82 (Macau) or 81 (Hong Kong) are kept. Other cities unchanged.
+2. **Pace.** 高德 lookups of one plan run at most 3 per second; a `CUQPS_HAS_EXCEEDED_THE_LIMIT` answer is tried once
+   more after 1 s.
+3. **Record.** A failed lookup logs `trip lookup name=<location> city=<city> info=<高德 info or none>`.
+4. **No invented reason.** `not_placed` entries get `reason`: `not_found` (高德 OK, nothing kept) or `map_limit` (any
+   `…LIMIT` info). The `plan_trip`/`set_trip_plan` result with `not_placed` adds `invent` to `must_not` (the existing
+   claim check, as `show_places`), and its `next` says what `reason` says: 「地图没找到这些地方」 or 「地图今天查不了这些地方」.
+   Nothing about tools or support.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 319 | Lookup 大三巴牌坊, city 澳门 | Request has no `region`/`city_limit`; a 4404 result is dropped, an 82 result kept | unit |
+| 320 | Lookup 珠海渔女, city 珠海 | Request as today (`region` 珠海, `city_limit`) | unit |
+| 321 | 10 lookups in one plan | Never more than 3 in one second; a QPS answer retried once | unit |
+| 322 | 高德 answers `USER_ABROAD_DAILY_QUERY_OVER_LIMIT` | `not_placed` `reason=map_limit`; record `info=` | unit |
+| 323 | Result with `not_placed` | `must_not` has `invent`; `next` names only the reason | unit |
+| 324 | PC: the 13 names, no city limit | All found with 82 adcodes (done 2026-11-25) | PC |
+| 325 | Device: 「周日去澳门，大三巴和威尼斯人」 | Both stops placed on the map; drive times known | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zu | §68 items 1–4; rows 319–325 | NOT_RUN |
+
+## 69. A newer trip request replaces one still running (iOS, owner order 2026-11-25)
+
+**Why (phone run 98eb278, record `20261125-164242.txt`).** While the driver was correcting her, she sent 5 `plan_trip`
+calls in 46 s (149340, 178831, 180570, 193475, 195559). They ran one after another; their results came back 8–65 s
+later (157849 … 258304), each an older version of the request, and she read each out.
+
+1. **Replace.** A `plan_trip` or `set_trip_plan` call while another trip call of this conversation is still running
+   cancels the running one (task cancelled, its planner calls cancelled). The cancelled call's result is not sent to her
+   (as F-18 §37 for `web_search`); the newest runs.
+2. **Saved plan.** A cancelled call saves nothing. The newest call starts from the plan saved before the cancelled ones.
+3. **Record.** `trip superseded old=<call id> new=<call id> ms=<age of old>`.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 326 | `plan_trip` A running; `plan_trip` B arrives | A cancelled, its result not sent; B runs; record `trip superseded` | unit |
+| 327 | A cancelled after one planner round | Nothing from A saved | unit |
+| 328 | Device: three quick corrections to a trip | One result read out, the last one | D |
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zv | §69 items 1–3; rows 326–328 | NOT_RUN |
+
+## 70. Macau and Hong Kong results are kept by their province name, since 高德 v3 gives them no adcode (iOS, owner order 2026-11-26)
+
+**Why (phone run c251735, record 20261126-124858; PC 2026-11-26, `AMAP_WEB_KEY`).** §68 is built, yet every Macau stop
+of the plan was still 「地图没找到（在澳门找）」: 大三巴牌坊, 议事亭前地, 澳门旅游塔, 澳门威尼斯人度假村, in all three rounds,
+`trip lookup … city=澳门 info=none`. The app sends §68's lookup to 高德 **v3** `/v3/place/text` (`AmapWebClient.textInfo`)
+with no city, as §68 item 1 says, and 高德 answers OK. But v3 gives Macau and Hong Kong POIs **no `adcode`**, and no
+`citycode`, while `pname`/`cityname` say 「澳门特别行政区」. `SpecialRegion.keeps` keeps only results whose adcode starts with
+82 or 81, so it drops every right result, and the lookup ends `nomatch` (`info=none`). §68's PC check (row 324) used
+**v5** `/v5/place/text`, which does give `adcode` 820002, so the gap never showed.
+
+PC check, 2026-11-26, 16 names (12 Macau, 4 Hong Kong), first result kept:
+
+| Lookup | Right place |
+|---|---|
+| v3 with `city=澳门`/`香港` + `citylimit` (before §68) | 0/16 (`USER_ABROAD_DAILY_QUERY_OVER_LIMIT`) |
+| v3 with no city, kept by `cityname` 澳门/香港特别行政区 | **16/16**, 0.2–1.7 s |
+| Photon (OpenStreetMap), English name, inside the SAR box | 13/16 by hand (a different museum for 大赛车博物馆, a public toilet for 澳门科学馆) |
+
+Coordinates: 高德's Macau and Hong Kong points are GCJ-02 as on the mainland (大三巴牌坊 15 m from OpenStreetMap's point
+once that point is shifted to GCJ-02, 605 m unshifted), so the app's existing conversion stays.
+
+1. **Kept by province when there is no adcode (changes §68 item 1).** `SpecialRegion.keeps` keeps a result whose
+   `adcode` starts with 82/81, **or**, when `adcode` is empty, whose province (`pname`, else `cityname`) is
+   澳门特别行政区 / 香港特别行政区. `AmapWebClient` gives `Place` the `pname` (new optional field `province`) next to `city`.
+   The kept result must be the SAR the lookup asked for (澳门 → Macau only, 香港 → Hong Kong only).
+2. **A lookup that 高德 answered but nothing was kept** logs `trip lookup name=<…> city=<…> info=none dropped=<n>
+   kept_by=<adcode|province|none>`, so a filter that drops everything shows in the record.
+3. **She says only what was placed (changes §58's claim check for `plan_trip`).** The `plan_trip` result's `next`
+   already says not to name what is not in the plan; code also checks her reply: a stop name from `not_placed` in a
+   reply after that result gets the existing `UNVERIFIED_CLAIM tool=plan_trip` correction (record 124858 turn 8 named
+   all four unplaced Macau stops).
+4. **Not changed.** Mainland lookups (city + `citylimit`), §68 items 2–4, Photon abroad, the GCJ-02 conversion.
+   Macau and Hong Kong stay 高德 (no OpenStreetMap, no English names needed).
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 329 | v3 fixture: 大三巴牌坊 with no `adcode`, `pname` 澳门特别行政区; a 珠海 result with adcode 440402 | Macau result kept (`kept_by=province`), 珠海 dropped | unit |
+| 330 | Lookup city 澳门; v3 fixture with only a 香港特别行政区 result | Not kept; `nomatch`; record line with `dropped=1 kept_by=none` | unit |
+| 331 | v5-style result with adcode 820002 | Kept (`kept_by=adcode`), as §68 | unit |
+| 332 | `plan_trip` result with `not_placed` 大三巴牌坊; her reply names 大三巴牌坊 as planned | `UNVERIFIED_CLAIM tool=plan_trip` correction | unit |
+| 333 | PC: the 16 names through `AmapWebClient`'s exact v3 request and the new keep rule | ≥ 15/16 right place (done 2026-11-26 with the request shape: 16/16) | PC |
+| 334 | Device: 「周日去澳门，大三巴和威尼斯人」 | Both stops on the map with drive times; she names only placed stops | D |
+
+**Trace gate.** Add `T-040zw: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zw.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zw | §70 items 1–3; rows 329–334 | NOT_RUN |
+
+## 71. Macau and Hong Kong: places on 高德 without a city, drive times and guidance on OSRM (iOS, owner order 2026-11-26)
+
+**Why (records 20261125-164242, -165923, 20261126-124858; PC tests 2026-11-26 with `AMAP_WEB_KEY`).** Macau trips never
+worked end to end: stops were 「地图没找到」 (§70), and each Macau day's drive times went to 高德
+(`trip times vendor=amap … ms=0`), so the day showed 「开车 未知」 and 「下一站」 had nothing to route.
+- **高德 refuses every route touching Macau.** `/v3/direction/driving` answers `USER_ABROAD_DAILY_QUERY_OVER_LIMIT`
+  and `/v3/distance` answers `INSUFFICIENT_ABROAD_PRIVILEGES`, inside Macau and from Zhuhai into Macau (4/4 legs).
+- **OSRM answers all of them.** 14/14 legs (10 Macau places, 4 Zhuhai) on `router.project-osrm.org`, median 627 ms
+  with the owner's Clash rule `DOMAIN-SUFFIX,project-osrm.org,DIRECT` (1,093 ms through the proxy). The 高德 point must be
+  converted GCJ-02 → WGS-84 first: unconverted, 新葡京 → 澳门渔人码头 came out 10.4 km instead of 2.7 km.
+- **OSRM is not used on the mainland:** it has no traffic (珠海站 → 珠海渔女 9 min against 高德's 23; 广州塔 → 佛山祖庙
+  28 against 69) and answers about 5× slower than 高德 (~150 ms).
+- **Lookups, 144 cases (18 Macau names × 8 city labels).** As built (§68): 61/144; §70: 74; the rule below: 91.
+  高德 with no city, first result: 13/18 names right. Failures: names 高德 does not know (圣保禄教堂遗址), wrong places
+  (「Ruins of St. Paul's」 → a public toilet beside it; 「澳门威尼斯人度假村」 → 澳门上葡京; 「渔人码头」 → 长沙). With a
+  city 高德 does not understand (「氹仔」「珠海,澳门」) it silently searches nationwide. OpenStreetMap (Photon) found 9/18
+  (it knows traditional and Portuguese names, not simplified ones); as a fallback after 高德 it adds 「Ruins of St. Paul's」.
+- **The planner's city is right.** All 211 Macau sights in 78 recorded plans were labelled 澳门 (154) or
+  澳门特别行政区 (57); none 珠海. Names were sometimes English (record 165923: Macau Tower, Ruins of St. Paul's).
+- **No city as the default would break the mainland:** 15 Zhuhai names with the city: 15/15; with no city a Zhuhai
+  result in the top 10 for only 5/15 (人民公园 → 北京, 星巴克 → 廊坊, 博物馆 → 故宫).
+
+1. **When a lookup is a Macau or Hong Kong lookup.** The stop's `city` text (or its location's) contains one of
+   澳门 澳門 macau macao 氹仔 凼仔 路环 路環 路氹 (Macau) or 香港 hong kong 九龙 九龍 尖沙咀 新界 香港岛 (Hong Kong),
+   case-insensitive. A city text naming a SAR and a mainland city (「珠海,澳门」) keeps results in either. Replaces §68
+   item 1's exact list.
+2. **The lookup (extends §70 item 1).**
+   - **a.** 高德 text search with **no** `city`/`citylimit`; keep results in that SAR (adcode 82/81, else `pname`/
+     `cityname`, §70), plus the mainland city when item 1's text names one.
+   - **b.** Nothing kept: once more with the SAR name in front (「澳门」 + name, unless the name already starts with it).
+   - No OpenStreetMap (Photon) lookup for SAR places (owner 2026-11-26: 高德 only for places; it found 13/18 names,
+     Photon 9/18). A place still not found is `not_found` (§68 item 4).
+   - **Name check on every kept result:** the result's name must contain the asked name's core: the asked name with
+     the SAR prefix (澳门/澳門/香港) and a generic tail (度假村, 酒店, 景区, 广场, 公园) removed, compared in simplified
+     form. Otherwise it is not kept (rejects 上葡京 for 威尼斯人度假村 and the toilet for Ruins of St. Paul's).
+3. **A mainland lookup that misses (second chance).** A lookup with a mainland city that finds nothing, finds only
+   results failing the name check, or gets any `…LIMIT` answer: once more with no city, keeping results in any of the
+   trip's cities (`asked.city` and the plan's stop cities) that pass the name check. Logged `trip lookup retry=nocity
+   kept=<n>`.
+4. **Planner names.** The planner's system text (§62) gains one line: 「澳门、香港的地方用地图上常用的简体中文名（如
+   大三巴牌坊、澳门旅游塔、澳门威尼斯人），不要用英文名或别名。」 With 高德 only, this is what keeps 「Ruins of St. Paul's」 out. (§61's catalog rule for `location` unchanged.)
+5. **Which router.** A found place is a SAR place when 高德 gives it adcode 82/81 or `pname`/`cityname` 澳门/香港特别行政区.
+   A leg with a SAR place at either end, including Zhuhai ↔ Macau, gets its time from
+   OSRM (§36 item 2c's table, `TripTimes` abroad), with each 高德 point converted GCJ-02 → WGS-84 first; guidance to such
+   a stop is §47's in-app guidance on an OSRM route. Legs with both ends on the mainland stay on 高德. Logged `trip
+   times vendor=osrm reason=sar pairs=<n> ms=<ms>`.
+6. **Border legs say what OSRM does not know.** A leg between a SAR place and a mainland place carries `border: true`
+   in the trip result and on its card 「过关时间未计入」; the plan result's `next` adds 「跨境自驾需粤车南下等通行证，过关排队时间没算进去。」
+   once per plan. OSRM's route is used as it comes (its detour round 横琴口岸 is kept; the card shows the km).
+7. **Not changed.** Mainland lookups with a city that find a name-checked result; 高德 times and guidance on the mainland;
+   §70's province rule; Photon and OSRM for trips abroad (§36, §47); the GCJ-02 conversion code.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 335 | City texts 澳門, Macau, 氹仔, 「珠海,澳门」, 香港, 尖沙咀 | Each is a SAR lookup (item 1); 「珠海,澳门」 keeps 澳门 and 珠海 results | unit |
+| 336 | Fixture: 渔人码头 no-city answer with only 长沙/唐山 results; then 澳门渔人码头 with a Macau result | First pass keeps nothing; item 2b finds and keeps 澳门渔人码头 | unit |
+| 337 | Fixtures: 澳门威尼斯人度假村 → 澳门上葡京综合度假村; Ruins of St. Paul's → Public Toilet near Ruins of St. Paul's | Both rejected by the name check; the second ends `not_found` (no Photon lookup) | unit |
+| 338 | Lookup 人民公园, city 珠海 | City search as today; no retry | unit |
+| 339 | Lookup 大三巴, city 珠海; city search returns 大三巴茶餐厅(华发峰尚店) | Name check passes only if the core matches; here it does, kept as today (documented limit: a similar mainland name wins when the city is wrong) | unit |
+| 340 | Lookup with city 珠海 answering `USER_ABROAD_DAILY_QUERY_OVER_LIMIT` | Item 3 retry with no city; `retry=nocity` | unit |
+| 341 | Day 澳门旅游塔 → 新葡京 → 澳门渔人码头 (fixture points GCJ-02) | Times from OSRM with WGS-84 points (fake OSRM sees the converted coordinates); `vendor=osrm reason=sar` | unit |
+| 342 | Day 珠海站 → 大三巴牌坊 → 珠海长隆海洋王国 | Both legs OSRM, both `border: true`; `next` has the permit sentence once | unit |
+| 343 | Day 珠海渔女 → 圆明新园 | 高德 times as today | unit |
+| 344 | PC: item 2 on the 18 names × 8 city labels; OSRM on the 14 legs | ≥ 15/18 names right for each SAR city label; 14/14 legs routed (done 2026-11-26 for the legs: 14/14, 627 ms) | PC |
+| 345 | Device, phone VPN with `DOMAIN-SUFFIX,project-osrm.org,DIRECT`: 「周日去澳门，大三巴、旅游塔和威尼斯人，从珠海出发」, then 「开始第一天」 | All stops placed, drive times known, border note said once; in-app guidance to the first Macau stop | D |
+
+**Not verified.** OSRM's times in Macau against real driving; whether the phone's VPN app has the DIRECT rule (the PC's
+Clash Verge does).
+
+**Trace gate.** Add `T-040zx: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zx.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zx | §71 items 1–6; rows 335–345 | NOT_RUN |
+
+## 72. 「打开行程」 works again: `trip_plans` action `show`; the saved trip is always in her state line (iOS, owner order 2026-11-27)
+
+**Why (device 2026-11-27, build 86765b9, Qwen Audio 3.1 Flash).**
+- **Record `20261127-091754.txt`.** A 2-day 珠海+澳门 plan was saved at 09:10. In this new conversation the trip line was
+  off (§65: `contextNote fields=place,time`); she had only the summary of the last six exchanges. 「这两边的景点还有活动」
+  got 「好呀，我帮你规划一下…」 and 「行程呢」 got 「行程正在规划中」 with no tool call. The driver opened the trip by touch
+  (75394, `trip context on reason=touch`) and closed it with × (82856, `trip cards hidden=yes`). 「你给我看一下吧」 then
+  got 「好呀，我把行程给你列出来看看」 and nothing opened: no tool can show the current trip.
+- **The show path was lost.** §51 item 2 showed the cards with `edit_trip_list action=read` (「司机说「打开行程」「看看行程」时用
+  action=read」). `edit_trip_list` has since left the catalog (§52 `set_trip_plan`, then `plan_trip`); the 28 tools of
+  agent setup 13.0.0 have no action that shows the current plan. `trip_plans open` needs the `name` of a saved plan;
+  the current plan usually has none, so `open` answers `PLAN_NOT_FOUND`. The `TRIP_HIDDEN` result still tells her
+  「要用行程请说「打开行程」」 (`show_command`), a command nothing carries out.
+- **§65 hid the state, not only the old request.** §65 fixed a copied `asked` (「两天嘛，你怎么四天了？」) by leaving the whole
+  trip out of a new conversation. The copy came from `asked` being in the note; the trip itself is state she needs to
+  answer 「行程呢」.
+- **PC test, real model, fake tools** (`scripts/eval/qwen_tool_pick.py`, agent setup 13.0.0 `gentle.search` =
+  `380a168060a3`, sentences sent as text; raw in `D:/ndlogs/search-raw/`):
+  - `--show` (`show` added to `trip_plans` with the item 2 text; the screen closed; a planned trip as a state line or
+    only as the summary): `trip_plans action=show` first in **20/20** (Flash 10/10, Plus 10/10;
+    `20261127-094034-…flash…`, `20261127-094402-…plus…`).
+  - `--mix` (plan or show is right; Flash, 3 runs): **17/17** right, 1 run lost to a test timeout
+    (`20261127-101546-…flash…`). 「重新规划一个吧，改去广州玩一天」 with a trip present → `plan_trip` 3/3; 「把刚才那个行程打开
+    给我看看」 with only the summary → `show` 3/3.
+  - Without `show` (`20261127-093113`, `-093158`): 「行程呢」「给我看一下行程」 → `trip_plans open` with an invented name
+    (「珠海+澳门 2 天」), which fails on the phone.
+
+1. **`trip_plans` action `show`.** No arguments (`name` ignored).
+   - **A current plan with stops:** the cards are shown (`cardsHidden` false, exactly as a tap on 「行程」, §13), the trip
+     screen opens on day 1 (`tripScreen on`), and the trip line turns on (§65 item 2, `trip context on
+     reason=tool:trip_plans`). Result `ok` with `shown: true`, `days`, `stops`, and the plan as every trip result
+     (§52 item 2, `withPlan`). No lookups, no model call.
+   - **No current plan, or no stops:** `NO_TRIP_LIST` (`ok=false`); nothing opens.
+   - **A `plan_trip` run still working:** the screen opens on the working state as at a `plan_trip` call (the cards and
+     `working` panel); the result says `working: true`, so she says it is still being planned.
+   - **Navigating:** shown as a tap shows it today; guidance goes on.
+   - `show` is not blocked while the cards are hidden (§51 item 2 lists it with the actions that show the cards).
+2. **Catalog text.** `tripPlansDescription` starts with the tested line
+   「司机要看现在这份行程（「行程呢」「给我看一下行程」「把行程打开」）→show，不填 name；」; the `action` enum gains `show` first.
+   The `TRIP_HIDDEN` `next` (§51 item 2) becomes 「行程收起来了。司机要看就调用 trip_plans action=show；只说一句。」 and its
+   `show_command` fact is dropped.
+3. **Trip state line (changes §65 item 1).** At each new conversation, when a plan with stops is saved, the first
+   context note carries one state line instead of no trip at all:
+   「[系统] 已保存行程：<n> 天，<start> 起。第1天：<stop names>，住<hotel>；第2天：…。行程屏幕：<已打开|已关闭>。这句不用回答」
+   - Stop and hotel names only: no `asked`, no times, no coordinates. `asked` stays out until §65 item 2 turns the full
+     trip line on, so an old request cannot be copied into a new one (the §65 cause).
+   - After §65 item 2 turns the full line on, the state line is not sent again in that conversation.
+   - The screen state comes from `cardsHidden` and the screen panel, as the `[系统] 屏幕` note.
+4. **Record** (numbers and enums only, I-8). §17's `trip plan action=` line gains `show`: `trip plan action=show ok=<yes|no>
+   days=<n> stops=<n> working=<yes|no>`. `contextNote fields=` shows `tripState` while item 3's line is sent.
+5. **Not changed:** `plan_trip` and the planner; `trip_plans` `save`, `open`, `list`, `delete`, `rename`; §65 item 2's
+   triggers for the full trip line; §51's blocking of `trip_next` and route tools while hidden; F-09b's claim checks.
+
+**Not in this section.** A reply that promises planning or showing with no tool call (09:17 turns 8–9: 「行程正在规划中」 with
+no `plan_trip`) is the claim check's job (F-06 / F-09b); it needs its own spec. The PC test shows the model calls
+`plan_trip` for these requests (`--mix` M1, M3–M5), but Flash also once answered a plan request with words only
+(`20261127-093054`, S1).
+
+**Not verified.** Spoken input (the PC test sent text); 「行程呢」 with no saved trip (needs item 1's `NO_TRIP_LIST`); how
+she words a `working: true` answer.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 346 | A 2-day plan, cards hidden; `trip_plans {"action":"show"}` | Cards shown, `tripScreen on` day 1, `trip context on reason=tool:trip_plans`; result `ok`, `shown: true`, `days` 2, the plan; `trip plan action=show ok=yes` | unit |
+| 347 | No current plan; `show` | `NO_TRIP_LIST`, nothing opens | unit |
+| 348 | `plan_trip` running; `show` | Screen opens on the working state; `working: true` | unit |
+| 349 | A saved plan; a new conversation starts | First note has the item 3 line with day stops and hotel, no `asked`; `fields` has `tripState`, not `trip`; after a `plan_trip` result the full line replaces it | unit |
+| 350 | Catalog | `action` enum starts with `show`; description starts with the item 2 line; `TRIP_HIDDEN` `next` as item 2, no `show_command` | unit |
+| 351 | PC: `qwen_tool_pick.py --show` and `--mix` on Flash with the built catalog text | `show` and `plan_trip` picked as expected in at least 19 of 20 and 17 of 18 (done 2026-11-27 on the test text: 20/20, 17/17) | PC |
+| 352 | Device, Qwen Flash: a trip planned, closed with ×; new conversation; 「行程呢」; then 「重新规划一个，去广州玩一天」 | The trip screen opens after her `trip_plans action=show` call; the second request calls `plan_trip` and makes a new plan | D |
+
+**Trace gate.** Add `T-040zy: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zy.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zy | §72 items 1–5; rows 346–352 | NOT_RUN |
+
+## 73. Each stop carries a hidden map-search word, `query`; only it goes to the map (iOS, owner order 2026-11-27)
+
+**Why (record `20261127-133824.txt`, build 533bfd0, Qwen Audio 3.1 Plus).** A 2-day 珠海 trip ended with two stops on
+「地图没找到」: 长隆海洋王国 (`trip planner saved … not_placed=2`) and 珠海大剧院 (`not_placed=1` from the first change on).
+- The planner wrote `"name":"长隆海洋王国","location":"珠海长隆海洋王国"`. Its system text asks three times for the
+  「全名」 (§62 format line, §67 item 5's `location` line, the event line), and nothing says to leave the city out, so it
+  put the city in front.
+- The lookup searches `location`. §71 item 2's name check strips only 澳门/澳門/香港 from the front, so the core
+  「珠海长隆海洋王国」 is not contained in a 高德 result named 「长隆海洋王国」; the no-city retry fails the same check
+  (`trip lookup retry=nocity kept=0`); the unmatched results go to the picker, which answered none (`trip pick names=2
+  none=2`), so both stops stayed unplaced.
+- **Replayed on the PC (2026-11-27, owner's 高德 Web key, `/v3/place/text` city 珠海市 `citylimit=true`):**
+  「珠海长隆海洋王国」 gives 长隆海洋王国 and its parts (售票处, 游客服务中心, 北极熊馆…); only the parts pass the name check,
+  so the park itself is never kept. 「长隆海洋王国」 gives the park first. 「珠海大剧院」 is not on 高德 at all (长隆剧院,
+  华发中演大剧院…); the driver's own word 「日月贝」 gives 珠海日月贝. The phone's picker answer for 珠海长隆海洋王国 (none)
+  was not reproduced: the record does not keep the candidates it saw (item 7).
+- **Owner (2026-11-27):** keep what the driver sees as it is; add a separate word that a person would type into a map app,
+  hidden from the driver, used only to search the map.
+
+1. **Shape (adds to §67 item 1).** Each sight and stay gains `query`:
+   `{"name": <what the driver calls it>, "location": <as §67>, "query": <the map-search word>, "city", "minutes", "event"?}`.
+   `query` is what a person types into a map app's search box for this place: the shortest common map name, no city in
+   front unless it is part of the place's own name (珠海渔女, 澳门旅游塔 keep it), no brackets, no description
+   (长隆海洋王国, 日月贝, 大三巴牌坊, 横琴国际会展中心). The city stays in `city`.
+   `name` and `location` keep their meaning and every place they are shown.
+2. **Map.** Only `query` is looked up, with `city` as today (mainland city lookup, §71 item 3 retry, §68–§71 for
+   Macau/Hong Kong). `query` missing or empty: `location`, else `name` (as §67). §66's link: a linked sight's `query` is
+   the sight's own `query` when the planner wrote one, else the list entry's `venue`.
+2b. **Fallback to the driver's words (owner 2026-11-27).** When a stop's `query` lookup ends unplaced (nothing found,
+   nothing that passes the name check after §71 item 3's retry, or the picker answers none) and its `name` differs from
+   `query`, `name` is looked up once the same way (same city rules, name check against `name`, §71 item 3 retry). Its
+   candidates go to the picker together in one more picker call (after the first picker answer). A pick places the stop;
+   otherwise it stays `not_found` and 「地图没找到」 names `location` as today. Not for a sight with `event` (its `name` is
+   an event, not a place) or a §66-linked sight. Once per stop per planner round. The planner is not told which word
+   found it; the counts show the map's place name as for any found stop.
+3. **Name check (§71 item 2).** It compares the result's name with `query` (the looked-up text), unchanged otherwise.
+   A short `query` is contained in both 「长隆海洋王国」 and 「珠海长隆海洋王国」.
+4. **Hidden.** `query` is never on a card, in the trip line or state line (§72 item 3), in `plan_text`, in a tool result
+   she gets, or in what she says. 「地图没找到」 still names `location` (§67 item 4).
+5. **Stop and saved plans.** `TripStop` keeps the looked-up `query`; saved plans without it load with `query` =
+   `location`. The planner gets back its own `query` in each next round (the plan JSON it wrote), not in the counts text.
+6. **Planner text.** In `TripPlannerShape.system` exactly two changes, nothing else:
+   - the format line's sight and stay gain `"query": "在地图App搜索框里会输入的最短地点名"` after `location` (stay: after
+     `name`);
+   - one line after the `name`/`location` line: 「query 写人在地图App里搜这个地方会输入的词：最短的常用名，不带城市、括号和
+     说明，城市写在 city；它只用来搜地图，不给司机看。」
+7. **Record (I-8: place names are already in these lines).** `trip lookup name=<name> query=<query> city=<city> info=…`;
+   the counts line's not-found text stays §67's. A new line per lookup that reaches the picker:
+   `trip pick candidates query=<query> n=<n> names=<first 5 result names, ｜-separated>`, so the next miss shows what 高德
+   offered. Item 2b: `trip lookup fallback=name name=<name> query=<query> found=<yes|no>`.
+8. **Not changed:** the cards, her replies and the trip line; §66's event linking; §68–§71's SAR rules; the picker and
+   its instruction; routing and times.
+
+**PoC (PC 2026-11-27, `qwen3.8-max-0902`, Beijing, thinking off; one run each; raw in `D:/ndlogs/search-raw/20261127-poc73-*`,
+`-amap73-*`, `-llm73-*`).**
+- **Planner with item 6's text** (3 one-day cases, 2,145 tokens, json_object): 长隆海洋王国 → `location` 珠海长隆海洋王国,
+  `query` 长隆海洋王国; 日月贝 → `query` 珠海大剧院 (the official name, not on 高德); 珠海渔女, 情侣路, 圆明新园, 珠海度假村酒店,
+  大三巴牌坊, 议事亭前地, 澳门旅游塔, 澳门威尼斯人 as their map names. No brackets; no city added that is not part of the name.
+- **高德 before/after:** 长隆海洋王国 placed only with the new word (above); the other stops found by both words.
+- **Picker on 高德's top 10** (app instruction and question format, sent to the compatible endpoint; 968 tokens):
+  日月贝 → 珠海日月贝 (not 日月贝(公交站), listed first); 长隆海洋王国 → 长隆海洋王国; 珠海长隆海洋王国 → 长隆海洋王国.
+- **Planner round 2 instead of item 2b** (rejected): with today's counts line (「日月贝=地图没找到 珠海大剧院（日月贝）」) it kept
+  `query` 珠海大剧院 and answered `done: true` with an empty `note`; with 高德's hits for 「日月贝」 added to that line it
+  changed `query` to 珠海日月贝. Item 2b gets the same place without a planner round (about 1,100 tokens a miss).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 353 | Sight `{"name":"长隆海洋王国","location":"珠海长隆海洋王国","query":"长隆海洋王国","city":"珠海市"}`; 高德 fixture returns 「珠海长隆海洋王国」 | Looks up 长隆海洋王国 with city 珠海市; name check passes; placed | unit |
+| 354 | Same sight without `query` | Looks up `location` (today's behaviour) | unit |
+| 355 | Saved plan from before §73 | Loads; `query` = `location` | unit |
+| 356 | A plan with `query` on every stop | No card, trip line, state line, `plan_text` or tool result contains a `query` that differs from `name`/`location` | unit |
+| 357 | Lookup reaching the picker | `trip lookup … query=…` and `trip pick candidates …` lines as item 7 | unit |
+| 358 | `TripPlannerShape.system` | Exactly item 6's two changes over the previous text | unit |
+| 359 | PC: planner on `qwen3.8-max-0902`, 3 cases, 1 run each (长隆海洋王国; 日月贝; 大三巴), ~2,400 tokens | No `query` adds a city that is not part of the name, none has brackets; each found on 高德 in its city directly or by item 2b (done 2026-11-27: 11/11 stops, 日月贝 by item 2b's picker) | PC |
+| 360 | Device: 「这周末珠海两天，景点和活动，第一天加长隆海洋王国，第二天去日月贝」 | Every stop placed (`not_placed=0`); cards show the same names as before §73 | D |
+| 361 | Sight `{"name":"日月贝","location":"珠海大剧院","query":"珠海大剧院"}`; 高德 fixture: 「珠海大剧院」 → 长隆剧院, 华发中演大剧院; 「日月贝」 → 日月贝(公交站), 珠海日月贝; fake picker picks option 2 | Second lookup of 日月贝; placed at 珠海日月贝; `trip lookup fallback=name … found=yes` | unit |
+| 362 | Same as 361, fake picker answers none for 日月贝 | `not_found`; 「地图没找到 珠海大剧院（日月贝）」; `found=no` | unit |
+| 363 | Unplaced sight with `event`, or `name` = `query` | No fallback lookup | unit |
+
+**Not verified.** The picker's answers beyond one run each; the phone's 高德 answers (same key and endpoint as the PC test, but
+not compared).
+
+**Trace gate.** Add `T-040zz: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zz.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zz | §73 items 1–8 and 2b; rows 353–363 | Code PASS (3bf95bd); row 360 device NOT_VERIFIED |
+
+## 74. Facts the driver chose reach the planner by id and by his own words, never by her retelling (iOS, owner order 2026-11-27)
+
+**Rule.** What the driver chose from a tool's list (an event, and which of its venues) and the date he said are facts.
+She does not retell them in `plan_trip`'s free text; she passes the list item's id and copies his date words. Code turns
+both into data (the store's entry, a date) and gives that data to the planner and the map. The planner only plans;
+it never supplies an event's venue or dates.
+
+**Why (example: record `20261127-151819.txt`, build ee5c143).** Events are searched once and stored as structured data
+(F-18 §35, live-info §44); the trip is planned from that data. In the example the data never reached the planner:
+- The stored event had two venues (珠海国际会展中心, 澳门威尼斯人金光会展中心) and dates 12-03 to 12-05; she read both
+  venues out. The driver chose one (「那个在威尼斯的」) and gave a relative date (「下个星期周末」).
+- Her `plan_trip` carried only the event's name: `asked` has no field for a venue choice, and `start` is optional with
+  only 「这周末」 as an example. Both facts were lost in her retelling.
+- §64 item 2 reads the store only with `start`, so the planner got no events line, nothing linked (§66 item 1), and the
+  planner chose the venue itself (the other one) and invented dates (2025-01-01..2025-12-31).
+- 「澳门珠海」 in `asked.city` was read as one city (`EventCity.from(address:)` takes the first).
+
+**PoC (PC 2026-11-27, `scripts/eval/event_hall_poc.py`, `gemini-3.8-live` with the app's 13.0.0 instructions and tools,
+driver lines sent as text turn by turn, fake tool results; raw in `D:/ndlogs/search-raw/`, `20261127-1[67]*-event_hall_poc*`).**
+
+| Case | Today's tools | Items 1–3 |
+|---|---|---|
+| F: an event with two venues, the driver names one, relative date (the record) | 0/3: no venue in any call (date missing in 1) | 3/3: the named venue's id and the date words |
+| C1: an event with one venue, 「这周末」 | passed before (phone) | 3/3: its id, 这周末 |
+| C2: no event, two named places (row 360) | passed before (phone) | 3/3: places in `must`, date kept, no ids |
+
+Without item 3's first sentence she called `plan_trip` when the driver only said he liked an event (gemini-3.8-live
+1/1, gemini-3.6-flash 1/1). 高德 (`/v3/place/text`, no city, §71 item 2a) lists a multi-hall venue by its halls
+(「澳门威尼斯人金光会展中心」 → 「澳门威尼斯人金光会展E馆」, 「金光会展-展馆A(…)」), so §71's containment check keeps none of them.
+
+1. **Every item in `find_events`' result has an id, one per venue (amends live-info §35 item 1's result).** `e<n>` in
+   result order; an entry with several venues (live-info §44 item 1a) is listed once per venue, `e<n>a`, `e<n>b`, … in
+   the entry's venue order, each with 「场馆：<that venue>」 in `facts`. `next` adds 「同一个活动有几个场馆时分开列出，每个场馆一个
+   id。」. Code keeps id → (entry, venue) for the conversation (across a reconnect); a new conversation starts at `e1`.
+2. **`plan_trip.asked` gains `events` and `when`.** `events`: ids from that result (max 5, each 1–8 characters).
+   `when`: the driver's date words, copied (1–30 characters). Both optional; a trip with neither works as today.
+3. **Her catalog text for `plan_trip`** gains, before 「调用后不用说话」, exactly the tested line:
+   「司机说喜欢或问某个活动时只回答，不调用；司机要你做行程时，行程里有 find_events 查到的活动，asked.events 填那个活动的 id；
+   同一个活动有几个场馆时，填司机说的那个场馆的 id，司机没说哪个场馆就先问他。asked.when 照司机说日期的原话写（比如「下个星期周末」
+   「这周六」），没说就不写。」
+4. **Code resolves `when` to `start` (no model).** Against the 现在 note's date, by these forms only: a weekend or a
+   weekday of this week or next week (这/本/下/下个/下星期 + 周末/周六/周日/星期六/星期天…; a bare 周末 = this weekend;
+   this weekend on a Saturday or Sunday is that weekend), 今天/明天/后天, an explicit date (M月D日/号, this year or the
+   next when already past). The first day of a weekend is its Saturday. Resolved → `start` (replaces hers). Anything
+   else (「过几天」) → her `start`, else none. Record `trip when text=<when> start=<date|none>`.
+5. **An id fixes the entry and its venue (before §66 item 7).** Each known id adds its entry to the events line (§64
+   item 3) regardless of the trip's dates or cities, and makes that venue the driver's: the stop linked to the entry
+   (§66 item 1) is looked up at that venue, and its `city` is that venue's city, whatever the planner wrote. Without an
+   id, §66 item 7 decides as today. An unknown id is dropped (record `trip events id=<id> known=no`).
+6. **The store is read without `start` too (amends §64 item 2).** With an event wish, a `must` item or an id: with
+   `start`, the trip's dates as today; without, every stored entry for the trip's cities whose `end` is today or later
+   (store only; §35's search loop runs only with `start`).
+7. **Every city named in the text counts (amends §64 item 2's city list).** The trip's cities are each store city name
+   contained in `asked.city`, `asked.stay_city`, the plan's city or `asked.text`, in that order; then
+   `EventCity.from(address:)` when none; at most 3.
+8. **A multi-venue entry without a venue is turned back once.** A new-plan call whose `must` or `text` names a stored
+   entry with several venues (§66 item 1's comparison) and whose `events` has none of its ids: `INVALID_ARGUMENT`,
+   `field: asked.events`, `next` 「asked.events 没填：<name>有<n>个场馆（<id> <venue>，…），填司机说的那个场馆的 id；司机没说就问他去哪个。」.
+   Once per driver request; a second call without one is planned with §66 item 7.
+9. **A venue's map lookup accepts its halls (amends §71 item 2's name check, linked venues only).** A kept result also
+   passes when its name and the venue's core (SAR prefix removed, as §71) start with the same 6 or more characters; the
+   first such result is placed. Other lookups keep §71's containment check.
+10. **The planner never supplies an event's dates.** A linked stop's dates are the entry's (§66 item 1); without
+    `start`, cards and `plan_text` give no day dates.
+11. **Record.** `trip events read start=<date|none> cities=<a,b> entries=<n> ids=<n>` before the planner's first round;
+    `trip event hall sight=<name> hall=<venue> by=<id|city|first>` for each linked stop (local record only, I-8).
+12. **A chosen event closed on every trip day is not planned around (amends §64 item 4 for ids).** When the trip has
+    dates (`start`) and an entry chosen by id has confirmed dates that miss every trip day, `plan_trip` does not call the
+    planner: `EVENT_CLOSED`, data `{"event": <name>, "open": "<start>～<end>", "trip": "<first>～<last>"}`, `next`
+    「<name>开放<start>～<end>，行程是<first>～<last>，对不上。跟司机说这两个日期，问他是把行程改到活动开放的日子，还是不去这个活动。」.
+    His answer is a new `plan_trip` call. An entry open on some trip days is planned as today (only on its open days,
+    §64 item 4). Record `trip event closed event=<name> open=<start>~<end> trip=<first>~<last>`.
+
+**Acceptance (iOS).** Fixtures use the example's names; each row tests the general rule.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 364 | Store: entry X with one venue, entry Y with venues P (city A) and Q (city B); `find_events` | X `e1`; Y `e2a` P, `e2b` Q, each `facts` with its own venue; `next` ends with item 1's sentence | unit |
+| 365 | `plan_trip` with `events` `["e2b"]`, `when` 下个星期周末, today Fri 2026-11-27; planner puts Y on a day in city A at P | `start` 2026-12-05; events line has Y; stop looked up at Q, city B; `trip event hall … by=id` | unit |
+| 366 | `when` 这周末 / 下周末 / 下个星期周末 / 这周六 / 下周日 / 明天 / 12月5号 / 过几天, today Fri 2026-11-27; and 这周末 on Sun 2026-11-29 | 11-28 / 12-05 / 12-05 / 11-28 / 12-06 / 11-28 / 2026-12-05 / none (her `start` kept); 11-28 | unit |
+| 367 | Same as 365 with `events` `["e9"]` (unknown) and `must` Y's name | `trip events id=e9 known=no`; item 8 turns it back once, naming `e2a`, `e2b` | unit |
+| 368 | Second call after item 8 still without a Y id | Planned; venue by §66 item 7 | unit |
+| 369 | No `start`, no `when`; Y in `must`; store has Y | Events line has Y; dates from the entry; no day dates on cards | unit |
+| 370 | `asked.city` 「澳门珠海」, 「珠海、澳门」, 「广东省珠海市」 | Cities 澳门,珠海; 珠海,澳门; 珠海 | unit |
+| 371 | 高德 fixture from the PoC (「澳门威尼斯人金光会展E馆」, 「金光会展-展馆A(…)」, 「金光会展-展馆B(…)」) for linked venue 澳门威尼斯人金光会展中心 | Placed at the E馆; the same name as a plain sight (not linked) still fails §71's check | unit |
+| 372 | A trip with no event and no date words (「帮我规划珠海两天」) | Call valid; no rejection; behaviour as before §74 | unit |
+| 373 | Catalog text of `plan_trip` | Contains item 3's line exactly, before 「调用后不用说话」 | unit |
+| 374 | PC: `event_hall_poc.py` on `gemini-3.8-live`, cases F, C1, C2 with items 1–3, 3 runs each | F 3/3; C1 3/3; C2 3/3 (done 2026-11-27) | PC |
+| 375 | Device: ask for events in two cities; say which venue of a multi-venue event you like; ask for a trip with a relative date that includes it | The stop at the named venue, placed on the map, the entry's dates on the card, day dates from the resolved date; no 「活动表里没有」 | D |
+| 376 | Entry Y open 2026-12-03..12-05 chosen by id; `when` 这周末, today Fri 2026-11-27 (trip 11-28..11-29) | No planner call; `EVENT_CLOSED` with open 12-03～12-05, trip 11-28～11-29 and item 12's `next`; record line | unit |
+| 377 | Same entry; `when` 下个星期周末 (trip 12-05..12-06) | Planned; Y only on 12-05 (12-06 gives §64 item 4's fact) | unit |
+
+**Not verified.** The Qwen voice models (their free quota on the PC key is used up: `AllocationQuota.FreeTierOnly`); the
+planner's day choice with a fixed venue; OSRM guidance into Macau on the phone (§71, NOT_VERIFIED).
+
+**Trace gate.** Add `T-040zza: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zza.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zza | §74 items 1–12; rows 364–377 | Code PASS (f15e4a6); row 375 device NOT_VERIFIED |

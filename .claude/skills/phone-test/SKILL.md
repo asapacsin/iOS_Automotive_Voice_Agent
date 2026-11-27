@@ -37,12 +37,26 @@ missing, fix this file in the same session (commit it) so the next session does 
   Keychain keys stay), then walks the screens and writes a PASS/FAIL report with screenshots.
 - Never run an uninstall. If xtool says the bundle id or team differs, stop and tell the owner (a different
   signing team would install a second app and lose nothing, but it is not an update).
+- Install only (no screen walk): `wsl -d Ubuntu-22.04 -u root -- env USBMUXD_SOCKET_ADDRESS=127.0.0.1:27015 xtool
+  install /mnt/d/ndipa/NovaDrive-<sha>.ipa`. From Git Bash set `MSYS_NO_PATHCONV=1` first, or the `/mnt/d` path is
+  rewritten and xtool fails at "[Unpacking app]" with `exited(9)` (found 2026-11-27). The Codemagic artefact
+  `NovaDrive-unsigned.ipa` is installed as-is; xtool signs it.
 - xtool can take 20+ minutes; run it in the background and wait on its output.
+
+- **Sideloadly overwrites the install.** Found 2026-11-22: `sideloadlydaemon.exe` (starts with Windows) keeps a
+  Nov 10 installation of NovaDrive (same bundle id, stored `NovaDrive-unsigned.ipa`, refresh every 96 h) and at a
+  refresh re-installs that old IPA over the xtool update. Before an install and before the owner tests, check
+  `Get-Process sideloadlydaemon`; if it runs, ask the owner to remove the Nova Drive entry (or turn off
+  auto-refresh) in Sideloadly. A record whose header has no build sha, or the text 「连接错误：」 on screen, means the
+  old Sideloadly build is on the phone.
 
 ## 3. Before it works (once per PC boot) - OWNER only if it fails
 - Phone plugged in, unlocked, trusted.
 - Elevated `pymobiledevice3 remote tunneld` running (UAC prompt once per boot): phone_check reports
   "WebDriverAgent did not answer" when it is not.
+- Developer disk image mounted (once per phone reboot): `pymobiledevice3 mounter list --tunnel <udid>` prints `[]`
+  when it is not, and `developer dvt xcuitest` then fails with "Failed to start service". Fix:
+  `pymobiledevice3 mounter auto-mount --tunnel <udid>` (run from `C:\`; takes ~6 min, found 2026-11-23).
 - WebDriverAgentRunner installed on the phone (`XTL-Y6YT9YM42U.com.facebook.WebDriverAgentRunner.xctrunner`).
 - Taps go by screen position for iPhone 17 (WDA element lookup returns HTTP 500); positions are in phone_check.py.
 

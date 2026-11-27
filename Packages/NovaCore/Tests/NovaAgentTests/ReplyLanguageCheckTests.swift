@@ -70,7 +70,8 @@ struct ReplyLanguageCheckTests {
     static func asked(_ detector: FakeDetector = FakeDetector([portuguese: ("pt", 0.9)]),
                       heard: String = "不知道。") -> Drive {
         var d = Drive()
-        d.state = AgentState(truthfulness: TruthfulnessTuning(), revoicing: false, languageIdentifier: detector)
+        d.voiceText = false
+        d.state = AgentState(truthfulness: TruthfulnessTuning(), languageIdentifier: detector)
         d.connect()
         d.send(.speechStarted(recentSpeech: true))
         d.send(.speechStopped)

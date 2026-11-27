@@ -1,5 +1,6 @@
 import AVFAudio
 import Foundation
+import NovaKit
 import NovaPorts
 import NovaVoice
 
@@ -11,6 +12,8 @@ public struct EchoTrial: Sendable, Hashable {
     public let peakRMS: Double
     /// The same in the units of the utterance log's `peakDb` (F-08 §17 item 2).
     public var peakDb: Int { SpeechUplinkGate.decibels(peakRMS) }
+    /// F-04b §19 item 0 (T-013n): loudest captured frame / loudest played frame.
+    public var couplingRatio: Double = 0
 }
 
 public struct EchoSpikeReport: Sendable, Hashable {
@@ -24,6 +27,9 @@ public struct EchoSpikeReport: Sendable, Hashable {
     public let ioBufferMs: Double
     public let captureSampleRate: Double
 
+    /// F-04b §19 item 0: the echo coupling this run measured (highest ratio × 2), nil without trials.
+    public var echoCoupling: Double? { EchoCoupling.measured(ratios: trials.map(\.couplingRatio)) }
+
     public var closedCount: Int { trials.filter { !$0.gateOpened }.count }
     /// T-001 pass criteria: at least 9 of 10 trials keep the gate closed.
     public var passed: Bool { closedCount >= 9 && trials.count >= 10 }
@@ -35,6 +41,7 @@ public struct EchoSpikeReport: Sendable, Hashable {
         volume: \(volumePercent)% · AGC: \(agc ? "on" : "off") · voice processing: \(voiceProcessing ? "on" : "off")
         gate closed: \(closedCount)/\(trials.count) → \(passed ? "PASS" : "FAIL")
         peakDb per trial: \(peaks)
+        echoCoupling: \(EchoCoupling.label(echoCoupling)) (ratio max ×2)
         input latency: \(String(format: "%.1f", inputLatencyMs)) ms
         output latency: \(String(format: "%.1f", outputLatencyMs)) ms
         IO buffer: \(String(format: "%.1f", ioBufferMs)) ms
@@ -101,6 +108,7 @@ public final class EchoSpike: @unchecked Sendable {
         }
 
         nonisolated(unsafe) let reply = Self.speechLikeReply(format: replyFormat, seconds: 3)
+        let playedPeak = Self.peakFrameRMS(reply)
         var results: [EchoTrial] = []
         for _ in 0..<trials {
             lock.withLock { gate = SpeechUplinkGate(); framer.reset(); opened = false; peak = 0; listening = true }
@@ -111,7 +119,9 @@ public final class EchoSpike: @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(3500))
             results.append(lock.withLock {
                 listening = false
-                return EchoTrial(gateOpened: opened, peakRMS: peak)
+                var trial = EchoTrial(gateOpened: opened, peakRMS: peak)
+                trial.couplingRatio = playedPeak > 0 ? peak / playedPeak : 0
+                return trial
             })
             try await Task.sleep(for: .milliseconds(800))
         }
@@ -150,6 +160,21 @@ public final class EchoSpike: @unchecked Sendable {
                 if gate.process(frame).contains(.speechStarted(sentToModel: true)) { opened = true }
             }
         }
+    }
+
+    /// Loudest 10 ms frame RMS of a float buffer, in PCM16 units (what the reply lane plays).
+    static func peakFrameRMS(_ buffer: AVAudioPCMBuffer) -> Double {
+        guard let data = buffer.floatChannelData else { return 0 }
+        let n = Int(buffer.frameLength), step = max(1, Int(buffer.format.sampleRate / 100))
+        var peak = 0.0, start = 0
+        while start < n {
+            let end = min(n, start + step)
+            var sum = 0.0
+            for i in start..<end { let v = Double(data[0][i]) * 32_768; sum += v * v }
+            peak = max(peak, (sum / Double(end - start)).squareRoot())
+            start = end
+        }
+        return peak
     }
 
     /// Fire and forget: nothing waits for playback, which a stopped engine never reports.

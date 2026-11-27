@@ -68,6 +68,14 @@ public struct TripCard: Sendable, Hashable, Identifiable {
     /// §52 item 9 (T-040zc): false for a stop not on the map yet; the card shows `unplacedText` instead of the place.
     public var placed = true
     public static let unplacedText = "位置待确认"
+    /// F-15b §64 item 6 (T-040zq): 「<title> · <start>～<end>」 under the venue of an event stop; nil otherwise.
+    public var event: String? = nil
+    /// F-18 §43 item 4, §44 item 3: 「网络图片」 or 「未找到图片」 for an event stop's picture; nil otherwise.
+    public var imageNote: String? = nil
+    /// F-15b §67 item 4 (T-040zt): the map's place name under the title when it differs from the title; nil otherwise.
+    public var place: String? = nil
+    /// F-15b §71 item 6 (T-040zx): 「过关时间未计入」 when the leg into this stop crosses the Macau/Hong Kong border.
+    public var border: String? = nil
 
     static func tag(_ stop: TripStop) -> String? {
         switch stop.role {
@@ -96,6 +104,18 @@ public enum TripScreen: Sendable, Hashable {
 
     public static let emptyDayText = "这一天还没有安排"
 
+    /// F-15b §57 item 2 (T-040zj): the one navigation button under the cards. 「去下一站：<名字>」 (with its icon) to the
+    /// next open stop; while navigation runs the same spot shows 「结束导航」. nil: no button.
+    public enum NavButton: Sendable, Hashable {
+        case next(String)
+        case stop
+    }
+
+    public static func navButton(nextStop: String?, navigating: Bool) -> NavButton? {
+        if navigating { return .stop }
+        return nextStop.map { .next($0) }
+    }
+
     /// §52 item 9: the screen from the whole plan. Nothing only when the plan has no stop; the day in front decides
     /// the cards, and an empty day is still the trip screen.
     public static func of(plan: TripPlan, moving: Bool) -> TripScreen {
@@ -111,17 +131,35 @@ public enum TripScreen: Sendable, Hashable {
     public static func of(_ list: TripList, moving: Bool) -> TripScreen {
         guard !list.isEmpty else { return .none }
         if moving {
-            let full = list.stops.map { "\($0.index) \($0.place.name)" }.joined(separator: " · ")
+            let full = list.stops.map { "\($0.index) \($0.title)" }.joined(separator: " · ")
             return .strip(full.count <= stripLimit ? full : String(full.prefix(stripLimit - 1)) + "…")
         }
         return .cards(list.stops.map { stop in
-            TripCard(index: stop.index, placeID: stop.place.id, name: stop.place.name,
-                     district: stop.placed ? stop.place.district : TripCard.unplacedText,
-                     km: stop.placed ? stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 } : nil, photoURL: stop.place.photoURL,
-                     initial: String(stop.place.name.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
-                     minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
-                     tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed)
+            // F-15b §71 item 6 (T-040zx): the leg from the placed stop before crosses the border.
+            let before = list.stops.last { $0.index < stop.index && $0.placed }
+            var card = card(stop)
+            if let before, TripSar.isBorder(before, stop) { card.border = TripSar.borderCardText }
+            return card
         })
+    }
+
+    private static func card(_ stop: TripStop) -> TripCard {
+            // F-15b §67 item 4 (T-040zt): the title is the stop's name; the map's name goes on the line under it.
+            TripCard(index: stop.index, placeID: stop.place.id, name: stop.title,
+                     // F-15b §66 item 6 (T-040zs): a linked event with no venue is not 「位置待确认」: it is never looked up.
+                     district: stop.placed ? stop.place.district : stop.mapLookup ? TripCard.unplacedText : nil,
+                     km: stop.placed ? stop.distanceMeters.map { (Double($0) / 100).rounded() / 10 } : nil,
+                     // F-18 §43 item 4: an event stop shows the event's picture (none: 「未找到图片」 in its place); a stop
+                     // from a plan saved before §43 (no note) keeps the venue's photo.
+                     // T-040zs: a stop not placed as an event (closed that day) shows no event line or picture.
+                     photoURL: stop.shownEvent.map { $0.imageNote == nil && $0.imageURL == nil ? stop.place.photoURL : $0.imageURL.flatMap(URL.init(string:)) }
+                        ?? stop.place.photoURL,
+                     initial: String(stop.title.prefix(1)), passed: stop.mark != nil, mark: stop.mark,
+                     minutes: stop.legSeconds.map { max(1, ($0 + 59) / 60) }, city: stop.place.city,
+                     tag: TripCard.tag(stop), kind: stop.place.kind ?? .other, placed: stop.placed,
+                     event: stop.shownEvent?.cardText, imageNote: stop.shownEvent?.imageNote,
+                     // §66 item 6: 「场馆未找到 · <city>」 where the venue's map name would be.
+                     place: stop.event?.venueMissingText ?? (stop.placed && stop.title != stop.place.name ? stop.place.name : nil))
     }
 }
 

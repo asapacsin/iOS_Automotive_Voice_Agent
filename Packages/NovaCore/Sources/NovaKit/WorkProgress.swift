@@ -4,7 +4,9 @@ import Synchronization
 /// call takes the time. The code doing the work feeds it; the screen asks `panel(at:)`. Step lines are fixed texts or
 /// counts (no conversation words, I-8).
 public struct WorkProgress: Sendable, Equatable {
-    public enum Kind: String, Sendable, Equatable { case trip, search }
+    /// F-15b §62 item 12 (T-040zo): `handoff` is `plan_trip`'s spinner row (it replaces §60's trip panel for it and
+    /// does not close with the trip screen).
+    public enum Kind: String, Sendable, Equatable { case trip, search, handoff }
     public enum State: String, Sendable, Equatable { case pending, running, done, failed }
 
     public struct Step: Sendable, Equatable {
@@ -20,20 +22,43 @@ public struct WorkProgress: Sendable, Equatable {
         public let steps: [Step]
         /// The last failure line, while it is kept (until the next step, or 3 s after the end).
         public let failure: String?
+        /// F-15b §62 item 12 (T-040zo): the spinner row's one line, the step the backend is on now (the result line
+        /// once it ended), and whether the circle turns (false once the result is in).
+        public var line: String { steps.last?.title ?? "" }
+        public var spinning: Bool { steps.last?.state == .running }
     }
 
     /// Quick work shows nothing.
     public static let showAfter = NovaDuration.seconds(1)
     /// A failure line stays this long after the end.
     public static let failureKeep = NovaDuration.seconds(3)
-    /// A work never ended (a trip round the model never revised) is hidden after this.
+    /// A search work never ended is hidden after this. F-15b §60 item 5 (T-040zm): not for trip work (a running
+    /// `set_trip_plan` call always returns, §52 item 11 limits it).
     public static let maxOpen = NovaDuration.seconds(120)
 
     public static let tripFind = "查找景点和酒店"
     public static let tripCheck = "检查地点位置"
     public static let tripTimes = "计算开车时间"
-    public static let tripRevise = "调整行程"
     public static func outOfArea(_ n: Int) -> String { "\(n) 个地方在范围外，正在换" }
+    /// F-15b §58 item 5 (T-040zk): the steps of a trip edit (a `set_trip_plan` that keeps the plan's ids).
+    public static let tripEdit = "正在改行程"
+    public static func tripFinding(_ name: String) -> String { "正在找\(name)" }
+    public static func tripAdded(_ names: [String]) -> String { "已加入" + names.joined(separator: "、") }
+    /// F-15b §61 item 5 (T-040zn): a saved edit (was 「已改好」), a refused write (was 「没改成：…」), and the panel while
+    /// `check_trip_plan` runs. The words say what happened (stored, not stored), never that the trip is done.
+    public static let tripUpdated = "行程已更新"
+    public static func tripNotSaved(_ line: String) -> String { "没保存：\(line)" }
+    public static let tripChecking = "正在核对行程"
+    /// F-15b §62 items 9, 12 (T-040zo): `plan_trip`'s steps on the spinner row, exactly as §62 gives them.
+    public static let handedOver = "已交给规划助手"
+    public static let tripPlanning = "正在规划行程"
+    public static func tripCounting(_ round: Int) -> String { "正在核对路线（第\(round)轮）" }
+    public static func tripRevising(_ round: Int) -> String { "正在修改行程（第\(round)轮）" }
+    /// §62 item 12: `web_search`, `query_live_info` and `show_place` on the same row while they run.
+    public static func lookingUp(_ what: String) -> String { "正在查：\(what)" }
+    /// §58 item 5: an edit's ok line stays 3 s; its refusal line until the next step or 5 s.
+    public static let editDoneKeep = NovaDuration.seconds(3)
+    public static let editFailedKeep = NovaDuration.seconds(5)
 
     /// The step for a search tool: `web_search` or `query_live_info` with its `kind`.
     public static func searchTitle(tool: String, kind: String?) -> String {
@@ -47,20 +72,20 @@ public struct WorkProgress: Sendable, Equatable {
     private var ended: NovaInstant?
     /// The step index whose failure line is kept, nil when none.
     private var failureAt: Int?
+    /// §58 item 5: an edit's last line (`finish`) is shown until then, quick or not.
+    private var noticeUntil: NovaInstant?
 
     public init() {}
 
-    /// Starts a new work, replacing any other.
-    public mutating func start(_ kind: Kind, at now: NovaInstant) {
+    /// F-15b §62 item 12 (T-040zo): the spinner row shows from the first moment (no `showAfter`).
+    private var immediate = false
+
+    /// Starts a new work, replacing any other. `immediate`: shown at once (the §62 spinner row).
+    public mutating func start(_ kind: Kind, at now: NovaInstant, immediate: Bool = false) {
         self = WorkProgress()
         self.kind = kind
+        self.immediate = immediate
         started = now
-    }
-
-    /// An open work older than `maxOpen`.
-    public func stale(at now: NovaInstant) -> Bool {
-        guard let started else { return false }
-        return now - started >= Self.maxOpen
     }
 
     /// True while a work is open (started, not ended or cleared).
@@ -84,6 +109,17 @@ public struct WorkProgress: Sendable, Equatable {
         failureAt = i
     }
 
+    /// F-15b §58 item 5 (T-040zk): a trip edit ended with its line (「已加入…」/「已改好」 done, 「没改成：…」 failed), shown
+    /// at once for `editDoneKeep` / `editFailedKeep`, or until the next work starts.
+    public mutating func finish(_ line: String, failed: Bool, at now: NovaInstant) {
+        guard open else { return }
+        if let i = steps.indices.last, steps[i].state == .running { steps[i].state = .done }
+        steps.append(Step(title: line, state: failed ? .failed : .done, line: nil))
+        ended = now
+        failureAt = nil
+        noticeUntil = now + (failed ? Self.editFailedKeep : Self.editDoneKeep)
+    }
+
     /// The work ended. Returns the `work show=` log line when the panel was shown.
     public mutating func end(at now: NovaInstant) -> String? {
         guard open, let started else { return nil }
@@ -104,16 +140,18 @@ public struct WorkProgress: Sendable, Equatable {
 
     public func panel(at now: NovaInstant) -> Panel? {
         guard let kind, let started, !steps.isEmpty else { return nil }
-        guard now - started >= Self.showAfter, now - started < Self.maxOpen else { return nil }
+        if let noticeUntil { return now < noticeUntil ? Panel(kind: kind, steps: steps, failure: nil) : nil }
+        let shown = immediate || now - started >= Self.showAfter
+        guard shown, kind != .search || now - started < Self.maxOpen else { return nil }
         let failure = failureAt.map { steps[$0].line } ?? nil
         if let ended {
-            guard ended - started >= Self.showAfter, failure != nil, now - ended < Self.failureKeep else { return nil }
+            guard immediate || ended - started >= Self.showAfter, failure != nil, now - ended < Self.failureKeep else { return nil }
         }
         return Panel(kind: kind, steps: steps, failure: failure)
     }
 
     private func logLine(at now: NovaInstant, since started: NovaInstant) -> String? {
-        guard let kind, now - started >= Self.showAfter else { return nil }
+        guard let kind, immediate || now - started >= Self.showAfter else { return nil }
         let failed = steps.filter { $0.state == .failed }.count
         return "work show=\(kind.rawValue) steps=\(steps.count) failed=\(failed) ms=\((now - started).milliseconds)"
     }
@@ -130,21 +168,21 @@ public final class WorkProgressBoard: Sendable {
         self.onLog = onLog
     }
 
-    public func start(_ kind: WorkProgress.Kind, step title: String? = nil) {
+    public func start(_ kind: WorkProgress.Kind, step title: String? = nil, immediate: Bool = false) {
         let now = clock.now
         state.withLock {
-            $0.start(kind, at: now)
+            // F-15b §62 item 12 (T-040zo, review): a search while `plan_trip` runs never replaces its row; the row
+            // stays on until the planner's result.
+            if kind == .search, $0.kind == .handoff, $0.open { return }
+            $0.start(kind, at: now, immediate: immediate)
             if let title { $0.step(title, at: now) }
         }
     }
 
-    /// Starts a trip work only when none is open (a `revise_trip_list` round continues the make's panel).
-    public func continueTrip() {
-        let now = clock.now
-        // An open trip work older than `maxOpen` (a round never revised) is stale: start a fresh one.
-        state.withLock {
-            if !($0.open && $0.kind == .trip && !$0.stale(at: now)) { $0.start(.trip, at: now) }
-        }
+    /// F-15b §60 item 3 (T-040zm): the trip screen reported off: a trip work panel goes off at once. §62 item 12
+    /// (T-040zo): `plan_trip`'s spinner row (`handoff`) stays: the work still runs.
+    public func tripScreen(on: Bool) {
+        if !on { clear(.trip) }
     }
 
     public func step(_ title: String) {
@@ -155,6 +193,12 @@ public final class WorkProgressBoard: Sendable {
     public func fail(_ line: String) {
         let now = clock.now
         state.withLock { $0.fail(line, at: now) }
+    }
+
+    /// §58 item 5: a trip edit's last line (`WorkProgress.finish`).
+    public func finish(_ line: String, failed: Bool) {
+        let now = clock.now
+        state.withLock { $0.finish(line, failed: failed, at: now) }
     }
 
     public func end() {

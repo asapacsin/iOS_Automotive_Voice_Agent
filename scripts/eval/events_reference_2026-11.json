@@ -1,0 +1,156 @@
+{
+ "note": "F-18 §39 row 55 reference: candidates from the 2026-11-24 searches (spec list). Set confirmed=true and source_url only after checking the event on its source page by hand; drop any that cannot be confirmed. 澳门炮竹特展 runs 'to 11-29' (its start is before the window; start here is a placeholder to correct on confirmation). The replica scores only confirmed entries; name_key is the substring matched in a kept event's name. Checked by hand 2026-11-24 (web search on the owner PC): 7 confirmed; the rest carry not_confirmed with the reason.",
+ "window": {
+  "cities": [
+   "珠海",
+   "澳门"
+  ],
+  "from": "2026-11-25",
+  "to": "2026-12-31"
+ },
+ "events": [
+  {
+   "name": "横琴AI嘉年华",
+   "name_key": "AI嘉年华",
+   "start": "2026-11-28",
+   "end": "2026-11-29",
+   "city": "珠海",
+   "source_url": "https://m.zh.bendibao.com/xiuxian/107475.shtm",
+   "confirmed": true
+  },
+  {
+   "name": "横琴VAC电音节",
+   "name_key": "VAC",
+   "start": "2026-11-28",
+   "end": "2026-11-29",
+   "city": "珠海",
+   "source_url": "https://m.zh.bendibao.com/xiuxian/106630.shtm",
+   "confirmed": true
+  },
+  {
+   "name": "起源ACG动漫展",
+   "name_key": "起源ACG",
+   "start": "2026-12-05",
+   "end": "2026-12-06",
+   "city": "珠海",
+   "source_url": "",
+   "confirmed": false,
+   "not_confirmed": "not found 2026-11-24 (no source; only in a Qwen answer)"
+  },
+  {
+   "name": "第十六届中国航展",
+   "name_key": "航展",
+   "start": "2026-12-07",
+   "end": "2026-12-13",
+   "city": "珠海",
+   "source_url": "https://m.gmw.cn/2026-10/13/content_1304574889.htm",
+   "confirmed": true
+  },
+  {
+   "name": "AIE 电子展",
+   "name_key": "AIE",
+   "start": "2026-12-03",
+   "end": "2026-12-05",
+   "city": "珠海",
+   "source_url": "https://news.ycwb.com/ikimvkctkc/content_54263370.htm",
+   "confirmed": true
+  },
+  {
+   "name": "水产前沿国际展",
+   "name_key": "水产",
+   "start": "2026-12-03",
+   "end": "2026-12-05",
+   "city": "珠海",
+   "source_url": "",
+   "confirmed": false,
+   "not_confirmed": "not found 2026-11-24 (no source)"
+  },
+  {
+   "name": "澳门美食节",
+   "name_key": "美食节",
+   "start": "2026-11-20",
+   "end": "2026-12-06",
+   "city": "澳门",
+   "source_url": "",
+   "confirmed": false,
+   "not_confirmed": "not found 2026-11-24 (26th edition dates unconfirmed; 美食之都嘉年华 was 2026-03-20..29)"
+  },
+  {
+   "name": "澳门国际光影节",
+   "name_key": "光影节",
+   "start": "2026-12-05",
+   "end": "2027-01-10",
+   "city": "澳门",
+   "source_url": "",
+   "confirmed": false,
+   "not_confirmed": "only the 2025 edition found (2025-12-06..2026-01-11); 2026 dates unconfirmed"
+  },
+  {
+   "name": "JEONGHAN X JOSHUA",
+   "name_key": "JEONGHAN",
+   "start": "2026-12-11",
+   "end": "2026-12-12",
+   "city": "澳门",
+   "source_url": "",
+   "confirmed": false,
+   "not_confirmed": "not found 2026-11-24"
+  },
+  {
+   "name": "韦礼安 澳门站",
+   "name_key": "韦礼安",
+   "start": "2026-12-12",
+   "end": "2026-12-12",
+   "city": "澳门",
+   "source_url": "https://global.hk01.com/众乐迷/60398922/韦礼安演唱会2026澳门-门票攻略-购票连结-座位表",
+   "confirmed": true
+  },
+  {
+   "name": "圣诞购物展 威尼斯人",
+   "name_key": "圣诞购物展",
+   "start": "2026-12-11",
+   "end": "2026-12-13",
+   "city": "澳门",
+   "source_url": "",
+   "confirmed": false,
+   "not_confirmed": "only the 2025 page found"
+  },
+  {
+   "name": "HIGHLIGHT fan concert",
+   "name_key": "HIGHLIGHT",
+   "start": "2026-11-29",
+   "end": "2026-11-29",
+   "city": "澳门",
+   "source_url": "",
+   "confirmed": false,
+   "not_confirmed": "one third-party listing (eventworld) only"
+  },
+  {
+   "name": "LINGORM fancon",
+   "name_key": "LINGORM",
+   "start": "2026-11-28",
+   "end": "2026-11-28",
+   "city": "澳门",
+   "source_url": "https://global.hk01.com/众乐迷/60401653/lingorm澳门见面会2026-门票攻略-购票连结-座位表",
+   "confirmed": true
+  },
+  {
+   "name": "澳门炮竹特展",
+   "name_key": "炮竹",
+   "start": "2026-11-24",
+   "end": "2026-11-29",
+   "city": "澳门",
+   "source_url": "",
+   "confirmed": false,
+   "not_confirmed": "confirmed open to 2026-11-29 (plataformamedia 2026-08-24) but it opened in 2026-03; start date not exact, so not scored by start"
+  },
+  {
+   "name": "横琴马拉松",
+   "name_key": "马拉松",
+   "start": "2026-12-27",
+   "end": "2026-12-27",
+   "city": "珠海",
+   "source_url": "https://info.newsgd.com/node_28ab3f3552/cd76c04a0c.shtml",
+   "confirmed": true
+  }
+ ]
+}

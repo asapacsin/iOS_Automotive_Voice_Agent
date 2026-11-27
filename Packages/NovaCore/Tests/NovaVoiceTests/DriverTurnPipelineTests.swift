@@ -457,13 +457,13 @@ struct DriverTurnPipelineReview2Tests {
         #expect(h.spoken == "抱歉，空调打开失败了。" && audioOut(h) == 1)
     }
 
-    @Test("F-06 a chat turn shows text as judged and plays its audio at the end")
+    @Test("F-06 a chat turn shows text as judged and streams its audio (F-07 §18: her voice is the model's audio)")
     func chatTurn() {
         var h = PipelineHarness()
         h.driver("今天星期几")
         h.send(.replyAudio(h.turn, pcm))
         h.say("今天星期五。")
-        #expect(h.spoken == "今天星期五。" && audioOut(h) == 0)
+        #expect(h.spoken == "今天星期五。" && audioOut(h) == 1)
         h.close()
         #expect(audioOut(h) == 1)
     }

@@ -31,7 +31,7 @@ struct CallBudgetTests {
     @Test("T-046u F-18 §32 row 1: one turn asks qwen.live 3 times: 2 allowed, the 3rd refused budget")
     func row1() {
         let b = budget()
-        let m = "qwen3.7-flash-2026-07-15"
+        let m = "deepseek-v4.1-flash"
         #expect(b.ask(.qwenLive, model: m, key: "a") == .allow)
         #expect(b.ask(.qwenLive, model: m, key: "b") == .allow)
         #expect(b.ask(.qwenLive, model: m, key: "c") == .refuse(.budget))
@@ -85,7 +85,7 @@ struct CallBudgetTests {
         #expect(b.ask(.qwenLive, model: "m", key: k) == .allow)
     }
 
-    @Test("T-046u F-18 §32 row 5 (budget side): a quota error refuses that model until local midnight; tts counted, not capped")
+    @Test("T-046u F-18 §32 row 5 (budget side): a quota error refuses that model until local midnight")
     func row5() {
         let now = Now(noon)
         let store = MemoryBudgetStore()
@@ -99,10 +99,8 @@ struct CallBudgetTests {
         #expect(budget(store, now: now).ask(.qwenLive, model: "m1", key: "c") == .refuse(.quota))  // restart
         now.set(noon.addingTimeInterval(86_400))
         #expect(budget(store, now: now).ask(.qwenLive, model: "m1", key: "c") == .allow)
-        let t = budget()
-        for _ in 0..<400 { #expect(t.ask(.qwenTTS, model: "tts", key: "") == .allow) }
-        // Her voice uses none of the shared counters: a search is still allowed after 400 tts calls.
-        #expect(t.ask(.qwenLive, model: "m", key: "a") == .allow)
+        // F-07 §18 (T-020e): the uncapped `qwen.tts` route is gone; every paid route is capped.
+        #expect(!PaidRoute.allCases.map(\.rawValue).contains("qwen.tts"))
     }
 
     @Test("T-046u F-18 §32 row 7 (budget side): after a refusal the same turn makes no further paid call")
@@ -146,5 +144,68 @@ struct CallBudgetTests {
         let minute = day.replacingOccurrences(of: "PerDay", with: "PerMinute")
         #expect(QuotaError.gemini(status: 429, body: Data(day.utf8)))
         #expect(!QuotaError.gemini(status: 429, body: Data(minute.utf8)))
+    }
+}
+
+@Suite("T-046v F-18 §33 the app is not capped")
+struct UnlimitedBudgetTests {
+    @Test("T-046v F-18 §33 row 13: the shared budget allows 50 picker and live calls in one turn, 10 the same query; turnN=50")
+    func row13() {
+        #expect(CallBudget.shared.limits == .unlimited && !CallBudget.shared.limits.enforce)
+        let lines = Lines()
+        let b = CallBudget(limits: CallBudget.shared.limits, clock: ManualClock(), now: { noon }, zone: { shanghai },
+                           log: { lines.add($0) })
+        for i in 0..<50 {
+            let route: PaidRoute = i.isMultiple(of: 2) ? .qwenPicker : .qwenLive
+            let key = i < 10 ? "same" : "q\(i)"
+            #expect(b.ask(route, model: "m", key: key) == .allow)
+            b.done(route, model: "m", ok: true, tokens: 10)
+        }
+        #expect(!lines.all.contains { $0.contains("refused=") })
+        #expect(lines.all.last?.hasPrefix("paid ") == true)
+        #expect(lines.all.last?.contains("turnN=50") == true)
+    }
+
+    @Test("T-046v F-18 §33 row 14: CallBudget(limits: .standard) and CallBudget() keep §32 rows 1-4 and 7")
+    func row14() {
+        #expect(CallBudget().limits == .standard && BudgetLimits.standard.enforce)
+        let b = CallBudget(limits: .standard, clock: ManualClock(), now: { noon }, zone: { shanghai })
+        #expect(b.ask(.qwenLive, model: "m", key: "a") == .allow)
+        #expect(b.ask(.qwenLive, model: "m", key: "b") == .allow)
+        #expect(b.ask(.qwenLive, model: "m", key: "c") == .refuse(.budget))  // 2 per route
+        #expect(b.ask(.qwenPicker, model: "m", key: "c") == .refuse(.budget))  // row 7: the turn is closed
+        b.newTurn()
+        #expect(b.ask(.qwenLive, model: "m", key: "d") == .allow)
+        #expect(b.ask(.qwenPicker, model: "m", key: "x") == .allow)
+        #expect(b.ask(.glmVision, model: "g", key: "y") == .allow)
+        #expect(b.ask(.geminiVision, model: "v", key: "w") == .refuse(.budget))  // 3 per turn over all routes
+        let s = CallBudget(limits: .standard, clock: ManualClock(), now: { noon }, zone: { shanghai })
+        for i in 0..<40 {
+            s.newTurn()
+            #expect(s.ask(.qwenLive, model: "m", key: "\(i)") == .allow)
+        }
+        s.newTurn()
+        #expect(s.ask(.qwenLive, model: "m", key: "z") == .refuse(.budget))  // 41st in a session
+        let full = MemoryBudgetStore(BudgetDay(date: CallBudget.date(noon, shanghai), calls: 300))
+        let d = CallBudget(limits: .standard, store: full, clock: ManualClock(), now: { noon }, zone: { shanghai })
+        #expect(d.ask(.qwenLive, model: "m", key: "a") == .refuse(.budget))  // 300 a day
+        let r = CallBudget(limits: .standard, clock: ManualClock(), now: { noon }, zone: { shanghai })
+        #expect(r.ask(.qwenLive, model: "m", key: "k") == .allow)
+        r.newTurn()
+        #expect(r.ask(.qwenLive, model: "m", key: "k") == .allow)
+        r.newTurn()
+        #expect(r.ask(.qwenLive, model: "m", key: "k") == .refuse(.repeat))  // 3rd repeat
+    }
+
+    @Test("T-046v F-18 §33 row 15: unlimited, a DashScope 403 quota code refuses that model for the day; the backup is allowed")
+    func row15() {
+        #expect(QuotaError.dashScope(status: 403, code: "AllocationQuota.FreeTierOnly", message: nil))
+        let b = CallBudget(limits: CallBudget.shared.limits, clock: ManualClock(), now: { noon }, zone: { shanghai })
+        #expect(b.ask(.qwenLive, model: "m1", key: "a") == .allow)
+        b.done(.qwenLive, model: "m1", ok: false, tokens: nil, quotaError: true)
+        #expect(b.ask(.qwenLive, model: "m1", key: "b") == .refuse(.quota))
+        #expect(b.ask(.qwenLive, model: "m2", key: "b") == .allow)  // the turn stays open for the backup
+        b.newTurn()
+        #expect(b.ask(.qwenLive, model: "m1", key: "c") == .refuse(.quota))  // for the day
     }
 }

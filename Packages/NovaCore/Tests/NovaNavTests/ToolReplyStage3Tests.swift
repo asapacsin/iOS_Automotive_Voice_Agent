@@ -15,42 +15,20 @@ struct ToolReplyStage3Tests {
     func removeSecond() async {
         for trip3 in [["古文化街", "五大道", "天津之眼"], ["瓷房子", "意式风情区", "鼓楼"], ["南开大学", "水上公园", "西开教堂"]] {
             let rig = await TripRig()
-            _ = await rig.run(trip("make_trip_list", ["places": names(trip3)]))
+            _ = await rig.run(planCall(["places": names(trip3)]))
             let order = await rig.order()
             // §52 (T-040zb): the stop is left out of the plan written back.
             var keep = order
             keep.remove(at: 1)
             let r = await rig.run(await planCall(rig, [keep]))
-            expectSuccess(r, "remove")
+            // §61 item 3a: the review next replaces the generic 「用自己的话简短地说。」 shape for a saved trip write.
+            #expect(r.ok && r.data["saved"] == true, "remove")
             #expect(r.data["facts"]?["removed"] == names([order[1]]) && r.data["facts"]?["count"] == .int(Int64(order.count - 1)))
             #expect(r.data["facts"]?["changed"] == "set")
             #expect(replyValues(r.data["must_not"]) == ["read_list", "read_distances"])
-            // The same rules each time; the words are hers (the facts differ by trip).
-            #expect(r.data["next"]?.stringValue?.hasPrefix("用自己的话简短地说。不要：不要念屏幕上的列表") == true)
+            // F-15b §61 item 3a (T-040zn): a saved write's next is the review text; the words are hers.
+            #expect(r.data["next"]?.stringValue == TripPlanner.reviewNext)
         }
-    }
-
-    @Test("F-09b §13 row 6: add, move, visited, clear and read; read keeps its order rule as read_list_in_order")
-    func listEdits() async {
-        let rig = await TripRig()
-        let made = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        expectSuccess(made, "make")
-        #expect(made.data["facts"]?["count"] == .int(2) && made.data["facts"]?["ordered"] != nil)
-        let order = await rig.order()
-        let moved = await rig.run(await planCall(rig, [[order[1], order[0]]]))
-        expectSuccess(moved, "move")
-        #expect(moved.data["facts"]?["kept"] == .int(2) && moved.data["facts"]?["removed"] == nil)
-        let visited = await rig.run(trip("edit_trip_list", ["action": "visited", "index": 1]))
-        expectSuccess(visited, "visited")
-        #expect(visited.data["facts"]?["changed"] == "visited" && visited.data["facts"]?["index"] == .int(1))
-        let read = await rig.run(trip("edit_trip_list", ["action": "read"]))
-        expectSuccess(read, "read")
-        #expect(replyValues(read.data["may"]) == ["read_list_in_order"] && replyValues(read.data["must_not"]).isEmpty)
-        // F-15b §52 item 13 (T-040ze): the first clear asks; the driver's yes (the next clear) clears.
-        #expect(await rig.run(trip("edit_trip_list", ["action": "clear"])).code == .confirmClear)
-        let cleared = await rig.run(trip("edit_trip_list", ["action": "clear"]))
-        expectSuccess(cleared, "clear")
-        #expect(cleared.data["facts"]?["changed"] == "cleared" && cleared.data["facts"]?["count"] == .int(0))
     }
 
     @Test("F-09b §13 row 6: navigate_to with a list on screen, guidance start and save_place carry what changed")

@@ -127,6 +127,12 @@ final class MapPositionModel: ObservableObject {
         evaluate()
     }
 
+    /// F-09b §19 item 4 (T-031zd): a `show_on_map` pin drawn (nil: gone); frames car and pin, or the pin alone.
+    func mapPin(_ point: GeoCoordinate?) {
+        apply(policy.handle(.mapPin(point, at: clock.now)))
+        updateLocate()
+    }
+
     /// A pan or zoom the driver made (never a move this model commanded).
     func userGesture() {
         apply(policy.handle(.userGesture(at: clock.now)))

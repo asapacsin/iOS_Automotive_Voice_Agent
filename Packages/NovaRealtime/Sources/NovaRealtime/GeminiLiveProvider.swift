@@ -322,7 +322,7 @@ public final class GeminiLiveProvider: RealtimeProvider {
     /// Whichever comes first: the pong, or the deadline. A task group would wait for the ping child,
     /// and `sendPing` on a black-holed socket neither calls back nor honours cancellation, so the
     /// race resumes one continuation exactly once and leaves the stuck ping behind.
-    private static func ping(_ connection: any WebSocketConnection, within deadline: NovaDuration) async -> Bool {
+    static func ping(_ connection: any WebSocketConnection, within deadline: NovaDuration) async -> Bool {
         await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             let race = PingRace(done)
             Task { race.finish((try? await connection.ping()) != nil) }

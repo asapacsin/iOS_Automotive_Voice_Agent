@@ -20,8 +20,12 @@ final class TripSearch: PlaceSearch, @unchecked Sendable {
     /// F-15b §49 (T-040u): what 「酒店」 around a point answers; nil = nothing.
     let hotels: (@Sendable (GeoCoordinate) -> [Place])?
 
+    /// F-15b §54 (T-040zg): a name here answers nothing until it has been asked this many times before.
+    let lateAnswer: [String: Int]
+
     init(_ table: [String: [Place]], slow: Set<String> = [], error: AmapWebError? = nil, failFirst: Int = 0,
-         hotels: (@Sendable (GeoCoordinate) -> [Place])? = nil) {
+         hotels: (@Sendable (GeoCoordinate) -> [Place])? = nil, lateAnswer: [String: Int] = [:]) {
+        self.lateAnswer = lateAnswer
         self.hotels = hotels
         self.table = table
         self.slow = slow
@@ -38,6 +42,7 @@ final class TripSearch: PlaceSearch, @unchecked Sendable {
         if let error { throw error }
         if failing.withLock({ n in defer { n = max(n - 1, 0) }; return n > 0 }) { throw AmapWebError.quota }
         defer { returned.withLock { $0 += 1 } }
+        if let n = lateAnswer[keywords], asked.withLock({ $0.filter { $0 == keywords }.count }) <= n { return [] }
         return table[keywords] ?? []
     }
     func around(_ keywords: String, center: GeoCoordinate, radiusMeters: Int, sort: PlaceSort) async throws -> [Place] {
@@ -53,6 +58,15 @@ func spot(_ name: String, id: String? = nil, lat: Double, lng: Double) -> Place 
 }
 
 func trip(_ name: String, _ args: [String: JSONValue] = [:]) -> ToolCall {
+    // F-15b §61 item 3 (T-040zn): a new plan needs `asked`; tests of earlier sections that write a new plan (with
+    // `city`) get a neutral one. Tests of `asked` itself build their call with `rawTrip`.
+    var a = args
+    if name == "set_trip_plan", a["city"] != nil, a["asked"] == nil { a["asked"] = ["text": "测试行程"] }
+    return rawTrip(name, a)
+}
+
+/// The call exactly as given (no `asked` added).
+func rawTrip(_ name: String, _ args: [String: JSONValue] = [:]) -> ToolCall {
     ToolCall(id: CallID("t1")!, name: name, arguments: .object(args))
 }
 
@@ -145,6 +159,7 @@ final class FakePicker: PlacePicker, @unchecked Sendable {
     let hang: Bool
     let fail: Bool
     let calls = Mutex<[[String]]>([])
+    var model: String { "qwen3.8-max-0902" }
     init(_ answers: [String: Int?] = [:], hang: Bool = false, fail: Bool = false) {
         self.answers = answers
         self.hang = hang
@@ -170,7 +185,8 @@ struct TripRig {
          picker: (any PlacePicker)? = nil, times: TripTimes? = nil, noOrigin: Bool = false,
          notes: TripLines? = nil, here: GeoCoordinate? = nil, abroad: (any PlaceSearch)? = nil,
          handoff: (@Sendable (Place) async -> Bool)? = nil,
-         center: (@Sendable (String) async -> GeoCoordinate?)? = nil, abroadTimes: TripTimes? = nil) async {
+         center: (@Sendable (String) async -> GeoCoordinate?)? = nil, abroadTimes: TripTimes? = nil,
+         area: (@Sendable (String) async -> TripArea?)? = nil) async {
         self.search = search
         let engine = engine ?? ScriptedNaviEngine(routes: [route(1, meters: 156_000, seconds: 14_640, toll: 20)])
         self.engine = engine
@@ -184,7 +200,7 @@ struct TripRig {
         planner = TripPlanner(search: search, navigation: nav, origin: { noOrigin ? nil : start }, clock: clock, tuning: t,
                               picker: picker, onLine: { line in lines.append(line) }, times: times,
                               onNote: { note in notes?.append(note) }, abroadSearch: abroad, onHandoff: handoff, abroadCenter: center,
-                              abroadTimes: abroadTimes)
+                              abroadTimes: abroadTimes, abroadArea: area)
         await planner.connectCards()
     }
 
@@ -194,87 +210,35 @@ struct TripRig {
 
 @Suite("T-040i F-15b phase 1 trip list")
 struct TripPlannerTests {
-    @Test("F-15b row 1: 8 names, 7 found, 高德 has nothing for the 8th: count 7, not_found, one nomatch line")
-    func row1() async {
-        let rig = await TripRig()
-        let r = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼", "瓷房子", "意式风情区",
-                                                                      "海河", "水上公园", "盘山"]), "city": "天津"]))
-        #expect(r.ok && r.data["count"] == .int(7))
-        #expect(r.data["not_found"] == names(["盘山"]))
-        guard case .array(let stops)? = r.data["stops"] else { Issue.record("stops"); return }
-        #expect(stops.compactMap { $0["index"] } == (1...7).map { .int(Int64($0)) })
-        let lookups = rig.lines.withLock { $0 }.filter { $0.hasPrefix("trip lookup") }
-        #expect(lookups == ["trip lookup index=8 ok=no reason=nomatch"])
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip list stops=7 not_found=1 duplicates=0 ms=") })
-    }
-
-    @Test("F-15b row 2: two names resolve to the same place id: one stop, the other in duplicates")
-    func row2() async {
-        let rig = await TripRig()
-        let r = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "古文化街旅游区", "五大道"])]))
-        #expect(r.data["count"] == .int(2))
-        #expect(r.data["duplicates"] == names(["古文化街旅游区"]))
-    }
-
-    @Test("F-15b row 3: 25 names (§48: places takes up to 24) or a blank name are invalidFields; the list is unchanged")
+    @Test("F-15b row 3 (with §55): a day of 25 stops (over 16 + 4) or a blank name is invalidFields; the list is unchanged")
     func row3() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        let many = await rig.run(trip("make_trip_list", ["places": names((1...25).map { "地点\($0)" })]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
+        let many = await rig.run(planCall(["places": names((1...25).map { "地点\($0)" })]))
         #expect(many.code == .invalidFields)
-        #expect(ToolCatalog.validate(trip("make_trip_list", ["places": names(["古文化街", "  "])])) == .invalidFields)
-        let blank = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "  "])]))
+        #expect(TripPlanner.validateWrite(planCall(["places": names(["古文化街", "  "])])) == .invalidFields)
+        let blank = await rig.run(planCall(["places": names(["古文化街", "  "])]))
         #expect(blank.code == .invalidFields)
         #expect(await rig.order() == ["古文化街", "五大道"])
     }
 
-    @Test("F-15b row 4 (with §52, T-040zb): a stop left out of set_trip_plan is removed, the written order kept; replace out of range changes nothing")
+    @Test("F-15b row 4 (with §52, T-040zb): a stop left out of set_trip_plan is removed, the written order kept")
     func row4() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼", "瓷房子", "意式风情区"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道", "天津之眼", "瓷房子", "意式风情区"])]))
         let removed = await rig.run(await planCall(rig, [["古文化街", "天津之眼", "瓷房子", "意式风情区"]]))
         #expect(removed.data["facts"]?["removed"] == names(["五大道"]), "\(removed)")
         #expect(await rig.order() == ["古文化街", "天津之眼", "瓷房子", "意式风情区"])
         #expect(await rig.run(await planCall(rig, [["意式风情区", "天津之眼", "瓷房子"]])).ok)
         #expect(await rig.order() == ["意式风情区", "天津之眼", "瓷房子"])
         #expect(await rig.planner.current.stops.map(\.index) == [1, 2, 3])
-        let out = await rig.run(trip("edit_trip_list", ["action": "replace", "index": 9, "name": "五大道"]))
-        #expect(out.code == .outOfRange)
-        #expect(await rig.order() == ["意式风情区", "天津之眼", "瓷房子"])
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasSuffix("action=replace ok=no") })
     }
 
-    @Test("F-15b row 5: any action but clear on an empty plan is NO_TRIP_LIST; the removed actions are invalid")
-    func row5() async {
-        let rig = await TripRig()
-        for args: [String: JSONValue] in [["action": "read"], ["action": "visited", "index": 1]] {
-            #expect(await rig.run(trip("edit_trip_list", args)).code == .noTripList)
-        }
-        #expect(await rig.run(trip("edit_trip_list", ["action": "clear"])).ok)
-        for action in ["add", "remove", "move", "reorganize"] {
-            #expect(ToolCatalog.validate(trip("edit_trip_list", ["action": .string(action), "name": "天津"])) == .invalidFields)
-        }
-    }
-
-    @Test("F-15b row 6: a replace whose lookup is slow returns OPTIONS_STALE after make_trip_list replaced the list")
-    func row6() async {
-        let rig = await TripRig(search: TripSearch(tianjin, slow: ["南开大学"]))
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        let add = Task { await rig.run(trip("edit_trip_list", ["action": "replace", "index": 1, "name": "南开大学"])) }
-        for _ in 0..<2000 where rig.search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
-        #expect(rig.search.waiting == 1)
-        let fresh = await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子"])]))
-        #expect(fresh.ok)
-        rig.search.release()
-        #expect(await add.value.code == .optionsStale)
-        #expect(await rig.order() == ["天津之眼", "瓷房子"])
-    }
-
-    @Test("F-15b §4 (barge-in): a cancelled make_trip_list changes nothing")
+    @Test("F-15b §4 (barge-in): a cancelled new plan (set_trip_plan) changes nothing")
     func cancelledMake() async {
         let rig = await TripRig(search: TripSearch(tianjin, slow: ["南开大学"]))
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "南开大学"])])) }
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
+        let made = Task { await rig.run(planCall(["places": names(["天津之眼", "南开大学"])])) }
         for _ in 0..<2000 where rig.search.waiting == 0 { try? await Task.sleep(for: .milliseconds(1)) }
         made.cancel()
         rig.search.release()
@@ -282,11 +246,11 @@ struct TripPlannerTests {
         #expect(await rig.order() == ["古文化街", "五大道"])
     }
 
-    @Test("F-15b §4 items 4-5: a lookup still running at the limit is a timeout; a missing key is AMAP_WEB_KEY_MISSING")
+    @Test("F-15b §4 items 4-5 (with §52 item 11): a lookup still running at the limit is a timeout, said as search_slow; a missing key is AMAP_WEB_KEY_MISSING")
     func limits() async {
         let clock = ManualClock()
         let rig = await TripRig(search: TripSearch(tianjin, slow: ["南开大学"]), clock: clock)
-        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["古文化街", "南开大学"])])) }
+        let made = Task { await rig.run(planCall(["places": names(["古文化街", "南开大学"])])) }
         // The fast lookup has returned and the slow one is held; then the 15 s limit passes.
         for _ in 0..<5000 where rig.search.waiting == 0 || rig.search.returned.withLock({ $0 }) == 0 {
             try? await Task.sleep(for: .milliseconds(1))
@@ -294,11 +258,14 @@ struct TripPlannerTests {
         try? await Task.sleep(for: .milliseconds(20))
         clock.advance(by: .seconds(16))
         let r = await made.value
-        #expect(r.data["count"] == .int(1) && r.data["not_found"] == names(["南开大学"]), "\(r)")
+        // §52 item 11 (T-040zd, review 2026-11-21): a lookup at its limit is search_slow, never not found.
+        // §55 item 4 (T-040zh): the slow name is kept with placed=false, never in not_found.
+        #expect(r.data["count"] == .int(2) && (r.data["not_found"] == nil || r.data["not_found"] == .array([])), "\(r)")
+        #expect(r.data["facts"]?["search_slow"] == names(["南开大学"]) || r.data["search_slow"] == names(["南开大学"]), "\(r)")
         #expect(rig.lines.withLock { $0 }.contains("trip lookup index=2 ok=no reason=timeout"))
         rig.search.release()
         let noKey = await TripRig(search: TripSearch(tianjin, error: .keyMissing))
-        #expect(await noKey.run(trip("make_trip_list", ["places": names(["古文化街"])])).code == .amapWebKeyMissing)
+        #expect(await noKey.run(planCall(["places": names(["古文化街"])])).code == .amapWebKeyMissing)
     }
 
     @Test("F-15b §3: TripList renumbers after every change and raises its generation")
@@ -325,21 +292,20 @@ struct TripLookupTests {
     func row40() async {
         let picker = FakePicker(["北京故宫": 1, "陈家祠": 1, "路环那家葡挞": nil])
         let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
-        let r = await rig.run(trip("make_trip_list", ["places": names(["北京故宫", "陈家祠", "路环那家葡挞", "天坛"])]))
-        #expect(r.ok && r.data["count"] == .int(3) && r.data["not_found"] == names(["路环那家葡挞"]))
-        #expect(await rig.order() == ["故宫博物院", "陈家祠堂", "天坛公园"])
-        #expect(r.data["check"] == nil && r.data["next"]?.stringValue?.hasPrefix("用自己的话简短地说。") == true)
+        let r = await rig.run(planCall(["places": names(["北京故宫", "陈家祠", "路环那家葡挞", "天坛"])]))
+        // §55 item 4 (T-040zh): the name the picker found nothing for is kept with placed=false and not_found.
+        #expect(r.ok && r.data["count"] == .int(4) && r.data["facts"]?["not_placed"] == names(["路环那家葡挞"]), "\(r)")
+        #expect(await rig.order() == ["故宫博物院", "陈家祠堂", "路环那家葡挞", "天坛公园"])
+        #expect(r.data["check"] == nil)
         #expect(picker.calls.withLock { $0 } == [["北京故宫", "陈家祠", "路环那家葡挞"]])
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=3 none=1 ok=yes") })
-        let added = await rig.run(trip("edit_trip_list", ["action": "replace", "index": 1, "name": "陈家祠"]))
-        #expect(added.data["duplicates"] == names(["陈家祠"]))
     }
 
     @Test("F-15b row 45: picker fails, has no key, or never answers within 2.5 s: 高德's first result")
     func row45() async {
         for (picker, reason) in [(FakePicker(fail: true), "failed"), (nil, "nokey")] as [(FakePicker?, String)] {
             let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
-            let r = await rig.run(trip("make_trip_list", ["places": names(["北京故宫", "陈家祠"])]))
+            let r = await rig.run(planCall(["places": names(["北京故宫", "陈家祠"])]))
             #expect(r.ok && r.data["count"] == .int(2))
             #expect(await rig.order() == ["北京故宫博物院北院区(建设中)", "陈家祠(地铁站)"])
             #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=2 none=0 ok=no reason=\(reason)") })
@@ -347,7 +313,7 @@ struct TripLookupTests {
         let clock = ManualClock()
         let picker = FakePicker(hang: true)
         let rig = await TripRig(search: TripSearch(Self.beijing), clock: clock, picker: picker)
-        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["北京故宫", "天坛"])])) }
+        let made = Task { await rig.run(planCall(["places": names(["北京故宫", "天坛"])])) }
         while picker.calls.withLock({ $0.isEmpty }) || clock.pendingSleepers == 0 { await Task.yield() }
         clock.advance(by: .milliseconds(2500))
         let r = await made.value
@@ -356,23 +322,37 @@ struct TripLookupTests {
         #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=1 none=0 ok=no reason=timeout") })
     }
 
+    @Test("T-040zl F-15b row 260: the picker fails (429 with no backup): every open name takes 高德's first result; the pick line says ok=no reason=failed model=qwen3.8-max-0902")
+    func row260() async {
+        let picker = FakePicker(fail: true)
+        let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
+        let r = await rig.run(planCall(["places": names(["北京故宫", "陈家祠"])]))
+        #expect(r.ok && r.data["count"] == .int(2))
+        #expect(await rig.order() == ["北京故宫博物院北院区(建设中)", "陈家祠(地铁站)"])
+        #expect(picker.calls.withLock { $0.count } == 1)
+        #expect(rig.lines.withLock { $0 }.contains { $0 == "trip pick names=2 none=0 ok=no reason=failed ms=0 model=qwen3.8-max-0902" }, "\(rig.lines.withLock { $0 })")
+        let ok = await TripRig(search: TripSearch(Self.beijing), picker: FakePicker(["北京故宫": 1, "陈家祠": 1]))
+        _ = await ok.run(planCall(["places": names(["北京故宫", "陈家祠"])]))
+        #expect(ok.lines.withLock { $0 }.contains { $0.hasPrefix("trip pick names=2 none=0 ok=yes") && $0.hasSuffix(" model=qwen3.8-max-0902") })
+    }
+
     @Test("F-15b row 46: a name with one result and a cached name never go to the picker")
     func row46() async {
         let picker = FakePicker()
         let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
-        _ = await rig.run(trip("make_trip_list", ["places": names(["天坛"])]))
+        _ = await rig.run(planCall(["places": names(["天坛"])]))
         #expect(picker.calls.withLock { $0 }.isEmpty)
-        _ = await rig.run(trip("make_trip_list", ["places": names(["北京故宫"])]))
-        _ = await rig.run(trip("make_trip_list", ["places": names(["北京故宫", "天坛"])]))
+        _ = await rig.run(planCall(["places": names(["北京故宫"])]))
+        _ = await rig.run(planCall(["places": names(["北京故宫", "天坛"])]))
         #expect(picker.calls.withLock { $0 } == [["北京故宫"]])
     }
 
-    @Test("F-15b row 49: trip_next called while make_trip_list waits on 高德 runs after it, on the new list")
+    @Test("F-15b row 49: trip_next called while a new plan (set_trip_plan) waits on 高德 runs after it, on the new list")
     func row49() async {
         let search = TripSearch(tianjin, slow: ["瓷房子"])
         let rig = await TripRig(search: search)
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子", "海河"])])) }
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
+        let made = Task { await rig.run(planCall(["places": names(["天津之眼", "瓷房子", "海河"])])) }
         while search.waiting == 0 { await Task.yield() }
         let routed = Task { await rig.run(trip("trip_next")) }
         while await rig.planner.waiting == 0 { await Task.yield() }
@@ -384,27 +364,12 @@ struct TripLookupTests {
         #expect(route.ok && route.data["name"] == .string(firstStop) && route.data["index"] == .int(1))
     }
 
-    @Test("F-15b row 51: an edit called while make_trip_list waits on 高德 runs after it; the new list is kept")
-    func row51() async {
-        let search = TripSearch(tianjin, slow: ["瓷房子"])
-        let rig = await TripRig(search: search)
-        let made = Task { await rig.run(trip("make_trip_list", ["places": names(["天津之眼", "瓷房子"])])) }
-        while search.waiting == 0 { await Task.yield() }
-        let edited = Task { await rig.run(trip("edit_trip_list", ["action": "read"])) }
-        while await rig.planner.waiting == 0 { await Task.yield() }
-        search.release()
-        let r = await made.value
-        let e = await edited.value
-        #expect(r.ok && r.data["count"] == .int(2))
-        #expect(e.ok && e.data["count"] == .int(2))
-    }
-
     @Test("F-15b row 52: a first result taken because the picker failed is not cached; the next list asks again")
     func row52() async {
         let picker = FakePicker(fail: true)
         let rig = await TripRig(search: TripSearch(Self.beijing), picker: picker)
-        _ = await rig.run(trip("make_trip_list", ["places": names(["北京故宫"])]))
-        _ = await rig.run(trip("make_trip_list", ["places": names(["北京故宫"])]))
+        _ = await rig.run(planCall(["places": names(["北京故宫"])]))
+        _ = await rig.run(planCall(["places": names(["北京故宫"])]))
         #expect(picker.calls.withLock { $0 }.count == 2)
     }
 
@@ -417,27 +382,15 @@ struct TripLookupTests {
         let rig = await TripRig(search: search)
         let planner = TripPlanner(search: search, navigation: rig.nav, origin: { origin }, clock: ManualClock(), tuning: t,
                                   onLine: { line in rig.lines.append(line) })
-        let r = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼"])]))
+        let r = await planner.execute(planCall(["places": names(["古文化街", "五大道", "天津之眼"])]))
         #expect(r.ok && r.data["count"] == .int(3) && r.data["not_found"] == names([]))
         // F-15b row 43: the same names again cost no lookup (cache), even with 高德 refusing everything now.
         let asked = search.asked.withLock { $0.count }
-        let again = await planner.execute(trip("make_trip_list", ["places": names(["五大道", "古文化街"])]))
+        let again = await planner.execute(planCall(["places": names(["五大道", "古文化街"])]))
         #expect(again.ok && again.data["count"] == .int(2))
         #expect(search.asked.withLock { $0.count } == asked)
     }
 
-    @Test("F-15b row 42: a lookup still busy after its retry is not_found with reason=busy")
-    func busyTwice() async {
-        let search = TripSearch(tianjin, failFirst: 10)
-        var t = TripTuning()
-        t.retryDelay = .milliseconds(10)
-        let rig = await TripRig(search: search)
-        let planner = TripPlanner(search: search, navigation: rig.nav, origin: { origin }, clock: ManualClock(), tuning: t,
-                                  onLine: { line in rig.lines.append(line) })
-        let r = await planner.execute(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
-        #expect(r.code == .noCandidates)
-        #expect(rig.lines.withLock { $0 }.contains("trip lookup index=1 ok=no reason=busy"))
-    }
 }
 
 @Suite("T-040i F-15b owner 2026-11-16 no trip route during guidance")

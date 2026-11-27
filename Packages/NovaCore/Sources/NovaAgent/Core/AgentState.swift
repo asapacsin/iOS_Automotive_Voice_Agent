@@ -55,6 +55,9 @@ public enum AgentEvent: Sendable, Hashable {
     /// F-09b §16 item 4 (T-031z): what the display shows now (the App's `ScreenState`, already settled for
     /// `Tuning.screenSettleMs`). The core sends the `屏幕` line on (re)connect and after any key changes.
     case screen(ScreenState)
+    /// F-18 §35 item 8 (T-046x): a background tool's handoff line, said by code as for `plan_trip` (`find_events` on
+    /// a store miss: the executor knows only then).
+    case handoffLine(String, tool: AsyncTool)
 }
 
 /// F-09b §5 item 1 (T-031j): what the car-state note says. The same values as `get_vehicle_state`; never a location.
@@ -170,8 +173,6 @@ public enum AgentEffect: Sendable, Hashable {
     case cancelRevoicing(Epoch)
     /// ResponseStarted: a failed previous reply no longer silences this one.
     case newReply
-    /// One judged clause for the revoicer.
-    case speak(String)
     /// F-07 §15 item 3 (T-020b): judged Gemini audio of `turn` for the reply lane (only without revoicing).
     case playReplyAudio(TurnID, PCMBuffer)
     case startTool(TurnID, ToolCall)
@@ -222,7 +223,6 @@ public struct AgentState: Sendable {
     /// F-10 referents: what the driver really changed lately.
     public private(set) var context = DriverContext()
     private var navigation = NavigationFlags()
-    private var segmenter = ClauseSegmenter()
     /// Turn state of the current socket. TurnIDs restart at 1 on every socket, so all of it is reset
     /// when a new socket is opened.
     private var openTurn: TurnID?
@@ -263,10 +263,11 @@ public struct AgentState: Sendable {
     /// F-05a: `TranscriptSelector` feeds the driver's words (`.driverWords`); Gemini's transcript is not used.
     private var selectorOwnsWords = false
     /// Clauses waiting while the arbiter holds the reply (R1 guidance, R5 transient loss).
-    /// `.speak` clauses, or `.playReplyAudio` without revoicing, waiting for the arbiter's PLAY.
+    /// `.playReplyAudio` of the judged reply, waiting for the arbiter's PLAY.
     private var heldClauses: [AgentEffect] = []
-    /// F-07 §15 item 3: false for Gemini 原声 (her voice is Gemini's own audio, judged by the same claim gate).
-    public private(set) var revoicing = true
+    /// F-07 §18 item 1 (T-020e): her voice is always the voice model's own audio, judged by the claim gate; nothing
+    /// revoices a reply.
+    public var revoicing: Bool { false }
     /// F-07 §15 item 8: Gemini audio of the open turn sent to the reply lane: when it started, and how long it is.
     private var turnAudio: (turn: TurnID, since: NovaInstant, ms: Int)?
     /// F-14 relay and the model turn that reads its PENDING sentence.
@@ -303,6 +304,20 @@ public struct AgentState: Sendable {
     private var searchCalls: [CallID: TurnID] = [:]
     /// F-18 §27 (T-020c): running NON_BLOCKING calls and when each was sent to the tool.
     private var asyncCalls: [CallID: (tool: AsyncTool, at: NovaInstant)] = [:]
+    /// F-18 §37 item 1 (T-046z): an older running `web_search` → the newer one that started while it ran.
+    private var supersededBy: [CallID: CallID] = [:]
+    /// §37 item 1: an older search's result held while its newer search runs, keyed by the newer call.
+    private var heldSearch: [CallID: [(turn: TurnID, call: ToolCall, result: ToolResult, elapsedMs: Int?)]] = [:]
+    /// §37 item 1: newer searches that ended, and whether ok.
+    private var searchEnded: [CallID: Bool] = [:]
+    /// §37 item 3: background calls that were running when the socket was replaced; they keep running.
+    private var carriedCalls: [CallID: (tool: AsyncTool, at: NovaInstant)] = [:]
+    /// §37 item 3: their results, sent as a text turn when she is idle.
+    private var lateResults: [(tool: AsyncTool, call: ToolCall, result: ToolResult, at: NovaInstant)] = []
+    /// §37 item 4: a background result older than this is not spoken.
+    public static let staleResultMs = 600_000
+    /// The `now` of the event being handled (the 现在 note's 已过 seconds).
+    private var handledAt: NovaInstant = .zero
     /// Calls that came from a tap: their result goes to the model as a note to announce, not as a
     /// tool response (the model never issued them).
     private var uiCalls: Set<CallID> = []
@@ -368,22 +383,33 @@ public struct AgentState: Sendable {
     private var summary: SessionSummary?
     /// F-09b §6 item 1: the tool results of the exchange in progress (`name ok` or `name CODE`).
     private var exchangeTools: [String] = []
+    /// F-05 §15 item 5 (T-016q): false on a voice model without background tools (Qwen): a background tool answers at
+    /// once with the handoff result and its final result goes later as a text turn (the F-18 §37 item 3 path).
+    private var backgroundTools = true
+    /// F-05 §15 item 5: on a voice model without resumption (Qwen), the exchanges so far, so a reconnect without a
+    /// handle starts fresh with the summary note (F-09b §6). nil: the provider resumes (Gemini).
+    private var freshReconnect: ExchangeMemory?
+    /// F-05 §15 item 5: background calls already answered with the handoff result (Qwen); their real result goes
+    /// through `deliver` (claims, supersede, trip-pending) and then to the model as a text turn, never a tool response.
+    private var handedOff: Set<CallID> = []
+    /// Connects asked for by this session; a later one without a handle is a fresh reconnect.
+    private var connects = 0
 
     public init() {}
 
     /// F-18 §15 item 5: the session's no-answer times (web search on waits longer before the re-ask).
     /// F-18 §21 item 2: `destinationNotes` sends the destination notes.
     /// `resume`: F-24 §15 item 5, what the last give-up kept for this session's first connect.
-    /// `revoicing`: F-07 §15 item 3, false when her voice is Gemini's own audio.
     /// `languageIdentifier`: F-05a §15 item 1, the detector her reply's language is checked with.
     /// `summary`: F-09b §6 (T-016p), the earlier exchanges for a session started without a handle (nil: none).
     public init(truthfulness: TruthfulnessTuning, destinationNotes: Bool = false, resume: SessionResume? = nil,
-                revoicing: Bool = true, languageIdentifier: any LanguageIdentifier = NoLanguageIdentifier(),
-                summary: SessionSummary? = nil) {
+                languageIdentifier: any LanguageIdentifier = NoLanguageIdentifier(),
+                summary: SessionSummary? = nil, backgroundTools: Bool = true, freshReconnect: ExchangeMemory? = nil) {
         self.summary = resume == nil ? summary : nil
-        pipeline = DriverTurnPipeline(tuning: truthfulness, streamsCleanAudio: !revoicing, detector: languageIdentifier)
+        self.backgroundTools = backgroundTools
+        self.freshReconnect = freshReconnect
+        pipeline = DriverTurnPipeline(tuning: truthfulness, detector: languageIdentifier)
         detector = languageIdentifier
-        self.revoicing = revoicing
         if let resume { session = VoiceSession(resume: resume) }
         self.destinationNotes = destinationNotes
     }
@@ -402,10 +428,61 @@ public struct AgentState: Sendable {
     }
 
     public mutating func handle(_ event: AgentEvent, at now: NovaInstant) -> [AgentEffect] {
+        handledAt = now
         let effects = dispatch(event, at: now)
         if destinationNotes { noteTriggers(event) }
         stateTriggers(event)
-        return effects + flushNotes()
+        return effects + flushNotes() + flushLate()
+    }
+
+    /// F-18 §37 item 3 (T-046z): one late result of a call from before a reconnect, as a text turn, when she is idle.
+    private mutating func flushLate() -> [AgentEffect] {
+        guard !lateResults.isEmpty, noteIdle else { return [] }
+        let late = lateResults.removeFirst()
+        // Review fix (§37 item 4): a result that waited past 10 minutes is not spoken.
+        if handledAt.milliseconds - late.at.milliseconds > Int64(Self.staleResultMs) {
+            return [.diagnostic(.asyncResultDropped(tool: late.tool, reason: .stale))]
+        }
+        var data = late.result.data
+        let next = data.removeValue(forKey: "next")?.stringValue ?? late.result.advice ?? ""
+        let body = ToolResult(ok: late.result.ok, code: late.result.code, data: data, advice: late.result.advice)
+        let text = "（刚才\(late.call.name)的结果：\(Self.payloadJSON(body))）" + next
+        answerOwed = true
+        return [.provider(.text([TextTurn(role: .user, text: text)], turnComplete: true)),
+                .diagnostic(.asyncResultViaText(tool: late.tool))]
+    }
+
+    /// F-05 §15 item 5 (T-016q): the immediate result of a background tool on a voice model without background tools.
+    /// `plan_trip` and `find_events` have their handoff line said by the app, so she says nothing; for the others she says
+    /// it is being looked up (no sentence is scripted, F-09b §13 item 8).
+    public static func handoffResult(_ tool: AsyncTool) -> ToolResult {
+        let next = switch tool {
+        case .planTrip, .findEvents: "已经交给后台去做，系统会告诉司机。现在不用说话，结果稍后发给你。"
+        case .webSearch, .queryLiveInfo, .showPlace: "已经在后台查，结果稍后发给你。告诉司机在查，好了告诉他。"
+        }
+        return ToolResult.success(["status": "running", "next": .string(next + AsyncTool.tripPendingNext)])
+    }
+
+    /// A result as the JSON the model reads in a text turn (`ok`, `data`, `code`, `advice`).
+    static func payloadJSON(_ result: ToolResult) -> String {
+        var payload: [String: JSONValue] = ["ok": .bool(result.ok)]
+        payload["data"] = .object(result.data)
+        if let code = result.code { payload["code"] = .string(code.rawValue) }
+        if let advice = result.advice { payload["advice"] = .string(advice) }
+        return (try? JSONValue.canonicalEncoder().encode(JSONValue.object(payload))).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+    }
+
+    /// F-18 §37 item 2: the 现在 note's parts for the running `find_events` / `plan_trip` calls.
+    private func runningParts() -> [String] {
+        (asyncCalls.map { ($0.key, $0.value) } + carriedCalls.map { ($0.key, $0.value) })
+            .sorted { ($0.1.at, $0.0.rawValue) < ($1.1.at, $1.0.rawValue) }
+            .compactMap { _, c in
+                switch c.tool {
+                case .findEvents: "后台在查：活动（已过\((handledAt.milliseconds - c.at.milliseconds) / 1000)秒）"
+                case .planTrip: "后台在查：行程"
+                default: nil
+                }
+            }
     }
 
     /// F-09b §5 item 2: on (re)connect; after a completed turn in which the state changed (a tap included); when the
@@ -488,7 +565,7 @@ public struct AgentState: Sendable {
     /// §21 item 2 "Only when idle": connected, no reply open, no answer owed, no tool running, driver not
     /// speaking, no guidance prompt waiting. A note never interrupts a reply.
     private var noteIdle: Bool {
-        session.state == .listening && openTurn == nil && !answerOwed && runningTools == 0 && !driverSpeaking
+        session.state == .listening && openTurn == nil && !answerOwed && runningTools <= asyncCalls.count && !driverSpeaking
             && !utteranceOpen && relayAwaiting == nil && unclassified == nil
     }
 
@@ -514,7 +591,9 @@ public struct AgentState: Sendable {
         if contextPending, let now = contextNow {
             contextPending = false
             contextSent = now.key
-            texts.append(now.note)
+            var note = now
+            note.running = runningParts()
+            texts.append(note.note)
             diagnostics.append(.diagnostic(.contextNote(fields: now.fields)))
         }
         if screenPending, let screen = screenNow {
@@ -553,6 +632,9 @@ public struct AgentState: Sendable {
         switch event {
         case .destination, .vehicleState, .screenNote, .context, .screen:
             return []
+        case .handoffLine(let line, let tool):
+            guard ![.disconnected, .connecting, .reconnecting, .error].contains(session.state) else { return [] }
+            return handoff(line: line, tool: tool)
         case .start:
             return session(.start, at: now)
         case .stop:
@@ -637,46 +719,69 @@ public struct AgentState: Sendable {
                 return []
             }
         case .toolFinished(let turn, let call, let result):
-            if call.name == "web_search", searchCalls.removeValue(forKey: call.id) == nil {
+            // F-18 §37 item 3 (T-046z, amends §27 item 4): a call from before a reconnect is answered as a text turn.
+            if let carried = carriedCalls.removeValue(forKey: call.id) {
+                handedOff.remove(call.id)
+                // Review fix: the pipeline no longer counts it as running (RESULT_PENDING ends).
+                pipeline.callsEnded([call.id])
+                if now.milliseconds - carried.at.milliseconds > Int64(Self.staleResultMs) {
+                    return [.diagnostic(.asyncResultDropped(tool: carried.tool, reason: .stale))]
+                }
+                lateResults.append((carried.tool, call, result, carried.at))
+                return []
+            }
+            if call.name == "web_search", searchCalls[call.id] == nil {
                 asyncCalls[call.id] = nil
                 return []
             }
             var elapsedMs: Int?
-            if AsyncTool(name: call.name) != nil {
+            if let tool = AsyncTool(name: call.name) {
                 // F-18 §27 item 4: a result whose socket was replaced is never sent.
-                guard let started = asyncCalls.removeValue(forKey: call.id) else { return [] }
+                guard let started = asyncCalls[call.id] else { return [] }
                 elapsedMs = Int(now.milliseconds - started.at.milliseconds)
+                // §37 item 4: a result older than 10 minutes is not spoken (the store or the plan has it).
+                if elapsedMs! > Self.staleResultMs {
+                    endAsync(call.id)
+                    if tool == .findEvents || tool == .planTrip, contextNow != nil { contextPending = true }
+                    return [.diagnostic(.asyncResultDropped(tool: tool, reason: .stale))]
+                }
+                // F-15b §69 item 1 (T-040zv): a trip call a newer one replaced is not sent (as §37 for web_search).
+                if tool == .planTrip, result.code == .superseded {
+                    endAsync(call.id)
+                    return [.diagnostic(.asyncResultDropped(tool: tool, reason: .superseded))]
+                }
             }
-            runningTools = max(runningTools - 1, 0)
-            exchangeTools.append(call.name + " " + (result.ok ? "ok" : (result.code?.rawValue ?? "failed")))
-            if uiCalls.remove(call.id) != nil {
-                context.record(call, ok: result.ok, at: now)
-                return uiResult(call, dispatcher.finish(call, result), at: now)
+            if call.name == "web_search" {
+                // §37 item 1: an older search's result waits for the newer one, or is dropped after its ok.
+                if let newer = supersededBy.removeValue(forKey: call.id) {
+                    if searchCalls[newer] != nil {
+                        searchCalls[call.id] = nil
+                        heldSearch[newer, default: []].append((turn, call, result, elapsedMs))
+                        return []
+                    }
+                    if searchEnded[newer] == true {
+                        endAsync(call.id)
+                        return [.diagnostic(.asyncResultDropped(tool: .webSearch, reason: .superseded))]
+                    }
+                }
+                searchEnded[call.id] = result.ok
+                if let held = heldSearch.removeValue(forKey: call.id), let newest = held.last {
+                    if result.ok {
+                        for h in held { endAsync(h.call.id) }
+                        return held.map { _ in .diagnostic(.asyncResultDropped(tool: .webSearch, reason: .superseded)) }
+                            + deliver(turn, call, result, elapsedMs: elapsedMs, at: now)
+                    }
+                    // The newer one failed: the latest older answer is sent instead; earlier ones are superseded by it.
+                    endAsync(call.id)
+                    var out: [AgentEffect] = []
+                    for h in held.dropLast() {
+                        endAsync(h.call.id)
+                        out.append(.diagnostic(.asyncResultDropped(tool: .webSearch, reason: .superseded)))
+                    }
+                    return out + deliver(newest.turn, newest.call, newest.result, elapsedMs: newest.elapsedMs, at: now)
+                }
             }
-            guard session.state != .disconnected, session.state != .error else { return [] }
-            // R6: the answer to a tool the driver asked for may be spoken (PROPOSED: a navigation start
-            // can take longer than the 10 s window after the utterance).
-            arbiter.driverSpoke(at: now)
-            context.record(call, ok: result.ok, at: now)
-            var finished = dispatcher.finish(call, result)
-            // F-15b §52 item 12 (T-040ze): while a trip tool's result has not come back, any other result's `next`
-            // says so: she must not say the trip change is done.
-            if AsyncTool(name: call.name)?.isTrip != true, asyncCalls.values.contains(where: { $0.tool.isTrip }) {
-                finished = Self.withTripPending(finished)
-            }
-            // F-09b §17 item 6 (T-031zb): an owed 屏幕 line rides on the next tool result as `screen`.
-            var screenSent: [AgentEffect] = []
-            if let line = takeOwedScreen() {
-                var data = finished.data
-                data["screen"] = .string(line.text)
-                finished = ToolResult(ok: finished.ok, code: finished.code, data: data, advice: finished.advice)
-                screenSent = [line.diagnostic]
-            }
-            let response = ToolResponse(id: call.id, name: call.name, result: finished, elapsedMs: elapsedMs)
-            // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
-            // The model answers a tool result with a new turn: guidance waits for it (F-14 RESPONSE_OPEN).
-            answerOwed = true
-            return [.provider(.toolResponses([response]))] + screenSent + pipeline(.toolResult(turn, response), at: now)
+            return deliver(turn, call, result, elapsedMs: elapsedMs, at: now)
         case .playback(let playback):
             switch playback {
             // Only the current reply epoch counts: a late event of a flushed reply changes nothing.
@@ -715,7 +820,6 @@ public struct AgentState: Sendable {
             }
             if !stops.isEmpty {
                 if let turn = openTurn { silenced.insert(turn) }
-                segmenter.reset()
             }
             return stops + arbiterChanged(at: now)
         case .timer(.session(let timer)):
@@ -762,7 +866,6 @@ public struct AgentState: Sendable {
                 // Between clauses the arbiter already counts her as silent, while the shell still plays the rest of
                 // the reply: flush it the way a void does, so nothing of it plays over the new question.
                 if let turn = openTurn { silenced.insert(turn) }
-                segmenter.reset()
                 heldClauses = []
                 stop = arbiter.void().compactMap { effect in
                     switch effect {
@@ -832,8 +935,8 @@ public struct AgentState: Sendable {
         case .listening, .userSpeaking, .thinking, .speaking: true
         default: false
         }
-        // F-07 §15: without revoicing there is no voice to read a sentence back in; guidance takes the fallback voice.
-        return GuidanceConditions(enabled: relayEnabled, connected: connected, capable: revoicing,
+        // F-07 §18 (T-020e): no voice reads a sentence back; guidance takes the fallback voice.
+        return GuidanceConditions(enabled: relayEnabled, connected: connected,
                                   driverSpeaking: driverSpeaking, responseOpen: openTurn != nil || answerOwed,
                                   workPending: runningTools > 0, focusHeld: arbiter.focus == .held)
     }
@@ -863,6 +966,24 @@ public struct AgentState: Sendable {
     private var subtitleKind: ScreenTextKind = .reply
     private var subtitleGuidance: String?
     private var subtitleHidden = false
+
+    /// F-15b §62 item 12 (T-040zo): handing work over is said and shown by code, every time: the app says the handoff
+    /// line itself in the guidance voice (the path of F-05a §15 item 5's fallback line, with its subtitle) at the
+    /// dispatch. Her catalog text asks her to say nothing, so there is no double line; a barge-in stops it as any
+    /// guidance line.
+    private mutating func handoff(_ call: ToolCall) -> [AgentEffect] {
+        handoff(line: ToolCatalog.planTripHandoffLine(call), tool: .planTrip)
+    }
+
+    private mutating func handoff(line: String, tool: AsyncTool) -> [AgentEffect] {
+        fallbackLines += 1
+        resetSubtitle()
+        var effects = subtitle(adding: line, .reply)
+        effects.append(.publish(view))
+        effects.append(.speakGuidance(line, GuidanceID(UInt64.max - fallbackLines)))
+        effects.append(.diagnostic(.handoffSaid(tool: tool, ms: 0)))
+        return effects
+    }
 
     private mutating func resetSubtitle() {
         view.subtitle = ""
@@ -909,12 +1030,6 @@ public struct AgentState: Sendable {
         var effects: [AgentEffect] = []
         for output in outputs {
             switch output {
-            case .sendToModel(let id, let prompt):
-                relayAwaiting = id
-                awaitingText = relay.text(for: id)
-                silenceNextRelayTurn = false
-                answerOwed = false
-                effects.append(.provider(.text([TextTurn(role: .user, text: prompt)], turnComplete: true)))
             case .speakFallback(let id, let text, _):
                 // Guidance never overlaps her reply (F-14 §10). R1 holds from now, not from when the voice
                 // is rendered, so no clause is released in between. A reply that already released clauses
@@ -955,7 +1070,6 @@ public struct AgentState: Sendable {
         var effects: [AgentEffect] = []
         if let waiting = waitingFallback, now >= waiting.since + Self.fallbackWaitMax {
             waitingFallback = nil
-            segmenter.reset()
             heldClauses = []
             effects += arbiter.void().compactMap { effect in
                 switch effect {
@@ -993,6 +1107,13 @@ public struct AgentState: Sendable {
             case .keepHandle(let handle):
                 effects.append(.keepResumption(handle))
             case .connect(let connection, let resume):
+                connects += 1
+                // F-05 §15 item 5 (T-016q): no resume on Qwen; the reconnect gets the summary note as its first text.
+                if connects > 1, resume == nil, var memory = freshReconnect {
+                    summary = memory.summary(at: now)
+                    freshReconnect = memory
+                    effects.append(.diagnostic(.qwenReconnect))
+                }
                 effects += newSocket(at: now)
                 effects.append(.provider(.connect(connection: connection, resume: resume)))
             case .close:
@@ -1059,7 +1180,6 @@ public struct AgentState: Sendable {
                 heldClauses = []
                 effects.append(.flushPlayback(epoch))
             case .cancelRevoicing(let epoch):
-                segmenter.reset()
                 effects.append(.cancelRevoicing(epoch))
             case .bargeIn(let qualified):
                 effects += session(.bargeIn(qualified: qualified), at: now)
@@ -1068,16 +1188,80 @@ public struct AgentState: Sendable {
         return effects
     }
 
-    /// F-18 §27 item 4 (T-020c): background calls of a closed or replaced socket are dropped, never answered.
+    /// The tool response of a finished call (the toolFinished path after §37's checks).
+    private mutating func deliver(_ turn: TurnID, _ call: ToolCall, _ result: ToolResult, elapsedMs: Int?,
+                                  at now: NovaInstant) -> [AgentEffect] {
+        if AsyncTool(name: call.name) != nil {
+            searchCalls[call.id] = nil
+            if let tool = asyncCalls.removeValue(forKey: call.id)?.tool, tool == .findEvents || tool == .planTrip, contextNow != nil {
+                contextPending = true
+            }
+        }
+        runningTools = max(runningTools - 1, 0)
+
+        exchangeTools.append(call.name + " " + (result.ok ? "ok" : (result.code?.rawValue ?? "failed")))
+        if uiCalls.remove(call.id) != nil {
+            context.record(call, ok: result.ok, at: now)
+            return uiResult(call, dispatcher.finish(call, result), at: now)
+        }
+        guard session.state != .disconnected, session.state != .error else { return [] }
+        // R6: the answer to a tool the driver asked for may be spoken (PROPOSED: a navigation start
+        // can take longer than the 10 s window after the utterance).
+        arbiter.driverSpoke(at: now)
+        context.record(call, ok: result.ok, at: now)
+        // F-15b §56 item 4 (T-040zi): a refused `set_trip_plan` is not run again with the same arguments.
+        dispatcher.noteResult(call, result)
+        var finished = dispatcher.finish(call, result)
+        // F-15b §52 item 12 (T-040ze): while a trip tool's result has not come back, any other result's `next`
+        // says so: she must not say the trip change is done.
+        if AsyncTool(name: call.name)?.isTrip != true, asyncCalls.values.contains(where: { $0.tool.isTrip }) {
+            finished = Self.withTripPending(finished)
+        }
+        // F-09b §17 item 6 (T-031zb): an owed 屏幕 line rides on the next tool result as `screen`.
+        var screenSent: [AgentEffect] = []
+        if let line = takeOwedScreen() {
+            var data = finished.data
+            data["screen"] = .string(line.text)
+            finished = ToolResult(ok: finished.ok, code: finished.code, data: data, advice: finished.advice)
+            screenSent = [line.diagnostic]
+        }
+        let response = ToolResponse(id: call.id, name: call.name, result: finished, elapsedMs: elapsedMs)
+        // F-05 §15 item 5 (T-016q): a call answered with the handoff result gets its real result as a text turn
+        // when she is idle (`flushLate`); the claim pipeline sees the real result now, as on Gemini.
+        if handedOff.remove(call.id) != nil, let tool = AsyncTool(name: call.name) {
+            lateResults.append((tool, call, finished, now))
+            return screenSent + pipeline(.toolResult(turn, response), at: now)
+        }
+        // The model gets the result even for an abandoned turn; the reply pipeline ignores it there.
+        // The model answers a tool result with a new turn: guidance waits for it (F-14 RESPONSE_OPEN).
+        answerOwed = true
+        return [.provider(.toolResponses([response]))] + screenSent + pipeline(.toolResult(turn, response), at: now)
+    }
+
+    /// §37: a background call that ends without a response sent.
+    private mutating func endAsync(_ id: CallID) {
+        searchCalls[id] = nil
+        asyncCalls[id] = nil
+        runningTools = max(runningTools - 1, 0)
+        pipeline.callsEnded([id])
+    }
+
+    /// F-18 §27 item 4 (T-020c) as amended by §37 item 3 (T-046z): background calls of a closed or replaced socket
+    /// keep running; the new session does not know their ids, so each result goes as a text turn when she is idle
+    /// (`flushLate`). Held and superseded searches are forgotten (the held answer is sent late as well).
     private mutating func dropAsyncCalls() -> [AgentEffect] {
-        var effects: [AgentEffect] = []
-        for (id, call) in asyncCalls.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+        for (id, call) in asyncCalls {
             searchCalls[id] = nil
             runningTools = max(runningTools - 1, 0)
-            effects += [.cancelTool(id), .diagnostic(.asyncToolDropped(tool: call.tool))]
+            carriedCalls[id] = call
         }
+        // Held answers whose newer search is carried are dropped: the newer one answers (§37 item 1).
+        for held in heldSearch.values.joined() { carriedCalls[held.call.id] = nil; pipeline.callsEnded([held.call.id]) }
+        heldSearch = [:]
+        supersededBy = [:]
+        searchEnded = [:]
         asyncCalls = [:]
-        return effects
+        return []
     }
 
     /// F-18 §16 item 7: cancels the running searches that `match` their turn; their results are never sent.
@@ -1085,6 +1269,8 @@ public struct AgentState: Sendable {
         let ids = searchCalls.filter { match($0.value) }.keys.sorted { $0.rawValue < $1.rawValue }
         for id in ids { searchCalls[id] = nil; asyncCalls[id] = nil }
         runningTools = max(runningTools - ids.count, 0)
+        // F-18 §37 item 1: an older answer held for a cancelled newer search is dropped with it.
+        for id in ids { for held in heldSearch.removeValue(forKey: id) ?? [] { endAsync(held.call.id) } }
         return ids.map { .cancelTool($0) }
     }
 
@@ -1143,7 +1329,6 @@ public struct AgentState: Sendable {
 
     private mutating func stopReply(_ turn: TurnID) -> [AgentEffect] {
         silenced.insert(turn)
-        segmenter.reset()
         heldClauses = []
         return arbiter.void().compactMap { effect in
             switch effect {
@@ -1222,7 +1407,6 @@ public struct AgentState: Sendable {
                 return [.diagnostic(.postStopTurnDropped)]
             }
             openTurn = turn
-            segmenter.reset()
             arbiter.newReply()
             // A prompt is only sent when no answer is owed, and Gemini answers its inputs in order, so the
             // first turn after a prompt is its reading, even if the driver spoke meanwhile.
@@ -1255,7 +1439,7 @@ public struct AgentState: Sendable {
                 // A guidance reading: spoken as given, judged afterwards for fidelity, never a claim.
                 if relayReading == turn { relay.assistantText(text) }
                 let shown = subtitle(adding: text, .guidance, guidance: relayTurns[turn].flatMap { relay.text(for: $0) } ?? awaitingText)
-                return shown + [.publish(view)] + speak(segmenter.append(text), at: now)
+                return shown + [.publish(view)]
             }
             return pipeline(.replyText(turn, text), at: now)
         case .replyAudio(let turn, let pcm):
@@ -1279,19 +1463,48 @@ public struct AgentState: Sendable {
                 switch dispatcher.decide(call, context: guardContext) {
                 case .execute(let running):
                     runningTools += 1
-                    if running.name == "web_search" { searchCalls[running.id] = turn }
-                    if let tool = AsyncTool(name: running.name) { asyncCalls[running.id] = (tool, now) }
+                    if running.name == "web_search" {
+                        // F-18 §37 item 1 (T-046z): every running search is superseded by this newer one.
+                        for older in searchCalls.keys {
+                            supersededBy[older] = running.id
+                            // Review fix: answers held for a now-superseded search wait for the newest one.
+                            if let held = heldSearch.removeValue(forKey: older) { heldSearch[running.id, default: []] += held }
+                        }
+                        searchCalls[running.id] = turn
+                    }
+                    var handoffResponse: ToolResponse?
+                    if let tool = AsyncTool(name: running.name) {
+                        asyncCalls[running.id] = (tool, now)
+                        if !backgroundTools {
+                            // F-05 §15 item 5 (T-016q): no background tools on Qwen. The handoff result answers the
+                            // call at once (it is no result: the claim pipeline still waits for the real one, as on
+                            // Gemini); the call runs on as a background call and its result goes as a text turn.
+                            handedOff.insert(running.id)
+                            handoffResponse = ToolResponse(id: running.id, name: running.name,
+                                                           result: Self.handoffResult(tool))
+                        }
+                        // §37 item 2: the 现在 note says what runs in the background.
+                        if tool == .findEvents || tool == .planTrip, contextNow != nil { contextPending = true }
+                    }
                     effects.append(.startTool(turn, running))
+                    if let response = handoffResponse {
+                        answerOwed = true
+                        effects.append(.provider(.toolResponses([response])))
+                    }
+                    if running.name == AsyncTool.planTrip.rawValue { effects += handoff(running) }
                 case .refuse(let result):
                     effects += refuse(turn, call, result, at: now)
                 }
             }
             return effects
         case .toolCallCancellation(let ids):
+            pipeline.callsEnded(ids)
             for id in ids {
                 let search = searchCalls.removeValue(forKey: id) != nil
                 let background = asyncCalls.removeValue(forKey: id) != nil
                 if search || background { runningTools = max(runningTools - 1, 0) }
+                // F-18 §37 item 1 (review): answers held for a cancelled newer search end with it.
+                for held in heldSearch.removeValue(forKey: id) ?? [] { endAsync(held.call.id) }
             }
             return ids.map { .cancelTool($0) }
         case .audioDone(let turn):
@@ -1302,11 +1515,8 @@ public struct AgentState: Sendable {
             if openTurn == turn { openTurn = nil }
             guard relayReading == turn else { return [] }
             relayReading = nil
-            var effects: [AgentEffect] = finalSubtitle()
+            let effects: [AgentEffect] = finalSubtitle()
             let completed = if case .responseDone(_, .completed) = event { true } else { false }
-            if completed, !silenced.contains(turn), let rest = segmenter.flush() {
-                effects += speak([rest], at: now)
-            }
             // A reading the driver cut is not unfaithful: no strike for it.
             return effects + relayOutputs(relay.assistantFinished(at: now, conditions: relayConditions,
                                                                   cut: !completed), at: now)
@@ -1331,14 +1541,11 @@ public struct AgentState: Sendable {
             var effects = pipeline(.turnClosed(turn, outcome), at: now)
             // F-05a §13: the reply is complete once the pipeline has released what it held.
             if open { effects += finalSubtitle() }
-            // The last half clause is spoken only for a reply that completed and still may be heard.
-            if outcome == .completed, !silenced.contains(turn), let rest = segmenter.flush() {
-                effects += speak([rest], at: now)
-            }
             // F-09b §6 item 1: a completed exchange; her text is the judged subtitle the screen showed.
             if outcome == .completed, open, !silenced.contains(turn), !view.subtitle.isEmpty || !exchangeTools.isEmpty {
-                effects.append(.exchange(ConversationExchange(driver: view.driverLine, reply: view.subtitle,
-                                                              tools: exchangeTools)))
+                let exchange = ConversationExchange(driver: view.driverLine, reply: view.subtitle, tools: exchangeTools)
+                freshReconnect?.add(exchange, at: now)
+                effects.append(.exchange(exchange))
                 exchangeTools = []
             }
             return effects
@@ -1362,7 +1569,7 @@ public struct AgentState: Sendable {
             guard words.count >= enough || words.count >= sentence.count && !sentence.isEmpty else { return [] }
             isReading = !sentence.isEmpty && (sentence.hasPrefix(words) || words.hasPrefix(sentence))
         case .replyAudio:
-            return []  // revoicing: the provider's audio is never played; wait for the words
+            return []  // the words decide whether this turn is a reading; its audio waits for them
         default:
             let words = GuidanceRelay.normalised(unclassifiedText)
             isReading = !words.isEmpty && !sentence.isEmpty && sentence.hasPrefix(words)
@@ -1412,11 +1619,10 @@ public struct AgentState: Sendable {
                 guard !silenced.contains(turn) else { break }
                 effects += subtitle(adding: text, .reply)
                 effects.append(.publish(view))
-                if revoicing { effects += speak(segmenter.append(text), at: now) }
             case .speechAudio(let turn, let pcm):
-                // Revoicing on (ADR-016): the provider's own audio is never played. Off (F-07 §15 item 3): the
-                // pipeline released it judged, so it goes to the reply lane under the arbiter like a clause.
-                guard !revoicing, !silenced.contains(turn) else { break }
+                // F-07 §15 item 3, §18 item 1: the pipeline released her audio judged; it goes to the reply lane
+                // under the arbiter.
+                guard !silenced.contains(turn) else { break }
                 heldClauses.append(.playReplyAudio(turn, pcm))
                 effects += releaseHeld(at: now)
             case .voided(let turn):
@@ -1493,13 +1699,6 @@ public struct AgentState: Sendable {
         answerOwed = true
         return [.diagnostic(.toolRefused(code: result.code ?? .invalidValue)), .provider(.toolResponses([response]))]
             + pipeline(.toolResult(turn, response), at: now)
-    }
-
-    /// Clauses go to the revoicer only while the arbiter says PLAY; HOLD keeps them, DROP discards them.
-    private mutating func speak(_ clauses: [String], at now: NovaInstant) -> [AgentEffect] {
-        guard !clauses.isEmpty else { return [] }
-        heldClauses += clauses.map { .speak($0) }
-        return releaseHeld(at: now)
     }
 
     private mutating func releaseHeld(at now: NovaInstant) -> [AgentEffect] {

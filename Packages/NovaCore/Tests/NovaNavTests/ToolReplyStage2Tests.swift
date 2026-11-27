@@ -104,7 +104,7 @@ struct ToolReplyStage2Tests {
         #expect(along.code == .notNavigating && replyValues(along.data["may"]) == ["offer_nearby"])
         expectNotDone(along, "along route")
         let hidden = TripPlanner.tripHiddenResult
-        #expect(hidden.code == .tripHidden && hidden.data["facts"]?["show_command"] == "打开行程")
+        #expect(hidden.code == .tripHidden && hidden.data["facts"]?["show_command"] == "打开我的行程")
         expectNotDone(hidden, "trip hidden")
         let denied = LiveInfoExecutor.permissionDenied
         #expect(denied.data["facts"]?["cause"] == "permission_denied")

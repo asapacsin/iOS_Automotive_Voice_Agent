@@ -15,6 +15,12 @@ public struct AlternativeRoute: Sendable, Hashable {
 
 /// What the screen and the guards see of the flow. A snapshot, not the flow's own state.
 public struct NavigationFlowState: Sendable, Hashable {
+    /// F-15b §57 item 1 (T-040zj): 「结束导航」 is shown while the guidance (`navigation`), the route choice
+    /// (`routePicking`) or the search and route calculation (`routeCalculating`) is on screen.
+    public var stopButtonShown: Bool {
+        [.navigating, .awaitingRouteSelection, .resolvingDestination, .calculatingRoute].contains(phase)
+    }
+
     public var phase: NavigationPhase = .idle
     public var generation: Generation = .initial
     public var places: [Place] = []
@@ -189,6 +195,8 @@ public actor NavigationController: ToolExecutor {
     /// F-15b §47 item 1 (T-040s): the places on offer came from `navigate_to abroad` (or an `abroad` trip's
     /// `trip_next`), so their route request is marked `abroad` (OSRM). A home search clears it.
     private var routeAbroad = false
+    /// F-15b §71 item 5 (T-040zx): the trip stop routed is in Macau or Hong Kong (OSRM with the datum shift).
+    private var routeSar = false
     public func setAbroad(search: any PlaceSearch, center: @escaping @Sendable (String) async -> GeoCoordinate?,
                           area: @escaping @Sendable (String) async -> TripArea? = { _ in nil }) {
         abroadSearch = search
@@ -250,7 +258,8 @@ public actor NavigationController: ToolExecutor {
             guard let near = call.arguments["near"] else { return await navigate(destination) }
             return await navigateNear(destination, near: near, call.arguments)
         case "choose_navigation_option": return await choose(call.arguments, fromTap: call.id.rawValue.hasPrefix("ui"))
-        case "exit_navigation_mode": return await exit()
+        case "exit_navigation_mode":
+            return await exit(panel: call.arguments["panel"]?.stringValue.flatMap(ScreenPanel.init(rawValue:)))
         case "show_places": return await showPlaces(call.arguments)
         default: return .failure(.unknownTool)
         }
@@ -334,6 +343,7 @@ public actor NavigationController: ToolExecutor {
             snapshot.destination = nil
             snapshot.info = nil
             routeAbroad = false
+            routeSar = false
         }
         snapshot.places = places
         snapshot.explored = ExploredList(places: places, abouts: abouts, unlocated: unlocated)
@@ -612,6 +622,7 @@ public actor NavigationController: ToolExecutor {
         -> (result: ToolResult, found: Int, dropped: Int) {
         confirm = nil
         routeAbroad = false
+        routeSar = false
         endTripStop()
         let guiding = snapshot.navigating
         let generation: Generation
@@ -659,6 +670,7 @@ public actor NavigationController: ToolExecutor {
                               label: String) async -> (result: ToolResult, found: Int, dropped: Int) {
         confirm = nil
         routeAbroad = true
+        routeSar = false
         endTripStop()
         guard let abroadSearch else { return (Self.nearInvalid([:]), 0, 0) }
         let started = clock.now
@@ -732,6 +744,7 @@ public actor NavigationController: ToolExecutor {
     private func navigate(_ destination: String) async -> ToolResult {
         confirm = nil
         routeAbroad = false
+        routeSar = false
         // F-16: an unset 家/公司 is refused before anything changes (the trip stop guidance keeps going, I-14).
         if let saved, let slot = PlaceSlot.slot(for: destination), saved.place(slot) == nil {
             let code: ToolErrorCode = slot == .home ? .homeNotSet : .workNotSet
@@ -1140,7 +1153,7 @@ public actor NavigationController: ToolExecutor {
         snapshot.places = []
         publish()
         await engine.calculateRoutes(RouteRequest(destination: place.coordinate, destinationName: place.name,
-                                                  abroad: routeAbroad),
+                                                  abroad: routeAbroad, sar: routeSar),
                                      generation: generation)
         // A newer request took over while the engine was busy: its event is not ours to wait for.
         guard generation == snapshot.generation else { return .failure(.optionsStale) }
@@ -1332,11 +1345,12 @@ public actor NavigationController: ToolExecutor {
     /// One plan stop as a normal single-destination route from here, started as a chosen `navigate_to` place
     /// (F-15a), with no place search. A running guidance is replaced. On `arrived` the arrival hook gets its id.
     /// `abroad`: the stop belongs to an `abroad` trip; its route then comes from OSRM (F-15b §47 item 1).
-    public func tripNext(_ place: Place, abroad: Bool = false) async -> ToolResult {
+    public func tripNext(_ place: Place, abroad: Bool = false, sar: Bool = false) async -> ToolResult {
         if startInFlight {
             return Self.notYet("starting")
         }
-        routeAbroad = abroad
+        routeAbroad = abroad || sar
+        routeSar = sar && !abroad
         forgetConfirmations()
         asked = nil
         // §29 item 1: replaces running guidance as 「换成X」 does: stop the old route first.
@@ -1358,12 +1372,48 @@ public actor NavigationController: ToolExecutor {
 
     // MARK: exit_navigation_mode
 
+    /// F-15b §57 item 5 (T-040zj): the line she gets for a tap on 「结束导航」 (queued like the screen line).
+    public static let stopTapLine = "[系统] 司机点了「结束导航」。这句不用回答。"
+
+    /// F-15b §57 items 1, 6 (T-040zj): a tap on 「结束导航」 does what `exit_navigation_mode` does (guidance stops, the
+    /// route panels close; the trip keeps its plan and marks), while moving too and without a confirmation.
+    /// `nav tap action=stop`; returns the line for her.
+    public func stopTap() async -> String {
+        _ = await exit()
+        onTripLine("nav tap action=stop")
+        return Self.stopTapLine
+    }
+
     /// F-09b §13 item 5 (T-031n): the cards were put away; the plan stays.
     public static let cardsHiddenNext = ToolReply.success(
-        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开行程"], may: [.nameCommand])
+        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开我的行程"], may: [.nameCommand])
         .result.data["next"]?.stringValue ?? ""
     static let cardsHidden = ToolReply.success(
-        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开行程"], may: [.nameCommand]).result.data
+        facts: ["trip_cards": "hidden", "plan_kept": true, "show_command": "打开我的行程"], may: [.nameCommand]).result.data
+
+    /// F-09b §22 items 1-2 (T-031zg): a named panel (a 「×」 tap, or her `panel=`) closes only that panel, with the
+    /// branch `exit()` uses for it: the trip cards are put away (guidance untouched); a list or a route choice is
+    /// cancelled as 「不去了」 cancels it; running guidance is never ended by a panel other than `navigation`.
+    private func exit(panel: ScreenPanel?) async -> ToolResult {
+        guard let panel, panel != .navigation else { return await exit() }
+        let selecting: Set<NavigationPhase> = [.awaitingDestinationSelection, .awaitingRouteSelection, .resolvingDestination,
+                                               .planningRoute, .calculatingRoute, .routeReady]
+        switch panel {
+        case .tripScreen:
+            if await hideTripCards?() == true {
+                return .success(["status": "trip_cards_hidden"].merging(Self.cardsHidden) { $1 })
+            }
+        case .destinationList where snapshot.alongRouteList:
+            closeAlongRouteList()
+            return .success(["status": "list_closed_guidance_kept", "next": "说一句：好的，继续按原路线导航。"])
+        case .destinationList, .routePicking, .routeCalculating:
+            if selecting.contains(snapshot.phase) { return await exit() }
+        default:
+            break
+        }
+        return ToolReply.notDone(.noOptionsOnScreen, facts: ["on_screen": 0, "panel": .string(panel.rawValue)],
+                                 mustNot: [.invent]).result
+    }
 
     private func exit() async -> ToolResult {
         if snapshot.alongRouteList {

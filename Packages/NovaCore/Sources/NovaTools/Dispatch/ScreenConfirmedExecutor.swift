@@ -27,6 +27,7 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
     /// (the navigation panels and `tripScreen` go through the navigation flow, as before), with the name her `next` uses.
     public static let ownClose: [ScreenPanel: String] = [
         .tripDetail: "地方卡片", .tripPlans: "我的行程", .camera: "摄像头画面", .musicCard: "音乐卡片",
+        .mapPin: "地图标记",
     ]
 
     private let inner: any ToolExecutor
@@ -77,8 +78,10 @@ public struct ScreenConfirmedExecutor: ToolExecutor {
             return .success(["status": "panel_closed", "closed": .string(top.rawValue),
                              "top": .string(now?.rawValue ?? "none"), "next": .string("说一句：\(name)收起来了。")])
         }
-        // The navigation flow takes no panel argument.
-        let result = await inner.execute(ToolCall(id: call.id, name: call.name, arguments: [:]))
+        // F-09b §22 (T-031zg): a named navigation-flow panel goes to the flow with its name, so only that panel closes
+        // (the trip cards never end guidance); 「收起来」 and `navigation` go without one, as before.
+        let flowArgs: JSONValue = named.map { $0 == .navigation ? [:] : ["panel": .string($0.rawValue)] } ?? [:]
+        let result = await inner.execute(ToolCall(id: call.id, name: call.name, arguments: flowArgs))
         guard result.ok else { return result }
         if result.data["status"]?.stringValue == "no_navigation_active",
            let shown = ScreenPanel.navigationKeys.first(where: before.isOn) {
