@@ -3072,6 +3072,7 @@ public actor TripPlanner: ToolExecutor {
         var opened = other
         opened.name = name == SavedTripPlans.previousName ? nil : name
         plan.load(opened)
+        planChosen = []  // F-15b §74 review fix: an opened plan has no chosen events of the one it replaced.
         changed()
         var facts: [String: JSONValue] = ["opened": .string(name), "days": .int(Int64(plan.dayCount)),
                                           "stops": .int(Int64(plan.stopCount)), "next_stop_command": "去下一站"]
