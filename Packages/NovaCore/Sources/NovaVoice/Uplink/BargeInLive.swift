@@ -149,6 +149,27 @@ public struct BargeInLive: Sendable {
         return step
     }
 
+    /// F-04b §19 item 3 (T-013n): the speaker lock split candidate `id` at an accepted window; its first `n` audio
+    /// frames are her echo and are never sent. Returns how many kept frames were dropped (the rest, if it was already
+    /// released, is dropped by whoever queues it).
+    @discardableResult
+    public mutating func dropKept(_ n: Int, utterance id: Int) -> Int {
+        switch state {
+        case .keeping(id, let since, var audio, let dipped, let closed):
+            let k = min(n, audio.count)
+            audio.removeFirst(k)
+            state = .keeping(id: id, since: since, audio: audio, dipped: dipped, closed: closed)
+            return k
+        case .carrying(id, let since, var kept, let held, let skip):
+            let k = min(n, kept.count)
+            kept.removeFirst(k)
+            state = .carrying(id: id, since: since, kept: kept, held: held, skip: skip)
+            return k
+        default:
+            return 0
+        }
+    }
+
     /// Item 10: the setting changed; turned off, a candidate being checked is dropped at once.
     public mutating func setEnabled(_ on: Bool) -> Step {
         enabled = on

@@ -181,6 +181,13 @@ def read_format_10(session: str, lines: list[str]) -> list[dict]:
 
 
 
+def read_format_18(session: str, lines: list[str]) -> list[dict]:
+    """F-04b §19 items 0, 6 (T-013n): as format 17; new `uplink echo-gate coupling= held_frames=`, `speaker-split
+    utterance= at_ms= dropped_ms=` and `speaker-echo utterance= speechMs= windows=` lines, and `speaker-check …
+    kind=early` gains `window=<n>`; kept as fields by the generic event reader."""
+    return read_format_17(session, lines)
+
+
 def read_format_17(session: str, lines: list[str]) -> list[dict]:
     """F-07 §18 items 2, 5 (T-020e): as format 16; the TTS `voice source=qwen chars=…` and `voice-failed` lines are
     gone, `voice source=` also reads `qwen-realtime`; kept as fields by the generic event reader."""
@@ -238,7 +245,7 @@ def body(row: dict) -> str | None:
 READERS = {0: read_format_0, 1: read_format_1, 2: read_format_2, 3: read_format_3, 4: read_format_4,
            5: read_format_5, 6: read_format_6, 7: read_format_7, 8: read_format_8, 9: read_format_9,
            10: read_format_10, 11: read_format_11, 12: read_format_12, 13: read_format_13, 14: read_format_14,
-           15: read_format_15, 16: read_format_16, 17: read_format_17}
+           15: read_format_15, 16: read_format_16, 17: read_format_17, 18: read_format_18}
 
 
 def read(path: pathlib.Path) -> list[dict]:

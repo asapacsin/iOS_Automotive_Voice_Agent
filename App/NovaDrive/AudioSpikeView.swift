@@ -41,7 +41,12 @@ struct AudioSpikeView: View {
         let vp = voiceProcessing, gain = agc
         Task {
             let line: String
-            do { line = try await EchoSpike().run(voiceProcessing: vp, agc: gain).summary }
+            do {
+                let result = try await EchoSpike().run(voiceProcessing: vp, agc: gain)
+                // F-04b §19 item 0 (T-013n): the measured coupling is what the echo-aware VAD uses from now on.
+                if let c = result.echoCoupling { EchoCouplingStore.value = c }
+                line = result.summary
+            }
             catch { line = "失败: \(error.localizedDescription)" }
             report = [report, line].compactMap { $0 }.joined(separator: "\n\n")
             running = false

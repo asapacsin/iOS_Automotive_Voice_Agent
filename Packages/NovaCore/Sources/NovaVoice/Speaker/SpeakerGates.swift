@@ -18,6 +18,8 @@ public struct SpeakerActionHold: Sendable {
     private var rejected = false
     /// §17: the utterance whose early verdict is known, and that verdict.
     private var early: (utterance: Int, accepted: Bool)?
+    /// F-04b §19 item 2 (T-013n): a rejected window dropped this utterance's stop; a later accepted window gives it back.
+    private var droppedStop: Int?
     private var logs: [String] = []
 
     public init() {}
@@ -89,12 +91,26 @@ public struct SpeakerActionHold: Sendable {
             early = (utterance, true)
             // The queued stop acts now; outputs and adopt wait for the whole verdict.
             out.actions = queue.filter { mine($0.utterance) }.flatMap(\.step.actions)
+            // §19 item 3: the stop an earlier rejected window dropped acts now, unless a queued one does.
+            if !stops, droppedStop == utterance { out.actions.append(.stop) }
+            droppedStop = nil
             queue = queue.map { e in
                 guard mine(e.utterance) else { return e }
                 var s = e.step
                 s.actions = []
                 return (e.utterance, s)
             }
+        } else if result == .rejected {
+            // §19 item 2: a rejected window drops only the queued stop and dip; the next window may still stop her.
+            early = nil
+            if stops { droppedStop = utterance }
+            queue = queue.map { e in
+                guard mine(e.utterance) else { return e }
+                var s = e.step
+                s.actions = []
+                return (e.utterance, s)
+            }
+            out.actions = [.dip(false)]
         } else {
             early = (utterance, false)
             // No stop; her volume comes back. T-013l: only the queued actions are dropped; the outputs and adopt
@@ -108,6 +124,21 @@ public struct SpeakerActionHold: Sendable {
             out.actions = [.dip(false)]
         }
         return out
+    }
+
+    /// F-04b §19 item 3 (T-013n): the first `n` audio frames of `utterance` waiting here are her echo: dropped.
+    public mutating func dropAudio(_ n: Int, utterance: Int) {
+        var left = n
+        queue = queue.map { e in
+            guard left > 0, e.utterance == nil || e.utterance == utterance else { return e }
+            var s = e.step
+            s.outputs = s.outputs.filter { o in
+                guard left > 0, case .audio = o else { return true }
+                left -= 1
+                return false
+            }
+            return (e.utterance, s)
+        }
     }
 
     static func isDip(_ a: BargeInAction) -> Bool { if case .dip = a { true } else { false } }

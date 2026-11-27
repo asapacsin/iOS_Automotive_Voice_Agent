@@ -102,6 +102,9 @@ public enum RecordEvent: Sendable, Hashable {
     /// F-05 §15 items 5-6 (T-016q): `qwen usage in=<audio>,<text> out=<audio>,<text>`, `qwen history turns=<n>`,
     /// `qwen reconnect fresh=yes`; numbers only (I-8).
     case qwen(String)
+    /// F-04b §19 items 0, 6 (T-013n): `uplink echo-gate coupling=<value|default> held_frames=<n>`, `speaker-split
+    /// utterance= at_ms= dropped_ms=` and `speaker-echo utterance= speechMs= windows=`; numbers only (I-8).
+    case speaker(String)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -289,6 +292,7 @@ public struct ConversationRecorder: Sendable {
         case .events(let text): return ["\(ms) \(text)"]
         case .qiniu(let text): return ["\(ms) \(text)"]
         case .qwen(let text): return ["\(ms) \(text)"]
+        case .speaker(let text): return ["\(ms) \(text)"]
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]
@@ -450,7 +454,7 @@ public final class ConversationRecord: Sendable {
     public static let capacity = 2000
     /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
     /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
-    public static let formatVersion = 17
+    public static let formatVersion = 18
     /// §21 item 1: the first line of every new file. A file without it is format 0.
     public static var formatLine: String { "recordFormat \(formatVersion)" }
 

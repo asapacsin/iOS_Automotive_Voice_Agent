@@ -1,0 +1,72 @@
+recordFormat 18
+app 0.1.0(1) abcdef0
+agentVersion 1.0.0
+agentHash 0123456789ab
+model gemini-3.8-live
+voiceModel gemini-3.8-live
+comfortMode model
+可以打断她 off
+speakingStyle default
+webSearch on
+searchKey saved
+startedBy tap
+tools declared=2 set_volume=yes
+0 session connected
+100 wake-to-listening ms=420
+200 wake-unused
+300 speaker-check utterance=1 kind=speech score=0.81 raw=none norm=0.81 cohort=none bar=cohort threshold=0.5 result=accepted speechMs=900 scoreMs=40 waitMs=0
+400 utterance id=1 sent=true mute=none
+500 heard-local 去测试路一号 asr=stream
+600 heard-gemini 去测试路 一号
+700 asr-model removed bytes=1024
+800 route=speaker
+900 context-note destination=测试地点
+1000 contextNote fields=place
+1100 screen destinationList=off routePicking=on routeCalculating=off navigation=off tripNextButton=off stopNavigationButton=off tripScreen=off tripDetail=off tripPlans=off musicCard=off music=off musicVolume=6 mapPin=off camera=off working=off backgroundWork=off settings=off
+1200 panel tripDetail on top=tripDetail
+1300 panel close tap tripScreen
+1400 state-note reason=connect
+1500 summary-note exchanges=3 age_s=60
+1700 tool-call web_search async=true {"query":"测试油价"}
+1800 search 测试油价
+1900 search-request attempt=1 body={"input":{"messages":[{"content":"第一行\\n第二行"}]},"system":"规则一\n规则二"}
+1900 search-response attempt=1 status=200 ms=800 bytes=10 chunks=0 answerChars=0 sources=0 searchCount=none body=id:1\nevent:result\n:HTTP_STATUS/200\ndata:{"text":"七块\tC:\\\\path"}\n\nid:2\r\ndata:{}\n\n
+2000 search-result ok ms=800 attempts=1 answer=七块 sources=a.example
+2100 tool-result web_search scheduling=WHEN_IDLE ms=800 ok=true code=none {"answer":"七块"}
+2200 dest-search destination=测试地点 step=around n=3 top=测试地点一 score=0.90 km=1.5 check=sure
+2400 correction WRONG_LANGUAGE heard=none
+2800 voice source=gemini turn=1 held_ms=0 first_ms=500
+2900 playback started
+3000 claim-cut turn=1 played_ms=200
+3100 barge-in stopped
+3200 playback finished
+3300 turn-end generationComplete turn=1
+1600 reply turn=1 七块。
+3400 turn-end turnComplete turn=1 outcome=spoke
+3500 reply-out turn=1 stopped reason=barge_in
+3500 correction wrong_language
+3700 tool-result web_search dropped reason=reconnect
+3800 screen-hidden kind=driver text=测试
+3900 music play
+4000 up
+4100 navigation
+4200 shown days=1
+4300 trip planner round=1 ms=8000 done=no days=4 stops=12 model=qwen3.8-max-0902
+4400 trip planner failed reason=timeout round=2 ms=30000 model=qwen3.8-max-0902
+4500 handoff said tool=plan_trip ms=0
+4600 ok
+4700 events store hit cities=1 window=2026-11-28..2026-11-29
+4800 search provider=qiniu job=live ms=2400 results=20 failed=no
+4900 qwen usage in=120,900 out=300,20
+5000 qwen history turns=1
+5100 qwen reconnect fresh=yes
+5200 uplink echo-gate coupling=default held_frames=12
+5300 speaker-split utterance=4 at_ms=1700 dropped_ms=1700
+5400 speaker-echo utterance=5 speechMs=20060 windows=19
+5500 speaker-check utterance=4 kind=early window=3 score=6.5 raw=none norm=6.5 cohort=none bar=playback threshold=4.0 result=accepted speechMs=1000 scoreMs=60 waitMs=3000
+5600 tool-result web_search dropped reason=superseded
+5700 turn-end reason=need_more_input
+5800 reply-out turn=2 not-spoken
+5800 session resume handle=yes result=resumed
+5900 session gave-up ms=3000 attempts=3 code=DISCONNECT
+6000 session closed code=1000 reason=test

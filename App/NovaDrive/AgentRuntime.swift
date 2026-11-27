@@ -1480,7 +1480,14 @@ final class AgentRuntime {
             if let text = SpeakerRejectionNotice.text(for: line) {
                 Task { @MainActor in model.showSpeakerNotice(text) }
             }
+        }, note: { text in
+            // F-04b §19 items 0, 6 (T-013n): numbers and enums only (I-8).
+            RuntimeLog.agent.notice("\(text, privacy: .public)")
+            record?.submit(.speaker(text))
         })
+        // F-04b §19 item 0: the echo-aware VAD hears her playback level and this phone's measured coupling.
+        gate.setEchoCoupling(EchoCouplingStore.value)
+        audio.onPlaybackLevel { [gate] rms in gate.playbackLevel(rms) }
         tasks.append(Task { await transcript.listen() })
         // Utterance marks and frames in capture order, so the recognizer gets exactly what goes up.
         let transcriptInputs = AsyncStream.makeStream(of: DriverTranscript.Input.self, bufferingPolicy: .bufferingNewest(1024))
@@ -2104,13 +2111,17 @@ final class GateBox: @unchecked Sendable {
     private var stopCheck = SpeakerPhraseCheck(kind: .stop)
     private var speakerWords: (@Sendable (DriverWords, Int) -> Void)?
     private var speakerCheck: (@Sendable (SpeakerCheckLine) -> Void)?
+    /// F-04b §19 items 0, 6 (T-013n): `uplink echo-gate …`, `speaker-split …`, `speaker-echo …` lines.
+    private var speakerNote: (@Sendable (String) -> Void)?
 
     /// `score` runs a request off the capture thread and calls `speakerResult`; `words` delivers released words;
     /// `check` writes the record and log line.
     func onSpeaker(score: @escaping @Sendable (SpeakerScoreRequest) -> Void,
                    words: @escaping @Sendable (DriverWords, Int) -> Void,
-                   check: @escaping @Sendable (SpeakerCheckLine) -> Void) {
+                   check: @escaping @Sendable (SpeakerCheckLine) -> Void,
+                   note: @escaping @Sendable (String) -> Void = { _ in }) {
         lock.withLock {
+            speakerNote = note
             speakerScore = score
             speakerWords = words
             speakerCheck = check
@@ -2215,6 +2226,13 @@ final class GateBox: @unchecked Sendable {
         if !requests.isEmpty, let score = speakerScore { scoreDispatch.async { requests.forEach(score) } }
         let checks = speaker.takeChecks()
         if !checks.isEmpty, let check = speakerCheck { DispatchQueue.global().async { checks.forEach(check) } }
+        // F-04b §19 item 3: an accepted window split the utterance; its echo frames are never sent (kept or queued).
+        if let split = sp.split {
+            let kept = live.dropKept(split.dropFrames, utterance: split.utterance)
+            speakerActions.dropAudio(split.dropFrames - kept, utterance: split.utterance)
+        }
+        let notes = gate.takeEchoGateLines() + speaker.takeNotes()
+        if !notes.isEmpty, let note = speakerNote { DispatchQueue.global().async { notes.forEach(note) } }
         let released = speakerWordsHold.decided(sp.decided, utterances: sp.decidedUtterances)
         return (sp.outputs, released)
     }
@@ -2353,6 +2371,10 @@ final class GateBox: @unchecked Sendable {
     func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
         lock.withLock { gate.setPlaying(reply: reply, guidance: guidance) }
     }
+    /// F-04b §19 item 0 (T-013n): one 10 ms frame of her playback as played.
+    func playbackLevel(_ rms: Double) { lock.withLock { gate.playbackLevel(rms: rms) } }
+    /// §19 item 0: the echo coupling the 音频测试 echo trial measured on this phone (nil: the default 0.5).
+    func setEchoCoupling(_ coupling: Double?) { lock.withLock { gate.setEchoCoupling(coupling) } }
     /// F-08 §17 items 3 and 5: the engine (re)started; her words and the end of her turn. Kept as syllables only.
     func engineStarted() { lock.withLock { shadow.engineStarted() } }
     func herWords(_ text: String) {

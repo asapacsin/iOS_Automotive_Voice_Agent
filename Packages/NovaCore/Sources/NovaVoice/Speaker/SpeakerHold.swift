@@ -16,9 +16,14 @@ public struct SpeakerTuning: Sendable, Hashable {
     /// AS-norm score at or above this too (the higher of this and the cohort threshold decides). A tuning value
     /// between her leaked echo (≤ 2.184) and the driver (≥ 6.298) in record 20261118-133726 (§18 item 4).
     public var playbackThreshold: Double
+    /// F-04b §19 item 1 (T-013n): a live candidate is checked again after every further this-much of speech, each time
+    /// on its latest `earlyScoreSpeech`, until a window is accepted or her reply and its `echoTail` have ended.
+    public var rollingStep: NovaDuration
 
     public init(minScoreSpeech: NovaDuration = .milliseconds(500), earlyScoreSpeech: NovaDuration = .seconds(1),
-                preRoll: NovaDuration = UplinkGateTuning().preRoll, playbackThreshold: Double = 4.0) {
+                preRoll: NovaDuration = UplinkGateTuning().preRoll, playbackThreshold: Double = 4.0,
+                rollingStep: NovaDuration = .seconds(1)) {
+        self.rollingStep = rollingStep
         self.minScoreSpeech = minScoreSpeech
         self.earlyScoreSpeech = earlyScoreSpeech
         self.preRoll = preRoll
@@ -50,11 +55,14 @@ public struct SpeakerCheckLine: Sendable, Hashable {
     public var waitMs: Int
     /// §18 item 6: `threshold` is the value of this bar.
     public var bar: SpeakerBar
+    /// F-04b §19 item 6 (T-013n): the rolling window of an `early` check, from 1.
+    public var window: Int?
 
     public init(utterance: Int, kind: SpeakerCheckKind, score: Double?, threshold: Double, result: SpeakerCheckResult,
                 speechMs: Int, scoreMs: Int, waitMs: Int, raw: Double? = nil, cohort: Int? = nil,
-                bar: SpeakerBar = .cohort) {
+                bar: SpeakerBar = .cohort, window: Int? = nil) {
         self.bar = bar
+        self.window = window
         self.utterance = utterance
         self.kind = kind
         self.score = score
@@ -74,13 +82,24 @@ public struct SpeakerCheckLine: Sendable, Hashable {
     /// scoreMs=40 waitMs=60`. Numbers only (I-8).
     public var fields: String {
         let norm = score.map(Self.number) ?? "none"
-        return "utterance=\(utterance) kind=\(kind.rawValue) score=\(norm) raw=\(raw.map(Self.number) ?? "none") "
+        let window = window.map { "window=\($0) " } ?? ""
+        return "utterance=\(utterance) kind=\(kind.rawValue) \(window)score=\(norm) raw=\(raw.map(Self.number) ?? "none") "
             + "norm=\(norm) cohort=\(cohort.map(String.init) ?? "none") "
             + "bar=\(bar.rawValue) threshold=\(Self.number(threshold)) result=\(result.rawValue) speechMs=\(speechMs) scoreMs=\(scoreMs) "
             + "waitMs=\(waitMs)"
     }
 
     public var logLine: String { "speaker-check \(fields)" }
+}
+
+/// F-04b §19 item 3 (T-013n): the utterance split at an accepted window; its first `dropFrames` audio frames are echo.
+public struct SpeakerSplit: Sendable, Hashable {
+    public let utterance: Int
+    public let dropFrames: Int
+    public init(utterance: Int, dropFrames: Int) {
+        self.utterance = utterance
+        self.dropFrames = dropFrames
+    }
 }
 
 /// What to score, off the audio thread. The result names the same `utterance` and `generation`.
@@ -131,6 +150,9 @@ public struct SpeakerHold: Sendable {
         /// §17 item 3: the early verdict reached in this step (accepted, rejected, or unknown).
         public var early: SpeakerCheckResult?
         public var earlyUtterance: Int?
+        /// F-04b §19 item 3: an accepted window split this utterance; its first `dropFrames` audio frames are her echo
+        /// (whoever keeps or queues its audio drops them; they are never sent).
+        public var split: SpeakerSplit?
         /// Requests asked again after a threshold change (their earlier results are stale).
         public var rescore: [SpeakerScoreRequest] = []
         /// Utterances decided in this step, in order, and their numbers.
@@ -162,6 +184,13 @@ public struct SpeakerHold: Sendable {
         var early = Early.none
         /// §18 item 1: it started while her reply played or in its `echoTail`: the playback bar applies.
         var playback = false
+        /// §19 item 1: windows asked for so far, the speech count (after the pre-roll) at which the next one is due,
+        /// and where the window in flight starts (index into `frames`, i.e. its audio frames from the start).
+        var windows = 0
+        var nextWindow = 0
+        var windowStart = 0
+        /// §19 item 3: frames before this index were her echo (split at an accepted window).
+        var split = 0
     }
 
     private enum State: Sendable {
@@ -180,6 +209,8 @@ public struct SpeakerHold: Sendable {
     private var now = NovaDuration.zero
     private var utterance = 0
     private var checks: [SpeakerCheckLine] = []
+    /// §19 item 6: `speaker-split …` and `speaker-echo …` lines (numbers only, I-8).
+    private var notes: [String] = []
     /// Pre-roll frames of a start seen in this frame's burst (§17 item 2).
     private var burstSkip = 0
     /// Scoring failed on the last try while locked (§6 item 11: the chip).
@@ -235,6 +266,14 @@ public struct SpeakerHold: Sendable {
         if case .holding(let h) = state { return h.sent }
         return false
     }
+
+    public mutating func takeNotes() -> [String] {
+        defer { notes.removeAll(keepingCapacity: true) }
+        return notes
+    }
+
+    /// §19 item 1: windows skipped because one was in flight (tests, diagnostics).
+    public private(set) var skippedWindows = 0
 
     public mutating func takeChecks() -> [SpeakerCheckLine] {
         defer { checks.removeAll(keepingCapacity: true) }
@@ -349,7 +388,7 @@ public struct SpeakerHold: Sendable {
                 return
             }
             state = .holding(Held(id: utterance, sent: sent, since: now, buffer: sent ? [output] : [], skip: burstSkip,
-                                  playback: playback))
+                                  playback: playback, nextWindow: earlyFrameCount))
             if !sent { step.outputs.append(output) }
             return
         }
@@ -369,28 +408,51 @@ public struct SpeakerHold: Sendable {
                 step.outputs.append(.utterance(record))
             }
         case .holding(var h):
+            // §19 item 4: every window rejected until her reply and its echo tail ended: the gate cut it there; it was
+            // her echo. Dropped (`mute=speaker`), never scored as a whole; what follows is a new utterance.
+            if case .utterance(var record) = output, !h.sent, !h.closed, record.endReason == .cutAtUnmute,
+               h.windows > 0, h.early == .rejected {
+                record.muteReason = .speaker
+                step.outputs.append(.utterance(record))
+                notes.append("speaker-echo utterance=\(h.id) speechMs=\(h.speech * 10) windows=\(h.windows)")
+                step.decided.append(.rejected)
+                step.decidedUtterances.append(h.id)
+                state = .idle
+                return
+            }
             if h.sent { h.buffer.append(output) } else { step.outputs.append(output) }
             // speechMs counts the utterance's own audio, not the closing silence after it.
             if case .audio(let frame) = output, !h.closed {
                 h.speech += 1
                 if !h.requested { h.frames.append(frame) }
-                if h.speech > h.skip, h.early == .none, h.earlyFrames.count < earlyFrameCount { h.earlyFrames.append(frame) }
+                if h.speech > h.skip {
+                    h.earlyFrames.append(frame)
+                    if h.earlyFrames.count > earlyFrameCount { h.earlyFrames.removeFirst(h.earlyFrames.count - earlyFrameCount) }
+                }
             }
             if case .utterance = output { h.closed = true }
-            // §17 item 2: a live candidate's first second, once, before it ends.
-            if h.early == .none, !h.closed, !h.sent, earlyCandidate, h.earlyFrames.count >= earlyFrameCount {
-                if earlyThreshold == nil {
+            // §17 item 2, §19 item 1: a live candidate's first second, then its latest second after every further
+            // `rollingStep`, while her reply or its echo tail lasts, until a window is accepted.
+            let rolling = h.early == .none || h.early == .rejected || h.early == .pending
+            if rolling, !h.closed, !h.sent, earlyCandidate, h.windows == 0 || playback,
+               h.speech - h.skip >= h.nextWindow, h.earlyFrames.count >= earlyFrameCount {
+                h.nextWindow += rollingStepFrames
+                if h.early == .pending {
+                    skippedWindows += 1  // §19 item 1: at most one in flight; this step is skipped, not queued
+                } else if earlyThreshold == nil {
                     // §17 item 6: no finite early threshold: unknown, she is never stopped early.
+                    h.windows += 1
                     h.early = .unknown
                     step.early = .unknown
                     step.earlyUtterance = h.id
                     checks.append(earlyLine(h, score: nil, raw: nil, cohort: nil, result: .unknown, scoreMs: 0))
                 } else {
+                    h.windows += 1
                     h.early = .pending
+                    h.windowStart = h.speech - earlyFrameCount
                     step.earlyRequest = SpeakerScoreRequest(utterance: h.id, generation: generation, kind: .early,
                                                             frames: h.earlyFrames)
                 }
-                h.earlyFrames = []
             }
             let audio = NovaDuration.milliseconds(Int64(h.speech) * 10)
             // §16 item 4: once, at the end, on all of its speech.
@@ -407,6 +469,7 @@ public struct SpeakerHold: Sendable {
     }
 
     private var earlyFrameCount: Int { max(1, Int(tuning.earlyScoreSpeech.milliseconds / 10)) }
+    private var rollingStepFrames: Int { max(1, Int(tuning.rollingStep.milliseconds / 10)) }
 
     /// §18 item 1: the bar an utterance's checks are held to and its value (the higher of the two while she spoke).
     private func bar(_ h: Held, _ base: Double) -> (SpeakerBar, Double) {
@@ -422,7 +485,8 @@ public struct SpeakerHold: Sendable {
         let (b, t) = earlyThreshold.map { bar(h, $0) } ?? (.cohort, .nan)
         return SpeakerCheckLine(utterance: h.id, kind: .early, score: score, threshold: t, result: result,
                                 speechMs: earlyFrameCount * 10, scoreMs: scoreMs,
-                                waitMs: Int((now - h.since).milliseconds), raw: raw, cohort: cohort, bar: b)
+                                waitMs: Int((now - h.since).milliseconds), raw: raw, cohort: cohort, bar: b,
+                                window: h.windows > 0 ? h.windows : nil)
     }
 
     /// The background queue's answer. A result for another utterance, kind or generation is dropped (§6 item 5).
@@ -494,6 +558,17 @@ public struct SpeakerHold: Sendable {
             checks.append(earlyLine(h, score: nil, raw: nil, cohort: nil, result: .unknown, scoreMs: ms))
         }
         h.early = switch result { case .accepted: .accepted; case .rejected: .rejected; case .unknown: .unknown }
+        // §19 item 3: the first accepted window splits the open utterance at its start minus the pre-roll; what came
+        // before is her echo: never sent, never scored.
+        if result == .accepted, kept == nil, !h.requested, h.windows > 1 || h.windowStart > h.skip {
+            let cut = min(h.frames.count, max(0, h.windowStart - Int(tuning.preRoll.milliseconds / 10)))
+            if cut > 0 {
+                h.frames.removeFirst(cut)
+                h.split = cut
+                step.split = SpeakerSplit(utterance: h.id, dropFrames: cut)
+                notes.append("speaker-split utterance=\(h.id) at_ms=\(cut * 10) dropped_ms=\(cut * 10)")
+            }
+        }
         if let kept { awaiting[kept] = h } else { state = .holding(h) }
         step.early = result
         step.earlyUtterance = id

@@ -53,6 +53,12 @@ public enum PlaybackEvent: Sendable, Hashable {
 }
 
 /// Three lanes on one voice-processing engine (ios-architecture §6.4).
+/// F-04b §19 item 0 (T-013n): her playback level for the echo-aware VAD: one RMS (PCM16 units) per 10 ms frame of
+/// the reply lane as the phone plays it. The adapter calls `handler` off the audio thread's hot path.
+public protocol PlaybackLevelSource: Sendable {
+    func onPlaybackLevel(_ handler: @escaping @Sendable (Double) -> Void)
+}
+
 public protocol PlaybackPort: Sendable {
     /// Synchronous: stop the reply lane and raise the epoch. Audio of older epochs is discarded.
     func flush(to epoch: Epoch)

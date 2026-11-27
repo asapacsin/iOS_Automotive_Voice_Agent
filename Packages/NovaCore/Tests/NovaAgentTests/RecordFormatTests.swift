@@ -74,6 +74,11 @@ enum RecordFormatSession {
         .qwen("qwen usage in=120,900 out=300,20"),
         .qwen("qwen history turns=1"),
         .qwen("qwen reconnect fresh=yes"),
+        .speaker("uplink echo-gate coupling=default held_frames=12"),
+        .speaker("speaker-split utterance=4 at_ms=1700 dropped_ms=1700"),
+        .speaker("speaker-echo utterance=5 speechMs=20060 windows=19"),
+        .speakerCheck(SpeakerCheckLine(utterance: 4, kind: .early, score: 6.5, threshold: 4, result: .accepted, speechMs: 1000,
+                                       scoreMs: 60, waitMs: 3000, bar: .playback, window: 3)),
         .toolResultLine("tool-result web_search dropped reason=superseded"),
         .turnEnded(.needMoreInput),
         .sessionResume(handle: true, result: SessionResumeResult.allCases[0]),
@@ -130,8 +135,8 @@ struct RecordFormatTests {
         let w = MemoryWriter()
         record.drain(to: w)
         let lines = w.lines.withLock { $0 }
-        #expect(ConversationRecord.formatVersion == 17)
-        #expect(Array(lines.prefix(2)) == ["recordFormat 17", "app 0.1.0(1) abcdef0"])
+        #expect(ConversationRecord.formatVersion == 18)
+        #expect(Array(lines.prefix(2)) == ["recordFormat 18", "app 0.1.0(1) abcdef0"])
     }
 
     @Test("T-031u F-12 §21 rows 2-3: the fixed session encodes exactly to record-format-<formatVersion>.txt")
@@ -220,7 +225,7 @@ struct RecordOneLineTests {
         #expect(r.add(.toolResult(name: "web_search", ok: true, code: nil, data: ["answer": "x"], elapsedMs: nil), atMs: 4)
                     .allSatisfy { !$0.contains("\n") })
         let all = RecordFormatSession.encoded().split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-        let header = Set(["recordFormat 17", "app 0.1.0(1) abcdef0"])
+        let header = Set(["recordFormat 18", "app 0.1.0(1) abcdef0"])
         #expect(all.allSatisfy { !$0.contains("\r") })
         // Every line after the header starts with its time (row 23's check, on the fixed session).
         let events = all.drop { !($0.first?.isNumber ?? false) || header.contains(String($0)) }

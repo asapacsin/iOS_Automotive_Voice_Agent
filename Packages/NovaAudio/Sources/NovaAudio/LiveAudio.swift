@@ -9,7 +9,7 @@ import Synchronization
 /// One voice-processing `AVAudioEngine` (ios-architecture §6.4): echo-cancelled 16 kHz capture, a reply
 /// lane with epoch flush, and a guidance lane. Apple voice processing is the G0 choice for now
 /// (T-001 measured 8/10 at full volume; keep the speaker volume moderate).
-public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
+public final class LiveAudio: CaptureSource, PlaybackPort, PlaybackLevelSource, @unchecked Sendable {
     public let events: AsyncStream<PlaybackEvent>
     private let continuation: AsyncStream<PlaybackEvent>.Continuation
     private let lock = NSLock()
@@ -106,6 +106,29 @@ public final class LiveAudio: CaptureSource, PlaybackPort, @unchecked Sendable {
         // §16 item 3: the RMS of what the media lane really outputs (after its gain), off the render thread.
         let level = mediaLevel
         mediaMixer.installTap(onBus: 0, bufferSize: 2048, format: nil) { buffer, _ in level.measure(buffer) }
+        // F-04b §19 item 0 (T-013n): her reply lane as played, one RMS per 10 ms frame, for the echo-aware VAD.
+        reply.installTap(onBus: 0, bufferSize: 480, format: nil) { [weak self] buffer, _ in self?.measureReply(buffer) }
+    }
+
+    private var playbackLevel: (@Sendable (Double) -> Void)?
+
+    public func onPlaybackLevel(_ handler: @escaping @Sendable (Double) -> Void) {
+        lock.withLock { playbackLevel = handler }
+    }
+
+    /// RMS in PCM16 units of each 10 ms of the first channel.
+    private func measureReply(_ buffer: AVAudioPCMBuffer) {
+        guard let handler = lock.withLock({ playbackLevel }), let data = buffer.floatChannelData else { return }
+        let n = Int(buffer.frameLength)
+        let step = max(1, Int(buffer.format.sampleRate / 100))
+        var start = 0
+        while start < n {
+            let end = min(n, start + step)
+            var sum = 0.0
+            for i in start..<end { let v = Double(data[0][i]) * 32_768; sum += v * v }
+            handler((sum / Double(end - start)).squareRoot())
+            start = end
+        }
     }
 
     // MARK: CaptureSource
