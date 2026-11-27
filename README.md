@@ -145,11 +145,7 @@ permission. Everything else is in 设置.
 
 ## License
 
-You may use, publish, copy and modify this software, alone or as part of your own work, on one condition: name the
-source. Any copy, published version or modified version must say that it comes from NovaDrive by asapacsin and link to
-https://github.com/asapacsin/iOS_Automotive_Voice_Agent, and a modified version must say that it was changed.
+Released under the [MIT License](LICENSE). You may use, copy, modify and publish this software, provided the
+copyright notice and the license text are kept in every copy, so the source is always named.
 
-本软件可以自由使用、发布、复制和修改，条件是注明出处：任何副本、发布版本或修改版本都要写明来自 asapacsin 的 NovaDrive，并附上
-https://github.com/asapacsin/iOS_Automotive_Voice_Agent 链接；修改过的版本还要说明已修改。
-
-The software is provided as is, without warranty of any kind. 本软件按原样提供，不作任何保证。
+本项目采用 [MIT 许可证](LICENSE)：可自由使用、复制、修改和发布，但所有副本须保留版权声明与许可证全文，以注明出处。
