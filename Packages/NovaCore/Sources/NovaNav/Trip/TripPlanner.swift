@@ -769,6 +769,7 @@ public actor TripPlanner: ToolExecutor {
         keptAsked?.events = []
         if let keptAsked { plan.asked = keptAsked }
         planChosen = chosen
+        if driverTurns == nil { turnedBack = [] }
         onLine("trip asked must=\(asked.must.count) days=\(asked.days.map(String.init) ?? "-") notes=\(asked.notes.count)")
         changed()
         retryUnplaced()
@@ -1534,6 +1535,7 @@ public actor TripPlanner: ToolExecutor {
         if newPlan {
             // §55 item 3: a new plan replaces the plan in hand (its name goes with the old plan).
             plan.replaceAll(withDays: lists)
+            planChosen = []  // F-15b §74 review fix: a plan not made by plan_trip has no chosen events.
             plan.city = city
             plan.abroad = abroad
             plan.budgetMinutes = (pace ?? .normal).budgetMinutes
@@ -1711,6 +1713,7 @@ public actor TripPlanner: ToolExecutor {
         clearAsked = nil
         onLine("trip clear confirm=yes via=\(via)")
         plan.clearAll()
+        planChosen = []  // F-15b §74 review fix: a plan not made by plan_trip has no chosen events.
         retryTask?.cancel()
         changed()
         return listResult(changed: "cleared")
