@@ -3058,6 +3058,18 @@
         "spec-reviewer high 2026-11-26 FAIL (T-040zw: not_placed list never cleared, later replies voided; T-040zx: small traditional table missed 遊漁碼媽閣) -> fixed; re-check medium PASS. Gates green on 8da5ac6: NovaCore 1219, NovaRealtime 82, NovaServices 114, spec-trace 204/0 (static secrets test fails only on untracked stale .claude/worktrees). Dependency on the device-run task dropped (order only). Non-blocking: near-word rule and QPS exclusion need spec text; SarRouteSource summary polyline stays WGS-84; mixed-day mainland legs keep OSRM times if 高德 fails; permit sentence repeats per result; no-Photon part of row 337 untested; whole-reply not-found exemption"
       ],
       "blocked_by": "Row 344 names part PC run (>=15/18 per SAR label, no recorded run); row 345 device run"
+    },
+    {
+      "id": "T-040zy",
+      "owner": "AUTONOMOUS",
+      "status": "NOT_RUN",
+      "priority": 1,
+      "action": "F-15b §72: trip_plans gains action show (no name): shows the cards and trip screen for the current plan, turns the trip line on, NO_TRIP_LIST without a plan, working:true while plan_trip runs; catalog line as tested; TRIP_HIDDEN next points to show; a short trip state line (stops, hotels, screen state, no asked) at each new conversation (changes §65 item 1); record trip plan action=show; rows 346-352.",
+      "depends_on": [
+        "T-040zr"
+      ],
+      "notes": "Owner 2026-11-27: 「给我看一下」 opened nothing (record 20261127-091754): no tool shows the current trip since edit_trip_list left the catalog. PC test with the real Qwen voice model and fake tools: show picked 20/20 (Flash, Plus), plan vs show 17/17 (Flash).",
+      "evidence": "Spec at the commit that adds F-15b §72."
     }
   ]
 }

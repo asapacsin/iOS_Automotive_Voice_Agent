@@ -3266,3 +3266,82 @@ Clash Verge does).
 | Task | Scope | Status |
 |---|---|---|
 | T-040zx | §71 items 1–6; rows 335–345 | NOT_RUN |
+
+## 72. 「打开行程」 works again: `trip_plans` action `show`; the saved trip is always in her state line (iOS, owner order 2026-11-27)
+
+**Why (device 2026-11-27, build 86765b9, Qwen Audio 3.1 Flash).**
+- **Record `20261127-091754.txt`.** A 2-day 珠海+澳门 plan was saved at 09:10. In this new conversation the trip line was
+  off (§65: `contextNote fields=place,time`); she had only the summary of the last six exchanges. 「这两边的景点还有活动」
+  got 「好呀，我帮你规划一下…」 and 「行程呢」 got 「行程正在规划中」 with no tool call. The driver opened the trip by touch
+  (75394, `trip context on reason=touch`) and closed it with × (82856, `trip cards hidden=yes`). 「你给我看一下吧」 then
+  got 「好呀，我把行程给你列出来看看」 and nothing opened: no tool can show the current trip.
+- **The show path was lost.** §51 item 2 showed the cards with `edit_trip_list action=read` (「司机说「打开行程」「看看行程」时用
+  action=read」). `edit_trip_list` has since left the catalog (§52 `set_trip_plan`, then `plan_trip`); the 28 tools of
+  agent setup 13.0.0 have no action that shows the current plan. `trip_plans open` needs the `name` of a saved plan;
+  the current plan usually has none, so `open` answers `PLAN_NOT_FOUND`. The `TRIP_HIDDEN` result still tells her
+  「要用行程请说「打开行程」」 (`show_command`), a command nothing carries out.
+- **§65 hid the state, not only the old request.** §65 fixed a copied `asked` (「两天嘛，你怎么四天了？」) by leaving the whole
+  trip out of a new conversation. The copy came from `asked` being in the note; the trip itself is state she needs to
+  answer 「行程呢」.
+- **PC test, real model, fake tools** (`scripts/eval/qwen_tool_pick.py`, agent setup 13.0.0 `gentle.search` =
+  `380a168060a3`, sentences sent as text; raw in `D:/ndlogs/search-raw/`):
+  - `--show` (`show` added to `trip_plans` with the item 2 text; the screen closed; a planned trip as a state line or
+    only as the summary): `trip_plans action=show` first in **20/20** (Flash 10/10, Plus 10/10;
+    `20261127-094034-…flash…`, `20261127-094402-…plus…`).
+  - `--mix` (plan or show is right; Flash, 3 runs): **17/17** right, 1 run lost to a test timeout
+    (`20261127-101546-…flash…`). 「重新规划一个吧，改去广州玩一天」 with a trip present → `plan_trip` 3/3; 「把刚才那个行程打开
+    给我看看」 with only the summary → `show` 3/3.
+  - Without `show` (`20261127-093113`, `-093158`): 「行程呢」「给我看一下行程」 → `trip_plans open` with an invented name
+    (「珠海+澳门 2 天」), which fails on the phone.
+
+1. **`trip_plans` action `show`.** No arguments (`name` ignored).
+   - **A current plan with stops:** the cards are shown (`cardsHidden` false, exactly as a tap on 「行程」, §13), the trip
+     screen opens on day 1 (`tripScreen on`), and the trip line turns on (§65 item 2, `trip context on
+     reason=tool:trip_plans`). Result `ok` with `shown: true`, `days`, `stops`, and the plan as every trip result
+     (§52 item 2, `withPlan`). No lookups, no model call.
+   - **No current plan, or no stops:** `NO_TRIP_LIST` (`ok=false`); nothing opens.
+   - **A `plan_trip` run still working:** the screen opens on the working state as at a `plan_trip` call (the cards and
+     `working` panel); the result says `working: true`, so she says it is still being planned.
+   - **Navigating:** shown as a tap shows it today; guidance goes on.
+   - `show` is not blocked while the cards are hidden (§51 item 2 lists it with the actions that show the cards).
+2. **Catalog text.** `tripPlansDescription` starts with the tested line
+   「司机要看现在这份行程（「行程呢」「给我看一下行程」「把行程打开」）→show，不填 name；」; the `action` enum gains `show` first.
+   The `TRIP_HIDDEN` `next` (§51 item 2) becomes 「行程收起来了。司机要看就调用 trip_plans action=show；只说一句。」 and its
+   `show_command` fact is dropped.
+3. **Trip state line (changes §65 item 1).** At each new conversation, when a plan with stops is saved, the first
+   context note carries one state line instead of no trip at all:
+   「[系统] 已保存行程：<n> 天，<start> 起。第1天：<stop names>，住<hotel>；第2天：…。行程屏幕：<已打开|已关闭>。这句不用回答」
+   - Stop and hotel names only: no `asked`, no times, no coordinates. `asked` stays out until §65 item 2 turns the full
+     trip line on, so an old request cannot be copied into a new one (the §65 cause).
+   - After §65 item 2 turns the full line on, the state line is not sent again in that conversation.
+   - The screen state comes from `cardsHidden` and the screen panel, as the `[系统] 屏幕` note.
+4. **Record** (numbers and enums only, I-8). §17's `trip plan action=` line gains `show`: `trip plan action=show ok=<yes|no>
+   days=<n> stops=<n> working=<yes|no>`. `contextNote fields=` shows `tripState` while item 3's line is sent.
+5. **Not changed:** `plan_trip` and the planner; `trip_plans` `save`, `open`, `list`, `delete`, `rename`; §65 item 2's
+   triggers for the full trip line; §51's blocking of `trip_next` and route tools while hidden; F-09b's claim checks.
+
+**Not in this section.** A reply that promises planning or showing with no tool call (09:17 turns 8–9: 「行程正在规划中」 with
+no `plan_trip`) is the claim check's job (F-06 / F-09b); it needs its own spec. The PC test shows the model calls
+`plan_trip` for these requests (`--mix` M1, M3–M5), but Flash also once answered a plan request with words only
+(`20261127-093054`, S1).
+
+**Not verified.** Spoken input (the PC test sent text); 「行程呢」 with no saved trip (needs item 1's `NO_TRIP_LIST`); how
+she words a `working: true` answer.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 346 | A 2-day plan, cards hidden; `trip_plans {"action":"show"}` | Cards shown, `tripScreen on` day 1, `trip context on reason=tool:trip_plans`; result `ok`, `shown: true`, `days` 2, the plan; `trip plan action=show ok=yes` | unit |
+| 347 | No current plan; `show` | `NO_TRIP_LIST`, nothing opens | unit |
+| 348 | `plan_trip` running; `show` | Screen opens on the working state; `working: true` | unit |
+| 349 | A saved plan; a new conversation starts | First note has the item 3 line with day stops and hotel, no `asked`; `fields` has `tripState`, not `trip`; after a `plan_trip` result the full line replaces it | unit |
+| 350 | Catalog | `action` enum starts with `show`; description starts with the item 2 line; `TRIP_HIDDEN` `next` as item 2, no `show_command` | unit |
+| 351 | PC: `qwen_tool_pick.py --show` and `--mix` on Flash with the built catalog text | `show` and `plan_trip` picked as expected in at least 19 of 20 and 17 of 18 (done 2026-11-27 on the test text: 20/20, 17/17) | PC |
+| 352 | Device, Qwen Flash: a trip planned, closed with ×; new conversation; 「行程呢」; then 「重新规划一个，去广州玩一天」 | The trip screen opens after her `trip_plans action=show` call; the second request calls `plan_trip` and makes a new plan | D |
+
+**Trace gate.** Add `T-040zy: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zy.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-040zy | §72 items 1–5; rows 346–352 | NOT_RUN |
