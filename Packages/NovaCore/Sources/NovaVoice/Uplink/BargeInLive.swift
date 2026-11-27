@@ -42,6 +42,8 @@ public struct BargeInLive: Sendable {
     private var carrySkip = 0
 
     public var enabled = false
+    /// F-04b §19 item 3: the candidate let go at `bufferCap` (only that one may still be stopped by the voiceprint).
+    private var capped: Int?
     private var state = State.idle
     private var now = NovaDuration.zero
     private var logs: [String] = []
@@ -138,6 +140,7 @@ public struct BargeInLive: Sendable {
         switch state {
         case .keeping(let id, let since, _, _, _) where now - since > Self.bufferCap:
             cancel(id, reason: "cap", into: &step)
+            capped = id
         case .carrying(let id, let since, _, let buffer, _) where now - since > Self.bufferCap:
             out += buffer
             state = .idle
@@ -182,7 +185,7 @@ public struct BargeInLive: Sendable {
             step.outputs = [.speechStarted(sentToModel: true)] + audio.map(UplinkGateOutput.audio)
             if closed { step.outputs += [.speechStopped(.normal), .streamEnd] } else { step.adopt = true }
             logs.append("bargeInStop \(id) heldMs=\((now - since).milliseconds) by=voiceprint")
-        case .idle where gateOpen:
+        case .idle where gateOpen && enabled && capped == id:
             step.actions.append(.stop)
             step.outputs = [.speechStarted(sentToModel: true)] + fallback.map(UplinkGateOutput.audio)
             step.adopt = true
@@ -212,6 +215,7 @@ public struct BargeInLive: Sendable {
     /// Item 10: the setting changed; turned off, a candidate being checked is dropped at once.
     public mutating func setEnabled(_ on: Bool) -> Step {
         enabled = on
+        if !on { capped = nil }
         var step = Step()
         if !on { release(reason: "settingOff", into: &step) }
         return step
@@ -220,6 +224,7 @@ public struct BargeInLive: Sendable {
     /// Item 12: a stop phrase stopped her; the candidate is §14–§16's, never released here.
     public mutating func stopPhrase() -> Step {
         var step = Step()
+        capped = nil  // the stop utterance is never released as a question (F-08 §16 item 1, §17 item 12)
         release(reason: "stopPhrase", into: &step)
         return step
     }
@@ -262,6 +267,7 @@ public struct BargeInLive: Sendable {
         for event in events {
             switch event {
             case .started(let id, let candidate):
+                capped = nil
                 if case .keeping(let old, _, _, _, _) = state { cancel(old, reason: "superseded", into: &step) }
                 cutAtUnmute = false
                 // Item 10: guidance is never interruptible; off is exactly today's behaviour.

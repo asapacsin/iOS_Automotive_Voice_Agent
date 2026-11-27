@@ -2271,7 +2271,7 @@ final class GateBox: @unchecked Sendable {
         // F-04b §19 item 3: an accepted window stops her itself when no stop of this utterance waits (the words check
         // judges the whole echo-led utterance and may never get there); its audio then waits for the whole verdict.
         var voice = BargeInLive.Step()
-        if let v = sp.voiceAccepted, !speakerActions.hasStop(v.utterance),
+        if let v = sp.voiceAccepted, !speakerActions.hasStop(v.utterance), !gate.holdUntilPause,
            let s = self.live.voiceAccepted(v.utterance, audio: v.audio, gateOpen: gate.phase == .open) {
             voice = s
         }

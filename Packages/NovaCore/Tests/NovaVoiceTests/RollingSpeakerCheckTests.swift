@@ -252,8 +252,12 @@ struct RollingSpeakerCheckTests {
         let accepted = try #require(v.voiceAccepted)
         #expect(Int(accepted.audio.first!.samples[0]) == cut + 1 && accepted.audio.count == n - cut)
         #expect(!actions.hasStop(1))
+        // BargeInLive let candidate 1 go at its cap (8 s); only then may the voiceprint stop her with the hold's audio.
         var live = BargeInLive()
         live.enabled = true
+        _ = live.frame([.speechStarted(sentToModel: false)], events: [.started(id: 1, candidate: true)], guidancePlaying: false)
+        for _ in 0..<810 { _ = live.frame([], events: [], guidancePlaying: false) }
+        #expect(!live.keeping)
         let maybe = live.voiceAccepted(1, audio: accepted.audio, gateOpen: true)
         let voice = try #require(maybe)
         #expect(voice.actions == [.stop] && voice.adopt)
@@ -290,5 +294,17 @@ struct RollingSpeakerCheckTests {
         var live = BargeInLive()
         _ = live.echoDropped(1)
         #expect(!live.keeping)
+    }
+
+    @Test("T-013n F-04b §19 re-check: after a stop phrase or with 可以打断她 off, an accepted window releases nothing")
+    func noVoiceStopAfterStopPhraseOrOff() {
+        for stopPhrase in [true, false] {
+            var live = BargeInLive()
+            live.enabled = true
+            _ = live.frame([.speechStarted(sentToModel: false)], events: [.started(id: 1, candidate: true)], guidancePlaying: false)
+            if stopPhrase { _ = live.stopPhrase() } else { _ = live.setEnabled(false) }
+            let none = live.voiceAccepted(1, audio: [f(1)], gateOpen: true)
+            #expect(none == nil)
+        }
     }
 }
