@@ -84,6 +84,47 @@ The owner writes what the product should do; AI agents do the rest, and nothing 
 The workflow tooling comes from [ai-native-engineering](tools/ai-native/README.md) (executor plus end-state
 reviewer). Results are logged in `specs/STATUS.md`.
 
+## Installing the app on your iPhone
+
+NovaDrive is not on the App Store or TestFlight. You build the app file (an IPA) in the cloud and install it on your
+iPhone with your own Apple ID. A Windows PC or a Mac and a USB cable are enough; you do not need your own Mac.
+
+**1. Build the IPA (Codemagic)**
+1. Fork this repository on GitHub.
+2. Sign in to [Codemagic](https://codemagic.io/) with GitHub and add your fork as an app. Codemagic reads
+   `codemagic.yaml` from the repository.
+3. Start a build of the workflow **NovaDrive iOS Build** (`novadrive-ios`) on the branch you want (`main`). It runs on
+   a cloud Mac, downloads the on-phone voice models, and takes about 5–10 minutes. Personal accounts get free build
+   minutes each month.
+4. When it finishes, download **`NovaDrive-unsigned.ipa`** from the build's artifacts. It is unsigned on purpose: you
+   sign it in the next step.
+
+**2. Sign and install it with your Apple ID**
+1. Install a sideloading tool on the computer: [Sideloadly](https://sideloadly.io/) (Windows or Mac, simplest),
+   [AltStore](https://altstore.io/), or [xtool](https://github.com/xtool-org/xtool) (command line; what the
+   maintainers use).
+2. Connect the iPhone by USB, tap 「信任」 on the phone, choose `NovaDrive-unsigned.ipa` in the tool, sign in with your
+   Apple ID and start. A free Apple ID works; using a separate Apple ID for this is a good idea.
+3. On the iPhone:
+   - 设置 → 隐私与安全性 → **开发者模式** → on, then restart the phone when asked.
+   - 设置 → 通用 → **VPN与设备管理** → your Apple ID → **信任**.
+4. Open NovaDrive and allow the microphone, location, camera and speech recognition.
+
+**Good to know**
+- **7-day limit.** With a free Apple ID the app stops opening after 7 days. Install the same IPA again (Sideloadly and
+  AltStore can refresh it automatically while the phone is on the same Wi-Fi as the computer). Installing over the
+  old app keeps your keys and settings; deleting the app first loses them. A paid Apple Developer account (US$99 a
+  year) lasts a year.
+- **Your bundle id is different.** When you sign with your own Apple ID, the tool usually changes the bundle id (for
+  example xtool makes it `XTL-<your team id>.com.asapacsin.novadrive`). The tool shows the final id in its log. Use
+  **that exact id** when you create the 高德 iOS SDK key below, or the map stays blank.
+- **Updating.** Build again on Codemagic and install the new IPA over the old app, signed with the same Apple ID.
+
+**Sharing with other people.** The easiest way to give the app to others is TestFlight: with a paid Apple Developer
+account, upload one signed build and send testers a link; they install it from Apple's TestFlight app, with no
+sideloading, no 7-day limit and one fixed bundle id, so one 高德 iOS key works for everyone. Each tester still enters
+their own API keys, unless you hand out shared ones.
+
 ## Getting the API keys (the main setup step)
 
 小诺 talks to several online services, and each needs your own key. No key is built into the app. Open
@@ -107,8 +148,7 @@ Tips:
 - Free quotas run out. When a feature suddenly says it cannot answer, check that service's console for quota or
   billing first.
 - Keep each provider's keys in one region (all Beijing for 阿里云).
-- Building the app yourself also needs a [Codemagic](https://codemagic.io/) account (cloud Mac build) and a free Apple
-  ID to sign and install it on your iPhone; see `.claude/skills/phone-test/SKILL.md`.
+- The 高德 iOS SDK key must use the bundle id your signing tool gave the app (see "Installing the app on your iPhone").
 
 ## Setting up the features
 
