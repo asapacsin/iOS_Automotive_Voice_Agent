@@ -3357,19 +3357,30 @@ she words a `working: true` answer.
   「珠海长隆海洋王国」 is not contained in a 高德 result named 「长隆海洋王国」; the no-city retry fails the same check
   (`trip lookup retry=nocity kept=0`); the unmatched results go to the picker, which answered none (`trip pick names=2
   none=2`), so both stops stayed unplaced.
-- **Not confirmed:** the record does not keep 高德's candidates, and the PC's `AMAP_WEB_KEY` answers `INVALID_USER_KEY`, so
-  the lookup was not replayed. 珠海大剧院 may also be listed under another name on 高德.
+- **Replayed on the PC (2026-11-27, owner's 高德 Web key, `/v3/place/text` city 珠海市 `citylimit=true`):**
+  「珠海长隆海洋王国」 gives 长隆海洋王国 and its parts (售票处, 游客服务中心, 北极熊馆…); only the parts pass the name check,
+  so the park itself is never kept. 「长隆海洋王国」 gives the park first. 「珠海大剧院」 is not on 高德 at all (长隆剧院,
+  华发中演大剧院…); the driver's own word 「日月贝」 gives 珠海日月贝. The phone's picker answer for 珠海长隆海洋王国 (none)
+  was not reproduced: the record does not keep the candidates it saw (item 7).
 - **Owner (2026-11-27):** keep what the driver sees as it is; add a separate word that a person would type into a map app,
   hidden from the driver, used only to search the map.
 
 1. **Shape (adds to §67 item 1).** Each sight and stay gains `query`:
    `{"name": <what the driver calls it>, "location": <as §67>, "query": <the map-search word>, "city", "minutes", "event"?}`.
    `query` is what a person types into a map app's search box for this place: the shortest common map name, no city in
-   front, no brackets, no description (长隆海洋王国, 日月贝, 大三巴牌坊, 横琴国际会展中心). The city stays in `city`.
+   front unless it is part of the place's own name (珠海渔女, 澳门旅游塔 keep it), no brackets, no description
+   (长隆海洋王国, 日月贝, 大三巴牌坊, 横琴国际会展中心). The city stays in `city`.
    `name` and `location` keep their meaning and every place they are shown.
 2. **Map.** Only `query` is looked up, with `city` as today (mainland city lookup, §71 item 3 retry, §68–§71 for
    Macau/Hong Kong). `query` missing or empty: `location`, else `name` (as §67). §66's link: a linked sight's `query` is
    the sight's own `query` when the planner wrote one, else the list entry's `venue`.
+2b. **Fallback to the driver's words (owner 2026-11-27).** When a stop's `query` lookup ends unplaced (nothing found,
+   nothing that passes the name check after §71 item 3's retry, or the picker answers none) and its `name` differs from
+   `query`, `name` is looked up once the same way (same city rules, name check against `name`, §71 item 3 retry). Its
+   candidates go to the picker together in one more picker call (after the first picker answer). A pick places the stop;
+   otherwise it stays `not_found` and 「地图没找到」 names `location` as today. Not for a sight with `event` (its `name` is
+   an event, not a place) or a §66-linked sight. Once per stop per planner round. The planner is not told which word
+   found it; the counts show the map's place name as for any found stop.
 3. **Name check (§71 item 2).** It compares the result's name with `query` (the looked-up text), unchanged otherwise.
    A short `query` is contained in both 「长隆海洋王国」 and 「珠海长隆海洋王国」.
 4. **Hidden.** `query` is never on a card, in the trip line or state line (§72 item 3), in `plan_text`, in a tool result
@@ -3384,9 +3395,21 @@ she words a `working: true` answer.
 7. **Record (I-8: place names are already in these lines).** `trip lookup name=<name> query=<query> city=<city> info=…`;
    the counts line's not-found text stays §67's. A new line per lookup that reaches the picker:
    `trip pick candidates query=<query> n=<n> names=<first 5 result names, ｜-separated>`, so the next miss shows what 高德
-   offered.
+   offered. Item 2b: `trip lookup fallback=name name=<name> query=<query> found=<yes|no>`.
 8. **Not changed:** the cards, her replies and the trip line; §66's event linking; §68–§71's SAR rules; the picker and
    its instruction; routing and times.
+
+**PoC (PC 2026-11-27, `qwen3.8-max-0902`, Beijing, thinking off; one run each; raw in `D:/ndlogs/search-raw/20261127-poc73-*`,
+`-amap73-*`, `-llm73-*`).**
+- **Planner with item 6's text** (3 one-day cases, 2,145 tokens, json_object): 长隆海洋王国 → `location` 珠海长隆海洋王国,
+  `query` 长隆海洋王国; 日月贝 → `query` 珠海大剧院 (the official name, not on 高德); 珠海渔女, 情侣路, 圆明新园, 珠海度假村酒店,
+  大三巴牌坊, 议事亭前地, 澳门旅游塔, 澳门威尼斯人 as their map names. No brackets; no city added that is not part of the name.
+- **高德 before/after:** 长隆海洋王国 placed only with the new word (above); the other stops found by both words.
+- **Picker on 高德's top 10** (app instruction and question format, sent to the compatible endpoint; 968 tokens):
+  日月贝 → 珠海日月贝 (not 日月贝(公交站), listed first); 长隆海洋王国 → 长隆海洋王国; 珠海长隆海洋王国 → 长隆海洋王国.
+- **Planner round 2 instead of item 2b** (rejected): with today's counts line (「日月贝=地图没找到 珠海大剧院（日月贝）」) it kept
+  `query` 珠海大剧院 and answered `done: true` with an empty `note`; with 高德's hits for 「日月贝」 added to that line it
+  changed `query` to 珠海日月贝. Item 2b gets the same place without a planner round (about 1,100 tokens a miss).
 
 **Acceptance (iOS).**
 
@@ -3398,13 +3421,17 @@ she words a `working: true` answer.
 | 356 | A plan with `query` on every stop | No card, trip line, state line, `plan_text` or tool result contains a `query` that differs from `name`/`location` | unit |
 | 357 | Lookup reaching the picker | `trip lookup … query=…` and `trip pick candidates …` lines as item 7 | unit |
 | 358 | `TripPlannerShape.system` | Exactly item 6's two changes over the previous text | unit |
-| 359 | PC: planner on `qwen3.8-max-0902`, 3 cases, 1 run each (长隆海洋王国; 珠海大剧院/日月贝; 大三巴牌坊), ~2,400 tokens | Every `query` has no city prefix and no brackets; with a working 高德 key each is found in its city | PC |
-| 360 | Device: today's request again (「这周末珠海两天，景点和活动，第一天加长隆海洋王国，第二天加珠海大剧院」) | Every stop placed (`not_placed=0`); cards show the same names as before §73 | D |
+| 359 | PC: planner on `qwen3.8-max-0902`, 3 cases, 1 run each (长隆海洋王国; 日月贝; 大三巴), ~2,400 tokens | No `query` adds a city that is not part of the name, none has brackets; each found on 高德 in its city directly or by item 2b (done 2026-11-27: 11/11 stops, 日月贝 by item 2b's picker) | PC |
+| 360 | Device: 「这周末珠海两天，景点和活动，第一天加长隆海洋王国，第二天去日月贝」 | Every stop placed (`not_placed=0`); cards show the same names as before §73 | D |
+| 361 | Sight `{"name":"日月贝","location":"珠海大剧院","query":"珠海大剧院"}`; 高德 fixture: 「珠海大剧院」 → 长隆剧院, 华发中演大剧院; 「日月贝」 → 日月贝(公交站), 珠海日月贝; fake picker picks option 2 | Second lookup of 日月贝; placed at 珠海日月贝; `trip lookup fallback=name … found=yes` | unit |
+| 362 | Same as 361, fake picker answers none for 日月贝 | `not_found`; 「地图没找到 珠海大剧院（日月贝）」; `found=no` | unit |
+| 363 | Unplaced sight with `event`, or `name` = `query` | No fallback lookup | unit |
 
-**Not verified.** Whether 高德 lists 珠海大剧院 under that name; the PC check needs a 高德 key that the PC does not have now.
+**Not verified.** The picker's answers beyond one run each; the phone's 高德 answers (same key and endpoint as the PC test, but
+not compared).
 
 **Trace gate.** Add `T-040zz: F-15b` to `specs/trace-ids.txt` with the first `@Test` that names T-040zz.
 
 | Task | Scope | Status |
 |---|---|---|
-| T-040zz | §73 items 1–8; rows 353–360 | NOT_RUN |
+| T-040zz | §73 items 1–8 and 2b; rows 353–363 | NOT_RUN |
