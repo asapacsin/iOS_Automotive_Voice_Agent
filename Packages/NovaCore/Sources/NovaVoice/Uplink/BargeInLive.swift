@@ -170,6 +170,45 @@ public struct BargeInLive: Sendable {
         }
     }
 
+    /// F-04b §19 item 3 (T-013n): the voiceprint accepted a window of candidate `id`: she stops now, as `wouldStop`
+    /// does, whatever the words check says. Not kept any more (the cap, or a decision already made): `audio` (its
+    /// speech from the split on) is sent instead. Nil when there is nothing to stop.
+    public mutating func voiceAccepted(_ id: Int, audio fallback: [PCMFrame16k], gateOpen: Bool) -> Step? {
+        var step = Step()
+        switch state {
+        case .keeping(id, let since, let audio, _, let closed):
+            state = .idle
+            step.actions.append(.stop)
+            step.outputs = [.speechStarted(sentToModel: true)] + audio.map(UplinkGateOutput.audio)
+            if closed { step.outputs += [.speechStopped(.normal), .streamEnd] } else { step.adopt = true }
+            logs.append("bargeInStop \(id) heldMs=\((now - since).milliseconds) by=voiceprint")
+        case .idle where gateOpen:
+            step.actions.append(.stop)
+            step.outputs = [.speechStarted(sentToModel: true)] + fallback.map(UplinkGateOutput.audio)
+            step.adopt = true
+            logs.append("bargeInStop \(id) heldMs=0 by=voiceprint")
+        default:
+            return nil
+        }
+        return step
+    }
+
+    /// F-04b §19 item 4: candidate `id` was her echo: let it go (her volume back), never carried into the next one.
+    public mutating func echoDropped(_ id: Int) -> Step {
+        var step = Step()
+        switch state {
+        case .keeping(id, _, _, _, _), .carrying(id, _, _, _, _):
+            if case .carrying(_, _, _, let buffer, _) = state { step.outputs += buffer }
+            state = .idle
+            carryArmed = false
+            cutAtUnmute = false
+            step.actions.append(.dip(false))
+            logs.append("bargeInDipCancelled \(id) reason=echo")
+        default: break
+        }
+        return step
+    }
+
     /// Item 10: the setting changed; turned off, a candidate being checked is dropped at once.
     public mutating func setEnabled(_ on: Bool) -> Step {
         enabled = on

@@ -2268,8 +2268,19 @@ final class GateBox: @unchecked Sendable {
         // F-04b §6 item 9, §17 items 1, 3: with the lock on, no stop before the utterance is accepted, or before its
         // first second is (the early check); a dip acts at once.
         let open = speaker.heldUtterance
+        // F-04b §19 item 3: an accepted window stops her itself when no stop of this utterance waits (the words check
+        // judges the whole echo-led utterance and may never get there); its audio then waits for the whole verdict.
+        var voice = BargeInLive.Step()
+        if let v = sp.voiceAccepted, !speakerActions.hasStop(v.utterance),
+           let s = self.live.voiceAccepted(v.utterance, audio: v.audio, gateOpen: gate.phase == .open) {
+            voice = s
+        }
+        // §19 item 4: her echo: the candidate is let go, never carried ahead of the next utterance.
+        let echo = sp.echo.map { self.live.echoDropped($0) } ?? BargeInLive.Step()
         let step = speakerActions.early(sp.early, utterance: sp.early == nil ? nil : (sp.earlyUtterance ?? open))
+            + speakerActions.step(voice, verdict: speaker.verdict, utterance: sp.voiceAccepted?.utterance ?? open)
             + speakerActions.decided(sp.decided, utterances: sp.decidedUtterances)
+            + echo
             + speakerActions.step(live, verdict: speaker.verdict, utterance: open)
         if step.adopt { gate.adoptOpenUtterance() }
         return step

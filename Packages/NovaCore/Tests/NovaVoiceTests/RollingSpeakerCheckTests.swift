@@ -228,4 +228,67 @@ struct RollingSpeakerCheckTests {
         }
         #expect(early.count == 1)  // §17's single check, as today; no rolling once she is silent
     }
+
+    @Test("T-013n F-04b §19 rows 73, 78 review: rolling goes on after BargeInLive lets the candidate go; an accepted window stops her with no words-check stop")
+    func latchedCandidateAndVoiceStop() throws {
+        var hold = Self.locked()
+        var actions = SpeakerActionHold()
+        var early: [SpeakerScoreRequest] = []
+        var n = 31
+        func step(_ o: [UplinkGateOutput]) { if let r = hold.frame(o).earlyRequest { early.append(r) } }
+        step(Self.start())
+        hold.earlyCandidate = false  // BargeInLive's cap or decision: no longer keeping
+        for _ in 0..<2 {
+            let k = early.count
+            while early.count == k { n += 1; step([.audio(f(n))]) }
+            if early.count < 2 {
+                let v = hold.result(.score(-1.4, scoreMs: 1), utterance: 1, generation: early.last!.generation, kind: .early)
+                _ = actions.early(v.early, utterance: v.earlyUtterance)
+            }
+        }
+        #expect(early.count == 2)
+        let v = hold.result(.score(6.5, scoreMs: 1), utterance: 1, generation: early[1].generation, kind: .early)
+        let cut = try #require(v.split).dropFrames
+        let accepted = try #require(v.voiceAccepted)
+        #expect(Int(accepted.audio.first!.samples[0]) == cut + 1 && accepted.audio.count == n - cut)
+        #expect(!actions.hasStop(1))
+        var live = BargeInLive()
+        live.enabled = true
+        let maybe = live.voiceAccepted(1, audio: accepted.audio, gateOpen: true)
+        let voice = try #require(maybe)
+        #expect(voice.actions == [.stop] && voice.adopt)
+        _ = actions.early(v.early, utterance: 1)
+        let now = actions.step(voice, verdict: hold.verdict, utterance: 1)
+        #expect(now.actions == [.stop] && now.outputs.isEmpty)  // she stops now; his audio waits for the whole verdict
+        let done = actions.decided([.accepted], utterances: [1])
+        #expect(done.adopt && audio(done.outputs).first == cut + 1)
+        let none = live.voiceAccepted(1, audio: [], gateOpen: false)
+        #expect(none == nil)
+    }
+
+    @Test("T-013n F-04b §19 row 76: lock on with her silent: no candidate, no early or rolling request")
+    func row76Silent() {
+        var hold = Self.locked()
+        hold.earlyCandidate = false
+        hold.playback = false
+        var any = hold.frame(Self.start()).earlyRequest != nil
+        for n in 32...400 { any = any || hold.frame([.audio(f(n))]).earlyRequest != nil }
+        #expect(!any)
+    }
+
+    @Test("T-013n F-04b §19 row 74 review: an echo cut lets BargeInLive's candidate go")
+    func echoReleasesLive() {
+        var hold = Self.locked()
+        var echo: Int?
+        var n = 31
+        var reqs: [SpeakerScoreRequest] = []
+        hold.frame(Self.start()).earlyRequest.map { reqs.append($0) }
+        while reqs.isEmpty { n += 1; hold.frame([.audio(f(n))]).earlyRequest.map { reqs.append($0) } }
+        _ = hold.result(.score(-1, scoreMs: 1), utterance: 1, generation: reqs[0].generation, kind: .early)
+        echo = hold.frame([.speechStopped(.normal), .utterance(record(1, end: .cutAtUnmute))]).echo
+        #expect(echo == 1)
+        var live = BargeInLive()
+        _ = live.echoDropped(1)
+        #expect(!live.keeping)
+    }
 }

@@ -498,7 +498,8 @@ what he says goes to the voice model.
 2. **Verdict per window.** Each window is judged as §17 item 3 with §18's bar (`playbackThreshold` 4.0 and the cohort
    threshold, the higher decides). A **rejected** window does only what §17 amendment item 2 does today (the queued stop
    and dip are dropped, `.dip(false)`); it no longer ends the checking. This replaces §17 item 3's "Live steps for this
-   utterance stay dropped, even if the whole-sentence score accepts it later" for live candidates.
+   utterance stay dropped, even if the whole-sentence score accepts it later" for live candidates. (So §17 row 63's "`.stop` never sent" now holds only for the
+   rejected window itself: a stop that comes later waits for the next window or the whole verdict.)
 3. **Accepted window: she stops and the driver's part starts there.** On the first accepted window:
    - the stop acts at once, as §17 item 3 accepted (`SpeakerActionHold` releases the stop; `BargeInLive` stops her);
    - the utterance is split at the start of the accepted window minus `UplinkGateTuning.preRoll` (300 ms). Frames

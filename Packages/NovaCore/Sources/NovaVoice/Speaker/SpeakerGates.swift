@@ -141,6 +141,11 @@ public struct SpeakerActionHold: Sendable {
         }
     }
 
+    /// §19 item 3: a stop of `utterance` is waiting here or was dropped by a rejected window (released by `early`).
+    public func hasStop(_ utterance: Int) -> Bool {
+        droppedStop == utterance || queue.contains { ($0.utterance == nil || $0.utterance == utterance) && $0.step.actions.contains(.stop) }
+    }
+
     static func isDip(_ a: BargeInAction) -> Bool { if case .dip = a { true } else { false } }
 
     /// The verdicts `SpeakerHold` reached in a step, in order, and their utterances (`Step.decidedUtterances`);

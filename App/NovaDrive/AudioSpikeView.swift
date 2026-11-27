@@ -44,7 +44,8 @@ struct AudioSpikeView: View {
             do {
                 let result = try await EchoSpike().run(voiceProcessing: vp, agc: gain)
                 // F-04b §19 item 0 (T-013n): the measured coupling is what the echo-aware VAD uses from now on.
-                if let c = result.echoCoupling { EchoCouplingStore.value = c }
+                // Only from the setup LiveAudio runs (voice processing and AGC on); other matrix cells are for the report.
+                if vp, gain, let c = result.echoCoupling { EchoCouplingStore.value = c }
                 line = result.summary
             }
             catch { line = "失败: \(error.localizedDescription)" }

@@ -102,6 +102,16 @@ public struct SpeakerSplit: Sendable, Hashable {
     }
 }
 
+/// F-04b §19 item 3 (T-013n): an accepted window; `audio` is the candidate's speech from the split on.
+public struct SpeakerVoiceAccepted: Sendable, Hashable {
+    public let utterance: Int
+    public let audio: [PCMFrame16k]
+    public init(utterance: Int, audio: [PCMFrame16k]) {
+        self.utterance = utterance
+        self.audio = audio
+    }
+}
+
 /// What to score, off the audio thread. The result names the same `utterance` and `generation`.
 public struct SpeakerScoreRequest: Sendable, Hashable {
     public let utterance: Int
@@ -153,6 +163,11 @@ public struct SpeakerHold: Sendable {
         /// F-04b §19 item 3: an accepted window split this utterance; its first `dropFrames` audio frames are her echo
         /// (whoever keeps or queues its audio drops them; they are never sent).
         public var split: SpeakerSplit?
+        /// §19 item 3: an accepted window for this candidate: she stops at once. `audio` is its speech from the split
+        /// on, for when `BargeInLive` no longer keeps it (it is sent if the whole verdict accepts it).
+        public var voiceAccepted: SpeakerVoiceAccepted?
+        /// §19 item 4: this candidate was cut as her echo; whoever keeps its audio lets it go.
+        public var echo: Int?
         /// Requests asked again after a threshold change (their earlier results are stale).
         public var rescore: [SpeakerScoreRequest] = []
         /// Utterances decided in this step, in order, and their numbers.
@@ -191,6 +206,8 @@ public struct SpeakerHold: Sendable {
         var windowStart = 0
         /// §19 item 3: frames before this index were her echo (split at an accepted window).
         var split = 0
+        /// §19 item 1: it was a live candidate (latched: `BargeInLive` letting it go does not stop the checking).
+        var candidate = false
     }
 
     private enum State: Sendable {
@@ -417,9 +434,11 @@ public struct SpeakerHold: Sendable {
                 notes.append("speaker-echo utterance=\(h.id) speechMs=\(h.speech * 10) windows=\(h.windows)")
                 step.decided.append(.rejected)
                 step.decidedUtterances.append(h.id)
+                step.echo = h.id
                 state = .idle
                 return
             }
+            if earlyCandidate { h.candidate = true }
             if h.sent { h.buffer.append(output) } else { step.outputs.append(output) }
             // speechMs counts the utterance's own audio, not the closing silence after it.
             if case .audio(let frame) = output, !h.closed {
@@ -434,7 +453,7 @@ public struct SpeakerHold: Sendable {
             // §17 item 2, §19 item 1: a live candidate's first second, then its latest second after every further
             // `rollingStep`, while her reply or its echo tail lasts, until a window is accepted.
             let rolling = h.early == .none || h.early == .rejected || h.early == .pending
-            if rolling, !h.closed, !h.sent, earlyCandidate, h.windows == 0 || playback,
+            if rolling, !h.closed, !h.sent, h.candidate, h.windows == 0 || playback,
                h.speech - h.skip >= h.nextWindow, h.earlyFrames.count >= earlyFrameCount {
                 h.nextWindow += rollingStepFrames
                 if h.early == .pending {
@@ -569,6 +588,7 @@ public struct SpeakerHold: Sendable {
                 notes.append("speaker-split utterance=\(h.id) at_ms=\(cut * 10) dropped_ms=\(cut * 10)")
             }
         }
+        if result == .accepted, kept == nil, !h.sent { step.voiceAccepted = SpeakerVoiceAccepted(utterance: h.id, audio: h.frames) }
         if let kept { awaiting[kept] = h } else { state = .holding(h) }
         step.early = result
         step.earlyUtterance = id
@@ -579,7 +599,7 @@ public struct SpeakerHold: Sendable {
                       scoreMs: Int) -> SpeakerCheckLine {
         let (b, t) = bar(h, threshold ?? 0)
         return SpeakerCheckLine(utterance: h.id, kind: .speech, score: score, threshold: t, result: result,
-                                speechMs: h.speech * 10, scoreMs: scoreMs, waitMs: Int((now - h.since).milliseconds),
+                                speechMs: (h.speech - h.split) * 10, scoreMs: scoreMs, waitMs: Int((now - h.since).milliseconds),
                                 raw: raw, cohort: cohort, bar: b)
     }
 
