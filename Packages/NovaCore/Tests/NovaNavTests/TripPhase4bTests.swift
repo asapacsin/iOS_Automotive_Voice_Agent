@@ -47,7 +47,8 @@ private func osrmRig(_ osrm: FakeOsrm) async -> (TripRig, FakeDrivingTimes) {
     let amap = FakeDrivingTimes(byLine)
     let rig = await TripRig(search: TripSearch(tokyo), times: TripTimes(service: amap, clock: ManualClock(), retryDelay: .milliseconds(1)),
                             here: tokyoHere, abroad: FakeApple(tokyo),
-                            abroadTimes: TripTimes(service: osrm, clock: ManualClock()))
+                            abroadTimes: TripTimes(service: osrm, clock: ManualClock()),
+                            area: { _ in TripArea(center: tokyoHere, countryCode: "JP") })
     return (rig, amap)
 }
 
@@ -58,22 +59,6 @@ private func navigate(_ args: [String: JSONValue]) -> ToolCall {
 @Suite("T-040p F-15b §36 items 2c–2d: OSRM times and plain searches abroad")
 struct TripPhase4bTests {
     // MARK: §36 item 2c OSRM
-
-    @Test("F-15b row 84b: abroad trip, 4 stops: one OSRM table (5×5), no 高德 /v3/distance; ordered on OSRM times; trip times vendor=osrm")
-    func row84b() async {
-        let osrm = FakeOsrm()
-        let (rig, amap) = await osrmRig(osrm)
-        let r = await rig.run(trip("make_trip_list", ["places": names(fourSights), "abroad": true]))
-        #expect(r.ok)
-        #expect(osrm.tables.withLock { $0 } == [5])
-        #expect(amap.requests.withLock { $0 } == 0 && osrm.perDestination.withLock { $0 } == 0)
-        // From 35.70: up to 浅草寺 (35.71) first, then south 皇居, 银座, 东京塔 (0.062 against 0.094 the other way).
-        #expect(await rig.order() == ["浅草寺", "皇居", "银座", "东京塔"])
-        #expect(r.data["times"] == nil)
-        let next = r.data["next"]?.stringValue ?? ""
-        #expect(next.contains("时间是估算的") == false)
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip times vendor=osrm pairs=20 ms=") })
-    }
 
     @Test("F-15b §36 item 2c: two different OSRM tables back to back are at least 1 request per second apart")
     func osrmRate() async {
@@ -90,32 +75,13 @@ struct TripPhase4bTests {
         #expect(ContinuousClock.now - began >= .milliseconds(300))
     }
 
-    @Test("F-15b row 84c: abroad trip, OSRM times out: straight-line order, times estimated, 「时间是估算的」 in next; vendor=estimate; no retry")
-    func row84c() async {
-        let osrm = FakeOsrm(fail: true)
-        let (rig, amap) = await osrmRig(osrm)
-        let r = await rig.run(trip("make_trip_list", ["places": names(fourSights), "abroad": true]))
-        #expect(r.ok)
-        #expect(osrm.tables.withLock { $0 } == [5])
-        #expect(amap.requests.withLock { $0 } == 0)
-        // All on one longitude: the straight line orders as the latitudes do.
-        #expect(await rig.order() == ["浅草寺", "皇居", "银座", "东京塔"])
-        #expect(r.data["times"] == "estimated")
-        // F-09b §13 item 5 (T-031n): the estimate is a fact (`times`), not a line in next.
-        #expect((r.data["next"]?.stringValue ?? "").contains("时间是估算的") == false)
-        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip times vendor=estimate pairs=20 ms=") })
-        // The estimate: haversine × 1.3 at 50 km/h (0.01° of latitude ≈ 1 112 m → ≈ 104 s).
-        let legs = await rig.planner.current.stops.compactMap(\.legSeconds)
-        #expect(legs.first.map { abs($0 - 104) <= 2 } == true)
-    }
-
     @Test("F-15b §36 item 2c: at home §26 is unchanged: 高德 per destination, no OSRM, vendor=amap")
     func homeUnchanged() async {
         let osrm = FakeOsrm()
         let amap = FakeDrivingTimes(byLine)
         let rig = await TripRig(times: TripTimes(service: amap, clock: ManualClock(), retryDelay: .milliseconds(1)),
                                 abroadTimes: TripTimes(service: osrm, clock: ManualClock()))
-        let r = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道", "天津之眼"]), "city": "天津"]))
+        let r = await rig.run(planCall(["places": names(["古文化街", "五大道", "天津之眼"]), "city": "天津"]))
         #expect(r.ok)
         #expect(osrm.tables.withLock { $0 }.isEmpty)
         #expect(amap.requests.withLock { $0 } > 0)
@@ -196,5 +162,31 @@ struct TripPhase4bTests {
         let r = await nav.execute(navigate(["destination": "浅草寺 (Senso-ji)", "near": "place", "near_country": "JP"]))
         #expect(!r.ok && r.code == .invalidFields)
         #expect(photon.asked.withLock { $0 }.isEmpty && amap.calls.withLock { $0 }.isEmpty && cities.withLock { $0 }.isEmpty)
+    }
+}
+
+@Suite("T-040zh F-15b §36 item 2c on a written plan (old rows 84b, 84c)")
+struct TripWrittenPlanTimesTests {
+    @Test("T-040zh F-15b §55 with §36 item 2c (old row 84b): a written Tokyo day is timed by one OSRM table, no 高德; the written order kept; vendor=osrm")
+    func osrm() async {
+        let osrm = FakeOsrm()
+        let (rig, amap) = await osrmRig(osrm)
+        let r = await rig.run(planCall(["places": names(fourSights), "abroad": true]))
+        #expect(r.ok && r.data["times"] == nil, "\(r)")
+        #expect(osrm.tables.withLock { $0 } == [4] && amap.requests.withLock { $0 } == 0)
+        #expect(await rig.order() == fourSights)
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip times vendor=osrm ") })
+    }
+
+    @Test("T-040zh F-15b §55 with §36 item 2c (old row 84c): OSRM fails: straight-line estimate, times=estimated, vendor=estimate, no retry")
+    func estimate() async {
+        let osrm = FakeOsrm(fail: true)
+        let (rig, amap) = await osrmRig(osrm)
+        let r = await rig.run(planCall(["places": names(fourSights), "abroad": true]))
+        #expect(r.data["facts"]?["times"] == "estimated" || r.data["times"] == "estimated", "\(r)")
+        #expect(osrm.tables.withLock { $0 } == [4] && amap.requests.withLock { $0 } == 0)
+        #expect(await rig.order() == fourSights)
+        #expect(rig.lines.withLock { $0 }.contains { $0.hasPrefix("trip times vendor=estimate ") })
+        #expect(await rig.planner.current.stops.dropFirst().allSatisfy { ($0.legSeconds ?? 0) > 0 })
     }
 }

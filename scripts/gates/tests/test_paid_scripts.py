@@ -14,7 +14,7 @@ class PaidScriptsTests(unittest.TestCase):
             root = pathlib.Path(tmp)
             (root / "scripts" / "x").mkdir(parents=True)
             bad = root / "scripts" / "x" / "probe.py"
-            bad.write_text('URL = "https://dashscope-intl.aliyuncs.com/api/v1"\n', encoding="utf-8")
+            bad.write_text('URL = "https://dashscope.aliyuncs.com/api/v1"\n', encoding="utf-8")
             (root / "scripts" / "x" / "ok.py").write_text('URL = "https://generativelanguage.googleapis.com"\n'
                                                          'p.add_argument("--max-calls")\n', encoding="utf-8")
             (root / "scripts" / "x" / "free.py").write_text('print("no host")\n', encoding="utf-8")

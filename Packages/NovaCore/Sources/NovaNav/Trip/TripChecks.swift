@@ -1,11 +1,11 @@
 import Foundation
 
-/// F-15b §49 item 4 (T-040u): the checks code runs after every fit. Pure. Each is pass or fail; a failure carries one
+/// F-15b §49 item 4 (T-040u), §55 item 8 (T-040zh): the checks code runs after every plan write. Pure. Each is pass or fail; a failure carries one
 /// line for the model, and all failed lines go back together (LLM-Modulo, Gundawar et al. 2024: binary critics whose
 /// back-prompts a metacontroller concatenates for the LLM to revise).
 public enum TripChecks {
     public enum Kind: String, Sendable, Hashable, CaseIterable {
-        case notFound = "not_found", over, driving, under, hotel, far
+        case empty, over, under, driving, notFound = "not_found", hotel
     }
 
     public struct Issue: Sendable, Hashable {
@@ -34,20 +34,10 @@ public enum TripChecks {
         }
     }
 
-    /// §49 item 4 `hotel`: a hotel found for a night, with its distance to that day's last place.
-    public struct HotelChoice: Sendable, Hashable {
-        public let name: String
-        public let meters: Int
-        public init(name: String, meters: Int) {
-            self.name = name
-            self.meters = meters
-        }
-    }
-
     /// §49 item 4 `driving`: a day whose driving is more than this share of its cost.
     public static let drivingShare = 0.4
-    /// §49 item 4 `hotel`: up to this many hotels per night.
-    public static let hotelChoices = 3
+    /// §55 item 8 `over`: a day's minutes above this share of the budget B.
+    public static let overShare = 1.25
     /// F-15b §53 item 3 (T-040zf): a day under this share of its budget is thin. No published threshold (TripScore and
     /// TravelAgent score day density without one); a named constant so it can be tuned.
     public static let thinShare = 0.75
@@ -80,35 +70,45 @@ public enum TripChecks {
         return sights < minSights(budgetMinutes: budgetMinutes) && budgetMinutes - day.minutes >= roomForOneMinutes
     }
 
-    /// The failed checks in the order of §49 item 4. `hotels` maps a 1-based night to its choices (only given when
-    /// the driver has wishes and the model has not picked that night's hotel yet).
-    public static func run(notFound: [String], days: [Day], budgetMinutes: Int, spareEmpty: Bool,
-                           hotels: [Int: [HotelChoice]] = [:], notHotels: [String] = [], far: [String] = [],
-                           city: String = "城市") -> [Issue] {
+    /// §55 item 8 `over`: above `overShare` × B; a day with a sight of `fullDaySightMinutes` or more is over only when
+    /// the rest of the day (its other stops and the driving) adds more than B on top.
+    public static func isOver(_ day: Day, budgetMinutes: Int) -> Bool {
+        if day.longestSightMinutes >= fullDaySightMinutes { return day.minutes - day.longestSightMinutes > budgetMinutes }
+        return Double(day.minutes) > overShare * Double(budgetMinutes)
+    }
+
+    /// §55 item 8: the failed checks in §55's order (empty, over, under, driving, not_found, hotel), one line each.
+    /// `nightsWithoutHotel`: 1-based nights of a plan of 2 days or more with no hotel stop.
+    public static func run(days: [Day], budgetMinutes: Int, spareEmpty: Bool = true, notFound: [String] = [],
+                           nightsWithoutHotel: [Int] = [], city: String = "城市") -> [Issue] {
         var out: [Issue] = []
-        for name in notFound { out.append(Issue(kind: .notFound, line: "\(name)没找到，换一个附近类似的或者去掉")) }
-        // F-15b §50 item 2 (T-040v): a named hotel whose map kind is not lodging.
-        for name in notHotels { out.append(Issue(kind: .notFound, line: "\(name)不是酒店")) }
-        // §50 item 4: a place no road reaches, or over 4 h on the straight-line estimate.
-        for name in far { out.append(Issue(kind: .far, line: "\(name)开车到不了或者太远，换一个\(city)附近的")) }
-        for (d, day) in days.enumerated() where day.minutes > budgetMinutes && day.onlyMustSee
-            && day.longestSightMinutes < fullDaySightMinutes {  // §53 item 3: a full-day sight is the day
-            out.append(Issue(kind: .over, line: "第\(d + 1)天超了约\(hours(day.minutes - budgetMinutes))小时，减少或换掉一个必去的地方"))
+        // The fullest and the emptiest day by minutes (the first such day on a tie).
+        let fullest = days.indices.max { days[$0].minutes < days[$1].minutes }.map { $0 + 1 } ?? 1
+        func emptiest(besides d: Int) -> Int {
+            days.indices.filter { $0 != d }.min { days[$0].minutes < days[$1].minutes }.map { $0 + 1 } ?? d + 2
         }
-        for (d, day) in days.enumerated() where day.minutes > 0 && Double(day.drivingMinutes) > drivingShare * Double(day.minutes) {
-            out.append(Issue(kind: .driving, line: "第\(d + 1)天大半时间在开车，考虑把这天换到一个区域"))
+        let empty = Set(days.indices.filter { (days[$0].sights ?? 1) == 0 })
+        for d in days.indices where empty.contains(d) {
+            out.append(Issue(kind: .empty, line: "第\(d + 1)天没有安排，把第\(fullest)天的一部分挪过来或者加几个地方"))
         }
+        for (d, day) in days.enumerated() where isOver(day, budgetMinutes: budgetMinutes) {
+            out.append(Issue(kind: .over, line: "第\(d + 1)天大约\(hours(day.minutes))小时，太满了，挪一部分到第\(emptiest(besides: d))天"))
+        }
+        // §53 item 3 (thin day), its line unchanged; an empty day is `empty`, not thin.
         if spareEmpty {
-            for (d, day) in days.enumerated() where isThin(day, budgetMinutes: budgetMinutes, dayCount: days.count) {
+            for (d, day) in days.enumerated() where !empty.contains(d) && isThin(day, budgetMinutes: budgetMinutes, dayCount: days.count) {
                 let area = day.area.map { "在\($0)附近" } ?? ""
                 out.append(Issue(kind: .under, line: "第\(d + 1)天还空约\(hours(budgetMinutes - day.minutes))小时，\(area)加1到2个"))
             }
         }
-        for night in hotels.keys.sorted() {
-            let list = (hotels[night] ?? []).prefix(hotelChoices)
-            guard !list.isEmpty else { continue }
-            let named = list.map { "\($0.name)（\(km($0.meters))公里）" }.joined(separator: "、")
-            out.append(Issue(kind: .hotel, line: "第\(night)晚从这几个里挑一个：\(named)"))
+        for (d, day) in days.enumerated() where day.minutes > 0 && Double(day.drivingMinutes) > drivingShare * Double(day.minutes) {
+            out.append(Issue(kind: .driving, line: "第\(d + 1)天大半时间在开车，考虑把这天换到一个区域"))
+        }
+        for name in notFound { out.append(Issue(kind: .notFound, line: "\(name)在\(city)没找到，换一个或者去掉")) }
+        if days.count >= 2 {
+            for night in nightsWithoutHotel {
+                out.append(Issue(kind: .hotel, line: "第\(night)晚还没有酒店，写一个酒店或者 near"))
+            }
         }
         return out
     }

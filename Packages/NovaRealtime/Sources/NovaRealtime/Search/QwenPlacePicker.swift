@@ -17,6 +17,8 @@ public struct QwenPlacePicker: PlacePicker {
         case unreadable
     }
 
+    /// F-15b §59 item 3: the picker route has no backup, so its model is the one that answered.
+    public var model: String { QwenRoute.picker.model }
     private let key: @Sendable () -> String?
     private let send: Send
     private let fallback: QwenFallback

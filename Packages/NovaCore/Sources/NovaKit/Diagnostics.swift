@@ -51,6 +51,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case bargeInStopped
     /// F-18 §15 item 8: `google_search` came as an ordinary function call; it is refused, not executed.
     case webSearchAsFunction
+    /// F-15b §62 item 12 (T-040zo): the app said the handoff line itself when `tool` was dispatched; `ms` from dispatch.
+    case handoffSaid(tool: AsyncTool, ms: Int)
     /// F-18 §21 item 7 (T-046i): a destination note went to the model. No name (I-8).
     case destinationNote
     /// F-05a §13 item 5 (T-016i): conversation text failed the screen check and was not shown. No words (I-8).
@@ -65,6 +67,11 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case claimCut(turn: Int, playedMs: Int)
     /// F-18 §27 item 4 (T-020c): a background tool's result was not sent because the socket was replaced.
     case asyncToolDropped(tool: AsyncTool)
+    /// F-18 §37 items 1, 4 (T-046z): a background result not sent: `superseded` by a newer ok `web_search`, or
+    /// `stale` (older than 10 minutes).
+    case asyncResultDropped(tool: AsyncTool, reason: AsyncDropReason)
+    /// F-18 §37 item 3 (T-046z): a result of a call from before a reconnect, sent as a text turn.
+    case asyncResultViaText(tool: AsyncTool)
     /// F-09b §8 (T-031j): a car-state note went to the model, and why. No values (I-8).
     case stateNote(reason: StateNoteReason)
     /// F-09b §8 (T-016p): a summary of earlier exchanges went to the model. Numbers only, no words (I-8, I-7).
@@ -73,6 +80,8 @@ public enum DiagnosticEvent: Sendable, Hashable {
     case contextNote(fields: [ContextNoteField])
     /// F-09b §16 item 9 (T-031z): a `屏幕` line was sent; the record line is `ScreenState.recordLine` (codes only).
     case screenLine(ScreenState)
+    /// F-05 §15 item 5 (T-016q): a Qwen voice-model session reconnected without resumption; the summary note follows.
+    case qwenReconnect
 }
 
 /// F-09b §14 item 8 (T-031p): the field names a `现在` note carries (names only, never values).
@@ -91,22 +100,29 @@ public enum StateNoteReason: String, Sendable, Hashable, CaseIterable {
 public enum AsyncTool: String, Sendable, Hashable, CaseIterable {
     case webSearch = "web_search"
     case queryLiveInfo = "query_live_info"
-    /// F-15b §4 item 9: trip lists are made and changed in the background.
-    case makeTripList = "make_trip_list"
-    case editTripList = "edit_trip_list"
-    /// F-15b §52 item 3 (T-040zb): the whole plan written, looked up and timed in the background.
-    case setTripPlan = "set_trip_plan"
+    /// F-15b §62 item 1 (T-040zo, replaces `set_trip_plan`): the driver's request handed to the planner model; the
+    /// plan is written, counted, reviewed and saved in the background.
+    case planTrip = "plan_trip"
     /// F-09b §16 item 8 (T-031za): the card answers after the introduction arrives.
     case showPlace = "show_place"
+    /// F-18 §35 item 1 (T-046x): the events searches (§39) run in the background; the result comes back when idle.
+    case findEvents = "find_events"
 
     public init?(name: String) { self.init(rawValue: name) }
 
     /// F-15b §52 item 12 (T-040ze): the trip tools; while one runs no reply may say the change is done.
-    public var isTrip: Bool { self == .makeTripList || self == .editTripList || self == .setTripPlan }
+    /// F-15b §55 item 11 (T-040zh): `make_trip_list` and `edit_trip_list` are removed; `set_trip_plan` makes every plan.
+    /// F-15b §62 item 1 (T-040zo): `plan_trip` replaces `set_trip_plan`.
+    public var isTrip: Bool { self == .planTrip }
     /// §52 item 12: the `next` of a turn while a trip tool's result has not come back.
     public static let tripPendingNext = "结果还没回来，不要说已经做好"
     /// The `scheduling` their response carries (F-18 §27 item 3).
     public static let scheduling = "WHEN_IDLE"
+}
+
+/// F-18 §37 (T-046z): why a background result was not sent.
+public enum AsyncDropReason: String, Sendable, Hashable, CaseIterable {
+    case superseded, stale
 }
 
 /// F-05a §13 item 2: which conversation text the screen check hid.
@@ -155,6 +171,7 @@ extension DiagnosticEvent {
         case postStopTurnDropped
         case bargeInStopped
         case webSearchAsFunction
+        case handoffSaid
         case destinationNote
         case screenHidden
         case wakeDetected
@@ -162,10 +179,13 @@ extension DiagnosticEvent {
         case sessionResume
         case claimCut
         case asyncToolDropped
+        case asyncResultDropped
+        case asyncResultViaText
         case stateNote
         case summaryNote
         case contextNote
         case screenLine
+        case qwenReconnect
     }
 
     public var kind: Kind {
@@ -203,6 +223,7 @@ extension DiagnosticEvent {
         case .postStopTurnDropped: .postStopTurnDropped
         case .bargeInStopped: .bargeInStopped
         case .webSearchAsFunction: .webSearchAsFunction
+        case .handoffSaid: .handoffSaid
         case .destinationNote: .destinationNote
         case .screenHidden: .screenHidden
         case .wakeDetected: .wakeDetected
@@ -210,10 +231,13 @@ extension DiagnosticEvent {
         case .sessionResume: .sessionResume
         case .claimCut: .claimCut
         case .asyncToolDropped: .asyncToolDropped
+        case .asyncResultDropped: .asyncResultDropped
+        case .asyncResultViaText: .asyncResultViaText
         case .stateNote: .stateNote
         case .summaryNote: .summaryNote
         case .contextNote: .contextNote
         case .screenLine: .screenLine
+        case .qwenReconnect: .qwenReconnect
         }
     }
 }
@@ -235,6 +259,7 @@ extension DiagnosticEvent {
         case .stopSyncInterrupted(let ms): "stopSync interrupted ms=\(ms)"
         case .stopSyncNoInterrupt: "stopSyncNoInterrupt"
         case .destinationNote: "destinationNote"
+        case .handoffSaid(let tool, let ms): "handoff said tool=\(tool.rawValue) ms=\(ms)"
         case .screenHidden(let kind): "screenHidden kind=\(kind.rawValue)"
         case .reaskSuppressed: "reaskSuppressed reason=stop"
         case .abandonCleared: "abandonCleared reason=newUtterance"
@@ -245,10 +270,13 @@ extension DiagnosticEvent {
         case .sessionResume(let handle, let result): "session resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"
         case .claimCut(let turn, let ms): "claim-cut turn=\(turn) played_ms=\(ms)"
         case .asyncToolDropped(let tool): "tool-result \(tool.rawValue) dropped reason=reconnect"
+        case .asyncResultDropped(let tool, let reason): "tool-result \(tool.rawValue) dropped reason=\(reason.rawValue)"
+        case .asyncResultViaText(let tool): "tool-result \(tool.rawValue) via=text reason=reconnected"
         case .stateNote(let reason): "state-note reason=\(reason.rawValue)"
         case .summaryNote(let n, let age): "summary-note exchanges=\(n) age_s=\(age)"
         case .contextNote(let fields): "contextNote fields=\(fields.map(\.rawValue).joined(separator: ","))"
         case .screenLine(let screen): screen.recordLine
+        case .qwenReconnect: "qwen reconnect fresh=yes"
         default: "diagnostic \(self)"
         }
     }

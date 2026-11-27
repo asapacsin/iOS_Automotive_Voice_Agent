@@ -188,7 +188,7 @@ public enum RealtimeEvent: Sendable, Hashable {
     case userTranscript(String, isFinal: Bool)
     case responseStarted(TurnID)
     case replyText(TurnID, String)
-    /// Dropped inside the adapter while revoicing.
+    /// Her voice: the voice model's own audio (F-07 §18 item 1), played after the claim gate.
     case replyAudio(TurnID, PCMBuffer)
     case toolCalls(TurnID, [ToolCall])
     case toolCallCancellation([CallID])

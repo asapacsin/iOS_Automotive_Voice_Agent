@@ -71,7 +71,7 @@ struct TripPhase2cTests {
     @Test("F-15b row 59: nothing open, a plan with stops: trip_cards_hidden, plan unchanged; again: no_navigation_active")
     func row59() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         let r = await rig.nav.execute(exit())
         #expect(r.data["status"] == "trip_cards_hidden")
         #expect(await rig.planner.cardsHidden)
@@ -88,19 +88,19 @@ struct TripPhase2cTests {
         var table = tianjin
         table["车站"] = [spot("天津站", lat: 39.13, lng: 117.21), spot("天津西站", lat: 39.16, lng: 117.16)]
         let rig = await TripRig(search: TripSearch(table))
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         _ = await rig.nav.execute(trip("navigate_to", ["destination": "车站"]))
         #expect(await rig.nav.current.phase == .awaitingDestinationSelection)
         #expect(await rig.nav.execute(exit()).data["status"] == "navigation_selection_cancelled")
         #expect(await rig.planner.cardsHidden)
     }
 
-    @Test("F-15b row 61 (§51 item 2): hidden, then edit_trip_list read shows; hidden again, trip_next is refused; trip_plans list leaves them hidden")
+    @Test("F-15b row 61 (§51 item 2, §55 item 1): hidden, then a new plan shows; hidden again, trip_next is refused; trip_plans list leaves them hidden")
     func row61() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         _ = await rig.nav.execute(exit())
-        _ = await rig.run(trip("edit_trip_list", ["action": "read"]))
+        _ = await rig.run(planCall(["places": names(["古文化街"])]))
         #expect(await !rig.planner.cardsHidden)
         _ = await rig.nav.execute(exit())
         #expect(await rig.planner.cardsHidden)
@@ -114,18 +114,43 @@ struct TripPhase2cTests {
     @Test("F-15b row 62: guidance running: navigation_stopped, the cards stay")
     func row62() async {
         let rig = await TripRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街", "五大道"])]))
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
         #expect(await rig.run(trip("trip_next")).ok)
         #expect(await rig.nav.execute(exit()).data["status"] == "navigation_stopped")
         #expect(await !rig.planner.cardsHidden)
     }
 
-    @Test("F-15b row 63: the exit and edit texts carry the §22 item 4 sentences; the rest is Android's")
+    @Test("F-15b row 63: the exit text carries the §22 item 4 sentences; the rest is Android's")
     func row63() {
         let android = ToolCatalog.generatedSpecs.first { $0.name == "exit_navigation_mode" }!.declaration.description
         let ios = ToolCatalog.spec("exit_navigation_mode")!.declaration.description
         #expect(ios == android.replacingOccurrences(of: "按 status 答：", with: ToolCatalog.exitPanelText + ToolCatalog.exitCardsText))  // + F-09b §17 item 4
         #expect(ios.contains("每次说关掉都要调用，没调用不要说已关闭。按 status 答：trip_cards_hidden=已收起行程卡片，navigation_stopped="))
-        #expect(ToolCatalog.spec("edit_trip_list")!.declaration.description.contains("「清单里有什么」「打开行程」「看看行程」→read"))
+        #expect(ToolCatalog.spec("edit_trip_list") == nil)
+    }
+}
+
+@Suite("T-031zg F-09b §22 review fixes: a panel's 「×」 closes only that panel")
+struct PanelCloseFlowTests {
+    private func close(_ panel: String) -> ToolCall { trip("exit_navigation_mode", ["panel": .string(panel)]) }
+
+    @Test("T-031zg row 1 (real flow): guidance running and the trip cards shown: tripScreen closes the cards, guidance keeps running; routePicking or destinationList with nothing to pick closes nothing")
+    func guidanceKept() async {
+        let rig = await TripRig()
+        _ = await rig.run(planCall(["places": names(["古文化街", "五大道"])]))
+        #expect(await rig.run(trip("trip_next")).ok)
+        #expect(await rig.nav.current.phase == .navigating)
+        let hidden = await rig.nav.execute(close("tripScreen"))
+        #expect(hidden.data["status"] == "trip_cards_hidden", "\(hidden)")
+        let hiddenNow = await rig.planner.cardsHidden
+        let stillDriving = await rig.nav.current.phase
+        #expect(hiddenNow && stillDriving == .navigating)
+        for panel in ["routePicking", "destinationList"] {
+            let none = await rig.nav.execute(close(panel))
+            #expect(!none.ok && none.code == .noOptionsOnScreen, "\(panel) \(none)")
+            #expect(await rig.nav.current.phase == .navigating)
+        }
+        // `navigation` (her 「结束导航」) still ends guidance.
+        #expect(await rig.nav.execute(close("navigation")).data["status"] == "navigation_stopped")
     }
 }

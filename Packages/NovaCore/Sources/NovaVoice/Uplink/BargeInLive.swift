@@ -42,6 +42,8 @@ public struct BargeInLive: Sendable {
     private var carrySkip = 0
 
     public var enabled = false
+    /// F-04b §19 item 3: the candidate let go at `bufferCap` (only that one may still be stopped by the voiceprint).
+    private var capped: Int?
     private var state = State.idle
     private var now = NovaDuration.zero
     private var logs: [String] = []
@@ -138,6 +140,7 @@ public struct BargeInLive: Sendable {
         switch state {
         case .keeping(let id, let since, _, _, _) where now - since > Self.bufferCap:
             cancel(id, reason: "cap", into: &step)
+            capped = id
         case .carrying(let id, let since, _, let buffer, _) where now - since > Self.bufferCap:
             out += buffer
             state = .idle
@@ -149,9 +152,70 @@ public struct BargeInLive: Sendable {
         return step
     }
 
+    /// F-04b §19 item 3 (T-013n): the speaker lock split candidate `id` at an accepted window; its first `n` audio
+    /// frames are her echo and are never sent. Returns how many kept frames were dropped (the rest, if it was already
+    /// released, is dropped by whoever queues it).
+    @discardableResult
+    public mutating func dropKept(_ n: Int, utterance id: Int) -> Int {
+        switch state {
+        case .keeping(id, let since, var audio, let dipped, let closed):
+            let k = min(n, audio.count)
+            audio.removeFirst(k)
+            state = .keeping(id: id, since: since, audio: audio, dipped: dipped, closed: closed)
+            return k
+        case .carrying(id, let since, var kept, let held, let skip):
+            let k = min(n, kept.count)
+            kept.removeFirst(k)
+            state = .carrying(id: id, since: since, kept: kept, held: held, skip: skip)
+            return k
+        default:
+            return 0
+        }
+    }
+
+    /// F-04b §19 item 3 (T-013n): the voiceprint accepted a window of candidate `id`: she stops now, as `wouldStop`
+    /// does, whatever the words check says. Not kept any more (the cap, or a decision already made): `audio` (its
+    /// speech from the split on) is sent instead. Nil when there is nothing to stop.
+    public mutating func voiceAccepted(_ id: Int, audio fallback: [PCMFrame16k], gateOpen: Bool) -> Step? {
+        var step = Step()
+        switch state {
+        case .keeping(id, let since, let audio, _, let closed):
+            state = .idle
+            step.actions.append(.stop)
+            step.outputs = [.speechStarted(sentToModel: true)] + audio.map(UplinkGateOutput.audio)
+            if closed { step.outputs += [.speechStopped(.normal), .streamEnd] } else { step.adopt = true }
+            logs.append("bargeInStop \(id) heldMs=\((now - since).milliseconds) by=voiceprint")
+        case .idle where gateOpen && enabled && capped == id:
+            step.actions.append(.stop)
+            step.outputs = [.speechStarted(sentToModel: true)] + fallback.map(UplinkGateOutput.audio)
+            step.adopt = true
+            logs.append("bargeInStop \(id) heldMs=0 by=voiceprint")
+        default:
+            return nil
+        }
+        return step
+    }
+
+    /// F-04b §19 item 4: candidate `id` was her echo: let it go (her volume back), never carried into the next one.
+    public mutating func echoDropped(_ id: Int) -> Step {
+        var step = Step()
+        switch state {
+        case .keeping(id, _, _, _, _), .carrying(id, _, _, _, _):
+            if case .carrying(_, _, _, let buffer, _) = state { step.outputs += buffer }
+            state = .idle
+            carryArmed = false
+            cutAtUnmute = false
+            step.actions.append(.dip(false))
+            logs.append("bargeInDipCancelled \(id) reason=echo")
+        default: break
+        }
+        return step
+    }
+
     /// Item 10: the setting changed; turned off, a candidate being checked is dropped at once.
     public mutating func setEnabled(_ on: Bool) -> Step {
         enabled = on
+        if !on { capped = nil }
         var step = Step()
         if !on { release(reason: "settingOff", into: &step) }
         return step
@@ -160,6 +224,7 @@ public struct BargeInLive: Sendable {
     /// Item 12: a stop phrase stopped her; the candidate is §14–§16's, never released here.
     public mutating func stopPhrase() -> Step {
         var step = Step()
+        capped = nil  // the stop utterance is never released as a question (F-08 §16 item 1, §17 item 12)
         release(reason: "stopPhrase", into: &step)
         return step
     }
@@ -202,6 +267,7 @@ public struct BargeInLive: Sendable {
         for event in events {
             switch event {
             case .started(let id, let candidate):
+                capped = nil
                 if case .keeping(let old, _, _, _, _) = state { cancel(old, reason: "superseded", into: &step) }
                 cutAtUnmute = false
                 // Item 10: guidance is never interruptible; off is exactly today's behaviour.

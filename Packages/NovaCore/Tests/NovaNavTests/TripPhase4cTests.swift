@@ -17,7 +17,7 @@ struct TripPhase4cTests {
                                                                  retryDelay: .milliseconds(1)),
                                 here: GeoCoordinate(latitude: 35.77, longitude: 139.8, datum: .gcj02), abroad: FakeApple(tokyo),
                                 handoff: { place in opened.withLock { $0.append(place.name) }; return true })
-        _ = await rig.run(trip("make_trip_list", ["places": names(["浅草寺"]), "abroad": true]))
+        _ = await rig.run(planCall(["places": names(["浅草寺"]), "abroad": true]))
         let r = await rig.run(trip("trip_next"))
         #expect(r.ok && r.data["status"] == "trip_next")
         #expect(engine.requests.withLock { $0 }.map(\.abroad) == [true])
@@ -33,7 +33,7 @@ struct TripPhase4cTests {
                                                                  retryDelay: .milliseconds(1)),
                                 here: GeoCoordinate(latitude: 35.77, longitude: 139.8, datum: .gcj02), abroad: FakeApple(tokyo),
                                 handoff: { place in opened.withLock { $0.append(place.name) }; return true })
-        _ = await rig.run(trip("make_trip_list", ["places": names(["浅草寺"]), "abroad": true]))
+        _ = await rig.run(planCall(["places": names(["浅草寺"]), "abroad": true]))
         let r = await rig.run(trip("trip_next"))
         #expect(engine.requests.withLock { $0 }.map(\.abroad) == [true])
         #expect(rig.lines.withLock { $0 }.contains { $0.hasSuffix("ok=no code=ROUTE_CALCULATION_FAILED") })
@@ -44,7 +44,7 @@ struct TripPhase4cTests {
     @Test("F-15b row 114a: home trip (abroad=false): the route request is not abroad (高德 as today)")
     func row114a() async {
         let (rig, _) = await timesRig()
-        _ = await rig.run(trip("make_trip_list", ["places": names(["古文化街"]), "city": "天津"]))
+        _ = await rig.run(planCall(["places": names(["古文化街"]), "city": "天津"]))
         let r = await rig.run(trip("trip_next"))
         #expect(r.ok)
         #expect(rig.engine.requests.withLock { $0 }.map(\.abroad) == [false])

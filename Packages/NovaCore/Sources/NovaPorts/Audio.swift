@@ -52,6 +52,12 @@ public enum PlaybackEvent: Sendable, Hashable {
     case replyIdle(Epoch)
 }
 
+/// F-04b §19 item 0 (T-013n): her playback level for the echo-aware VAD: one RMS (PCM16 units) per 10 ms frame of
+/// the reply lane as the phone plays it. The adapter calls `handler` off the audio thread's hot path.
+public protocol PlaybackLevelSource: Sendable {
+    func onPlaybackLevel(_ handler: @escaping @Sendable (Double) -> Void)
+}
+
 /// Three lanes on one voice-processing engine (ios-architecture §6.4).
 public protocol PlaybackPort: Sendable {
     /// Synchronous: stop the reply lane and raise the epoch. Audio of older epochs is discarded.
@@ -88,27 +94,6 @@ public protocol AudioSessionEvents: Sendable {
 /// How 小诺 speaks (F-21, `A/SpeakingStyle.kt` wire names).
 public enum SpeakingStyle: String, Sendable, Hashable, CaseIterable {
     case `default`, sweet, tsundere, gentle, lively
-}
-
-/// Why a clause was not synthesised. Codes only (I-8): `QWEN_TTS_AUTH`, `QWEN_TTS_TIMEOUT`, ...
-public struct SpeechSynthesisError: Error, Sendable, Hashable {
-    public let code: String
-    public init(_ code: String) { self.code = code }
-}
-
-/// Her voice (Qwen-Audio TTS, F-07 §14): one clause to 24 kHz PCM. Throws `SpeechSynthesisError` or `CancellationError`.
-public protocol SpeechSynthesizer: Sendable {
-    func synthesize(_ text: String, deadline: NovaDuration) async throws -> PCMBuffer
-    /// One minimal request so the synthesis path is warm; at most once per 15 s. Never played.
-    func warmUp() async
-}
-
-/// F-07 §14 item 8 (T-020a): a synthesizer that also says when its first audio arrived, for the
-/// `voice … first_ms=` line. One that cannot tell is timed as a whole.
-public protocol FirstAudioTimedSynthesizer: SpeechSynthesizer {
-    /// The clause's audio and the milliseconds from the request to its first audio bytes.
-    func synthesizeTimed(_ text: String, deadline: NovaDuration) async throws
-        -> (pcm: PCMBuffer, firstMs: Int)
 }
 
 /// Speaks a guidance sentence when the relay falls back (OQ-IOS-10).

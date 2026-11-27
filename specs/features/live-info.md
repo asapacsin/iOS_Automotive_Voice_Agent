@@ -246,7 +246,7 @@ This section replaces §16 items 4, 5 and 8, and the parts of items 7 and 12 sta
 **Rule in plain words.** She still talks through `gemini-3.8-live` and still calls `web_search`. Our app now asks `qwen3.7-flash` instead of Gemini, using a separate key. Nothing else about how she finds information changes.
 
 1. **Key.** Add `CredentialKey.qwenAPIKey = "qwen_api_key"` and a `SettingsView` row 「阿里云百炼 key（联网搜索）」. It is write-only and kept in the Keychain like the others, and `CredentialWipe` removes it. A missing key never blocks a session or changes the Gemini key's readiness.
-2. **Telling the driver.** The setting's caption says: 「需要阿里云百炼 key。问题会发到阿里云新加坡。」 The setting's default stays off.
+2. **Telling the driver.** The setting's caption says: 「需要阿里云百炼 key。问题会发到阿里云北京。」 (北京 since F-18 §40, 2026-11-25; was 新加坡) The setting's default stays off.
 3. **The client.** `QwenWebSearchClient` in `NovaRealtime` replaces `GeminiWebSearchClient`, and the Gemini client and its tests are removed:
    - `POST https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`, headers `Authorization: Bearer <key>`, `Content-Type: application/json` and `X-DashScope-SSE: enable`. The key appears only in that header.
    - Body: `model` from one constant, `qwen3.7-flash`; `input.messages` with a `system` and a `user` message, each `content` being `[{"text": ...}]`; `parameters`: `result_format: "message"`, `incremental_output: true`, `enable_thinking: false`, `enable_search: true`, `search_options: {"search_strategy": "agent", "enable_source": true}`.
@@ -1231,3 +1231,1089 @@ Commit 9059a11 moved the routes to the dated snapshot `qwen3.7-flash-2026-07-15`
 | Task | Scope | Verify |
 |---|---|---|
 | T-046u | Items 1–8; rows 1–12 | unit, gate, build, D |
+
+## 33. The paid-call limits apply to tests and PC scripts only; the app is not capped (iOS, owner rule 2026-11-23)
+
+**Why (owner phone test 2026-11-23, build d0a0797, record 20261123-094001).** 「我安排一下行程」 started one driver turn.
+In it `set_trip_plan` placed the stops (the Qwen picker, `qwen.picker`), then the model fixed the plan twice by itself
+(§55 of F-15b). The picker was allowed twice; the third pick was refused after 7 ms (`trip pick … ok=no reason=failed
+ms=7`, §32 item 1: 2 calls per route per turn). §32 item 4 then closed the turn to every paid call, so her
+`web_search` 「厦门中山路步行街附近推荐景点」 was refused unsent (`LIVE_INFO_UNAVAILABLE`, `reason: budget`). She told the
+driver 「由于网络限制」 and 「现在系统暂时无法连接网络」, which was false.
+
+**Cause.** §32 put the limits in the app: the app's budget (`CallBudget.shared = CallBudget()`) takes the default
+`BudgetLimits.standard`, the same numbers the unit tests check. The limits were sized when one driver turn meant one
+or two searches; a trip request now makes its own paid calls and fix rounds inside one turn, so normal use reads as a
+runaway loop.
+
+**Owner rule (2026-11-23).** The limits are for tests and PC scripts. Normal use of the app has no call limit.
+
+1. **An on/off switch in the limits.** `BudgetLimits` gains `enforce: Bool`.
+   - `BudgetLimits.standard` keeps every number of §32 item 1 and the repeat rule of item 2, with `enforce: true`.
+   - New `BudgetLimits.unlimited`: `enforce: false` (its numbers are not read).
+2. **`CallBudget.ask` checks limits only when `enforce` is on.** With it off, `ask` returns `.allow` for every
+   capped route: no turn, route, session, day or token limit, no repeat refusal, and the turn is never closed. It
+   still counts the call (turn, session and day counters, the day store) and `done` still writes the record line of
+   §32 item 5, so a record shows what each conversation cost.
+3. **The app's budget is unlimited.** `CallBudget.shared` is built with `.unlimited`. Every app call site keeps
+   asking the shared budget as today; none is changed.
+4. **Tests keep the limits.** `CallBudget()` and `CallBudget(limits:)` default to `.standard`, so the §32 tests and
+   every other test that builds its own budget are unchanged.
+5. **PC scripts keep their limits.** §32 item 6 (`--yes`, `--max-calls`, stop at the first quota error) is unchanged.
+6. **The quota breaker stays in the app.** §32 item 3 is not a limit of ours: it acts only when the vendor answers
+   "quota used up", and then tries the route's backup model for the rest of the day. `quota` refusals are unchanged.
+7. **What she says on a refusal.** The only refusal left in the app is `quota`. Its `next` says the online lookup is
+   not available now; she must not say the network or the internet is down (§32 item 4's sentence: 「现在查不了网上的信息」,
+   never 「网络」 or 「连不上网」). A reply that blames the network after a `LIVE_INFO_UNAVAILABLE` result is drift for the
+   reply check (F-05a §4 item 4).
+8. **Backstop.** DashScope Stop-on-Exhaust stays on (§32 item 7): with no app limit, it is what stops a runaway loop
+   from spending past the free quota.
+9. **Replaces.** §32 item 1's limits and item 2's repeat rule now apply only where `enforce` is on (tests); §32
+   rows 1–4 and 7 test `.standard`. §32 row 12 (device: nothing over the limits) is void.
+10. **Code.** `BudgetLimits` (`enforce`, `.unlimited`); `CallBudget.ask` (the `enforce` check); `CallBudget.shared`;
+    the `LIVE_INFO_UNAVAILABLE` `next` text for `quota`; the reply-check drift rule.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 13 | `CallBudget.shared`: 50 calls on `qwen.picker` and `qwen.live` in one turn, 10 of them the same query | All allowed; no `refused=` line; `paid … turnN=50` in the last record line | unit |
+| 14 | `CallBudget(limits: .standard)`: §32 rows 1–4 and 7 | Same results as today (refused at 3 per turn, 2 per route, 41st in a session, 300 a day, 3rd repeat) | unit |
+| 15 | `CallBudget.shared` after a fake DashScope 403 quota code | That model refused `quota` for the day; backup tried once (as §32 row 5) | unit |
+| 16 | `LIVE_INFO_UNAVAILABLE reason=quota` reaches her; she replies 「网络有问题」 | `next` has no network wording; the reply counts as drift | unit |
+| 17 | Device: 「规划厦门三天」, then she adds places with `web_search` in the same turn | No `refused=budget` or `refused=repeat` in the record; the search runs | D |
+
+**Trace gate.** Add `T-046v: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046v.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046v | §33 items 1–10; rows 13–17 | unit, D |
+
+## 34. Every record entry is one line: search bodies are escaped (iOS, owner request 2026-11-23)
+
+**Why (record 20261123-101517, build d0a0797).** Qwen's search reply is a server-sent-event stream: blocks of
+`id:`, `event:`, `:HTTP_STATUS/200` and `data:{…}` lines separated by blank lines. §18 item 2 writes that body raw, so
+one `search-response … body=id:1` entry runs on over about 140 more lines with no time in front (22 of them `data:`
+lines). Every other entry is one line that starts with its time (F-12 §17). A reader that goes line by line
+(`scripts/records/read.py`, grep, the TTFT sheet script) takes those lines for entries of their own or drops them.
+
+**What stays.** §18 is unchanged in what it records: the exact request body and the raw reply body, cut at 32,000
+characters as §18 item 2, local record only (§18 item 8, I-8's exemption for the owner-enabled record). Only the way
+the body is written changes, and it can be turned back into the exact bytes.
+
+1. **Escaping.** In `search-request … body=` and `search-response … body=`, the body is written with `\` as `\\`,
+   line feed as `\n`, carriage return as `\r` and tab as `\t`, in that order. Nothing else changes; the entry is one
+   line. The 32,000-character cut (§18 item 2) applies to the body before escaping.
+2. **No other entry may hold a line break.** The record encoder replaces any line feed or carriage return left in any
+   other entry's text with a space (as `reply turn=` already does), so no event kind can break a line again.
+3. **Record format 5.** `ConversationRecord.formatVersion` goes from 4 to 5 with a new fixture
+   `record-format-5.txt` whose session includes a search reply with line breaks, tabs and backslashes; a row in
+   `specs/contracts/record-format.md` (F-12 §21 items 3–4).
+4. **Reader.** `scripts/records/read.py` gets a format-5 reader that unescapes the two `body=` fields back to the exact
+   text, with a test on the fixture. The format-4 reader treats a line with no leading time after a
+   `search-response` or `search-request` line as part of that entry's body (best effort, rows marked `legacy=true`), so
+   the records already pulled stay readable.
+5. **Code.** `ConversationRecord.searchLines` (escaping), the line encoder (item 2), `formatVersion`, the fixture,
+   `record-format.md`, `scripts/records/read.py`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 18 | A search reply body with blank lines, `data:` lines, a tab and a backslash | One `search-response` line; unescaping its `body=` gives the exact body | unit |
+| 19 | A search request body with a line break in the system text | One `search-request` line; round-trips exactly | unit |
+| 20 | Any other event with a line break in its text | Written as one line, the break as a space | unit |
+| 21 | The fixed session encoded | Equals `record-format-5.txt`; header `recordFormat 5`; `check_record_format.py` passes | unit, gate |
+| 22 | `read.py` on the format-5 fixture and on record 20261123-101517 (format 4) | Format 5: the body unescaped exactly. Format 4: one search-response row holding the whole body, `legacy=true` | gate |
+| 23 | Device: one search, then pull the record | Every line after the header starts with a time | D |
+
+**Trace gate.** Add `T-046w: F-18` to `specs/trace-ids.txt` together with the first `@Test` that names T-046w.
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046w | §34 items 1–5; rows 18–23 | unit, gate, D |
+
+## 35. Time-limited events: a browse loop finds them, code checks their dates on the page, a local store keeps them (iOS, owner request 2026-11-24)
+
+**Why (owner phone test 2026-11-24, build 35ce0ff, record 20261124-145528).** The driver asked for exhibitions, 漫展,
+cosplay or AI events in 珠海/澳门 for the coming days. `web_search` (one `qwen3.7-flash` `turbo` call) gave wrong or no
+answers: 589489 returned three Macau events (one open until Nov 25) and she said 「未来这几天暂无」; 646936 timed out at
+10 s and she said 「查询不到」; 714678 listed events and she said 「近期的展览已结束」. The owner: the agent must plan trips
+around temporary events, not only fixed sights.
+
+**PoC on the PC (2026-11-24, the app's search request shape, question 「11月25日到29日珠海和澳门有什么展览、漫展、cosplay或AI活动」).**
+- One forced search per question, 40+ runs over `qwen3.7-flash` `turbo`, `qwen3.8-flash` / `qwen3.8-max` /
+  `qwen3.8-max-0902` / `qwen3.8-2.4t-a95b` `max`, thinking on and off: every strong setup answered 「没有」 for Nov 25–29.
+  Naming the sites in the question, or `search_options.assigned_site_list` on 11 event sites (B站会员购, 大麦, 猫眼,
+  聚展网, 51展, 本地宝, gov.mo, 澳门旅游局, 文化局, 珠海会展中心…), changed nothing: only macaotourism.gov.mo came back.
+  The search returns the same sites for the same query every run; it never opens a page.
+- **Browse loop** (`scripts/eval/event_browse_poc.py`: `qwen3.8-max` with two tools, `search` returning links and
+  `open_page` returning the page text, up to 12 steps, 3 runs): 2/3 found **2026横琴人工智能大赛AI嘉年华, 11月28日-29日,
+  珠海国际会展中心7-8号馆** on a 珠海本地宝 page (opened and read: 「活动时间：11月28日-29日 ➤活动地点：珠海国际会展中心7-8号馆」);
+  1/3 found 珠海·AS动漫游园会SP 11月28日 from an 抖音 summary it could not open. 115–149 s and about 100K tokens per
+  run. Pages built by script (B站会员购, 抖音, 大麦) return no text to a plain fetch.
+
+**Published practice this copies.** Browse with search and open actions and answer only from opened pages, with the
+source (Nakano et al., "WebGPT: Browser-assisted question-answering with human feedback", 2021; Yao et al., "ReAct:
+Synergizing Reasoning and Acting in Language Models", ICLR 2023). Keep event data in your own store and query it at
+decision time (PredictHQ docs, "Search Events"). Resolve date words to explicit dates and check returned items fall in
+the window (Mike Bifulco, "Your LLM doesn't know what day it is"; dev.to "Stop letting LLMs hallucinate dates").
+
+**Owner rule (2026-11-24).** Events are found by a browse loop in the background, kept on the phone, and only events
+whose dates code finds on the opened source page are used.
+
+1. **Tool `find_events`.** Arguments `cities` (1–3 real city names, never a province), `from`, `to` (`YYYY-MM-DD`),
+   `kinds` (the driver's words, 「漫展、cosplay、AI」). `NON_BLOCKING`, result `WHEN_IDLE` (§27). Code checks: `from` ≥
+   today, `to` ≥ `from`, `to` − today ≤ 60 days; else refused naming the field (read shape = write shape). Her catalog
+   text says to call it for exhibitions, shows, 漫展, festivals or any event on dates, and that she gives the dates
+   (「这周末」 is the coming Saturday and Sunday by the 现在 note's date). Declared only with search on.
+2. **Store first.** The event store (item 5) is read for each city and the window. When every city was browsed less
+   than 24 h ago for a window covering `from`…`to`, the result is built from the store at once (no network).
+3. **Browse loop on a miss.** *(System text, question, tools, model settings and last step replaced by §38.)* Otherwise code runs the loop: model `qwen3.8-max` (backup chain §36) on the
+   compatible-mode chat endpoint with tools `search(query)` (the app's search route, `max`, `qwen3.8-flash`, returning
+   title, url and site of up to 10 results, not the answer text) and `open_page(url)` (code fetches the page, 20 s,
+   2 MB, desktop browser user agent, `zh-CN`; strips script and style; returns item 4's excerpt and up to 40 links). At
+   most 12 tool calls and 180 s; then code asks once for the final JSON. The system text is copied from a published
+   browsing-agent prompt (WebGPT's or ReAct's, cited in the code) with the date, the cities, the window and the JSON
+   shape `{"events": [{"name","start","end","dates_text","venue","city","source_url"}], "note"}` added; the PoC's own
+   text is not used (owner rule 2026-11-05: search prompts are copied, never written).
+4. **Fewer tokens per page.** *(Replaced by §38 item 4: `open_page` returns the page text.)* `open_page` returns only the page's title and the lines that hold a date (item 6's
+   parser) with one line before and after, up to 2,500 characters; a page with no date returns its first 600
+   characters. A page already returned is replaced in the conversation by 「（已读：<url>）」 after the next model turn.
+   Target ≤ 30K tokens per loop (the response `usage`), recorded.
+5. **Event store (device).** `Application Support/events.json`: entries {name, start, end, dates_text, venue, city,
+   source_url, source_site, fetched_at}, plus per city the windows browsed and when. An entry is kept only when item 6
+   passes. Entries whose `end` is before today are dropped on load. A refresh replaces a city's entries for the window
+   it browsed. Filled by `find_events` misses and by `plan_trip` (F-15b §64); refreshed when the app opens if the car's
+   city (or the open trip's cities) was browsed more than 24 h ago, for today…today+30, in the background, at most one
+   loop at a time. Local only, never sent anywhere (I-8).
+6. **Code checks every event's dates on its page.** The text `open_page` fetched for `source_url` must contain dates
+   that parse to the event's `start` and `end`. The parser reads 「2026年11月28日」, 「11月28日」, 「11月28日-29日」,
+   「11月28日至12月12日」, 「11.28-29」, 「2026-11-28」, 「11/28」, with the year from the page's own date or the window. Not
+   opened, or dates not found: the event is dropped and counted in `dropped`. Code also drops events outside
+   `from`…`to`.
+7. **Result.** `ok=true`, `events` (from the store or the loop, sorted by start), `dropped` (count), `sites` (the
+   sites read), `source: store|browse`, and `next`: 「这些是页面上写着日期的活动。按日期跟司机说名字、日期、地点，一两句；
+   没有就说在<sites>上没找到这几天的，不要说一定没有。」 A loop that ends with no model answer or times out: `ok=false`,
+   `code=EVENTS_FAILED`, `next` 「活动没查完，跟司机说现在查不到，等一下再试；不要说没有活动。」
+8. **She is told it runs.** The spinner row (F-15b §62 item 12) shows 「正在查活动」, then 「已搜索<n>次，读了<m>个页面」 as
+   the loop goes. A handoff line is said by code as for `plan_trip`: 「好，我去查一下这几天的活动，要一两分钟，好了告诉你。」
+   On a store hit there is no line and no row.
+9. **Record.** `events store hit|miss cities=<n> window=<from>..<to>`, `events browse step=<n> kind=search|open
+   ms=<ms> ok=<yes|no>`, `events browse done steps=<n> ms=<ms> tokens=<n> found=<n> kept=<n> dropped=<n>`, `events
+   failed reason=timeout|http|json`.
+10. **Code layout.** Loop, parser, store and result in `Packages/NovaCore` (no network); the page fetch and the chat
+    client in `Packages/NovaRealtime` next to the Qwen clients. Catalog change: agent version bump per F-09b §15.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 24 | Fake loop returns the AI嘉年华 with the 本地宝 page text (11月28日-29日) and one event whose page lacks its dates | First kept (start 2026-11-28, end 2026-11-29); second dropped, `dropped=1` | unit |
+| 25 | Parser on each item 6 form, with and without a year on the page | Each gives the right start and end | unit |
+| 26 | Store holds 珠海 browsed 3 h ago for today…+30; `find_events` 珠海 for this weekend | Result from the store, `source: store`, no network call, no handoff line | unit |
+| 27 | Store browsed 30 h ago | Loop runs; spinner text changes per step; store updated | unit |
+| 28 | Loop hits 12 calls / 180 s; model never answers | `EVENTS_FAILED`, item 7's `next`; record `events failed reason=timeout` | unit |
+| 29 | `from` yesterday; `to` 90 days out; a province as city | Each refused naming the field | unit |
+| 30 | Page excerpt (item 4) on the 本地宝 page | The date line and its neighbours kept, ≤ 2,500 chars; a read page replaced by 「（已读：…）」 | unit |
+| 31 | PC eval: the loop with the cited system text, 珠海+澳门, 2026-11-25…29, 5 runs | ≥ 4/5 keep at least one event whose page states dates in the window; 0 kept events with dates not on their page; median ≤ 30K tokens and ≤ 180 s | eval |
+| 32 | Device: 「这周末珠海有什么展」, keep talking for a minute, then wait | She says the handoff line, answers other questions meanwhile, then names the events with dates; asked again, she answers at once from the store | D |
+
+**Trace gate.** Add `T-046x: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046x.
+
+## 36. Every Qwen job has a backup chain on a used-up quota (iOS, owner request 2026-11-24)
+
+**Why (owner 2026-11-24, DashScope console).** The free quotas go fast: `qwen3.8-max` 686K of 1M left and
+`qwen3.8-flash` 855K after one day of PoCs; Stop-on-Exhaust is on, so a used-up model answers 403. Today the place
+picker (F-15b §59 item 2) and the trip planner (F-15b §62 item 7) have no backup: when `qwen3.8-flash` runs out, place
+lookups and trip planning stop. On the key (all Enabled, 1M each, until 2027-01-08): `qwen3.8-flash`, `qwen3.8-max`,
+`qwen3.8-max-0902`, `qwen3.8-2.4t-a95b`, `qwen3.8-27b`; plus `qwen3.7-flash-2026-07-15` and `qwen3.7-plus` in use. PC
+check 2026-11-24: `qwen3.8-max` and `qwen3.8-flash` accept `search_strategy: max`, not `agent`; `qwen3.8-plus` does
+not exist; `qwen3.8-2.4t-a95b` refuses `enable_thinking: false`.
+
+**Owner rule (2026-11-24, amends F-15b §50 item 10, §59 item 2 and §62 item 7).** A used-up quota moves the job to the
+next model of the same family in a fixed list; a different kind of planner or picker is still never used.
+
+1. **One ordered list per job in `QwenRoute`**, replacing the single `backupModel`:
+   live search `qwen3.7-flash-2026-07-15` → `qwen3.8-flash` → `qwen3.8-max`;
+   ground `qwen3.7-plus` → `qwen3.7-flash-2026-07-15` → `qwen3.8-flash`;
+   picker `qwen3.8-flash` → `qwen3.8-max` → `qwen3.8-max-0902`;
+   planner `qwen3.8-flash` → `qwen3.8-max` → `qwen3.8-max-0902`;
+   events loop (§35) `qwen3.8-max` → `qwen3.8-max-0902` → `qwen3.8-2.4t-a95b` (thinking on, streamed);
+   events `search` tool `qwen3.8-flash` → `qwen3.8-max`.
+   Each entry carries its own search options and thinking flag. A model enters a list only after row 35 passes for it.
+2. **When to move.** HTTP 429, or 403 with a quota or exhausted code, before any answer arrives: the same request goes
+   to the next entry, each entry once per call, within the job's time limit (§50 item 10's rule, now over the list).
+   Any other error is the job's failure as today.
+3. **Remember a used-up model.** A 403 quota answer marks that model used up until the app restarts or 24 h pass; later
+   calls start at the first entry not marked. A 429 uses §50 item 10's 60 s cooldown.
+4. **Record.** `qwen fallback job=<job> from=<model> to=<model> reason=quota|rate`, and `qwen exhausted model=<model>`
+   once when marked. The 设置 page's diagnostics show which models are marked used up.
+5. **Nothing else changes.** Prompts, timeouts, search options per job, and §62 item 7's "no other planner" (the chain
+   is the same planner job on a sibling model).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 33 | Fake HTTP: planner first model 403 quota, second 200 | Plan made by the second; record `qwen fallback job=planner … reason=quota` and `qwen exhausted` | unit |
+| 34 | All three planner entries 403; then a later call | `PLANNER_FAILED` as §62 item 7; the later call fails at once with no request until 24 h pass or a restart | unit |
+| 35 | PC eval per new list entry: picker replay (F-15b §59, 22 names), planner eval (§62 row 286, 5 runs), live search (F-18 search eval, 10 questions), events loop (row 31) | Each entry meets its job's bar before it is listed | eval |
+| 36 | 429 on the live route | §50 item 10's cooldown; next entry used; no exhausted mark | unit |
+
+**Trace gate.** Add `T-046y: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046y.
+
+## 37. Background results that overlap or arrive late (iOS, owner request 2026-11-24)
+
+**Why (record 20261124-145528, build 35ce0ff).** Background tools already run while she talks, several at once: 526916
+and 529074 started two `web_search` calls 2 s apart about the hotel's breakfast; both answered (530390 「包含早餐」, 533322
+「不一定」) and she said both (turns 70, 71), contradicting herself. At 380649, while `plan_trip` ran, she said
+「抱歉，选项已过期」, which nothing had returned. §35's loop runs 1–3 minutes, so late and overlapping results become
+common, and a result may arrive after the Live session reconnected (F-05).
+
+1. **A newer `web_search` replaces an older one.** When a `web_search` starts while an earlier `web_search` of the
+   session is running, the earlier one's result, if it arrives after the newer one started, is held while the newer
+   one runs; when the newer one ends ok, the older one is dropped (record `tool-result web_search dropped
+   reason=superseded`); if the newer one fails, the older one is sent. Other tools are unchanged.
+2. **She knows what is still running.** The 现在 note (F-09b §16) carries 「后台在查：活动（已过<n>秒）」 or
+   「后台在查：行程」 for each running `find_events` / `plan_trip`. A reply that says there is no result, no event, or that
+   something expired, for a tool still running, gets the pending-result correction (F-15b §58 `TRIP_RESULT_PENDING`,
+   generalised to `RESULT_PENDING tool=<name>`): 「<工具>还在查，跟司机说还在查，好了告诉他。」
+3. **A late result survives a reconnect.** The app keeps every running async call and its result. If the session
+   reconnected after the call started (the call id is unknown to the new session), the result is sent as a text turn
+   instead of a tool response: 「（刚才<工具>的结果：<result JSON>）」 with the tool's `next`, `turnComplete` true, when she
+   is idle. Record `tool-result <name> via=text reason=reconnected`.
+4. **Results older than 10 minutes** are not spoken; they go to the store (§35) or the plan (F-15b §62) only. Record
+   `tool-result <name> dropped reason=stale`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 37 | Two `web_search` 2 s apart, the older answers last, the newer ok | Only the newer result reaches her; the older recorded `dropped reason=superseded` | unit |
+| 38 | Same, the newer fails | The older result is sent | unit |
+| 39 | `find_events` running 40 s; her reply 「没有找到活动」 | `RESULT_PENDING tool=find_events` correction; 现在 note has 「后台在查：活动（已过40秒）」 | unit |
+| 40 | Session reconnects while `find_events` runs; result arrives | Sent as item 3's text turn when idle; record `via=text reason=reconnected` | unit |
+| 41 | Device: ask for weekend events, then two quick questions, and force a reconnect (airplane mode 5 s) | The event answer still arrives and is spoken once; no contradiction from two searches | D |
+
+**Trace gate.** Add `T-046z: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046z.
+
+**Tasks (§35–§37).**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-046x | §35 items 1–10 (`find_events`, store, browse loop with a cited system text, page excerpts, date check on the page, result, spinner, record); rows 24–32 | unit, eval, D |
+| T-046y | §36 items 1–5 (backup chain per Qwen job, used-up memory, record); rows 33–36 | unit, eval |
+| T-046z | §37 items 1–4 (superseded search, pending-result correction, late result after reconnect, stale results); rows 37–41 | unit, D |
+
+## 38. The events loop is the PoC that worked, not a cut-down copy (iOS, owner request 2026-11-24)
+
+**Why (record 20261124-173419, build 1a062de; PC replica 2026-11-24).** Every `find_events` on the phone failed, so
+nothing was saved. The PoC (`scripts/eval/event_browse_poc.py`, §35) found 2026横琴人工智能大赛AI嘉年华 in 2/3 runs. §35
+items 3–4 then built something else, and row 31 (the PC eval) never ran before PASS. A PC replica of the app's loop at
+1a062de (2 runs, `qwen3.8-max`, the app's texts and tools):
+- **Last step.** After 12 tool calls the app asks for the JSON without tools. Both runs answered with two more tool
+  calls (「Let me verify the remaining candidate events…」), so `EventBrowseLoop` dropped the reply and logged `events
+  failed reason=timeout` at 70 s of 180 s. The same messages with `tools` and `tool_choice: "none"` gave JSON.
+- **Empty pages.** That JSON had no events: 「页面正文抓取均返回空内容」. §35 item 4 keeps only date lines and one line
+  either side (≤ 2,500 characters), so a list page (jufair, 51zhan) loses the event names; onezh answers a plain fetch
+  with 423 bytes.
+
+| | PoC (worked) | §35 as built (fails) |
+|---|---|---|
+| System text | The PoC's Chinese brief, ending 「查够了就只输出 JSON」 | One ReAct sentence plus values; nothing says when to stop |
+| Tool descriptions | Yes | None |
+| `open_page` returns | Page text, ≤ 6,000 characters, ≤ 40 links | Date lines ± 1 line, ≤ 2,500 characters; read pages replaced by 「（已读：…）」 |
+| Thinking, streaming | Off, not streamed | On, streamed |
+| Last step | 「步数用完了，现在按要求只输出 JSON。」 | `finalAsk` without tools; a reply with tool calls fails the loop |
+
+**Owner decision (2026-11-24).** Build the PoC as it ran. Its system text, question and tool descriptions are used word
+for word, as an owner-approved exception to the search-prompt rule (2026-11-05) for this loop only; only the values
+(date, weekday, cities, window, kinds) are filled in.
+
+1. **System text (replaces §35 item 3's ReAct sentence).** The PoC's `SYSTEM`, with 「今天是<YYYY>年<M>月<D>日（周<X>），在<城市>」
+   from the 现在 note's date and the car's city (the first of `cities` when there is no fix), and the JSON shape changed
+   to §35 item 3's (`name, start, end, dates_text, venue, city, source_url`):
+   「你是会上网查资料的助手，今天是…，在…。你有两个工具：search 搜网页（返回标题、链接、摘要），open_page 打开一个链接读全文。
+   像人一样查：换不同说法多搜几次，打开活动列表页、主办方页、票务页读原文，顺着页面里的链接继续找。日期只认你打开的页面里写的。
+   查够了就只输出 JSON：<shape>。没找到就 events 为空。」
+2. **Question.** 「<from 月日>到<to 日>（<YYYY>年）<cities 以「和」连接>有什么<kinds>？只要这几天开放的。」 (the PoC's
+   sentence with the values filled in), replacing §35's JSON question.
+3. **Tools.** The PoC's two tools with their descriptions: `search` 「搜索网页，返回最多10条结果（标题、链接、摘要）。」 and
+   `open_page` 「打开一个网页链接，返回页面正文文字（最多6000字）和页面里的链接。」
+4. **`open_page` returns the page (replaces §35 item 4).** `{"text": <page text, scripts and styles removed, whitespace
+   collapsed, first 6,000 characters>, "links": <up to 40 {url, text}>}`, or `{"error": …}`. No date-line excerpt, no
+   「（已读）」 replacement. The full text is still kept by code for §35 item 6's date check.
+5. **Model call.** `qwen3.8-max` on the compatible-mode chat endpoint, `enable_thinking: false`, not streamed (the
+   PoC's settings; `QwenRoute.eventsLoop` changes). Backup chain as §36.
+6. **Last step.** After 12 tool calls (or when 180 s is near, as today), code adds the PoC's 「步数用完了，现在按要求只输出
+   JSON。」 and sends it with `tools` and `"tool_choice": "none"`, so the model must answer. A reply that still has no
+   JSON is `reason=json`, not `timeout`.
+7. **Failure reasons say what happened.** `events failed reason=timeout` only when the time ran out; `http` for a non-200;
+   `json` for an answer that does not parse; new `tools` if a reply to the last step still has tool calls.
+8. **Not changed.** §35 items 1, 2, 5–10 (arguments, store first, store, date check on the opened page, result, spinner,
+   record, layout), §36, §37. 180 s and 12 tool calls stay. The ~30K-token target of §35 item 4 is dropped (the PoC used
+   about 100K per run).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 42 | `EventBrowseLoop.system`, `question`, `tools` for 珠海+澳门, 2026-11-25…29, 会展 | Equal to the PoC's texts with those values (fixture copied from `event_browse_poc.py`) | unit |
+| 43 | `open_page` on a fixture list page with names three lines above their dates | `text` holds the names and the dates; ≤ 6,000 characters; ≤ 40 links | unit |
+| 44 | Fake model answers the last step with tool calls; then with JSON | Request has `tools` and `tool_choice: "none"`; first: `reason=tools`; second: events checked as §35 item 6 | unit |
+| 45 | Request body of a loop turn | `qwen3.8-max`, `enable_thinking: false`, no `stream` | unit |
+| 46 | **PC, before the build:** the app's loop (same texts, tools, settings) for 珠海+澳门, 2026-11-25…29, 3 runs | ≥ 2/3 keep at least one event whose opened page states dates in the window; no run fails on the last step; times and tokens in STATUS. Not met: stop and report, no build | PC |
+| 47 | Device: 「这周末珠海澳门有什么展」, wait | She names events with dates; asked again, she answers from the store | D |
+
+**Trace gate.** Add `T-046za: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046za.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046za | §38 items 1–7; rows 42–47 (46 before the build) | Built; row 46 PASS, row 47 device FAIL (record 20261124-220730); replaced by §39 (T-046zb) |
+
+## 39. Events come from several short searches and the search's own answer, not a browse loop (iOS, owner request 2026-11-24)
+
+**Why (owner phone test 2026-11-24, build 9384bbf, record 20261124-220730).** The driver asked 「最近在澳门珠海这里有什么活动吗」,
+then for 漫展/音乐/AI 展, then "this month or next", then Macau free exhibitions. She said there was nothing, four times.
+- **The loop found nothing.** The first `find_events` (珠海+澳门, 11-24…29) ran 12 steps, 62 s, 57,482 `qwen3.8-max`
+  tokens: `found=0`. Its `open_page` calls returned in 115–437 ms with almost no text. The month-long call (11-24…12-24)
+  found one event (VAC电音节, 11-28…29) in 67 s and 71,906 tokens.
+- **The store returned an empty result as a hit.** The 漫展/音乐/AI call (129703) and the Macau call (325799) did no
+  search: `events store hit`, `events: []` in 0–1 ms. The kinds the driver gave were ignored. She said
+  「我确实很认真地多方位帮您找过了」 for a lookup that never ran.
+- **Row 46 measured the wrong thing.** Its bar was "at least one event in 2 of 3 runs". On the PC the loop kept one
+  event (or none) per run while more than 15 were easy to find.
+
+**PoC on the PC (2026-11-24, `qwen3.8-flash`, the search request §35 item 3 uses, `forced_search`, `search_strategy:
+max`, `enable_source`, no system text, the answer text kept).**
+- One broad question (all kinds, both cities, 11-25…12-31): one search, 8 old or off-topic sources, answer 「无法列出」.
+  This matches §35's PoC: one broad question per search answers 「没有」.
+- Four short keyword queries — 「珠海 漫展 2026年11月 12月」, 「澳门 展览 活动 2026年11月 12月」,
+  「Macau events exhibition anime ACG concert November December 2026」, 「珠海 横琴 2026年11月 12月 展会 AI 演唱会 活动」 —
+  about 1.2–1.7K tokens and one search each, 5.7K in total. The answers named, with dates and venues: 起源ACG动漫展
+  (12-05…06, 珠海香山文化艺术中心), 横琴AI嘉年华 + 人工智能大赛决赛 (11-28…29, 珠海国际会展中心), 第十六届中国航展 (12-07…13),
+  AIE 电子展 (珠海+澳门), 水产前沿国际展 (12-03…05), JEONGHAN X JOSHUA (12-11…12, Galaxy Arena), 澳门光影节
+  (12-05…01-10), 澳门炮竹特展 (to 11-29, free), a Broadway Macau fancon, Macau trade fairs. Missed: 澳门美食节, VAC电音节.
+  Wrong: one answer said the 航展 date was not out yet while another gave 12-07…13.
+- So the search engine finds the events; the loop lost them by keeping only titles and links (§35 item 3), opening
+  pages that return no text, and asking for each date on an opened page.
+
+**Published practice this copies.** Ask the search with short keyword queries, one topic each, and read the search
+system's own grounded answer with its sources (Alibaba Cloud Model Studio, "Web search" — `enable_search`,
+`search_options.enable_source`, `forced_search`, `search_strategy`; the PoC above). Turn the text into records with a
+schema-bound extraction call (OpenAI, "Structured Outputs" guide: system text 「Extract the event information.」 with a
+JSON schema). Keep event data in your own store and query it at decision time (PredictHQ docs, "Search Events", as
+§35). Resolve date words to explicit dates and check items fall in the window (as §35).
+
+**Owner decision (2026-11-24).** Replace the browse loop (§35 items 3, 4, 6 and all of §38) with several short
+`qwen3.8-flash` searches whose answer text is kept, and one extraction call. Dates come from the search answers; no
+page is opened, no date is checked on a page. She says the dates are from the web.
+
+1. **Queries.** For each city in `cities` and each kind, one query: 「<城市> <kind> <YYYY>年<M>月」, adding 「 <M>月」 for
+   each further month the window touches (at most 3 months). Kinds: the driver's `kinds` split on 、，, and spaces (at
+   most 5); with no `kinds`, the default five: 展览展会, 漫展 ACG, 演唱会 演出, AI 科技展, 节庆活动. At most 12 queries
+   per call (cities × kinds in that order, then the English ones); the rest are dropped and counted. For 澳门 and 香港 one extra query in
+   English: 「<Macau|Hong Kong> events exhibition concert <Month> <YYYY>」.
+2. **Search call.** Each query is one request on the app's search route (§35 item 3's endpoint and options:
+   `qwen3.8-flash`, `enable_search`, `forced_search: true`, `search_strategy: max`, `enable_source: true`,
+   `enable_thinking: false`), the query as the only user message, **no system text**. Kept: the answer text and
+   `search_info.search_results` (title, url, site). At most 4 requests at once; each 45 s; a failed or timed-out query
+   is skipped and counted, the others go on. Backup chain §36 (`qwen3.8-flash` → `qwen3.8-max`).
+3. **Extraction.** One call, `qwen3.8-flash` (chain §36), compatible-mode chat, `enable_thinking: false`,
+   `response_format: {"type": "json_object"}`. System text 「Extract the event information. Answer in JSON.」 plus
+   the JSON shape `{"events": [{"name","start","end","dates_text","venue","city","source_url"}]}`, today's date and the
+   window as values. User message: each query's answer text followed by its numbered sources. 30 s.
+   *(Amended 2026-11-25.)* The first sentence is copied (see above). 「Answer in JSON.」 is required by the API, not
+   wording of ours: JSON mode needs the word "JSON" in the messages (OpenAI, "Structured Outputs" guide, JSON mode
+   section: "you must always instruct the model to produce JSON via some message"; Alibaba Cloud Model Studio,
+   "Structured output", the same rule for `json_object`). Row 55's first run (2026-11-25, T-046zb at 5d9680a) got
+   HTTP 400 on the extraction call after all 11 searches succeeded; the system text had no "JSON". Code and the PC
+   replica print the error body of a non-200 answer (`events extract failed status=<code> body=<first 300 chars>`).
+4. **Code checks each event** (replaces §35 item 6). `start`, `end` parse as dates, `end` ≥ `start`; the event overlaps
+   `from`…`to` and `end` ≥ today; `city` is one of `cities`; `source_url` is one of the sources the searches returned
+   (else the first source of the query whose answer names the event, else dropped). Same name and start from two
+   queries: kept once. Dropped events are counted in `dropped`.
+5. **Store (amends §35 items 2 and 5).** Kept events go to `events.json` as today. A city and window are marked
+   searched **per kind**; a later call is a store hit only when every city × kind it asks for was searched less than
+   24 h ago for a covering window. **A search that kept no event for a city × kind marks it for 30 minutes, not 24 h.**
+   The app-open refresh (§35 item 5) uses the default kinds.
+6. **Result (amends §35 item 7).** `ok=true`, `events`, `dropped`, `sites`, `source: store|search`, and for a store
+   hit `searched_minutes_ago`. `next` on a search: 「这些是网上查到的活动，日期以主办方为准。按日期跟司机说名字、日期、地点，
+   一两句，提醒出发前核实；没有就说这几类在网上没查到，不要说一定没有。」 On a store hit, the same text starting
+   「这是<n>分钟前查到的，」 so she never says she just searched. All queries failed: `ok=false`, `code=EVENTS_FAILED`,
+   §35 item 7's failure `next`.
+7. **She is told it runs (amends §35 item 8).** Handoff line 「好，我查一下这几天的活动，半分钟左右。」; spinner
+   「正在查活动」, then 「已查<n>/<m>」 as queries finish.
+8. **Record.** `events store hit|miss cities=<n> kinds=<k> window=<from>..<to>`, `events query <i>/<m> ms=<ms>
+   ok=<yes|no> sources=<n> tokens=<n> q=<query>`, `events extract ms=<ms> tokens=<n> found=<n>`, `events search done
+   ms=<ms> queries=<m> failed=<f> kept=<n> dropped=<n> tokens=<n>`.
+9. **Removed.** `EventBrowseLoop`, `open_page`, the page fetch, the page date parser's use in `find_events` (kept only
+   if F-15b §64 still needs it), §38's texts and its `QwenRoute.eventsLoop`. F-15b §64 reads the store as before.
+10. **Code layout.** Query building, checks, store and result in `Packages/NovaCore` (no network); the search and
+    extraction clients in `Packages/NovaRealtime` next to the Qwen clients. Catalog/agent version bump per F-09b §15.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 48 | 珠海+澳门, 2026-11-25…12-31, no kinds | 11 queries: 5 kinds × 2 cities as 「珠海 漫展 ACG 2026年11月 12月」, plus 「Macau events exhibition concert November 2026」; with 3 cities, queries past 12 dropped and counted | unit |
+| 49 | Search request body | `qwen3.8-flash`, `forced_search`, `search_strategy: max`, `enable_source`, no system message; answer text and sources kept | unit |
+| 50 | Fake answers: an event with an invented URL, one outside the window, one from two queries | URL replaced by the query's first source; outside dropped; duplicate kept once; `dropped` counts | unit |
+| 51 | Store: 珠海 展览展会 searched 2 h ago; call asks 漫展 ACG | Store miss, searches 漫展 only | unit |
+| 52 | A search kept 0 events; same call 10 min later, then 40 min later | First: store hit with `searched_minutes_ago=10`; second: searches again | unit |
+| 53 | Store hit result | `next` starts 「这是<n>分钟前查到的」; `source: store` | unit |
+| 54 | 3 of 10 queries time out | Others used; record `failed=3`; `ok=true` | unit |
+| 55 | **PC, before the build:** the app's queries and extraction for 珠海+澳门, 2026-11-25…12-31, 3 runs, against `scripts/eval/events_reference_2026-11.json` (events confirmed by hand on their source pages) | Each run finds ≥ 60% of the reference events with the right start date and no event outside the window; median ≤ 60 s and ≤ 25K flash tokens; times and tokens in STATUS. Not met: stop and report, no build | PC |
+| 56 | Device: the 2026-11-24 drive again: 「最近珠海澳门有什么活动」, then 「有没有漫展、音乐或者 AI 展」, then 「澳门有什么免费的展」 | Several events with dates each time; the kinds question searches again; no 「认真找过了」 for a store answer | D |
+
+**Reference list for row 55** (candidates from 2026-11-24 searches; the task confirms each on its source page and
+drops any it cannot): 横琴AI嘉年华 11-28…29; 横琴VAC电音节 11-28…29; 起源ACG动漫展 12-05…06; 第十六届中国航展
+12-07…13; AIE 电子展 12-03…05 (珠海, 澳门); 水产前沿国际展 12-03…05; 澳门美食节 11-20…12-06; 澳门国际光影节
+12-05…2027-01-10; JEONGHAN X JOSHUA 12-11…12; 韦礼安 澳门站 12-12; 圣诞购物展 威尼斯人 12-11…13; HIGHLIGHT fan concert
+11-29; LINGORM fancon 11-28; 澳门炮竹特展 to 11-29; 横琴马拉松 12-27.
+
+**Trace gate.** Add `T-046zb: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zb.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zb | §39 items 1–10; rows 48–56 (55 before the build); supersedes T-046za | NOT_RUN |
+
+## 40. All Qwen jobs move to the Beijing 百炼 account and its free-quota models, earliest expiry first (iOS, owner order 2026-11-25)
+
+**Why (owner, 2026-11-25).** The Singapore account went −20.09 USD overdue (a model's Stop-on-Exhaust switch was off),
+and an overdue account answers 403 `AccessDenied.Unpurchased` for every model, so every Qwen job in the app fails. The
+owner moved to a Beijing 百炼 account. Its free-quota models (1M each, Stop-on-Exhaust **on** for all) and when their free
+quota expires: `qwen3.8-max-0902` 2026-12-01, `deepseek-v4.1-flash` 2026-12-13, `deepseek-v4.1-flash-1017` 2027-01-17,
+`kimi-k3.1-pro` 2027-02-02, `qwen4-max` 2027-02-14. Owner rule: use the one that expires first first.
+
+**PC check (2026-11-25, Beijing key, Clash route DIRECT for `aliyuncs.com`).**
+- Plan (`TripPlannerShape.system`, the §64 row 301 request with two events): `qwen3.8-max-0902` 7.6 s, 868 tokens;
+  `deepseek-v4.1-flash` 4.0 s, 966 tokens. Both: valid JSON, 4 days, 长隆海洋王国 in, all nights in 珠海, last night
+  null, events only on 11-28/29.
+- Search (compatible mode, `enable_search`, `max`, one broad query): `deepseek-v4.1-flash` 35 s 18.4K tokens,
+  `deepseek-v4.1-flash-1017` 27 s 16.5K, `qwen4-max` 40 s 16.7K, each 2/7 reference events; `qwen3.8-max-0902` no answer
+  in 120 s and 240 s; `kimi-k3.1-pro` answered that it cannot go online. With §39's short queries (4 queries)
+  `deepseek-v4.1-flash` found 4/7 (AI嘉年华 with dates, venue, free entry; 航展; AIE; 韦礼安) for 41.9K tokens.
+- The app's own request shape: `deepseek-v4.1-flash` on the **native** multimodal endpoint, streamed, `turbo`, forced,
+  sources: 5.5 s, `search_info.search_results` 9 sources. `qwen3.8-max-0902` there without search: 2 s. So the clients
+  and request bodies do not change.
+
+1. **Endpoints.** `QwenRoute.endpoint` = `https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`;
+   `QwenRoute.plannerEndpoint` = `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions` (Beijing). The key is
+   the 设置 「千问 key」 (Keychain `qwen_api_key`); the owner enters the Beijing key there.
+2. **Chains (replace every list in `QwenRoute`, amends F-18 §36 item 1 and F-15b §50/§59/§62).** `awaitingEval` empty.
+   - Search jobs `live`, `ground` (`turbo`, forced, sources) and `eventsSearch` (`max`, forced, sources):
+     `deepseek-v4.1-flash` → `deepseek-v4.1-flash-1017` → `qwen4-max`.
+   - Jobs without search `picker`, `planner`, `eventsExtract`: `qwen3.8-max-0902` → `deepseek-v4.1-flash` →
+     `deepseek-v4.1-flash-1017` → `kimi-k3.1-pro` → `qwen4-max`.
+   - Thinking off everywhere; streaming, budgets and options per job unchanged.
+3. **Only these five models.** No other model name in `QwenRoute`, the clients or PC scripts (no `qwen3.7-*`,
+   `qwen3.8-flash`, `qwen3.8-max`, `qwen-plus`, `qwen3.7-plus-2026-05-26`). A used-up or expired free quota answers 403
+   `AllocationQuota.FreeTierOnly`; `QwenFallback` already treats a code containing `Quota` as quota and moves on.
+4. **PC scripts.** `scripts/eval/*` read `DASHSCOPE_API_KEY_CN` and use the Beijing endpoints and these models.
+5. **Tests.** Every test that names an old model or the `dashscope-intl` endpoint is updated to item 1–2's values; a test
+   walks every job's chain and fails on any model outside item 3's five.
+6. **Picker speed (watch).** `picker` has 2.5 s; `qwen3.8-max-0902` answered a 1-token call in 2 s, so a pick may time out
+   until 2026-12-01. Record `pick … ms=` on the phone; if picks time out, the owner decides whether the picker starts at
+   `deepseek-v4.1-flash`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 57 | `QwenRoute` | Both endpoints Beijing; chains as item 2; `awaitingEval` empty | unit |
+| 58 | Every job's chain; `scripts/` | Only item 3's five models | unit, gate |
+| 59 | Fake 403 `AllocationQuota.FreeTierOnly` on the first planner model | Next model answers; record `qwen fallback … reason=quota` | unit |
+| 60 | Device, Beijing key in 设置: 「最近珠海澳门有什么活动」, then a 4-day 珠海 trip | Events with dates; a plan; record shows `deepseek-v4.1-flash` / `qwen3.8-max-0902`; no 403 | D |
+
+**Trace gate.** Add `T-046zc: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zc.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zc | §40 items 1–6; rows 57–60; before any other build | NOT_RUN |
+
+## 41. Every search goes through the Responses API `web_search` tool (iOS, owner order 2026-11-25)
+
+**Why (phone run 2026-11-25, build 8f4fc7b).** On the Beijing key every `enable_search` call returns HTTP 200 with no
+pages: `search_info` empty, `usage.plugins.search.count` 1, the model gets only the question (20–47 input tokens) and
+answers from memory. Phone record `D:\ndrecords\8f4fc7b\20261125-131517.txt`: 11 event queries `ok=yes sources=0`,
+`kept=0`, so she says 查不到. Same on the PC for every search model, `turbo`/`max`/plain, streamed or not, native and
+compatible-mode, and with a new key; `scripts/eval/event_search_replica.py 1` → 0/7. The 百炼 web page with 联网搜索
+shows sources. §40's PC check said `enable_search` returned sources; it does not on 2026-11-25 afternoon, so §40's
+"the clients and request bodies do not change" is withdrawn for the search jobs.
+
+**PC check (2026-11-25, `DASHSCOPE_API_KEY_CN`, `https://dashscope.aliyuncs.com/compatible-mode/v1/responses`).**
+- `tools: [{"type":"web_search"}]`, `enable_thinking: false`, not streamed, the query as the only user message:
+  `deepseek-v4.1-flash` 「今天珠海天气怎么样」 8 s, 9 sources, 2.6K tokens, right weather for 11-25;
+  「澳门 展览展会 2026年11月」 9 s, 19 sources, 3.2K tokens, events with dates (AHSE 11月18–20日 …);
+  「珠海 漫展 ACG 2026年11月」 5 s, 17 sources, 3.4K tokens (起源ACG 12月5–6日 …).
+- With `web_extractor` added and thinking on (`scripts/search_eval/run.py` S3): 55–108 s and 36–39K tokens per query
+  on `deepseek-v4.1-flash`, `-1017`, `qwen4-max`, 47–65 sources. Too slow and too costly for the app: not used.
+- `qwen4-max` with thinking off and `web_search` only: one call timed out at 300 s. Not verified as a fallback.
+- `kimi-k3.1-pro` + `web_search`: 0 sources (stays out of the search chain, as in §40).
+- Response shape (seen): `output[]` items of `type` `web_search_call` (`status`, `action.query`,
+  `action.sources[]` = `{"type":"url","url":…}`, no title or site) and `message` (`content[].type` `output_text`,
+  `text`, `annotations` empty); `usage.total_tokens`, `usage.x_tools.web_search.count`.
+
+1. **Endpoint.** `QwenRoute.responsesEndpoint` = `https://dashscope.aliyuncs.com/compatible-mode/v1/responses`. The jobs
+   `live`, `ground`, `eventsSearch` send there; `picker`, `planner`, `eventsExtract` are unchanged.
+2. **Request.** `{"model", "input": [the same role/text messages the client sends today, as {"role","content": text}],
+   "tools": [{"type":"web_search"}], "enable_thinking": false}`, not streamed, `Authorization: Bearer <千问 key>`.
+   No `enable_search`, `search_options`, `web_extractor`. The messages' wording does not change (owner rule 2026-11-05).
+3. **Reading the answer.** Answer = the `output_text` texts of the `message` items, joined. Sources = every
+   `web_search_call` item's `action.sources[].url`, in order, duplicates dropped; title and site empty. "The search ran"
+   (`QwenTripGrounder`, the events query's `sources=`) means at least one source. Tokens = `usage.total_tokens`.
+4. **Chain.** Search jobs: `deepseek-v4.1-flash` → `deepseek-v4.1-flash-1017` → `qwen4-max` (§40 item 2), fallback rules
+   unchanged (429, quota 403 → next model). Budgets unchanged (`ground` 30 s, `eventsSearch` 45 s per query).
+5. **Record.** Each search line keeps `sources=` and `tokens=`; add `searches=` (count of `web_search_call` items). A
+   200 with 0 sources is logged `ok=yes sources=0` as today.
+6. **PC scripts.** `scripts/eval/event_search_replica.py` sends item 2's request (so row 55 measures what the app sends).
+7. **Tests.** Fixture: a recorded `web_search` response (the shape above) parsed into answer, sources, tokens; the request
+   body has `tools` and no `enable_search`; the three search clients use `responsesEndpoint`.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 61 | `QwenRoute.live`, `.ground`, `.eventsSearch` request | URL `…/compatible-mode/v1/responses`; body `tools` `[{"type":"web_search"}]`, `enable_thinking` false; no `enable_search`/`search_options` | unit |
+| 62 | Fixture `web_search` response | Answer text, sources = the `action.sources` urls (deduplicated), tokens = `usage.total_tokens` | unit |
+| 63 | `QwenTripGrounder` with the fixture | Grounded (search ran); with a response without `web_search_call` → not grounded | unit |
+| 64 | PC: `event_search_replica.py 1` on the Beijing key | Row 55 bar (≥ 60% of the reference events, none outside the window) | PC |
+| 65 | Device: 「今天珠海天气怎么样」 then 「最近珠海澳门有什么活动」 | Answer with today's facts; events with dates; record `sources=` > 0 | D |
+
+**Trace gate.** Add `T-046zd: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zd.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zd | §41 items 1–7; rows 61–65; before the next build | NOT_RUN |
+
+## 42. Search through the 七牛云 (Qiniu) web search API; a model reads the results (iOS, owner order 2026-11-25)
+
+**Superseded 2026-11-26 by §46:** Qiniu is removed; events use Tavily (§46), `live`/`ground` use §41 again.
+
+**Why (2026-11-25).** §41's Aliyun `web_search` lets the model search 3–14 times inside one request: 48–123K tokens
+and 24–51 s per events question, events found swinging 2–5 of 7 run to run. In one afternoon of tests the free quota of
+`deepseek-v4.1-flash` ran out and `deepseek-v4.1-flash-1017` fell to 290K. The owner chose Qiniu's search API, which
+returns plain results (no model tokens), and three searches per events question.
+
+**PC check (2026-11-25, Qiniu AI API key, `https://api.qnaigc.com/v1`).**
+- Search `POST /v1/search/web` `{"query", "max_results": 20, "search_type": "web"}`: 2–4 s, 20 results each, dated
+  11-17…11-24 for 「珠海 澳门 2026年11月 12月 展览展会」 (AIE电子展, 航展, 「澳门11月宝藏展览合集」). The backend is
+  Baidu Search (Qiniu's doc). Response: `success`, `data.results[]` with `title`, `url`, `content` (snippet), `date`,
+  `source`, `score`; `data.total`; errors as `{"error": {"message", "type"}}`.
+- Events, three queries (both cities each; kind groups 「展览展会 科技展」, 「演唱会 演出」, 「漫展 节庆 嘉年华」), 3 runs,
+  identical: the reference events named in titles/snippets after query 1: 2/7 (航展, AIE); after query 2: 4/7 (+VAC,
+  韦礼安); query 3 adds none. Never found: 横琴AI嘉年华, 水产前沿国际展, LINGORM.
+- Extraction on the 54 results of the three queries, `deepseek/deepseek-v4-flash-20260731`, chat completions,
+  `json_object`, system 「Extract the event information. Answer in JSON.」 + shape + today/window/cities: 3 runs, each
+  3/7 (VAC, 航展, AIE; 韦礼安 was in the results but not extracted), 21.6–30.5 s, 16.3–16.8K tokens (about 3.3K of them
+  reasoning: thinking is on by default).
+- Limit: the 6th search within one minute answered 429 `rate limit reached for RPM`. Qiniu's docs give no number.
+- Price: Qiniu bills models from a token pack weighted by model price (base: DeepSeek-V3.1 input 0.004 元/K);
+  `deepseek-v4-flash-20260731` is 0.001–0.002 元/K input, 0.004–0.008 元/K output (time of day). The `/v1/search/web`
+  price and whether it draws on the pack are not on Qiniu's pages (2026-11-25): **not verified**.
+- Not tested: the `live` and `ground` jobs on Qiniu (rows 75, 76 are the PC checks before the build).
+
+1. **Key.** 设置 gets a field 「七牛云 key」 under 联网 (Keychain `qiniu_api_key`, write-only like the other keys, never in
+   logs). It takes the AI 大模型推理 API key (`sk-…`), not an AccessKey/SecretKey. With no 七牛云 key, the search jobs
+   stay on §41 unchanged.
+2. **Search call.** `POST https://api.qnaigc.com/v1/search/web`, `Authorization: Bearer <七牛云 key>`, body
+   `{"query": <query>, "max_results": 20, "search_type": "web"}`, 15 s. Kept per result: `title`, `url`, `content`,
+   `date`, `source`. A non-200, `success: false` or a timeout is a failed search (retry: §43 item 1, replaces "a 429
+   is logged `reason=rate_limit` and not retried").
+3. **Model.** `QwenRoute`-style route on `https://api.qnaigc.com/v1/chat/completions` with the 七牛云 key, model
+   `deepseek/deepseek-v4-flash-20260731`, not streamed. A failed call is retried on Qiniu (§43 item 1; the fallback to §41
+   is withdrawn, owner 2026-11-25).
+4. **Events (`eventsSearch` + `eventsExtract`, replaces §39 item 1 and §41 for this job).** At most 3 queries per
+   `find_events` call, each naming all cities of the call: 「<城市1> <城市2> … <YYYY>年<M>月[ <M>月…] <kind group>」 (months
+   as §39 item 1). Kind groups with no `kinds`: 「展览展会 科技展」, 「演唱会 演出」, 「漫展 节庆 嘉年华」; with the
+   driver's `kinds` (split as §39 item 1): one kind per query in order, kinds 4–5 appended to queries 1–2. No English
+   query. All queries at once. Extraction: one call on item 3's model with the system text above (§39 item 3, unchanged
+   wording) and the user message = the results, deduplicated by url, numbered, one per line:
+   `[n] <date> <title> — <content, first 300 characters> (<url>)`; `response_format` `json_object`; 60 s. A kept
+   event's `source_url` is the url of the result number it names. Checks, store and record as §39 items 4–7.
+5. **Her answers and trip grounding (`live`, `ground`).** One search per call with her query (§19/§21 rewrites as now),
+   then one call on item 3's model: the system text and messages stay exactly as §23 item 7 / §24 item 2 (FreshPrompt);
+   the top 10 results go in before the question as FreshPrompt's evidence block, copied from the notebook's
+   `format_search_results` (fields `source`, `date`, `title`, `snippet`, `highlight`, listed here from memory, not
+   re-read: the notebook wins; `snippet` = `content`, `highlight` empty), [FreshPrompt notebook](https://github.com/freshllms/freshqa/blob/main/freshprompt.ipynb). No
+   wording is added (owner rule 2026-11-05). "The search ran" = at least one result.
+6. **Record.** Search lines: `provider=qiniu`, `ms=`, `results=`, `failed=`/`reason=`; extraction and answer lines:
+   `model=`, `ms=`, `tokens=` (prompt, completion, reasoning).
+7. **PC script.** `scripts/eval/event_search_replica.py` gains `--qiniu` (key `QINIU_API_KEY`) running items 2–4
+   exactly, and prints per query time/results and the extraction time/tokens/recall.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 66 | 七牛云 key saved; any search job | `POST …/v1/search/web` with the key as Bearer, body as item 2; never the 千问 key | unit |
+| 67 | No 七牛云 key | Search jobs send §41's request unchanged | unit |
+| 68 | `find_events` 珠海+澳门, no `kinds`, window 11-25…12-31 | 3 queries 「珠海 澳门 2026年11月 12月 展览展会 科技展」, 「… 演唱会 演出」, 「… 漫展 节庆 嘉年华」; no English query | unit |
+| 69 | `kinds` 「漫展、音乐」, city 澳门 | 2 queries 「澳门 2026年11月 漫展」, 「澳门 2026年11月 音乐」 | unit |
+| 70 | Fixture Qiniu search response | Results parsed (title, url, content, date, source); extraction user message lines as item 4 | unit |
+| 71 | Search answers 429 | Replaced by §43 row 78 | — |
+| 72 | Qiniu chat call fails | Replaced by §43 row 79 | — |
+| 73 | 设置 | 「七牛云 key」 field, write-only, Keychain `qiniu_api_key` | build, D |
+| 74 | PC: `event_search_replica.py 3 --qiniu` | ≥ 3/7 reference events in each run; extraction ≤ 60 s | PC |
+| 75 | PC: 「今天珠海天气怎么样」 through item 5 (`live`) | Answer with today's 11-25 facts and a source | PC |
+| 76 | PC: one `ground` request (a place in a trip) through item 5 | Grounded with a source | PC |
+| 77 | Device: 「今天珠海天气怎么样」, then 「最近珠海澳门有什么活动」 | Today's facts; events with dates; record `provider=qiniu`, `queries=3` | D |
+
+**Trace gate.** Add `T-046ze: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046ze.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046ze | §42 items 1–7; rows 66–77; rows 74–76 on the PC before the build | NOT_RUN |
+
+## 43. Qiniu retries instead of falling back; a named event is searched by name; dropped events are logged; event pictures (iOS, owner order 2026-11-25)
+
+**Superseded in part 2026-11-26 by §46:** items 1–3 and 5 stay for Tavily as §46 says; items 4, 6, 7 are withdrawn.
+
+**Why (phone run 2026-11-25, build 98eb278, records `20261125-164242.txt`, `20261125-165923.txt`).**
+- 388037–398073: the Qiniu model call for `live` failed (`reason=network`), the §42 fallback to §41 was cancelled after
+  8 ms (`error=cancelled`), so she said she could not find it. The owner: no fallback, try Qiniu again.
+- 512454–519219: the driver asked 「你知道最近有一个 AI 展吗？」; `find_events` with `kinds` 「AI 展览」 ran 2 queries,
+  `found=2 kept=1 dropped=1`; the record does not say which event was dropped or why. 横琴AI嘉年华 (11-28…29) was
+  then found at once by a `web_search` with its name (742318).
+- The driver asked for a picture of the event (765192, 780852). Qiniu image search (`search_type: image`) for
+  「2026横琴AI嘉年华」 returned other events' photos (PC 2026-11-25); the event's own page (its `source_url`,
+  m.zh.bendibao.com) has an `og:image` that is the event's poster (PC 2026-11-25).
+- **Picture PoC (PC 2026-11-25, the 15 events of `scripts/eval/events_reference_2026-11.json`, item 4's rule as written,
+  every picture looked at).** `og:image` on 3 source pages (珠海本地宝 ×2, 南方网); none on hengqin.gov.cn,
+  zhuhai.gov.cn, people.com.cn, stdaily.com; WeChat pages return nothing; a page's first `<img>` was always site chrome.
+  Pictures shown: 横琴AI嘉年华 (og, the event poster) ✓, 横琴VAC电音节 (og, VAC festival photo) ✓, 横琴马拉松 (og, race
+  photo) ✓, 第十六届中国航展 (search 「大麦与第十六届中国航展达成票务合作」, official poster) ✓, AIE 电子展 (search, an
+  exhibitor's poster with 12月3日-5日 and 珠海国际会展中心) ✓, 澳门国际光影节 (search, official poster 2026.12.05–2027.01.10) ✓,
+  水产前沿国际展 (search, a photo of an older 水产种业博览会 under a 2026 article) ✗: **6 of 7 right (86%)**, none from a shop
+  or generated host. No picture for the other 8 (nothing passed). Rules tried and dropped: no shop filter (2 more wrong:
+  an AI-generated image with garbled text and a Taobao album photo, both `img.alicdn.com`); title containing the first
+  6 characters of the name (LINGORM fancon matched 「lingorm巴黎行」, a personal travel photo: 6 of 8).
+
+1. **Retry, no fallback (replaces §42 item 2's "429 not retried" and §42 item 3's fallback).** A Qiniu search or model
+   call that fails (network error, timeout, HTTP 5xx, 429) is sent again on Qiniu, at most 2 more times, after 1 s and
+   then 3 s, inside the job's budget. A 4xx other than 429 is not retried. After the last try the call is failed as
+   today (no §41 call). **Amended by §45 (owner 2026-11-25): after the last try the job runs on the Qwen API (§41).** Record: `attempt=<n>` on each search/model line.
+2. **A named event is searched by its name.** `find_events` gets an optional argument `name` (string, ≤ 30 characters):
+   the event the driver named (「AI 展」, 「AIE」, 「横琴AI嘉年华」). With `name`, the first query is
+   「<name> <城市1> <城市2> … <YYYY>年<M>月」 and the kind queries follow (§42 item 4, at most 3 queries in all). The
+   tool description says: 司机说了某个活动的名字时填 name。 A stored result does not count as a hit for a call with
+   `name` unless one stored event's name contains `name` or `name` contains it.
+3. **Every dropped event is logged.** One record line per dropped candidate:
+   `events drop name=<name> reason=<no_date|end_before_start|outside_window|past|city|no_source|duplicate>` (the
+   §39 item 4 checks, in that order; the first failed check is the reason).
+4. **Event pictures (PoC-tested, see below).** For each kept event, in order, the first that gives a picture:
+   a. **The event's own page.** Code fetches its `source_url` once (GET, 10 s, at most 1 MB, no cookies) and reads
+      `<meta property="og:image" content="…">` (else `name="og:image"`; a `//` URL gets `https:`).
+   b. **One image search.** Qiniu `POST /v1/search/web` `{"query": "<event name> <YYYY> 海报", "max_results": 20,
+      "search_type": "image"}` (§42 item 2 key, §43 item 1 retry). The first result is kept whose `title` contains the
+      event's whole name (both lower-cased, spaces removed) **and** whose `date` is from 75 days
+      before the event's start to its end **and** whose `image.url` host is not a shop or generated-image host
+      (`alicdn.com`, `taobao`, `tmall`, `jd.com`, `360buyimg`, `yangkeduo`, `pinduoduo`, or `gen_ai` in the URL).
+   c. Else no picture. No other source (no first `<img>` of the page: on 4 government/news pages it was the site's logo
+      or banner).
+   The URL is kept as the event's `image_url`; the event card (trip event stop, §64) and any list of events on screen
+   show it, 「未找到图片」 when nil (§44 item 3). A picture from (b) is labelled 「网络图片」 under it. Record:
+   `events image name=<name> via=<og|search|none>`. The image search runs at most once per event per day (store), and
+   counts toward Qiniu's per-minute limit (§42 PC check: 429 from the 6th search in a minute).
+
+5. **Event source by name (amends §39 item 4 for Qiniu results).** When an extracted event's `source_url` is not one of
+   the results' urls (and no result number), its source is the first result whose `title` or `content` contains the
+   event's name, its name without a leading 4-digit year, or the part in brackets (「AIE电子展」 of
+   「2026全球智能制造与电子产品博览会（AIE电子展）」), each at least 3 characters; else it is dropped `no_source`. (Qiniu results
+   have no answer text, so §39's "the naming query's answer" never matched.)
+6. **Cities line (amends §42 item 4's system text by one data line, like today/from/to).** The extraction system text
+   ends with 「cities: <城市1>, <城市2>」 (the call's cities). Without it the model wrote 「横琴」 or 「澳门、珠海」 as the city
+   and the event was dropped `window/city`.
+7. **Reasoning stays on for extraction.** On Qiniu `enable_thinking: false` and `thinking: {type: disabled}` do not turn
+   reasoning off (71 and 129 reasoning tokens on a tiny call); only `reasoning_effort: "none"` does, and with it the
+   extraction kept 1/7 (7.5 s) against 2–3/7 with reasoning. The request sends no reasoning parameter.
+
+**Row 74 PoC so far (PC 2026-11-25, `event_search_replica.py 3 --qiniu`, each change on top of the last).**
+
+| Setup | Runs: reference events kept / 7 (s) | Lost where |
+|---|---|---|
+| As built (T-046ze) | 3 (32), 3 (53), 2 (54) | AIE dropped `no_source` (model's url not a result url) |
+| + item 5 | 3 (46), 3 (34), 2 (37) | run 3: VAC dropped `window/city` (city 「横琴」) |
+| + items 5, 6 | 2 (33), 3 (17), 2 (29) | 0 dropped; the extraction itself leaves out VAC or AIE in some runs |
+
+The three searches name 4/7 reference events every run (航展, AIE, VAC, 韦礼安; §42 PC check); the extraction keeps 2–3
+of them. Next PoC (not run): the same saved results through 3 extraction set-ups, 3 runs each (as now; 800-character
+snippets; `deepseek/deepseek-v4-pro`), script `extract_variants.py` in the session scratchpad. **Blocked 2026-11-25
+18:18:** Qiniu answers every search 429 `trial_quota_exhausted` 「Trial period quota exhausted for unverified user」:
+the account needs real-name verification (OWNER, https://portal.qiniu.com/developer/user/identity). Rows 74–76 stay
+NOT_RUN until then.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 78 | Qiniu search answers 429, then 200 | Second try used; record `attempt=2`; no §41 call | unit |
+| 79 | Qiniu chat call fails 3 times (network) | 3 tries at 0, 1, 4 s; then failed as today; no §41 call | unit |
+| 80 | Qiniu answers 401 | Not retried | unit |
+| 81 | `find_events` with `name` 「AI 展」, 珠海+澳门, window in Nov 2026 | First query 「AI 展 珠海 澳门 2026年11月」; at most 3 queries | unit |
+| 82 | Store has events for the window but none with 「AI」 in its name; call with `name` 「AI 展」 | Store is not a hit; searches run | unit |
+| 83 | Extraction gives one event with no dates | `events drop name=… reason=no_date` | unit |
+| 84 | Fixture page with `og:image`; image-search fixture with a shop URL, a wrong title, an old date and a good one | `og:image` used; else only the good search result; else nil | unit |
+| 85 | PC: `name` query for 「AI 展」 on Qiniu | 横琴AI嘉年华 in the results | PC (passed 2026-11-25: 「AI 展 珠海 澳门 2026年11月」 → 「免费参与！2026横琴AI嘉年华来啦！」; 「AIE 珠海 澳门 2026年11月」 → 20/20 AIE) |
+| 85a | PC: item 4 on the 12 reference events, each picture looked at | ≥ 80% of pictures shown belong to the event; none from a shop or generated host | PC (passed 2026-11-25: 6/7) |
+| 86 | Device: 「最近有一个 AI 展吗？」 | 横琴AI嘉年华 with dates; its card shows its poster | D |
+
+**Trace gate.** Add `T-046zf: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zf.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zf | §43 items 1–4; rows 78–86 (85, 85a passed on the PC) | NOT_RUN |
+
+## 44. An event's venue and dates are shown only when a source states them; one search for what is missing; otherwise 「未找到」 (iOS, owner order 2026-11-25)
+
+**Superseded in part 2026-11-26 by §46:** items 3–4 stay; items 1, 2, 5–9 are replaced or withdrawn as §46 lists.
+
+**Why.** Owner 2026-11-25: event results must be reliable on location, time and picture, and 「show not found rather than
+hallucinate」; but a venue that one search finds (AIE) must not be 「未找到」. The events are searched once, kept as
+structured data in the local store (F-18 store), and the trip planner reads them from there (trip-plan §64, §66). Phone
+run 98eb278: she knew AIE was at 威尼斯人, then said she could not locate it; the planner sent the event name to the map
+(trip-plan §66 Why). Today the extraction model fills `venue` and dates from what it read and from memory, and nothing
+checks them.
+
+**PoC (PC 2026-11-25; Claude Opus 5.5 as the extractor, planner and picture judge, no paid model calls; the 7 confirmed
+events of `scripts/eval/events_reference_2026-11.json`; source pages fetched; scripts `rel/check.py`, `rel/rule.py` and
+the store `rel/events_store.json` in the session scratchpad).**
+- Each event's own source page: dates on all 7. A venue on 4 (珠海国际会展中心7-8号馆, 横琴长隆度假区(5号停车场),
+  伦敦人综艺馆 ×2); none on 3: 航展 (「在广东珠海举办」), AIE (a 发布会 story: 「在澳门、珠海同步举办」), 横琴马拉松 (a route).
+- Item 1's checks with 6 planted wrong answers: the 7 real values kept, all 6 caught: 航展 hall from memory, AIE hall
+  from another page, 「横琴」 for 横琴AI嘉年华 (on its page only inside the name; the page says
+  「活动地点 ：珠海国际会展中心7-8号馆」), AIE end 12-06, 韦礼安 12-13, 马拉松 2025. Checking only that the venue text is
+  somewhere on the page let 「横琴」 through.
+- Item 2's search for the 3 without a venue (web search 「<name> 地点 展馆」): AIE → shifair.com page,
+  「展会地址： 珠海国际会展中心」 and 「同步在澳门威尼斯人金光会展中心」, both kept by item 1, 「横琴」 rejected; 航展 → the first
+  page (gmw.cn) names no hall, the next (dayoo.com) 「12月7日至13日在珠海国际航展中心」 kept; 横琴马拉松 → only the 2025
+  race's start (横琴金融岛中央公园, 2025-12-28): 「未找到」 is right, last year's start is not used. Not yet run on Qiniu
+  (blocked, §43): row 92.
+- Map (高德): venues land right (珠海国际会展中心 440402, 横琴长隆国际海洋度假区 440402, 伦敦人综艺馆 820007). Event names
+  looked up as places land wrong: 第十六届中国航展 → 「第十六届中国航展证件管理中心」, AIE → 「奥普塔智能制造」 (a company),
+  2026横琴马拉松 → 「横琴蚝生态庄园」.
+- Pictures (§43 item 4a, each looked at): og:image on 5 of 7 pages: 韦礼安 and LINGORM official posters (their date,
+  time and 伦敦人综艺馆 on the poster), 横琴AI嘉年华 its poster, VAC a VAC festival photo, 马拉松 a race photo; none wrong.
+  gmw.cn and stdaily.com have no og:image; their other images were site icons or other stories' photos.
+- Store to planner: the 7 events kept as structured data (`rel/events_store.json`: venue list, dates, source, picture,
+  how each was confirmed), given to the planner as item 3's text; 4 requests planned from it (this weekend with events;
+  AIE on 12-05 in Macau; 横琴马拉松 on 12-27; 航展 on 12-14). Code check (`rel/plan_check.py`, trip-plan §64 item 4 and
+  §66): every event stop on an open day at a confirmed venue (AIE at 澳门威尼斯人金光会展中心 for the Macau day), 马拉松
+  with no location (「场馆未找到」, no map lookup), 航展 on 12-14 not placed (「12月7日到13日，14号已经结束」); 0 problems.
+  Planted wrong plans (航展 on 12-14, 马拉松 at last year's start, AIE at 「横琴」): all 3 caught.
+
+1. **Checked against the source text (code).** An event's source text is its source result's `title` + `content`, then
+   its source page's text (the §43 item 4a fetch, tags removed; one fetch serves both).
+   a. **Venue.** `venue` is split at 「；」「;」「、」「/」 (an event in two cities has two halls). A part is kept when the
+      source text has it right after a place word: regex `(?:地点|地址|场地|场馆|会场|举办地|在|于|at|venue)[\s：:]{0,3}`,
+      then optionally 「广东」/「广东省」 and optionally one of the call's cities (with or without 「市」), then the part
+      itself. Other parts are dropped. No part kept → no venue.
+   b. **Dates.** Kept when the source text contains the start's year and the start day as one of 「M月D日」 「M月D号」 「M.D」
+      「M/D」 「MM-DD」 「YYYY.MM.DD」 「<English month> D」, and, when the end differs, the end day in one of those forms or,
+      in the same month, as 「D日」/「D号」 after one of `-–—~～至到` within 20 characters after the start day. Else no dates.
+      (Keeping and dropping events, §39 item 4, still uses the model's dates.)
+2. **One search for what is missing.** For a kept event with no venue or no dates after item 1, at most 3 events per
+   `find_events` call (in the order kept): one Qiniu search 「<name> <YYYY> 时间 地点」 (§42 item 2, §43 item 1 retry), then
+   one extraction call (§42 item 4, same text and shape) on its results; the extracted event whose name matches (§43
+   item 5's name variants) gives `venue`/`start`/`end`. Item 1 checks them against each result whose `title`+`content`
+   names the event (same name variants), then that result's page (fetched as §43 item 4a), at most 3 pages, in result
+   order, until confirmed. Confirmed values fill what was missing only (a confirmed value is never replaced).
+3. **「未找到」, never a guess.** In the events text she and the trip planner read (`find_events` result, the events list of
+   trip-plan §64) every event gives 「场馆：<venue>」 or 「场馆：未找到」 and 「日期：<start>–<end>」 or 「日期：未找到」: the
+   fields are always there, so the gap is stated, not left out. On screen (event cards, trip-plan §64 event stop, any
+   list of events) a missing venue shows 「场馆未找到」 with the city, missing dates 「日期未找到」, a missing picture (§43
+   item 4c) 「未找到图片」 in the picture's place. Asked for a picture with none, the tool result says 「未找到这个活动的图片」.
+4. **No map lookup by an event's name.** An event with no venue is never looked up on the map, by its name or anything
+   else, and offers no navigation; with a venue only the venue is looked up (trip-plan §66 item 6, §67 item 2).
+5. **Store.** The F-18 store keeps each event as structured data: `name`, `city`, `venue` (list, confirmed parts only),
+   `start`, `end` (confirmed or none), `source_url`, `image_url`, how each was confirmed (`page`/`search`/none), and the
+   time item 2 ran; item 2 runs at most once per event per day. Later calls and the trip planner read the store; a
+   confirmed value is never refilled from a model.
+6. **Record.** `events check name=<name> venue=<page|search|none> dates=<page|search|none> image=<og|search|none> time=<page|none> ticket=<note|none>`.
+7. **The year sits with the date (amends item 1b).** The start's year counts only within 20 characters before a
+   start-day match, or in the page title; a year anywhere else on the page (「© 2026」 in a footer) does not.
+8. **Start time.** The extraction shape (§42 item 4) gains `"time": "HH:MM"` (empty when not stated). Kept only when the
+   source text has it as 「H:MM」 「HH:MM」 「H点」 「H点MM」, or for 12:00 and later 「下午h时」 「晚上h时」 「下午h点」 「晚上h点」 「hpm」
+   「h p.m.」 (h = hour − 12); else none (「时间：未找到」 is not said; only the date is given). The events text gives
+   「开始：HH:MM」 when kept.
+9. **Ticket note (code only, no model).** From the source text within 30 characters before to 300 after each mention of
+   the start day (any item 1b form): 「售罄」/`sold out` → 售罄; 「无需门票」「免费参与」「免费入场」「免费参观」 → 免费; 「预约」 →
+   需预约; 「票价」「门票价钱」「购票」「开票」「公开发售」 → 需购票; 「报名」/`registration` followed within 40 characters by
+   「截止」/`close` and within 30 more by a date (「M月D日」 or `on <English month> D`) → 报名已截止 when that date is before
+   today, else 报名截止M月D日; 「报名」/`registration` alone → 需报名. The events text and the card give the notes
+   (「门票：免费，需预约」); none → nothing shown (not 「未找到」). The whole page is not scanned: on hk01 pages it caught
+   「售罄」 of another concert and 「预约」 of the site's ticket tips.
+
+**PoC for items 7–9 and trip-plan §66 items 7–8 (PC 2026-11-25, saved pages, `rel/poc2.py`, no model calls):** 26/26.
+Year: 7 real kept; a 2025 story on a page with 「© 2026」 and 马拉松 2025-12-27 caught. Time: 韦礼安 20:00 (「晚上8时」),
+LINGORM 16:00 (「下午4时」) kept; LINGORM 19:00 and AI嘉年华 10:00 (page states none) caught. Ticket: 横琴AI嘉年华 免费，需预约;
+VAC, 韦礼安, LINGORM 需购票; 横琴马拉松 报名已截止 (「Registration will close at 10:00 p.m. on September 12」); 航展 (gmw.cn),
+AIE (stdaily.com) none; 韦礼安 page's 「门票火速售罄」 (another concert) not taken. Hall by city and time fit: trip-plan §66.
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 95 | Page 「…2025年11月28日（六）在伦敦人综艺馆举行… © 2026」, model start 2026-11-28 | Dates none | unit |
+| 96 | LINGORM page text, model time 16:00, then 19:00 | 16:00 kept; 19:00 none | unit |
+| 97 | 韦礼安 page text (「门票火速售罄」 in another story's line, date mention 「2026年12月12日…公开发售」) | Ticket 需购票 only | unit |
+| 98 | 「…December 27… Registration will close at 10:00 p.m. on September 12」, today 2026-11-25 | 报名已截止 | unit |
+| 99 | PC: items 7–9 on the saved reference pages and planted errors | All pass | PC (passed 2026-11-25, 26/26 with trip-plan §66 items 7–8) |
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 87 | Source text 「2026横琴人工智能大赛AI嘉年华… ➤活动地点 ：珠海国际会展中心7-8号馆」; model venue 「横琴」, then 「珠海国际会展中心」 | 「横琴」 → no venue; 「珠海国际会展中心」 kept | unit |
+| 88 | 「➤活动地点 ：广东珠海横琴长隆度假区(5号停车场)」, venue 「横琴长隆度假区」, cities 珠海, 澳门 | Kept | unit |
+| 89 | 「第十六届中国航展将于2026年12月7日至13日在广东珠海举办」; venue 「珠海国际航展中心」, 12-07…12-13 | No venue (item 2 runs); dates kept | unit |
+| 90 | 「2026AIE电子展将于12月3日至5日在澳门、珠海同步举办」; end 12-06, then 12-05 | 12-06 → no dates; 12-05 → kept | unit |
+| 91 | Item 2 fixture: result 1 page names no hall, result 2 「…将于12月7日至13日在珠海国际航展中心举办」; venue 「珠海国际航展中心；珠海国际会展中心」 | Venue 珠海国际航展中心 (the other part dropped); record `venue=search`; one search, one model call | unit |
+| 91a | Item 2 finds nothing confirmed | `find_events` text 「场馆：未找到」; card 「场馆未找到」 + city; no map call; no navigation | unit |
+| 91b | Event with no picture | Card 「未找到图片」; picture request → 「未找到这个活动的图片」 | unit |
+| 92 | PC: Qiniu; item 2 for AIE, 航展, 横琴马拉松 | AIE both halls, 航展 珠海国际航展中心, 马拉松 「未找到」 | PC (NOT_RUN: Qiniu blocked) |
+| 93 | PC: items 1–2 on the 7 reference events and 6 planted errors | 7 kept, 6 caught; AIE and 航展 venues from item 2 | PC (passed 2026-11-25, Opus as extractor, own web search for item 2) |
+| 94 | Device: 「最近有什么活动」, then 「AIE在哪里」 | Every venue and date matches its source or says 未找到; AIE 珠海国际会展中心 and 澳门威尼斯人金光会展中心 | D |
+
+**Trace gate.** Add `T-046zg: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zg.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zg | §44 items 1–9; rows 87–99 (93, 99 passed on the PC) | NOT_RUN |
+
+## 45. When Qiniu still fails, the job runs on the Qwen (百炼) API (iOS, owner order 2026-11-25)
+
+**Superseded 2026-11-26 by §46:** no Qiniu; only §46 item 2's search fallback to §41 remains.
+
+**Why.** The owner (2026-11-25): 「if the 七牛 fail you should use the qwen api instead」. §43 item 1 retries Qiniu and
+then fails the call; the driver then hears that nothing was found although the 千问 key (设置 「阿里云百炼 key」) could
+still answer. The owner's 百炼 console (screenshot 2026-11-25) shows the free quotas left: `kimi-k3.1-pro` 995.84K / 1M
+(to 2027-02-02), `qwen3.8-max-0902` 766.27K / 1M (to 2026-12-01), `deepseek-v4.1-flash-1017` 289.91K / 1M (to
+2027-01-17); `deepseek-v4.1-flash` and `qwen4-max` are not in the screenshot (not verified whether used up or cut off).
+
+1. **Fallback after the retries (amends §43 item 1's "no §41 call").** A Qiniu search or model call that has failed
+   after §43 item 1's tries (or failed at once with a 4xx other than 429), and a Qiniu call made without a saved 千问 key
+   aside, goes to the same job on the Qwen API with the 千问 key, as §41 sends it today:
+   - `live` → `QwenWebSearchClient` (§41 request, the same user message);
+   - `ground` → `QwenTripGrounder` (§41 request, the same input);
+   - `eventsSearch` (one Qiniu query) → that query on `QwenEventSearcher` (§41 request); its answer is used like a Qiniu
+     answer (its sources are the query's results; the Responses sources carry only urls, so the answer text goes in as
+     the first source's snippet in the numbered extraction message);
+   - `eventsExtract` → `QwenEventExtractor` (§39 item 3 request, the same system and user text);
+   - the §43 item 4b image search and the §44 item 2 search for what is missing: no fallback (they are optional steps).
+   The Qwen models, chains and quota rules are §40/§41 unchanged (`QwenFallback`: a used-up model is skipped, so a model
+   whose free quota is gone is not called again for 24 h).
+2. **No 千问 key.** With no 千问 key saved the call fails as §43 item 1 says (no fallback).
+3. **Budget.** The fallback runs inside what is left of the job's budget (`ground` 30 s, `eventsSearch` 45 s per query,
+   `eventsExtract` 60 s, `live` the executor's); with nothing left it is not started.
+4. **Record.** After the failed Qiniu lines (§43 item 1, one per try), one line
+   `fallback provider=qwen job=<live|ground|events|events_extract> after=<reason>[ status=<code>]`; the §41 call's own
+   lines follow as today (events: the query line's `sources=`/`tokens=` are the Qwen call's).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 100 | 七牛云 and 千问 keys; Qiniu `live` model call fails 3 times (5xx) | §41 `live` request sent with the 千问 key; her answer is §41's; record `fallback provider=qwen job=live` | unit |
+| 101 | Same, `ground` search fails 3 times (network) | §41 `ground` request; grounded from it | unit |
+| 102 | `find_events`, 1 of 3 Qiniu queries fails 3 times (429) | That query sent once on `QwenEventSearcher`; its sources go into the numbered extraction message; the other 2 stay Qiniu | unit |
+| 103 | Qiniu extraction fails (400) | No Qiniu retry; `QwenEventExtractor` called with the same system and user text | unit |
+| 104 | No 千问 key; Qiniu `live` fails 3 times | Failed as §43 (no request to dashscope) | unit |
+| 105 | Image search or §44 item 2 search fails | No fallback | unit |
+| 106 | Device: 七牛云 key wrong (401), 千问 key right; 「今天珠海天气怎么样」, 「最近珠海澳门有什么活动」 | Answers come from Qwen; record `fallback provider=qwen` | D |
+
+**Trace gate.** Add `T-046zh: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zh.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zh | §45 items 1–4; rows 100–106 | NOT_RUN |
+
+
+## 46. Events through Tavily search and Qwen; an event is kept only with a quoted venue and hour; a poster only when its own name and date are printed on it (iOS, owner order 2026-11-26)
+
+**Why (owner, 2026-11-26).** Qiniu is dead (§43: every search 429 `trial_quota_exhausted`, real-name check never passed);
+「千牛 already dead you need to use the qwen again」. The owner gave a Tavily key and asked for 「a proven way to fill the
+data we want」: name, location, time, picture. Rules from the owner: three searches only (18 cost too much); 「make sure
+the poster is matching, otherwise … drop the poster and show not found … if the location or the time is not sure just
+drop the event」; and every search result is merged into one local set that all fields are read from. This section is
+the workflow as run on the PC on 2026-11-26, step by step; nothing here was added after the test except where marked
+**(not tested)**.
+
+**PC test (2026-11-26; scripts `scripts/eval/event_search_replica.py --tavily`, `tavily_recall.py`,
+`event_verify_poc.py`; every request and response kept in `D:/ndlogs/search-raw/`; the 7 confirmed events of
+`events_reference_2026-11.json`, window 2026-11-25…12-31, today 11-24).**
+- **Searches.** Recall in the results before extraction (`tavily_recall.py`): today's §42 wording 4/7; five other
+  three-search wordings 4–5/7; wording G (item 2) 7/7 on two tries. 18 searches also reach 7/7 (owner: too costly).
+  G was written after seeing which events the others missed (「FANCON」, 「电音节」, 「马拉松」), so it may fit this month's
+  events better than another month's: row 118 checks a fresh month.
+- **Search + extraction, 2 runs** (`20261126-095037-tavily_G_extract.txt`): 6/7 reference events kept each run
+  (LINGORM was in the results, not extracted); 9 events kept; 3 searches 1.5–2.7 s at once; extraction 17.2–17.5 s,
+  16.2K prompt tokens on `qwen3.8-max-0902`; 18.8–20.2 s per run; 3 Tavily credits per run.
+- **Verify, on run 1's 9 events** (`20261126-102659-event_verify.txt`, `-events.json`): 101 sources in the pool; 6 kept
+  with a quoted venue and hour (VAC 14:30 「演出时间14:30-22:30」, 韦礼安 20:00 「晚上8時」, UAU 18:00 「晚上6時正」,
+  JuniorMark 17:00, 张敬轩 21:30 「晚上9:30」, 横琴马拉松 07:30 「比赛时间：2026年12月27日（星期日）07:30」); 3 dropped,
+  all exhibitions with no hour in any source (横琴AI嘉年华, AIE, 航展). Posters accepted: 8, looked at one by one: 7 the
+  event's own; 1 wrong: AIE got the poster of 「澳门智趣机器人嘉年华」, an AIE side event, matched on the 「AIE」 logo
+  (AIE was dropped, so it was not shown). The earlier one-call picker (8 pictures in one call) had given 张敬轩
+  韦礼安's poster; item 5's one-picture-per-call reading with code matching gave 张敬轩 his own. 45 s for the 9 events,
+  4 at once; about 9 Tavily credits for picture searches; 9 text calls and about 50 picture calls on
+  `qwen3.5-omni-flash`.
+- **Before the merge** (venue and hour from each event's one page only): 5 kept; UAU's 「晚上6時」 and VAC's hour were in
+  other saved results and were not used. Hence item 6's pool.
+- **Date check (item 0, row 117b; offline on the saved pool, no calls, output
+  `D:/ndlogs/search-raw/20261126-dates_check.txt`):** all 9 extracted events' dates confirmed from a source excerpt;
+  4 planted wrong dates (韦礼安 12-13, 横琴马拉松 12-28, JuniorMark 12-20, UAU 12-11) all rejected; the name row 9/9 with
+  traditional→simplified first (8/9 without).
+
+0. **Output contract: what a kept event must have, checked by code, in this order.** The models only read and quote;
+   code decides. An event is shown, stored for the planner or spoken only when **every required row passes**. The first
+   failing row is the drop reason. There is no partial event: a required field that fails drops the whole event,
+   never shows 「未找到」.
+
+   **Every text comparison in this table and items 5–6** first converts both sides from traditional to simplified
+   Chinese (iOS: `applyingTransform(StringTransform("Hant-Hans"), reverse: false)`; PC: OpenCC `t2s`), then lower-cases;
+   where a row says "spaces and punctuation removed", that too. Without it the name row dropped 横琴马拉松 (its source
+   writes 「橫琴馬拉松」): 8/9 names passed; with it 9/9, and 张敬轩's event with 韦礼安's page as source still fails
+   (same output file).
+
+   | Field | Required | Deterministic check (code) | On fail |
+   |---|---|---|---|
+   | name | yes | Not empty, and at least one of its key names (item 5) appears in its source result's `title`+`content` (§43 item 5's name match) | drop `no_source` |
+   | city | yes | One of the call's cities, or 横琴 when 珠海 is one | drop `city` |
+   | start, end | yes | Both parse as `YYYY-MM-DD`; end ≥ start; start…end overlaps the window; end ≥ today; one event per name + start (§39 item 4) | drop `no_date` / `end_before_start` / `outside_window` / `past` / `duplicate` |
+   | dates confirmed | yes | In one excerpt of item 6's pool (so next to a key name): the start day as one of 「M月D日」 「M月D号」 「M月D號」 「M.D」 「MM.DD」 「M/D」 「MM-DD」 「YYYY.MM.DD」 「YYYY-MM-DD」 「YYYY年M月D日」 「<English month> D」 「D <English month>」 (spaces collapsed). When end ≠ start, also the end day in one of those forms in the same excerpt, or within 20 characters after the start-day match a range sign (`-–—~～至到`) followed by the end's day number. **(not tested)** A year written within 20 characters before the start-day match must be the start's year, else that match does not count | drop `dates_not_sure` |
+   | venue | yes | Item 6: the model's `venue_quote`, spaces and punctuation removed, is inside excerpt `venue_source`; the venue's first 4 characters (same normalising) are in the quote, or the quote is inside the venue. Else the matched poster's printed `venue` (item 5), if not empty | drop `venue_not_sure` |
+   | hour | yes | Matches `HH:MM` with HH 00–23 and MM 00–59, and item 6: `time_quote` inside excerpt `time_source` with 「H:MM」/「HH:MM」 (「：」 read as 「:」), or the hour on a 12-hour clock (hour − 12 from 13:00, else the hour) with one of 晚 下午 pm PM 點 点 時 时. Else the matched poster's first printed time, if it matches `HH:MM` | drop `time_not_sure` |
+   | poster | no | Item 5: a key name in the picture's printed text **and** one of its printed dates within start…end | no poster: 「未找到图片」; the event stays |
+
+   Not part of the output (not shown, not given to the planner): the extracted `start_time`, `venue`, `ticket`, and any
+   field a model wrote that no row above checked.
+
+1. **Key and models.**
+   - 设置 「七牛云 key」 is replaced by 「Tavily key」 under 联网 (Keychain `tavily_api_key`, write-only like the other
+     keys, never in logs). The Qiniu clients, the `api.qnaigc.com` routes and `deepseek/deepseek-v4-flash-20260731` are
+     removed (§42 items 1–3, §43 item 7, §45 withdrawn).
+   - Extraction: §40's text chain (`qwen3.8-max-0902` first), compatible mode, `response_format` `json_object`,
+     `enable_thinking: false`, not streamed, 60 s.
+   - Poster reading and venue/hour: `qwen3.5-omni-flash` on the Beijing compatible-mode endpoint with the 千问 key,
+     `"modalities": ["text"]`, `"stream": true`, `"stream_options": {"include_usage": true}`, 120 s; the text is the
+     joined `delta.content`. Allowed by the owner 2026-11-26: it joins §40 item 3's list and `check_qwen_models.py`.
+     **OWNER, before the build:** confirm in the 百炼 console that `qwen3.5-omni-flash` has quota and Stop-on-Exhaust on.
+   - A failed Qwen call (429, 5xx, timeout) is tried again after 5, 10, 20 s (4 tries), as the test did.
+2. **Three searches (`find_events`).** `POST https://api.tavily.com/search`, `Authorization: Bearer <Tavily key>`, body
+   `{"query": <q>, "max_results": 20, "search_depth": "basic"}`, 30 s, all three at once. `<months>` is §42 item 4's
+   「<YYYY>年<M>月[ <M>月…]」. With 珠海 among the call's cities, 「横琴」 is added after 珠海.
+   - q1: 「<all cities> <months> 展览展会 AI 科技展 航展」
+   - q2: 「<the cities among 澳门、香港> <months> 演唱会 演出时间表 FANCON」
+   - q3: 「<the other cities> <months> 演唱会 嘉年华 电音节 马拉松」
+   Tested only as 珠海+澳门 (q1 「珠海 横琴 澳门 2026年11月 12月 展览展会 AI 科技展 航展」, q2 「澳门 2026年11月 12月 演唱会
+   演出时间表 FANCON」, q3 「珠海 横琴 2026年11月 12月 演唱会 嘉年华 电音节 马拉松」). **(not tested)** With no city of q2's group,
+   q2 uses all cities; with no other city, q3 does. §43 item 2's `name` (the first query becomes
+   「<name> <cities> <months>」, at most 3) and §42 item 4's `kinds` rule are kept on these queries **(not tested with
+   Tavily)**. A failed search is retried per §43 item 1 (1 s, 3 s) and then sent once on §41's `QwenEventSearcher` per
+   §45 item 1 **(not tested with Tavily)**.
+3. **Extraction.** One call. System text, exactly:
+   `Extract the event information. Answer in JSON.\n{"events": [{"name": "", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "start_time": "HH:MM or empty", "venue": "", "city": "", "ticket": "", "source_url": ""}]}\ntoday: <YYYY-MM-DD>\nfrom: <YYYY-MM-DD>\nto: <YYYY-MM-DD>`
+   (no cities line: §43 item 6 is withdrawn, see item 3's city rule). User message: the results of the three searches in
+   query order, deduplicated by url, one per line `[n] <published_date or empty> <title> — <content, first 300
+   characters> (<url>)`. A `source_url` that is a result number becomes that result's url. Checks as §39 item 4 (dates
+   parse, end ≥ start, overlaps the window, end ≥ today, city is one of the call's cities or 横琴 when 珠海 is one, the source
+   is a result url else §43 item 5's name match, one event per name+start), each drop logged per §43 item 3. The
+   extracted `start_time`, `venue` and `ticket` are not used: item 6 decides venue and hour.
+4. **Pages.** One `POST https://api.tavily.com/extract` for all kept events' `source_url`s:
+   `{"urls": [...], "include_images": true, "extract_depth": "basic", "format": "markdown"}`, 60 s. Each page gives
+   `raw_content` and `images`.
+5. **Poster, per kept event (before item 6; up to 4 events at once).**
+   - Candidates: the page's first 8 `images`; only if none of them matches, one Tavily search
+     `{"query": "<event name> 海报", "max_results": 5, "include_images": true, "include_image_descriptions": true}` and
+     its first 6 `images`.
+   - Each candidate is downloaded (GET, `User-Agent: Mozilla/5.0`, 15 s); kept only when 5 KB–4 MB and JPEG, PNG, GIF
+     or WebP by its first bytes. It is sent alone, as a base64 `data:` URL, with exactly:
+     `Read this picture. Answer in JSON only: {"text": "all text printed on it, converted to simplified Chinese", "dates": ["MM-DD for each date printed on it"], "times": ["HH:MM for each time of day printed on it"], "venue": "venue printed on it, else empty"}. Only what is printed on the picture; empty when nothing is.`
+   - **Code decides** (the model only reads). Key names of the event: its name lower-cased, with these words removed:
+     2026, 2027, 演唱会, 演唱會, 巡回, 巡迴, 澳门站, 澳門站, 澳门, 澳門, 珠海, 横琴, 橫琴, 中国, 中國, 国际, 國際, 全球, 第十六届,
+     荣誉呈献, 荣誉, 呈献, 独家呈现, 秋季, fancon, in, macau, macao, x; then every Latin word of 3+ letters and every Han
+     run of 2+ characters. The picture's name matches when its text (spaces and punctuation removed, lower-cased)
+     contains a Latin key, a Han key of ≤ 6 characters, or any 4 characters in a row of a longer Han key. Its date
+     matches when one of its `dates` (month-day) falls within the event's start…end. The first candidate matching
+     **both** is the poster; none → no poster, shown as 「未找到图片」.
+   - Every candidate's reading is kept in the store; a poster's printed `venue` and first `times` entry are item 6's
+     last resort.
+   - Known gap: a logo word is enough for the name (AIE side-event poster, PC test). Not fixed here.
+6. **Venue and hour, from the merged pool (after item 5).**
+   - **Pool:** every result of this call's three searches (`title` + `content`), every item 4 page (`title` +
+     `raw_content`), every item 5 picture-search result (`title` + `content`). **(not tested)** Results the store kept
+     from earlier calls for the same cities in the last 24 h are added too (owner: one stable local data set).
+   - **Excerpts:** in each source, every mention of a key name (item 5's keys; Han keys over 6 characters by their first
+     4) gives the text 700 characters before to 700 after, at most 3 mentions per source, overlaps joined; sources in pool
+     order, stopping once the excerpts pass 16,000 characters. Each excerpt is marked `[S<source number>]`.
+   - **One call** on `qwen3.5-omni-flash` with exactly:
+     `Event: <name> (<start> to <end>).\nBelow are excerpts from several web sources, each marked [S<number>]. Using only them, give this event's venue and its start time of day. For an exhibition or fair with daily opening hours, give the opening time and set time_kind to "opening"; for a show or race, the start time and time_kind "start". Each answer needs the exact text of the source that states it for THIS event, copied word for word, and that source's number. Empty when no source states it for this event. Answer in JSON only: {"venue": "", "venue_quote": "", "venue_source": 0, "start_time": "HH:MM", "time_kind": "start", "time_quote": "", "time_source": 0}\n\n<excerpts, blank line between>`
+   - **Sure (code):** the quote, with spaces and punctuation removed, is inside that source's excerpt (so it is next to
+     the event's name), and: venue: the first 4 characters of the venue (same normalising) are in the quote, or the
+     quote is inside the venue; hour: the quote has 「H:MM」/「HH:MM」 (「：」 read as 「:」), or the hour on a 12-hour clock
+     (hour − 12 from 13:00, else the hour) together with one of 晚, 下午, pm, PM, 點, 点, 時, 时. Not sure → the poster's
+     printed venue / first time if there is a poster; else not sure.
+   - Order: in the test the venue/hour call read a pool that already held the picture-search results (saved from the
+     run before); running item 5 first gives it the same data.
+7. **Kept or dropped.** An event is kept only when every required row of item 0 passes. A dropped event is not in the
+   `find_events` result, the store's event list for the planner, or on screen. Known effect (PC test): exhibitions
+   with no published hour (航展, 横琴AI嘉年华, AIE) are dropped. **(not tested)** The `find_events` result ends with
+   「另有N个活动时间或地点未确认，未列出」 when N > 0, so she does not say there are none.
+8. **What the driver sees and the planner reads.** Each kept event: name, dates (§44 item 3's 「日期：」), 「场馆：<venue>」,
+   「开始：HH:MM」 (time_kind start) or 「开放：HH:MM」 (opening), the poster or 「未找到图片」 (§44 item 3, `未找到这个活动的图片`
+   when asked). §44 item 4 (no map lookup by an event's name; only the venue goes to the map) and trip-plan §64/§66 stay;
+   the venue is stored as a list split at 「；」「;」「、」「/」 and line breaks, for trip-plan §66 item 7's hall by city.
+9. **Store (replaces §44 item 5's fields).** Per event: `name`, `city`, `start`, `end`, `venue` (list) with its source
+   url, `time`, `time_kind` with its source url, `image_url` with `page`/`search`, every picture reading, and the
+   source texts (kept 24 h). Items 4–6 run at most once per event per day.
+10. **Record.**
+    - `events search provider=tavily q=<1|2|3> ms= results= attempt=`
+    - `events extract model= ms= tokens=<prompt>,<completion>`
+    - `events verify name=<name> venue=<S<n>|poster|none> time=<S<n>|poster|none> kind=<start|opening> poster=<page|search|none> pictures=<n> kept=<yes|no>`
+    - `events drop name=<name> reason=<no_source|city|no_date|end_before_start|outside_window|past|duplicate|dates_not_sure|venue_not_sure|time_not_sure>` (item 0's first failing row)
+11. **No Tavily key.** `find_events` runs §41's search and §39's extraction as before §42, with no items 4–7
+    **(not tested)**.
+12. **Her answers and trip grounding (`live`, `ground`)** go back to §41 (Qwen `web_search`), as before §42; §42 item 5's
+    Qiniu path is withdrawn. Not changed by Tavily.
+13. **PC scripts.** `event_search_replica.py --tavily` (items 2–3) and `event_verify_poc.py` (items 4–7) are the
+    reference; every Tavily and model response is kept in `D:/ndlogs/search-raw/` (owner rule 2026-11-26).
+
+**Not carried over (in the old sections, not in the tested workflow; owner to say if any must come back).**
+§43 item 4 (og:image, Qiniu image search with title/date/shop filters: replaced by item 5); §43 item 6 (cities line);
+§43 item 7 (Qiniu reasoning); §44 item 1a and item 8 (regex venue and hour checks: replaced by item 6's quotes);
+§44 items 1b and 7 (dates checked against the source text: the test used the extracted dates with §39's checks
+only); §44 item 2 (one search for what is missing: replaced by the pool and the picture search); §44 item 9 (ticket
+note from the source text: not shown now); §45 (Qiniu → Qwen fallback, apart from item 2's search fallback).
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 107 | 设置 | 「Tavily key」 field, write-only, Keychain `tavily_api_key`; no 「七牛云 key」; no `api.qnaigc.com` in the source | unit, gate |
+| 108 | `find_events` 珠海+澳门, window 11-25…12-31, Tavily key saved | The three item 2 queries exactly (珠海 横琴 澳门 …), body as item 2, Bearer Tavily key, sent at once | unit |
+| 109 | Fixture Tavily results (two queries share a url) | Extraction user message as item 3, deduplicated; system text exactly item 3's; `[n]` source becomes the url | unit |
+| 110 | Picture readings: 「2026 韦礼安 HI WE1 演唱会 12-12」 for event 张敬轩 x 澳门中乐团 12-24…12-31; then 「张敬轩 × 澳门中乐团 盛乐 12-24」 | First rejected (name and date); second is the poster | unit |
+| 111 | Page pictures none match | One picture search 「<name> 海报」, first 6 images read one per call | unit |
+| 112 | Venue/hour answer with a quote not in that source's excerpt; then one that is | Not sure; sure | unit |
+| 113 | Quote 「晚上6時正」 with 18:00; 「13:30–17:30」 with 13:30 from another event's excerpt | Sure; not sure | unit |
+| 114 | Hour not sure, no poster time | Event dropped: not in the result, the store list or on screen; `events drop … reason=time_not_sure` | unit |
+| 115 | Model list | `qwen3.5-omni-flash` allowed; requests streamed with `modalities` text | unit, gate |
+| 116 | App build | Builds on Codemagic | build |
+| 117 | PC: `event_search_replica.py 2 --tavily` | ≥ 3/7 reference events each run (passed 2026-11-26: 6/7, 6/7) | PC |
+| 117a | PC: `event_verify_poc.py` on run 1's events, every poster looked at | Every kept event's venue and hour match its quoted source; no kept event shows another event's poster (passed 2026-11-26: 6 kept, all right; 7/8 posters right, the wrong one on a dropped event) | PC |
+| 118 | PC: a fresh month or city pair (a new reference list confirmed by hand first) | ≥ 3 of its reference events kept with right venue and hour; posters looked at | PC (NOT_RUN) |
+| 117b | PC: item 0's date and name rows on the saved pool, plus planted wrong dates and a wrong source | All 9 real dates confirmed and 9/9 names found (traditional→simplified first); planted 韦礼安 12-13, 横琴马拉松 12-28, JuniorMark 12-20, UAU 12-11 and 张敬轩 with 韦礼安's page rejected | PC (passed 2026-11-26) |
+| 120 | Item 0, one fixture per row: name not in its source; city 深圳; end before start; dates only in another event's excerpt; venue quote not in the excerpt; hour 25:00; hour quote from another event | Each dropped with that row's reason, in item 0's order; nothing of it shown or stored | unit |
+| 121 | Event passes every required row, poster fails | Kept; 「未找到图片」 | unit |
+| 119 | Device: 「最近珠海澳门有什么活动」 | Only events with venue and hour; posters right or 「未找到图片」; record `provider=tavily`, `events verify` lines | D |
+
+**Trace gate.** Add `T-046zi: F-18` to `specs/trace-ids.txt` with the first `@Test` that names T-046zi.
+
+| Task | Scope | Status |
+|---|---|---|
+| T-046zi | §46 items 0–13; rows 107–121 (117, 117a, 117b passed on the PC; 118 before the build) | NOT_RUN |

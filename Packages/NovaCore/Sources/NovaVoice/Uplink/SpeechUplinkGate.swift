@@ -91,7 +91,7 @@ public struct SpeechUplinkGate: Sendable {
     private var utteranceClassifierMax = 0.0
     /// The last `preRoll` of frames while open, so a cut at unmute starts with its pre-roll.
     private var openTail: [PCMFrame16k] = []
-    private let tuning: UplinkGateTuning
+    private var tuning: UplinkGateTuning
     private var elapsed = NovaDuration.zero
     private var onset = NovaDuration.zero
     private var hangover = NovaDuration.zero
@@ -152,6 +152,57 @@ public struct SpeechUplinkGate: Sendable {
 
     public var threshold: Double { max(tuning.rmsFloor, noiseRMS * tuning.noiseFactor) }
 
+    // MARK: F-04b §19 item 0 (T-013n): echo-aware VAD
+
+    /// Playback levels (RMS of each 10 ms frame as played), stamped with gate time on arrival, last `echoWindow`.
+    private var playbackLevels: [(at: NovaDuration, rms: Double)] = []
+    /// Frames the echo term kept closed in the current reply (and its tail); the line is due once per reply.
+    private var echoHeldFrames = 0
+    private var echoLineDue = false
+    private var echoLines: [String] = []
+
+    /// §19 item 0: the coupling measured on this phone (nil: the default).
+    public mutating func setEchoCoupling(_ coupling: Double?) { tuning.echoCoupling = coupling }
+
+    /// The coupling in use: measured, else the default.
+    public var echoCoupling: Double { tuning.echoCoupling ?? UplinkGateTuning.defaultEchoCoupling }
+
+    /// Her reply plays or its echo tail runs: the echo term applies.
+    private var echoActive: Bool { replyPlaying || (echoTailLeft > .zero && tailAfterReply) }
+
+    /// One 10 ms frame of her playback as played (the shell's playback-level port), under the same lock as `process`.
+    public mutating func playbackLevel(rms: Double) {
+        playbackLevels.append((elapsed, rms))
+        trimPlayback()
+    }
+
+    private mutating func trimPlayback() {
+        let since = elapsed - tuning.echoWindow
+        if let k = playbackLevels.firstIndex(where: { $0.at >= since }), k > 0 { playbackLevels.removeFirst(k) }
+        else if playbackLevels.last.map({ $0.at < since }) == true { playbackLevels.removeAll(keepingCapacity: true) }
+    }
+
+    /// The echo term: `echoCoupling × ` the loudest playback frame of the last `echoWindow`; 0 when she is silent.
+    public var echoLevel: Double {
+        guard echoActive else { return 0 }
+        let since = elapsed - tuning.echoWindow
+        let loudest = playbackLevels.filter { $0.at >= since }.map(\.rms).max() ?? 0
+        return echoCoupling * loudest
+    }
+
+    /// `uplink echo-gate coupling=<value|default> held_frames=<n>`, once per reply (numbers only, I-8).
+    public mutating func takeEchoGateLines() -> [String] {
+        defer { echoLines.removeAll(keepingCapacity: true) }
+        return echoLines
+    }
+
+    private mutating func finishEchoLine() {
+        guard echoLineDue else { return }
+        echoLines.append("uplink echo-gate coupling=\(EchoCoupling.label(tuning.echoCoupling)) held_frames=\(echoHeldFrames)")
+        echoLineDue = false
+        echoHeldFrames = 0
+    }
+
     /// F-04 §14 item 2: muted while she talks and for the echo tail; never before any audio of hers.
     public var muteReason: MuteReason {
         if replyPlaying { return .reply }
@@ -167,6 +218,10 @@ public struct SpeechUplinkGate: Sendable {
     public mutating func setPlaying(reply: Bool? = nil, guidance: Bool? = nil) {
         let wasAudible = replyPlaying || guidancePlaying
         let wasReply = replyPlaying
+        if reply == true, !wasReply {
+            finishEchoLine()  // the last reply's line, if its tail was cut short by this one
+            echoLineDue = true
+        }
         if let reply { replyPlaying = reply }
         if let guidance { guidancePlaying = guidance }
         if wasAudible, !replyPlaying, !guidancePlaying {
@@ -178,7 +233,10 @@ public struct SpeechUplinkGate: Sendable {
 
     /// F-08 §15 item 2: a stop phrase flushed her reply; the next utterance is sent without waiting out the echo tail.
     public mutating func endEchoTail() {
-        if !replyPlaying, !guidancePlaying { echoTailLeft = .zero }
+        if !replyPlaying, !guidancePlaying {
+            echoTailLeft = .zero
+            finishEchoLine()
+        }
     }
 
     /// F-08 §16 item 1: a stop phrase ended her reply. A muted utterance still open is held unsent to its pause
@@ -208,19 +266,24 @@ public struct SpeechUplinkGate: Sendable {
         if !replyPlaying, !guidancePlaying, echoTailLeft > .zero {
             echoTailLeft = max(.zero, echoTailLeft - Self.frameDuration)
         }
+        if !replyPlaying, echoTailLeft == .zero { finishEchoLine() }
         if warmingUp {
             let n = Double(elapsed.milliseconds / Self.frameDuration.milliseconds)
             noiseRMS += (rms - noiseRMS) / n  // running mean over the warm-up
             remember(frame)
             return []
         }
-        let voiced = rms > threshold
+        // §19 item 0: louder than the floor but not louder than her echo can be: not voiced, and not noise either.
+        let echo = echoLevel
+        let echoHeld = rms > threshold && echo > 0 && rms <= echo
+        if echoHeld { echoHeldFrames += 1 }
+        let voiced = rms > threshold && !echoHeld
         recent.append(voiced)
         let window = Int(tuning.evidenceWindow.milliseconds / Self.frameDuration.milliseconds)
         if recent.count > max(1, window) { recent.removeFirst(recent.count - max(1, window)) }
         switch phase {
         case .closed:
-            if !voiced { noiseRMS += (rms - noiseRMS) * Self.noiseAdaptation }
+            if !voiced, !echoHeld { noiseRMS += (rms - noiseRMS) * Self.noiseAdaptation }
             remember(frame)
             if voiced, onset == .zero, confirmingSince == nil {
                 onsetBegan = elapsed - Self.frameDuration
@@ -246,7 +309,7 @@ public struct SpeechUplinkGate: Sendable {
             if openRMS.count == Self.steadyWindowFrames, let floor = openRMS.min(), floor > threshold {
                 noiseRMS = floor
                 openRMS.removeAll(keepingCapacity: true)
-                return continueSegment(frame, voiced: rms > threshold)
+                return continueSegment(frame, voiced: rms > threshold && !echoHeld)
             }
             return continueSegment(frame, voiced: voiced)
         }

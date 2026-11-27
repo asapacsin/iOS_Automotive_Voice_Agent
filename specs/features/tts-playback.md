@@ -1,6 +1,6 @@
 # F-07 Assistant voice (TTS) and playback
 
-**Android status:** ACTIVE when an Azure voice is configured (ADR-016). iOS: Gemini 原声 by default (§15), 千问 (Qwen-Audio TTS) as the option (§14); Azure removed (§17, owner 2026-11-10).
+**Android status:** ACTIVE when an Azure voice is configured (ADR-016). iOS: her voice is the voice model's own (§18, owner 2026-11-26); the 千问 TTS source (§14) and Azure (§17) were removed.
 **Depends on:** contracts/audio.md, §14 (Qwen-Audio TTS); contracts/api-contracts.md Azure section is Android only
 
 ## 1. Purpose
@@ -254,3 +254,51 @@ One rule changes, by owner decision (2026-11-07, see the next paragraph): a clea
 | Task | Scope | Verify |
 |---|---|---|
 | T-020d | Items 1–8; rows 19–25 | unit, build, D |
+
+## 18. 「她的声音」 removed: her voice is the voice model's own (owner decision 2026-11-26, APPROVED)
+
+**Why.** Device 2026-11-26, build 18a4e58, record 20261126-184015: with 「语音模型」 Qwen Audio 3.1 Flash and 「她的声音」
+千问, every turn had reply text and no sound (`voice-failed source=qwen code=QWEN_TTS_AUTH` on turns 1–3). The saved
+千问 API Host is the Singapore workspace (§14) and the 百炼 key is a Beijing key (F-05 §15, T-016r). A separate TTS
+also starts only after the model's text exists (§15 Why: Qwen's first sound came 1.7 s after Gemini finished). Both
+voice models already send her audio with the reply (Gemini Live; Qwen-Audio realtime, F-05 §15 vendor facts, output
+PCM 24 kHz). The owner (2026-11-26): the setting is almost useless; remove it.
+
+1. **One source.** Her voice is always the selected voice model's own audio: today's 「Gemini 原声」 path (§15 items
+   3, 5, 7–9) for every 「语音模型」 choice. `Settings.revoicing` is always false.
+2. **Delete the 千问 TTS path.** Delete `QwenSpeechClient`, its config and `QwenVoices` (NovaServices `Qwen/`), the
+   `.qwen` branch of the session-start voice choice in `AgentRuntime`, `VoiceSource`, `VoiceSourceKind`,
+   `VoiceSourceDecision`, `RetryingSpeechSynthesizer` and the `QWEN_TTS_*` codes, `Revoicer`, `RevoicerQueue` and the
+   `SpeechSynthesizer` port, with their tests, unless another feature still calls them (then the build notes say which).
+   The revoicing branches in `DriverTurnPipeline`, `GuidanceRelay`, `AgentState` and NovaPorts `Realtime.swift` keep
+   only their non-revoicing behaviour; no behaviour of the Gemini 原声 path changes. `SpeechTuning` values used by
+   `HTTPTransport` stay.
+3. **Settings.** 设置 loses the 「她的声音」 section (`VoiceSettingsSection`: 来源, 千问 API Host, 声音, 试听). Removed:
+   `SettingsKey.voiceSource`, `SettingsKey.qwenTTSHost`, `SettingsKey.qwenVoice`. The 百炼 key stays (search F-18
+   §40 and the Qwen voice model, F-05 §15).
+4. **Installed phones, once.** On the first launch of this build, once, remembered under `voice_source_removed_done`:
+   UserDefaults `voice_source`, `qwen_tts_host` and `qwen_voice` are removed (the earlier one-time flags
+   `voice_source_gemini_default_done` and `azure_removed_done` too). The Keychain 百炼 key is kept. Nothing is logged
+   about the values (I-8).
+5. **Record.** `voice source=gemini turn= held_ms= first_ms=` (§15 item 5) is kept as the timing line for both voice
+   models, so the 响应速度 sheet keeps one column; with Qwen it reads `source=qwen-realtime`. `voice-failed` lines stop.
+6. **Guard.** A gate test fails if `QwenSpeechClient`, `Revoicer`, `qwen_tts_host` or `VoiceSourceKind` appears in a
+   file under `App/` or `Packages/` (the item 4 cleanup file and its test may name the retired keys, as §17 item 6).
+7. **Specs.** The F-07 title and status lines here and the F-07 row in `features/README.md` say: her voice is the voice
+   model's own; the 千问 TTS source was removed (§18). History (§14–§17, `STATUS.md`, `work.json` notes) stays as written.
+8. **Not changed:** the claim gate, streaming and the claim cut (§15 items 7–9); barge-in and epochs; F-21 styles
+   (wording only, §17 item 5); 「语音模型」 (F-05 §15).
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 26 | Source tree after the change | No `QwenSpeechClient`, `Revoicer`, `qwen_tts_host`, `VoiceSourceKind` in `App/` or `Packages/` outside the cleanup file (gate test); `scripts/gates/run_all.sh` green | unit (gate) |
+| 27 | First launch with `voice_source=qwen`, `qwen_tts_host`, `qwen_voice` saved and the 百炼 key stored; a second launch | The three values and the two old flags removed, key kept, `voice_source_removed_done` set; the second launch changes nothing | unit |
+| 28 | Session start with each 「语音模型」 choice | `revoicing` false; no TTS client made; a clean turn's audio released as it arrives (`held_ms` 0) | unit |
+| 29 | App build | Builds; 设置 has no 「她的声音」 section | build |
+| 30 | Device: a phone with 她的声音 千问 saved; install this build; one session on Qwen Audio 3.1 Flash, one on Gemini 3.8 Live | Both speak every reply in the model's own voice; no `voice-failed` line; `first_ms` noted in the 响应速度 sheet | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-020e | Items 1–8; rows 26–30 | unit, build, D |

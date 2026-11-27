@@ -92,7 +92,7 @@ struct EarlyBargeInTests {
         let lines = hold.takeChecks()
         let line = try #require(lines.first)
         #expect(line.kind == .early && line.result == .accepted && line.speechMs == 1000)
-        #expect(line.logLine.contains("kind=early score=0.9 raw=0.6 norm=0.9 cohort=800 bar=cohort threshold=0.3 result=accepted"))
+        #expect(line.logLine.contains("kind=early window=1 score=0.9 raw=0.6 norm=0.9 cohort=800 bar=cohort threshold=0.3 result=accepted"))
         // The whole sentence decides the words.
         let w = try #require(whole.first)
         #expect(w.kind == .speech && w.frames.count == 250)
@@ -120,17 +120,17 @@ struct EarlyBargeInTests {
         #expect(verdict.early == .rejected)
         let dropped = actions.early(verdict.early, utterance: verdict.earlyUtterance)
         #expect(dropped.actions == [.dip(false)] && !dropped.adopt && audio(dropped.outputs).isEmpty)
-        // A later live step of this utterance stays dropped.
-        let later = actions.step(live([.dip(true), .stop], [], adopt: true), verdict: hold.verdict, utterance: hold.heldUtterance)
-        #expect(!later.actions.contains(.stop) && !later.actions.contains(.dip(true)) && !later.adopt)
-        // Whole sentence accepted: the words go on; no stop ever.
+        // F-04b §19 item 2 (T-013n) replaces "stays dropped": a later stop waits (for the next window or the whole verdict).
+        let later = actions.step(live([.stop], [], adopt: true), verdict: hold.verdict, utterance: hold.heldUtterance)
+        #expect(!later.actions.contains(.stop) && !later.adopt)
+        // Whole sentence accepted: the words go on and the waiting stop acts.
         let (_, whole) = Self.feed(&hold, Array(steps[140...]))
         let w = try #require(whole.first)
         let done = hold.result(.score(0.8, scoreMs: 30), utterance: w.utterance, generation: w.generation)
         let released = words.decided(done.decided, utterances: done.decidedUtterances)
         #expect(released.map(\.words) == [.partial("导航")])
         let final = actions.decided(done.decided)
-        #expect(!final.actions.contains(.stop))
+        #expect(final.actions.contains(.stop))
         // T-013l: the words are not thrown away by the early rejection: the whole verdict sends them.
         #expect(final.adopt && audio(final.outputs) == [1])
         let kinds = hold.takeChecks().map(\.kind)
@@ -150,7 +150,7 @@ struct EarlyBargeInTests {
         let undo = actions.early(v.early, utterance: v.earlyUtterance)
         #expect(undo.actions == [.dip(false)])
         let failLine = hold.takeChecks().first?.logLine ?? ""
-        #expect(failLine.contains("kind=early score=none"))
+        #expect(failLine.contains("kind=early window=1 score=none"))
         // No 1 s threshold: no request at all, unknown at 1.0 s; the record shows threshold none.
         var bare = Self.locked(early: nil)
         var sawUnknown = false
@@ -161,7 +161,7 @@ struct EarlyBargeInTests {
         }
         #expect(sawUnknown)
         let bareLine = bare.takeChecks().first?.logLine ?? ""
-        #expect(bareLine.contains("kind=early score=none raw=none norm=none cohort=none bar=cohort threshold=none result=unknown"))
+        #expect(bareLine.contains("kind=early window=1 score=none raw=none norm=none cohort=none bar=cohort threshold=none result=unknown"))
         // A cohort without threshold1s gives none; a finite one is used.
         let meta = SpeakerCohortMeta(source: "s", license: "l", model: "m", modelSha256: "x", speakers: 1, dimension: 1,
                                      topN: 1, threshold: 1.5, eer: 0.1, trials: 1)

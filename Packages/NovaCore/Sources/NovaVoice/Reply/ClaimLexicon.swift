@@ -33,7 +33,43 @@ public enum ClaimLexicon {
                          "打开了", "开好了", "关上了", "关好了", "关闭了", "调到了", "调高了", "调低了", "调好了", "设置好了",
                          "升高了", "降低了", "放下了", "搞定了",
                          // F-15b §52 item 12 (T-040ze): a trip change said done (「我已经为您将行程起点设为…」).
-                         "已经为您", "已经为你", "已经把", "已把", "改好了", "排好了", "加好了", "已经改", "已经加"]
+                         "已经为您", "已经为你", "已经把", "已把", "改好了", "排好了", "加好了", "已经改", "已经加",
+                         // F-15b §55 item 10 (T-040zh): a plan said done (「我为您规划好了」).
+                         "规划好了"]
+    /// F-15b §55 item 10 (T-040zh): a reply that says the trip plan is done.
+    static let planDone = ["规划好了", "安排好了", "排好了", "规划完了", "安排完了", "行程做好了", "行程好了"]
+    public static func plansDone(_ text: String) -> Bool { planDone.contains { text.contains($0) } }
+
+    // MARK: Trip changes (F-15b §58 items 1, 3, T-040zk)
+
+    /// §58 item 1: the verbs of a trip change said done.
+    // 加在, 加到: the row 255 sentence 「已经加在第二天了」 (§58 acceptance).
+    static let tripChangeVerbs = ["加入了", "加上了", "加了", "加在", "加到", "放进", "安排好", "安排在", "改好", "换成", "删掉了", "去掉了", "更新了"]
+    /// §58 item 3: work said to run in the background or to show later.
+    static let backgroundWords = ["后台", "稍后", "等一下就会", "会同步", "马上显示"]
+    /// What makes such a clause about the trip: 行程, 第N天 (Chinese or Arabic numerals), or a stop's name.
+    static func aboutTrip(_ clause: String, stops: [String]) -> Bool {
+        if clause.contains("行程") { return true }
+        if clause.range(of: "第[一二三四五六七八九十0-9]+天", options: .regularExpression) != nil { return true }
+        return stops.contains { !$0.isEmpty && clause.contains($0) }
+    }
+
+    private static func tripClauses(_ text: String) -> [String] {
+        text.split(whereSeparator: { "。！？!?；;\n".contains($0) }).map(String.init)
+            .filter { clause in !negations.contains(where: clause.contains) }
+    }
+
+    /// §58 item 1: the reply says the plan was changed (a verb of `tripChangeVerbs` with 行程, 第N天 or a stop name in
+    /// the same sentence; negated sentences claim nothing). `stops` are names the reply may name (the plan's, and the
+    /// names of the request's `set_trip_plan` calls).
+    public static func tripChanged(_ text: String, stops: [String] = []) -> Bool {
+        tripClauses(text).contains { c in tripChangeVerbs.contains(where: c.contains) && aboutTrip(c, stops: stops) }
+    }
+
+    /// §58 item 3: the reply says the trip is being updated in the background or will show later.
+    public static func tripInBackground(_ text: String, stops: [String] = []) -> Bool {
+        tripClauses(text).contains { c in backgroundWords.contains(where: c.contains) && aboutTrip(c, stops: stops) }
+    }
     /// A driver utterance asking for an action, so a tool call should follow.
     static let request = ["打开", "关闭", "关上", "关掉", "开一下", "开个", "调高", "调低", "调到", "调成", "设置", "升高",
                           "降低", "放首", "放一首", "播放", "放歌", "导航", "打电话", "打给", "拨打", "开窗", "关窗", "凉一点",

@@ -8,7 +8,7 @@ import NovaPorts
 
 /// Amap Web service REST (`restapi.amap.com`, contracts/api-contracts.md): place search, reverse
 /// geocoding and weather. All coordinates are GCJ-02. Status codes only reach diagnostics (I-8).
-public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup, DrivingTimes {
+public struct AmapWebClient: PlaceInfoSearch, ReverseGeocoder, PlaceLookup, DrivingTimes {
     public static let host = "https://restapi.amap.com"
 
     private let key: @Sendable () -> String?
@@ -39,6 +39,26 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup, DrivingT
             if cityLimit { query["citylimit"] = "true" }
         }
         return Self.places(try await get("/v3/place/text", query))
+    }
+
+    /// F-15b §68 (T-040zu): the same request as `text(_:city:cityLimit:)` (no `city` sends no `city`/`citylimit`); an
+    /// error carries 高德's `info`.
+    public func textInfo(_ keywords: String, city: String?, cityLimit: Bool) async throws -> [Place] {
+        var query = ["keywords": keywords, "offset": "10", "page": "1", "extensions": "base"]
+        if let city {
+            query["city"] = city
+            if cityLimit { query["citylimit"] = "true" }
+        }
+        let body: [String: Any]
+        do {
+            body = try await fetch("/v3/place/text", query)
+        } catch let error as AmapWebError {
+            throw AmapWebFailure(error, info: nil)
+        }
+        guard body["status"] as? String == "1" else {
+            throw AmapWebFailure(Self.error(infocode: body["infocode"] as? String), info: body["info"] as? String)
+        }
+        return Self.places(body)
     }
 
     /// F-16 §14 item 1: the radius only; nothing found stays nothing.
@@ -149,6 +169,13 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup, DrivingT
     // MARK: Transport
 
     private func get(_ path: String, _ query: [String: String]) async throws -> [String: Any] {
+        let body = try await fetch(path, query)
+        guard body["status"] as? String == "1" else { throw Self.error(infocode: body["infocode"] as? String) }
+        return body
+    }
+
+    /// The JSON body, whatever its `status`; transport and parse errors as `AmapWebError`.
+    private func fetch(_ path: String, _ query: [String: String]) async throws -> [String: Any] {
         guard let key = key(), !key.isEmpty else { throw AmapWebError.keyMissing }
         var components = URLComponents(string: Self.host + path)!
         components.queryItems = (query.merging(["key": key, "output": "JSON"]) { a, _ in a })
@@ -168,7 +195,6 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup, DrivingT
               let body = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
             throw AmapWebError.failed
         }
-        guard body["status"] as? String == "1" else { throw Self.error(infocode: body["infocode"] as? String) }
         return body
     }
 
@@ -204,7 +230,11 @@ public struct AmapWebClient: PlaceSearch, ReverseGeocoder, PlaceLookup, DrivingT
                          // `titile`; only `url` is read), secure links only.
                          photoURL: TripPhotoLink.secure(((poi["photos"] as? [[String: Any]])?.first)?["url"] as? String),
                          // F-15b §46 item 6 (T-040r): the kind from 高德's `type`.
-                         kind: PlaceKindMap.amap(type: text(poi["type"])))
+                         kind: PlaceKindMap.amap(type: text(poi["type"])),
+                         // F-15b §68 item 1 (T-040zu): the adcode keeps Macau (82) and Hong Kong (81) results.
+                         adcode: text(poi["adcode"]),
+                         // F-15b §70 item 1 (T-040zw): `pname`, which keeps v3 Macau/Hong Kong results (no adcode).
+                         province: text(poi["pname"]))
         }
     }
 }

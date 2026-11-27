@@ -6,12 +6,12 @@ time, Alibaba error code, tokens) and summary.csv (per set-up: right count, sear
 time, cost per question at the Singapore search price). The owner marks each row right or wrong in the `right`
 column of results.csv (y/n), then runs `run.py --summary-only` to recount.
 
-The key comes only from the environment variable DASHSCOPE_API_KEY. It is put in the Authorization header and
+The key comes only from the environment variable DASHSCOPE_API_KEY_CN (F-18 §40: the Beijing account). It is put in the Authorization header and
 nowhere else: never in a file, never printed. A set-up Alibaba refuses is recorded with its HTTP status and error
 code, and is not worked around.
 
 Usage:
-  DASHSCOPE_API_KEY=... python3 scripts/search_eval/run.py [--setups S0,S1,S2,S3] [--runs 3] [--tz Asia/Shanghai]
+  DASHSCOPE_API_KEY_CN=... python3 scripts/search_eval/run.py [--setups S0,S1,S2,S3] [--runs 3] [--tz Asia/Shanghai]
   python3 scripts/search_eval/run.py --summary-only
 """
 import argparse
@@ -29,12 +29,12 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 HERE = pathlib.Path(__file__).resolve().parent
-KEY_ENV = "DASHSCOPE_API_KEY"
+KEY_ENV = "DASHSCOPE_API_KEY_CN"
 RUNS = 3
 
-# Endpoints (Singapore). Check each against the Alibaba docs on the day of the run (§23 "Not verified").
+# Endpoints (Beijing, F-18 §40). Check each against the Alibaba docs on the day of the run (§23 "Not verified").
 # `--base-url` replaces the host (e.g. a workspace domain); the paths stay.
-DEFAULT_BASE = "https://dashscope-intl.aliyuncs.com"
+DEFAULT_BASE = "https://dashscope.aliyuncs.com"  # F-18 §40 item 1: Beijing
 MULTIMODAL_PATH = "/api/v1/services/aigc/multimodal-generation/generation"
 COMPATIBLE_CHAT_PATH = "/compatible-mode/v1/chat/completions"
 RESPONSES_PATH = "/compatible-mode/v1/responses"
@@ -42,14 +42,14 @@ MULTIMODAL = DEFAULT_BASE + MULTIMODAL_PATH
 COMPATIBLE_CHAT = DEFAULT_BASE + COMPATIBLE_CHAT_PATH
 RESPONSES = DEFAULT_BASE + RESPONSES_PATH
 
-# Singapore search price, §23 sources: $10 per 1,000 calls. Token prices are not filled in (no source in §23).
+# Singapore search price, §23 sources: $10 per 1,000 calls. Token prices are not filled in (no source in §23). Not re-sourced for Beijing (F-18 §40): cost estimates may be off.
 SEARCH_USD_PER_CALL = 10 / 1000
 
 SETUPS = {
-    "S0": {"model": "qwen3.7-flash-2026-07-15", "api": "multimodal", "system": "app"},
-    "S1": {"model": "qwen3.7-flash-2026-07-15", "api": "multimodal", "system": "freshprompt"},
-    "S2": {"model": "qwen3.8-max", "api": "agent_max", "system": "freshprompt"},
-    "S3": {"model": "qwen3.8-flash", "api": "responses", "system": "freshprompt"},
+    "S0": {"model": "deepseek-v4.1-flash", "api": "multimodal", "system": "app"},
+    "S1": {"model": "deepseek-v4.1-flash", "api": "multimodal", "system": "freshprompt"},
+    "S2": {"model": "qwen4-max", "api": "agent_max", "system": "freshprompt"},
+    "S3": {"model": "qwen4-max", "api": "responses", "system": "freshprompt"},
 }
 
 RESULT_FIELDS = ["setup", "question", "run", "model", "answer", "sources", "searched", "search_calls", "time_s",

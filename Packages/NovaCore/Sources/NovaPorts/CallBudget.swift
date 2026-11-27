@@ -10,14 +10,12 @@ public enum PaidRoute: String, Sendable, Hashable, CaseIterable {
     case qwenLive = "qwen.live"
     case qwenPicker = "qwen.picker"
     case qwenGround = "qwen.ground"
+    /// F-18 §36 (T-046y): the trip planner and the §35 events loop, now through `QwenFallback`.
+    case qwenPlanner = "qwen.planner"
+    case qwenEvents = "qwen.events"
     case geminiVision = "gemini.vision"
     case glmVision = "glm.vision"
-    case qwenTTS = "qwen.tts"
-
-    /// Deviation from §32 item 1, recorded in specs/STATUS.md for the owner: `qwen.tts` voices every sentence she
-    /// says (and its warm-up repeats one fixed word), so the turn/session/day call caps and the repeat rule would
-    /// silence her. It is counted, recorded and covered by the quota breaker, but not capped.
-    public var capped: Bool { self != .qwenTTS }
+    // F-07 §18 item 2 (T-020e): `qwen.tts` and its uncapped exception are removed with the 千问 TTS source.
 }
 
 /// §32 item 4: `reason=` of `LIVE_INFO_UNAVAILABLE`.
@@ -46,13 +44,19 @@ public struct BudgetLimits: Sendable, Hashable {
     /// §32 item 2: a key already sent `repeatMax` times within `repeatWindow` is refused.
     public var repeatMax: Int
     public var repeatWindow: NovaDuration
+    /// F-18 §33 item 1 (T-046v): off, `ask` checks no limit (the numbers are not read); calls are still counted.
+    public var enforce: Bool
 
     // Tuning
     public static let standard = BudgetLimits(perTurn: 3, perRoutePerTurn: 2, perSession: 40, perDayCalls: 300,
-                                              perDayTokens: 300_000, repeatMax: 2, repeatWindow: .minutes(10))
+                                              perDayTokens: 300_000, repeatMax: 2, repeatWindow: .minutes(10), enforce: true)
+    /// §33 item 3: the app's limits. Normal use has no call limit; only the quota breaker (§32 item 3) refuses.
+    public static let unlimited = BudgetLimits(perTurn: 0, perRoutePerTurn: 0, perSession: 0, perDayCalls: 0,
+                                               perDayTokens: 0, repeatMax: 0, repeatWindow: .minutes(10), enforce: false)
 
     public init(perTurn: Int, perRoutePerTurn: Int, perSession: Int, perDayCalls: Int, perDayTokens: Int,
-                repeatMax: Int, repeatWindow: NovaDuration) {
+                repeatMax: Int, repeatWindow: NovaDuration, enforce: Bool = true) {
+        self.enforce = enforce
         self.perTurn = perTurn
         self.perRoutePerTurn = perRoutePerTurn
         self.perSession = perSession
@@ -94,8 +98,8 @@ public final class MemoryBudgetStore: BudgetStore {
 }
 
 public final class CallBudget: Sendable {
-    /// The app's one budget; the app sets its store and log at start.
-    public static let shared = CallBudget()
+    /// The app's one budget; the app sets its store and log at start. F-18 §33 item 3: not capped (`.unlimited`).
+    public static let shared = CallBudget(limits: .unlimited)
 
     private struct State {
         var store: any BudgetStore
@@ -161,11 +165,11 @@ public final class CallBudget: Sendable {
             var day = Self.today(&s, today)
             func refuse(_ r: BudgetReason) -> (BudgetDecision, String?) {
                 // A quota refusal leaves the turn open: the route's backup model is tried once (item 3).
-                if route.capped, r != .quota { s.turnClosed = true }
+                if r != .quota { s.turnClosed = true }
                 return (.refuse(r), "paid route=\(route.rawValue) model=\(model) refused=\(r.rawValue)")
             }
             if day.quotaModels.contains(model) { return refuse(.quota) }
-            if route.capped {
+            if limits.enforce {
                 if s.turnClosed || s.turnCalls >= limits.perTurn || s.turnByRoute[route, default: 0] >= limits.perRoutePerTurn
                     || s.sessionCalls >= limits.perSession || day.calls >= limits.perDayCalls
                     || day.tokens >= limits.perDayTokens {
@@ -175,9 +179,6 @@ public final class CallBudget: Sendable {
                 if recent.count >= limits.repeatMax { return refuse(.repeat) }
                 s.sent[key] = recent + [at]
             }
-            // An uncapped route (qwen.tts) is recorded but uses none of the shared counters, so her voice can never
-            // use up the budget of search, picker, ground or vision.
-            guard route.capped else { return (.allow, nil) }
             s.turnCalls += 1
             s.turnByRoute[route, default: 0] += 1
             s.sessionCalls += 1

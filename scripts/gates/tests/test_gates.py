@@ -204,6 +204,38 @@ class SenseVoiceRemovedGateTests(unittest.TestCase):
         self.assertEqual(self.check('enum SenseVoiceRemoval { static let folder = "sensevoice-2024-07-17" }'), 0)
 
 
+class VoiceSourceRemovedGateTests(unittest.TestCase):
+    """F-07 §18 row 26 (T-020e): no QwenSpeechClient, Revoicer, qwen_tts_host or VoiceSourceKind under App/ or
+    Packages/, except the item 4 cleanup file and its test."""
+    def check(self, path: str, text: str) -> int:
+        tree = Tree()
+        try:
+            tree.write(path, text)
+            return run(check_imports.main, str(tree.root))
+        finally:
+            tree.close()
+
+    def test_each_planted_fails(self) -> None:
+        for path, text in (("App/NovaDrive/X.swift", "let c = QwenSpeechClient(config: c)"),
+                           ("Packages/NovaCore/Sources/NovaVoice/X.swift", "// the Revoicer speaks clauses"),
+                           ("Packages/NovaCore/Sources/NovaVoice/X.swift", "var q = RevoicerQueue()"),
+                           ("App/NovaDrive/X.swift", 'let h = "qwen_tts_host"'),
+                           ("Packages/NovaCore/Tests/NovaVoiceTests/X.swift", "let k: VoiceSourceKind = .gemini"),
+                           ("App/project.yml", "QWEN: qwen_tts_host")):
+            with self.subTest(path=path, text=text):
+                self.assertEqual(self.check(path, text), 1)
+
+    def test_cleanup_and_clean_files_pass(self) -> None:
+        self.assertEqual(self.check("Packages/NovaCore/Sources/NovaAgent/Settings/VoiceSourceRemoval.swift",
+                                    'let keys = ["voice_source", "qwen_tts_host", "qwen_voice"]'), 0)
+        self.assertEqual(self.check("Packages/NovaServices/Tests/NovaServicesTests/VoiceSourceRemovalTests.swift",
+                                    'settings.set("h", for: "qwen_tts_host")'), 0)
+        self.assertEqual(self.check("App/NovaDrive/X.swift", "let p = QwenRealtimeProvider() // revoicing off"), 0)
+
+    def test_allowed_name_elsewhere_fails(self) -> None:
+        self.assertEqual(self.check("App/NovaDrive/VoiceSourceRemoval.swift", 'let k = "qwen_tts_host"'), 1)
+
+
 class AzureRemovedGateTests(unittest.TestCase):
     """F-07 §17 row 19 (T-020d): no `azure` in any case under App/ or Packages/, except the cleanup file and its test."""
     def check(self, path: str, text: str) -> int:
@@ -228,7 +260,7 @@ class AzureRemovedGateTests(unittest.TestCase):
                                     'enum RetiredVoiceSettings { static let doneKey = "azure_removed_done" }'), 0)
         self.assertEqual(self.check("Packages/NovaServices/Tests/NovaServicesTests/RetiredVoiceSettingsTests.swift",
                                     'let a = "azure_speech_key"'), 0)
-        self.assertEqual(self.check("App/NovaDrive/X.swift", 'let q = QwenSpeechClient()'), 0)
+        self.assertEqual(self.check("App/NovaDrive/X.swift", 'let q = QwenRealtimeProvider()'), 0)
 
     def test_build_output_is_skipped(self) -> None:
         self.assertEqual(self.check("Packages/NovaCore/.build/debug/x.swiftdeps", "AzureSpeechTuning"), 0)

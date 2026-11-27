@@ -6,14 +6,14 @@ import Synchronization
 import NovaKit
 import NovaPorts
 
-/// F-18 §17 items 3-4 (T-046e): the only `WebSearchService`. One streamed request to the `live` route (`QwenRoute`) on Alibaba Cloud
-/// Model Studio (Singapore, multimodal API) with search on, using its own Keychain key in the `Authorization` header
+/// F-18 §17 items 3-4 (T-046e): the only `WebSearchService`. One request to the `live` route (`QwenRoute`) on Alibaba Cloud
+/// Model Studio (Beijing since F-18 §40; since §41 the Responses API with the `web_search` tool, not streamed), using its own Keychain key in the `Authorization` header
 /// only. The FreshPrompt system text and date turn carry the phone's date and time zone (§24) and are never sent to the voice model.
 public struct QwenWebSearchClient: WebSearchService {
     /// F-15b §50 item 9 (T-040v): the model and options come from the `live` route of `QwenRoute`.
     public static let route = QwenRoute.live
     public static var model: String { route.model }
-    public static var endpoint: String { QwenRoute.endpoint }
+    public static var endpoint: String { QwenRoute.responsesEndpoint }
 
     public typealias Send = @Sendable (URLRequest) async throws -> (status: Int, body: Data)
 
@@ -41,7 +41,7 @@ public struct QwenWebSearchClient: WebSearchService {
         self.zone = zone
     }
 
-    /// The whole stream is read before parsing (§17 item 3); she only gets the finished answer.
+    /// The whole body is read before parsing (§17 item 3); she only gets the finished answer.
     public static let urlSession: Send = { request in
         let (data, response) = try await URLSession.shared.data(for: request)
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
@@ -70,26 +70,16 @@ public struct QwenWebSearchClient: WebSearchService {
         "Today is \(englishDate(now: now, zone: zone)) in \(zone.identifier)."
     }
 
+    /// F-18 §41 item 2: the same four messages as before, sent to the Responses API with the `web_search` tool.
     public func request(_ query: String, key: String, route: QwenRoute = Self.route) -> URLRequest {
-        var request = URLRequest(url: URL(string: Self.endpoint)!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("enable", forHTTPHeaderField: "X-DashScope-SSE")
         let date = now()
         let zone = zone()
-        let body: JSONValue = [
-            "model": .string(route.model),
-            "input": ["messages": [
-                ["role": "system", "content": [["text": .string(Self.instruction(now: date, zone: zone))]]],
-                ["role": "user", "content": [["text": .string(Self.dateQuestion)]]],
-                ["role": "assistant", "content": [["text": .string(Self.dateAnswer(now: date, zone: zone))]]],
-                ["role": "user", "content": [["text": .string(query)]]],
-            ]],
-            "parameters": route.parameters(),
-        ]
-        request.httpBody = try? JSONValue.canonicalEncoder().encode(body)
-        return request
+        return route.responsesRequest([
+            ("system", Self.instruction(now: date, zone: zone)),
+            ("user", Self.dateQuestion),
+            ("assistant", Self.dateAnswer(now: date, zone: zone)),
+            ("user", query),
+        ], key: key)
     }
 
     public func search(_ query: String, attempt: Int) async throws -> WebSearchReply {
@@ -162,6 +152,8 @@ public struct QwenWebSearchClient: WebSearchService {
         for o in objects {
             if case .int(let n)? = o["usage"]?["plugins"]?["search"]?["count"] { count = Int(n) }
         }
+        // §41 item 5: on the Responses API, the number of `web_search_call` items.
+        if let r = responses(data) { count = r.searches }
         return Counts(chunks: objects.count, answerChars: reply.answer.count, sources: reply.sources.count, searchCount: count)
     }
 
@@ -184,6 +176,8 @@ public struct QwenWebSearchClient: WebSearchService {
     static func errorCode(_ data: Data) -> String? {
         for o in objects(data) {
             if let code = o["code"]?.stringValue, !code.isEmpty { return code }
+            // The compatible-mode (Responses) error shape: `{"error": {"code", "message"}}`.
+            if let code = o["error"]?["code"]?.stringValue, !code.isEmpty { return code }
         }
         return nil
     }
@@ -192,6 +186,11 @@ public struct QwenWebSearchClient: WebSearchService {
     /// `{"text": ...}`), leaving out `reasoning_content`; sources are the last non-empty
     /// `output.search_info.search_results`. Anything missing comes back empty; the executor decides.
     public static func parse(_ data: Data) -> (reply: WebSearchReply, code: String?) {
+        // F-18 §41 item 3: a Responses API body; sources have no title or site.
+        if let r = responses(data) {
+            let sources = r.sources.map { _ in WebSearchSource(title: "", host: "") }
+            return (WebSearchReply(answer: r.answer, sources: sources), errorCode(data))
+        }
         var answer = ""
         var results: [JSONValue] = []
         let objects = objects(data)
@@ -212,5 +211,45 @@ public struct QwenWebSearchClient: WebSearchService {
                             host: r["url"]?.stringValue.flatMap { URL(string: $0)?.host } ?? "")
         }
         return (WebSearchReply(answer: answer.trimmingCharacters(in: .whitespacesAndNewlines), sources: sources), code)
+    }
+
+    /// F-18 §41 item 3: one Responses API reply read. Answer = the `output_text` parts of the `message` items, joined;
+    /// sources = every `web_search_call` item's `action.sources[].url` in order, duplicates dropped; tokens =
+    /// `usage.total_tokens`; searches = the number of `web_search_call` items.
+    public struct ResponsesReply: Sendable, Hashable {
+        public let answer: String
+        public let sources: [String]
+        public let tokens: Int?
+        public let searches: Int
+    }
+
+    /// nil when the body is not a Responses API object (no `output` array).
+    public static func responses(_ data: Data) -> ResponsesReply? {
+        guard let o = objects(data).last, case .array(let items)? = o["output"] else { return nil }
+        var answer = ""
+        var urls: [String] = []
+        var seen = Set<String>()
+        var searches = 0
+        for item in items {
+            switch item["type"]?.stringValue {
+            case "message":
+                if case .array(let parts)? = item["content"] {
+                    for p in parts where p["type"]?.stringValue == "output_text" { answer += p["text"]?.stringValue ?? "" }
+                }
+            case "web_search_call":
+                searches += 1
+                if case .array(let sources)? = item["action"]?["sources"] {
+                    for src in sources {
+                        guard let url = src["url"]?.stringValue, !url.isEmpty, seen.insert(url).inserted else { continue }
+                        urls.append(url)
+                    }
+                }
+            default: break
+            }
+        }
+        var tokens: Int?
+        if case .int(let t)? = o["usage"]?["total_tokens"] { tokens = Int(t) }
+        return ResponsesReply(answer: answer.trimmingCharacters(in: .whitespacesAndNewlines), sources: urls, tokens: tokens,
+                              searches: searches)
     }
 }

@@ -439,3 +439,113 @@ or taps; row 72 counts it.
 | Task | Scope | Verify |
 |---|---|---|
 | T-013m | §18 items 1-7; rows 70-72 | unit, build, D |
+
+## 19. Keep checking the driver while she speaks; her echo never locks him out (owner order 2026-11-27)
+
+**Why (device 2026-11-27, build 86765b9, Qwen Audio 3.1 Flash, lock on, 「可以打断她」 on).**
+- **Record `20261127-095719.txt` (live log `D:\ndlogs\syslog-20261127-095434.txt` running).** Her reply started at
+  18737 and ended at 39628. At 20885 `barge-in rejected`; at 21725 the only early check of utterance 4 scored -1.435
+  (`bar=playback threshold=4.0`, rejected). Utterance 4 then stayed open until her reply ended: `speechMs=20060`, the
+  length of her reply. Its whole-sentence score was 3.771 (rejected, `mute=speaker`). The utterance was opened by her own
+  voice coming back past echo cancellation; the driver spoke inside it and was never scored on his own, so she could not
+  be interrupted for 21 s and Qwen never received his words (Qwen's own interruption, `session interrupted
+  reason=server_vad`, only acts on audio the app sends).
+- **Record `20261127-091754.txt`, same build:** when the driver's voice opened the utterance, the early check scored
+  6.224 and she stopped within 60 ms (`playback finished`). The driver's scores today: 5.48–10.6.
+- **Cause.** §17 item 3 (and its T-013l amendment) gives one early verdict per utterance, and a rejected one drops the
+  stop for the rest of that utterance. §17's own sources say the research practice is a decision made continuously while
+  the speech comes in (Personal VAD, frame-level target speech, [arXiv 1908.04284](https://arxiv.org/html/1908.04284v5);
+  HyWA, a personalised VAD as the barge-in gate of a full-duplex assistant, [arXiv 2510.12947](https://arxiv.org/html/2510.12947)).
+  §17 chose a single check because no such model is on the phone. This section moves the existing voiceprint to a
+  rolling check, the nearest thing to that practice with the model we have. A frame-level personal VAD model stays out
+  of scope (not on the phone).
+
+- **The VAD does not know her voice.** The uplink gate (`SpeechUplinkGate`, F-04) opens on loudness alone:
+  `rms > max(rmsFloor, noiseRMS × noiseFactor)`. It never looks at what the phone is playing, so her echo opens an
+  utterance as easily as the driver does. Echo cancellers solve this with a double-talk detector that compares the
+  microphone with the playback signal: the Geigel detector declares near-end speech only when the microphone level
+  exceeds the loudest recent playback level times the echo-path coupling (D. L. Duttweiler, "A twelve-channel digital
+  echo canceler", IEEE Trans. Commun. 26(5), 1978; the standard double-talk detector of line and acoustic echo
+  cancellers). The app plays her audio itself, so it has that playback signal.
+
+**Rule in plain words.** While she speaks, the VAD opens only for sound louder than her own echo can be (double-talk
+detection), and the driver's voice is checked again every second on the latest second of sound, not once. Her echo
+neither opens an utterance nor passes the voiceprint; the first second that is the driver stops her, and from there
+what he says goes to the voice model.
+
+0. **Echo-aware VAD (double-talk detection).** While her reply plays and during `echoTail`, `SpeechUplinkGate` counts
+   a 10 ms frame as voiced only when its RMS is above the normal threshold **and** above
+   `echoCoupling × maxPlaybackRMS`, where `maxPlaybackRMS` is the loudest 10 ms playback frame (the audio the phone is
+   sending to the speaker, as played) within the last `echoWindow` (`UplinkGateTuning.echoWindow`, 200 ms, covering the
+   output plus input latency measured by the echo spike, `EchoSpikeReport.inputLatencyMs` + `outputLatencyMs`).
+   - `echoCoupling` (`UplinkGateTuning.echoCoupling`) is measured, not guessed: the 音频测试 echo trial (`EchoSpike`,
+     the driver silent while a loud reply plays) records, per trial, the ratio of the loudest captured frame to the
+     loudest played frame; `echoCoupling` is the highest ratio over the 10 trials times 2 (6 dB margin, the Geigel
+     practice of a fixed margin over the measured echo return loss). Until the phone has a measured value, the default
+     is 0.5 and the record says `coupling=default`.
+   - The playback level comes from the player in `NovaAudio` (`LiveAudio`) through a port in NovaCore, one value per
+     10 ms frame with its play time; NovaCore stays free of AVFoundation.
+   - Her silent: unchanged (no playback, the term is 0).
+   - Record: `uplink echo-gate coupling=<value|default> held_frames=<n>` once per reply, `held_frames` being the frames
+     the echo term kept closed.
+
+1. **Rolling check.** For a live candidate (§17 item 2: started while her reply plays or in `echoTail`, lock on,
+   `BargeInLive` keeping it), `SpeakerHold` requests the early score (kind `early`) on the latest `earlyScoreSpeech`
+   (1.0 s) of speech frames, first at 1.0 s of speech as today, then again after every further `rollingStep` of speech
+   (`SpeakerTuning.rollingStep`, 1.0 s). It stops requesting at the first accepted score, when her reply and its
+   `echoTail` have ended, or when the utterance ends. At most one request is in flight per utterance; a step that comes
+   while one is in flight is skipped, not queued.
+2. **Verdict per window.** Each window is judged as §17 item 3 with §18's bar (`playbackThreshold` 4.0 and the cohort
+   threshold, the higher decides). A **rejected** window does only what §17 amendment item 2 does today (the queued stop
+   and dip are dropped, `.dip(false)`); it no longer ends the checking. This replaces §17 item 3's "Live steps for this
+   utterance stay dropped, even if the whole-sentence score accepts it later" for live candidates. (So §17 row 63's "`.stop` never sent" now holds only for the
+   rejected window itself: a stop that comes later waits for the next window or the whole verdict.)
+3. **Accepted window: she stops and the driver's part starts there.** On the first accepted window:
+   - the stop acts at once, as §17 item 3 accepted (`SpeakerActionHold` releases the stop; `BargeInLive` stops her);
+   - the utterance is split at the start of the accepted window minus `UplinkGateTuning.preRoll` (300 ms). Frames
+     before the split are her echo: they are dropped, never sent to the voice model, and not part of any score;
+   - the part from the split on becomes the driver's utterance. Its words are sent as an accepted early verdict allows
+     today (T-013l), and anything still waiting uses its §16 whole-sentence verdict, scored only on frames after the split.
+4. **No accepted window.** If her reply and `echoTail` end with every window rejected, the utterance is cut there
+   (`endReason=cutAtUnmute`, as today) and its frames are dropped as echo (`mute=speaker`). Speech after that starts a
+   new utterance with the cohort bar (§18 item 2), so a long echo never swallows what the driver says after she stops.
+5. **Same for both voice models.** Gemini Live and Qwen-Audio realtime (F-05 §15) go through the same gate; nothing
+   here depends on the provider.
+6. **Record and log** (numbers and enums only, I-8).
+   - Each window writes `speaker-check … kind=early window=<n> …` (`n` from 1), with the §16 item 8 fields.
+   - The split writes `speaker-split utterance=<id> at_ms=<speech ms of the split> dropped_ms=<echo ms dropped>`.
+   - An utterance cut by item 4 writes `speaker-echo utterance=<id> speechMs=<n> windows=<n>`.
+7. **Where the code goes.** Item 0 in `SpeechUplinkGate` and `UplinkGateTuning`
+   (`Packages/NovaCore/Sources/NovaVoice/Uplink/`), the playback-level port in NovaPorts, its adapter in `LiveAudio`,
+   the coupling measurement in `EchoSpike` (`Packages/NovaAudio/`); `SpeakerHold`, `SpeakerActionHold`,
+   `SpeakerTuning.rollingStep` in `Packages/NovaCore/Sources/NovaVoice/Speaker/`; the split in the uplink gate's utterance handling beside
+   `cutAtUnmute`; the extra requests through the existing serial scoring queue in `AgentRuntime` (§17 implementation
+   notes: one queue, older first).
+8. **Not changed:** §16's whole-sentence verdict for utterances that start while she is silent; §18's bars and their
+   values; the wake word and stop-phrase checks (§6 items 7–8; 「别说了」 still stops her as today); `BargeInCheck`;
+   the voiceprint model, enrollment and cohort; lock off (§6 item 12: no early request).
+
+**Not verified.**
+- Whether the leak that opened utterance 4 is larger with Qwen's voice than with Gemini's. Row 78 notes the echo
+  windows' `kind=early` scores per voice model.
+- Cost on the phone: one score took 46–90 ms in today's records (`scoreMs`); a 20 s reply makes at most 20 requests.
+
+**Acceptance (iOS).**
+
+| # | Given / when | Then | Test |
+|---|---|---|---|
+| 72a | Her reply playing at playback RMS 8000, coupling 0.3: mic frames of RMS 2000 (echo) and 3500 (driver over her) | 2000 not voiced (below 0.3 × 8000 = 2400), the gate stays closed; 3500 voiced, the gate opens; her silent: 2000 voiced as today | unit |
+| 72b | Echo trial: 10 silent trials with captured/played peak ratios up to 0.2 | `echoCoupling` 0.4 stored and used; before any trial, 0.5 and `coupling=default` in the record | unit |
+| 73 | Lock on, her reply playing: a candidate whose window 1 scores -1.4, window 2 -1.2, window 3 6.5 | Windows 1–2 rejected, `.dip(false)` each, checking goes on; window 3 accepted, she stops at once; split at window 3 start − 300 ms; earlier frames not sent; `speaker-split` line | unit |
+| 74 | Same, all windows rejected until her reply and `echoTail` end, then the driver speaks 2 s | Utterance cut at her reply end, frames dropped, `speaker-echo` line; the 2 s is a new utterance judged on the cohort bar and sent if accepted | unit |
+| 75 | A window step comes while a request is in flight | Skipped, not queued; at most one request in flight per utterance | unit |
+| 76 | Lock off; lock on with her silent | No early or rolling request; outputs as today | unit |
+| 77 | Window 2 accepted after window 1 rejected | The driver's words from the split on are sent; the whole-sentence score uses only frames after the split | unit |
+| 78 | Device, lock on, 「可以打断她」 on, Qwen Flash and Gemini Live: 10 long replies each, the driver interrupts 5, stays quiet in 5 | The 5 interruptions stop her within about 1.5 s of his first word; the 5 quiet replies are never cut and open no utterance (`held_frames` > 0, no `speaker-check` during them); no driver utterance with `speechMs` close to a whole reply; note echo-window scores per model | D |
+| 79 | Device: 音频测试 echo trial on the owner's iPhone at the usual car volume | Measured `echoCoupling` recorded in STATUS with the volume used | D |
+
+**Tasks.**
+
+| Task | Scope | Verify |
+|---|---|---|
+| T-013n | Items 0–8; rows 72a–79 | unit, build, D |

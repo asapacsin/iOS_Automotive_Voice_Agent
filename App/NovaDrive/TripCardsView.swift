@@ -37,6 +37,7 @@ struct TripCardsView: View {
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("trip-strip")
                 // F-09b §16 item 1 (T-031z): the trip on screen (the strip while moving).
+                .panelClose(.tripScreen, runtime)
                 .screenPanel(.tripScreen)
         case .cards where model.tripCardsHidden, .emptyDay where model.tripCardsHidden:
             // §22 item 1: one 「行程」 button; a tap is the current day's read (shows the cards again).
@@ -49,7 +50,7 @@ struct TripCardsView: View {
         case .emptyDay:
             // §52 item 9: an empty day is still the trip screen: every day tab and 「这一天还没有安排」.
             VStack(alignment: .leading, spacing: 6) {
-                dayTabs
+                topRow
                 Text(TripScreen.emptyDayText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -60,7 +61,7 @@ struct TripCardsView: View {
             .screenPanel(.tripScreen)
         case .cards(let cards):
             VStack(alignment: .leading, spacing: 6) {
-                dayTabs
+                topRow
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(cards) { card in
@@ -82,17 +83,37 @@ struct TripCardsView: View {
                     .padding(.horizontal, 2)
                 }
                 HStack(spacing: 8) {
-                    // F-15b §29 item 4: one button to the next stop not visited or skipped (`trip_next`).
-                    if let next = model.tripList.stops.first(where: { $0.mark == nil }) {
-                        Button("去下一站：\(next.place.name)") { Task { await runtime.tripTap(.next) } }
-                            .buttonStyle(.borderedProminent)
-                            .lineLimit(1)
-                            .accessibilityIdentifier("trip-next")
+                    // F-15b §29 item 4: one button to the next stop not visited or skipped (`trip_next`); §57 item 2
+                    // (T-040zj): with its icon, apart from the cards, and 「结束导航」 in the same spot while navigating.
+                    // F-15b §66 item 6 (T-040zs): named after the stop `trip_next` goes to (on the map; an event with no
+                    // venue offers no navigation).
+                    switch TripScreen.navButton(nextStop: model.tripList.stops.first(where: { $0.mark == nil && $0.placed })?.place.name,
+                                                navigating: model.nav.navigating) {
+                    case .some(.next(let name)):
+                        Button { Task { await runtime.tripTap(.next) } } label: {
+                            Label("去下一站：\(name)", systemImage: "location.north.line.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .lineLimit(1)
+                        .accessibilityIdentifier("trip-next")
+                        .screenPanel(.tripNextButton)
+                    case .some(.stop):
+                        Button { Task { await runtime.stopNavigationTap() } } label: {
+                            Label("结束导航", systemImage: "xmark.circle").frame(minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .accessibilityIdentifier("trip-stop")
+                        .screenPanel(.stopNavigationButton)
+                    case .none:
+                        EmptyView()
                     }
                     Spacer()
                     plansButton
                 }
                 .font(.subheadline)
+                // §57 item 2: at least 12 pt below the card row.
+                .padding(.top, 12)
             }
             // F-09b §16 item 1 (T-031z): the trip cards on screen.
             .screenPanel(.tripScreen)
@@ -101,12 +122,23 @@ struct TripCardsView: View {
 }
 
 extension TripCardsView {
+    /// F-09b §22 item 3 (T-031zg): the day tabs, then the panel's 「×」 at the right, in its own row above the cards so
+    /// it never covers a card's per-stop ✕.
+    private var topRow: some View {
+        HStack(spacing: 6) {
+            dayTabs
+            Spacer(minLength: 0)
+            PanelCloseButton(panel: .tripScreen, runtime: runtime)
+        }
+    }
+
     /// §11 item 5 with §52 item 9: a tab for every day of the plan; a tap only changes the day in front.
     @ViewBuilder private var dayTabs: some View {
         if model.tripPlan.dayCount > 1 {
             HStack(spacing: 6) {
                 ForEach(1...model.tripPlan.dayCount, id: \.self) { day in
-                    Button("第\(day)天") { Task { await runtime.tripTap(.day(day)) } }
+                    // F-15b §64 item 1 (T-040zq): 「第1天 · 11月25日 周三」 with a start date.
+                    Button(TripDayLabel.text(day: day - 1, asked: model.tripPlan.asked)) { Task { await runtime.tripTap(.day(day)) } }
                         .buttonStyle(.bordered)
                         .tint(day == model.tripPlan.currentDay ? .blue : .gray)
                         .accessibilityIdentifier("trip-day-\(day)")
@@ -227,11 +259,19 @@ private struct TripCardView: View {
             }
             // F-15b §37 item 8 (T-040o): 住 / 机场, a small label under the poster.
             if let tag = card.tag { Text(tag).font(.caption2.bold()).foregroundStyle(.orange) }
+            // F-18 §43 item 4, §44 item 3: 「网络图片」 under a searched picture, 「未找到图片」 when the event has none.
+            if let note = card.imageNote { Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
             Text(card.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+            // F-15b §67 item 4 (T-040zt): the map's place name under the stop's name when they differ.
+            if let place = card.place { Text(place).font(.caption2).lineLimit(1) }
+            // F-15b §64 item 6 (T-040zq): the event at this venue and its open dates.
+            if let event = card.event { Text(event).font(.caption2).foregroundStyle(.purple).lineLimit(1) }
             HStack(spacing: 4) {
                 if let district = card.district { Text(district) }
                 if let km = card.km { Text(String(format: "%.1f 公里", km)) }
                 if let minutes = card.minutes { Text("车程\(minutes)分钟") }
+                // F-15b §71 item 6 (T-040zx): a leg across the Macau/Hong Kong border.
+                if let border = card.border { Text(border).foregroundStyle(.orange) }
                 if card.mark == .visited { Text("已到").foregroundStyle(.green) }
                 if card.mark == .skipped { Text("跳过").foregroundStyle(.secondary) }
             }
@@ -359,6 +399,7 @@ struct TripDetailSheet: View {
                 .frame(height: 180)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             Text("\(card.index) \(card.name)").font(.title3.weight(.bold))
+            if let mapName = card.place { Text(mapName).font(.subheadline).foregroundStyle(.secondary) }
             // §21 items 2, 4: 「介绍」 under the name; none for a saved 家/公司 stop.
             if !card.placeID.hasPrefix("saved_") {
                 Text("介绍").font(.headline)

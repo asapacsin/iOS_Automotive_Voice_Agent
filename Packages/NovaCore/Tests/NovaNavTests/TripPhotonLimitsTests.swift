@@ -76,7 +76,7 @@ private struct LimitRig {
     func start() async -> String? {
         let args: [String: JSONValue] = ["places": [["name": "Base", "minutes": 60, "importance": 3]], "abroad": true,
                                          "city": "Sapporo, Japan"]
-        _ = await planner.execute(trip("make_trip_list", args))
+        _ = await planner.execute(planCall(args))
         return await planner.currentPlan.allStops.first?.stop.id
     }
 }

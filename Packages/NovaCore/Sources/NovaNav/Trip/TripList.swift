@@ -57,11 +57,23 @@ public struct TripStop: Sendable, Hashable {
     }
     /// §49 item 1: 3 = must-see (never dropped by code), 2 = worth it, 1 = extra.
     public var importance: Int
+    /// F-15b §64 item 6 (T-040zq): a time-limited event at this venue, as the planner placed it and code checked it.
+    public var event: TripEvent?
+    /// F-15b §67 item 3 (T-040zt): the text looked up on the map (the planner's `location`); `asked` keeps its `name`.
+    /// Equals `asked` when the planner gave no `location` and for stops from before §67.
+    public var location: String
+    /// F-15b §73 item 5 (T-040zz): the hidden map-search word that was looked up; never shown. Equals `location` when
+    /// the planner gave none and for stops from before §73.
+    public var query: String
 
     public init(index: Int, asked: String, place: Place, distanceMeters: Int?, mark: TripMark? = nil,
                 legSeconds: Int? = nil, role: TripRole = .sight, picked: Bool = false,
                 minutes: Int? = nil, optional: Bool = false, importance: Int? = nil,
-                id: String = "", placed: Bool = true, pickedBy: TripPickedBy? = nil) {
+                id: String = "", placed: Bool = true, pickedBy: TripPickedBy? = nil, event: TripEvent? = nil,
+                location: String? = nil, query: String? = nil) {
+        self.event = event
+        self.location = location ?? asked
+        self.query = query ?? location ?? asked
         self.id = id
         self.placed = placed
         self.pickedBy = pickedBy ?? (picked ? .app : .model)
@@ -78,8 +90,33 @@ public struct TripStop: Sendable, Hashable {
 
     func renumbered(_ index: Int) -> TripStop {
         TripStop(index: index, asked: asked, place: place, distanceMeters: distanceMeters, mark: mark, legSeconds: legSeconds,
-                 role: role, minutes: minutes, importance: importance, id: id, placed: placed, pickedBy: pickedBy)
+                 role: role, minutes: minutes, importance: importance, id: id, placed: placed, pickedBy: pickedBy, event: event,
+                 location: location, query: query)
     }
+
+    /// F-15b §67 item 4 (T-040zt): the card title: what the driver calls the stop (`asked`); the map's name for a stop
+    /// the app picked (its `asked` is a search word such as 「酒店」) or one without `asked`.
+    public var title: String { pickedBy == .app || asked.isEmpty ? place.name : asked }
+
+    /// §67 item 4: 「<name>（<place name>）」 when the map's name differs, else 「<name>」 (a stop not placed: the name).
+    /// F-15b §66 items 4, 6 (T-040zs): an event stop linked to the events list is 「<event>（<venue>，<start>–<end>）」,
+    /// 「场馆未找到」 / 「日期未找到」 in place of what no source confirmed.
+    public var label: String {
+        if let e = event, e.linked == true {
+            // §64 item 4: not placed as an event (closed that day); still no venue.
+            if e.closedDay == true { return "\(e.title)（\(TripEvent.venueMissing)）" }
+            return "\(e.title)（\(e.venueFound == false ? TripEvent.venueMissing : location)，\(e.shortDates)）"
+        }
+        return placed && title != place.name ? "\(title)（\(place.name)）" : title
+    }
+
+    /// §66 item 6: false for a linked event with no confirmed venue: never looked up on the map (not by the event's
+    /// name, not by the planner's `location`), so never placed and no navigation.
+    public var mapLookup: Bool { !(event?.linked == true && event?.venueFound == false) }
+
+    /// The event shown on the stop (its line, picture, the planner's `event`): none for one not placed as an event
+    /// (`closedDay`).
+    public var shownEvent: TripEvent? { event?.closedDay == true ? nil : event }
 
     /// §49 item 1: importance is 1–3.
     public static func clampImportance(_ i: Int) -> Int { min(max(i, 1), 3) }
@@ -87,7 +124,9 @@ public struct TripStop: Sendable, Hashable {
     /// §48 item 2: the visit minutes the fit counts: the model's, else by kind (sights) or role (the frame).
     public var visitMinutes: Int {
         switch role {
-        case .start, .end, .hotel: return 0
+        case .start, .end: return 0
+        // F-15b §63 item 2 (T-040zp): a hotel merged with the sight of the same place keeps that sight's minutes.
+        case .hotel: return minutes ?? 0
         case .rentalPickup: return minutes ?? 30
         case .rentalReturn: return minutes ?? 20
         case .sight: return minutes ?? Self.defaultMinutes(place.kind)
@@ -121,7 +160,7 @@ public struct TripList: Sendable, Hashable {
     public var count: Int { stops.count }
     public var isEmpty: Bool { stops.isEmpty }
 
-    /// `make_trip_list`: the whole list replaced.
+    /// The whole list replaced.
     public mutating func replace(_ entries: [(asked: String, place: Place, distanceMeters: Int?)]) {
         stops = entries.prefix(Self.maxStops).map { TripStop(index: 0, asked: $0.asked, place: $0.place,
                                                              distanceMeters: $0.distanceMeters) }
@@ -186,6 +225,58 @@ public struct TripList: Sendable, Hashable {
         for i in stops.indices { stops[i].legSeconds = nil }
     }
 
+    /// F-15b §63 items 1-3 (T-040zp): a stop that is the same place as the stop right before it is merged into it; a
+    /// change only when something merged.
+    mutating func mergeAdjacent() {
+        let merged = Self.mergedAdjacent(stops)
+        guard merged.count != stops.count else { return }
+        stops = merged
+        dropLegs()
+        changed()
+    }
+
+    /// §63 item 1: same `Place.id`, or the same found name (both placed).
+    static func samePlace(_ a: TripStop, _ b: TripStop) -> Bool {
+        if !a.place.id.isEmpty, a.place.id == b.place.id { return true }
+        guard a.placed, b.placed else { return false }
+        let x = TranscriptText.normalize(a.place.name)
+        return !x.isEmpty && x == TranscriptText.normalize(b.place.name)
+    }
+
+    /// §63 items 1-3: a sight or hotel next to a sight or hotel of the same place merges (a day's start and night
+    /// hotel merge only when nothing is between them). The hotel wins and keeps the sight's minutes; two sights keep the larger minutes. The
+    /// merged stop keeps the first stop's position.
+    public static func mergedAdjacent(_ stops: [TripStop]) -> [TripStop] {
+        var out: [TripStop] = []
+        for s in stops {
+            guard let last = out.last, last.role == .sight || last.role == .hotel, s.role == .sight || s.role == .hotel,
+                  samePlace(last, s) else {
+                out.append(s)
+                continue
+            }
+            let hotel = last.role == .hotel ? last : (s.role == .hotel ? s : nil)
+            var keep: TripStop
+            if last.role == .hotel, s.role == .hotel {
+                // The night's hotel (the later one) is kept, with the time already spent there.
+                keep = s
+                keep.minutes = max(last.visitMinutes, s.visitMinutes)
+                if keep.minutes == 0 { keep.minutes = nil }
+                if keep.mark == nil { keep.mark = last.mark }
+            } else if let hotel {
+                let sight = hotel == last ? s : last
+                keep = hotel
+                keep.minutes = max(sight.visitMinutes, hotel.visitMinutes)
+                if keep.mark == nil { keep.mark = sight.mark }
+            } else {
+                keep = last
+                keep.minutes = max(last.visitMinutes, s.visitMinutes)
+                keep.importance = max(last.importance, s.importance)
+            }
+            out[out.count - 1] = keep.renumbered(last.index)
+        }
+        return out
+    }
+
     /// §52 item 1 (T-040zb): the plan's stop ids, in order (not a change: the stops are the same).
     mutating func setIDs(_ ids: [String]) {
         for i in stops.indices where i < ids.count { stops[i].id = ids[i] }
@@ -199,7 +290,8 @@ public struct TripList: Sendable, Hashable {
         stops = stops.map { $0.place.id == placeID
             ? TripStop(index: $0.index, asked: $0.asked, place: $0.place.with(photoURL: url), distanceMeters: $0.distanceMeters,
                        mark: $0.mark, legSeconds: $0.legSeconds, role: $0.role,
-                       minutes: $0.minutes, importance: $0.importance, id: $0.id, placed: $0.placed, pickedBy: $0.pickedBy)
+                       minutes: $0.minutes, importance: $0.importance, id: $0.id, placed: $0.placed, pickedBy: $0.pickedBy,
+                       event: $0.event, location: $0.location, query: $0.query)
             : $0 }
     }
 

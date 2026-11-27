@@ -23,6 +23,21 @@ public enum CoordinateConverter {
         return GeoCoordinate(latitude: c.latitude + dLat, longitude: c.longitude + dLng, datum: .gcj02)
     }
 
+    /// F-15b §71 item 5 (T-040zx): GCJ-02 (高德) → WGS-84 (OSRM), by inverting `gcj02` (a few fixed-point steps, well
+    /// under a metre). A WGS-84 point and one outside China come back with the same numbers.
+    public static func wgs84(_ c: GeoCoordinate) -> GeoCoordinate {
+        guard c.datum == .gcj02, !outOfChina(c.latitude, c.longitude) else {
+            return GeoCoordinate(latitude: c.latitude, longitude: c.longitude, datum: .wgs84)
+        }
+        var lat = c.latitude, lng = c.longitude
+        for _ in 0..<6 {
+            let shifted = gcj02(GeoCoordinate(latitude: lat, longitude: lng, datum: .wgs84))
+            lat -= shifted.latitude - c.latitude
+            lng -= shifted.longitude - c.longitude
+        }
+        return GeoCoordinate(latitude: lat, longitude: lng, datum: .wgs84)
+    }
+
     static func outOfChina(_ lat: Double, _ lng: Double) -> Bool {
         lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271
     }

@@ -12,6 +12,9 @@ struct Drive {
     var now = NovaInstant.zero
     var effects: [AgentEffect] = []
     var turn = TurnID.initial
+    /// F-07 §18 (T-020e): her voice is the model's own audio. With this on, each `replyText` is followed by the
+    /// model's audio of those words (`VoicedText`), so `spoken` reads what the claim gate released for sound.
+    var voiceText = true
 
     @discardableResult
     mutating func send(_ event: AgentEvent) -> [AgentEffect] {
@@ -22,7 +25,11 @@ struct Drive {
 
     @discardableResult
     mutating func realtime(_ event: RealtimeEvent) -> [AgentEffect] {
-        send(.realtime(event, connection: state.session.connection))
+        var out = send(.realtime(event, connection: state.session.connection))
+        if voiceText, case .replyText(let turn, let text) = event {
+            out += send(.realtime(.replyAudio(turn, VoicedText.pcm(text)), connection: state.session.connection))
+        }
+        return out
     }
 
     /// Connected and listening.
@@ -47,8 +54,25 @@ func climateOn(_ id: String = "call_1") -> ToolCall {
     ToolCall(id: CallID(id)!, name: "control_climate", arguments: ["action": "power_on"])
 }
 
+/// The model's audio of a reply text, its words carried in the samples (a test rate no real audio uses).
+enum VoicedText {
+    static let rate = 1
+    static func pcm(_ text: String) -> PCMBuffer {
+        PCMBuffer(sampleRate: rate, samples: text.unicodeScalars.map { Int16(truncatingIfNeeded: Int($0.value)) })
+    }
+    static func text(_ pcm: PCMBuffer) -> String? {
+        guard pcm.sampleRate == rate else { return nil }
+        return String(String.UnicodeScalarView(pcm.samples.compactMap { Unicode.Scalar(UInt16(bitPattern: $0)) }))
+    }
+}
+
+/// What she said: the words of the model audio the claim gate released to the reply lane.
 func spoken(_ effects: [AgentEffect]) -> String {
-    effects.compactMap { if case .speak(let s) = $0 { s } else { nil } }.joined()
+    effects.compactMap { if case .playReplyAudio(_, let pcm) = $0 { VoicedText.text(pcm) } else { nil } }.joined()
+}
+
+func isSpeech(_ effect: AgentEffect) -> Bool {
+    if case .playReplyAudio(_, let pcm) = effect { VoicedText.text(pcm) != nil } else { false }
 }
 
 func index(_ effects: [AgentEffect], _ match: (AgentEffect) -> Bool) -> Int? { effects.firstIndex(where: match) }
@@ -77,7 +101,7 @@ struct AgentWalkthroughTests {
         d.realtime(.audioDone(t1))
         d.realtime(.responseDone(t1, outcome: .completed))
         let response = index(d.effects) { if case .provider(.toolResponses) = $0 { true } else { false } }
-        let firstSpeak = index(d.effects) { if case .speak = $0 { true } else { false } }
+        let firstSpeak = index(d.effects, isSpeech)
         #expect(response != nil && firstSpeak != nil && response! < firstSpeak!)
         #expect(spoken(d.effects) == "空调已经为您打开了。")
         #expect(d.state.view.subtitle == "空调已经为您打开了。")
@@ -308,7 +332,8 @@ struct AgentWalkthroughTests {
         let out = d.realtime(.interrupted(t1, reason: .serverVAD))
         #expect(out.contains(.flushPlayback(Epoch(1))))
         d.realtime(.responseDone(t1, outcome: .completed))
-        #expect(spoken(d.effects).isEmpty)
+        // F-07 §18: her audio streams as it comes; the interruption flushes whatever of it is still queued.
+        #expect(index(d.effects, isSpeech)! < index(d.effects) { $0 == .flushPlayback(Epoch(1)) }!)
     }
 
     @Test("W2 R4: after a permanent focus loss the reply is dropped, and the next driver utterance regains focus")
@@ -351,7 +376,9 @@ final class RecordingSink: AgentEffectSink, @unchecked Sendable {
     func flushPlayback(to epoch: Epoch) { log.withLock { $0.append("flush") } }
     func cancelRevoicing(_ epoch: Epoch) async {}
     func newReply() async {}
-    func speak(_ clause: String) async { log.withLock { $0.append("speak:\(clause)") } }
+    func playReplyAudio(_ pcm: PCMBuffer, turn: TurnID) async {
+        log.withLock { $0.append("speak:\(VoicedText.text(pcm) ?? "")") }
+    }
     func publish(_ view: AgentViewState) async {}
     func diagnostic(_ event: DiagnosticEvent) {}
     func speakGuidance(_ text: String, id: GuidanceID) async { log.withLock { $0.append("guidance:\(text)") } }
@@ -379,6 +406,7 @@ struct AgentCoreShellTests {
         await core.send(.realtime(.responseStarted(t1), connection: connection))
         await core.send(.realtime(.toolCalls(t1, [climateOn()]), connection: connection))
         await core.send(.realtime(.replyText(t1, "空调打开了。"), connection: connection))
+        await core.send(.realtime(.replyAudio(t1, VoicedText.pcm("空调打开了。")), connection: connection))
         for _ in 0..<200 where !sink.log.withLock({ $0.contains { $0.hasPrefix("speak:") } }) {
             try await Task.sleep(for: .milliseconds(5))
         }
@@ -602,7 +630,7 @@ struct StopPhraseSpotterCoreTests {
 
 @Suite("T-022c F-08 §16 after a stop nothing is spoken without a sent utterance")
 struct PostStopCoreTests {
-    func spokeText(_ out: [AgentEffect]) -> Bool { out.contains { if case .speak = $0 { true } else { false } } }
+    func spokeText(_ out: [AgentEffect]) -> Bool { out.contains(where: isSpeech) }
     func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {
         out.compactMap { if case .diagnostic(let e) = $0 { e } else { nil } }
     }
@@ -635,7 +663,7 @@ struct StopSyncTests {
     func diagnostics(_ out: [AgentEffect]) -> [DiagnosticEvent] {
         out.compactMap { if case .diagnostic(let e) = $0 { e } else { nil } }
     }
-    func spokeText(_ out: [AgentEffect]) -> Bool { out.contains { if case .speak = $0 { true } else { false } } }
+    func spokeText(_ out: [AgentEffect]) -> Bool { out.contains(where: isSpeech) }
 
     @Test("F-08 §15 row 2: local flush first, then the empty activity; stopSync sent; no interrupt in 1 s is logged")
     func flushThenInterrupt() throws {

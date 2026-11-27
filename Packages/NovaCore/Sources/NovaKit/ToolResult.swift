@@ -43,6 +43,15 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case tripHidden = "TRIP_HIDDEN"
     /// F-15b §52 item 5 (T-040zb): `set_trip_plan` wrote a plan that breaks the plan's rules; the problems are facts.
     case planCheck = "PLAN_CHECK"
+    /// F-15b §62 item 7 (T-040zo): the planner model failed (HTTP error, 30 s timeout, or not JSON twice in a round);
+    /// nothing saved, the cards unchanged, no other planner.
+    case plannerFailed = "PLANNER_FAILED"
+    /// F-18 §39 item 6 (T-046zb): every events search failed, or the extraction failed.
+    case eventsFailed = "EVENTS_FAILED"
+    /// F-15b §56 item 4 (T-040zi): the same refused `set_trip_plan` call again in one driver request; not run.
+    case repeatedFailure = "REPEATED_FAILURE"
+    /// F-15b §57 item 3 (T-040zj): `trip_next` toward the stop already guided to; no new route.
+    case alreadyNavigating = "ALREADY_NAVIGATING"
     /// F-15b §52 item 13 (T-040ze): clearing the whole trip waits for the driver's yes on a later turn.
     case confirmClear = "CONFIRM_CLEAR"
     /// F-15b §51 item 8 (T-040z): `navigate_to near=place` geocoded outside the model's `near_country`; no search.
@@ -126,6 +135,8 @@ public enum ToolErrorCode: String, Sendable, Hashable, CaseIterable, CustomStrin
     case placeNotSaved = "PLACE_NOT_SAVED"
     /// F-09b §16 item 8 (T-031za): `show_place` did not get the place card on screen.
     case placeNotShown = "PLACE_NOT_SHOWN"
+    /// F-09b §18 item 4 (T-031zc): 高德 had no single exact name+city match; no card, `found` goes back to her.
+    case placeUnsure = "PLACE_UNSURE"
     /// F-09b §16 item 6 (T-031z): the tool acted, but the panel it closes is still on screen after `screenConfirm`.
     case stillOnScreen = "STILL_ON_SCREEN"
     /// F-09b §16 item 6 (T-031z): the saved media volume is 0, so nothing would be heard.

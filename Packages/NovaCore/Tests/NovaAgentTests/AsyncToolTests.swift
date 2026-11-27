@@ -13,9 +13,10 @@ func liveInfoCall(_ id: String = "call_w") -> ToolCall {
 /// F-18 §27 rows 2–4 (T-020c), the core side. The codec rows (1–3 wire format) are in NovaRealtime.
 @Suite("T-020c F-18 §27 background search")
 struct AsyncToolTests {
-    static func asking(_ words: String = "现在天气怎么样", revoicing: Bool = false) -> Drive {
+    static func asking(_ words: String = "现在天气怎么样") -> Drive {
         var d = Drive()
-        d.state = AgentState(truthfulness: TruthfulnessTuning(), revoicing: revoicing)
+        d.voiceText = false
+        d.state = AgentState(truthfulness: TruthfulnessTuning())
         d.connect()
         d.send(.speechStarted(recentSpeech: true))
         d.send(.speechStopped)
@@ -64,21 +65,21 @@ struct AsyncToolTests {
         #expect(r.count == 1 && r[0].scheduling == nil && r[0].elapsedMs == nil)
     }
 
-    @Test("Row 4: the socket drops while web_search runs: cancelled, dropped reason=reconnect, result never sent")
+    @Test("Row 4 as amended by F-18 §37 item 3 (T-046z): the socket drops while web_search runs: it keeps running; no tool response to the new socket")
     func reconnectDrops() {
         var d = Self.asking("今天油价多少")
         let call = searchCall()
         d.realtime(.toolCalls(TurnID(1), [call]))
         let failed = d.realtime(.failed(RealtimeError(.disconnect)))
-        #expect(failed.contains(.cancelTool(call.id)))
-        #expect(failed.contains(.diagnostic(.asyncToolDropped(tool: .webSearch))))
+        #expect(!failed.contains(.cancelTool(call.id)))
+        #expect(!failed.contains(.diagnostic(.asyncToolDropped(tool: .webSearch))))
         #expect(DiagnosticEvent.asyncToolDropped(tool: .webSearch).logLine == "tool-result web_search dropped reason=reconnect")
         #expect(Self.responses(d.send(.toolFinished(TurnID(1), call, .success(["answer": "7元"])))).isEmpty)
     }
 
     @Test("Item 4: a barge-in does not cancel a running search; its result is still sent")
     func bargeInKeepsSearch() {
-        var d = Self.asking("今天油价多少", revoicing: true)
+        var d = Self.asking("今天油价多少")
         let call = searchCall()
         d.realtime(.toolCalls(TurnID(1), [call]))
         d.realtime(.replyText(TurnID(1), "我查一下。"))
@@ -141,7 +142,7 @@ struct ReplyAudioKeeperTests {
 struct AsyncToolReviewTests {
     @Test("A later turn of an utterance whose call was blocking is still held whole (I-1, I-5)")
     func laterTurnHeld() {
-        var p = DriverTurnPipeline(streamsCleanAudio: true)
+        var p = DriverTurnPipeline()
         let now = NovaInstant.zero
         _ = p.handle(.driverUtterance("我有点冷"), at: now)
         _ = p.handle(.turnOpened(TurnID(1)), at: now)

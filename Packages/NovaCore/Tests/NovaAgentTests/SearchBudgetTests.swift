@@ -20,3 +20,17 @@ struct SearchBudgetTests {
         }
     }
 }
+
+@Suite("T-046v F-18 §33 item 7 quota refusal wording")
+struct QuotaWordingTests {
+    @Test("T-046v F-18 §33 row 16 (executor side): LIVE_INFO_UNAVAILABLE reason=quota has no network wording in next")
+    func row16() async {
+        let service = ScriptedSearch([.fail(.budget(.quota))])
+        let r = await WebSearchExecutor(service: service, clock: ManualClock()).execute(searchCall())
+        #expect(r.code == .liveInfoUnavailable && r.data["reason"] == .string("quota"))
+        let advice = r.advice ?? ""
+        #expect(advice.hasPrefix("现在查不了网上的信息"))
+        #expect(!advice.contains("联网") && !advice.contains("连不上网"))
+        #expect(!advice.contains("网络"))
+    }
+}

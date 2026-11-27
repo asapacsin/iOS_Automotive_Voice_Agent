@@ -28,6 +28,8 @@ public enum RecordEvent: Sendable, Hashable {
     case toolResult(name: String, ok: Bool, code: String?, data: JSONValue, elapsedMs: Int? = nil)
     /// F-18 §27 item 4: a background tool's result dropped because the socket was replaced.
     case toolDropped(AsyncTool)
+    /// F-18 §37 (T-046z): `tool-result <name> dropped reason=superseded|stale`, `tool-result <name> via=text reason=reconnected`.
+    case toolResultLine(String)
     case correction(String)
     case playbackStarted
     case playbackFinished
@@ -58,11 +60,8 @@ public enum RecordEvent: Sendable, Hashable {
     case speakerCheck(SpeakerCheckLine)
     /// F-16 §14 item 9 (T-042c): `dest-search destination= step= n= top= score= km= check=`.
     case destSearch(DestinationSearchLine)
-    /// F-07 §14 item 8 (T-020a): `voice source= chars= first_ms= ms= attempt=`.
-    case voiceClause(VoiceClauseLine)
-    /// F-07 §14 item 7: `voice-failed turn= source= code=`.
-    case voiceFailed(VoiceFailedLine)
-    /// F-07 §15 item 5 (T-020b): `voice source=gemini turn= held_ms= first_ms=`.
+    /// F-07 §15 item 5 (T-020b): `voice source=gemini turn= held_ms= first_ms=`; F-07 §18 item 5 (T-020e): the one
+    /// timing line for both voice models (`source=qwen-realtime` with Qwen). The TTS `voice`/`voice-failed` lines are gone.
     case voiceGemini(GeminiVoiceLine)
     /// F-24 §16 item 3 (T-020b): `session closed code= reason=`.
     case sessionClosed(SessionClosedLine)
@@ -84,14 +83,28 @@ public enum RecordEvent: Sendable, Hashable {
     case screen(ScreenState)
     /// F-09b §17 item 7 (T-031zb): one view report, at that moment: `panel <key> <on|off> top=<panel|none>` (I-8).
     case panel(ScreenPanel, on: Bool, after: ScreenState)
+    /// F-09b §22 item 5 (T-031zg): the driver tapped a panel's 「×」: `panel close tap <key>`.
+    case panelCloseTap(ScreenPanel)
     /// F-09b §8 (T-031j): `undo ok=<yes|no> restored=<n>`.
     case undo(String)
     /// F-15b §7 (T-040i): `trip list …`, `trip lookup …`, `trip route …`, `trip stop-passed …`; codes and numbers only.
     case trip(String)
     /// F-18 §30 item 5 (T-046s): `weather source= ok= reason= view= lookup= attempts= ms=`; codes and numbers only.
     case weather(String)
+    /// F-18 §35 item 9 (T-046x): `events store hit|miss …`, `events query …`, `events extract …`, `events search done …` (§39 item 8);
+    /// counts, codes and dates only (no event names, I-8).
+    case events(String)
+    /// F-18 §42 item 6 (T-046ze): `search provider=qiniu job=… ms= results= failed= reason=` and `model provider=qiniu job=…
+    /// model= ms= tokens=<prompt>,<completion>,<reasoning>`; codes and numbers only.
+    case qiniu(String)
     /// F-03 §14 item 4 (T-021q): `audio interrupted`, `audio interruption-ended resume=…`, `audio resumed …`.
     case audio(String)
+    /// F-05 §15 items 5-6 (T-016q): `qwen usage in=<audio>,<text> out=<audio>,<text>`, `qwen history turns=<n>`,
+    /// `qwen reconnect fresh=yes`; numbers only (I-8).
+    case qwen(String)
+    /// F-04b §19 items 0, 6 (T-013n): `uplink echo-gate coupling=<value|default> held_frames=<n>`, `speaker-split
+    /// utterance= at_ms= dropped_ms=` and `speaker-echo utterance= speechMs= windows=`; numbers only (I-8).
+    case speaker(String)
 }
 
 /// Header facts (§17 item 3). Never a key or the system instruction: there is no field for them.
@@ -110,9 +123,13 @@ public struct RecordHeader: Sendable, Hashable {
     public let declaredTools: [String]?
     /// F-09b §15 item 6 (T-031y): `agentVersion`, `agentHash`, `model` right after the `app` line; empty writes none.
     public let agentLines: [String]
+    /// F-05 §15 item 6 (T-016q): the voice model's id (`voiceModel gemini-3.8-live`); nil writes no line.
+    public let voiceModel: String?
 
     public init(appVersion: String, comfortMode: String, interruptible: Bool, speakingStyle: String, webSearch: Bool = false,
-                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil, agentLines: [String] = []) {
+                searchKey: Bool? = nil, startedBy: String? = nil, declaredTools: [String]? = nil, agentLines: [String] = [],
+                voiceModel: String? = nil) {
+        self.voiceModel = voiceModel
         self.agentLines = agentLines
         self.startedBy = startedBy
         self.declaredTools = declaredTools
@@ -127,6 +144,7 @@ public struct RecordHeader: Sendable, Hashable {
     public var lines: [String] {
         var out = ["app \(appVersion)"]
         out += agentLines
+        if let voiceModel { out.append("voiceModel \(voiceModel)") }
         out += ["comfortMode \(comfortMode)", "可以打断她 \(interruptible ? "on" : "off")",
                 "speakingStyle \(speakingStyle)", "webSearch \(webSearch ? "on" : "off")"]
         if let searchKey { out.append("searchKey \(searchKey ? "saved" : "missing")") }
@@ -187,7 +205,17 @@ public struct ConversationRecorder: Sendable {
 
     public init() {}
 
+    /// F-18 §34 item 2 (T-046w): every entry is one line; a line feed or carriage return left in any text is a space.
     public mutating func add(_ event: RecordEvent, atMs ms: Int64) -> [String] {
+        lines(event, atMs: ms).map(Self.oneLine)
+    }
+
+    static func oneLine(_ s: String) -> String {
+        guard s.contains(where: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" }) else { return s }
+        return String(s.map { $0 == "\n" || $0 == "\r" || $0 == "\r\n" ? " " : $0 })
+    }
+
+    private mutating func lines(_ event: RecordEvent, atMs ms: Int64) -> [String] {
         func line(_ kind: String, _ content: String) -> String { "\(ms) \(kind) \(content)" }
         switch event {
         case .heardLocal(let words):
@@ -215,9 +243,19 @@ public struct ConversationRecorder: Sendable {
             let async = AsyncTool(name: name) == nil ? "" : " async=true"
             return [line("tool-call", "\(name)\(async) \(Self.json(args))")]
         case .toolDropped(let tool): return [line("tool-result", "\(tool.rawValue) dropped reason=reconnect")]
+        case .toolResultLine(let text): return [line("tool-result", String(text.dropFirst("tool-result ".count)))]
         case .toolResult(let name, let ok, let code, let data, let elapsed):
             let timing = elapsed.map { " scheduling=\(AsyncTool.scheduling) ms=\($0)" } ?? ""
-            return [line("tool-result", "\(name)\(timing) ok=\(ok) code=\(code ?? "none") \(Self.json(data))")]
+            // F-15b §56 item 6 (T-040zi): a refusal's `problems` lines are written as their count, never the lines;
+            // a `REPEATED_FAILURE` adds `trip repeat-blocked code=<the earlier code>`.
+            guard case .object(var fields) = data, case .array(let problems)? = fields.removeValue(forKey: "problems") else {
+                return [line("tool-result", "\(name)\(timing) ok=\(ok) code=\(code ?? "none") \(Self.json(data))")]
+            }
+            var out = [line("tool-result", "\(name)\(timing) ok=\(ok) code=\(code ?? "none") problems=\(problems.count) \(Self.json(.object(fields)))")]
+            if code == ToolErrorCode.repeatedFailure.rawValue {
+                out.append(line("trip", "repeat-blocked code=\(fields["refused_code"]?.stringValue ?? "none")"))
+            }
+            return out
         case .correction(let reason): return settle(ms, reason: reason) + [line("correction", reason)]
         case .languageLine(let l):
             // The re-ask settles the voided reply like any correction.
@@ -239,8 +277,6 @@ public struct ConversationRecorder: Sendable {
         case .wakeUnused: return ["\(ms) wake-unused"]
         case .speakerCheck(let check): return [line("speaker-check", check.fields)]
         case .destSearch(let search): return [line("dest-search", search.fields)]
-        case .voiceClause(let v): return [line("voice", v.fields)]
-        case .voiceFailed(let v): return [line("voice-failed", v.fields)]
         case .voiceGemini(let v): return [line("voice", v.fields)]
         case .claimCut(let turn, let played): return [line("claim-cut", "turn=\(turn) played_ms=\(played)")]
         case .stateNote(let reason): return [line("state-note", "reason=\(reason.rawValue)")]
@@ -248,18 +284,23 @@ public struct ConversationRecorder: Sendable {
         case .nowNote(let fields): return [line("contextNote", "fields=\(fields.map(\.rawValue).joined(separator: ","))")]
         case .screen(let state): return ["\(ms) \(state.recordLine)"]
         case .panel(let panel, let on, let after): return ["\(ms) \(after.panelLine(panel, on: on))"]
+        case .panelCloseTap(let panel): return ["\(ms) panel close tap \(panel.rawValue)"]
         case .undo(let text): return ["\(ms) \(text)"]
         case .trip(let text): return ["\(ms) \(text)"]
         case .volume(let text), .audio(let text): return ["\(ms) \(text)"]
         case .weather(let text): return ["\(ms) \(text)"]
+        case .events(let text): return ["\(ms) \(text)"]
+        case .qiniu(let text): return ["\(ms) \(text)"]
+        case .qwen(let text): return ["\(ms) \(text)"]
+        case .speaker(let text): return ["\(ms) \(text)"]
         case .music(let text):
             let rest = text.hasPrefix("music ") ? String(text.dropFirst("music ".count)) : text
             return [line("music", rest)]
-        case .sessionClosed(let c): return add(.session("closed \(c.fields)"), atMs: ms)
+        case .sessionClosed(let c): return lines(.session("closed \(c.fields)"), atMs: ms)
         case .sessionGaveUp(let since, let attempts, let code):
-            return add(.session("gave-up ms=\(since) attempts=\(attempts) code=\(code.rawValue)"), atMs: ms)
+            return lines(.session("gave-up ms=\(since) attempts=\(attempts) code=\(code.rawValue)"), atMs: ms)
         case .sessionResume(let handle, let result):
-            return add(.session("resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"), atMs: ms)
+            return lines(.session("resume handle=\(handle ? "yes" : "no") result=\(result.rawValue)"), atMs: ms)
         case .session(let what):
             // A session event ends every open turn: her words are never lost from the file.
             var out: [String] = []
@@ -272,7 +313,7 @@ public struct ConversationRecorder: Sendable {
     public mutating func finish(atMs ms: Int64) -> [String] {
         var out: [String] = []
         for id in open.keys.sorted(by: { open[$0]!.firstMs < open[$1]!.firstMs }) { out += end(id, ms) }
-        return out + settle(ms, reason: nil)
+        return (out + settle(ms, reason: nil)).map(Self.oneLine)
     }
 
     private mutating func begin(_ t: TurnID, _ ms: Int64) {
@@ -324,14 +365,31 @@ public struct ConversationRecorder: Sendable {
         return String(body.prefix(8_000)) + "…" + String(body.suffix(24_000))
     }
 
+    /// F-18 §34 item 1 (T-046w): `\` as `\\`, line feed `\n`, carriage return `\r`, tab `\t`, in that order, so the
+    /// body stays on one line and `scripts/records/read.py` (format 5) turns it back into the exact text.
+    public static func escapeBody(_ body: String) -> String {
+        var out = ""
+        out.reserveCapacity(body.utf8.count)
+        for u in body.unicodeScalars {
+            switch u {
+            case "\\": out += "\\\\"
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\t": out += "\\t"
+            default: out.unicodeScalars.append(u)
+            }
+        }
+        return out
+    }
+
     static func searchLines(_ x: WebSearchExchange) -> [(kind: String, content: String)] {
-        var out = [("search-request", "attempt=\(x.attempt) body=\(x.requestBody)")]
+        var out = [("search-request", "attempt=\(x.attempt) body=\(escapeBody(x.requestBody))")]
         if let error = x.error {
             out.append(("search-response", "attempt=\(x.attempt) error=\(error) ms=\(x.ms) urlError=\(x.urlError.map(String.init) ?? "none")"))
         } else {
             out.append(("search-response", "attempt=\(x.attempt) status=\(x.status.map(String.init) ?? "none") ms=\(x.ms) bytes=\(x.bytes) "
                         + "chunks=\(x.chunks) answerChars=\(x.answerChars) sources=\(x.sources) "
-                        + "searchCount=\(x.searchCount.map(String.init) ?? "none") body=\(cut(x.responseBody ?? ""))"))
+                        + "searchCount=\(x.searchCount.map(String.init) ?? "none") body=\(escapeBody(cut(x.responseBody ?? "")))"))
         }
         return out
     }
@@ -396,7 +454,7 @@ public final class ConversationRecord: Sendable {
     public static let capacity = 2000
     /// F-12 §21 item 1 (T-031u): the record's line format. Any change to a line's text, or an event kind added or
     /// removed, needs this +1, a new `record-format-<n>.txt` fixture and a line in specs/contracts/record-format.md.
-    public static let formatVersion = 4
+    public static let formatVersion = 18
     /// §21 item 1: the first line of every new file. A file without it is format 0.
     public static var formatLine: String { "recordFormat \(formatVersion)" }
 

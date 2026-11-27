@@ -12,7 +12,7 @@ struct TripThinDayTests {
     }
 
     private func under(_ days: [TripChecks.Day], budget: Int = 480) -> [String] {
-        TripChecks.run(notFound: [], days: days, budgetMinutes: budget, spareEmpty: true).filter { $0.kind == .under }.map(\.line)
+        TripChecks.run(days: days, budgetMinutes: budget, spareEmpty: true).filter { $0.kind == .under }.map(\.line)
     }
 
     private let full = TripChecks.Day(minutes: 450, drivingMinutes: 60, onlyMustSee: false, area: nil, sights: 4,
@@ -38,7 +38,7 @@ struct TripThinDayTests {
         #expect(under([day(480, driving: 0, sights: [480]), full]).isEmpty)
         // A 480-min park plus 40 min of driving on a must-see day: neither under nor over.
         let park = day(520, driving: 40, sights: [480], mustSee: true)
-        #expect(TripChecks.run(notFound: [], days: [park, full], budgetMinutes: 480, spareEmpty: true).isEmpty)
+        #expect(TripChecks.run(days: [park, full], budgetMinutes: 480, spareEmpty: true).isEmpty)
         #expect(under([day(300, driving: 0, sights: [360]), full]).isEmpty)
     }
 
@@ -60,25 +60,9 @@ struct TripThinDayTests {
     @Test("F-15b §53 item 3: spare places left means nothing more fits, so no under; unknown sights use minutes only")
     func spareAndUnknown() {
         let thin = day(240, driving: 150, sights: [90])
-        #expect(TripChecks.run(notFound: [], days: [thin, full], budgetMinutes: 480, spareEmpty: false)
+        #expect(TripChecks.run(days: [thin, full], budgetMinutes: 480, spareEmpty: false)
             .allSatisfy { $0.kind != .under })
         let unknown = TripChecks.Day(minutes: 400, drivingMinutes: 100, onlyMustSee: false, area: nil)
         #expect(under([unknown, full]).isEmpty)
-    }
-
-    @Test("F-15b row 214: fitNotes says a day is thin under 75% of the budget only")
-    func row214() {
-        let notes = TripPlanner.fitNotes([300, 400], budget: 480, spare: [])
-        #expect(notes.contains { $0.hasPrefix("第1天还空大约") })
-        #expect(!notes.contains { $0.hasPrefix("第2天还空") })
-    }
-
-    @Test("F-15b row 215: the make_trip_list text gives a multi-day plan as a pool with day_count, no days example")
-    func row215() {
-        let d = ToolCatalog.makeTripListDescription
-        #expect(d.contains("places 填整个行程的地点池，加 day_count"))
-        #expect(d.contains("day_count=2，places=[{name:"))
-        #expect(!d.contains("days=[["))
-        #expect(d.contains("司机自己说了哪天去哪里，才用 days 代替 places"))
     }
 }

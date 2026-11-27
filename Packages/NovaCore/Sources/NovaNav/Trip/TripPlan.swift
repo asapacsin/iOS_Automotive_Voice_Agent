@@ -16,7 +16,7 @@ public struct TripPlan: Sendable, Hashable {
     /// §36 item 2d (T-040p): an `abroad` trip's city ("Tokyo, Japan"), the default of `navigate_to` while it runs.
     public var city: String?
     public private(set) var days: [TripList] = [TripList()] {
-        didSet { assignIDs() }
+        didSet { mergeAdjacent(); assignIDs() }
     }
     /// §52 item 1 (T-040zb): the number of the next stop id (`s<n>`); ids are never reused within a plan.
     private var nextStopID = 1
@@ -30,6 +30,9 @@ public struct TripPlan: Sendable, Hashable {
     /// §49 item 2 (T-040u): what the driver said about the trip that code cannot measure (≤ 60 characters); echoed to
     /// the model with the hotel choices, never read by code.
     public var wishes: String?
+    /// F-15b §61 item 3 (T-040zn): what the driver asked for, written by the model (`set_trip_plan` `asked`); stored,
+    /// saved and shown, never compared with the stops by code.
+    public var asked: TripAsked?
 
     public init() {}
 
@@ -37,7 +40,17 @@ public struct TripPlan: Sendable, Hashable {
         self.name = name
         self.days = days.isEmpty ? [TripList()] : Array(days.prefix(Self.maxDays))
         self.currentDay = min(max(currentDay, 1), self.days.count)
+        mergeAdjacent()
         assignIDs()
+    }
+
+    /// F-15b §63 (T-040zp): every plan, however written (plan_trip, a screen edit, a reopened saved plan), never has
+    /// the same place twice in a row within a day.
+    private mutating func mergeAdjacent() {
+        guard days.contains(where: { TripList.mergedAdjacent($0.stops).count != $0.count }) else { return }
+        var out = days
+        for d in out.indices { out[d].mergeAdjacent() }
+        days = out
     }
 
     /// §52 item 1: every stop gets a stable id. A stop without one gets `s<n>`; the two copies of one night's hotel
@@ -85,10 +98,12 @@ public struct TripPlan: Sendable, Hashable {
     public mutating func place(id: String, at place: Place) -> Bool {
         var found = false
         for d in days.indices {
-            for (i, s) in days[d].stops.enumerated() where s.id == id && !s.placed {
+            // Review fix (T-040zp): a set can merge stops and shift indexes, so each copy is found afresh.
+            while d < days.count, let i = days[d].stops.firstIndex(where: { $0.id == id && !$0.placed }) {
+                let s = days[d].stops[i]
                 var stop = TripStop(index: 0, asked: s.asked, place: place, distanceMeters: s.distanceMeters, mark: s.mark,
                                     role: s.role, minutes: s.minutes, importance: s.importance, id: s.id, placed: true,
-                                    pickedBy: s.pickedBy)
+                                    pickedBy: s.pickedBy, event: s.event, location: s.location, query: s.query)
                 stop.legSeconds = nil
                 days[d].set(stop, at: i + 1)
                 found = true
@@ -135,7 +150,7 @@ public struct TripPlan: Sendable, Hashable {
         currentDay = min(max(day, 1), days.count)
     }
 
-    /// §15 item 2: `make_trip_list day=d` replaces day d (d ≤ dayCount + 1, at most 5 days); false when out of range.
+    /// §15 item 2: replaces day d (d ≤ dayCount + 1, at most 5 days); false when out of range.
     public mutating func replaceDay(_ day: Int, with list: TripList) -> Bool {
         guard day >= 1, day <= min(days.count + 1, Self.maxDays) else { return false }
         if day == days.count + 1 {
@@ -148,7 +163,7 @@ public struct TripPlan: Sendable, Hashable {
         return true
     }
 
-    /// §15 item 6: `make_trip_list days=[[…],[…]]`: a new plan of those days (at most 5), the first day with stops current; the name goes
+    /// §15 item 6, §55 item 3: a new plan of those days (at most 5), the first day with stops current; the name goes
     /// with the old plan.
     public mutating func replaceAll(withDays lists: [TripList]) {
         days = lists.isEmpty ? [TripList()] : Array(lists.prefix(Self.maxDays))
@@ -161,7 +176,7 @@ public struct TripPlan: Sendable, Hashable {
         revision += 1
     }
 
-    /// `make_trip_list` without `day`: the whole plan becomes one day (phase 1); the name goes with the old plan.
+    /// The whole plan becomes one day (phase 1); the name goes with the old plan.
     public mutating func replaceAll(with list: TripList) {
         days = [list]
         currentDay = 1
@@ -190,6 +205,7 @@ public struct TripPlan: Sendable, Hashable {
         spare = []
         budgetMinutes = nil
         wishes = nil
+        asked = nil
         revision += 1
     }
 
@@ -231,6 +247,7 @@ public struct TripPlan: Sendable, Hashable {
         spare = other.spare
         budgetMinutes = other.budgetMinutes
         wishes = other.wishes
+        asked = other.asked
         revision += 1
     }
 }
@@ -268,6 +285,14 @@ public enum TripPlanFile {
         var sid: String?
         var unplaced: Bool?
         var by: TripPickedBy?
+        /// T-040zp §63 item 2 (optional): a hotel's merged sight minutes. A hotel's `minutes` from before §63 is ignored.
+        var stay: Int?
+        /// T-040zq §64 item 6 (optional): the event placed on this venue.
+        var event: TripEvent?
+        /// T-040zt §67 item 3 (optional): the looked-up text when it differs from `asked`; older files read as `asked`.
+        var location: String?
+        /// T-040zz §73 item 5 (optional): the map-search word when it differs from `location`; older files read as it.
+        var query: String?
     }
 
     struct Plan: Codable, Hashable {
@@ -284,6 +309,8 @@ public enum TripPlanFile {
         var budget: Int?
         /// T-040u §49 item 2 (optional): the driver's wishes.
         var wishes: String?
+        /// T-040zn §61 item 3 (optional): the driver's request.
+        var asked: TripAsked?
     }
 
     struct Current: Codable { var version: Int; var plan: Plan }
@@ -299,15 +326,19 @@ public enum TripPlanFile {
              district: s.place.district, lat: s.place.coordinate.latitude, lng: s.place.coordinate.longitude,
              photo: s.place.photoURL?.absoluteString, mark: s.mark, leg: s.legSeconds, city: s.place.city,
              role: s.role == .sight ? nil : s.role, picked: s.picked ? true : nil, country: s.place.countryCode, kind: s.place.kind?.rawValue,
-             minutes: s.minutes, optional: s.optional ? true : nil, importance: s.importance == 3 || s.importance == 1 ? nil : s.importance,
-             sid: s.id.isEmpty ? nil : s.id, unplaced: s.placed ? nil : true, by: s.pickedBy)
+             minutes: s.role == .hotel ? nil : s.minutes, optional: s.optional ? true : nil, importance: s.importance == 3 || s.importance == 1 ? nil : s.importance,
+             sid: s.id.isEmpty ? nil : s.id, unplaced: s.placed ? nil : true, by: s.pickedBy,
+             stay: s.role == .hotel ? s.minutes : nil, event: s.event, location: s.location == s.asked ? nil : s.location,
+             query: s.query == s.location ? nil : s.query)
     }
 
+    /// §55 item 2 (T-040zh): the city is kept at home too (new names are looked up inside it).
     static func encode(_ plan: TripPlan, savedAt: Date? = nil) -> Plan {
         Plan(name: plan.name, currentDay: plan.currentDay,
              days: plan.days.map { day in day.stops.map(encode) },
-             savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.abroad ? plan.city : nil,
-             spare: plan.spare.isEmpty ? nil : plan.spare.map(encode), budget: plan.budgetMinutes, wishes: plan.wishes)
+             savedAt: savedAt?.timeIntervalSince1970, abroad: plan.abroad ? true : nil, city: plan.city,
+             spare: plan.spare.isEmpty ? nil : plan.spare.map(encode), budget: plan.budgetMinutes, wishes: plan.wishes,
+             asked: plan.asked)
     }
 
     static func decode(_ s: Stop) -> TripStop {
@@ -317,8 +348,9 @@ public enum TripPlanFile {
                               distanceMeters: nil, city: s.city, district: s.district,
                               photoURL: TripPhotoLink.secure(s.photo), countryCode: s.country, kind: s.kind.flatMap(PlaceKind.init(rawValue:))),
                  distanceMeters: nil, mark: s.mark, legSeconds: s.leg, role: s.role ?? .sight, picked: s.picked ?? false,
-                 minutes: s.minutes, optional: s.optional ?? false, importance: s.importance,
-                 id: s.sid ?? "", placed: !(s.unplaced ?? false), pickedBy: s.by ?? ((s.picked ?? false) ? .app : .model))
+                 minutes: s.role == .hotel ? s.stay : s.minutes, optional: s.optional ?? false, importance: s.importance,
+                 id: s.sid ?? "", placed: !(s.unplaced ?? false), pickedBy: s.by ?? ((s.picked ?? false) ? .app : .model),
+                 event: s.event, location: s.location, query: s.query)
     }
 
     static func decode(_ plan: Plan) -> TripPlan {
@@ -329,10 +361,11 @@ public enum TripPlanFile {
         }
         var out = TripPlan(name: plan.name, days: Array(days), currentDay: plan.currentDay)
         out.abroad = plan.abroad ?? false
-        out.city = out.abroad ? plan.city : nil
+        out.city = plan.city
         out.spare = (plan.spare ?? []).prefix(TripFitter.maxCandidates).map(decode)
         out.budgetMinutes = plan.budget
         out.wishes = plan.wishes
+        out.asked = plan.asked
         return out
     }
 
@@ -447,4 +480,150 @@ public protocol TripFiles: Sendable {
     func write(_ name: String, _ data: Data)
     /// §14 item 4: an unreadable file is moved aside as `<name without .json>.bad.json`, not deleted.
     func moveAside(_ name: String)
+}
+
+/// F-15b §61 item 3 (T-040zn): the driver's request saved with the plan, in the shape the model writes it (read shape
+/// = write shape): `{text, must, days, city, notes}`. Code stores and shows it; it never compares it with the stops.
+public struct TripAsked: Sendable, Hashable, Codable {
+    public var text: String
+    public var must: [String]
+    public var days: Int?
+    public var city: String?
+    public var notes: [String]
+    /// F-15b §64 item 1 (T-040zq): the first day's date (`YYYY-MM-DD`); day n is start+n−1.
+    public var start: String?
+    /// §64 item 1: where the driver wants to sleep.
+    public var stayCity: String?
+
+    enum CodingKeys: String, CodingKey {
+        case text, must, days, city, notes, start
+        case stayCity = "stay_city"
+    }
+
+    public init(text: String, must: [String] = [], days: Int? = nil, city: String? = nil, notes: [String] = [],
+                start: String? = nil, stayCity: String? = nil) {
+        self.text = text
+        self.must = must
+        self.days = days
+        self.city = city
+        self.notes = notes
+        self.start = start.flatMap { EventDay($0)?.description }
+        self.stayCity = stayCity
+    }
+
+    /// §64 item 1: day `d` (0-based) as a date, when `start` is known.
+    public func date(ofDay d: Int) -> EventDay? { start.flatMap(EventDay.init)?.adding(days: d) }
+
+    /// The model's `asked` argument; nil without a non-empty `text`.
+    public init?(_ value: JSONValue?) {
+        guard let value, let t = value["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty
+        else { return nil }
+        func list(_ k: String) -> [String] {
+            guard case .array(let a)? = value[k] else { return [] }
+            return a.compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        }
+        self.init(text: t, must: list("must"), days: value["days"]?.intValue.map { Int($0) },
+                  city: value["city"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, notes: list("notes"),
+                  start: value["start"]?.stringValue, stayCity: value["stay_city"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
+    }
+
+    /// The same shape as written.
+    public var json: JSONValue {
+        var o: [String: JSONValue] = ["text": .string(text), "must": .array(must.map(JSONValue.string)),
+                                      "notes": .array(notes.map(JSONValue.string))]
+        if let days { o["days"] = .int(Int64(days)) }
+        if let city { o["city"] = .string(city) }
+        if let start { o["start"] = .string(start) }
+        if let stayCity { o["stay_city"] = .string(stayCity) }
+        return .object(o)
+    }
+
+    /// §64 item 2: the driver asked for events (in `text` or `notes`).
+    public var wantsEvents: Bool {
+        let all = ([text] + notes).joined(separator: " ").lowercased()
+        return Self.eventWords.contains(where: all.contains)
+    }
+    static let eventWords = ["展", "活动", "漫展", "演出", "cosplay", "节", "嘉年华", "音乐会", "比赛"]
+}
+
+/// F-15b §64 item 3 (T-040zq): a time-limited event placed on a sight (the venue).
+public struct TripEvent: Sendable, Hashable, Codable {
+    public var title: String
+    public var start: String
+    public var end: String
+    /// F-18 §44 item 3 (T-046zg): false when no source confirmed the dates (the card says 「日期未找到」); nil in a plan
+    /// saved before §44 (dates shown as before).
+    public var datesFound: Bool?
+    /// F-18 §43 item 4 (T-046zf): the event's picture, shown in the card's picture place instead of the venue's photo.
+    public var imageURL: String?
+    /// §43 item 4 / §44 item 3: 「网络图片」 under a picture from the image search, 「未找到图片」 in the picture's place
+    /// when there is none; nil otherwise (and in a plan saved before §43).
+    public var imageNote: String?
+    /// F-15b §66 item 1 (T-040zs): true when code filled the event from the events list (title, dates, venue); nil for
+    /// an event the planner wrote with no list entry (§66 item 2) and in a plan saved before §66.
+    public var linked: Bool?
+    /// §66 item 6: false when the list entry has no confirmed venue (the stop is never looked up on the map).
+    public var venueFound: Bool?
+    /// §66 item 6: the entry's city, shown with 「场馆未找到」.
+    public var city: String?
+    /// §66 item 8, live-info §44 item 8: the confirmed start time `HH:MM`; nil when the source states none.
+    public var time: String?
+    /// §64 item 4 with §66 item 6: true when a linked event with no venue was left on a day outside its dates: the stop
+    /// is not an event (no event line, not sent to the planner as one) but is still never looked up (「场馆未找到」).
+    /// A linked event with a venue on such a day is saved as a plain stop at its hall instead (no `event`).
+    public var closedDay: Bool?
+    public init(title: String, start: String, end: String, datesFound: Bool? = nil, imageURL: String? = nil,
+                imageNote: String? = nil, linked: Bool? = nil, venueFound: Bool? = nil, city: String? = nil,
+                time: String? = nil, closedDay: Bool? = nil) {
+        self.closedDay = closedDay
+        self.title = title
+        self.start = start
+        self.end = end
+        self.datesFound = datesFound
+        self.imageURL = imageURL
+        self.imageNote = imageNote
+        self.linked = linked
+        self.venueFound = venueFound
+        self.city = city
+        self.time = time
+    }
+    /// §64 item 6: 「<title> · <start>～<end>」 under the venue on its card; §44 item 3: 「<title> · 日期未找到」 when no
+    /// source states the dates. F-15b §67 item 7 (T-040zs): an event with no list entry has no dates: the title only.
+    /// §66 item 8: 「 · <HH:MM>开始」 after it when the start time is known.
+    public var cardText: String {
+        var text = datesFound == false ? "\(title) · \(Self.datesMissing)"
+            : start.isEmpty && end.isEmpty ? title : "\(title) · \(start)～\(end)"
+        if let time, !time.isEmpty { text += " · \(time)开始" }
+        return text
+    }
+    /// §66 item 6: 「场馆未找到 · <city>」 on the card of a linked event with no confirmed venue; nil otherwise.
+    public var venueMissingText: String? {
+        guard linked == true, venueFound == false else { return nil }
+        return city.map { "\(Self.venueMissing) · \($0)" } ?? Self.venueMissing
+    }
+    public static let venueMissing = "场馆未找到"
+    public static let datesMissing = "日期未找到"
+    /// §66 item 4: 「11-28–11-29」 (month and day of `start` and `end`), or 「日期未找到」.
+    public var shortDates: String {
+        guard datesFound != false else { return Self.datesMissing }
+        func md(_ d: String) -> String { d.count == 10 ? String(d.dropFirst(5)) : d }
+        return "\(md(start))–\(md(end))"
+    }
+}
+
+/// §64 item 1: 「第1天 · 11月25日 周三」, or 「第1天」 without a start date.
+public enum TripDayLabel {
+    public static func text(day d: Int, asked: TripAsked?) -> String {
+        guard let date = asked?.date(ofDay: d) else { return "第\(d + 1)天" }
+        return "第\(d + 1)天 · \(date.month)月\(date.day)日 \(weekday(date))"
+    }
+
+    public static func weekday(_ day: EventDay) -> String {
+        var c = DateComponents()
+        c.year = day.year; c.month = day.month; c.day = day.day
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let w = cal.date(from: c).map { cal.component(.weekday, from: $0) } ?? 1
+        return "周" + ["日", "一", "二", "三", "四", "五", "六"][(w - 1) % 7]
+    }
 }

@@ -130,6 +130,30 @@ final class RuntimeHolder: ObservableObject {
     let runtime = AgentRuntime()
 }
 
+/// F-09b §22 items 1-3 (T-031zg): a panel's 「×」, top-right, white on a dark disc, tap area 44 pt. The tap closes the
+/// panel through her `exit_navigation_mode` close path (`PanelCloseTap`); no model call, no spoken line.
+struct PanelCloseButton: View {
+    let panel: ScreenPanel
+    let runtime: AgentRuntime
+
+    var body: some View {
+        Button { runtime.tapClose(panel) } label: {
+            Image(systemName: "xmark.circle.fill").font(.title2).foregroundStyle(.white, .black.opacity(0.6))
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .accessibilityLabel(PanelCloseTap.label(panel))
+        .accessibilityIdentifier(PanelCloseTap.identifier(panel))
+    }
+}
+
+extension View {
+    /// §22 item 3: the 「×」 over the panel's top-right corner.
+    /// `below`: points to leave free at the top (a sheet's own toolbar button, e.g. 「完成」, stays uncovered).
+    func panelClose(_ panel: ScreenPanel, _ runtime: AgentRuntime, below: CGFloat = 0) -> some View {
+        overlay(alignment: .topTrailing) { PanelCloseButton(panel: panel, runtime: runtime).padding(.top, below) }
+    }
+}
+
 /// F-13 §14 item 7 (T-032b): the playing iTunes preview, with the attribution and the store link.
 private struct PreviewCardView: View {
     let card: PreviewCard
@@ -185,7 +209,9 @@ private struct DriveContent: View {
                 workSteps
                 // F-15b §11 (T-040j): the trip list's cards, or the strip while moving.
                 TripCardsView(model: model, runtime: runtime)
-                if let card = model.previewCard { PreviewCardView(card: card).screenPanel(.musicCard) }
+                if let card = model.previewCard { PreviewCardView(card: card).panelClose(.musicCard, runtime).screenPanel(.musicCard) }
+                // F-09b §19 item 3 (T-031zd): the pin's small card; no 导航 button, no route.
+                if let pin = model.mapPin { mapPinCard(pin) }
                 conversation
                 locateRow
                 carCard
@@ -194,12 +220,20 @@ private struct DriveContent: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
             if model.cameraOpen { CameraWindow(model: model, runtime: runtime).screenPanel(.camera) }
+            // F-15b §62 item 12 (T-040zo): the spinner row sits on top of whatever is showing (map, trip cards, pin,
+            // nothing), below the header, and is not covered by the trip cards or the map sheet.
+            spinnerRow
         }
         // F-15b §11 item 6: a card's details, not moving only.
-        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading, intro: model.tripIntro).screenPanel(.tripDetail) }
+        .sheet(item: $model.tripDetail) { card in TripDetailSheet(card: card, place: model.tripDetailPlace, loading: model.tripDetailLoading, intro: model.tripIntro).panelClose(.tripDetail, runtime).screenPanel(.tripDetail) }
         // T-044c: 我的位置 and the camera follow the policy (F-16b); the view only applies its commands.
         .onChange(of: model.geometry) { _, geometry in position.navigation(model.nav, geometry: geometry) }
-        .onChange(of: model.nav) { _, flow in position.navigation(flow, geometry: model.geometry) }
+        .onChange(of: model.nav) { _, flow in
+            position.navigation(flow, geometry: model.geometry)
+            // F-09b §19 item 5 (T-031zd): a navigate_to that lists places takes the pin away.
+            if model.mapPin != nil, NovaNav.MapPin.kept(model.mapPin, after: flow) == nil { model.mapPin = nil }
+        }
+        .onChange(of: model.mapPin) { _, pin in position.mapPin(pin?.coordinate) }
         .onChange(of: position.command) { _, command in if let command { apply(command.command) } }
         .onChange(of: useDeviceLocation) { _, _ in position.sourceChanged() }
         .onChange(of: wakeWord) { _, _ in Task { await runtime.refreshWake() } }
@@ -222,7 +256,7 @@ private struct DriveContent: View {
             }
         }
         // F-15b §16 item 6: 「我的行程」.
-        .sheet(isPresented: $model.tripPlansOpen) { TripPlansSheet(model: model, runtime: runtime).screenPanel(.tripPlans) }
+        .sheet(isPresented: $model.tripPlansOpen) { TripPlansSheet(model: model, runtime: runtime).panelClose(.tripPlans, runtime, below: 56).screenPanel(.tripPlans) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && model.cameraOpen { runtime.closeCamera() }
             // F-16b §9: 我的位置 streams only while the drive screen is visible, not in the background.
@@ -261,6 +295,10 @@ private struct DriveContent: View {
                 Annotation(marker.caption ?? "", coordinate: point) {
                     SelfMarker(marker: marker).accessibilityIdentifier("self-position")
                 }
+            }
+            // F-09b §19 item 3 (T-031zd): the one green pin show_on_map drew.
+            if let pin = model.mapPin {
+                Marker(pin.name, coordinate: CLLocationCoordinate2D(pin.coordinate)).tint(.green)
             }
             if let destination = presentation.destination {
                 Marker(destination.name, coordinate: CLLocationCoordinate2D(destination.coordinate)).tint(.red)
@@ -304,6 +342,27 @@ private struct DriveContent: View {
         }
     }
 
+    /// F-09b §19 item 3: name, 「<district>，距离 N 公里」 and a 「×」 through the same close as 「关掉」 (I-6).
+    private func mapPinCard(_ pin: NovaNav.MapPin) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "mappin.circle.fill").foregroundStyle(.green).font(.title3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pin.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+                if !pin.detail.isEmpty { Text(pin.detail).font(.caption).foregroundStyle(.secondary) }
+            }
+            Spacer()
+            Button { runtime.closePanel(.mapPin) } label: {
+                Image(systemName: "xmark").font(.subheadline.weight(.bold)).padding(6)
+            }
+            .accessibilityLabel("关掉地图标记")
+            .accessibilityIdentifier("map-pin-close")
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityIdentifier("map-pin-card")
+        .screenPanel(.mapPin)
+    }
+
     /// Applies a `MapCameraPolicy` command; the resulting camera change is not a driver gesture.
     private func apply(_ command: MapCameraPolicy.Command) {
         switch command {
@@ -318,6 +377,15 @@ private struct DriveContent: View {
             if points.isEmpty {
                 points = model.geometry.routes.filter { presentation.routes.contains($0.summary.id) }.flatMap(\.points)
             }
+            guard !points.isEmpty else { return }
+            let lats = points.map(\.latitude), lngs = points.map(\.longitude)
+            let center = CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2,
+                                                longitude: (lngs.min()! + lngs.max()!) / 2)
+            let span = MKCoordinateSpan(latitudeDelta: (lats.max()! - lats.min()!) * 1.6 + 0.01,
+                                        longitudeDelta: (lngs.max()! - lngs.min()!) * 1.6 + 0.01)
+            withAnimation { camera = .region(MKCoordinateRegion(center: center, span: span)) }
+        case .frame(let points):
+            // F-09b §19 item 4 (T-031zd): the car and the pin together, the `fitContent` margin.
             guard !points.isEmpty else { return }
             let lats = points.map(\.latitude), lngs = points.map(\.longitude)
             let center = CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2,
@@ -417,6 +485,7 @@ private struct DriveContent: View {
                         .accessibilityIdentifier("wake-hint")
                 }
             }
+            backgroundWorkCaption
         }
         .padding(.horizontal, 9).padding(.vertical, 4)
         .background(color.opacity(0.15), in: Capsule())
@@ -439,6 +508,9 @@ private struct DriveContent: View {
                 // F-15a §2.3: a simulation is never mistaken for guidance; §5: rerouting keeps navigating.
                 if model.nav.mode == .emulator { badge("模拟导航", .yellow).accessibilityIdentifier("hud-simulated") }
                 if model.nav.rerouting { badge("重新规划中", .orange).accessibilityIdentifier("hud-rerouting") }
+                Spacer()
+                // F-15b §57 item 1 (T-040zj): the stop button in the guidance panel's top row.
+                stopNavigationButton
             }
             if let status = panel.statusText {
                 Text(status).font(.subheadline)
@@ -471,6 +543,8 @@ private struct DriveContent: View {
                     }
                 }
                 // F-09b §16 item 1: the route choice over the running guidance is routePicking too.
+                // F-09b §22 (T-031zg): no 「×」 here: this choice shows only over running guidance, which a 「×」 never
+                // ends (「结束导航」 does).
                 .screenPanel(.routePicking)
             }
         }
@@ -483,6 +557,19 @@ private struct DriveContent: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
     }
 
+    /// F-15b §57 item 1 (T-040zj): 「结束导航」, a red bordered button of at least 44 × 44 pt; a tap is
+    /// `exit_navigation_mode`, while moving too, with no confirmation.
+    private var stopNavigationButton: some View {
+        Button { Task { await runtime.stopNavigationTap() } } label: {
+            Label("结束导航", systemImage: "xmark.circle").font(.subheadline.weight(.semibold))
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .tint(.red)
+        .accessibilityIdentifier("nav-stop")
+        .screenPanel(.stopNavigationButton)
+    }
+
     static func distance(_ meters: Int) -> String {
         meters >= 1000 ? String(format: "%.1f 公里", Double(meters) / 1000) : "\(meters) 米"
     }
@@ -491,11 +578,17 @@ private struct DriveContent: View {
 
     @ViewBuilder private var choices: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // F-15b §57 item 1 (T-040zj): while the route is searched, calculated or picked (no guidance panel yet).
+            if model.nav.stopButtonShown && !model.nav.navigating {
+                HStack { Spacer(); stopNavigationButton }
+            }
             switch model.nav.phase {
             // A place list: the destination list, or the along-route list over the running guidance.
             case _ where presentation.list == .places:
                 Text(model.nav.alongRouteList ? "沿途结果：说第几个改去那里，或点一下" : "请说第几个，或点一下")
                     .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .panelClose(.destinationList, runtime)
                     .screenPanel(.destinationList)
                 ForEach(Array(model.nav.places.enumerated()), id: \.offset) { index, place in
                     HStack {
@@ -533,6 +626,8 @@ private struct DriveContent: View {
                     .screenPanel(.routeCalculating)
             case .awaitingRouteSelection:
                 Text("说第几条，或者「开始导航」").font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .panelClose(.routePicking, runtime)
                     .screenPanel(.routePicking)
                 ForEach(Array(model.nav.routes.enumerated()), id: \.offset) { index, route in
                     HStack {
@@ -560,10 +655,51 @@ private struct DriveContent: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
     }
 
-    /// F-15b §50 item 6 (T-040w): `WorkProgress` read every 0.25 s; it shows nothing for the first second.
+    /// F-04 §15 items 1-4 (T-004k): next to the status caption while any tool call runs, whoever talks; the list is
+    /// read every 0.25 s (on/off follow the calls only, no keep time).
+    private var backgroundWorkCaption: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            if let caption = runtime.background.current.caption {
+                Text(caption)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(.thinMaterial, in: Capsule())
+                    .accessibilityIdentifier("background-work")
+                    .screenPanel(.backgroundWork)
+            }
+        }
+    }
+
+    /// F-15b §62 item 12 (T-040zo, owner sketch 2026-11-23, as the 豆包 app shows its thinking and search): a turning
+    /// circle on the left and, to its right, one line naming the step the backend is on now; the circle stops and the
+    /// line shows the result for its keep time. For `plan_trip` (`handoff`) and the search tools (`search`).
+    private var spinnerRow: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            if let panel = runtime.work.panel, panel.kind == .handoff || panel.kind == .search {
+                HStack(spacing: 8) {
+                    if panel.spinning {
+                        ProgressView().progressViewStyle(.circular)
+                    } else {
+                        Image(systemName: panel.steps.last?.state == .failed ? "exclamationmark.circle" : "checkmark.circle")
+                            .foregroundStyle(panel.steps.last?.state == .failed ? Color.orange : Color.green)
+                    }
+                    Text(panel.line).font(.headline).lineLimit(1)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.top, 56)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("spinner-row")
+                .screenPanel(.working)
+            }
+        }
+    }
+
+    /// F-15b §50 item 6 (T-040w): `WorkProgress` read every 0.25 s; it shows nothing for the first second. §62 item 12:
+    /// `plan_trip` and the search tools show `spinnerRow` instead.
     private var workSteps: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-            if let panel = runtime.work.panel {
+            if let panel = runtime.work.panel, panel.kind == .trip {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(panel.steps.enumerated()), id: \.offset) { _, step in
                         Label(step.title, systemImage: Self.stepIcon(step.state))

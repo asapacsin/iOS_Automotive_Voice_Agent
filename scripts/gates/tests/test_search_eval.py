@@ -63,18 +63,18 @@ class PromptTests(unittest.TestCase):
         url, body, streamed = se.request("S0", msgs)
         self.assertEqual(url, se.MULTIMODAL)
         self.assertTrue(streamed)
-        self.assertEqual(body["model"], "qwen3.7-flash-2026-07-15")
+        self.assertEqual(body["model"], "deepseek-v4.1-flash")
         self.assertEqual(body["parameters"]["search_options"], {"search_strategy": "turbo", "enable_source": True, "forced_search": True})
         self.assertFalse(body["parameters"]["enable_thinking"])
         _, s1, _ = se.request("S1", se.messages("S1", QUESTION, TODAY, ZONE))
         self.assertEqual(s1["parameters"], body["parameters"])
         url, s2, streamed = se.request("S2", se.messages("S2", QUESTION, TODAY, ZONE))
         self.assertEqual((s2["model"], s2["search_options"]["search_strategy"], s2["enable_thinking"], s2["stream"], streamed),
-                         ("qwen3.8-max", "agent_max", True, True, True))
+                         ("qwen4-max", "agent_max", True, True, True))
         url, s3, streamed = se.request("S3", se.messages("S3", QUESTION, TODAY, ZONE))
         self.assertEqual(url, se.RESPONSES)
         self.assertEqual((s3["model"], s3["tools"], s3["enable_thinking"]),
-                         ("qwen3.8-flash", [{"type": "web_search"}, {"type": "web_extractor"}], True))
+                         ("qwen4-max", [{"type": "web_search"}, {"type": "web_extractor"}], True))
 
     def test_questions_file(self):
         doc = json.loads((ROOT / "scripts/search_eval/questions.json").read_text(encoding="utf-8"))
@@ -123,8 +123,8 @@ class RunTests(unittest.TestCase):
             self.assertIn("InvalidParameter", files["results.csv"])
             self.assertIn("https://www.nmc.cn/a", files["results.csv"])
             summary = files["summary.csv"]
-            self.assertIn("S0,qwen3.7-flash-2026-07-15,60,0,0,60,60,0,0,", summary)
-            self.assertIn("S3,qwen3.8-flash,60,0,0,0,0,60,0,", summary)
+            self.assertIn("S0,deepseek-v4.1-flash,60,0,0,60,60,0,0,", summary)
+            self.assertIn("S3,qwen4-max,60,0,0,0,0,60,0,", summary)
             self.assertIn("search_fee_only_usd_per_question", summary)
             s0 = next(r for r in se.summary([dict(r) for r in __import__("csv").DictReader(io.StringIO(files["results.csv"]))])
                       if r["setup"] == "S0")

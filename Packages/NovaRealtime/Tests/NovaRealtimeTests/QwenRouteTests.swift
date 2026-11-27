@@ -27,31 +27,29 @@ private func first(_ v: JSONValue?) -> JSONValue? {
     guard case .array(let a)? = v else { return nil }
     return a.first
 }
-private func text(_ m: JSONValue) -> JSONValue? { first(m["content"])?["text"] }
+private func text(_ m: JSONValue) -> JSONValue? { m["content"] }
 
 private let goodJSON = #"{"places":[{"name":"浅草寺","english":"Senso-ji","minutes":60,"importance":3}],"hotels":[{"night":1,"name":"新宿华盛顿酒店","english":"Shinjuku Washington Hotel"}],"area":"Tokyo"}"#
 
 @Suite("T-040v F-15b §50 item 9 one Qwen model per job")
 struct QwenRouteTests {
-    @Test("T-040v F-15b row 154: QwenRoute table and bodies: ground is qwen3.7-plus, agent, forced, sources, thinking off, streamed, date turn")
+    @Test("T-040v F-15b row 154: QwenRoute table and bodies: ground is deepseek-v4.1-flash (F-18 §40), web_search on the Responses API (§41), thinking off, not streamed, date turn")
     func row154() throws {
-        #expect(QwenRoute.live.model == "qwen3.7-flash-2026-07-15" && QwenRoute.live.search?.strategy == "turbo")
-        #expect(QwenRoute.picker.model == "qwen3.7-flash-2026-07-15" && QwenRoute.picker.search == nil && !QwenRoute.picker.stream)
-        #expect(QwenRoute.ground.model == "qwen3.7-plus" && QwenRoute.ground.search?.strategy == "turbo")
-        #expect(QwenRoute.ground.backupModel == "qwen3.7-flash-2026-07-15" && QwenRoute.live.backupModel == "qwen3.8-flash")
+        #expect(QwenRoute.live.model == "deepseek-v4.1-flash" && QwenRoute.live.search?.strategy == "turbo")
+        #expect(QwenRoute.picker.model == "qwen3.8-max-0902" && QwenRoute.picker.search == nil && !QwenRoute.picker.stream)
+        #expect(QwenRoute.ground.model == "deepseek-v4.1-flash" && QwenRoute.ground.search?.strategy == "turbo")
+        #expect(QwenRoute.ground.chain.map(\.model).last == "qwen4-max" && QwenRoute.live.chain.map(\.model).last == "qwen4-max")
         #expect(QwenWebSearchClient.model == QwenRoute.live.model)
 
         let grounder = QwenTripGrounder(key: { "k" }, send: { _ in (200, Data()) }, now: { fixed }, zone: { tokyoZone })
         let r = grounder.request(request, key: "k")
-        #expect(r.url?.absoluteString == QwenRoute.endpoint && r.value(forHTTPHeaderField: "X-DashScope-SSE") == "enable")
+        // F-18 §41: Responses API, web_search tool, thinking off, not streamed.
+        #expect(r.url?.absoluteString == QwenRoute.responsesEndpoint && r.value(forHTTPHeaderField: "X-DashScope-SSE") == nil)
         let body = try JSONDecoder().decode(JSONValue.self, from: r.httpBody ?? Data())
-        #expect(body["model"] == "qwen3.7-plus")
-        let p = body["parameters"]
-        #expect(p?["enable_thinking"] == false && p?["enable_search"] == true && p?["incremental_output"] == true)
-        #expect(p?["search_options"]?["search_strategy"] == "turbo" && p?["search_options"]?["forced_search"] == true
-                && p?["search_options"]?["enable_source"] == true)
-        #expect(p?["response_format"] == nil)
-        guard case .array(let messages)? = body["input"]?["messages"] else { Issue.record("messages"); return }
+        #expect(body["model"] == "deepseek-v4.1-flash")
+        #expect(body["enable_thinking"] == false && body["tools"] == [["type": "web_search"]] && body["parameters"] == nil)
+        #expect(body["response_format"] == nil)
+        guard case .array(let messages)? = body["input"] else { Issue.record("messages"); return }
         #expect(messages.count == 4)
         let system = text(messages[0])?.stringValue ?? ""
         #expect(system.hasPrefix("You are a helpful assistant. You need to extract the places") && system.contains("JSON"))
@@ -67,7 +65,7 @@ struct QwenRouteTests {
         #expect(!files.isEmpty)
         for f in files {
             let text = try String(contentsOf: sources.appendingPathComponent(f), encoding: .utf8)
-            let hasModelName = text.contains("qwen3")
+            let hasModelName = QwenRoute.allowedModels.contains { text.contains($0) } || text.contains("qwen3")
             #expect(hasModelName == false, "\(f)")
         }
     }
