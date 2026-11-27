@@ -37,6 +37,10 @@ missing, fix this file in the same session (commit it) so the next session does 
   Keychain keys stay), then walks the screens and writes a PASS/FAIL report with screenshots.
 - Never run an uninstall. If xtool says the bundle id or team differs, stop and tell the owner (a different
   signing team would install a second app and lose nothing, but it is not an update).
+- Install only (no screen walk): `wsl -d Ubuntu-22.04 -u root -- env USBMUXD_SOCKET_ADDRESS=127.0.0.1:27015 xtool
+  install /mnt/d/ndipa/NovaDrive-<sha>.ipa`. From Git Bash set `MSYS_NO_PATHCONV=1` first, or the `/mnt/d` path is
+  rewritten and xtool fails at "[Unpacking app]" with `exited(9)` (found 2026-11-27). The Codemagic artefact
+  `NovaDrive-unsigned.ipa` is installed as-is; xtool signs it.
 - xtool can take 20+ minutes; run it in the background and wait on its output.
 
 - **Sideloadly overwrites the install.** Found 2026-11-22: `sideloadlydaemon.exe` (starts with Windows) keeps a
